@@ -549,30 +549,6 @@ public interface IAdminCatalog
     Task<bool> SetTimeFieldAsync(
         string name, string? field, CancellationToken cancellationToken);
 
-    /// <summary>Creates an empty service.</summary>
-    /// <param name="name">Its name within the folder.</param>
-    /// <param name="folder">Its folder, or null for the root.</param>
-    /// <param name="description">What it is for, or null.</param>
-    /// <param name="sharing">Who may read it.</param>
-    /// <param name="owner">Who owns it.</param>
-    /// <param name="cancellationToken">Cancellation.</param>
-    /// <returns>Its id, or null when a service of that name is already there.</returns>
-    /// <remarks>
-    /// <b>Empty services exist because the tree has to be built downwards.</b> A
-    /// group layer needs a service to live in, and a layer nested in a group
-    /// needs the group — so the first thing created cannot be a layer. Until
-    /// this existed the only way to get a service was to publish one into
-    /// existence, which put a layer at index 0 that could never be moved under
-    /// the group that came after it.
-    /// </remarks>
-    Task<Guid?> CreateServiceAsync(
-        string name,
-        string? folder,
-        string? description,
-        SharingScope sharing,
-        Guid owner,
-        CancellationToken cancellationToken);
-
     /// <summary>Creates a group layer inside a service.</summary>
     /// <param name="folder">The service's folder, or null for the root.</param>
     /// <param name="serviceName">The service's name.</param>
@@ -625,9 +601,13 @@ public interface IAdminCatalog
     /// that service behind — so an estate accumulates empty containers advertised in
     /// the directory as feature services with no layers. The row rejected automatic
     /// removal for a good reason: a service created by a publish and one created
-    /// deliberately by <c>POST /admin/featureservices</c> are the same row, and nothing
-    /// records which, so deleting on unpublish would either take away a container
-    /// somebody made on purpose or need a column that exists to support a convenience.
+    /// deliberately were the same row, and nothing records which, so deleting on unpublish
+    /// would either take away a container somebody made on purpose or need a column that
+    /// exists to support a convenience. <b>Nothing creates one deliberately since
+    /// 2026-09-06</b> — ADR-057 condition 4 retired <c>POST /admin/featureservices</c> — so
+    /// every empty service is now residue by construction. That does not make automatic
+    /// removal right: an estate migrated from before that day still holds containers
+    /// somebody meant, and a sweep that asks is correct either way.
     /// </para>
     /// <para>
     /// <b>An operator-initiated sweep guesses about neither.</b> It says what it will

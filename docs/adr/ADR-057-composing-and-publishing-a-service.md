@@ -204,9 +204,10 @@ together. The order is: Publish first, then the endpoint requires layers, then t
 *Create empty service* comes off the screen. Doing it in any other order leaves this server
 with no way to publish anything.
 
-**The first of the three is done — 2026-09-06.** `POST /admin/publish` writes a service, its
-groups and its layers in one transaction, and Server's **Publish** tab composes one. So the
-other two are unblocked rather than waiting on anything, and they are §7 condition 4.
+**All three are done — 2026-09-06.** `POST /admin/publish` writes a service, its groups and
+its layers in one transaction and Server's **Publish** tab composes one; the endpoint answers
+400 naming its replacement; the drawer keeps only its group form. §7 condition 4 carries what
+the last two cost and what they found.
 
 ### 5i. One table is one layer, and the schema said so before this decision did
 
@@ -270,6 +271,31 @@ renamed it, and an exact-name match had quietly fallen through.
    way to make a service until the Publish path exists. The condition is here so the sequence
    is not forgotten, because the intermediate state — a rule the screen keeps and the API does
    not — is the shape ADR-033 warned about, where the next writer bypasses it.
+   ***(Discharged 2026-09-06.)*** Both halves, in that order. The drawer keeps only its group
+   form and is titled *Group layers*; Server's page action goes to the Publish screen; the
+   endpoint answers **400** naming `POST /admin/publish`, rather than disappearing, because a
+   caller with the old address written down is exactly the reader who has to be told where the
+   act went. `IAdminCatalog.CreateServiceAsync` went with it — a catalogue method that makes an
+   empty service and has no caller is the same rule with a longer fuse.
+
+   **Three conformance classes made empty containers because they were about something else**,
+   and moving them cost less than the estimate: every class that touches the whole catalogue is
+   in the `catalogue walk` collection, which xUnit runs one class at a time, so CI's two free
+   tables are enough for all of them serially. `ArcGisClient.PublishOneAsync` and
+   `UnpublishAsync` are the shared shape, written once rather than three times.
+
+   **And the move found three holes in `POST /admin/publish` itself.** It reached the catalogue
+   without the folder-name check, without the privilege that shares to the public or the
+   organization, and without ADR-028 condition 5's system-service address check — all three of
+   which `POST /admin/layers` has, twenty lines apart. That is [D-46](../architecture-debt.md)
+   exactly: a second way in that does not carry what the first way carries. Fixed with the
+   condition, because the endpoint this one replaces had the third of them and losing it
+   silently would have reopened [D-187](../architecture-debt.md).
+
+   **What the retired endpoint had that nothing missed:** it never checked the folder name, so
+   `folder: "Utilities"` with any name at all created a published service inside a reserved
+   folder. Closing that was not the point of this condition and is the clearest evidence that
+   two ways in drift.
 5. **A service with a group is opened by a real ArcGIS client.** `type: "Group Layer"` and
    `subLayerIds` are what the specification says; what Pro and the JavaScript API actually do
    with a group layer served by something that is not ArcGIS Server is not known here, and

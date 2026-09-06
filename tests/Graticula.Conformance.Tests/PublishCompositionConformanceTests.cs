@@ -307,6 +307,65 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
     }
 
     /// <summary>
+    /// The address that made an empty service refuses, and says where the act went.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-057 condition 4, and it is the owner's sentence rather than a design
+    /// preference:</b> <i>"hayır. katmansız servis yaratılamaz."</i> <c>POST
+    /// /admin/featureservices</c> made a container with a name in it, to be filled by two more
+    /// calls in an order only the API knew. The console's half of that came off the screen the
+    /// same day; this is the half a script can still reach.
+    /// </para>
+    /// <para>
+    /// <b>Refused rather than unmapped.</b> A route that is gone answers 404, which tells a
+    /// caller their URL is wrong — and it is not wrong, it is retired. The assertion is on the
+    /// sentence as much as the status: a 400 that does not name <c>/admin/publish</c> leaves the
+    /// caller with a working address and no way to find the one that replaced it.
+    /// </para>
+    /// <para>
+    /// <b>And an empty composition is refused too</b>, which is the same rule at the endpoint
+    /// that is not retired. Without it the decision would hold for one address and not the
+    /// other, which is [D-46](../../docs/architecture-debt.md) in the shape it usually arrives
+    /// in.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_service_is_not_created_without_layers_at_either_address()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        (HttpStatusCode retired, string why) = await SendAsync(
+            HttpMethod.Post,
+            $"{root}/admin/featureservices",
+            token!,
+            JsonSerializer.Serialize(new { name = AName(), sharing = "private" }));
+
+        Assert.True(
+            retired == HttpStatusCode.BadRequest,
+            $"Creating an empty service answered {(int)retired} rather than 400. A service is "
+            + $"not created without layers — ADR-057 condition 4. The server said: {why}");
+
+        Assert.Contains("/admin/publish", why, StringComparison.Ordinal);
+
+        (HttpStatusCode bare, string bareWhy) = await SendAsync(
+            HttpMethod.Post,
+            $"{root}/admin/publish",
+            token!,
+            JsonSerializer.Serialize(new { name = AName(), sharing = "private" }));
+
+        Assert.True(
+            bare == HttpStatusCode.BadRequest,
+            $"A composition with no layers in it answered {(int)bare} rather than 400, so the "
+            + $"rule holds at one address and not the other. The server said: {bareWhy}");
+
+        Assert.Contains("without layers", bareWhy, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// Takes a published composition apart without touching the tables under it.
     /// </summary>
     /// <remarks>

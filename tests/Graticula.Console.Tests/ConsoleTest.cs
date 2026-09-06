@@ -386,9 +386,175 @@ public abstract class ConsoleTest : IAsyncLifetime
     /// <b>Added so a test can provision what it needs instead of requiring the server to already
     /// have it.</b> A suite that needs eleven services and finds ten either fails on the fixture —
     /// which is a fact about the machine, not about the code — or asserts something weaker than
-    /// it meant to. Creating and removing an empty service is the cheapest provisioning this
-    /// console has: `POST /admin/featureservices` makes a container with no layers and no data.
+    /// it meant to. Creating and removing an empty service used to be the cheapest provisioning
+    /// this console had; `POST /admin/featureservices` refuses since 2026-09-06 and
+    /// <see cref="EmptyServiceAsync"/> is what replaced it.
     /// </remarks>
+    /// <summary>
+    /// Makes an empty service the way one actually comes about: publish a layer, take it back.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A service is not created without layers</b> — owner decision 2026-09-06, ADR-057
+    /// condition 4 — so <c>POST /admin/featureservices</c> refuses and the provisioning two
+    /// suites here depended on had to go somewhere. <b>Empty services still exist</b>: §5h says
+    /// so plainly, because unpublishing the last layer leaves the container, and
+    /// <c>POST /admin/featureservices/sweep</c> exists to find those. So this reaches the state
+    /// through the route the product actually has, which makes it a better fixture than the one
+    /// it replaces — that one made a state by a path no operator could take any more.
+    /// </para>
+    /// <para>
+    /// <b>One table, reused as many times as the caller likes.</b> Unpublishing frees the table
+    /// again — <c>layer_table_unique</c> is on the registration, not the data — so eleven empty
+    /// services cost eleven publish-and-unpublish cycles over the same table rather than eleven
+    /// free tables. CI's fixture has two, which is what makes that distinction matter.
+    /// </para>
+    /// </remarks>
+    /// <param name="service">What to call it.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="sharing">Who may read it.</param>
+    /// <returns>The status and body of whichever step failed, or the publish's on success.</returns>
+    protected async Task<(int Status, string Body)> EmptyServiceAsync(
+        string service, string? folder = null, string sharing = "private")
+    {
+        string layer = $"zz_seed_{Guid.NewGuid():N}"[..24];
+
+        (int status, string body) = await PublishOneAsync(service, layer, folder, sharing);
+
+        if (status is not (200 or 201))
+        {
+            return (status, body);
+        }
+
+        (int gone, string why) = await AdminAsync(
+            HttpMethod.Delete, $"/admin/layers/{Uri.EscapeDataString(layer)}");
+
+        return gone == 200
+            ? (status, body)
+            : (gone, $"the layer was published and would not come back off: {why}");
+    }
+
+    /// <summary>
+    /// Publishes one service made of one layer, over a table the fixture leaves unpublished.
+    /// </summary>
+    /// <remarks>
+    /// <b>The conformance suite has the same pair and cannot share it</b> — that suite may not
+    /// reference any of our assemblies and this one is a different project, so the shape is
+    /// written twice on purpose. If a third copy is ever wanted, a shared test-support project
+    /// is the answer rather than a fourth.
+    /// </remarks>
+    /// <param name="service">What to call it.</param>
+    /// <param name="layer">What to call its layer.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="sharing">Who may read it.</param>
+    /// <returns>The status and the body.</returns>
+    protected async Task<(int Status, string Body)> PublishOneAsync(
+        string service, string layer, string? folder = null, string sharing = "private")
+    {
+        (int listed, string sources) = await AdminAsync(HttpMethod.Get, "/admin/datasources");
+
+        if (listed != 200)
+        {
+            return (listed, sources);
+        }
+
+        string? datastore = null;
+
+        foreach (JsonElement source in JsonDocument.Parse(sources)
+            .RootElement.GetProperty("dataSources").EnumerateArray())
+        {
+            if (source.TryGetProperty("name", out JsonElement named)
+                && string.Equals(named.GetString(), "datastore", StringComparison.Ordinal))
+            {
+                datastore = source.GetProperty("id").GetString();
+            }
+        }
+
+        if (datastore is null)
+        {
+            return (0, "no datastore data source is registered");
+        }
+
+        (int probed, string capability) = await AdminAsync(
+            HttpMethod.Get, $"/admin/datasources/{datastore}/capability");
+
+        if (probed != 200)
+        {
+            return (probed, capability);
+        }
+
+        (int served, string layers) = await AdminAsync(HttpMethod.Get, "/admin/layers");
+
+        HashSet<string> taken = new(StringComparer.OrdinalIgnoreCase);
+
+        if (served == 200)
+        {
+            foreach (JsonElement one in JsonDocument.Parse(layers)
+                .RootElement.GetProperty("layers").EnumerateArray())
+            {
+                if (one.TryGetProperty("table", out JsonElement qualified)
+                    && qualified.GetString() is { Length: > 0 } where)
+                {
+                    taken.Add(where);
+                }
+            }
+        }
+
+        foreach (JsonElement table in JsonDocument.Parse(capability)
+            .RootElement.GetProperty("tables").EnumerateArray())
+        {
+            if (!table.TryGetProperty("geometryColumn", out JsonElement geometry)
+                || geometry.ValueKind != JsonValueKind.String
+                || !table.TryGetProperty("objectIdColumn", out JsonElement identity)
+                || identity.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            string schema = table.GetProperty("schemaName").GetString()!;
+            string named = table.GetProperty("tableName").GetString()!;
+
+            if (taken.Contains($"{schema}.{named}"))
+            {
+                continue;
+            }
+
+            string json = JsonSerializer.Serialize(new
+            {
+                name = service,
+                folder,
+                sharing,
+                nodes = new[]
+                {
+                    new
+                    {
+                        layer = new
+                        {
+                            name = layer,
+                            dataSourceId = datastore,
+                            schemaName = schema,
+                            tableName = named,
+                            geometryColumn = geometry.GetString(),
+                            geometryType = table.TryGetProperty("geometryType", out JsonElement kind)
+                                && kind.ValueKind == JsonValueKind.String
+                                    ? kind.GetString()
+                                    : "Polygon",
+                            identityColumn = identity.GetString(),
+                            srid = table.TryGetProperty("srid", out JsonElement srid)
+                                && srid.ValueKind == JsonValueKind.Number
+                                    ? srid.GetInt32()
+                                    : 3857,
+                        },
+                    },
+                },
+            });
+
+            return await AdminAsync(HttpMethod.Post, "/admin/publish", json);
+        }
+
+        return (0, "the fixture has no table that nothing publishes");
+    }
+
     protected async Task<(int Status, string Body)> AdminAsync(
         HttpMethod method, string path, string? json = null)
     {

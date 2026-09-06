@@ -587,42 +587,6 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
-    public async Task<Guid?> CreateServiceAsync(
-        string name,
-        string? folder,
-        string? description,
-        SharingScope sharing,
-        Guid owner,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-
-        Guid id = Guid.NewGuid();
-
-        // on conflict do nothing against the (folder, lower(name)) index, so a
-        // repeated create is a 409 rather than a second service that nobody can
-        // address unambiguously.
-        const string Sql = """
-            insert into service (id, name, folder, kind, description, owner_principal_id, sharing)
-            values (@id, @name, @folder, 'FeatureServer', @description, @owner, @sharing)
-            on conflict do nothing
-            returning id
-            """;
-
-        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
-        command.Parameters.AddWithValue("id", id);
-        command.Parameters.AddWithValue("name", name);
-        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
-        command.Parameters.AddWithValue("description", (object?)description ?? DBNull.Value);
-        command.Parameters.AddWithValue("owner", owner);
-        command.Parameters.AddWithValue("sharing", Wire(sharing));
-
-        object? created = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-
-        return created is Guid made ? made : null;
-    }
-
-    /// <inheritdoc/>
     public async Task<GroupLayerAddress?> CreateGroupLayerAsync(
         string? folder,
         string serviceName,

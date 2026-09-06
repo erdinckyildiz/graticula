@@ -339,7 +339,14 @@ A service's layer list is now a tree:
   re-parenting is added, it needs its own guard.
 - **Empty services exist now**, because the tree is built downwards: a group
   needs a service, and a nested layer needs the group, so the first thing
-  created cannot be a layer. `POST /admin/featureservices` makes one.
+  created cannot be a layer. ~~`POST /admin/featureservices` makes one.~~
+  **Corrected 2026-09-06 — [ADR-057](ADR-057-composing-and-publishing-a-service.md)
+  §5h, condition 4.** The downwards order is real and it is now the server's, inside
+  one transaction: `POST /admin/publish` takes the whole tree and writes the service,
+  its groups and its layers together, so no caller ever holds a half-built one. Nothing
+  creates an empty service any more — *katmansız servis yaratılamaz*, owner decision —
+  and the empty ones that still turn up are what unpublishing the last layer leaves,
+  which is the state `POST /admin/featureservices/sweep` exists for.
 
 **A group is not a way to share differently.** Sharing stays on the service
 (§4g), so grouping is presentation and nothing else. A group that could be

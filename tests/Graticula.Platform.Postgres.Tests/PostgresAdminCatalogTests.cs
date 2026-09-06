@@ -569,11 +569,9 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
 
         // Created rather than published into: LayerPublication has no folder, so a
         // service in one is made directly. Both exist, and they differ only by folder.
-        await admin.CreateServiceAsync(
-            "same", "shared", null, SharingScope.Private, owner, CancellationToken.None);
+        await SeedServiceAsync("same", "shared", owner);
 
-        await admin.CreateServiceAsync(
-            "same", null, null, SharingScope.Private, owner, CancellationToken.None);
+        await SeedServiceAsync("same", null, owner);
 
         await admin.SetServiceCapabilitiesAsync(
             "same",
@@ -622,11 +620,9 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     {
         (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
 
-        await admin.CreateServiceAsync(
-            "leftover_a", null, null, SharingScope.Private, owner, CancellationToken.None);
+        await SeedServiceAsync("leftover_a", null, owner);
 
-        await admin.CreateServiceAsync(
-            "leftover_b", "shelf", null, SharingScope.Private, owner, CancellationToken.None);
+        await SeedServiceAsync("leftover_b", "shelf", owner);
 
         await admin.PublishLayerAsync(
             Publication(source, "occupant", service: "holds_a_layer"), owner,
@@ -634,8 +630,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
 
         // A service whose only content is a group layer. Empty by a layer count and not
         // empty in any sense that matters.
-        await admin.CreateServiceAsync(
-            "holds_a_group", null, null, SharingScope.Private, owner, CancellationToken.None);
+        await SeedServiceAsync("holds_a_group", null, owner);
 
         await admin.CreateGroupLayerAsync(
             null, "holds_a_group", "a group", null, CancellationToken.None);
@@ -710,8 +705,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     {
         (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
 
-        await admin.CreateServiceAsync(
-            "empty", null, null, SharingScope.Private, owner, CancellationToken.None);
+        await SeedServiceAsync("empty", null, owner);
 
         await admin.PublishLayerAsync(
             Publication(source, "occupant", service: "busy"), owner, CancellationToken.None);
@@ -748,8 +742,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     {
         (PostgresAdminCatalog admin, _, Guid owner) = await ReadyAsync();
 
-        await admin.CreateServiceAsync(
-            "structured", null, null, SharingScope.Private, owner, CancellationToken.None);
+        await SeedServiceAsync("structured", null, owner);
 
         await admin.CreateGroupLayerAsync(
             null, "structured", "Utilities", null, CancellationToken.None);
@@ -801,8 +794,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
 
         // The service first: a group belongs to one, and CreateGroupLayerAsync answers
         // null rather than inventing a container.
-        await admin.CreateServiceAsync(
-            "tree", null, null, SharingScope.Private, owner, CancellationToken.None);
+        await SeedServiceAsync("tree", null, owner);
 
         GroupLayerAddress group = (await admin.CreateGroupLayerAsync(
             null, "tree", "Roads", null, CancellationToken.None))
@@ -845,8 +837,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     {
         (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
 
-        await admin.CreateServiceAsync(
-            "hollow", null, "nothing in it", SharingScope.Public, owner, CancellationToken.None);
+        await SeedServiceAsync("hollow", null, owner, "public", "nothing in it");
 
         await admin.PublishLayerAsync(
             Publication(source, "one", service: "pair"), owner, CancellationToken.None);
@@ -1031,8 +1022,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     {
         (PostgresAdminCatalog admin, _, Guid owner) = await ReadyAsync();
 
-        await admin.CreateServiceAsync(
-            "hollow", null, null, SharingScope.Private, owner, CancellationToken.None);
+        await SeedServiceAsync("hollow", null, owner);
 
         AdminService hollow = (await admin.ListServicesAsync(CancellationToken.None))
             .Single(s => s.Name == "hollow");

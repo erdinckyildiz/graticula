@@ -1502,10 +1502,11 @@ const SURFACES = {
     needs: "admin:manageServer",
     home: "services",
 
-    // <b>Server's action is a service, Studio's is a layer.</b> `POST /admin/featureservices`
-    // creates an empty container, which is the thing an operator makes here — publishing data into
-    // it is Studio's act. The drawer holds the form either way; only the label and the id differ.
-    action: { id: "newService", label: "New service" },
+    // <b>Server's action is a service, Studio's is a layer.</b> It used to open a drawer that
+    // made an empty container; *katmansiz servis yaratilamaz* by owner decision, so it goes to
+    // Publish instead (ADR-057 5h) - tables into a tree, the tree is the service, one request
+    // writes it. The label did not change, because what an operator wanted from it did not.
+    action: { id: "publishService", label: "New service" },
 
     tabs: [
       ["services", "Services"],
@@ -12198,31 +12199,25 @@ function openNewService() {
   $("addItemBody").innerHTML = "";
   if ($("addItem").open) $("addItem").close();
 
-  $("drawerTitle").textContent = "New service";
-  $("drawerSub").textContent = "a container for layers, and the groups inside it";
+  // <b>The empty-service half came off on 2026-09-06 — ADR-057 §5h.</b> *Katmansız servis
+  // yaratılamaz*, by owner decision, and the Publish screen next door is where a service is
+  // made now: tables into a tree, the tree is the service, one request writes it. What this
+  // drawer taught was the API's order — create a container, add groups, publish layers naming
+  // a group by a numeric index a design review could find nowhere on this surface — and none
+  // of that is a thing to know any more.
+  //
+  // <b>The group half stays, and it is a different job.</b> Adding a group to a service that
+  // already exists is reorganising something published, not composing something new; the
+  // Publish screen groups what it is building and has nothing to say about what is already
+  // served.
+  $("drawerTitle").textContent = "Group layers";
+  $("drawerSub").textContent = "inside a service that is already published";
   $("drawerBody").innerHTML = `
     <div class="group">
-      <h3>An empty service</h3>
-      <p class="hint">A service is a container of layers, so it can exist before its layers do —
-        and that is the order you need when the structure matters: create the service, add the
-        groups, then publish layers into it naming the group to nest under.</p>
-      <form id="svcForm" autocomplete="off">
-        <div class="row">
-          <label class="field">Service name<input type="text" id="cName" placeholder="EarlyAlert" required></label>
-          <label class="field">Folder <span class="val">(optional)</span>
-            <input type="text" id="cFolder" placeholder="hosted"></label>
-          <label class="field">Sharing<select id="cShare">
-            <option value="private" selected>private</option>
-            <option value="organization">organization</option>
-            <option value="public">public</option>
-          </select></label>
-        </div>
-        <div class="row">
-          <label class="field" style="flex:1 1 100%">Description <span class="val">(optional)</span>
-            <input type="text" id="cDesc" placeholder="what it is for"></label>
-        </div>
-        <button type="submit">Create empty service</button>
-      </form>
+      <p class="hint">To make a <b>new</b> service, use
+        <a href="#/publish">Publish</a> — it composes the layers and the
+        groups together and publishes them in one act. This is for a service that is already
+        served and wants reorganising.</p>
     </div>
 
     <div class="group">
@@ -12246,7 +12241,6 @@ function openNewService() {
 
     <div id="newResult" class="group" style="display:none"></div>`;
 
-  $("svcForm").addEventListener("submit", createService);
   $("grpForm").addEventListener("submit", createGroupLayer);
   $("gService").addEventListener("change", event => showServiceGroups(event.target.value));
 
@@ -12267,7 +12261,7 @@ function openNewService() {
   // see the note above — and a panel still places initial focus in itself. Design review 2026-08-19;
   // D-93 is the half of that finding this does not fix, which is that focus is not trapped and does
   // not need to be.
-  $("cName")?.focus();
+  $("gService")?.focus();
 }
 
 // ------------------------------------------- publishing what is already there
@@ -12454,60 +12448,6 @@ async function publishRegistered(event) {
   await section("service names", fillServiceChoices);
 }
 
-async function createService(event) {
-  event.preventDefault();
-
-  const folder = $("cFolder").value.trim();
-  const button = event.submitter || $("svcForm").querySelector("[type=submit]");
-
-  // <b>Every refusal this form can meet was invisible until 2026-09-06.</b> A design review
-  // forced two of them against the live server — a duplicate name (409) and a nesting target
-  // that is not a group (400) — and the server answered both with a sentence written for the
-  // person reading it. `api` throws on a refusal, nothing caught it, and the form sat there
-  // unchanged: no toast, no message, no clue that a request had been made at all. The delete
-  // handler two hundred lines below has done this correctly since it was written; these two
-  // just never used the pattern.
-  //
-  // <b>Disabled while it is in flight, and the name cleared after.</b> The same review
-  // double-clicked *Create group layer* and got two identically named groups, because nothing
-  // stopped the second click and nothing emptied the field the first one had used.
-  if (button) button.disabled = true;
-
-  try {
-    const created = await api("/admin/featureservices", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: $("cName").value.trim(),
-        folder: folder || null,
-        description: $("cDesc").value.trim() || null,
-        sharing: $("cShare").value,
-      }),
-    });
-
-    reportCreated("Service created", [
-      `<b>${h(created.name)}</b> at <code>${h(created.url)}</code>, shared ${h(created.sharing)}.`,
-      // The server's own next-step note, which names the two calls that fill it.
-      created.note ? `<span class="val">${h(created.note)}</span>` : "",
-    ]);
-
-    // Pre-fill the group form, because creating an empty service and then adding a
-    // group to it is the sequence the note just described.
-    $("gService").value = folder ? `${folder}/${created.name}` : created.name;
-
-    // <b>Emptied, so a second press is a second service rather than the same one twice.</b>
-    // The folder and the sharing stay: somebody making two services usually makes them in the
-    // same place, and re-choosing that is work the first answer already did.
-    $("cName").value = "";
-    $("cDesc").value = "";
-
-    await section("service names", fillServiceChoices);
-  } catch (e) {
-    toast(e.message);
-  } finally {
-    if (button) button.disabled = false;
-  }
-}
 
 async function createGroupLayer(event) {
   event.preventDefault();
@@ -12518,9 +12458,11 @@ async function createGroupLayer(event) {
   const parent = $("gParent").value.trim();
   const button = event.submitter || $("grpForm")?.querySelector("[type=submit]");
 
-  // See `createService`: the refusal was invisible and the second click made a duplicate.
-  // A nesting target that is not a group answers 400 with a sentence naming why, and until
-  // 2026-09-06 that sentence went nowhere.
+  // <b>The refusal was invisible and the second click made a duplicate.</b> A nesting target
+  // that is not a group answers 400 with a sentence naming why, and until 2026-09-06 that
+  // sentence went nowhere: `api` throws on a refusal and nothing caught it. The same fault was
+  // in the empty-service form beside this one, which has since come off the screen with
+  // ADR-057 §5h.
   if (button) button.disabled = true;
 
   try {
@@ -13383,12 +13325,18 @@ async function handleClick(event) {
   // Navigation is links now — the tab strip, the editor's left column, the
   // breadcrumb and Cancel — so it needs no branch here. The browser follows the
   // href, the hash changes, and route() paints. That is also what makes Back work.
-  // <b>One drawer for both surfaces' actions.</b> It already covers a layer, a service and a group
-  // inside one — the form was general before the button was — so Server's *New service* and
-  // Studio's *New layer* open the same thing and each names the part its reader came for. Two
-  // drawers would be two copies of a publish form, which is D-46's whole subject.
+  // <b>Studio's action opens the drawer; Server's is a link now.</b> The drawer covered a layer
+  // and a service together while both were a form with a name in it. Composing a service is a
+  // screen, so Server's action navigates, and only the group half of the drawer is left - reached
+  // from the Services screen, where the services it reorganises are.
   if (t.id === "newLayer") { openAddItem(); return; }
   if (t.id === "newService") { openNewService(); return; }
+
+  // <b>Server's action is a jump, not a form.</b> Composing a service is a screen with two trees
+  // on it, and a drawer cannot hold that. It stays a button in the slot both surfaces share
+  // rather than becoming a link there, because the slot is one line of markup for both and a
+  // link that looks like Studio's button is worse than a button that navigates.
+  if (t.id === "publishService") { location.hash = "#/publish"; return; }
   if (t.id === "addItemClose") { $("addItem").close(); return; }
 
   // <b>Making a folder is on the rail</b>, which is the only place a folder is the subject

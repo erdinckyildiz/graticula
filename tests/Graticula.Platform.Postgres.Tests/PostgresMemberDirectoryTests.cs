@@ -132,8 +132,7 @@ public sealed class PostgresMemberDirectoryTests : PostgresFixture
 
         PostgresAdminCatalog admin = new(DataSource, new SecretProtector(1, new byte[32]));
 
-        await admin.CreateServiceAsync(
-            "theirs", null, null, SharingScope.Private, owner.Id, CancellationToken.None);
+        await SeedServiceAsync("theirs", null, owner.Id);
 
         IReadOnlyList<Member> members = await directory.ListMembersAsync(CancellationToken.None);
 
@@ -197,8 +196,7 @@ public sealed class PostgresMemberDirectoryTests : PostgresFixture
 
         PostgresAdminCatalog admin = new(DataSource, new SecretProtector(1, new byte[32]));
 
-        await admin.CreateServiceAsync(
-            "theirs", null, null, SharingScope.Private, owner.Id, CancellationToken.None);
+        await SeedServiceAsync("theirs", null, owner.Id);
 
         Assert.False(await directory.SetDisabledAsync("owner", true, CancellationToken.None));
 

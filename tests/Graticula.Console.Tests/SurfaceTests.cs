@@ -10,7 +10,7 @@ namespace Graticula.Console.Tests;
 public sealed class SurfaceTests : ConsoleTest
 {
     /// <summary>
-    /// Server's own action opens the drawer, and the drawer holds a form that works.
+    /// Server's own action reaches the screen that makes a service.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -21,50 +21,40 @@ public sealed class SurfaceTests : ConsoleTest
     /// capability complete and the console unable to reach it.
     /// </para>
     /// <para>
-    /// <b>The form is filled and submitted, not only looked at.</b> A test that asserts the
-    /// drawer opens proves the button is wired and nothing else; what broke twice this month was
-    /// the wiring between a form and its endpoint.
+    /// <b>Pressed, and where it lands is checked.</b> A test that asserts the button exists
+    /// proves the markup and nothing else; what broke twice this month was the wiring between a
+    /// control and the thing behind it.
     /// </para>
     /// <para>
-    /// <b>What the page tried to write, not what the server stored.</b> This suite answers every
-    /// non-GET from inside the page itself, so nothing is created on the operator's server to
-    /// prove a form works — and the assertion is the stronger one anyway: the request the
-    /// form produced. `POST /admin/featureservices` has its own tests; that this button reaches
-    /// it is what nobody was checking.
+    /// <b>It used to open a drawer with a name field in it, and that came off on
+    /// 2026-09-06.</b> An empty service cannot be created any more — *katmansız servis
+    /// yaratılamaz*, owner decision, ADR-057 §5h — so the action goes to Publish, where a
+    /// service is composed out of tables and written in one request. The fact this test carries
+    /// did not change with it: the surface's own action reaches the thing that makes a service.
     /// </para>
     /// </remarks>
     [Fact]
-    public async Task Servers_own_action_opens_the_drawer_and_its_form_creates_a_service()
+    public async Task Servers_own_action_opens_the_screen_that_composes_a_service()
     {
         (string token, _) = await SignInAsync();
         await OpenAsync("/server/#/services", token);
 
         await WaitForAsync(
-            "document.getElementById('newService') !== null",
+            Shown("#publishService"),
             "Server's services screen offers no New service action, so ADR-034 §5j's action "
             + "has nowhere to be pressed.");
 
-        await ClickAsync("#newService");
+        await ClickAsync("#publishService");
 
         await WaitForAsync(
-            "document.getElementById('drawer').classList.contains('on')",
-            "Pressing New service opened nothing. The endpoints behind it have their own tests; "
-            + "this is the page action D-90 says nobody presses.");
+            "location.hash === '#/publish'",
+            "Pressing New service went nowhere. The screen behind it has its own tests; this is "
+            + "the page action D-90 says nobody presses.");
 
         await WaitForAsync(
-            "document.getElementById('cName') !== null",
-            "The drawer opened without the service form in it.");
-
-        await FilterAsync("cName", "zz_d90_probe");
-
-        await ClickAsync("#svcForm button[type=submit]");
-
-        await WaitForAsync(
-            "(window.__writes || []).some(w => w.startsWith('POST ') "
-            + "&& w.includes('/admin/featureservices'))",
-            "Submitting the service form sent nothing to /admin/featureservices. The capability "
-            + "is complete and the console cannot reach it, which is how D-83 and D-87 both "
-            + "shipped.");
+            Shown("#pubTree"),
+            "The route changed and the Publish screen did not draw its tree, so the action "
+            + "lands on an empty surface — which is what D-115 is about.");
 
         string[] errors = await PageErrorsAsync();
         NothingWentWrong(errors);

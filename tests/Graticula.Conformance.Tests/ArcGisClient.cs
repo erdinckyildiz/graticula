@@ -691,6 +691,250 @@ public abstract class ArcGisClient : IDisposable
         return (int)response.StatusCode;
     }
 
+    /// <summary>
+    /// The first table in the fixture's hosted schema that no layer claims, or null.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A service cannot be created without layers, so every class that needs one needs a
+    /// table</b> — ADR-057 condition 4, owner decision 2026-09-06. Three classes used to make an
+    /// empty container with <c>POST /admin/featureservices</c> and were about something else
+    /// entirely; they publish a real layer now, and this is what they publish over.
+    /// </para>
+    /// <para>
+    /// <b>CI has exactly two of these and they are shared.</b> <c>tools/ci-free-tables.sql</c>
+    /// makes <c>hosted.zz_free_one</c> and <c>zz_free_two</c>; a developer machine has dozens.
+    /// Nothing here reserves one, and nothing needs to: every class that touches the catalogue
+    /// is in the <c>catalogue walk</c> collection, which xUnit runs one at a time — the
+    /// architecture suite has a test that keeps it that way. What each caller owes is cleanup,
+    /// because a class that keeps its table takes it from the next one.
+    /// </para>
+    /// <para>
+    /// <b>Read from the server rather than named, because the two fixtures differ.</b> Pinning
+    /// <c>zz_free_one</c> works in CI and picks a table a developer's server already serves.
+    /// </para>
+    /// </remarks>
+    /// <param name="skip">How many free tables to pass over, for a caller that needs two.</param>
+    /// <returns>Everything a publish needs, or null when the fixture has none free.</returns>
+    protected async Task<(string Schema, string Table, string Geometry, string Type,
+        string Identity, int Srid)?> FreeTableAsync(int skip = 0)
+    {
+        if (await DatastoreIdAsync() is not { Length: > 0 } datastore)
+        {
+            return null;
+        }
+
+        (int seen, string capability) = await AdminAsync(
+            HttpMethod.Get, $"/admin/datasources/{datastore}/capability");
+
+        if (seen != 200)
+        {
+            return null;
+        }
+
+        (int listed, string layers) = await AdminAsync(HttpMethod.Get, "/admin/layers");
+
+        HashSet<string> taken = new(StringComparer.OrdinalIgnoreCase);
+
+        if (listed == 200)
+        {
+            // <b>`table`, which is the qualified name the listing carries.</b> There is no
+            // `schemaName` on a layer row — reading one would leave this set empty and hand back
+            // a table that is already served, which is a 409 from `layer_table_unique` and a
+            // confusing one, because the sentence is about a table and the test is about a name.
+            foreach (JsonElement layer in JsonDocument.Parse(layers)
+                .RootElement.GetProperty("layers").EnumerateArray())
+            {
+                if (layer.TryGetProperty("table", out JsonElement qualified)
+                    && qualified.GetString() is { Length: > 0 } where)
+                {
+                    taken.Add(where);
+                }
+            }
+        }
+
+        int passed = 0;
+
+        foreach (JsonElement table in JsonDocument.Parse(capability)
+            .RootElement.GetProperty("tables").EnumerateArray())
+        {
+            if (!table.TryGetProperty("geometryColumn", out JsonElement geometry)
+                || geometry.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            // <b>Nominated, not inferred — Q-57.</b> `POST /admin/layers` requires an identity
+            // column and the probe reports which ones qualify; a table with none cannot be
+            // published at all, so it is not a free table for this purpose.
+            if (!table.TryGetProperty("objectIdColumn", out JsonElement identity)
+                || identity.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            string schema = table.GetProperty("schemaName").GetString()!;
+            string named = table.GetProperty("tableName").GetString()!;
+
+            if (taken.Contains($"{schema}.{named}"))
+            {
+                continue;
+            }
+
+            if (passed++ < skip)
+            {
+                continue;
+            }
+
+            return (
+                schema,
+                named,
+                geometry.GetString()!,
+                table.TryGetProperty("geometryType", out JsonElement kind)
+                    && kind.ValueKind == JsonValueKind.String
+                        ? kind.GetString()!
+                        : "Polygon",
+                identity.GetString()!,
+                table.TryGetProperty("srid", out JsonElement srid)
+                    && srid.ValueKind == JsonValueKind.Number
+                        ? srid.GetInt32()
+                        : 3857);
+        }
+
+        return null;
+    }
+
+    /// <summary>The datastore data source's id, or null when there is none.</summary>
+    /// <returns>Its id.</returns>
+    protected async Task<string?> DatastoreIdAsync()
+    {
+        (int status, string body) = await AdminAsync(HttpMethod.Get, "/admin/datasources");
+
+        if (status != 200)
+        {
+            return null;
+        }
+
+        foreach (JsonElement source in JsonDocument.Parse(body)
+            .RootElement.GetProperty("dataSources").EnumerateArray())
+        {
+            if (source.TryGetProperty("name", out JsonElement name)
+                && string.Equals(name.GetString(), "datastore", StringComparison.Ordinal))
+            {
+                return source.GetProperty("id").GetString();
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Publishes one service made of one layer, which is the only way a service is created.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>POST /admin/publish</c>, because <c>POST /admin/featureservices</c> refuses
+    /// now</b> — ADR-057 condition 4. The caller owes the teardown; see
+    /// <see cref="UnpublishAsync"/>.
+    /// </remarks>
+    /// <param name="service">What to call it.</param>
+    /// <param name="layer">What to call its layer.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="sharing">Who may read it.</param>
+    /// <param name="skip">Which free table to take.</param>
+    /// <returns>The status and the body.</returns>
+    protected async Task<(int Status, string Body)> PublishOneAsync(
+        string service,
+        string layer,
+        string? folder = null,
+        string sharing = "private",
+        int skip = 0)
+    {
+        if (await DatastoreIdAsync() is not { Length: > 0 } datastore)
+        {
+            return (0, "no datastore data source is registered");
+        }
+
+        if (await FreeTableAsync(skip) is not { } table)
+        {
+            return (0, "the fixture has no table that nothing publishes");
+        }
+
+        // <b>Built as an object rather than a format string.</b> A composition nests two
+        // levels, and hand-written braces in a raw interpolated literal put four closing braces
+        // in a row where the compiler cannot tell content from interpolation.
+        string json = JsonSerializer.Serialize(new
+        {
+            name = service,
+            folder,
+            sharing,
+            nodes = new[]
+            {
+                new
+                {
+                    layer = new
+                    {
+                        name = layer,
+                        dataSourceId = datastore,
+                        schemaName = table.Schema,
+                        tableName = table.Table,
+                        geometryColumn = table.Geometry,
+                        geometryType = table.Type,
+                        identityColumn = table.Identity,
+                        srid = table.Srid,
+                    },
+                },
+            },
+        });
+
+        return await AdminAsync(HttpMethod.Post, "/admin/publish", json);
+    }
+
+    /// <summary>
+    /// Takes a layer out of a service and then the service out of the directory.
+    /// </summary>
+    /// <remarks>
+    /// <b>Never <c>drop=true</c>.</b> That empties hosted tables on the way out, and the tables
+    /// here belong to the fixture — dropping one takes it from every class that runs after.
+    /// </remarks>
+    /// <param name="service">The service.</param>
+    /// <param name="layer">Its layer.</param>
+    /// <param name="folder">Its folder, or null.</param>
+    /// <returns>The task.</returns>
+    protected async Task UnpublishAsync(string service, string layer, string? folder = null)
+    {
+        await AdminAsync(HttpMethod.Delete, $"/admin/layers/{Uri.EscapeDataString(layer)}");
+
+        await AdminAsync(
+            HttpMethod.Delete,
+            $"/admin/featureservices/{Uri.EscapeDataString(service)}"
+            + (folder is null ? string.Empty : $"?folder={Uri.EscapeDataString(folder)}"));
+    }
+
+    /// <summary>Sends an administrative request as the suite's account.</summary>
+    /// <param name="method">The verb.</param>
+    /// <param name="path">The path, from the root.</param>
+    /// <param name="json">A body, or null.</param>
+    /// <returns>The status and the body.</returns>
+    protected async Task<(int Status, string Body)> AdminAsync(
+        HttpMethod method, string path, string? json = null)
+    {
+        string root = await RequireServerAsync();
+
+        using HttpRequestMessage request = new(method, new Uri($"{root}{path}"));
+
+        await AuthenticateAsync(request, root);
+
+        if (json is not null)
+        {
+            request.Content = new StringContent(
+                json, System.Text.Encoding.UTF8, "application/json");
+        }
+
+        using HttpResponseMessage response = await _http.SendAsync(request);
+
+        return ((int)response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
     /// <summary>Asserts a property exists and returns it.</summary>
     /// <remarks>
     /// Named rather than inlined because the failure message is the point: a

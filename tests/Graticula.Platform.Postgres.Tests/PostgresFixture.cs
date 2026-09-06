@@ -147,6 +147,55 @@ public abstract class PostgresFixture : IAsyncLifetime
     protected string SchemaName => _schema;
 
     /// <summary>The adapter under test.</summary>
+    /// <summary>Puts a service row in the store, for a test that needs one to exist.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>SQL, because the product no longer has a way to make an empty service.</b>
+    /// <c>IAdminCatalog.CreateServiceAsync</c> did, and it went with
+    /// <c>POST /admin/featureservices</c> on 2026-09-06 — a service is not created without
+    /// layers, by owner decision (ADR-057 condition 4), and a catalogue method that makes one
+    /// anyway is the same rule with a longer fuse.
+    /// </para>
+    /// <para>
+    /// <b>What these tests need is a row, not the act.</b> Twelve of them created a service so
+    /// they could test something else about it — folder matching, sweeping, group trees, what a
+    /// member owns — and none of them is about creation. Seeding it here says that plainly, and
+    /// keeps the tests from being the reason a retired capability stays alive. The
+    /// <c>principal</c> row beside them is inserted the same way and for the same reason.
+    /// </para>
+    /// </remarks>
+    /// <param name="name">Its name within the folder.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="owner">Who owns it.</param>
+    /// <param name="sharing">Who may read it — the wire spelling, private unless said.</param>
+    /// <param name="description">What it is for, or null.</param>
+    /// <returns>Its id.</returns>
+    protected async Task<Guid> SeedServiceAsync(
+        string name,
+        string? folder,
+        Guid owner,
+        string sharing = "private",
+        string? description = null)
+    {
+        Guid id = Guid.NewGuid();
+
+        await using NpgsqlCommand command = DataSource.CreateCommand(
+            "insert into service (id, name, folder, kind, description, owner_principal_id, "
+            + "sharing) values (@id, @name, @folder, 'FeatureServer', @description, @owner, "
+            + "@sharing)");
+
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("description", (object?)description ?? DBNull.Value);
+        command.Parameters.AddWithValue("owner", owner);
+        command.Parameters.AddWithValue("sharing", sharing);
+
+        await command.ExecuteNonQueryAsync(CancellationToken.None);
+
+        return id;
+    }
+
     protected PostgresPlatformSchemaStore Store() => new(DataSource);
 
     /// <summary>Brings the private schema up to the shipped level.</summary>

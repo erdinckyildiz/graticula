@@ -178,9 +178,22 @@ public sealed class GateFindingsTests : ArcGisClient
 
             JsonElement map = JsonDocument.Parse(mapBody).RootElement;
 
+            // <b>The whole document, not one colour out of it.</b> This compared
+            // `renderer.symbol.color`, which only a simple renderer has: the first layer with a
+            // stored style happened to carry one when this was written, and on a fixture where
+            // that layer carries a class-breaks renderer instead the test threw
+            // `KeyNotFoundException` from its own helper — a failure that names a dictionary
+            // rather than a face reporting the wrong style. Found 2026-09-06 on a developer
+            // fixture whose `ci_buildings` had been given a class-breaks renderer two days
+            // earlier and never put back; CI seeds fresh and had never seen it.
+            //
+            // Comparing the serialised `drawingInfo` is both renderer-agnostic and a stronger
+            // assertion than one colour was: the finding is that the two faces report the same
+            // style, and a symbol whose outline differs is the same defect as one whose fill
+            // does.
             Assert.Equal(
-                Colour(feature.GetProperty("drawingInfo")),
-                Colour(map.GetProperty("drawingInfo")));
+                feature.GetProperty("drawingInfo").ToString(),
+                map.GetProperty("drawingInfo").ToString());
 
             return;
         }
@@ -463,9 +476,6 @@ public sealed class GateFindingsTests : ArcGisClient
             .Select(e => e.Elements().FirstOrDefault(c => c.Name.LocalName == "Name")?.Value)
             .FirstOrDefault(name => !string.IsNullOrEmpty(name));
     }
-
-    private static string Colour(JsonElement drawingInfo) =>
-        drawingInfo.GetProperty("renderer").GetProperty("symbol").GetProperty("color").ToString();
 
     private async Task<double[]> FirstPositionAsync(string path)
     {

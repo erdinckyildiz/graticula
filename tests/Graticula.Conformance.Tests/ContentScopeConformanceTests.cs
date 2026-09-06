@@ -181,26 +181,29 @@ public sealed class ContentScopeConformanceTests : ArcGisClient
 
             Assert.False(theirs is null, $"The probe member could not sign in. {why}");
 
-            // <b>Two services of its own, so nothing another suite reads can move.</b> Empty ones:
-            // this test is about how a service *reaches* somebody, and an empty service reaches people
-            // the same way a full one does. `POST /admin/featureservices` makes a container with no
-            // layers, which is exactly enough.
+            // <b>Two services of its own, so nothing another suite reads can move.</b> This test
+            // is about how a service *reaches* somebody, and one layer is enough for that.
+            //
+            // <b>They used to be empty, and could be until 2026-09-06.</b> `POST
+            // /admin/featureservices` made a container with no layers in it, which was exactly
+            // enough — and a service is not created without layers any more (owner decision,
+            // ADR-057 condition 4), so each of these is composed of one table the fixture leaves
+            // unpublished. CI has two of those and this class takes both, which is safe because
+            // every class that reaches the whole catalogue is in this collection and xUnit runs
+            // a collection one class at a time.
             forGroup = "zz_scope_reach";
             forOrganization = "zz_scope_org";
 
             foreach (string one in new[] { forGroup, forOrganization })
             {
-                await AdminAsync(
-                    root, token!, HttpMethod.Delete,
-                    $"/admin/featureservices/{Uri.EscapeDataString(one)}", null);
+                await UnpublishAsync(one, $"{one}_layer");
 
-                (System.Net.HttpStatusCode put, string putWhy) = await AdminAsync(
-                    root, token!, HttpMethod.Post, "/admin/featureservices",
-                    JsonSerializer.Serialize(new { name = one, sharing = "private" }));
+                // <b>The first free table each time, not the first and then the second.</b> The
+                // one taken by the publish above stops being free, so asking again answers the
+                // next one — and a `skip` would be counting the same thing twice.
+                (int put, string putWhy) = await PublishOneAsync(one, $"{one}_layer");
 
-                Assert.True(
-                    put is System.Net.HttpStatusCode.OK or System.Net.HttpStatusCode.Created,
-                    $"{(int)put} {putWhy}");
+                Assert.True(put is 200 or 201, $"{put} {putWhy}");
             }
 
             JsonElement before = await ContentAsync(root, theirs!);
@@ -252,7 +255,10 @@ public sealed class ContentScopeConformanceTests : ArcGisClient
             // ------------------------------------------------------------------ and each item can be drawn
             // The cover is the only thing standing in for a thumbnail here — a service holds no
             // geometry, so a picture of one has to come from a layer. An item without one is a service
-            // with no layers, and the listing must say so rather than offering an address that 404s.
+            // with no layers, and the listing must say so rather than offering an address that
+            // 404s. <b>Both of this test's own services have a layer now</b> — nothing creates an
+            // empty one any more — so what is exercised here is the true half; the empty half
+            // still arises by unpublishing, and `EmptiedServiceTests` is where that is driven.
             foreach (JsonElement item in withOrganization.GetProperty("items").EnumerateArray())
             {
                 int layers = item.GetProperty("layers").GetInt32();
@@ -270,9 +276,9 @@ public sealed class ContentScopeConformanceTests : ArcGisClient
             {
                 if (one is not null)
                 {
-                    await AdminAsync(
-                        root, token!, HttpMethod.Delete,
-                        $"/admin/featureservices/{Uri.EscapeDataString(one)}", null);
+                    // The layer first: a service that still holds one refuses to go, and
+                    // `drop=true` would take the fixture's table down with it.
+                    await UnpublishAsync(one, $"{one}_layer");
                 }
             }
 

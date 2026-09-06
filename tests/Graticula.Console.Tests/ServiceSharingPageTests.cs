@@ -36,20 +36,20 @@ public sealed class ServiceSharingPageTests : ConsoleTest
     /// <summary>
     /// A service with no layers can have its sharing scope set.
     /// </summary>
+    /// <remarks>
+    /// <b>The empty service is made by emptying one, since 2026-09-06.</b> This used to post to
+    /// <c>/admin/featureservices</c>, which made a container directly and refuses now — a
+    /// service is not created without layers, ADR-057 condition 4. The state under test did not
+    /// go anywhere: §5h keeps it precisely because unpublishing the last layer leaves the
+    /// container behind, and this fixture now arrives at it the same way an operator does, which
+    /// is a better fixture than the one it replaces.
+    /// </remarks>
     [Fact]
     public async Task An_empty_service_can_be_shared()
     {
-        (int made, string why) = await AdminAsync(
-            HttpMethod.Post,
-            "/admin/featureservices",
-            JsonSerializer.Serialize(new
-            {
-                name = Probe,
-                folder = "hosted",
-                description = "Created by ServiceSharingPageTests; removed when it finishes.",
-            }));
+        (int made, string why) = await EmptyServiceAsync(Probe, "hosted");
 
-        Assert.True(made is 200 or 201, $"Could not create the probe service: {made} {why}");
+        Assert.True(made is 200 or 201, $"Could not make the empty probe service: {made} {why}");
 
         try
         {

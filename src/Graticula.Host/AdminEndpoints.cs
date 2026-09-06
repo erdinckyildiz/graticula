@@ -152,14 +152,6 @@ internal sealed record FolderRequest(string? Name);
 /// <param name="ParentLayerId">A group to nest it under, or null for the top level.</param>
 internal sealed record GroupLayerRequest(string? Name, string? Folder, int? ParentLayerId);
 
-/// <summary>An empty service to create.</summary>
-/// <param name="Name">Its name within the folder.</param>
-/// <param name="Folder">Its folder, or null for the root.</param>
-/// <param name="Description">What it is for, or null.</param>
-/// <param name="Sharing">Who may read it. Private unless said otherwise.</param>
-internal sealed record ServiceRequest(
-    string? Name, string? Folder, string? Description, string? Sharing);
-
 /// <summary>A group to create.</summary>
 /// <param name="Name">Its name, unique case-insensitively.</param>
 /// <param name="Title">A display title, or null.</param>
@@ -1918,111 +1910,48 @@ internal static class AdminEndpoints
         howMany == 1 ? $"1 {what}" : $"{howMany} {what}s";
 
     /// <summary>
-    /// Creates an empty service, ready for groups and layers.
+    /// Answers the address an empty service used to be created at.
     /// </summary>
     /// <remarks>
-    /// <b>At <c>/admin/featureservices</c>, not <c>/admin/services</c>.</b> That
-    /// path already lists the system services — the geometry service and
-    /// whatever joins it — and those are a different kind of thing: they have no
-    /// layers, are not published by anybody, and cannot be created. One path
-    /// covering both would make <c>GET</c> and <c>POST</c> on the same URL
-    /// return and accept unrelated shapes.
+    /// <para>
+    /// <b>A service is not created without layers — owner decision, 2026-09-06:</b>
+    /// <i>"hayır. katmansız servis yaratılamaz."</i>
+    /// <see href="../../docs/adr/ADR-057-composing-and-publishing-a-service.md">ADR-057</see>
+    /// condition 4. What this endpoint made was a container with a name in it, and the two acts
+    /// that filled it — adding groups, then publishing layers naming a group by a numeric index —
+    /// were separate calls in an order the API knew and nobody else did. A design review called
+    /// that shape <i>the API rendered as a form</i>; <c>POST /admin/publish</c> takes the whole
+    /// composition in one request and is the only way in now.
+    /// </para>
+    /// <para>
+    /// <b>It refuses rather than disappearing.</b> A route that is unmapped answers 404, which
+    /// tells a caller their URL is wrong — and it is not wrong, it is retired. The sentence names
+    /// the replacement, because a caller who has this address written down is exactly the reader
+    /// who needs to be told where it went.
+    /// </para>
+    /// <para>
+    /// <b>Empty services still exist, and that is not a contradiction.</b> ADR-057 §5h: unpublishing
+    /// the last layer of a service leaves the container, which is why
+    /// <c>POST /admin/featureservices/sweep</c> and D-54 are still here. <i>Created</i> is the act
+    /// this refuses; <i>exists</i> is a state that arrives by removal and is answered by removal.
+    /// </para>
     /// </remarks>
-    private static async Task CreateServiceAsync(
-        HttpContext context,
-        ServiceRequest request,
-        IAdminCatalog catalog,
-        PostgresSystemServices systemServices,
-        IAuditLog audit,
-        CancellationToken cancellation)
+    /// <param name="context">The request.</param>
+    /// <returns>The task.</returns>
+    private static async Task CreateServiceAsync(HttpContext context)
     {
-        ArgumentNullException.ThrowIfNull(request);
-
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
             .ConfigureAwait(false))
         {
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(request.Name))
-        {
-            await Refuse(context, 400, "'name' is required.").ConfigureAwait(false);
-            return;
-        }
-
-        SharingScope scope = SharingScope.Private;
-
-        if (request.Sharing is not null
-            && !TryReadScope(request.Sharing, out scope, out string? error))
-        {
-            await Refuse(context, 400, error!).ConfigureAwait(false);
-            return;
-        }
-
-        // Opening a service to the public is the same act whether it is done at
-        // creation or afterwards, so it takes the same privilege.
-        if (scope != SharingScope.Private)
-        {
-            Privilege needed = scope == SharingScope.Public
-                ? Privilege.SharingShareToPublic
-                : Privilege.SharingShareToOrganization;
-
-            if (!await Authorize.RequireAsync(context, needed).ConfigureAwait(false))
-            {
-                return;
-            }
-        }
-
-        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
-
-        string? folder = string.IsNullOrWhiteSpace(request.Folder) ? null : request.Folder.Trim();
-        string name = request.Name.Trim();
-
-        // ADR-028 condition 5: a published service may not take a system service's address.
-        if (await RefusedBySystemServiceAsync(context, systemServices, name, folder, cancellation)
-            .ConfigureAwait(false))
-        {
-            return;
-        }
-
-        Guid? id = await catalog.CreateServiceAsync(
-            name, folder, request.Description, scope, current.Principal.Id, cancellation)
-            .ConfigureAwait(false);
-
-        if (id is not { } created)
-        {
-            await AuditAsync(
-                context, audit, "service.create", name,
-                Detail(new { folder }), succeeded: false, cancellation).ConfigureAwait(false);
-
-            await Refuse(context, 409,
-                $"A service named '{name}' already exists"
-                + (folder is null ? " at the root." : $" in folder '{folder}'."))
-                .ConfigureAwait(false);
-            return;
-        }
-
-        await AuditAsync(
-            context, audit, "service.create", name,
-            Detail(new { folder, sharing = PostgresSharing(scope) }),
-            succeeded: true, cancellation).ConfigureAwait(false);
-
-        await Results.Json(
-            new
-            {
-                id = created,
-                name,
-                folder,
-                sharing = PostgresSharing(scope),
-                url = folder is null
-                    ? $"/rest/services/{name}/FeatureServer"
-                    : $"/rest/services/{folder}/{name}/FeatureServer",
-                note = "The service has no layers yet. Add group layers with "
-                     + $"POST /admin/services/{name}/groups, and layers by publishing with "
-                     + "serviceName set to this service.",
-            },
-            statusCode: StatusCodes.Status201Created)
-            .ExecuteAsync(context).ConfigureAwait(false);
+        await Refuse(
+            context, 400,
+            "A service is not created without layers. This address made an empty container to "
+            + "fill in afterwards and no longer does — send the whole composition to "
+            + "POST /admin/publish instead: its name, its folder, and the layers and groups it "
+            + "is made of, in one request.").ConfigureAwait(false);
     }
 
     /// <summary>
@@ -5691,6 +5620,7 @@ internal static class AdminEndpoints
     /// <param name="context">The request.</param>
     /// <param name="request">The composition.</param>
     /// <param name="catalog">The catalogue.</param>
+    /// <param name="systemServices">The addresses a published service may not take.</param>
     /// <param name="audit">The log.</param>
     /// <param name="cancellation">The caller's.</param>
     /// <returns>The task.</returns>
@@ -5698,6 +5628,7 @@ internal static class AdminEndpoints
         HttpContext context,
         CompositionRequest? request,
         IAdminCatalog catalog,
+        PostgresSystemServices systemServices,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -5740,6 +5671,53 @@ internal static class AdminEndpoints
                 $"'{srid}' is not a spatial reference. Send an EPSG code, or leave it out to "
                 + "serve each layer in whatever its own table is stored in.").ConfigureAwait(false);
 
+            return;
+        }
+
+        /*
+          <b>The three guards this endpoint was written without, added 2026-09-06.</b> Every one
+          of them is on `POST /admin/layers`, twenty lines apart, and this route reached the
+          catalogue past all three — which is [D-46](../../docs/architecture-debt.md) exactly: a
+          second way in that does not carry what the first way carries. Found while moving the
+          conformance suite off the empty-service endpoint for ADR-057 condition 4, by reading
+          what that endpoint checked that this one does not.
+
+          They run before the tree is read, so a composition that is refused for its address is
+          refused for its address rather than for the first layer that happens to be malformed.
+        */
+        string? folder = string.IsNullOrWhiteSpace(request.Folder) ? null : request.Folder.Trim();
+
+        if (folder is { Length: > 0 } inFolder
+            && !inFolder.Equals(
+                FeatureServerMetadataWriter.HostedFolder, StringComparison.OrdinalIgnoreCase)
+            && !TryReadFolderName(inFolder, out string? folderError))
+        {
+            await Refuse(context, 400, folderError!).ConfigureAwait(false);
+            return;
+        }
+
+        // Opening a service to the public is the same act whether it is done at creation or
+        // afterwards, so it takes the same privilege — `CreateServiceAsync`'s rule, and it
+        // covers the organization scope as well, which the layer route does not.
+        if (scope != SharingScope.Private)
+        {
+            Privilege needed = scope == SharingScope.Public
+                ? Privilege.SharingShareToPublic
+                : Privilege.SharingShareToOrganization;
+
+            if (!await Authorize.RequireAsync(context, needed).ConfigureAwait(false))
+            {
+                return;
+            }
+        }
+
+        // ADR-028 condition 5: a published service may not take a system service's address.
+        // D-187 is what happens when it can — the administrative routes address two different
+        // things by one name and the system lookup wins.
+        if (await RefusedBySystemServiceAsync(
+                context, systemServices, request.Name.Trim(), folder, cancellation)
+            .ConfigureAwait(false))
+        {
             return;
         }
 
@@ -5806,7 +5784,10 @@ internal static class AdminEndpoints
                 .PublishCompositionAsync(
                     new ServiceComposition(
                         request.Name.Trim(),
-                        request.Folder,
+
+                        // Trimmed and nulled above, so a folder of one space is the root and not
+                        // a folder whose name is a space.
+                        folder,
                         string.IsNullOrWhiteSpace(request.Description)
                             ? null
                             : request.Description.Trim(),

@@ -185,9 +185,15 @@ public sealed class ListPagingTests : ConsoleTest
     /// A folder holding more than one page, topped up if the server has fewer.
     /// </summary>
     /// <remarks>
-    /// <b>Empty services, removed afterwards.</b> <c>POST /admin/featureservices</c> makes a
-    /// container with no layers and no data, so nothing in the datastore is touched and the
-    /// clean-up cannot lose anybody's features.
+    /// <b>Empty services, removed afterwards.</b> They hold no layers and no data, so nothing in
+    /// the datastore is touched and the clean-up cannot lose anybody's features.
+    ///
+    /// <b>Made by publishing a layer and taking it straight back off, since 2026-09-06.</b>
+    /// <c>POST /admin/featureservices</c> made one directly and refuses now — a service is not
+    /// created without layers, ADR-057 condition 4 — and unpublishing the last layer is how an
+    /// empty service arises in the product, so this fixture now reaches the state by the route
+    /// that still exists. Each cycle frees the table again, so eleven of these cost one free
+    /// table rather than eleven, which is what makes it work on CI's fixture.
     /// </remarks>
     /// <returns>The folder to open, and how many services it holds.</returns>
     private async Task<(string Folder, int Total)> WithMoreThanOnePageAsync()
@@ -239,15 +245,9 @@ public sealed class ListPagingTests : ConsoleTest
 
         for (int i = 0; i < wanted; i++)
         {
-            (int made, string why) = await AdminAsync(
-                HttpMethod.Post,
-                "/admin/featureservices",
-                JsonSerializer.Serialize(new
-                {
-                    name = Prefix + i.ToString(CultureInfo.InvariantCulture),
-                    folder = at.Length == 0 ? null : at,
-                    description = "Created by ListPagingTests; removed when the test finishes.",
-                }));
+            (int made, string why) = await EmptyServiceAsync(
+                Prefix + i.ToString(CultureInfo.InvariantCulture),
+                at.Length == 0 ? null : at);
 
             Assert.True(
                 made is 200 or 201,

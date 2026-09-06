@@ -262,7 +262,7 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
     }
 
     /// <summary>
-    /// A refusal on the New service drawer is said, and a success empties the name.
+    /// A refusal on the group drawer is said, and a success empties the name.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -280,6 +280,13 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
     /// the live fixture, then removed again.
     /// </para>
     /// <para>
+    /// <b>The service half of that finding is gone with the form it was on.</b> ADR-057 §5h took
+    /// the empty-service form off this drawer on 2026-09-06 — a service is composed on Publish
+    /// now. The group form beside it carried the identical defect and the identical repair,
+    /// which is [D-46](../../docs/architecture-debt.md)'s whole subject, so the fact is asserted
+    /// here on the half that is still on the screen.
+    /// </para>
+    /// <para>
     /// <b>Stubbed, because the harness answers every write with `{}` and a 200.</b> A real 409
     /// cannot be produced from here — the conformance suite has that half — so what is under
     /// test is the half this harness can see: that a refusal reaches the screen at all, and that
@@ -287,21 +294,21 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
     /// </para>
     /// </remarks>
     [Fact]
-    public async Task A_refused_service_says_why_and_a_created_one_clears_its_name()
+    public async Task A_refused_group_says_why_and_a_created_one_clears_its_name()
     {
         (string token, _) = await SignInAsync();
 
         await OpenAsync("/server/#/services", token);
 
         await WaitForAsync(
-            "document.getElementById('newService') !== null",
-            "The Services screen offers no New service action.");
+            Shown("#newService"),
+            "The Services screen offers no Group layers action.");
 
         await ClickAsync("#newService");
 
         await WaitForAsync(
-            Shown("#cName"),
-            "The New service drawer did not open.");
+            Shown("#gName"),
+            "The group drawer did not open.");
 
         // <b>The server's own sentence, which is what has to reach the screen.</b>
         await Browser.EvaluateAsync<bool>("""
@@ -311,29 +318,30 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
           window.fetch = async (input, init) => {
             const method = ((init && init.method) || "GET").toUpperCase();
             const where = typeof input === "string" ? input : (input && input.url) || "";
-            if (method !== "POST" || !where.includes("/admin/featureservices")) {
+            if (method !== "POST" || !where.includes("/groups")) {
               return real(input, init);
             }
             if (!window.__refuse) {
               return new Response(
-                JSON.stringify({ name: "ZZZFine", url: "/rest/services/ZZZFine/FeatureServer",
-                                 sharing: "private" }),
+                JSON.stringify({ name: "ZZZFine", layerId: 7, parentLayerId: -1 }),
                 { status: 200, headers: { "Content-Type": "application/json" } });
             }
             return new Response(
               JSON.stringify({ error: { code: 409, message:
-                "A service called ZZZTaken already exists in that folder." } }),
+                "A layer called ZZZTaken already exists in that service." } }),
               { status: 409, headers: { "Content-Type": "application/json" } });
           };
           return true;
         })();
         """);
 
-        await Browser.EvaluateAsync<bool>(
-            """(document.getElementById("cName").value = "ZZZTaken", true)""");
+        await Browser.EvaluateAsync<bool>("""
+        (document.getElementById("gService").value = "hosted/anything",
+         document.getElementById("gName").value = "ZZZTaken", true)
+        """);
 
         await Browser.EvaluateAsync<bool>(
-            """(document.getElementById("svcForm").requestSubmit(), true)""");
+            """(document.getElementById("grpForm").requestSubmit(), true)""");
 
         await WaitForAsync(
             "(document.getElementById('toast')?.textContent || '').includes('already exists')",
@@ -344,18 +352,18 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
         // retype what was rejected before they could change one letter of it.
         Assert.Equal(
             "ZZZTaken",
-            await Browser.EvaluateAsync<string>("document.getElementById('cName').value"));
+            await Browser.EvaluateAsync<string>("document.getElementById('gName').value"));
 
-        // <b>The other half: a success empties it, so a second press is a second service.</b>
+        // <b>The other half: a success empties it, so a second press is a second group.</b>
         await Browser.EvaluateAsync<bool>("(window.__refuse = false, true)");
 
         await Browser.EvaluateAsync<bool>(
-            """(document.getElementById("svcForm").requestSubmit(), true)""");
+            """(document.getElementById("grpForm").requestSubmit(), true)""");
 
         await WaitForAsync(
-            "document.getElementById('cName').value === ''",
-            "The name stayed in the box after the service was created, so pressing the button "
-            + "again asks for the same service a second time — which is how the review ended up "
+            "document.getElementById('gName').value === ''",
+            "The name stayed in the box after the group was created, so pressing the button "
+            + "again asks for the same group a second time — which is how the review ended up "
             + "with two groups of one name.");
 
         NothingWentWrong(await PageErrorsAsync());

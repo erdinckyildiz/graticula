@@ -535,10 +535,22 @@ present the server's guess as the operator's decision about which column an edit
 lands on. [D-50](../architecture-debt.md) records that the probe cannot yet offer
 better candidates.
 
-**An empty service, and a group inside one.** In that order, because it is the
+~~**An empty service, and a group inside one.** In that order, because it is the
 order the structure needs: the service exists before its layers, groups exist
 before the layers nested under them, and the publish form's *into service* field
-is what puts a layer in one.
+is what puts a layer in one.~~ **Superseded 2026-09-06 —
+[ADR-057](ADR-057-composing-and-publishing-a-service.md) §5h and its condition 4, by
+owner decision: *hayır, katmansız servis yaratılamaz*.** The drawer keeps only its group
+form, `POST /admin/featureservices` answers 400 naming `POST /admin/publish`, and the
+order this paragraph describes — container, then groups, then layers naming a group by a
+numeric index — is the sequence a design review called *the API rendered as a form*. A
+composition is written in one request now, and **the order the structure needs is the
+server's problem rather than the operator's**, which is the part of this paragraph that
+was wrong rather than merely out of date.
+
+**Empty services have not stopped existing**, and nothing below about finding and
+removing them changes: unpublishing the last layer still leaves the container, which is
+what the paragraph after next is about.
 
 **Building it found the defect that made it necessary.**
 [D-47](../architecture-debt.md): the publish endpoint accepted `serviceName`,

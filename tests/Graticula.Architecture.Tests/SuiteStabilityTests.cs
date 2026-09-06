@@ -325,7 +325,8 @@ public sealed class SuiteStabilityTests
         (string Pattern, string What)[] reaches =
         [
             ("HttpMethod\\.Post,\\s*\"/admin/layers\"", "publishes a layer"),
-            ("HttpMethod\\.Post,\\s*\"/admin/featureservices\"", "creates a service"),
+            ("HttpMethod\\.Post,\\s*\"/admin/publish\"", "publishes a service"),
+            ("PublishOneAsync\\(", "publishes a service"),
             ("\"/admin/hosted/import\"", "imports into the catalogue"),
             ("EveryServiceNameAsync\\(", "enumerates every service"),
             ("HttpMethod\\.Get,\\s*\"/admin/layers\"", "lists every layer"),

@@ -55,6 +55,15 @@ public sealed class OverrideIsRecordedTests : ArcGisClient
     /// <summary>The verb the record carries.</summary>
     private const string Action = "content.read.override";
 
+    /// <summary>The layer the probe service is made of.</summary>
+    /// <remarks>
+    /// <b>A service cannot be created without layers</b> — ADR-057 condition 4, owner decision
+    /// 2026-09-06. This test is about who may read a private service's <i>document</i>, and an
+    /// empty service used to be enough for that. It is not creatable any more, so the probe
+    /// publishes one real layer over a table the fixture leaves free and unpublishes it after.
+    /// </remarks>
+    private const string Layer = "zz_override_layer";
+
     /// <summary>
     /// A second administrator reads a private service's document, and the log says so.
     /// </summary>
@@ -69,18 +78,16 @@ public sealed class OverrideIsRecordedTests : ArcGisClient
         // Removed first: a run that failed before its cleanup must not fail the next one with a
         // message about the fixture instead of about the subject. ContentScope learnt this.
         await AdminAsync(root, token!, HttpMethod.Delete, $"/admin/members/{Other}?deleteOwned=true", null);
-        await AdminAsync(root, token!, HttpMethod.Delete, $"/admin/featureservices/{Service}", null);
+        await UnpublishAsync(Service, Layer);
 
         try
         {
             // ---------------------------------------------- a service its owner shared with nobody
-            (HttpStatusCode made, string madeBody) = await AdminAsync(
-                root, token!, HttpMethod.Post, "/admin/featureservices",
-                JsonSerializer.Serialize(new { name = Service, sharing = "private" }));
+            (int made, string madeBody) = await PublishOneAsync(Service, Layer);
 
             Assert.True(
-                made is HttpStatusCode.OK or HttpStatusCode.Created,
-                $"Could not create the private probe service: {(int)made}. {Explain(madeBody)}");
+                made is 200 or 201,
+                $"Could not publish the private probe service: {made}. {Explain(madeBody)}");
 
             // ------------------------------------------- an administrator who is not its owner
             (HttpStatusCode created, string createdBody) = await AdminAsync(
@@ -160,7 +167,9 @@ public sealed class OverrideIsRecordedTests : ArcGisClient
         }
         finally
         {
-            await AdminAsync(root, token!, HttpMethod.Delete, $"/admin/featureservices/{Service}", null);
+            // The layer first, then the service: a service that still holds one answers 409, and
+            // never `drop=true`, which would take the fixture's table with it.
+            await UnpublishAsync(Service, Layer);
             await AdminAsync(root, token!, HttpMethod.Delete, $"/admin/members/{Other}?deleteOwned=true", null);
         }
     }
