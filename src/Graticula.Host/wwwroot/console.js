@@ -10869,7 +10869,16 @@ function pubAdd(dbId, schema, table) {
     ?.find(s => s.name === schema)?.tables
     ?.find(t => t.tableName === table);
 
-  if (!found || found.used || !found.objectIdColumn || !found.geometryColumn) return;
+  if (!found || !found.objectIdColumn || !found.geometryColumn) return;
+
+  // <b>Once per composition, and said rather than ignored.</b> A table may be in as many
+  // services as anybody likes since migration 40, and still only once inside one of them —
+  // `layer_table_unique_in_service`. Dragging it a second time used to do nothing at all, which
+  // is indistinguishable from a drag that missed.
+  if (found.used) {
+    toast(`${found.tableName} is already in this composition.`);
+    return;
+  }
 
   pubTree.unshift({
     kind: "layer",
@@ -10888,7 +10897,13 @@ function pubAdd(dbId, schema, table) {
     geometry: found.geometryColumn,
     identity: found.objectIdColumn,
     srid: found.srid,
-    type: found.geometryType,
+
+    // <b>One name for it, and the second name was empty.</b> This said `type` while the swatch
+    // beside the layer read `geometryType`, so every layer in the tree drew as an area with no
+    // label — a point table showed a dot in Databases and a green rectangle two panes to the
+    // left. The owner put the two side by side. `geometryType` is what the probe, the wire
+    // format and the server all call it, so it is what the node calls it.
+    geometryType: found.geometryType,
   });
 
   found.used = true;
@@ -11534,7 +11549,7 @@ function pubWire(layer) {
     identityColumn: layer.identity,
     objectIdColumn: layer.identity,
     srid: layer.srid,
-    geometryType: layer.type,
+    geometryType: layer.geometryType,
 
     // <b>Chosen while composing, published with the composition.</b> Null leaves the server to
     // generate an appearance, which is what every layer got before this screen existed.

@@ -515,6 +515,98 @@ public sealed class PublishScreenTests : ConsoleTest
     }
 
     /// <summary>
+    /// A table dragged in keeps its geometry: the tree's symbol agrees with the pane's mark.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner put the two panes side by side and they disagreed.</b> `geopoint_2835ac42`
+    /// drew a dot in Databases and a green rectangle in the contents tree, with no type name
+    /// beside it — *"gerçekte olan icon gösterimi sağda, toc'da ise poligon ve yeşil fill ile
+    /// gibi"*, 2026-09-06. The composed node called the geometry `type` and the swatch read
+    /// `geometryType`, so the swatch read nothing and fell through to *area*.
+    /// </para>
+    /// <para>
+    /// <b>Neither existing test could see it.</b> One checks the marks in the Databases pane,
+    /// where the field is right; the other builds a composition by hand and sets both names,
+    /// which is precisely the bug being written out of the test. This one drags a real table
+    /// through the real path and compares the two panes — which is what the owner did.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_dragged_table_keeps_its_geometry_in_the_tree()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(Shown("#pubTree"), "The Publish screen drew no contents pane.");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubDbTree [data-pubdb]').length > 0",
+            "No registered database is listed.");
+
+        await ClickAsync("#pubDbTree [data-pubdb]");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubDbTree [data-pubtable][draggable=true]').length > 0",
+            "Opening a database offered no publishable table.");
+
+        // <b>A point, on purpose.</b> Falling through to *area* is the failure, so a polygon
+        // table would pass a broken screen — which is how this shipped.
+        string picked = await Browser.EvaluateAsync<string>("""
+        (() => {
+          const rows = [...document.querySelectorAll('#pubDbTree [data-pubtable][draggable=true]')];
+          const dot = rows.find(r => r.querySelector('.pubgeom.dot'))
+            || rows.find(r => r.querySelector('.pubgeom.line'))
+            || rows[0];
+
+          return dot ? dot.getAttribute('data-pubtable') : '';
+        })();
+        """) ?? string.Empty;
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(picked),
+            "No table in this database can be published, so nothing can be dragged.");
+
+        string kindInPane = await Browser.EvaluateAsync<string>($$"""
+        (() => {
+          const row = document.querySelector('#pubDbTree [data-pubtable={{'"'}}{{picked}}{{'"'}}]');
+          const mark = row?.querySelector('.pubgeom');
+
+          return mark?.classList.contains('dot') ? 'dot'
+            : mark?.classList.contains('line') ? 'line' : 'fill';
+        })();
+        """) ?? string.Empty;
+
+        await ClickAsync($"#pubDbTree [data-pubtable='{picked}']");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubTree [data-pubnode]').length === 1",
+            "The table did not become a layer.");
+
+        // <b>The swatch, and the name beside it.</b> An empty name is the tell: the swatch has
+        // a shape whatever it reads, and *area* is what it falls through to.
+        string kindInTree = await Browser.EvaluateAsync<string>("""
+        (() => {
+          const s = document.querySelector('#pubTree .pubswatch');
+
+          return s?.classList.contains('dot') ? 'dot'
+            : s?.classList.contains('line') ? 'line' : 'fill';
+        })();
+        """) ?? string.Empty;
+
+        Assert.Equal(kindInPane, kindInTree);
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(
+                await Browser.EvaluateAsync<string>(
+                    "document.querySelector('#pubTree .pubsymname')?.textContent?.trim() || \"\"")),
+            "The layer's symbol has no geometry name beside it, which is what an unread "
+            + "geometry type looks like.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// Every table in the Databases pane says whether it is points, lines or areas.
     /// </summary>
     /// <remarks>
