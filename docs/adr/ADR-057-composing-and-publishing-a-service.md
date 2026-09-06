@@ -228,18 +228,47 @@ its layers in one transaction and Server's **Publish** tab composes one; the end
 400 naming its replacement; the drawer keeps only its group form. §7 condition 4 carries what
 the last two cost and what they found.
 
-### 5i. One table is one layer, and the schema said so before this decision did
+### 5i. One table is one layer *within a service* — and the schema's answer was not a decision
+
+~~**One table is one layer, and the schema said so before this decision did.**~~ **Overturned by
+the owner the same day it was written, 2026-09-06:** *"bir tablonun bir serviste kullanılması,
+başka bir serviste kullanılmasını engellemez. in use durumu saçma."*
 
 **Found 2026-09-06, by publishing a composition that named one table twice.** The refusal
 came back saying the *service name* was taken, which was this endpoint mistranslating a
-constraint it had not expected. The constraint is `layer_table_unique` on
-`(data_source_id, schema_name, table_name, geometry_column)`, and it is **global** — not per
+constraint it had not expected. The constraint was `layer_table_unique` on
+`(data_source_id, schema_name, table_name, geometry_column)`, and it was **global** — not per
 service.
 
-So *the same feature class twice with different filters*, which this ADR had left open as a
-question for the owner, **is already answered, and more strictly than the question assumed**:
-not once per service, once per server. A second view of the same data is a database view, and
-the composition names that instead.
+~~So *the same feature class twice with different filters*, which this ADR had left open as a
+question for the owner, is already answered, and more strictly than the question assumed: not
+once per service, once per server. A second view of the same data is a database view, and the
+composition names that instead.~~
+
+**That paragraph is the mistake worth keeping visible, and it is a particular kind.** An open
+question was closed by finding that the schema already forbade the thing — and the schema
+forbade it by accident. `layer_table_unique` arrived in **migration 1**, in the `create table
+layer` statement, with a long comment above it about identity columns and geometry types and
+not one word about this. Nobody decided it. Reading a constraint as a decision is how an
+implementation detail becomes a product rule without anybody agreeing to it, and the register
+has a name for the reverse of this — [ADR-034](ADR-034-server-and-studio.md), a control drawn
+for a feature that does not exist. This was a rule enforced for a decision nobody took.
+
+**What it cost was visible on the screen.** The Publish screen read `/admin/layers`, struck
+through every table any service already served, and refused the drag — on a developer's
+database that is most of the list. The owner saw it and said so.
+
+**The rule now:** a table may be published into as many services as anybody likes. Migration 40
+drops the global constraint and replaces it with `layer_table_unique_in_service` on
+`(service_id, …)`, so `parsel` is servable from the cadastre service and the planning service at
+once. The console greys nothing, and the request that fetched the whole layer list to grey
+things out is gone with it.
+
+**One question is left open rather than answered by a constraint again.** The same table twice
+*inside one service* is still refused. That is the *two filters on one feature class* case, and
+filters do not exist on a composition yet — so the refusal costs nothing today and the decision
+can be made when there is something to decide. It is stated here so that the next reader does
+not find the index and conclude, as this section once did, that somebody chose it.
 
 **The endpoint translates each constraint rather than assuming there is one.** A publish can
 collide four ways — the service name, the table, a layer name inside the service, and an index
@@ -248,6 +277,57 @@ published sends them to rename something that was fine. The unmatched case print
 constraint, which is how the first mismatch was found in one request: the service index is
 called `service_name_in_folder_ci`, because a later migration made it case-insensitive and
 renamed it, and an exact-name match had quietly fallen through.
+
+### 5j. The composition is drawn before it exists
+
+**By owner decision, 2026-09-06**, when the built screen was put beside the design study it came
+from and the question was whether they were the same screen: *"db'den okuduğunu direkt çizebilen
+bir yapı olmalı. db bağlantısı varsa çizebilmeli de. gerçek önizleme ile benzer bir yapı."*
+
+`POST /admin/publish/preview` takes the composition, reads the tables out of the databases it
+names, and returns a PNG. **Nothing is published to draw it**, and the conformance test asserts
+that as its second fact: a preview implemented by publishing to a hidden service would pass the
+first assertion for months and leave a service behind per look.
+
+**It is the real drawing path, not a second one.** The loop is `MapServer/export`'s loop — the
+same `MapRenderer`, the same `WmsEndpoints.DrawLayerAsync`, the same symbology, the same
+reprojection. A preview with its own renderer would be a picture of that renderer.
+
+**What made it cheap was measured before it was written, and it could as easily have been
+false.** `LayerConnections.SourceFor` reads three things off a `PublishedLayer` — its connection
+string, its definition, its statement timeout — and never asks the catalogue whether that layer
+exists. So a layer assembled in memory from a composition entry reads features exactly as a
+served one does. Had that not held, the preview would have needed a temporary service and a
+decision of its own.
+
+**Three things travel beside the image**, because a picture cannot say them: the reference in
+`X-Graticula-Srid`, the frame in `X-Graticula-Extent`, and — on the screen — the layer indices,
+which is what a client asks for and what the drawing replaced when it took the summary's place.
+
+**The record ceiling is lower than a served map's**, and that is a bound rather than a promise:
+a preview is looked at while somebody is still deciding, so it is answered quickly or it is not
+looked at.
+
+### 5k. The symbol is chosen while composing
+
+**The owner asked for it with the screen** — *"Katmanın açılır ekranının altında sembolü
+gözükecek. Tıklayınca modal bir ekran açılacak ve o katmanın sembolunu değiştirebileceğim."* The
+swatch under each layer is the symbol it will be drawn with; clicking it opens a small dialog of
+two colours and a width, which is what a fill, a line and a point all need.
+
+**The document travels with the composition**, so the preview redraws with it and the published
+layer is stored with it — `PublishRequest.Symbology` → `LayerPublication.Symbology` →
+`layer.symbology`, the same column the layer's own symbology screen writes. A dialog that only
+changed the swatch would be a picture of a preference.
+
+**Null is not the same as a document that matches the default.** An unset symbology is what makes
+the server generate an appearance from the geometry, and that generated appearance is allowed to
+improve; a stored copy of today's default would freeze it. `symbology_updated_at` is stamped only
+where a document was chosen, because *chose the generated one* and *was never asked* are
+different states.
+
+**Everything else about how a layer looks stays on the layer's own screen.** Classes, breaks and
+labels are a published layer's business; this is the choice made while composing.
 
 ## 6. Consequences
 
@@ -327,6 +407,19 @@ renamed it, and an exact-name match had quietly fallen through.
    `folder: "Utilities"` with any name at all created a published service inside a reserved
    folder. Closing that was not the point of this condition and is the clearest evidence that
    two ways in drift.
+6. **The preview is timed against a composition of a database, and the ceiling is chosen with
+   a number rather than a guess.** §5j draws every layer on every change the screen cannot
+   coalesce, and each layer is a spatial query against somebody else's database. The record
+   ceiling is 4,000 per layer and that figure was picked for feel, not measured: nobody knows
+   where a preview stops being instant, whether the answer is the row count or the vertex count,
+   or what forty layers cost at once. **Until it is measured the screen is fast on a fixture and
+   unproven on an estate**, which is exactly the shape §60 warns about from the other direction.
+
+7. **A preview that samples says so on the screen.** Where the ceiling bites, the drawing is
+   part of the layer and looks like all of it — and an operator deciding what to publish from a
+   picture that silently omits half the features is being misled by the thing built to inform
+   them. The server knows when it truncated; nothing carries that to the page yet.
+
 5. **A service with a group is opened by a real ArcGIS client.** `type: "Group Layer"` and
    `subLayerIds` are what the specification says; what Pro and the JavaScript API actually do
    with a group layer served by something that is not ArcGIS Server is not known here, and

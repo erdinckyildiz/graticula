@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(39);
+    public static SchemaVersion ComponentSchemaVersion => new(40);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -74,6 +74,7 @@ public static class PlatformMigrations
         GroupMemberListAndLeavingV37,
         SymbologyIsNoLongerBoundedV38,
         AServiceNamesItsReferenceV39,
+        OneTableMayBeInManyServicesV40,
     ]);
 
 
@@ -2503,6 +2504,52 @@ public static class PlatformMigrations
     /// because the absence is the meaning.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A table may be published into more than one service.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>By owner decision, 2026-09-06:</b> <i>"bir tablonun bir serviste kullanılması, başka
+    /// bir serviste kullanılmasını engellemez. in use durumu saçma."</i> The Publish screen was
+    /// greying out every table any service already served and refusing to compose with it —
+    /// which is what <c>layer_table_unique</c> made it do, and the constraint is what is wrong.
+    /// </para>
+    /// <para>
+    /// <b>It was never decided; it arrived with the table.</b> Migration 1 created
+    /// <c>layer</c> with <c>unique (data_source_id, schema_name, table_name, geometry_column)</c>
+    /// and said nothing about why — there is a paragraph above it about identity columns and
+    /// geometry types and not one word about this. It has been read since as a product rule:
+    /// [ADR-057](../../../docs/adr/ADR-057-composing-and-publishing-a-service.md) §5i answered
+    /// <i>can the same feature class be published twice</i> by pointing at it, and the answer
+    /// was the schema's accident rather than anybody's decision.
+    /// </para>
+    /// <para>
+    /// <b>Scoped to the service rather than dropped.</b> The owner's sentence is about two
+    /// services, so that is what this changes: <c>parsel</c> may be in the cadastre service and
+    /// in the planning service at once. The same table twice inside <i>one</i> service is still
+    /// refused, and that is a separate question — it is what a *the same layer with two filters*
+    /// composition would need, and filters do not exist on a composition yet.
+    /// </para>
+    /// <para>
+    /// <b>An expand, and it cannot fail on existing data.</b> Dropping a unique constraint never
+    /// conflicts with rows that satisfied it, and every row that satisfied the global one
+    /// satisfies the per-service one.
+    /// </para>
+    /// </remarks>
+    private static Migration OneTableMayBeInManyServicesV40 => Migration.Expand(
+        new SchemaVersion(40),
+        "A table may be published into more than one service; the constraint is per service.",
+
+        "alter table layer drop constraint if exists layer_table_unique",
+
+        // <b>An index rather than a table constraint, so a later decision can drop it without a
+        // second migration guessing at its name.</b> The name is kept so a refusal still says
+        // something a reader can search for — `PublishCompositionAsync` matches on this stem.
+        """
+        create unique index if not exists layer_table_unique_in_service
+            on layer (service_id, data_source_id, schema_name, table_name, geometry_column)
+        """);
+
     private static Migration AServiceNamesItsReferenceV39 => Migration.Expand(
         new SchemaVersion(39),
         "A service names the reference it is served in; null keeps the layer's own.",

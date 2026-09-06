@@ -131,6 +131,10 @@ internal sealed record PublishRequest(
     // not a reason for this server to decline to serve it — and every layer published
     // before today was published without the question being asked. So the count is
     // *always reported* and the refusal is asked for by whoever wants it.
+    // <b>How it is drawn, chosen on the Publish screen and carried here.</b> Null generates an
+    // appearance from the geometry, which is what publishing did before ADR-057 §5g.
+    string? Symbology = null,
+
     bool RequireValidGeometry = false,
 
     // <b>D-156: the override [geometry-crs-policy](../../docs/geometry-crs-policy.md) §2
@@ -446,6 +450,11 @@ internal static class AdminEndpoints
         app.MapGet("/admin/datasources/{id:guid}/capability", CapabilityAsync);
         app.MapPost("/admin/layers", PublishAsync);
         app.MapPost("/admin/publish", PublishCompositionAsync);
+
+        // <b>Drawn before it exists, by owner decision 2026-09-06</b> — *"db'den okuduğunu
+        // direkt çizebilen bir yapı olmalı"*. A POST because the composition is the body and it
+        // is not a resource; nothing is written and nothing is remembered.
+        app.MapPost("/admin/publish/preview", PreviewCompositionAsync);
         app.MapGet("/admin/layers", ListLayersAsync);
 
         // <b>What this caller owns, and what is shared with them — ADR-034 §5f.</b> The
@@ -1918,6 +1927,185 @@ internal static class AdminEndpoints
     /// <summary>Counts a thing in words, because "1 layers" reads as a bug.</summary>
     private static string Count(int howMany, string what) =>
         howMany == 1 ? $"1 {what}" : $"{howMany} {what}s";
+
+    /// <summary>
+    /// Draws a composition that has not been published yet.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner decision, 2026-09-06:</b> <i>"db'den okuduğunu direkt çizebilen bir yapı olmalı.
+    /// db bağlantısı varsa çizebilmeli de. gerçek önizleme ile benzer bir yapı."</i> The Publish
+    /// screen builds a service out of tables in registered databases; until this existed the way
+    /// to find out what you had built was to publish it.
+    /// </para>
+    /// <para>
+    /// <b>It reads the same validation as publishing, so a composition that draws is a
+    /// composition that publishes.</b> A preview with looser rules would show a picture of
+    /// something the next request refuses, which is worse than no picture — the operator would
+    /// trust it.
+    /// </para>
+    /// <para>
+    /// <b>Everything it draws with is <see cref="CompositionPreview"/>'s</b>, which is
+    /// <c>MapServer/export</c>'s loop. See that type for why nothing has to be published first.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="request">The composition.</param>
+    /// <param name="catalog">Where a data source's connection string comes from.</param>
+    /// <param name="contexts">The feature sources and their described shapes.</param>
+    /// <param name="canvases">What the image is drawn on.</param>
+    /// <param name="projector">For combining extents across references.</param>
+    /// <param name="settings">The server's image and record ceilings.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task PreviewCompositionAsync(
+        HttpContext context,
+        CompositionRequest? request,
+        IAdminCatalog catalog,
+        ServiceContexts contexts,
+        IMapCanvasFactory canvases,
+        IProjector projector,
+        HostSettings settings,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(contexts);
+        ArgumentNullException.ThrowIfNull(canvases);
+        ArgumentNullException.ThrowIfNull(settings);
+
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (request?.Nodes is not { Count: > 0 } nodes)
+        {
+            await Refuse(
+                context, 400,
+                "There is nothing to draw. Send the composition — its layers and its groups.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        List<CompositionNode> composed = [];
+        int at = 0;
+
+        foreach (CompositionNodeRequest node in nodes)
+        {
+            at++;
+
+            if (node.Group is { Length: > 0 } named)
+            {
+                List<LayerPublication> children = [];
+
+                foreach (PublishRequest child in node.Layers ?? [])
+                {
+                    if (!TryReadPublication(child, out LayerPublication? read, out string? bad))
+                    {
+                        await Refuse(context, 400, $"Entry {at}, in group '{named}': {bad}")
+                            .ConfigureAwait(false);
+
+                        return;
+                    }
+
+                    children.Add(read!);
+                }
+
+                composed.Add(new CompositionNode(named, null, children));
+                continue;
+            }
+
+            if (node.Layer is null)
+            {
+                await Refuse(
+                    context, 400, $"Entry {at} is neither a group nor a layer.")
+                    .ConfigureAwait(false);
+
+                return;
+            }
+
+            if (!TryReadPublication(node.Layer, out LayerPublication? one, out string? refused))
+            {
+                await Refuse(context, 400, $"Entry {at}: {refused}").ConfigureAwait(false);
+                return;
+            }
+
+            composed.Add(new CompositionNode(null, one));
+        }
+
+        (List<PublishedLayer>? layers, string? why) = await CompositionPreview
+            .LayersAsync(composed, catalog, cancellation).ConfigureAwait(false);
+
+        if (layers is null)
+        {
+            await Refuse(context, 400, why!).ConfigureAwait(false);
+            return;
+        }
+
+        int srid = CompositionPreview.ReferenceFor(request.Srid, layers);
+
+        (int width, int height) = CompositionPreview.ReadSize(
+            context.Request.Query["size"],
+            new WidthHeight(settings.MaximumImageWidth, settings.MaximumImageHeight));
+
+        // <b>The caller's frame wins, and the layers' own is the fallback.</b> A screen that
+        // lets somebody pan sends a bbox; the first draw has nothing to send, and asking the
+        // operator where their data is defeats the picture.
+        if (!CompositionPreview.TryReadExtent(context.Request.Query["bbox"], out Envelope extent))
+        {
+            if (await CompositionPreview
+                    .ExtentAsync(contexts, layers, srid, projector, cancellation)
+                    .ConfigureAwait(false) is not { } found)
+            {
+                await Refuse(
+                    context, 409,
+                    "None of these tables would say where their data is, so there is nothing to "
+                    + "frame a drawing on. They may be empty, or unreachable — publishing will "
+                    + "say which.").ConfigureAwait(false);
+
+                return;
+            }
+
+            extent = found;
+        }
+
+        PixelTransform transform = new(extent, width, height);
+
+        using IMapCanvas canvas = canvases.Create(width, height);
+
+        MapRenderer renderer = new(canvas, transform, AxisOrder.IsGeographic(srid));
+
+        renderer.Clear(Rgba.Transparent);
+
+        foreach (PublishedLayer layer in layers)
+        {
+            await WmsEndpoints
+                .DrawLayerAsync(
+                    contexts, renderer, transform, layer, srid, null,
+                    CompositionPreview.RecordCeiling(settings.MaximumRecordCount), cancellation)
+                .ConfigureAwait(false);
+        }
+
+        renderer.FinishLabels();
+
+        byte[] image = canvas.Encode(MapImageFormat.Png, settings.JpegQuality);
+
+        // <b>What was drawn, beside the drawing.</b> A picture cannot say which reference it is
+        // in or how far it reaches, and both are things the operator is deciding — so the frame
+        // travels in headers rather than being guessed from the image.
+        context.Response.Headers["X-Graticula-Extent"] = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{extent.MinX},{extent.MinY},{extent.MaxX},{extent.MaxY}");
+
+        context.Response.Headers["X-Graticula-Srid"] =
+            srid.ToString(CultureInfo.InvariantCulture);
+
+        context.Response.ContentType = "image/png";
+
+        await context.Response.Body.WriteAsync(image, cancellation).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Answers the address an empty service used to be created at.
@@ -5939,14 +6127,15 @@ internal static class AdminEndpoints
                     $"'{request.Name}' already exists in {where}. Names are unique inside a "
                     + "folder; another folder may hold the same one.",
 
-                // <b>One layer per table, and the index says so globally rather than per
-                // service.</b> So *the same feature class twice with different filters* — the
-                // question ADR-057 left open — is already answered by the schema, and answered
-                // more strictly than the question assumed.
+                // <b>Once per service, and it used to be once per server.</b> The global form
+                // was migration 1's and nobody had decided it; the owner did on 2026-09-06 —
+                // *a table used in one service does not stop it being used in another* — and
+                // migration 40 scoped it. What is left refuses the same table twice inside one
+                // composition, which is an accidental double-drag rather than an intention.
                 _ when Named("layer_table_unique") =>
-                    "One of these tables is already published as a layer, here or in another "
-                    + "service. A table is served by one layer on this server: point the second "
-                    + "one at a view, or use the layer that exists.",
+                    "This composition holds the same table twice. One table is one layer within "
+                    + "a service — other services may serve it too, and this one may not serve "
+                    + "it more than once.",
 
                 _ when Named("layer_name_unique_in_service") =>
                     "Two layers in this composition have the same name. A layer's name is how a "
@@ -8662,7 +8851,8 @@ internal static class AdminEndpoints
             string.IsNullOrWhiteSpace(request.ServiceName) ? null : request.ServiceName.Trim(),
             request.ParentLayerId,
             request.CacheSeconds,
-            string.IsNullOrWhiteSpace(request.Folder) ? null : request.Folder.Trim());
+            string.IsNullOrWhiteSpace(request.Folder) ? null : request.Folder.Trim(),
+            string.IsNullOrWhiteSpace(request.Symbology) ? null : request.Symbology);
 
         return true;
     }

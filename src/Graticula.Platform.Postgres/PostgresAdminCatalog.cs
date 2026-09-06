@@ -179,11 +179,14 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 insert into layer
                   (id, data_source_id, name, schema_name, table_name, geometry_column,
                    identity_column, object_id_column, srid, geometry_type,
-                   service_id, layer_index, parent_layer_index, cache_seconds)
+                   service_id, layer_index, parent_layer_index, cache_seconds,
+                   symbology, symbology_updated_at)
                 values
                   (gen_random_uuid(), @source, @name, @schema, @table, @geometry,
                    @identity, @objectid, @srid, @type,
-                   @service, @index, @parent, @cache)
+                   @service, @index, @parent, @cache,
+                   @symbology::text,
+                   case when @symbology::text is null then null else now() end)
                 """,
                 connection,
                 transaction);
@@ -194,6 +197,13 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             insert.Parameters.AddWithValue("table", layer.TableName);
             insert.Parameters.AddWithValue("geometry", layer.GeometryColumn);
             insert.Parameters.AddWithValue("identity", layer.IdentityColumn);
+
+            // <b>Stamped only when there is a document, which is what the column means.</b>
+            // `symbology_updated_at` beside a null symbology would say somebody chose the
+            // generated appearance — and choosing it and never being asked are different
+            // states, one of which the layer's own screen reports.
+            insert.Parameters.AddWithValue(
+                "symbology", (object?)layer.Symbology ?? DBNull.Value);
             insert.Parameters.AddWithValue(
                 "objectid", (object?)layer.ObjectIdColumn ?? DBNull.Value);
             insert.Parameters.AddWithValue("srid", layer.Srid);

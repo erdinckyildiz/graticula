@@ -66,9 +66,10 @@ public sealed class PublishScreenTests : ConsoleTest
 
         Assert.False(
             string.IsNullOrWhiteSpace(chosen),
-            "Every table in this database is either unpublishable or already served, so there "
-            + "is nothing this test can compose with. A table is one layer on this server "
-            + "(ADR-057 §5i), so the fixture needs one that is free.");
+            "No table in this database can be published at all, so there is nothing this test "
+            + "can compose with. Since migration 40 the only reason is a table with no geometry "
+            + "column or no integer this server can use as an object id — being served by "
+            + "another service is not one (ADR-057 §5i).");
 
         await ClickAsync($"#pubDbTree [data-pubtable='{chosen}']");
 
@@ -156,6 +157,102 @@ public sealed class PublishScreenTests : ConsoleTest
     }
 
     /// <summary>
+    /// The contents pane is a tree: a root, a tick, a symbol and a mark where it reprojects.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The screen shipped as three flat lists and was presented as built to the design study
+    /// it came from.</b> The owner put the two side by side on 2026-09-06 and asked whether they
+    /// were the same screen. They were not: no root, no disclosure, no tick, no symbol, no
+    /// reprojection mark, and a text summary where the drawing belonged. Everything worked and
+    /// nothing looked like what had been agreed.
+    /// </para>
+    /// <para>
+    /// <b>So the shape is asserted, not only the behaviour.</b> Every other test on this screen
+    /// drags a table and watches a request; all of them passed against the flat version. A
+    /// structure nobody checks is a structure that quietly does not exist —
+    /// [D-90](../../docs/architecture-debt.md)'s lesson, applied to layout rather than to a
+    /// button.
+    /// </para>
+    /// <para>
+    /// <b>The composition is put in directly rather than dragged.</b> Dragging has its own test
+    /// above; this one is about what the pane draws, and building the tree through the pointer
+    /// would make a layout failure look like a drag failure. The layers name references that
+    /// differ on purpose, because the reprojection mark is drawn only where there is one and
+    /// *drawn on everything* is the failure it is easiest to ship.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_contents_pane_is_a_tree_with_a_root_a_tick_and_a_symbol()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(Shown("#pubTree"), "The Publish screen drew no contents pane.");
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const layer = (name, srid, type) => ({
+            kind: "layer", id: "L" + (++pubSeq), name,
+            source: "00000000-0000-0000-0000-000000000000", sourceName: "probe",
+            schema: "public", table: name, geometry: "geom", identity: "objectid",
+            srid, geometryType: type, type,
+          });
+
+          pubTree = [
+            layer("zz_same", 3857, "MultiPolygon"),
+            { kind: "group", id: "G_zz", name: "zz_group", children: [
+              layer("zz_other", 4326, "MultiLineString"),
+            ] },
+          ];
+
+          pubDraw();
+          return true;
+        })();
+        """);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubTree [data-pubnode]').length === 3",
+            "The composition did not draw its three nodes.");
+
+        // <b>A root, because every layer here hangs off one service.</b> Without it there is
+        // nothing to right-click when the thing being changed is the service itself, which is
+        // where its name and its reference are.
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "document.querySelector('#pubTree [data-pubroot]') !== null"),
+            "The contents pane has no root node, so the service has nowhere to be named.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "document.querySelectorAll('#pubTree [data-pubshow]').length === 3"),
+            "Not every node carries a visibility tick.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "document.querySelectorAll('#pubTree [data-pubsym]').length === 2"),
+            "The layers do not show the symbol they will be drawn with. A group has none, "
+            + "because a group holds no data — so two of the three nodes should.");
+
+        // <b>The mark is on the one layer stored in something else, and on nothing else.</b>
+        // Served in 3857: `zz_other` is stored in 4326 and is warped; `zz_same` is not.
+        Assert.Equal(
+            1,
+            await Browser.EvaluateAsync<int>(
+                "document.querySelectorAll('#pubTree .pubwarp').length"));
+
+        // <b>A reference is a code, not a quantity.</b> `num` groups thousands, so every badge
+        // on this screen read `EPSG:3,857` — which is not a code anybody can paste or look up.
+        Assert.DoesNotContain(
+            "3,857",
+            await Browser.EvaluateAsync<string>(
+                "document.getElementById('pubTree').innerText") ?? string.Empty,
+            StringComparison.Ordinal);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// Two tables of one name become two layers of two names.
     /// </summary>
     /// <remarks>
@@ -212,16 +309,27 @@ public sealed class PublishScreenTests : ConsoleTest
     }
 
     /// <summary>
-    /// A table already served is offered and refused, with the reason where the table is.
+    /// A table another service already serves can still be dragged into a new one.
     /// </summary>
     /// <remarks>
-    /// <b>Greyed rather than hidden, because a reader is looking for it.</b>
-    /// <c>layer_table_unique</c> is global — one table is one layer on this server, ADR-057 §5i
-    /// — and a table that vanishes from the tree makes somebody hunt for a row that is working
-    /// as designed.
+    /// <para>
+    /// <b>This test used to assert the opposite, and the opposite was wrong.</b> It read *a
+    /// table already served is offered and refused*, and it passed for as long as the screen
+    /// struck those tables through and ignored the click. The owner saw the result on 2026-09-06
+    /// — most of a developer's database greyed out — and said what the rule actually is:
+    /// <i>"bir tablonun bir serviste kullanılması, başka bir serviste kullanılmasını engellemez.
+    /// in use durumu saçma."</i>
+    /// </para>
+    /// <para>
+    /// <b>The rule it enforced was never decided.</b> <c>layer_table_unique</c> came with
+    /// migration 1's <c>create table layer</c> and nothing recorded why; ADR-057 §5i then closed
+    /// an open question by citing it. Migration 40 scopes it to the service. The test is
+    /// inverted rather than deleted, because the interesting fact is the same one — what happens
+    /// when somebody reaches for a table another service holds — and only the answer changed.
+    /// </para>
     /// </remarks>
     [Fact]
-    public async Task A_table_already_served_is_shown_and_cannot_be_taken()
+    public async Task A_table_another_service_serves_can_still_be_composed_with()
     {
         (string token, _) = await SignInAsync();
 
@@ -237,24 +345,32 @@ public sealed class PublishScreenTests : ConsoleTest
             "document.querySelectorAll('#pubDbTree [data-pubtable]').length > 0",
             "Opening a database listed no tables.");
 
-        Assert.True(
-            await Browser.EvaluateAsync<bool>(
-                "document.querySelectorAll('#pubDbTree [data-pubtable].used').length > 0"),
-            "No table in this fixture is marked as already served, so this test is not checking "
-            + "anything. The seed publishes what it makes, so at least one should be.");
-
-        string used = await Browser.EvaluateAsync<string>(
-            "document.querySelector('#pubDbTree [data-pubtable].used')"
-            + "?.getAttribute('data-pubtable') || ''") ?? string.Empty;
-
-        Assert.False(string.IsNullOrWhiteSpace(used), "No served table to press.");
-
-        await ClickAsync($"#pubDbTree [data-pubtable='{used}']");
-
+        // <b>Nothing wears the mark any more, and its absence is the assertion.</b> A screen
+        // that kept the class and stopped acting on it would look identical to one that had
+        // dropped the rule, and the next reader would restore the refusal to match the styling.
         Assert.Equal(
             0,
             await Browser.EvaluateAsync<int>(
-                "document.querySelectorAll('#pubTree [data-pubnode]').length"));
+                "document.querySelectorAll('#pubDbTree [data-pubtable].used').length"));
+
+        // The one thing that genuinely cannot be composed with is a table this server cannot
+        // address — no geometry column, or no integer to use as an object id.
+        string servable = await Browser.EvaluateAsync<string>(
+            "document.querySelector('#pubDbTree [data-pubtable][draggable=true]')"
+            + "?.getAttribute('data-pubtable') || ''") ?? string.Empty;
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(servable),
+            "No table in this database can be published at all, so this test is checking "
+            + "nothing.");
+
+        await ClickAsync($"#pubDbTree [data-pubtable='{servable}']");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubTree [data-pubnode]').length === 1",
+            "A table this server can address did not become a layer. Since migration 40 the "
+            + "only reason to refuse one is that it has no geometry or no object id, and this "
+            + "one was offered as draggable.");
 
         NothingWentWrong(await PageErrorsAsync());
     }

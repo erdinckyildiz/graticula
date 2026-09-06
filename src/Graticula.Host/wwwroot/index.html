@@ -572,6 +572,15 @@
           published whole — its layers and its groups arrive together or not at all.</p>
       </div>
       <div class="pageacts">
+        <!--
+          <b>The reference is here rather than in the Publish dialog, since 2026-09-06.</b> It
+          decides what the drawing beside it shows, so keeping it until the last screen made the
+          preview a picture of a choice the operator had not made yet. It is still sent with the
+          composition; this is only where it is chosen.
+        -->
+        <label class="pbserved">Served in
+          <select id="pubSrid"></select></label>
+        <button id="pubRedraw" class="ghost">Preview</button>
         <button id="pubClear" class="ghost">Clear</button>
         <button id="pubOpen" class="primary" disabled>Publish&hellip;</button>
       </div>
@@ -586,9 +595,20 @@
         <div class="composerbody" id="pubTree"></div>
       </section>
 
+      <!--
+        <b>The drawing, and it is the server's own.</b> `POST /admin/publish/preview` reads the
+        tables out of the databases and hands them to the renderer `MapServer/export` uses, so
+        what is on screen is what the service will serve — owner decision 2026-09-06,
+        *"db'den okuduğunu direkt çizebilen bir yapı olmalı"*. The list of what will exist sits
+        under it, because the indices are what a client asks for and a picture cannot say them.
+      -->
       <section class="panel composerpane" id="pubSummary">
-        <div class="composerhead"><b>What will exist</b></div>
-        <div class="composerbody" id="pubWhat"></div>
+        <div class="composerhead">
+          <b>Preview</b>
+          <span class="val" id="pubDrawSays"></span>
+        </div>
+        <div class="composerbody pubcanvas" id="pubShot"></div>
+        <div class="pubwhatstrip" id="pubWhat"></div>
       </section>
 
       <section class="panel composerpane" id="pubDatabases">
@@ -1785,6 +1805,23 @@
   *Instance* as `host,port`; Npgsql takes it separately, and hiding it would mean a database on
   5433 could not be reached from this form at all.
 -->
+<!--
+  <b>How one layer of a composition is drawn, before the composition exists.</b> The owner asked
+  for it with the screen — *"Katmanın açılır ekranının altında sembolü gözükecek. Tıklayınca modal
+  bir ekran açılacak ve o katmanın sembolunu değiştirebileceğim."* It is deliberately small: two
+  colours and a width, which is what a fill, a line and a point all need and what the generated
+  appearance already picks. The full symbology editor is a layer's own screen, and it exists —
+  this is the choice made while composing, kept with the layer and published with it.
+-->
+<dialog id="pubsymbol" aria-labelledby="pubsymTitle">
+  <header class="dialoghead">
+    <h3 id="pubsymTitle" tabindex="-1">Symbol</h3>
+    <button class="tiny ghost" id="pubsymClose" aria-label="Close">&#10005;</button>
+  </header>
+  <div class="dialogbody" id="pubsymBody"></div>
+  <footer class="dialogfoot" id="pubsymFoot"></footer>
+</dialog>
+
 <dialog id="dbconn" aria-labelledby="dbconnTitle">
   <header class="dialoghead">
     <h3 id="dbconnTitle" tabindex="-1">Database connection</h3>

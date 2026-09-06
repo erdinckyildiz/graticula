@@ -57,6 +57,17 @@ public readonly record struct RegisteredDataSource(
 /// a combination of layers."</em>
 /// </param>
 /// <param name="Folder">
+/// <param name="Symbology">
+/// How the layer is drawn, as a canonical document — or null to generate an
+/// appearance from the geometry.
+/// <para>
+/// <b>Chosen while composing, ADR-057 §5g.</b> The Publish screen shows a swatch under
+/// each layer and draws its preview with it, so the document travels with the
+/// composition — a served layer that looked like something else the moment it was
+/// published would make the preview a decoration. Null is what every layer carried
+/// before that screen existed, and the generated appearance is allowed to improve.
+/// </para>
+/// </param>
 /// The folder to publish into, or null for the default — <c>hosted</c> for the
 /// datastore and the root for a registered source, which is what happened for every
 /// publish before 2026-08-17. **A folder that does not exist is created**, at the owner's
@@ -77,7 +88,8 @@ public sealed record LayerPublication(
     string? ServiceName = null,
     int? ParentLayerIndex = null,
     int? CacheSeconds = null,
-    string? Folder = null);
+    string? Folder = null,
+    string? Symbology = null);
 
 /// <summary>
 /// A publish named a data source this server does not have.

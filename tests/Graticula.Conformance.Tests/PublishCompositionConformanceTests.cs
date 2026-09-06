@@ -542,6 +542,244 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
     }
 
     /// <summary>
+    /// A table another service already serves can be published again, into a second one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner decision, 2026-09-06:</b> <i>"bir tablonun bir serviste kullanılması, başka bir
+    /// serviste kullanılmasını engellemez. in use durumu saçma."</i> Until migration 40 the
+    /// schema refused it — <c>layer_table_unique</c> was global — and the Publish screen struck
+    /// through every table any service held.
+    /// </para>
+    /// <para>
+    /// <b>The constraint was never a decision.</b> It arrived in migration 1's
+    /// <c>create table layer</c> with no reasoning beside it, and
+    /// [ADR-057](../../docs/adr/ADR-057-composing-and-publishing-a-service.md) §5i had closed an
+    /// open question by citing it — reading an accident as a rule. This test is what stops it
+    /// coming back the next time somebody reads the index and infers the same thing.
+    /// </para>
+    /// <para>
+    /// <b>Deliberately over a table that is already served</b>, found by reading
+    /// <c>/admin/layers</c> rather than by naming one, because which tables the fixture serves
+    /// differs between a developer's machine and CI — and a test that only works where the
+    /// fixture is a certain shape is a test that stops running.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_table_another_service_serves_can_be_published_again()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        (HttpStatusCode listed, string layers) = await SendAsync(
+            HttpMethod.Get, $"{root}/admin/layers", token!, null);
+
+        Assert.Equal(HttpStatusCode.OK, listed);
+
+        string? qualified = JsonDocument.Parse(layers).RootElement
+            .GetProperty("layers").EnumerateArray()
+            .Select(l => l.TryGetProperty("table", out JsonElement t) ? t.GetString() : null)
+            .FirstOrDefault(t => !string.IsNullOrEmpty(t));
+
+        Assert.False(
+            string.IsNullOrEmpty(qualified),
+            "No layer in this fixture reports the table it reads, so there is nothing already "
+            + "served to publish a second time.");
+
+        string[] parts = qualified!.Split('.');
+
+        Assert.True(parts.Length == 2, $"'{qualified}' is not a qualified table name.");
+
+        // The probe reports the rest of what a publish needs, and it reports it for every table
+        // whether or not a layer already claims one.
+        (HttpStatusCode found, string capability) = await SendAsync(
+            HttpMethod.Get, $"{root}/admin/datasources", token!, null);
+
+        Assert.Equal(HttpStatusCode.OK, found);
+
+        Guid datastore = JsonDocument.Parse(capability).RootElement
+            .GetProperty("dataSources").EnumerateArray()
+            .First(d => string.Equals(
+                d.GetProperty("name").GetString(), "datastore", StringComparison.Ordinal))
+            .GetProperty("id").GetGuid();
+
+        (HttpStatusCode probed, string tables) = await SendAsync(
+            HttpMethod.Get, $"{root}/admin/datasources/{datastore}/capability", token!, null);
+
+        Assert.Equal(HttpStatusCode.OK, probed);
+
+        JsonElement? table = JsonDocument.Parse(tables).RootElement
+            .GetProperty("tables").EnumerateArray()
+            .Where(t => string.Equals(t.GetProperty("schemaName").GetString(), parts[0], StringComparison.Ordinal)
+                && string.Equals(t.GetProperty("tableName").GetString(), parts[1], StringComparison.Ordinal))
+            .Cast<JsonElement?>()
+            .FirstOrDefault();
+
+        Assert.True(
+            table is not null,
+            $"The datastore does not report '{qualified}', which one of its own layers reads.");
+
+        JsonElement it = table!.Value;
+
+        Assert.True(
+            it.TryGetProperty("objectIdColumn", out JsonElement oid)
+            && oid.ValueKind == JsonValueKind.String,
+            $"'{qualified}' has no object-id column, so it cannot be served twice or once.");
+
+        string name = AName();
+
+        (HttpStatusCode made, string said) = await SendAsync(
+            HttpMethod.Post,
+            $"{root}/admin/publish",
+            token!,
+            JsonSerializer.Serialize(new
+            {
+                name,
+                folder = "hosted",
+                sharing = "private",
+                nodes = new object[]
+                {
+                    new
+                    {
+                        layer = Layer(
+                            $"again{name}",
+                            datastore,
+                            parts[0],
+                            parts[1],
+                            it.GetProperty("geometryColumn").GetString()!,
+                            oid.GetString()!,
+                            it.GetProperty("srid").GetInt32()),
+                    },
+                },
+            }));
+
+        Assert.True(
+            made == HttpStatusCode.Created,
+            $"'{qualified}' is served by a layer already and publishing it into a second "
+            + $"service answered {(int)made}. A table used in one service does not stop it "
+            + $"being used in another — the server said: {said}");
+
+        try
+        {
+            // <b>Served, not merely recorded.</b> A row that inserts and answers 404 would pass
+            // the assertion above and deliver nothing.
+            (HttpStatusCode read, _) = await SendAsync(
+                HttpMethod.Get,
+                $"{root}/rest/services/hosted/{name}/FeatureServer/0?f=json",
+                token!,
+                null);
+
+            Assert.Equal(HttpStatusCode.OK, read);
+        }
+        finally
+        {
+            await TearDownAsync(root, token!, name, [$"again{name}"], []);
+        }
+    }
+
+    /// <summary>
+    /// A composition is drawn out of the databases before any of it is published.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner decision, 2026-09-06:</b> <i>"db'den okuduğunu direkt çizebilen bir yapı olmalı.
+    /// db bağlantısı varsa çizebilmeli de."</i> The Publish screen shows what is being composed;
+    /// until this route existed the way to find out was to publish it.
+    /// </para>
+    /// <para>
+    /// <b>Two facts, and the second is the one that could quietly stop being true.</b> That a
+    /// PNG comes back, and that nothing was created to produce it. A preview implemented by
+    /// publishing to a hidden service and drawing that would pass the first assertion for
+    /// months and leave a service per look behind it.
+    /// </para>
+    /// <para>
+    /// <b>Ink, not just bytes.</b> A canvas that drew nothing is a valid PNG of the right size,
+    /// and it is what a preview returns when the extent is wrong, the reprojection collapses or
+    /// the query matched nothing — every failure this route has looks exactly like success
+    /// unless somebody counts the pixels.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_composition_is_drawn_before_it_is_published()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        (Guid source, string schema, string table, string geometry, string identity, int srid) =
+            await ATableAsync(root, token!);
+
+        string name = AName();
+
+        string body = JsonSerializer.Serialize(new
+        {
+            name,
+            folder = "hosted",
+            srid = 3857,
+            nodes = new object[]
+            {
+                new { layer = Layer($"seen{name}", source, schema, table, geometry, identity, srid) },
+            },
+        });
+
+        (HttpStatusCode before, string listedBefore) = await SendAsync(
+            HttpMethod.Get, $"{root}/admin/featureservices", token!, null);
+
+        Assert.Equal(HttpStatusCode.OK, before);
+
+        int wasThere = JsonDocument.Parse(listedBefore)
+            .RootElement.GetProperty("services").GetArrayLength();
+
+        using HttpRequestMessage request =
+            new(HttpMethod.Post, new Uri($"{root}/admin/publish/preview"));
+
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token!);
+        request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+        using HttpResponseMessage answer = await Http.SendAsync(request);
+
+        Assert.True(
+            answer.StatusCode == HttpStatusCode.OK,
+            $"Drawing a composition answered {(int)answer.StatusCode}: "
+            + await answer.Content.ReadAsStringAsync());
+
+        Assert.Equal("image/png", answer.Content.Headers.ContentType?.MediaType);
+
+        // The frame travels beside the picture, because an image cannot say which reference it
+        // is in or how far it reaches — and both are what the operator is deciding.
+        Assert.True(
+            answer.Headers.TryGetValues("X-Graticula-Srid", out IEnumerable<string>? said)
+            && said.FirstOrDefault() == "3857",
+            "The drawing does not say which reference it is in.");
+
+        Assert.True(
+            answer.Headers.Contains("X-Graticula-Extent"),
+            "The drawing does not say what it covers, so nothing can pan or zoom it.");
+
+        byte[] image = await answer.Content.ReadAsByteArrayAsync();
+
+        Assert.True(
+            PngInk.Ink(image).Painted > 0,
+            "The preview came back a valid PNG of the right size with nothing drawn on it, "
+            + "which is what a wrong extent, a collapsed reprojection and a query that matched "
+            + "nothing all look like.");
+
+        (HttpStatusCode after, string listedAfter) = await SendAsync(
+            HttpMethod.Get, $"{root}/admin/featureservices", token!, null);
+
+        Assert.Equal(HttpStatusCode.OK, after);
+
+        Assert.Equal(
+            wasThere,
+            JsonDocument.Parse(listedAfter).RootElement.GetProperty("services").GetArrayLength());
+
+        Assert.DoesNotContain(name, listedAfter, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The address that made an empty service refuses, and says where the act went.
     /// </summary>
     /// <remarks>

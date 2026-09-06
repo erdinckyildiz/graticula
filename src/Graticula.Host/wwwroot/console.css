@@ -322,11 +322,28 @@ a:hover { text-decoration: underline; }
   one inline SVG — see index.html for why the CSS version's regular dot lattice was a limit rather
   than a choice.
 */
+/*
+  <b>It gives way to the navigation, since 2026-09-06.</b> It was anchored 236 pixels off the
+  bottom — a number tuned when Server's rail held six rows. Publish made it seven, and at the
+  owner's window size the plates sat behind *Members*, *Roles*, *Operations* and *Logs*. The
+  labels were still on top (`#tabs` carries `z-index: 1`) and still unreadable, which is the
+  worse half: nothing was broken enough to notice from a test.
+
+  <b>Laid out rather than positioned, so the next row cannot do it again.</b> The rail is a flex
+  column; the art is a flex item that takes what is left between the navigation and the Collapse
+  button and is allowed to shrink to nothing. A magic offset would have needed retuning the day
+  somebody adds an eighth screen, and nobody would connect the two.
+*/
 #railArt {
-  position: absolute; left: 0; right: 0; bottom: 236px;
-  width: 100%; height: auto;
-  pointer-events: none; opacity: .92; z-index: 0;
+  flex: 0 1 auto; min-height: 0; align-self: stretch;
+  width: 100%; height: auto; margin: auto 0 24px;
+  pointer-events: none; opacity: .92;
 }
+
+/* Below this there is no leftover space worth an illustration, and a squeezed one reads as a
+   rendering fault rather than as a decoration. */
+@media (max-height: 760px) { #railArt { display: none; } }
+
 #shell.tight #railArt { display: none; }
 
 #brand {
@@ -2023,6 +2040,83 @@ tr.groupband > td {
 .addgrid { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: var(--gap-5); }
 @media (max-width: 1100px) { .addgrid { grid-template-columns: minmax(0, 1fr); } }
 
+/* The Publish screen's contents tree — ADR-057, and the shape is ArcGIS Pro's contents pane
+   because that is the reference the owner named for this screen.
+
+   <b>A tree rather than a list, since 2026-09-06.</b> It was a flat row per layer, and the
+   design study it was built from had a root, disclosure triangles, a tick and a symbol under
+   each layer. The owner put the two side by side and asked whether they were the same screen;
+   they were not. */
+
+.pubroot { display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border-bottom: 1px solid var(--rule); font-weight: 600; }
+.pubroot .pubglyph { color: var(--accent); }
+.pubmapname { flex: 1; }
+
+.pubmenu { border: 0; background: none; cursor: pointer; color: var(--faint);
+  padding: 2px 6px; border-radius: var(--round); font-size: 15px; line-height: 1; }
+.pubmenu:hover { background: var(--surface-2); color: var(--ink); }
+
+/* The triangle is a button, so it is reachable without a mouse and announces its own state. */
+.pubtwist { border: 0; background: none; cursor: pointer; color: var(--faint);
+  padding: 0; width: 14px; font-size: 10px; line-height: 1; flex: none; text-align: left; }
+.pubtwist:hover { color: var(--ink); }
+
+.pubtick { margin: 0; flex: none; }
+.pubglyph { color: var(--faint); flex: none; }
+
+/* <b>The reprojection mark, and only where there is one.</b> An arrow beside every layer is
+   decoration; beside the three whose tables are stored in something else it is the answer to
+   *what is this service doing to my data*. */
+.pubwarp { color: var(--accent); font-size: 13px; flex: none; cursor: help; }
+
+/* The symbol, under the layer it belongs to — the row the disclosure triangle reveals. */
+.pubsym { display: flex; align-items: center; gap: 9px; width: 100%;
+  border: 0; background: none; cursor: pointer; text-align: left;
+  padding: 3px 10px 5px 44px; color: var(--muted); font-size: var(--t-small); }
+.pubsym:hover { background: var(--surface-2); color: var(--ink); }
+.pubnode.grouped .pubsym { padding-left: 62px; }
+
+.pubswatch { flex: none; width: 22px; height: 14px; }
+.pubswatch.fill { background: var(--sw-fill); border: 1.5px solid var(--sw-line);
+  border-radius: 2px; }
+.pubswatch.line { height: 0; border-top: 2.5px solid var(--sw-line); }
+.pubswatch.dot { width: 12px; height: 12px; border-radius: 50%;
+  background: var(--sw-fill); border: 1.5px solid var(--sw-line); }
+
+/* <b>The picture, and it is the server's.</b> `POST /admin/publish/preview` draws the
+   composition out of the databases with the renderer the served faces use, so this is the
+   service before the service exists. The chequerboard is what says the ground is transparent
+   rather than white — a preview on white would promise a background the service does not
+   serve. */
+.pubcanvas { display: flex; align-items: center; justify-content: center; padding: 10px;
+  min-height: 260px; flex: 1 1 auto; overflow: hidden;
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(45deg, var(--surface-2) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--surface-2) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--surface-2) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--surface-2) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.pubcanvas img { max-width: 100%; max-height: 100%; display: block;
+  box-shadow: var(--lift-2); background: #fff; }
+
+/* The indices, under the picture, because a drawing cannot say that this polygon is layer 2. */
+.pubwhatstrip { border-top: 1px solid var(--rule); padding: 8px 12px; max-height: 128px;
+  overflow-y: auto; }
+.pubwhatstrip:empty { display: none; }
+
+/* The reference, in the page's own action bar rather than in the dialog. */
+.pbserved { display: flex; align-items: center; gap: 8px; color: var(--muted);
+  font-size: var(--t-small); }
+.pbserved select { font-size: var(--t-small); }
+
+/* A value the dialog reports rather than asks for. */
+.pbreadonly { display: block; padding: 7px 0 0; font: 500 var(--t-body)/1 var(--mono);
+  color: var(--ink); }
+
 /* The Publish dialog's *What it can do* block — ADR-057 §5g.
 
    A fieldset because it is one question with several answers, and a legend because a screen
@@ -3378,10 +3472,27 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
   into a picture, so what sits there is the service that will exist rather than a control
   for a feature that does not — ADR-034's rule applied to our own design.
 */
+/*
+  <b>Bounded, since 2026-09-06, and the unbounded version was the whole complaint.</b> The three
+  panes were `min-height: 420px` with no ceiling, so the tallest one set the height of the row —
+  and the tallest is Databases, which lists every table in every registered database. Sixty
+  tables made the page four screens long, the contents pane a strip at the top of an empty
+  column, and the preview a 900-pixel drawing adrift in seventeen hundred pixels of nothing. The
+  owner's words were *arayüz çok kötü durumda*, and this is what they were looking at.
+
+  <b>The row is a viewport height minus what is above it, and each pane scrolls its own
+  contents.</b> A list that can be any length has to scroll inside something; the alternative is
+  the page growing to fit the largest database anybody registers, which is not a layout decision
+  so much as the absence of one.
+*/
 .composer {
-  display: grid; grid-template-columns: 300px 1fr 320px; gap: 12px; align-items: stretch;
+  display: grid; grid-template-columns: 320px minmax(0, 1fr) 340px; gap: 12px;
+  align-items: stretch;
+  height: calc(100vh - 232px); min-height: 460px;
 }
-.composerpane { display: flex; flex-direction: column; min-height: 420px; min-width: 0; padding: 0; }
+@media (max-height: 780px) { .composer { height: auto; } }
+
+.composerpane { display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 0; }
 .composerhead {
   display: flex; align-items: baseline; gap: 8px; padding: 9px 12px;
   border-bottom: 1px solid var(--rule); background: var(--surface-2);
@@ -3408,8 +3519,14 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
   cursor: grab; user-select: none; font-size: var(--t-small);
 }
 .pubrow:hover { background: var(--surface-2); }
-.pubrow .pubname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pubrow .pubsr { margin-left: auto; font: var(--t-tiny)/1 var(--mono); color: var(--faint); }
+/* <b>The name takes the room and the badge gives it up.</b> Every child of the row had its
+   natural width, so `tm30native_ee39df8f` was clipped to `tm30native_ee39…` beside three
+   hundred pixels of empty column — the ellipsis was doing its job on a box nothing had sized.
+   The title attribute stays for the case where the column really is narrow. */
+.pubrow .pubname { flex: 1 1 auto; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pubrow .pubsr { margin-left: auto; flex: 0 0 auto;
+  font: var(--t-tiny)/1 var(--mono); color: var(--faint); }
 .pubrow .pubkill { border: 0; background: transparent; color: var(--faint); padding: 0 4px;
   cursor: pointer; font-size: 13px; }
 .pubrow .pubkill:hover { color: var(--alert-dot); }
@@ -3428,8 +3545,19 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
 .pubschema { padding-left: 24px; color: var(--muted); cursor: pointer; margin: 0 8px; }
 .pubtable { padding-left: 40px; cursor: grab; margin: 0 8px; }
 .pubdb:hover, .pubschema:hover, .pubtable:hover { background: var(--surface-2); }
-.pubtable.no, .pubtable.used { cursor: not-allowed; color: var(--faint); }
-.pubtable .pubsrid { margin-left: auto; font: var(--t-tiny)/1 var(--mono); color: var(--faint); }
+/* <b>`.used` went with the rule it drew.</b> A table served by another service is an ordinary
+   table here since migration 40 — owner decision 2026-09-06. What is left is the one thing that
+   really cannot become a layer: no geometry column, or no integer this server can use as an
+   object id. */
+.pubtable.no { cursor: not-allowed; color: var(--faint); }
+/* <b>The name gives way, not the pane.</b> `ci_earlyalert_reports_08d1a14c` beside a reference
+   badge is wider than a 340-pixel column, and with nothing allowed to shrink the row pushed a
+   horizontal scrollbar across the whole list — so reading the table names meant scrolling
+   sideways through sixty rows. The name ellipsises and keeps its full text in the title. */
+.pubtable > span:nth-child(2) { flex: 1 1 auto; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pubtable .pubsrid { margin-left: auto; flex: 0 0 auto;
+  font: var(--t-tiny)/1 var(--mono); color: var(--faint); }
 .pubdot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ok-dot); }
 .pubdot.no { background: var(--rule-strong); }
 .pubwhy { padding: 0 8px 6px 54px; font-size: var(--t-tiny); color: var(--warn); line-height: 1.45; }

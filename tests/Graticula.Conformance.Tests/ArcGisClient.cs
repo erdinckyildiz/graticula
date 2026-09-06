@@ -739,9 +739,13 @@ public abstract class ArcGisClient : IDisposable
         if (listed == 200)
         {
             // <b>`table`, which is the qualified name the listing carries.</b> There is no
-            // `schemaName` on a layer row — reading one would leave this set empty and hand back
-            // a table that is already served, which is a 409 from `layer_table_unique` and a
-            // confusing one, because the sentence is about a table and the test is about a name.
+            // `schemaName` on a layer row, and reading one would leave this set empty.
+            //
+            // <b>Since migration 40 a served table is publishable again</b> — one table may be
+            // in many services, by owner decision — so this no longer avoids a refusal. What it
+            // still buys is a test whose subject is its own: a composition built over a table
+            // another suite is reading gives that suite a second layer over its data, and the
+            // count assertions elsewhere start depending on the order the classes ran in.
             foreach (JsonElement layer in JsonDocument.Parse(layers)
                 .RootElement.GetProperty("layers").EnumerateArray())
             {

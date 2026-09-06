@@ -10311,6 +10311,22 @@ let pubDatabases = [];
 
 let pubSeq = 0;
 
+/**
+ * What the service will be called, chosen on the root node rather than in the dialog.
+ *
+ * <b>The dialog still asks, and this fills it in.</b> Naming the thing you are building while
+ * you build it is what the root node is for; the dialog is where the name is confirmed along
+ * with the folder and who may see it, and an operator who named it here should not be asked
+ * again with an empty box.
+ */
+let pubServiceName = "";
+
+/** The last preview's object URL, so it can be revoked rather than leaked. */
+let pubShotUrl = null;
+
+/** Which composition the picture on screen is of, so an unchanged one is not redrawn. */
+let pubShotOf = "";
+
 /** Every layer in the composition, groups flattened, in draw order. */
 function pubLayers() {
   const out = [];
@@ -10375,6 +10391,216 @@ async function loadPublish() {
 
   $("pubDbSays").textContent = `${num(pubDatabases.length)} registered`;
 
+  const chooser = $("pubSrid");
+
+  if (chooser && !chooser.options.length) {
+    chooser.innerHTML = PUB_REFERENCES
+      .map(r => `<option value="${r.code}"${r.code === 3857 ? " selected" : ""}
+        >${h(r.name)}${r.code ? ` — EPSG:${r.code}` : ""}</option>`).join("");
+
+    // <b>Changing it redraws both, and the tree is not decoration here.</b> The reprojection
+    // marks beside the layers are computed against this, so a tree left alone would tell the
+    // operator three layers are being warped when the new reference warps none of them.
+    chooser.addEventListener("change", () => { pubDraw(); void pubShoot(true); });
+  }
+
+  pubDraw();
+}
+
+/**
+ * Asks the server to draw the composition as it stands.
+ *
+ * <b>The server draws it, and that is the whole decision</b> — owner, 2026-09-06: *"db'den
+ * okuduğunu direkt çizebilen bir yapı olmalı. db bağlantısı varsa çizebilmeli de."* The
+ * alternative was a schematic drawn in the browser, which would have been a picture of the
+ * schematic rather than of the service.
+ *
+ * <b>Nothing is published to draw it.</b> `POST /admin/publish/preview` reads the tables
+ * straight out of the databases and hands them to the renderer the served faces use, so the
+ * picture is the service before the service exists.
+ *
+ * @param {boolean} force draw even when the composition has not changed
+ * @returns {Promise<void>} when the picture is on screen or the reason is
+ */
+async function pubShoot(force) {
+  const shot = $("pubShot");
+
+  if (!shot) return;
+
+  const layers = pubLayers();
+
+  if (!layers.length) {
+    pubShotOf = "";
+    shot.innerHTML = `<div class="pubempty">Nothing to draw yet. What you build on the left is
+      what will be served, and this is what it looks like.</div>`;
+    $("pubDrawSays").textContent = "";
+    return;
+  }
+
+  const nodes = pubTree.map(node => node.kind === "group"
+    ? { group: node.name, layers: node.children.map(pubWire) }
+    : { layer: pubWire(node) });
+
+  const body = JSON.stringify({ name: pubServiceName || "preview",
+    srid: pubServedSrid() || null, nodes });
+
+  // <b>The same composition is not drawn twice.</b> Every keystroke on this screen redraws the
+  // tree, and a picture costs a query per layer against somebody's database.
+  if (!force && body === pubShotOf) return;
+
+  pubShotOf = body;
+  $("pubDrawSays").textContent = "drawing…";
+
+  try {
+    const answer = await fetch("/admin/publish/preview", {
+      method: "POST",
+      // <b>`api()` cannot be used here, and it is the one place on this screen that is true.</b>
+      // It parses every answer as JSON and this one is a PNG; asking it for the image would
+      // read the bytes as text and throw on the first one that is not.
+      headers: token
+        ? { "Content-Type": "application/json", Authorization: "Bearer " + token }
+        : { "Content-Type": "application/json" },
+      body,
+    });
+
+    if (!answer.ok) {
+      // The server's own sentence, which names the entry or the database rather than saying
+      // that drawing failed.
+      let said = `The server answered ${answer.status}.`;
+
+      try {
+        said = (await answer.json())?.error?.message || said;
+      } catch { /* not JSON, and the status is what there is to say */ }
+
+      pubShotOf = "";
+      $("pubDrawSays").textContent = "";
+      shot.innerHTML = `<div class="pubempty">${h(said)}</div>`;
+      return;
+    }
+
+    // <b>A 200 is not a picture, and this screen found that out the honest way.</b> The console
+    // suite answers every write from inside the page with an empty JSON document and a 200 — so
+    // the first version handed those bytes to an `<img>`, which fired an error the page-error
+    // guard reported as a file that never arrived. The trap is not the suite's: anything that
+    // answers this route with JSON — a proxy's sign-in page, a gateway's error document — would
+    // put a broken image on the screen and say nothing.
+    const kind = answer.headers.get("Content-Type") || "";
+
+    if (!kind.startsWith("image/")) {
+      pubShotOf = "";
+      $("pubDrawSays").textContent = "";
+      shot.innerHTML = `<div class="pubempty">The server answered with
+        ${h(kind.split(";")[0] || "nothing")} rather than an image, so there is no preview to
+        show. The composition is unaffected — Publish does not go through this route.</div>`;
+      return;
+    }
+
+    const srid = answer.headers.get("X-Graticula-Srid");
+    const blob = await answer.blob();
+
+    if (pubShotUrl) URL.revokeObjectURL(pubShotUrl);
+
+    pubShotUrl = URL.createObjectURL(blob);
+
+    shot.innerHTML = `<img id="pubShotImg" src="${pubShotUrl}" alt="The composition, drawn by
+      the server in EPSG:${h(srid || "")}">`;
+
+    $("pubDrawSays").textContent = srid ? `EPSG:${h(srid)}` : "";
+  } catch (e) {
+    pubShotOf = "";
+    $("pubDrawSays").textContent = "";
+    shot.innerHTML = `<div class="pubempty">${h(e.message)}</div>`;
+  }
+}
+
+/**
+ * Chooses how one layer of the composition is drawn.
+ *
+ * <b>Two colours and a width.</b> A fill needs both, a line needs the outline colour and the
+ * width, and a point needs all three — so one form covers every geometry this screen can add,
+ * and the swatch beside the layer's name shows the result before the dialog is closed.
+ *
+ * <b>Kept on the node and published with it.</b> The chosen symbol travels in the composition,
+ * so the preview redraws with it and the served layer is drawn with it — one document, chosen
+ * once. A dialog that only changed the swatch would be a picture of a preference.
+ *
+ * @param {string} id which layer
+ */
+function openPubSymbol(id) {
+  const found = pubFind(id);
+
+  if (!found || found.node.kind === "group") return;
+
+  const node = found.node;
+  const dialog = $("pubsymbol");
+  const kind = pubSwatchKind(node);
+  const symbol = {
+    fill: node.symbol?.fill || PUB_DEFAULT_FILL,
+    line: node.symbol?.line || PUB_DEFAULT_LINE,
+    width: node.symbol?.width ?? (kind === "line" ? 1.4 : 0.8),
+  };
+
+  $("pubsymTitle").textContent = `${node.name} — ${node.geometryType}`;
+
+  $("pubsymBody").innerHTML = `
+    <div class="row">
+      ${kind === "line" ? "" : `<label class="field">Fill
+        <input type="color" id="psFill" value="${h(symbol.fill)}"></label>`}
+      <label class="field">${kind === "line" ? "Colour" : "Outline"}
+        <input type="color" id="psLine" value="${h(symbol.line)}"></label>
+      <label class="field">Width <span class="val">points</span>
+        <input type="number" id="psWidth" min="0" max="20" step="0.2"
+          value="${symbol.width}"></label>
+    </div>
+    <p class="hint">The preview redraws with this, and the published layer is drawn with it.
+      Everything else about how a layer looks — classes, breaks, labels — is on the layer's own
+      symbology screen once it is served.</p>`;
+
+  $("pubsymFoot").innerHTML = `
+    <button type="button" class="ghost" id="psDefault">Use the default</button>
+    <button type="button" class="primary" id="psKeep">Keep</button>`;
+
+  $("psKeep").addEventListener("click", () => {
+    node.symbol = {
+      fill: $("psFill")?.value || symbol.fill,
+      line: $("psLine").value,
+      width: Number($("psWidth").value) || 0,
+    };
+
+    dialog.close();
+    pubDraw();
+  });
+
+  $("psDefault").addEventListener("click", () => {
+    delete node.symbol;
+    dialog.close();
+    pubDraw();
+  });
+
+  $("pubsymClose").onclick = () => dialog.close();
+
+  dialog.showModal();
+  ($("psFill") || $("psLine")).focus();
+}
+
+/**
+ * Renames the service, or changes the reference it is served in.
+ *
+ * <b>On the root, because that is where the service is.</b> The owner asked for exactly this —
+ * *"En üstte ekranda görünen bus routes yazan yerde Map yazacak. ona da sağ tıklayınca adını
+ * rename edebileceğim, ya da projeksiyonu tanımlayabileceğim ekranlar açılacak."*
+ */
+function pubRootMenu() {
+  const given = prompt(
+    "What is this service called? (Cancel to change the reference instead)",
+    pubServiceName || "Map");
+
+  if (given === null) {
+    $("pubSrid")?.focus();
+    return;
+  }
+
+  pubServiceName = given.trim();
   pubDraw();
 }
 
@@ -10388,21 +10614,19 @@ async function pubProbe(db) {
   try {
     const answer = await api(`/admin/datasources/${encodeURIComponent(db.id)}/capability`) || {};
 
-    // <b>Already served is greyed rather than hidden.</b> `layer_table_unique` is global — one
-    // table is one layer on this server — so a table in use cannot be dragged, and a reader
-    // looking for it needs to find it and see why rather than wonder where it went. ADR-057 §5i.
-    const taken = new Set(
-      (await api("/admin/layers") || {}).layers?.map(l => (l.table || "").toLowerCase()) || []);
-
+    // <b>Nothing is greyed for being served elsewhere, by owner decision 2026-09-06:</b>
+    // *"bir tablonun bir serviste kullanılması, başka bir serviste kullanılmasını engellemez. in
+    // use durumu saçma."* This read `/admin/layers` and struck through every table any service
+    // already held, because `layer_table_unique` was global and the drag would have been refused.
+    // Migration 40 scopes that constraint to the service, so a table already served is an
+    // ordinary table here — and asking the server for the whole layer list to grey things out is
+    // a request that no longer has a question behind it.
     const schemas = new Map();
 
     for (const t of answer.tables || []) {
       if (!schemas.has(t.schemaName)) schemas.set(t.schemaName, { name: t.schemaName, open: true, tables: [] });
 
-      schemas.get(t.schemaName).tables.push({
-        ...t,
-        used: taken.has(`${t.schemaName}.${t.tableName}`.toLowerCase()),
-      });
+      schemas.get(t.schemaName).tables.push({ ...t });
     }
 
     db.schemas = [...schemas.values()];
@@ -10587,34 +10811,191 @@ function pubRows() {
 /* ------------------------------------------------------------------ drawing */
 
 function pubNode(node, inside) {
+  const picked = pubPicked.has(node.id) ? "sel" : "";
+  const open = node.open !== false;
+  const twist = `<button class="pubtwist" data-pubtwist="${h(node.id)}"
+      aria-expanded="${open}" aria-label="${open ? "Collapse" : "Expand"} ${h(node.name)}"
+      >${open ? "&#9660;" : "&#9654;"}</button>`;
+
+  // <b>The visibility tick is the layer's, and it is not the same as removing it.</b> A layer
+  // switched off stays in the composition, keeps its index and is published — it simply arrives
+  // not drawn, which is `defaultVisibility` in the service document and the thing an operator
+  // means by unticking a box in every GIS they have used.
+  const tick = `<input type="checkbox" class="pubtick" data-pubshow="${h(node.id)}"
+      ${node.shown === false ? "" : "checked"}
+      aria-label="Draw ${h(node.name)} by default">`;
+
   if (node.kind === "group") {
-    return `<div class="pubnode ${pubPicked.has(node.id) ? "sel" : ""}" draggable="true"
+    return `<div class="pubnode pubgroup ${inside ? "grouped" : ""} ${picked}" draggable="true"
         data-pubnode="${h(node.id)}">
         <div class="pubrow" data-pubgroup="${h(node.id)}">
-          <span aria-hidden="true" style="color:var(--faint)">&#9707;</span>
+          ${twist}${tick}
+          <span aria-hidden="true" class="pubglyph">&#9707;</span>
           <span class="pubname pubgroupname">${h(node.name)}</span>
           <span class="pubcount">${num(node.children.length)}</span>
           <button class="pubkill" data-pubkill="${h(node.id)}"
             aria-label="Remove ${h(node.name)}">&#10005;</button>
         </div>
       </div>`
-      + node.children.map(c => pubNode(c, true)).join("");
+      + (open ? node.children.map(c => pubNode(c, true)).join("") : "");
   }
 
-  return `<div class="pubnode ${inside ? "grouped" : ""} ${pubPicked.has(node.id) ? "sel" : ""}"
+  // <b>The reprojection mark is drawn only where there is one.</b> An arrow beside every layer
+  // is decoration; beside the three of eleven whose tables are stored in something else, it is
+  // the answer to *what is this service actually doing to my data*.
+  const warped = pubServedSrid() && node.srid !== pubServedSrid();
+
+  return `<div class="pubnode ${inside ? "grouped" : ""} ${picked}"
       draggable="true" data-pubnode="${h(node.id)}">
       <div class="pubrow">
-        <span class="pubname" title="${h(node.sourceName)} · ${h(node.schema)}.${h(node.table)}">${h(node.name)}</span>
-        <span class="pubsr">EPSG:${num(node.srid)}</span>
+        ${twist}${tick}
+        <span class="pubname" title="${h(node.sourceName)} · ${h(node.schema)}.${h(node.table)}"
+          >${h(node.name)}</span>
+        ${warped ? `<span class="pubwarp" title="Stored in EPSG:${epsg(node.srid)}, served in
+          EPSG:${epsg(pubServedSrid())}" aria-label="reprojected">&#8644;</span>` : ""}
+        <span class="pubsr">EPSG:${epsg(node.srid)}</span>
         <button class="pubkill" data-pubkill="${h(node.id)}"
           aria-label="Remove ${h(node.name)}">&#10005;</button>
       </div>
+      ${open ? `<button class="pubsym" data-pubsym="${h(node.id)}"
+        title="Change how ${h(node.name)} is drawn">
+        <span class="pubswatch ${h(pubSwatchKind(node))}"
+          style="${pubSwatchStyle(node)}" aria-hidden="true"></span>
+        <span class="pubsymname">${h(node.geometryType)}</span>
+      </button>` : ""}
     </div>`;
+}
+
+/**
+ * An EPSG code, written the way a code is written.
+ *
+ * <b>`num` is for quantities and a reference is not one.</b> It groups thousands, so EPSG:3857
+ * reached the screen as `EPSG:3,857` — which is not a code anybody can paste, look up or
+ * recognise. Seven places had it, including the badge beside every layer on the Publish screen,
+ * and it survived because a comma in a number looks like formatting rather than like a defect.
+ *
+ * @param {number} code the reference
+ * @returns {string} the code, ungrouped
+ */
+function epsg(code) {
+  return String(code);
+}
+
+/**
+ * The chosen symbol as the CIM document the server stores and draws with.
+ *
+ * <b>Written here rather than on the server from three fields.</b> `layer.symbology` holds a
+ * canonical document and `SymbologyPlan.Compile` reads one; a server that also accepted *a
+ * colour and a width* would have two ways to say how a layer looks, and the second would drift
+ * from the first the moment either changed.
+ *
+ * <b>Null when nothing was chosen</b>, which is not the same as a document that happens to match
+ * the default: an unset symbology is what makes the server generate an appearance from the
+ * geometry, and that generated appearance is allowed to improve.
+ *
+ * @param {object} node the layer
+ * @returns {object|null} a CIM renderer, or null to leave it generated
+ */
+function pubSymbolDocument(node) {
+  if (!node.symbol) return null;
+
+  const rgb = hex => {
+    const raw = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+    const n = raw ? parseInt(raw[1], 16) : 0;
+
+    return { type: "CIMRGBColor", values: [(n >> 16) & 255, (n >> 8) & 255, n & 255, 100] };
+  };
+
+  const kind = pubSwatchKind(node);
+  const width = Number(node.symbol.width) || 0;
+
+  // <b>Stroke first, because CIM draws the first layer on top.</b> An outline listed after its
+  // fill is painted under it and disappears, which is the one thing to get right here — the
+  // shipped symbol sets carry the same sentence for the same reason.
+  const stroke = {
+    type: "CIMSolidStroke", enable: true, width, color: rgb(node.symbol.line),
+  };
+
+  const fill = { type: "CIMSolidFill", enable: true, color: rgb(node.symbol.fill) };
+
+  const symbol = kind === "line"
+    ? { type: "CIMLineSymbol", symbolLayers: [stroke] }
+    : kind === "dot"
+      ? { type: "CIMPointSymbol", symbolLayers: [{
+          type: "CIMVectorMarker", enable: true, size: Math.max(4, width * 6), rotation: 0,
+          markerGraphics: [{
+            type: "CIMMarkerGraphic",
+            geometry: { x: 0, y: 0 },
+            symbol: { type: "CIMPolygonSymbol", symbolLayers: [fill] },
+          }],
+        }] }
+      : { type: "CIMPolygonSymbol", symbolLayers: [stroke, fill] };
+
+  return {
+    type: "CIMSimpleRenderer",
+    label: "",
+    description: "",
+    symbol: { type: "CIMSymbolReference", symbol },
+  };
+}
+
+/**
+ * The reference the whole composition is served in, or 0 for each layer's own.
+ *
+ * <b>Read from the control rather than held in a variable.</b> One place decides it, and the
+ * tree, the preview and the publish body all ask that place — a copy is how the drawing and the
+ * request came to disagree about the reference in the first place.
+ *
+ * @returns {number} an EPSG code, or 0
+ */
+function pubServedSrid() {
+  return Number($("pubSrid")?.value) || 0;
+}
+
+/** Which shape a swatch draws: a fill, a line or a dot. @param {object} node the layer
+ * @returns {string} a class name */
+function pubSwatchKind(node) {
+  const kind = (node.geometryType || "").toLowerCase();
+
+  if (kind.includes("point")) return "dot";
+  if (kind.includes("line")) return "line";
+
+  return "fill";
+}
+
+/**
+ * The swatch's colours, from the symbol the layer will actually be given.
+ *
+ * <b>The server's default until somebody chooses otherwise</b>, so the square beside the name is
+ * the colour the preview draws with rather than a decorative chip. A swatch that agreed with
+ * nothing would be worse than no swatch.
+ *
+ * @param {object} node the layer
+ * @returns {string} inline custom properties for the swatch
+ */
+function pubSwatchStyle(node) {
+  const fill = node.symbol?.fill || PUB_DEFAULT_FILL;
+  const line = node.symbol?.line || PUB_DEFAULT_LINE;
+
+  return `--sw-fill:${fill};--sw-line:${line}`;
 }
 
 /* ------------------------------------------------------------------ publishing */
 
 /** The references this console offers, and why somebody would pick each. */
+/**
+ * The colours a layer is drawn in until somebody chooses otherwise.
+ *
+ * <b>The server's own generated appearance, restated here so the swatch agrees with the
+ * drawing.</b> `SymbologyPlan.Default` picks these; the console cannot ask for them before a
+ * layer exists, so the two are kept the same by this comment and by the preview beside them —
+ * a swatch that disagreed with the picture next to it would be caught the moment anybody looked.
+ */
+const PUB_DEFAULT_FILL = "#8fc7a0";
+
+/** The outline the generated appearance draws. */
+const PUB_DEFAULT_LINE = "#4c8c60";
+
 const PUB_REFERENCES = [
   { code: 0, name: "Each layer's own", note: "no reprojection" },
   { code: 3857, name: "WGS 84 / Pseudo-Mercator", note: "what web basemaps use" },
@@ -10662,9 +11043,14 @@ async function openPublishDialog() {
           <option value="public">Anybody, without signing in</option>
         </select></label>
 
-        <label class="field">Served in<select id="pbSrid">${PUB_REFERENCES
-          .map(r => `<option value="${r.code}">${h(r.name)}${r.code ? ` — EPSG:${r.code}` : ""}</option>`)
-          .join("")}</select></label>
+        <!--
+          <b>Shown, not asked — it moved to the screen's own header on 2026-09-06.</b> The
+          reference decides what the preview draws, so choosing it here meant choosing it after
+          the last chance to look at the result. Repeating the control would be two places to
+          set one thing.
+        -->
+        <label class="field">Served in
+          <output class="pbreadonly" id="pbSridSays"></output></label>
       </div>
 
       <p class="hint" id="pbWarp"></p>
@@ -10716,15 +11102,15 @@ async function openPublishDialog() {
       layer${layers.length === 1 ? "" : "s"}</button>`;
 
   const warp = () => {
-    const wanted = Number($("pbSrid").value) || 0;
+    const wanted = pubServedSrid();
     const moved = layers.filter(l => wanted && l.srid !== wanted);
 
     $("pbWarp").innerHTML = wanted === 0
       ? "Every layer answers in whatever its own table is stored in."
       : moved.length === 0
-        ? `Every layer is already stored in EPSG:${num(wanted)}, so nothing is reprojected.`
+        ? `Every layer is already stored in EPSG:${epsg(wanted)}, so nothing is reprojected.`
         : `<b>${num(moved.length)} of ${num(layers.length)}</b> will be reprojected on the way
-           out: ${moved.map(l => `${h(l.name)} (EPSG:${num(l.srid)})`).join(", ")}.`;
+           out: ${moved.map(l => `${h(l.name)} (EPSG:${epsg(l.srid)})`).join(", ")}.`;
   };
 
   const folderNote = () => {
@@ -10758,11 +11144,18 @@ async function openPublishDialog() {
     $(id).addEventListener("change", capsSay);
   }
 
-  $("pbSrid").addEventListener("change", warp);
   $("pbFolder").addEventListener("input", folderNote);
   $("pbCancel").addEventListener("click", () => dialog.close());
   $("publishClose").onclick = () => dialog.close();
   $("pbGo").addEventListener("click", sendPublish);
+
+  // <b>The name the root node already carries.</b> Asking again with an empty box is asking
+  // somebody to repeat themselves, and *Map* is the placeholder rather than a name.
+  if (pubServiceName && pubServiceName !== "Map") $("pbName").value = pubServiceName;
+
+  $("pbSridSays").textContent = pubServedSrid()
+    ? `EPSG:${epsg(pubServedSrid())}`
+    : "each layer's own";
 
   warp();
   capsSay();
@@ -10800,7 +11193,7 @@ async function sendPublish() {
     return;
   }
 
-  const srid = Number($("pbSrid").value) || null;
+  const srid = pubServedSrid() || null;
 
   const nodes = pubTree.map(node => node.kind === "group"
     ? { group: node.name, layers: node.children.map(pubWire) }
@@ -10835,6 +11228,7 @@ async function sendPublish() {
     // screen after a successful publish invites a second press, which is a second service.
     pubTree = [];
     pubPicked = new Set();
+    pubServiceName = "";
 
     for (const db of pubDatabases) { db.schemas = null; db.open = false; }
 
@@ -10863,6 +11257,12 @@ function pubWire(layer) {
     objectIdColumn: layer.identity,
     srid: layer.srid,
     geometryType: layer.type,
+
+    // <b>Chosen while composing, published with the composition.</b> Null leaves the server to
+    // generate an appearance, which is what every layer got before this screen existed.
+    symbology: pubSymbolDocument(layer)
+      ? JSON.stringify(pubSymbolDocument(layer))
+      : null,
   };
 }
 
@@ -11039,9 +11439,24 @@ function pubDraw() {
 
   if (!tree) return;
 
+  // <b>A root called Map, which is what the tree is.</b> Every layer in the composition hangs
+  // off one service, and a list with no head leaves the operator with nothing to right-click
+  // when the thing they want to change is the service — its name, and the reference it is
+  // served in. ArcGIS Pro's contents pane is the reference the owner named for this screen.
+  const root = `<div class="pubroot" data-pubroot="1">
+      <span class="pubtwist" aria-hidden="true">&#9660;</span>
+      <span class="pubglyph" aria-hidden="true">&#9635;</span>
+      <span class="pubname pubmapname" id="pubMapName">${h(pubServiceName || "Map")}</span>
+      <span class="pubsr">${pubServedSrid()
+        ? `EPSG:${epsg(pubServedSrid())}`
+        : "each layer's own"}</span>
+      <button class="pubmenu" id="pubRootMenu"
+        aria-label="Rename this service or change its reference">&#8942;</button>
+    </div>`;
+
   tree.innerHTML = pubTree.length
-    ? pubTree.map(n => pubNode(n, false)).join("")
-    : `<div class="pubempty">Drag a table here from Databases.<br>
+    ? root + pubTree.map(n => pubNode(n, false)).join("")
+    : root + `<div class="pubempty">Drag a table here from Databases.<br>
         <span style="font-size:11.5px">The order you build is the order it is served in —
         the top is drawn on top. Select two and right-click to group them.</span></div>`;
 
@@ -11073,14 +11488,17 @@ function pubDraw() {
       for (const t of schema.tables) {
         const can = Boolean(t.objectIdColumn) && Boolean(t.geometryColumn);
 
-        html += `<div class="pubtable ${can ? "" : "no"} ${t.used ? "used" : ""}"
-            ${can && !t.used ? `draggable="true"` : ""}
+        // <b>Publishable or not, and nothing in between.</b> A table without a geometry column
+        // or without an integer this server can use as an object id cannot become a layer at
+        // all, and the row below says which. Everything else can be dragged, however many
+        // services already serve it.
+        html += `<div class="pubtable ${can ? "" : "no"}"
+            ${can ? `draggable="true"` : ""}
             data-pubtable="${h(db.id)}|${h(schema.name)}|${h(t.tableName)}"
-            title="${can ? (t.used ? "already served by a layer" : "drag into Contents") : "cannot be published"}">
-          <span class="pubdot ${can && !t.used ? "" : "no"}"></span>
-          <span>${h(t.tableName)}</span>
-          ${t.used ? `<span class="val">· in use</span>` : ""}
-          <span class="pubsrid">${t.srid ? "EPSG:" + num(t.srid) : "—"}</span>
+            title="${can ? "drag into Contents" : "cannot be published"}">
+          <span class="pubdot ${can ? "" : "no"}"></span>
+          <span title="${h(schema.name)}.${h(t.tableName)}">${h(t.tableName)}</span>
+          <span class="pubsrid">${t.srid ? "EPSG:" + epsg(t.srid) : "—"}</span>
         </div>`;
 
         if (!can) {
@@ -11094,22 +11512,25 @@ function pubDraw() {
 
   $("pubDbTree").innerHTML = html;
 
+  // <b>The picture follows the composition without being asked.</b> `pubShoot` compares what it
+  // is about to draw with what is on screen and returns when they match, so redrawing the tree
+  // on every keystroke does not mean querying somebody's database on every keystroke.
+  void pubShoot(false);
+
   // ------------------------------------------------------------ what will exist
   const layers = pubLayers();
 
   $("pubOpen").disabled = layers.length === 0;
 
+  // <b>Under the picture, because the indices are what a client asks for.</b> A drawing cannot
+  // say that this polygon is layer 2; the strip can, and it is the half of *what will exist*
+  // that the preview does not replace.
   $("pubWhat").innerHTML = layers.length
     ? `<ul class="pubwill">${pubRows().map((n, i) => n.kind === "group"
-        ? `<li><b>${h(n.name)}</b> <span class="pubsame">group layer, index ${num(i)}</span></li>`
-        : `<li><code>${h(n.name)}</code> <span class="pubsame">index ${num(i)} ·
-             ${h(n.schema)}.${h(n.table)}</span></li>`).join("")}</ul>
-       <p class="hint" style="padding:0 12px">${num(layers.length)}
-          layer${layers.length === 1 ? "" : "s"} in
-          ${num(pubTree.filter(n => n.kind === "group").length)} group(s). The reference it is
-          served in is chosen when you press Publish.</p>`
-    : `<div class="pubempty">Nothing yet. What you build on the left is what will be
-        served.</div>`;
+        ? `<li><b>${h(n.name)}</b> <span class="pubsame">group, index ${num(i)}</span></li>`
+        : `<li><code>${h(n.name)}</code> <span class="pubsame">index ${num(i)}</span></li>`)
+        .join("")}</ul>`
+    : "";
 }
 
 async function loadSources() {
@@ -14865,15 +15286,51 @@ async function handleClick(event) {
 
     pubTree = [];
     pubPicked = new Set();
+    pubServiceName = "";
     pubDraw();
     return;
   }
 
   if (t.id === "pubOpen") { openPublishDialog(); return; }
 
+  // <b>Preview is a button as well as an effect, because a redraw costs a query per layer.</b>
+  // The picture follows the composition on its own; this is for the operator who changed
+  // something in the database and wants to see it, which nothing on this screen can know about.
+  if (t.id === "pubRedraw") { await pubShoot(true); return; }
+
+  if (t.id === "pubRootMenu" || t.closest?.("[data-pubroot]")) { pubRootMenu(); return; }
+
   const killed = t.closest?.("[data-pubkill]");
 
   if (killed) { pubRemove(killed.dataset.pubkill); return; }
+
+  // <b>Before the node branch below, because both are inside a `[data-pubnode]`.</b> A click on
+  // the twist arrow or the tick is about that control; letting it fall through to selection
+  // would make expanding a group also select it, which is how a right-click menu then offers
+  // to ungroup something the operator was only opening.
+  const twisted = t.closest?.("[data-pubtwist]");
+
+  if (twisted) {
+    const found = pubFind(twisted.dataset.pubtwist);
+
+    if (found) { found.node.open = found.node.open === false; pubDraw(); }
+
+    return;
+  }
+
+  const shown = t.closest?.("[data-pubshow]");
+
+  if (shown) {
+    const found = pubFind(shown.dataset.pubshow);
+
+    if (found) { found.node.shown = found.node.shown === false; pubDraw(); }
+
+    return;
+  }
+
+  const symbol = t.closest?.("[data-pubsym]");
+
+  if (symbol) { openPubSymbol(symbol.dataset.pubsym); return; }
 
   const openDb = t.closest?.("[data-pubdb]");
 
