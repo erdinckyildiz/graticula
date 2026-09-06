@@ -618,10 +618,19 @@ public sealed class PublishScreenTests : ConsoleTest
             $"Twelve view changes asked for {afterZoom - settled} drawings. Each is a query per "
             + "layer against somebody's database, and the reader only ever sees the last.");
 
+        // <b>Superseded on purpose, because the wait above means it rarely happens by accident.</b>
+        // Collapsing twelve view changes into one request is the other repair working; to see a
+        // cancellation there has to be a drawing in flight when the next one starts, so two are
+        // started in the same tick.
+        await Browser.EvaluateAsync<bool>("(pubShoot(true), pubShoot(true), true)");
+
+        await Task.Delay(1500);
+
         Assert.True(
             await Browser.EvaluateAsync<int>("window.__stopped") > 0,
-            "Nothing was cancelled. A superseded drawing that is merely ignored still runs to "
-            + "the end on the server — which is the half of this the owner named.");
+            "A drawing started while another was in flight and the first was not cancelled. One "
+            + "that is merely ignored still runs to the end on the server — which is the half of "
+            + "this the owner named: *eski requestlerin cancel da olması lazım*.");
 
         // <b>What a successful first draw would have taught the screen.</b>
         await Browser.EvaluateAsync<bool>("""
@@ -635,6 +644,10 @@ public sealed class PublishScreenTests : ConsoleTest
         })();
         """);
 
+        // <b>Counted here, after the deliberate supersede above.</b> Comparing against the
+        // number from before it would be counting those two as if the pan had made them.
+        int before = await Browser.EvaluateAsync<int>("window.__asked");
+
         await Browser.EvaluateAsync<bool>("""
         (() => {
           pubMap.getView().setCenter([-8000000, 4000000]);
@@ -645,7 +658,7 @@ public sealed class PublishScreenTests : ConsoleTest
 
         await Task.Delay(2000);
 
-        Assert.Equal(afterZoom, await Browser.EvaluateAsync<int>("window.__asked"));
+        Assert.Equal(before, await Browser.EvaluateAsync<int>("window.__asked"));
 
         Assert.Contains(
             "in view",

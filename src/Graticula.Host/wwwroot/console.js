@@ -10610,7 +10610,15 @@ async function pubBuildMap() {
   */
   pubMap.on("moveend", () => {
     clearTimeout(pubShootSoon);
-    pubShootSoon = setTimeout(() => void pubShoot(true), 250);
+
+    // <b>Not forced, and forcing it was the third of the owner's three complaints.</b>
+    // `moveend` does not mean *the view changed*: OpenLayers ends a move when the map is
+    // resized too, and the pane resizes as fonts land, as the database list grows and as a
+    // scrollbar appears. Forcing skipped the *is this the same frame* comparison, so a map
+    // nobody had touched asked for the same picture three times in twenty seconds — measured.
+    // Unforced, an identical frame costs nothing and a real move still redraws, because the
+    // comparison is over the bbox and the size as well as the composition.
+    pubShootSoon = setTimeout(() => void pubShoot(false), 250);
   });
 }
 
@@ -10785,7 +10793,11 @@ async function pubShoot(force) {
         said = (await answer.json())?.error?.message || said;
       } catch { /* not JSON, and the status is what there is to say */ }
 
-      pubShotOf = "";
+      // <b>The frame is remembered even though it failed, and that is the repair.</b> Clearing
+      // it meant the next `moveend` — which a pane resize produces without anybody touching the
+      // map — asked for the identical frame again, and got the identical refusal, forever. The
+      // owner watched that fill a network panel. Retrying is what the Preview button is for; it
+      // forces, and forcing is what skips this comparison.
       image.hidden = true;
       note(said);
       return;
@@ -10799,7 +10811,6 @@ async function pubShoot(force) {
     const kind = answer.headers.get("Content-Type") || "";
 
     if (!kind.startsWith("image/")) {
-      pubShotOf = "";
       image.hidden = true;
       note("No preview is available here.");
       return;
@@ -10854,7 +10865,6 @@ async function pubShoot(force) {
     // operator's own next gesture back to them as an error.
     if (e.name === "AbortError" || mine !== pubDrawing) return;
 
-    pubShotOf = "";
     $("pubDrawSays").textContent = "";
     image.hidden = true;
     note(e.message);
@@ -12780,14 +12790,59 @@ async function loadOperations() {
   $("opsWhen").textContent = "read at " + new Date().toLocaleTimeString();
 }
 
+/**
+ * Which console this page is running, and whether it is the one the server serves.
+ *
+ * <b>Owner, 2026-09-06:</b> *"şuraya bir versiyon numarası yazalım, neyle karşı karşıya
+ * olduğumuza bakayım."* The assembly version answers *which product* and has read `1.0.0.0` all
+ * year; what a reader needs is *which build*, and for these pages the build is the file.
+ *
+ * <b>The bytes this browser actually loaded, not the bytes the server has.</b> The console is a
+ * build-free static file with no cache-busting name, so a browser can be running yesterday's
+ * copy against today's server — and every symptom of that reads as a defect in the server.
+ * Resource timing knows what was decoded into this document; health knows what is on disk. When
+ * the two disagree the page says so, which is the whole point of putting a number here.
+ *
+ * @param {{bytes: number, at: string}|null|undefined} served what the server reports
+ * @returns {string} a suffix for the status line, empty when nothing can be said
+ */
+function consoleBuildSays(served) {
+  if (!served?.bytes) return "";
+
+  const at = new Date(served.at);
+  const stamp = Number.isNaN(at.getTime())
+    ? ""
+    : ` ${at.toLocaleDateString()} ${at.toLocaleTimeString()}`;
+
+  let mine = 0;
+
+  try {
+    mine = (performance.getEntriesByType("resource") || [])
+      .filter(r => r.name.endsWith("/console.js"))
+      .map(r => r.decodedBodySize || 0)
+      .find(n => n > 0) || 0;
+  } catch {
+    // A browser that will not say is not a browser running a stale file, so nothing is claimed.
+  }
+
+  // <b>Only when it is known and different.</b> Zero means the timing entry was not there —
+  // a cache hit with no body reported, a browser that does not expose it — and *unknown* must
+  // not be shown as *stale*.
+  return mine > 0 && mine !== served.bytes
+    ? ` · console is stale, reload (${num(mine)} B loaded, ${num(served.bytes)} B served)`
+    : ` · console${stamp}`;
+}
+
 async function refreshHealth() {
   try {
     const health = await api("/admin/health");
     const ok = health.status === "ok";
     $("healthDot").className = "dot " + (ok ? "" : "bad");
+    const build = consoleBuildSays(health.console);
+
     $("healthLine").textContent = ok
-      ? `platform store reachable · ${health.platformStore.layers} layers`
-      : "DEGRADED — platform store unreachable";
+      ? `platform store reachable · ${health.platformStore.layers} layers${build}`
+      : `DEGRADED — platform store unreachable${build}`;
   } catch {
     $("healthDot").className = "dot unknown";
     $("healthLine").textContent = "health unreachable";

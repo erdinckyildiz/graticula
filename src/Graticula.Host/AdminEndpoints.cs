@@ -5688,6 +5688,41 @@ internal static class AdminEndpoints
         health["version"] =
             typeof(AdminEndpoints).Assembly.GetName().Version?.ToString() ?? "unknown";
 
+        /*
+          <b>Which console this server is serving, so a reader can tell what they are running —
+          owner, 2026-09-06:</b> *"şuraya bir versiyon numarası yazalım, neyle karşı karşıya
+          olduğumuza bakayım."* The assembly version is `1.0.0.0` and has been all year; it
+          answers *which product*, never *which build*.
+
+          <b>The console's own file, because that is the thing that goes stale.</b> These pages
+          are build-free static files with no cache-busting name: a browser holding yesterday's
+          `console.js` runs yesterday's console against today's server, and every symptom of that
+          looks like a bug in the server. The page compares this against the bytes it actually
+          loaded — which it can read from its own resource timing — so the mismatch is visible
+          rather than deduced.
+        */
+        try
+        {
+            // <b>Beside the assembly, which is where the content files are copied.</b> Asking
+            // the hosting environment for its web root would be more correct in general and is
+            // one more service on a handler that takes seven; the file sits next to the binary
+            // in every layout this server ships.
+            System.IO.FileInfo console = new(System.IO.Path.Combine(
+                AppContext.BaseDirectory, "wwwroot", "console.js"));
+
+            health["console"] = console.Exists
+                ? new { bytes = console.Length, at = console.LastWriteTimeUtc }
+                : null;
+        }
+        catch (Exception reading)
+            when (reading is System.IO.IOException or UnauthorizedAccessException)
+        {
+            // <b>Not knowing which console is served is not a degraded server.</b> This is a
+            // convenience for a reader; a health endpoint that failed over it would be reporting
+            // the wrong thing entirely.
+            health["console"] = null;
+        }
+
         // <b>The counters a load run needs to tell an allocation ceiling from a
         // connection-pool limit.</b> Four benchmark rounds concluded that this
         // system's cost is memory traffic and that it is invisible at

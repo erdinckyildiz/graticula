@@ -10,6 +10,46 @@ namespace Graticula.Console.Tests;
 public sealed class SurfaceTests : ConsoleTest
 {
     /// <summary>
+    /// The status line says which console this page is running.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner instruction, 2026-09-06:</b> *"şuraya bir versiyon numarası yazalım, neyle karşı
+    /// karşıya olduğumuza bakayım."* Asked in the middle of chasing a defect nobody could
+    /// reproduce twice, which is exactly when it matters: the console is a build-free static
+    /// file with no cache-busting name, so a browser can be running yesterday's copy against
+    /// today's server and every symptom reads as a defect in the server.
+    /// </para>
+    /// <para>
+    /// <b>The assembly version was already there and says nothing.</b> It has read `1.0.0.0` all
+    /// year and answers *which product*, never *which build*. What identifies a build here is
+    /// the file, so <c>/admin/health</c> reports the bytes and the timestamp of the
+    /// <c>console.js</c> it serves and the page compares that against the bytes it actually
+    /// loaded — which resource timing knows.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_status_line_says_which_console_is_running()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/services", token);
+
+        await WaitForAsync(
+            "(document.getElementById('healthLine')?.textContent || '').includes('console')",
+            "The status line does not say which console this page is running, so a stale one is "
+            + "indistinguishable from a server defect.");
+
+        string line = await Browser.EvaluateAsync<string>(
+            "document.getElementById('healthLine').textContent") ?? string.Empty;
+
+        // <b>Which console, and whether it is the one being served.</b> A page running a cached
+        // copy says so rather than leaving it to be deduced from behaviour.
+        Assert.DoesNotContain("stale", line, StringComparison.OrdinalIgnoreCase);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// Server's own action reaches the screen that makes a service.
     /// </summary>
     /// <remarks>
