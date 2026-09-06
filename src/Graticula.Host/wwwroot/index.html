@@ -578,8 +578,19 @@
           preview a picture of a choice the operator had not made yet. It is still sent with the
           composition; this is only where it is chosen.
         -->
+        <!--
+          <b>Typed, not chosen from three — owner instruction 2026-09-06:</b> *"sadece 3
+          projeksiyon görebiliyorum. kendi istediğimi de girebilmeliyim."* A list of three is a
+          list of what somebody thought of; PROJ knows thousands. The datalist keeps the common
+          ones one keystroke away and the box takes any code, which the server is then asked
+          about — an input that accepts a reference this server cannot project to would be
+          ADR-034's prohibition wearing a text field.
+        -->
         <label class="pbserved">Served in
-          <select id="pubSrid"></select></label>
+          <input id="pubSrid" list="pubReferences" inputmode="numeric" spellcheck="false"
+            size="9" placeholder="3857" aria-describedby="pubSridSaysHead">
+          <datalist id="pubReferences"></datalist></label>
+        <span class="pbsridsays" id="pubSridSaysHead" role="status" aria-live="polite"></span>
         <button id="pubRedraw" class="ghost">Preview</button>
         <button id="pubClear" class="ghost">Clear</button>
         <button id="pubOpen" class="primary" disabled>Publish&hellip;</button>
@@ -607,7 +618,20 @@
           <b>Preview</b>
           <span class="val" id="pubDrawSays"></span>
         </div>
-        <div class="composerbody pubcanvas" id="pubShot"></div>
+        <!--
+          <b>A map, and the drawing sits on it.</b> Owner instruction 2026-09-06: *preview
+          kısmında bir harita olsun, nothing to draw yet yazmasın.* The ground is OpenLayers over
+          OpenStreetMap — the same ground the symbology editor's preview uses, from `ol.js` in
+          this directory, because `script-src 'self'` admits nothing else. The composition is
+          drawn by the server and laid over it as a picture, redrawn when the map settles.
+          <b>And it is a drop target</b>: a table dragged from Databases onto the map lands in
+          the tree, which is the other half of the same instruction.
+        -->
+        <div class="composerbody pubcanvas" id="pubShot">
+          <div id="pubMap"></div>
+          <img id="pubShotImg" alt="" hidden>
+          <div class="pubmapsays" id="pubMapSays" hidden></div>
+        </div>
         <div class="pubwhatstrip" id="pubWhat"></div>
       </section>
 
@@ -1813,6 +1837,17 @@
   appearance already picks. The full symbology editor is a layer's own screen, and it exists —
   this is the choice made while composing, kept with the layer and published with it.
 -->
+<!--
+  <b>A menu, and it replaced a chain of confirmations.</b> Right-clicking a layer used to ask
+  *Ungroup? Cancel to rename it instead*, which is two questions in one box and no way to reach
+  a third. The owner asked for *zoom to layer* — *"sağ clickte zoom to layer yapabilmeliyim.
+  sadece rename değil"* — and there was nowhere to put it.
+
+  <b>Outside the tree, positioned where the pointer was.</b> Inside it, the tree's own scrolling
+  and the row's `overflow: hidden` would clip it.
+-->
+<div id="pubmenu" role="menu" hidden></div>
+
 <dialog id="pubsymbol" aria-labelledby="pubsymTitle">
   <header class="dialoghead">
     <h3 id="pubsymTitle" tabindex="-1">Symbol</h3>

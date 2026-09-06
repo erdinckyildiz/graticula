@@ -455,6 +455,16 @@ internal static class AdminEndpoints
         // direkt çizebilen bir yapı olmalı"*. A POST because the composition is the body and it
         // is not a resource; nothing is written and nothing is remembered.
         app.MapPost("/admin/publish/preview", PreviewCompositionAsync);
+
+        // <b>Where each layer is, so the screen can move a map to one.</b> Owner instruction
+        // 2026-09-06 — *sağ clickte zoom to layer yapabilmeliyim*.
+        app.MapPost("/admin/publish/extent", CompositionExtentAsync);
+
+        // <b>Whether this server can serve in a reference the operator typed.</b> The Publish
+        // screen offered three codes and nothing else; any EPSG code is now typeable, and a
+        // control that accepts a code the server cannot project to is ADR-034's prohibition
+        // wearing an input box.
+        app.MapGet("/admin/references/{srid:int}", ReferenceKnownAsync);
         app.MapGet("/admin/layers", ListLayersAsync);
 
         // <b>What this caller owns, and what is shared with them — ADR-034 §5f.</b> The
@@ -1979,64 +1989,14 @@ internal static class AdminEndpoints
             return;
         }
 
-        if (request?.Nodes is not { Count: > 0 } nodes)
+        if (!TryComposition(request, out List<CompositionNode>? composed, out string? bad))
         {
-            await Refuse(
-                context, 400,
-                "There is nothing to draw. Send the composition — its layers and its groups.")
-                .ConfigureAwait(false);
-
+            await Refuse(context, 400, bad!).ConfigureAwait(false);
             return;
         }
 
-        List<CompositionNode> composed = [];
-        int at = 0;
-
-        foreach (CompositionNodeRequest node in nodes)
-        {
-            at++;
-
-            if (node.Group is { Length: > 0 } named)
-            {
-                List<LayerPublication> children = [];
-
-                foreach (PublishRequest child in node.Layers ?? [])
-                {
-                    if (!TryReadPublication(child, out LayerPublication? read, out string? bad))
-                    {
-                        await Refuse(context, 400, $"Entry {at}, in group '{named}': {bad}")
-                            .ConfigureAwait(false);
-
-                        return;
-                    }
-
-                    children.Add(read!);
-                }
-
-                composed.Add(new CompositionNode(named, null, children));
-                continue;
-            }
-
-            if (node.Layer is null)
-            {
-                await Refuse(
-                    context, 400, $"Entry {at} is neither a group nor a layer.")
-                    .ConfigureAwait(false);
-
-                return;
-            }
-
-            if (!TryReadPublication(node.Layer, out LayerPublication? one, out string? refused))
-            {
-                await Refuse(context, 400, $"Entry {at}: {refused}").ConfigureAwait(false);
-                return;
-            }
-
-            composed.Add(new CompositionNode(null, one));
-        }
-
         (List<PublishedLayer>? layers, string? why) = await CompositionPreview
-            .LayersAsync(composed, catalog, cancellation).ConfigureAwait(false);
+            .LayersAsync(composed!, catalog, cancellation).ConfigureAwait(false);
 
         if (layers is null)
         {
@@ -2044,7 +2004,23 @@ internal static class AdminEndpoints
             return;
         }
 
-        int srid = CompositionPreview.ReferenceFor(request.Srid, layers);
+        /*
+          <b>The reference the picture is drawn in is the caller's when they have a map.</b> The
+          Publish screen puts this drawing over a Web Mercator ground, so a composition an
+          operator has chosen to serve in 4326 must still be *drawn* in 3857 or it lines up with
+          nothing. The service's own reference is not lost by that — it is what `Served in` sets
+          and what the reprojection marks in the tree are about — but a preview that distorted
+          itself to demonstrate the choice would be a picture of no map at all.
+
+          <b>`bboxSR` and not just `bbox`, and the symbology preview learnt this the hard way.</b>
+          Four numbers with no reference were read as the layer's own, every seeded fixture is
+          3857, so the two agreed in every test and disagreed on the first 4326 layer somebody
+          opened — the picture was of somewhere else.
+        */
+        int srid = CompositionPreview.ReadReference(
+            context.Request.Query["bboxSR"],
+            request!.Srid,
+            layers);
 
         (int width, int height) = CompositionPreview.ReadSize(
             context.Request.Query["size"],
@@ -2105,6 +2081,205 @@ internal static class AdminEndpoints
         context.Response.ContentType = "image/png";
 
         await context.Response.Body.WriteAsync(image, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads a composition's nodes, or says which entry it could not read.
+    /// </summary>
+    /// <remarks>
+    /// <b>One reading, three routes.</b> Publishing, drawing and reporting an extent all take
+    /// the same body, and a composition that draws has to be a composition that publishes — so
+    /// this is written once. It was inlined twice before the third route needed it, which is
+    /// the moment [D-46](../../docs/architecture-debt.md) says to stop copying.
+    /// </remarks>
+    /// <param name="request">The composition.</param>
+    /// <param name="composed">The tree, when it reads.</param>
+    /// <param name="error">Which entry did not, and why.</param>
+    /// <returns>Whether it read.</returns>
+    private static bool TryComposition(
+        CompositionRequest? request,
+        out List<CompositionNode>? composed,
+        out string? error)
+    {
+        composed = null;
+        error = null;
+
+        if (request?.Nodes is not { Count: > 0 } nodes)
+        {
+            error = "A service is not created without layers. Send the layers it is made of — "
+                + "there is no empty service to fill in afterwards.";
+
+            return false;
+        }
+
+        List<CompositionNode> read = [];
+        int at = 0;
+
+        foreach (CompositionNodeRequest node in nodes)
+        {
+            at++;
+
+            if (node.Group is { Length: > 0 } named)
+            {
+                List<LayerPublication> children = [];
+
+                foreach (PublishRequest child in node.Layers ?? [])
+                {
+                    if (!TryReadPublication(child, out LayerPublication? one, out string? bad))
+                    {
+                        error = $"Entry {at}, in group '{named}': {bad}";
+                        return false;
+                    }
+
+                    children.Add(one!);
+                }
+
+                read.Add(new CompositionNode(named, null, children));
+                continue;
+            }
+
+            if (node.Layer is null)
+            {
+                error = $"Entry {at} is neither a group nor a layer. A composition holds one or "
+                    + "the other.";
+
+                return false;
+            }
+
+            if (!TryReadPublication(node.Layer, out LayerPublication? layer, out string? refused))
+            {
+                error = $"Entry {at}: {refused}";
+                return false;
+            }
+
+            read.Add(new CompositionNode(null, layer));
+        }
+
+        composed = read;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Where each layer of an unpublished composition is.
+    /// </summary>
+    /// <remarks>
+    /// <b>The same body as the preview, and the same validation.</b> A composition that reports
+    /// an extent is a composition that draws and publishes; three readings of one shape would
+    /// be three chances for them to disagree about what a valid one is.
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="request">The composition.</param>
+    /// <param name="catalog">Where a data source's connection string comes from.</param>
+    /// <param name="contexts">The feature sources and their described shapes.</param>
+    /// <param name="projector">For reporting every extent in one reference.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task CompositionExtentAsync(
+        HttpContext context,
+        CompositionRequest? request,
+        IAdminCatalog catalog,
+        ServiceContexts contexts,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(contexts);
+
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (!TryComposition(request, out List<CompositionNode>? composed, out string? bad))
+        {
+            await Refuse(context, 400, bad!).ConfigureAwait(false);
+            return;
+        }
+
+        (List<PublishedLayer>? layers, string? why) = await CompositionPreview
+            .LayersAsync(composed!, catalog, cancellation).ConfigureAwait(false);
+
+        if (layers is null)
+        {
+            await Refuse(context, 400, why!).ConfigureAwait(false);
+            return;
+        }
+
+        int srid = CompositionPreview.ReadReference(
+            context.Request.Query["outSR"], request!.Srid, layers);
+
+        (List<(string Name, Envelope Extent)> each, Envelope? all) = await CompositionPreview
+            .EachExtentAsync(contexts, layers, srid, projector, cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            srid,
+            all = all is { } whole ? Four(whole) : null,
+            layers = each.Select(e => new { name = e.Name, extent = Four(e.Extent) }),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+
+        static double[] Four(Envelope e) => [e.MinX, e.MinY, e.MaxX, e.MaxY];
+    }
+
+    /// <summary>
+    /// Whether this server can project to a reference.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Because the Publish screen lets an operator type one — owner instruction,
+    /// 2026-09-06:</b> *"sadece 3 projeksiyon görebiliyorum. kendi istediğimi de girebilmeliyim."*
+    /// Three codes in a list is a list of what somebody thought of, not of what the server can
+    /// do; PROJ knows thousands and the screen should let any of them be asked for.
+    /// </para>
+    /// <para>
+    /// <b>And answer honestly when it cannot.</b> An input that takes any number and fails at
+    /// publish is worse than a list of three: the operator finds out after composing. This is
+    /// the question the screen asks while they type.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="srid">The EPSG code asked about.</param>
+    /// <param name="projector">What knows.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task ReferenceKnownAsync(
+        HttpContext context,
+        int srid,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(projector);
+
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (srid <= 0)
+        {
+            await Refuse(context, 400, $"'{srid}' is not an EPSG code.").ConfigureAwait(false);
+            return;
+        }
+
+        bool known = await projector.KnowsAsync(srid, cancellation).ConfigureAwait(false);
+
+        // <b>The reference's own domain, when there is one.</b> It is what makes *this code is
+        // known* useful rather than merely true: a projected reference for another country will
+        // draw, and it will draw the operator's data somewhere absurd.
+        Envelope? domain = known
+            ? await projector.DomainOfAsync(srid, cancellation).ConfigureAwait(false)
+            : null;
+
+        await Results.Json(new
+        {
+            srid,
+            known,
+            domain = domain is { } d ? new[] { d.MinX, d.MinY, d.MaxX, d.MaxY } : null,
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -5980,51 +6155,10 @@ internal static class AdminEndpoints
             return;
         }
 
-        List<CompositionNode> composed = [];
-        int at = 0;
-
-        foreach (CompositionNodeRequest node in nodes)
+        if (!TryComposition(request, out List<CompositionNode>? composed, out string? unreadable))
         {
-            at++;
-
-            if (node.Group is { Length: > 0 } named)
-            {
-                List<LayerPublication> children = [];
-
-                foreach (PublishRequest child in node.Layers ?? [])
-                {
-                    if (!TryReadPublication(child, out LayerPublication? read, out string? bad))
-                    {
-                        await Refuse(context, 400, $"Entry {at}, in group '{named}': {bad}")
-                            .ConfigureAwait(false);
-
-                        return;
-                    }
-
-                    children.Add(read!);
-                }
-
-                composed.Add(new CompositionNode(named, null, children));
-                continue;
-            }
-
-            if (node.Layer is null)
-            {
-                await Refuse(
-                    context, 400,
-                    $"Entry {at} is neither a group nor a layer. A composition holds one or the "
-                    + "other.").ConfigureAwait(false);
-
-                return;
-            }
-
-            if (!TryReadPublication(node.Layer, out LayerPublication? one, out string? refused))
-            {
-                await Refuse(context, 400, $"Entry {at}: {refused}").ConfigureAwait(false);
-                return;
-            }
-
-            composed.Add(new CompositionNode(null, one));
+            await Refuse(context, 400, unreadable!).ConfigureAwait(false);
+            return;
         }
 
         if (catalog is not PostgresAdminCatalog postgres)
@@ -6052,7 +6186,7 @@ internal static class AdminEndpoints
                             : request.Description.Trim(),
                         PostgresSharing(scope),
                         request.Srid,
-                        composed,
+                        composed!,
                         request.ServesFeatures,
                         request.ServesTiles,
                         request.Capabilities),

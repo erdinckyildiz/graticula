@@ -1258,9 +1258,20 @@ public abstract class ConsoleTest : IAsyncLifetime
     /// </para>
     /// <para>
     /// <b>Which matters more here than in most suites.</b> This console has shipped a control
-    /// that existed and rendered nowhere three separate times, and <c>offsetParent</c> is the
-    /// check written to catch exactly that — so an expression that cannot tell *invisible* from
+    /// that existed and rendered nowhere three separate times, and the visibility check is
+    /// written to catch exactly that — so an expression that cannot tell *invisible* from
     /// *absent* defeats the guard while looking like it.
+    /// </para>
+    /// <para>
+    /// <b>Rects rather than <c>offsetParent</c>, since 2026-09-06 — and the difference is a
+    /// whole class of element.</b> <c>offsetParent</c> is <b>null for anything
+    /// <c>position: fixed</c></b>, by the specification and in every browser, so this reported
+    /// *not there* for a context menu that was on the screen and photographed. That is the safe
+    /// direction to be wrong in — it fails rather than passes — but it fails with the sentence
+    /// *your control did not render*, which is the most misleading thing it could say about a
+    /// control that did. <c>getClientRects()</c> is empty for a missing element, empty for
+    /// <c>display: none</c>, and non-empty for a fixed one, which is the question actually being
+    /// asked.
     /// </para>
     /// </remarks>
     /// <param name="selector">A CSS selector for the control.</param>
@@ -1270,7 +1281,7 @@ public abstract class ConsoleTest : IAsyncLifetime
         string quoted = JsonSerializer.Serialize(selector);
 
         return $"(() => {{ const e = document.querySelector({quoted}); "
-            + "return !!e && e.offsetParent !== null; })()";
+            + "return !!e && e.getClientRects().length > 0; })()";
     }
 
     protected async Task ClickAsync(string selector)

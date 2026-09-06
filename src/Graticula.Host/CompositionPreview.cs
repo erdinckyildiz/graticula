@@ -191,6 +191,28 @@ internal static class CompositionPreview
     }
 
     /// <summary>
+    /// The reference to draw in: the caller's map, then the composition's, then a layer's.
+    /// </summary>
+    /// <remarks>
+    /// <b>A caller with a map wins, because their `bbox` is in that reference.</b> Drawing in
+    /// the composition's choice while framing on the map's numbers would put the picture
+    /// somewhere else entirely — the two are only ever the same by luck.
+    /// </remarks>
+    /// <param name="bboxSr">What the caller says its frame is in, or empty.</param>
+    /// <param name="asked">The composition's reference, or null.</param>
+    /// <param name="layers">The layers, in draw order.</param>
+    /// <returns>An EPSG code.</returns>
+    public static int ReadReference(
+        string? bboxSr, int? asked, IReadOnlyList<PublishedLayer> layers)
+    {
+        return int.TryParse(
+                bboxSr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int given)
+            && given > 0
+                ? given
+                : ReferenceFor(asked, layers);
+    }
+
+    /// <summary>
     /// The extent to draw, from the layers themselves when the caller does not say.
     /// </summary>
     /// <remarks>
@@ -267,6 +289,91 @@ internal static class CompositionPreview
         }
 
         return all is { } found ? Padded(found) : null;
+    }
+
+    /// <summary>
+    /// Where each layer of a composition is, and where all of them are together.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>So the screen can move the map to one layer.</b> Owner instruction 2026-09-06: *sağ
+    /// clickte zoom to layer yapabilmeliyim*. Without this the only extent the console could get
+    /// was the one the preview reports for the whole composition, so *zoom to this layer* had
+    /// no answer for a composition of more than one.
+    /// </para>
+    /// <para>
+    /// <b>And it replaces a wasteful first draw.</b> The map used to get its opening frame by
+    /// asking for a picture with no <c>bbox</c> and reading the extent off the answer — a full
+    /// rendering thrown away for four numbers. This is the four numbers.
+    /// </para>
+    /// <para>
+    /// <b>A layer that will not say is absent rather than zero.</b> An empty table and an
+    /// unreachable one both report nothing, and a zero envelope would put the map on Null
+    /// Island; the caller is told which layers have an extent and draws its own conclusion about
+    /// the rest.
+    /// </para>
+    /// </remarks>
+    /// <param name="contexts">Where a layer's described extent comes from.</param>
+    /// <param name="layers">The layers.</param>
+    /// <param name="srid">The reference to report in.</param>
+    /// <param name="projector">The projector.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>Each layer that has an extent, by name, and the union of them.</returns>
+    public static async Task<(List<(string Name, Envelope Extent)> Each, Envelope? All)>
+        EachExtentAsync(
+            ServiceContexts contexts,
+            IReadOnlyList<PublishedLayer> layers,
+            int srid,
+            IProjector projector,
+            CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(contexts);
+        ArgumentNullException.ThrowIfNull(layers);
+
+        List<(string, Envelope)> each = [];
+        Envelope? all = null;
+
+        foreach (PublishedLayer layer in layers)
+        {
+            LayerDescription described;
+
+            try
+            {
+                (_, described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+            }
+            catch (Exception failure) when (failure is not OperationCanceledException)
+            {
+                continue;
+            }
+
+            if (described.Extent is not { } extent)
+            {
+                continue;
+            }
+
+            Envelope? inReference = layer.Definition.Srid == srid
+                ? extent
+                : await ServedExtent
+                    .InAsync(extent, layer.Definition.Srid, srid, projector, cancellation)
+                    .ConfigureAwait(false);
+
+            if (inReference is not { } piece)
+            {
+                continue;
+            }
+
+            each.Add((layer.Definition.Name, Padded(piece)));
+
+            all = all is { } sofar
+                ? new Envelope(
+                    Math.Min(sofar.MinX, piece.MinX),
+                    Math.Min(sofar.MinY, piece.MinY),
+                    Math.Max(sofar.MaxX, piece.MaxX),
+                    Math.Max(sofar.MaxY, piece.MaxY))
+                : piece;
+        }
+
+        return (each, all is { } found ? Padded(found) : null);
     }
 
     /// <summary>

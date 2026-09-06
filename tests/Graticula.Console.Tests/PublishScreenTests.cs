@@ -157,6 +157,210 @@ public sealed class PublishScreenTests : ConsoleTest
     }
 
     /// <summary>
+    /// Right-clicking a layer offers a menu, and *zoom to layer* is on it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner instruction, 2026-09-06:</b> *"sağ clickte zoom to layer yapabilmeliyim. sadece
+    /// rename değil."* What was there was a chain of confirmations — *Ungroup "x"? Cancel to
+    /// rename it instead* — which is two questions in one box, with the second reachable only by
+    /// refusing the first, and nowhere to put a third.
+    /// </para>
+    /// <para>
+    /// <b>Asserted on what is offered, not on what happens.</b> Zooming needs a map and an
+    /// extent from the server, and this suite answers every write from inside the page — so the
+    /// act cannot complete here. What can be checked is the thing that was missing: that the
+    /// menu exists and that the item is on it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Right_clicking_a_layer_offers_a_menu_with_zoom_on_it()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(Shown("#pubTree"), "The Publish screen drew no contents pane.");
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          pubTree = [{
+            kind: "layer", id: "L" + (++pubSeq), name: "zz_menu",
+            source: "00000000-0000-0000-0000-000000000000", sourceName: "probe",
+            schema: "public", table: "zz_menu", geometry: "geom", identity: "objectid",
+            srid: 3857, geometryType: "MultiPolygon", type: "MultiPolygon",
+          }];
+
+          pubDraw();
+          return true;
+        })();
+        """);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubTree [data-pubnode]').length === 1",
+            "The layer did not draw.");
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const row = document.querySelector('#pubTree [data-pubnode] .pubrow');
+          const at = row.getBoundingClientRect();
+
+          row.dispatchEvent(new MouseEvent("contextmenu", {
+            bubbles: true, clientX: at.left + 40, clientY: at.top + 8 }));
+
+          return true;
+        })();
+        """);
+
+        await WaitForAsync(
+            Shown("#pubmenu"),
+            "Right-clicking a layer opened no menu. It used to ask a chain of confirmations, "
+            + "which is why there was nowhere to put *zoom to layer*.");
+
+        string items = await Browser.EvaluateAsync<string>(
+            "[...document.querySelectorAll('#pubmenu [data-pubact]')]"
+            + ".map(b => b.dataset.pubact).join(',')") ?? string.Empty;
+
+        Assert.Contains("zoom", items, StringComparison.Ordinal);
+        Assert.Contains("rename", items, StringComparison.Ordinal);
+        Assert.Contains("symbol", items, StringComparison.Ordinal);
+        Assert.Contains("remove", items, StringComparison.Ordinal);
+
+        // <b>Not on a layer, because a layer is not a group.</b> A menu that offers every act on
+        // every node teaches people that half of it does nothing.
+        Assert.DoesNotContain("ungroup", items, StringComparison.Ordinal);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// Any EPSG code can be typed, and the server says whether it can serve in it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner instruction, 2026-09-06:</b> *"sadece 3 projeksiyon görebiliyorum. kendi
+    /// istediğimi de girebilmeliyim."* The control was a select of three codes — a list of what
+    /// somebody had thought of, where PROJ knows thousands.
+    /// </para>
+    /// <para>
+    /// <b>And it asks rather than assuming.</b> An input that takes any number and fails at
+    /// publish is worse than a list of three: the operator finds out after composing. The screen
+    /// puts the code to <c>GET /admin/references/{srid}</c> while it is typed, and that is a
+    /// read — so it reaches the real server through this suite's trap, which only holds writes.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_reference_can_be_typed_and_the_server_answers_for_it()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(Shown("#pubSrid"), "There is no box to type a reference into.");
+
+        Assert.Equal(
+            "input",
+            await Browser.EvaluateAsync<string>(
+                "document.getElementById('pubSrid').tagName.toLowerCase()"));
+
+        // <b>One this server knows and is not in the console's short list.</b> UTM zone 36N
+        // covers Türkiye and nothing on this screen names it, so an answer about it can only
+        // have come from the server.
+        await Browser.EvaluateAsync<bool>("""
+        (document.getElementById("pubSrid").value = "32636", pubReference(), true)
+        """);
+
+        await WaitForAsync(
+            "!(document.getElementById('pubSridSaysHead')?.textContent || '')"
+            + ".includes('asking')"
+            + " && (document.getElementById('pubSridSaysHead')?.textContent || '').length > 0",
+            "The screen never said anything about the reference that was typed.");
+
+        Assert.DoesNotContain(
+            "cannot",
+            await Browser.EvaluateAsync<string>(
+                "document.getElementById('pubSridSaysHead').textContent") ?? string.Empty,
+            StringComparison.OrdinalIgnoreCase);
+
+        // <b>And a code nothing knows is refused where it is typed.</b>
+        await Browser.EvaluateAsync<bool>("""
+        (document.getElementById("pubSrid").value = "999999", pubReference(), true)
+        """);
+
+        await WaitForAsync(
+            "(document.getElementById('pubSridSaysHead')?.textContent || '')"
+            + ".toLowerCase().includes('cannot')",
+            "A code this server cannot project to was accepted without a word. The publish "
+            + "would refuse it — after the composition was built, which is the worst moment.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// The preview is a map, it says nothing when the composition is empty, and it takes a drop.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Three owner instructions, 2026-09-06, and two of them were repeats.</b> *"preview
+    /// kısmında bir harita olsun. nothing to draw yet yazmasın."* — the pane held a sentence
+    /// explaining that there was nothing to show, where a ground would have answered *where am
+    /// I* without being read. *"datastore kalksın oradan demiştim hala orada."* — the Databases
+    /// pane listed the one store whose tables are already services, which is an act with no
+    /// subject, and the instruction had been given once already. *"map'e databaseden taşıdığım
+    /// toc'a gelsin."*
+    /// </para>
+    /// <para>
+    /// <b>Asserted here because none of the three is visible to any other test.</b> A screen
+    /// can pass every behavioural test on this class with no map at all — the composition,
+    /// the request and the tree are all unaffected by what the middle pane draws. That is how
+    /// the first version of this screen shipped as three lists and was reported as done.
+    /// </para>
+    /// <para>
+    /// <b>The drawing itself is not asserted, and cannot be from here.</b> This suite answers
+    /// every write from inside the page, so the preview request never reaches a server and no
+    /// picture comes back — <c>PublishCompositionConformanceTests</c> is where the drawing is
+    /// checked, against a real one, with the pixels counted.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_preview_is_a_map_that_says_nothing_when_there_is_nothing()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(Shown("#pubTree"), "The Publish screen drew no contents pane.");
+
+        await WaitForAsync(
+            "!!document.querySelector('#pubMap .ol-viewport')",
+            "The preview is not a map. It is meant to show the ground before anything is "
+            + "composed, so that an empty composition is an empty map rather than a sentence.");
+
+        // <b>Nothing said over an empty map.</b> The note is for a refusal the server gave, and
+        // *there is nothing to draw* is not one — it is a description of the screen.
+        Assert.False(
+            await Browser.EvaluateAsync<bool>(Shown("#pubMapSays")),
+            "The empty map carries a note. With no layers there is nothing to say that the "
+            + "map does not already say.");
+
+        Assert.False(
+            await Browser.EvaluateAsync<bool>(Shown("#pubShotImg")),
+            "A drawing is shown with nothing composed.");
+
+        // <b>The datastore is not one of the databases here.</b> Its tables are already
+        // services; offering to compose one is offering an act with no subject.
+        await WaitForAsync(
+            "document.querySelectorAll('#pubDbTree [data-pubdb]').length > 0"
+            + " || (document.getElementById('pubDbTree')?.innerText || '').includes('No database')",
+            "The Databases pane drew neither a database nor an explanation of why not.");
+
+        Assert.DoesNotContain(
+            "datastore",
+            await Browser.EvaluateAsync<string>(
+                "document.getElementById('pubDbTree')?.innerText || ''") ?? string.Empty,
+            StringComparison.OrdinalIgnoreCase);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// The contents pane is a tree: a root, a tick, a symbol and a mark where it reprojects.
     /// </summary>
     /// <remarks>

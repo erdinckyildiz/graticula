@@ -2089,19 +2089,27 @@ tr.groupband > td {
    service before the service exists. The chequerboard is what says the ground is transparent
    rather than white — a preview on white would promise a background the service does not
    serve. */
-.pubcanvas { display: flex; align-items: center; justify-content: center; padding: 10px;
-  min-height: 260px; flex: 1 1 auto; overflow: hidden;
-  background-color: var(--surface);
-  background-image:
-    linear-gradient(45deg, var(--surface-2) 25%, transparent 25%),
-    linear-gradient(-45deg, var(--surface-2) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, var(--surface-2) 75%),
-    linear-gradient(-45deg, transparent 75%, var(--surface-2) 75%);
-  background-size: 16px 16px;
-  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
-}
-.pubcanvas img { max-width: 100%; max-height: 100%; display: block;
-  box-shadow: var(--lift-2); background: #fff; }
+/* <b>The chequerboard went with the empty state it explained.</b> There is a map under the
+   drawing now, so transparency is not a thing to signal — it is how the composition gets to sit
+   on a ground. */
+.pubcanvas { position: relative; min-height: 300px; flex: 1 1 auto; overflow: hidden;
+  padding: 0; background: var(--surface-2); }
+
+#pubMap { position: absolute; inset: 0; }
+#pubMap .ol-viewport { border-radius: 0; }
+
+/* <b>Over the map and out of the way of it.</b> The picture must not swallow the drag, the
+   scroll or the pointer — panning the ground under it is the whole reason the map is here. */
+.pubcanvas > img { position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 1; }
+
+.pubmapsays { position: absolute; left: 10px; bottom: 10px; z-index: 2;
+  max-width: 60%; padding: 6px 10px; border-radius: var(--round);
+  background: rgba(255, 255, 255, .92); border: 1px solid var(--rule);
+  font-size: var(--t-small); color: var(--muted); box-shadow: var(--lift); }
+
+/* Where a table dropped on the map will land. */
+.pubcanvas.dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
 
 /* The indices, under the picture, because a drawing cannot say that this polygon is layer 2. */
 .pubwhatstrip { border-top: 1px solid var(--rule); padding: 8px 12px; max-height: 128px;
@@ -2111,11 +2119,30 @@ tr.groupband > td {
 /* The reference, in the page's own action bar rather than in the dialog. */
 .pbserved { display: flex; align-items: center; gap: 8px; color: var(--muted);
   font-size: var(--t-small); }
-.pbserved select { font-size: var(--t-small); }
+.pbserved input { font-size: var(--t-small); font-family: var(--mono); }
+
+/* What the server says about the code that was typed: its name, or that it does not know it. */
+.pbsridsays { font-size: var(--t-small); color: var(--muted); max-width: 260px; }
+.pbsridsays.bad { color: var(--alert); }
 
 /* A value the dialog reports rather than asks for. */
 .pbreadonly { display: block; padding: 7px 0 0; font: 500 var(--t-body)/1 var(--mono);
   color: var(--ink); }
+
+/* The contents tree's context menu. */
+#pubmenu {
+  position: fixed; z-index: 60; min-width: 178px; padding: 4px;
+  background: var(--surface); border: 1px solid var(--rule-strong);
+  border-radius: var(--round); box-shadow: var(--lift-2);
+}
+#pubmenu button {
+  display: block; width: 100%; text-align: left; border: 0; background: none;
+  padding: 7px 10px; border-radius: 3px; cursor: pointer;
+  font-size: var(--t-small); color: var(--ink);
+}
+#pubmenu button:hover { background: var(--surface-2); }
+#pubmenu button:disabled { color: var(--faint); cursor: default; background: none; }
+#pubmenu hr { border: 0; border-top: 1px solid var(--rule); margin: 4px 2px; }
 
 /* The Publish dialog's *What it can do* block — ADR-057 §5g.
 

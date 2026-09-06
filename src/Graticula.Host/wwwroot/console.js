@@ -10321,11 +10321,28 @@ let pubSeq = 0;
  */
 let pubServiceName = "";
 
-/** The last preview's object URL, so it can be revoked rather than leaked. */
-let pubShotUrl = null;
-
-/** Which composition the picture on screen is of, so an unchanged one is not redrawn. */
+/** Which composition, in which frame, the picture on screen is of — so it is not redrawn. */
 let pubShotOf = "";
+
+/** The map under the drawing, built once when the screen first opens. */
+let pubMap = null;
+
+/** Whether the map has been put over the composition once. */
+let pubFramed = false;
+
+/**
+ * Which draw is the current one.
+ *
+ * <b>Panning fires faster than the server answers</b>, so without a serial number the picture
+ * somebody ends on is whichever request happened to return last.
+ */
+let pubDrawing = 0;
+
+/** The reference the ground is in, which is the reference the drawing has to be in. */
+const PUB_MAP_SR = 3857;
+
+/** The pending *is this reference known* question, so typing does not ask once per keystroke. */
+let pubSridAsking = 0;
 
 /** Every layer in the composition, groups flattened, in draw order. */
 function pubLayers() {
@@ -10380,35 +10397,202 @@ function pubTidy() {
 async function loadPublish() {
   const { dataSources = [] } = await api("/admin/datasources") || {};
 
-  pubDatabases = dataSources.map(d => ({
-    id: d.id,
-    name: d.name,
-    summary: d.summary,
-    open: false,
-    schemas: null,
-    why: null,
-  }));
+  // <b>The datastore is not one of the databases here — owner instruction, twice.</b>
+  // *"datastore burada olmayacak"*, and then *"demiştim hala orada"* when it still was. The
+  // reason is in the same conversation: *"Datastore tarafına atılan her tablo otomatik olarak
+  // servis oluyor zaten"* — this screen exists for the databases that do not do that. Listing
+  // the one store whose tables are already services beside the ones whose tables are not is
+  // offering an act with no subject.
+  //
+  // <b>Matched by name, which is how the rest of the console knows it.</b> The Data sources
+  // screen has the same test — it omits Remove for this row because its connection comes from
+  // `Graticula:PlatformStore` on every start.
+  pubDatabases = dataSources
+    .filter(d => d.name !== "datastore")
+    .map(d => ({
+      id: d.id,
+      name: d.name,
+      summary: d.summary,
+      open: false,
+      schemas: null,
+      why: null,
+    }));
 
-  $("pubDbSays").textContent = `${num(pubDatabases.length)} registered`;
+  $("pubDbSays").textContent = pubDatabases.length
+    ? `${num(pubDatabases.length)} registered`
+    : "none registered";
 
   const chooser = $("pubSrid");
 
-  if (chooser && !chooser.options.length) {
-    chooser.innerHTML = PUB_REFERENCES
-      .map(r => `<option value="${r.code}"${r.code === 3857 ? " selected" : ""}
-        >${h(r.name)}${r.code ? ` — EPSG:${r.code}` : ""}</option>`).join("");
+  if (chooser && !chooser.dataset.wired) {
+    chooser.dataset.wired = "1";
+    chooser.value = "3857";
+
+    $("pubReferences").innerHTML = PUB_REFERENCES
+      .filter(r => r.code)
+      .map(r => `<option value="${r.code}">${h(r.name)}</option>`).join("");
 
     // <b>Changing it redraws both, and the tree is not decoration here.</b> The reprojection
     // marks beside the layers are computed against this, so a tree left alone would tell the
     // operator three layers are being warped when the new reference warps none of them.
-    chooser.addEventListener("change", () => { pubDraw(); void pubShoot(true); });
+    chooser.addEventListener("change", () => { void pubReference(); });
+
+    // <b>And while it is typed, so the answer arrives before Publish does.</b> A code the
+    // server cannot project to is refused at publish either way; finding that out after
+    // composing is the part worth avoiding.
+    chooser.addEventListener("input", () => {
+      clearTimeout(pubSridAsking);
+      pubSridAsking = setTimeout(() => void pubReference(), 350);
+    });
+
+    void pubReference();
   }
 
   pubDraw();
+
+  // <b>After the tree, because the map needs the box it goes in to have a size.</b> It is also
+  // why this is not awaited before the first draw: a screen that waits for a script to fetch a
+  // library before drawing its own contents is a screen that looks broken on a slow network.
+  await pubBuildMap();
+
+  void pubShoot(true);
 }
 
 /**
- * Asks the server to draw the composition as it stands.
+ * Asks the server whether it can serve in the reference that was typed, then redraws.
+ *
+ * <b>The screen does not carry a list of what PROJ knows, and must not.</b> Any code is
+ * typeable — owner instruction, *"kendi istediğimi de girebilmeliyim"* — so the only honest
+ * answer to *is this one usable* comes from the thing that would have to use it. A hard-coded
+ * list here would be a second opinion that drifts.
+ *
+ * <b>Empty means each layer's own</b>, which is a real choice and not a missing answer: the
+ * service then serves every layer in whatever its table is stored in.
+ *
+ * @returns {Promise<void>} when the answer is on screen and the picture is redrawn
+ */
+async function pubReference() {
+  const says = $("pubSridSaysHead");
+  const wanted = pubServedSrid();
+
+  const state = (text, bad) => {
+    if (!says) return;
+
+    says.textContent = text;
+    says.classList.toggle("bad", Boolean(bad));
+  };
+
+  pubDraw();
+
+  if (!wanted) {
+    state("each layer in its own", false);
+    void pubShoot(true);
+    return;
+  }
+
+  const known = PUB_REFERENCES.find(r => r.code === wanted);
+
+  state(known ? known.name : "asking…", false);
+
+  try {
+    const answer = await api(`/admin/references/${wanted}`);
+
+    if (pubServedSrid() !== wanted) return;
+
+    if (!answer?.known) {
+      // <b>Said here rather than at publish.</b> The publish would refuse it too, after the
+      // composition was built — which is the same answer at the worst moment to hear it.
+      state(`this server cannot project to EPSG:${epsg(wanted)}`, true);
+      return;
+    }
+
+    state(known ? known.name : `EPSG:${epsg(wanted)} — this server can project to it`, false);
+    void pubShoot(true);
+  } catch (e) {
+    if (pubServedSrid() !== wanted) return;
+
+    state(e.message, true);
+  }
+}
+
+/**
+ * The map under the composition, built once.
+ *
+ * <b>The preview is a map — owner instruction, 2026-09-06:</b> *"preview kısmında bir harita
+ * olsun. nothing to draw yet yazmasın."* An empty composition shows the ground rather than a
+ * sentence explaining that there is nothing to show, because the ground is already the answer to
+ * *where am I* and the sentence was not the answer to anything.
+ *
+ * <b>The same ground the symbology editor's preview stands on</b>, from the same `ol.js` in this
+ * directory — `script-src 'self'` admits nothing else, and two maps in one console drawing
+ * different grounds is the shape this project keeps writing down.
+ *
+ * @returns {Promise<void>} when the map exists, or immediately when the library will not load
+ */
+async function pubBuildMap() {
+  const box = $("pubMap");
+
+  if (!box || pubMap) return;
+
+  if (!await loadOpenLayers()) return;
+
+  pubMap = new ol.Map({
+    target: box,
+    layers: [new ol.layer.Tile({ source: new ol.source.OSM() })],
+    view: new ol.View({ center: [3350000, 4700000], zoom: 5 }),
+    controls: [new ol.control.Zoom()],
+  });
+
+  // <b>On `moveend`, not during the drag.</b> The reader keeps the picture they had while they
+  // pan and gets the new one when they stop — which is what every map-image layer does, and
+  // what keeps a composition of twenty layers from issuing twenty queries per frame.
+  pubMap.on("moveend", () => void pubShoot(true));
+}
+
+/**
+ * The map's frame, in the map's own reference.
+ *
+ * @returns {{box: number[], wide: number, tall: number}|null} the extent and the size
+ */
+function pubMapExtent() {
+  if (!pubMap) return null;
+
+  const size = pubMap.getSize();
+
+  if (!size || !(size[0] > 0) || !(size[1] > 0)) return null;
+
+  return {
+    box: pubMap.getView().calculateExtent(size),
+    wide: Math.round(size[0]),
+    tall: Math.round(size[1]),
+  };
+}
+
+/**
+ * Moves the map to hold everything in the composition.
+ *
+ * <b>When a layer arrives and the map has not been touched, not on every change.</b> Refitting
+ * after each edit would take the view away from wherever somebody had panned to, which is the
+ * fault a map exists to fix — the symbology editor's preview carries the same sentence.
+ *
+ * @param {number[]} extent the composition's extent, in the map's reference
+ */
+function pubFrameMap(extent) {
+  if (!pubMap || pubFramed || !extent) return;
+
+  const [minX, minY, maxX, maxY] = extent;
+
+  if (![minX, minY, maxX, maxY].every(Number.isFinite) || !(maxX > minX) || !(maxY > minY)) {
+    return;
+  }
+
+  pubFramed = true;
+  pubMap.updateSize();
+  pubMap.getView().fit([minX, minY, maxX, maxY], { padding: [28, 28, 28, 28] });
+}
+
+/**
+ * Asks the server to draw the composition as it stands, and lays it over the map.
  *
  * <b>The server draws it, and that is the whole decision</b> — owner, 2026-09-06: *"db'den
  * okuduğunu direkt çizebilen bir yapı olmalı. db bağlantısı varsa çizebilmeli de."* The
@@ -10416,26 +10600,47 @@ async function loadPublish() {
  * schematic rather than of the service.
  *
  * <b>Nothing is published to draw it.</b> `POST /admin/publish/preview` reads the tables
- * straight out of the databases and hands them to the renderer the served faces use, so the
- * picture is the service before the service exists.
+ * straight out of the databases and hands them to the renderer the served faces use.
+ *
+ * <b>In the map's reference, not the service's.</b> The ground is Web Mercator, so the drawing
+ * has to be — a composition an operator chose to serve in 4326 would otherwise line up with
+ * nothing. What `Served in` decides is what the *service* serves, and the tree says which layers
+ * that reprojects.
  *
  * @param {boolean} force draw even when the composition has not changed
  * @returns {Promise<void>} when the picture is on screen or the reason is
  */
 async function pubShoot(force) {
-  const shot = $("pubShot");
+  const image = $("pubShotImg");
+  const says = $("pubMapSays");
 
-  if (!shot) return;
+  if (!image) return;
+
+  const note = why => {
+    if (!says) return;
+
+    says.textContent = why || "";
+    says.hidden = !why;
+  };
 
   const layers = pubLayers();
 
   if (!layers.length) {
+    // <b>The ground, and nothing said over it.</b> An empty map is a map; a sentence explaining
+    // that there is nothing to draw is a sentence explaining what the reader can see.
     pubShotOf = "";
-    shot.innerHTML = `<div class="pubempty">Nothing to draw yet. What you build on the left is
-      what will be served, and this is what it looks like.</div>`;
+    image.hidden = true;
+    note("");
     $("pubDrawSays").textContent = "";
     return;
   }
+
+  // <b>The first drawing of a composition asks for no frame, on purpose.</b> With one the
+  // server draws whatever the map is looking at, which on a fresh screen is the whole of
+  // Türkiye and a layer somewhere in it too small to see. With none it frames itself on the
+  // data and says where that was, and the map is moved there — after which the operator's
+  // panning decides, and this never happens again.
+  const at = pubFramed ? pubMapExtent() : null;
 
   const nodes = pubTree.map(node => node.kind === "group"
     ? { group: node.name, layers: node.children.map(pubWire) }
@@ -10444,24 +10649,34 @@ async function pubShoot(force) {
   const body = JSON.stringify({ name: pubServiceName || "preview",
     srid: pubServedSrid() || null, nodes });
 
-  // <b>The same composition is not drawn twice.</b> Every keystroke on this screen redraws the
-  // tree, and a picture costs a query per layer against somebody's database.
-  if (!force && body === pubShotOf) return;
+  const where = at
+    ? `?bbox=${at.box.join(",")}&size=${at.wide},${at.tall}&bboxSR=${PUB_MAP_SR}`
+    : "";
 
-  pubShotOf = body;
+  // <b>The same composition in the same frame is not drawn twice.</b> Every keystroke on this
+  // screen redraws the tree, and a picture costs a query per layer against somebody's database.
+  if (!force && body + where === pubShotOf) return;
+
+  pubShotOf = body + where;
   $("pubDrawSays").textContent = "drawing…";
 
+  // <b>One draw at a time, and the last one wins.</b> Panning fires faster than the server
+  // answers, so without this the picture somebody ends on is whichever request returned last —
+  // the extent they panned away from, painted over the one they are looking at.
+  const mine = ++pubDrawing;
+
   try {
-    const answer = await fetch("/admin/publish/preview", {
+    const answer = await fetch(`/admin/publish/preview${where}`, {
       method: "POST",
-      // <b>`api()` cannot be used here, and it is the one place on this screen that is true.</b>
-      // It parses every answer as JSON and this one is a PNG; asking it for the image would
-      // read the bytes as text and throw on the first one that is not.
       headers: token
         ? { "Content-Type": "application/json", Authorization: "Bearer " + token }
         : { "Content-Type": "application/json" },
       body,
     });
+
+    if (mine !== pubDrawing) return;
+
+    $("pubDrawSays").textContent = "";
 
     if (!answer.ok) {
       // The server's own sentence, which names the entry or the database rather than saying
@@ -10473,114 +10688,58 @@ async function pubShoot(force) {
       } catch { /* not JSON, and the status is what there is to say */ }
 
       pubShotOf = "";
-      $("pubDrawSays").textContent = "";
-      shot.innerHTML = `<div class="pubempty">${h(said)}</div>`;
+      image.hidden = true;
+      note(said);
       return;
     }
 
-    // <b>A 200 is not a picture, and this screen found that out the honest way.</b> The console
-    // suite answers every write from inside the page with an empty JSON document and a 200 — so
-    // the first version handed those bytes to an `<img>`, which fired an error the page-error
-    // guard reported as a file that never arrived. The trap is not the suite's: anything that
-    // answers this route with JSON — a proxy's sign-in page, a gateway's error document — would
-    // put a broken image on the screen and say nothing.
+    // <b>A 200 is not a picture, and this screen found that out the honest way.</b> Anything in
+    // front of this console — a proxy, a portal's sign-in page, the suite's own write trap —
+    // can answer a POST with a cheerful `200 application/json`, and handing those bytes to an
+    // `<img>` produces a broken-image glyph and a load error, which reads as *this composition
+    // draws nothing*. The symbology preview has carried this check since 2026-09-03.
     const kind = answer.headers.get("Content-Type") || "";
 
     if (!kind.startsWith("image/")) {
       pubShotOf = "";
-      $("pubDrawSays").textContent = "";
-      shot.innerHTML = `<div class="pubempty">The server answered with
-        ${h(kind.split(";")[0] || "nothing")} rather than an image, so there is no preview to
-        show. The composition is unaffected — Publish does not go through this route.</div>`;
+      image.hidden = true;
+      note("No preview is available here.");
       return;
     }
 
-    const srid = answer.headers.get("X-Graticula-Srid");
-    const blob = await answer.blob();
+    const drawn = answer.headers.get("X-Graticula-Extent");
+    const bytes = new Uint8Array(await answer.arrayBuffer());
 
-    if (pubShotUrl) URL.revokeObjectURL(pubShotUrl);
+    if (mine !== pubDrawing) return;
 
-    pubShotUrl = URL.createObjectURL(blob);
+    // <b>A `data:` URL rather than a blob, and it is not a preference.</b> One element gets a
+    // new picture on every pan, and an object URL has a lifetime somebody has to manage: revoke
+    // it early and the load in flight fails, revoke it late and they accumulate — and either
+    // way the element fires `error` for an abandoned load, which the console harness reports as
+    // *never arrived* for a picture that was on screen the whole time. Measured here first as a
+    // blob, and the symbology preview had already written the sentence.
+    let binary = "";
 
-    shot.innerHTML = `<img id="pubShotImg" src="${pubShotUrl}" alt="The composition, drawn by
-      the server in EPSG:${h(srid || "")}">`;
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
 
-    $("pubDrawSays").textContent = srid ? `EPSG:${h(srid)}` : "";
+    image.src = "data:image/png;base64," + btoa(binary);
+    image.hidden = false;
+    note("");
+
+    // <b>The first drawing decides where the map looks; after that the operator does.</b>
+    // Fitting fires `moveend`, which redraws at the frame that was fitted — so the picture
+    // above is replaced within the moment by one drawn for the view it is being shown at.
+    if (!at && drawn) pubFrameMap(drawn.split(",").map(Number));
   } catch (e) {
+    if (mine !== pubDrawing) return;
+
     pubShotOf = "";
     $("pubDrawSays").textContent = "";
-    shot.innerHTML = `<div class="pubempty">${h(e.message)}</div>`;
+    image.hidden = true;
+    note(e.message);
   }
-}
-
-/**
- * Chooses how one layer of the composition is drawn.
- *
- * <b>Two colours and a width.</b> A fill needs both, a line needs the outline colour and the
- * width, and a point needs all three — so one form covers every geometry this screen can add,
- * and the swatch beside the layer's name shows the result before the dialog is closed.
- *
- * <b>Kept on the node and published with it.</b> The chosen symbol travels in the composition,
- * so the preview redraws with it and the served layer is drawn with it — one document, chosen
- * once. A dialog that only changed the swatch would be a picture of a preference.
- *
- * @param {string} id which layer
- */
-function openPubSymbol(id) {
-  const found = pubFind(id);
-
-  if (!found || found.node.kind === "group") return;
-
-  const node = found.node;
-  const dialog = $("pubsymbol");
-  const kind = pubSwatchKind(node);
-  const symbol = {
-    fill: node.symbol?.fill || PUB_DEFAULT_FILL,
-    line: node.symbol?.line || PUB_DEFAULT_LINE,
-    width: node.symbol?.width ?? (kind === "line" ? 1.4 : 0.8),
-  };
-
-  $("pubsymTitle").textContent = `${node.name} — ${node.geometryType}`;
-
-  $("pubsymBody").innerHTML = `
-    <div class="row">
-      ${kind === "line" ? "" : `<label class="field">Fill
-        <input type="color" id="psFill" value="${h(symbol.fill)}"></label>`}
-      <label class="field">${kind === "line" ? "Colour" : "Outline"}
-        <input type="color" id="psLine" value="${h(symbol.line)}"></label>
-      <label class="field">Width <span class="val">points</span>
-        <input type="number" id="psWidth" min="0" max="20" step="0.2"
-          value="${symbol.width}"></label>
-    </div>
-    <p class="hint">The preview redraws with this, and the published layer is drawn with it.
-      Everything else about how a layer looks — classes, breaks, labels — is on the layer's own
-      symbology screen once it is served.</p>`;
-
-  $("pubsymFoot").innerHTML = `
-    <button type="button" class="ghost" id="psDefault">Use the default</button>
-    <button type="button" class="primary" id="psKeep">Keep</button>`;
-
-  $("psKeep").addEventListener("click", () => {
-    node.symbol = {
-      fill: $("psFill")?.value || symbol.fill,
-      line: $("psLine").value,
-      width: Number($("psWidth").value) || 0,
-    };
-
-    dialog.close();
-    pubDraw();
-  });
-
-  $("psDefault").addEventListener("click", () => {
-    delete node.symbol;
-    dialog.close();
-    pubDraw();
-  });
-
-  $("pubsymClose").onclick = () => dialog.close();
-
-  dialog.showModal();
-  ($("psFill") || $("psLine")).focus();
 }
 
 /**
@@ -10591,14 +10750,12 @@ function openPubSymbol(id) {
  * rename edebileceğim, ya da projeksiyonu tanımlayabileceğim ekranlar açılacak."*
  */
 function pubRootMenu() {
-  const given = prompt(
-    "What is this service called? (Cancel to change the reference instead)",
-    pubServiceName || "Map");
+  // <b>One question now.</b> It used to ask for a name and treat Cancel as *change the
+  // reference instead*, which is a second act hidden behind refusing the first — the reference
+  // is a control in the page's own header and the menu no longer pretends otherwise.
+  const given = prompt("What is this service called?", pubServiceName || "Map");
 
-  if (given === null) {
-    $("pubSrid")?.focus();
-    return;
-  }
+  if (given === null) return;
 
   pubServiceName = given.trim();
   pubDraw();
@@ -10949,7 +11106,12 @@ function pubSymbolDocument(node) {
  * @returns {number} an EPSG code, or 0
  */
 function pubServedSrid() {
-  return Number($("pubSrid")?.value) || 0;
+  const typed = ($("pubSrid")?.value || "").trim();
+
+  // <b>`EPSG:5254` and `5254` are the same answer.</b> The prefix is how the code is written
+  // everywhere else on this screen, so refusing it in the one box that takes one would be the
+  // screen disagreeing with itself.
+  return Number(typed.replace(/^epsg:\s*/i, "")) || 0;
 }
 
 /** Which shape a swatch draws: a fill, a line or a dot. @param {object} node the layer
@@ -11229,6 +11391,7 @@ async function sendPublish() {
     pubTree = [];
     pubPicked = new Set();
     pubServiceName = "";
+    pubFramed = false;
 
     for (const db of pubDatabases) { db.schemas = null; db.open = false; }
 
@@ -11270,49 +11433,205 @@ function pubWire(layer) {
 
 let pubDragging = null;
 
+/*
+  <b>The map takes a drop too — owner instruction, 2026-09-06:</b> *"map'e databaseden
+  taşıdığım toc'a gelsin. toc'a taşıdığım map'e katman olarak gelsin."* Both halves are the same
+  composition seen twice: the tree is what will be published and the map is what it looks like,
+  so a table dropped on either belongs to both.
+
+  <b>Only a table, not a reorder.</b> Dragging a layer within the tree is about where it sits in
+  the drawing order, and a map has no answer to that — dropping one on the picture would have to
+  either do nothing or mean something the operator did not ask for.
+*/
 document.addEventListener("dragover", event => {
-  if (event.target.closest?.("#pubContents")) pubOver(event);
+  if (event.target.closest?.("#pubContents")) { pubOver(event); return; }
+
+  if (event.target.closest?.("#pubShot") && pubDragging?.kind === "table") {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    $("pubShot")?.classList.add("dropping");
+  }
 });
 
 document.addEventListener("drop", event => {
-  if (event.target.closest?.("#pubContents")) pubDrop(event);
+  if (event.target.closest?.("#pubContents")) { pubDrop(event); return; }
+
+  if (event.target.closest?.("#pubShot") && pubDragging?.kind === "table") {
+    event.preventDefault();
+    $("pubShot")?.classList.remove("dropping");
+
+    // <b>On top, which is where a table dropped on a map belongs.</b> `pubAdd` unshifts, so the
+    // thing somebody just put on the picture is the thing they see — anywhere else in the order
+    // and the answer to *did that work* is *scroll the tree and find out*.
+    const [db, schema, table] = pubDragging.id.split("|");
+
+    pubAdd(db, schema, table);
+  }
 });
 
+/*
+  <b>A menu, because a chain of confirmations is not one.</b> This used to ask *Ungroup "x"?
+  Cancel to rename it instead* — two questions in one box, with the second reachable only by
+  refusing the first, and no room for a third. The owner asked for the third: *"sağ clickte
+  zoom to layer yapabilmeliyim. sadece rename değil."*
+
+  <b>What is offered depends on what was right-clicked</b>, and what cannot be done is absent
+  rather than disabled — except *Zoom to*, which is disabled while there is no map, because the
+  reason is temporary and worth saying.
+*/
 document.addEventListener("contextmenu", event => {
   const node = event.target.closest?.("[data-pubnode]");
+  const root = event.target.closest?.("[data-pubroot]");
 
-  if (!node || !event.target.closest("#pubTree")) return;
+  if (!event.target.closest("#pubTree") || (!node && !root)) return;
 
   event.preventDefault();
 
-  if (!pubPicked.has(node.dataset.pubnode)) {
+  if (node && !pubPicked.has(node.dataset.pubnode)) {
     pubPicked = new Set([node.dataset.pubnode]);
     pubDraw();
   }
 
-  const found = pubFind(node.dataset.pubnode);
+  pubMenuAt(event.clientX, event.clientY, root ? null : node.dataset.pubnode);
+});
 
-  // <b>Group when several are chosen, ungroup on a group, remove either way.</b> ADR-057 §5b:
-  // one level, so a group swept into a group contributes its layers.
-  // <b>Grouping wins when several are chosen, because that is what several means.</b> With one
-  // node the question is about that node: ungroup it, or rename it.
-  if (pubPicked.size > 1) {
-    if (confirm(`Group ${pubPicked.size} layers?`)) pubGroup();
-    return;
-  }
+/** Closes the menu on the next click anywhere, on Escape, and on a scroll under it. */
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") pubMenuShut();
+});
 
-  if (found?.node.kind === "group") {
-    if (confirm(`Ungroup "${found.node.name}"? Cancel to rename it instead.`)) {
-      pubUngroup(node.dataset.pubnode);
-    } else {
-      pubRename(node.dataset.pubnode);
+document.addEventListener("scroll", () => pubMenuShut(), true);
+
+/** Takes the menu off the screen. */
+function pubMenuShut() {
+  const menu = $("pubmenu");
+
+  if (menu) menu.hidden = true;
+}
+
+/**
+ * Opens the contents menu over a node, or over the root.
+ *
+ * @param {number} x where the pointer was
+ * @param {number} y where the pointer was
+ * @param {string|null} id the node, or null for the service itself
+ */
+function pubMenuAt(x, y, id) {
+  const menu = $("pubmenu");
+
+  if (!menu) return;
+
+  const found = id ? pubFind(id) : null;
+  const group = found?.node.kind === "group";
+  const several = Boolean(id) && pubPicked.size > 1;
+
+  const item = (act, label, off) =>
+    `<button type="button" role="menuitem" data-pubact="${act}"${off ? " disabled" : ""}
+      >${h(label)}</button>`;
+
+  const noMap = !pubMap;
+
+  menu.innerHTML = id
+    ? [
+        item("zoom", group ? "Zoom to group" : "Zoom to layer", noMap),
+        group ? "" : item("symbol", "Symbol…"),
+        item("rename", group ? "Rename group" : "Rename layer"),
+        "<hr>",
+        several ? item("group", `Group ${num(pubPicked.size)} layers`) : "",
+        group ? item("ungroup", "Ungroup") : "",
+        item("remove", group ? "Remove group" : "Remove layer"),
+      ].filter(Boolean).join("")
+    : [
+        item("zoom", "Zoom to everything", noMap),
+        item("rename", "Rename service"),
+      ].join("");
+
+  menu.dataset.pubfor = id || "";
+  menu.hidden = false;
+
+  // Kept inside the window, because a menu opened near the bottom edge would otherwise
+  // extend past it and lose its last item — which is usually the destructive one.
+  const box = menu.getBoundingClientRect();
+
+  menu.style.left = `${Math.min(x, window.innerWidth - box.width - 8)}px`;
+  menu.style.top = `${Math.min(y, window.innerHeight - box.height - 8)}px`;
+}
+
+/**
+ * Moves the map over one layer, or over the whole composition.
+ *
+ * <b>The extent comes from the server, because only it can read the tables.</b> `POST
+ * /admin/publish/extent` reports each layer's box in the map's reference; asking for a drawing
+ * and reading the header off it would render a picture to be thrown away.
+ *
+ * @param {string|null} id the node, or null for everything
+ * @returns {Promise<void>} when the map has moved, or the reason is on screen
+ */
+async function pubZoomTo(id) {
+  if (!pubMap) return;
+
+  const found = id ? pubFind(id) : null;
+
+  // A group is its children; a layer is itself; the root is everything.
+  const wanted = found
+    ? (found.node.kind === "group" ? found.node.children : [found.node])
+    : pubLayers();
+
+  if (!wanted.length) return;
+
+  const nodes = pubTree.map(node => node.kind === "group"
+    ? { group: node.name, layers: node.children.map(pubWire) }
+    : { layer: pubWire(node) });
+
+  try {
+    const answer = await api(`/admin/publish/extent?outSR=${PUB_MAP_SR}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: pubServiceName || "preview", nodes }),
+    });
+
+    const names = new Set(wanted.map(l => l.name));
+
+    const boxes = (answer?.layers || [])
+      .filter(l => !id || names.has(l.name))
+      .map(l => l.extent);
+
+    const box = id ? pubUnion(boxes) : (answer?.all || pubUnion(boxes));
+
+    if (!box) {
+      toast("Those layers do not say where they are — they may be empty.");
+      return;
     }
 
-    return;
+    // <b>Framed by hand rather than through `pubFrameMap`</b>, which fires once and then never
+    // again on purpose; this is the operator asking, and they may ask as often as they like.
+    pubMap.updateSize();
+    pubMap.getView().fit(box, { padding: [28, 28, 28, 28] });
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+/**
+ * The smallest box holding all of them.
+ *
+ * @param {number[][]} boxes each `[minX, minY, maxX, maxY]`
+ * @returns {number[]|null} one box, or null when there are none
+ */
+function pubUnion(boxes) {
+  let all = null;
+
+  for (const box of boxes) {
+    if (!Array.isArray(box) || box.length !== 4 || !box.every(Number.isFinite)) continue;
+
+    all = all
+      ? [Math.min(all[0], box[0]), Math.min(all[1], box[1]),
+         Math.max(all[2], box[2]), Math.max(all[3], box[3])]
+      : [...box];
   }
 
-  pubRename(node.dataset.pubnode);
-});
+  return all && all[2] > all[0] && all[3] > all[1] ? all : null;
+}
 
 document.addEventListener("dragstart", event => {
   const table = event.target.closest?.("[data-pubtable]");
@@ -11336,6 +11655,7 @@ document.addEventListener("dragstart", event => {
 document.addEventListener("dragend", () => {
   pubDragging = null;
   $("pubContents")?.classList.remove("dropping");
+  $("pubShot")?.classList.remove("dropping");
   document.querySelectorAll("[data-pubnode]").forEach(n =>
     n.classList.remove("dragging", "over", "into"));
 });
@@ -11510,7 +11830,10 @@ function pubDraw() {
     }
   }
 
-  $("pubDbTree").innerHTML = html;
+  $("pubDbTree").innerHTML = html || `<div class="pubempty">No database is registered.
+    <br><span style="font-size:11.5px">Register one on
+    <a href="#/sources">Data sources</a>, then its tables can be composed into a service here.
+    The datastore is not listed: what is imported into it is already served.</span></div>`;
 
   // <b>The picture follows the composition without being asked.</b> `pubShoot` compares what it
   // is about to draw with what is on screen and returns when they match, so redrawing the tree
@@ -15287,6 +15610,7 @@ async function handleClick(event) {
     pubTree = [];
     pubPicked = new Set();
     pubServiceName = "";
+    pubFramed = false;
     pubDraw();
     return;
   }
@@ -15298,7 +15622,41 @@ async function handleClick(event) {
   // something in the database and wants to see it, which nothing on this screen can know about.
   if (t.id === "pubRedraw") { await pubShoot(true); return; }
 
-  if (t.id === "pubRootMenu" || t.closest?.("[data-pubroot]")) { pubRootMenu(); return; }
+  // <b>The menu's own items, before anything else.</b> They sit outside the tree — a menu
+  // clipped by the pane it belongs to is a menu with items nobody can reach — so nothing below
+  // would match them.
+  const act = t.closest?.("[data-pubact]");
+
+  if (act) {
+    const menu = $("pubmenu");
+    const id = menu?.dataset.pubfor || null;
+
+    pubMenuShut();
+
+    switch (act.dataset.pubact) {
+      case "zoom": await pubZoomTo(id); break;
+      case "symbol": if (id) openPubSymbol(id); break;
+      case "rename": if (id) { pubRename(id); } else { pubRootMenu(); } break;
+      case "group": pubGroup(); break;
+      case "ungroup": if (id) pubUngroup(id); break;
+      case "remove": if (id) pubRemove(id); break;
+      default: break;
+    }
+
+    return;
+  }
+
+  // <b>Any other click closes it.</b> A menu that outlives the thing it was opened over is a
+  // menu that acts on something else.
+  if (!$("pubmenu")?.hidden) pubMenuShut();
+
+  // The root's own button opens the same menu the right-click does, so the two cannot drift.
+  if (t.id === "pubRootMenu") {
+    const at = t.getBoundingClientRect();
+
+    pubMenuAt(at.left, at.bottom + 4, null);
+    return;
+  }
 
   const killed = t.closest?.("[data-pubkill]");
 

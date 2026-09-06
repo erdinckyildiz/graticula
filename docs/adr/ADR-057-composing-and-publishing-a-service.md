@@ -308,6 +308,28 @@ which is what a client asks for and what the drawing replaced when it took the s
 a preview is looked at while somebody is still deciding, so it is answered quickly or it is not
 looked at.
 
+**And the drawing sits on a map — owner instruction the same day:** *"preview kısmında bir
+harita olsun. nothing to draw yet yazmasın."* The pane held a sentence saying there was nothing
+to show; a ground answers *where am I* without being read, and an empty composition is then an
+empty map rather than an explanation. The ground is OpenLayers over OpenStreetMap, the same one
+the symbology editor's preview stands on, loaded from this origin because `script-src 'self'`
+admits nothing else.
+
+**Which makes the reference two different questions, and only one of them is `Served in`.** The
+ground is Web Mercator, so the picture is drawn in Web Mercator — a composition somebody chose
+to serve in 4326 would otherwise line up with nothing. `Served in` decides what the *service*
+serves, and the tree's reprojection marks are where that choice is visible. So the endpoint
+takes `bboxSR`, which the symbology preview learnt the hard way: four numbers with no reference
+were read as the layer's own, every seeded fixture is 3857, and the two agreed in every test
+until somebody opened a 4326 layer.
+
+**The map is a drop target, which is the second half of the same instruction:** *"map'e
+databaseden taşıdığım toc'a gelsin. toc'a taşıdığım map'e katman olarak gelsin."* The tree is
+what will be published and the map is what it looks like, so a table dropped on either belongs
+to both. Reordering is not offered on the map — a picture has no answer to *where in the drawing
+order*, and a drop that meant something the operator did not ask for is worse than one that is
+refused.
+
 ### 5k. The symbol is chosen while composing
 
 **The owner asked for it with the screen** — *"Katmanın açılır ekranının altında sembolü
@@ -328,6 +350,26 @@ different states.
 
 **Everything else about how a layer looks stays on the layer's own screen.** Classes, breaks and
 labels are a published layer's business; this is the choice made while composing.
+
+### 5l. The datastore is not one of the databases to compose from
+
+**By owner instruction, given twice** — *"datastore burada olmayacak"*, and then *"datastore
+kalksın oradan demiştim hala orada"* when it was still listed. The reason is in the same
+conversation as the screen itself: *"Datastore tarafına atılan her tablo otomatik olarak servis
+oluyor zaten."*
+
+This screen exists for the databases whose tables are **not** already services. Listing the one
+store whose tables are is offering an act with no subject — and worse, it invites somebody to
+compose a second service over data that is already served, which is now possible (§5i) and
+almost never what they meant.
+
+**What it costs is stated rather than discovered:** a table imported into the datastore cannot
+be put into a multi-layer service from this screen. It is served on its own, automatically, and
+combining it with others has no route. That is a consequence of the instruction rather than an
+argument against it, and it is written here so the next reader does not treat the omission as an
+oversight.
+
+
 
 ## 6. Consequences
 
