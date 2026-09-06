@@ -118,9 +118,9 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             """
             insert into service
                 (id, name, folder, kind, description, owner_principal_id, sharing, status,
-                 srid, next_layer_index)
+                 srid, next_layer_index, serves_features, serves_tiles, capability_ceiling)
             values (@id, @name, @folder, 'FeatureServer', @description, @owner, @sharing,
-                    'started', @srid, @next)
+                    'started', @srid, @next, @features, @tiles, @ceiling::text[])
             """,
             connection,
             transaction))
@@ -134,6 +134,23 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             service.Parameters.AddWithValue("sharing", composition.Sharing);
             service.Parameters.AddWithValue("srid", (object?)composition.Srid ?? DBNull.Value);
             service.Parameters.AddWithValue("next", next);
+
+            // <b>Null is unset and means *whatever this server serves*, which is not the same as
+            // false.</b> A composition that says nothing about its faces publishes what every
+            // service published before ADR-057 §5g existed; one that says `false` closes an
+            // address. `SetServiceCapabilitiesAsync` writes the same three columns with the same
+            // rule, and the two must not disagree about what a null means.
+            service.Parameters.AddWithValue(
+                "features", (object?)composition.ServesFeatures ?? DBNull.Value);
+
+            service.Parameters.AddWithValue(
+                "tiles", (object?)composition.ServesTiles ?? DBNull.Value);
+
+            service.Parameters.AddWithValue(
+                "ceiling",
+                composition.Capabilities is { Count: > 0 } ceiling
+                    ? System.Linq.Enumerable.ToArray(ceiling)
+                    : (object)DBNull.Value);
 
             await service.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }

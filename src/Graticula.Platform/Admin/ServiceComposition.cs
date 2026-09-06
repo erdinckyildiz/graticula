@@ -34,13 +34,29 @@ namespace Graticula.Platform.Admin;
 /// <param name="Sharing">Who may see it, in the catalogue's spelling.</param>
 /// <param name="Srid">The reference to serve in, or null for each layer's own.</param>
 /// <param name="Nodes">The tree, in draw order — the first is drawn on top.</param>
+/// <param name="ServesFeatures">Whether the feature face answers, or null for the default.</param>
+/// <param name="ServesTiles">Whether the tile face answers, or null for the default.</param>
+/// <param name="Capabilities">
+/// The capability ceiling in ArcGIS's spelling, or null to leave it unset.
+/// <para>
+/// <b>§5g, and it is a ceiling rather than a grant.</b> What a caller may actually do is the
+/// intersection of this, what their privileges carry and what the data supports — the same
+/// three-way rule <see cref="Graticula.Platform.Catalog.ServiceCapabilityLimits"/> states. So
+/// setting it here can only narrow, and a composition that says nothing about it publishes a
+/// service that offers whatever the caller and the data allow, which is what every service did
+/// before this field existed.
+/// </para>
+/// </param>
 public sealed record ServiceComposition(
     string Name,
     string? Folder,
     string? Description,
     string Sharing,
     int? Srid,
-    IReadOnlyList<CompositionNode> Nodes);
+    IReadOnlyList<CompositionNode> Nodes,
+    bool? ServesFeatures = null,
+    bool? ServesTiles = null,
+    IReadOnlyList<string>? Capabilities = null);
 
 /// <summary>One entry in a composition: a group, or a layer.</summary>
 /// <remarks>

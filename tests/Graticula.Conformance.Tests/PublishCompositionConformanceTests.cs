@@ -33,6 +33,19 @@ namespace Graticula.Conformance.Tests;
 public sealed class PublishCompositionConformanceTests : ArcGisClient
 {
     /// <summary>A name nothing else in the fixture will collide with.</summary>
+    /// <summary>A ceiling of the one capability every published service has.</summary>
+    /// <remarks>
+    /// Fields rather than literals at the call sites, because CA1861 is right about a constant
+    /// array rebuilt on every call — and because naming them says what each one is testing.
+    /// </remarks>
+    private static readonly string[] QueryOnly = ["Query"];
+
+    /// <summary>A ceiling naming something this server has never heard of.</summary>
+    private static readonly string[] QueryAndANonsense = ["Query", "Teleport"];
+
+    /// <summary>A ceiling that leaves out the one capability that cannot be left out.</summary>
+    private static readonly string[] CreateWithoutQuery = ["Create"];
+
     private static string AName() =>
         "ZZZComposed" + Guid.NewGuid().ToString("N")[..8];
 
@@ -304,6 +317,228 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
         {
             await TearDownAsync(root, token!, name, [$"only{name}"], []);
         }
+    }
+
+    /// <summary>
+    /// What the service can do is chosen at publish, and the faces answer accordingly.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-057 §5g.</b> Two faces and a capability ceiling, all three of them columns on the
+    /// service row — <c>serves_features</c>, <c>serves_tiles</c>, <c>capability_ceiling</c>. The
+    /// owner asked for this directly: <i>"Yetenekler seçilecek. Feature, MapServer, Vector Tile
+    /// vs gibi."</i>
+    /// </para>
+    /// <para>
+    /// <b>Asserted at the faces rather than at the row.</b> A test that reads back the service's
+    /// configuration proves the write and nothing else; what an operator is promised is that the
+    /// tile URL stops answering and the feature document stops advertising editing. Those are
+    /// two different subsystems reading the same two columns, which is where a half-applied
+    /// setting would show.
+    /// </para>
+    /// <para>
+    /// <b>The ceiling narrows and never grants</b>, so this asks for <c>Query</c> alone while
+    /// signed in as an administrator whose privileges carry all four. A ceiling that was ignored
+    /// would answer <c>Query,Create,Update,Delete</c> here — the same shape
+    /// [D-179](../../docs/architecture-debt.md) had, where one document honoured the ceiling and
+    /// another did not.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_composition_chooses_the_faces_and_the_ceiling()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        (Guid source, string schema, string table, string geometry, string identity, int srid) =
+            await ATableAsync(root, token!);
+
+        string name = AName();
+
+        string body = JsonSerializer.Serialize(new
+        {
+            name,
+            folder = "hosted",
+            sharing = "private",
+            servesFeatures = true,
+            servesTiles = false,
+            capabilities = QueryOnly,
+            nodes = new object[]
+            {
+                new { layer = Layer($"only{name}", source, schema, table, geometry, identity, srid) },
+            },
+        });
+
+        (HttpStatusCode status, string said) = await SendAsync(
+            HttpMethod.Post, $"{root}/admin/publish", token!, body);
+
+        Assert.True(
+            status == HttpStatusCode.Created,
+            $"Publishing a composition with a ceiling answered {(int)status}: {said}");
+
+        try
+        {
+            (HttpStatusCode read, string document) = await SendAsync(
+                HttpMethod.Get,
+                $"{root}/rest/services/hosted/{name}/FeatureServer?f=json",
+                token!,
+                null);
+
+            Assert.Equal(HttpStatusCode.OK, read);
+
+            Assert.Equal(
+                "Query",
+                JsonDocument.Parse(document).RootElement.GetProperty("capabilities").GetString());
+
+            // <b>The tile face is off, so its address is not there.</b> Answering 200 with an
+            // empty document would tell a client the service has tiles and none of them work.
+            (HttpStatusCode tiles, _) = await SendAsync(
+                HttpMethod.Get,
+                $"{root}/rest/services/hosted/{name}/VectorTileServer?f=json",
+                token!,
+                null);
+
+            Assert.True(
+                tiles == HttpStatusCode.NotFound,
+                $"The tile face was published off and answered {(int)tiles} rather than 404.");
+        }
+        finally
+        {
+            await TearDownAsync(root, token!, name, [$"only{name}"], []);
+        }
+
+        // <b>The control, in the same run and against the same account.</b> Without it, a server
+        // that answered `Query` for everything — because the ceiling was ignored and the
+        // privileges were misread, say — would pass the assertion above and prove nothing. This
+        // publishes the same shape with no ceiling and requires more than `Query` back, so the
+        // difference between the two answers is the field under test and not the fixture.
+        (_, string schema2, string table2, string geometry2, string identity2, int srid2) =
+            await ATableAsync(root, token!, skip: 1);
+
+        string open = AName();
+
+        (HttpStatusCode made, string openSaid) = await SendAsync(
+            HttpMethod.Post,
+            $"{root}/admin/publish",
+            token!,
+            JsonSerializer.Serialize(new
+            {
+                name = open,
+                folder = "hosted",
+                sharing = "private",
+                nodes = new object[]
+                {
+                    new
+                    {
+                        layer = Layer(
+                            $"open{open}", source, schema2, table2, geometry2, identity2, srid2),
+                    },
+                },
+            }));
+
+        Assert.True(
+            made == HttpStatusCode.Created,
+            $"Publishing the control composition answered {(int)made}: {openSaid}");
+
+        try
+        {
+            (HttpStatusCode read, string document) = await SendAsync(
+                HttpMethod.Get,
+                $"{root}/rest/services/hosted/{open}/FeatureServer?f=json",
+                token!,
+                null);
+
+            Assert.Equal(HttpStatusCode.OK, read);
+
+            string advertised = JsonDocument.Parse(document)
+                .RootElement.GetProperty("capabilities").GetString()!;
+
+            Assert.True(
+                advertised.Contains("Update", StringComparison.Ordinal),
+                "A composition published with no ceiling advertised "
+                + $"'{advertised}' to an administrator, so the assertion above — that a ceiling "
+                + "of Query answers Query — would have passed with the field ignored.");
+        }
+        finally
+        {
+            await TearDownAsync(root, token!, open, [$"open{open}"], []);
+        }
+    }
+
+    /// <summary>
+    /// A capability set this server cannot honour is refused before anything is written.
+    /// </summary>
+    /// <remarks>
+    /// <b>Three refusals, and each is a different sentence.</b> A name the server does not know
+    /// is a typo; a ceiling without <c>Query</c> is a service that is running and refusing
+    /// everything, which ADR-031 §2a says is reached by stopping it instead; both faces off is a
+    /// service at no address at all. A single "invalid capabilities" answer would send all three
+    /// operators to the same wrong place.
+    /// </remarks>
+    [Fact]
+    public async Task A_capability_this_server_cannot_honour_is_refused()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        (Guid source, string schema, string table, string geometry, string identity, int srid) =
+            await ATableAsync(root, token!);
+
+        object One(string layer) =>
+            new { layer = Layer(layer, source, schema, table, geometry, identity, srid) };
+
+        async Task RefusedAsync(object composition, string expected, string why)
+        {
+            (HttpStatusCode status, string said) = await SendAsync(
+                HttpMethod.Post,
+                $"{root}/admin/publish",
+                token!,
+                JsonSerializer.Serialize(composition));
+
+            Assert.True(
+                status == HttpStatusCode.BadRequest,
+                $"{why} answered {(int)status} rather than 400. The server said: {said}");
+
+            Assert.Contains(expected, said, StringComparison.OrdinalIgnoreCase);
+        }
+
+        await RefusedAsync(
+            new
+            {
+                name = AName(),
+                folder = "hosted",
+                capabilities = QueryAndANonsense,
+                nodes = new[] { One($"a{AName()}") },
+            },
+            "Teleport",
+            "A capability name this server does not know");
+
+        await RefusedAsync(
+            new
+            {
+                name = AName(),
+                folder = "hosted",
+                capabilities = CreateWithoutQuery,
+                nodes = new[] { One($"b{AName()}") },
+            },
+            "stop",
+            "A ceiling with no Query in it");
+
+        await RefusedAsync(
+            new
+            {
+                name = AName(),
+                folder = "hosted",
+                servesFeatures = false,
+                servesTiles = false,
+                nodes = new[] { One($"c{AName()}") },
+            },
+            "no address",
+            "A composition with neither face on");
     }
 
     /// <summary>

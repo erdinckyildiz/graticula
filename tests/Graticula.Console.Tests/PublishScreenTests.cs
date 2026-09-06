@@ -98,6 +98,39 @@ public sealed class PublishScreenTests : ConsoleTest
         await Browser.EvaluateAsync<bool>(
             """(document.getElementById("pbName").value = "ZZZFromTheScreen", true)""");
 
+        /*
+          <b>What it can do, and the body is read rather than the URL — ADR-057 §5g.</b> The
+          owner asked for capabilities at publish: *"Yetenekler seçilecek. Feature, MapServer,
+          Vector Tile vs gibi."* `window.__writes` records the method and the path, which proves
+          the request went somewhere and says nothing about what it carried — and a screen that
+          draws four boxes and sends none of them looks identical from there.
+
+          <b>Query is disabled and still sent.</b> A ceiling without it is refused by the server,
+          so the box is drawn ticked and unclickable; the assertion below is what keeps the two
+          from drifting apart, because a disabled checkbox is exactly the kind of control whose
+          value quietly stops being read.
+        */
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const real = window.fetch;
+          window.__body = null;
+          window.fetch = async (input, init) => {
+            const where = typeof input === "string" ? input : (input && input.url) || "";
+            if (where.includes("/admin/publish")) window.__body = (init && init.body) || "";
+            return real(input, init);
+          };
+          return true;
+        })();
+        """);
+
+        // Delete comes off, so what is sent is a real choice rather than the default set.
+        await ClickAsync("#pbDelete");
+
+        await WaitForAsync(
+            "(document.getElementById('pbCapsSays')?.innerText || '').includes('Query,Create,Update')",
+            "The dialog does not say what the service will advertise, so an operator ticking "
+            + "boxes has nothing telling them what the ticks add up to.");
+
         await ClickAsync("#pbGo");
 
         // <b>One request, to the composition endpoint.</b> The old drawer needed three, in the
@@ -112,6 +145,12 @@ public sealed class PublishScreenTests : ConsoleTest
             "/admin/featureservices",
             string.Join(" | ", await WritesAsync()),
             StringComparison.Ordinal);
+
+        string sent = await Browser.EvaluateAsync<string>("window.__body || ''") ?? string.Empty;
+
+        Assert.Contains("\"capabilities\":[\"Query\",\"Create\",\"Update\"]", sent, StringComparison.Ordinal);
+        Assert.Contains("\"servesFeatures\":true", sent, StringComparison.Ordinal);
+        Assert.Contains("\"servesTiles\":true", sent, StringComparison.Ordinal);
 
         NothingWentWrong(await PageErrorsAsync());
     }

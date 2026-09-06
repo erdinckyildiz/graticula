@@ -162,16 +162,35 @@ act to remember. A service can be stopped afterwards, which is what the status i
 
 ### 5g. The faces are chosen at publish, and so is the ceiling
 
-Feature, Map, VectorTile and OGC are switches. Under the feature face, the capability
-ceiling — `Query`, `Create`, `Update`, `Delete` — is chosen; `Query` cannot be unset from
-this screen, because a service that answers nothing is a state
-[ADR-031](ADR-031-service-capability-configuration.md) reaches by stopping it rather than by publishing it.
+~~Feature, Map, VectorTile and OGC are switches.~~ **Corrected before it was built, 2026-09-06:
+two of the four are.** `serves_features` and `serves_tiles` are columns on the service row and
+every read face honours them — the tile URL answers 404 with the second off, and the feature,
+WMS, WFS and OGC faces all check the first. **MapServer and the OGC faces have no column and no
+endpoint**: they are derived from the feature face, so a switch for them would be a control for a
+capability that does not exist, which is [ADR-034](ADR-034-server-and-studio.md)'s prohibition.
+The screen names them and says they follow, because *not drawn and not explained* leaves an
+operator wondering whether the dialog forgot them.
 
-`Editing` is **derived, never offered**: the REST specification says it appears when any of
-Create, Delete or Update is enabled, so the screen shows the resulting string rather than a
-switch that can disagree with the server. `Sync`, `Uploads` and `Extract` are in the
-specification and not in this server, so they are not drawn —
-[ADR-034](ADR-034-server-and-studio.md)'s rule.
+Under the feature face, the capability ceiling — `Query`, `Create`, `Update`, `Delete` — is
+chosen; `Query` cannot be unset from this screen, because a service that answers nothing is a
+state [ADR-031](ADR-031-service-capability-configuration.md) reaches by stopping it rather than by
+publishing it. **The ceiling narrows and never grants**, and the screen says so in the sentence
+under the boxes: what a caller gets is this intersected with their privileges and with what the
+data supports.
+
+~~`Editing` is **derived, never offered**: the REST specification says it appears when any of
+Create, Delete or Update is enabled, so the screen shows the resulting string rather than a switch
+that can disagree with the server.~~ **Measured 2026-09-06 and the claim was about ArcGIS rather
+than about this server: `Editing` is never emitted here at all.** `PrivilegedCapabilities` builds
+`Query`, `Create`, `Update`, `Delete` and nothing else, so the string a client reads never carries
+it. Not offering it as a switch is still right; describing the screen as showing a derived
+`Editing` was describing a document this server does not write. Whether an Esri client needs that
+token to offer editing is a conformance question this decision does not answer and
+[Q-145](../open-questions.md) now asks.
+
+`Sync`, `Uploads` and `Extract` are not drawn — the first two are not in this server at all, and
+`Extract` is in `ServiceCapabilityLimits.Known` but is never granted by
+`PrivilegedCapabilities`, so a ceiling containing it could only ever narrow to nothing.
 
 ### 5h. A service is not created without layers
 
@@ -262,6 +281,18 @@ renamed it, and an exact-name match had quietly fallen through.
    and OGC are drawn as choices and are not choices yet. Either the catalogue gains the two
    columns or the screen stops offering what it cannot deliver, and shipping it in between is
    ADR-034's prohibition with extra steps.
+   ***(Discharged 2026-09-06 — the second branch, and it was settled by never drawing them.)***
+   The dialog offers `FeatureServer` and `VectorTileServer`, which are `serves_features` and
+   `serves_tiles`, and the ceiling, which is `capability_ceiling` — three things the service row
+   already stores and every read face already honours. MapServer and OGC are named on the screen
+   as following the feature face rather than left out silently. §5g has been corrected to match:
+   it claimed four switches, and two of them had nowhere to be stored.
+
+   **Two things were measured rather than assumed while discharging it.** `Extract` is in
+   `ServiceCapabilityLimits.Known` and is never granted by `PrivilegedCapabilities`, so it is not
+   drawn. And `Editing` — which §5g said the screen would show as a derived string — is never
+   emitted by this server at all; whether an Esri client needs it is [Q-145](../open-questions.md)
+   and not this condition.
 3. **A composition of a thousand layers is published, and the transaction is timed.** 5h
    writes the service, its groups and its layers in one transaction, and every composition
    anybody has published so far has held three things. A service assembled from a whole

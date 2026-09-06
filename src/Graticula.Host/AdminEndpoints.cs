@@ -82,13 +82,23 @@ internal sealed record ServiceSridRequest(int? Srid);
 /// <param name="Sharing">Who may see it.</param>
 /// <param name="Srid">The reference to serve in, or null for each layer's own.</param>
 /// <param name="Nodes">The tree, in draw order — the first is drawn on top.</param>
+/// <param name="ServesFeatures">Whether the feature face answers, or null for the default.</param>
+/// <param name="ServesTiles">Whether the tile face answers, or null for the default.</param>
+/// <param name="Capabilities">
+/// The capability ceiling in ArcGIS's spelling, or null to leave it unset — ADR-057 §5g. It
+/// narrows and never grants: what a caller may do is this intersected with their privileges and
+/// with what the data supports.
+/// </param>
 internal sealed record CompositionRequest(
     string? Name,
     string? Folder,
     string? Description,
     string? Sharing,
     int? Srid,
-    IReadOnlyList<CompositionNodeRequest>? Nodes);
+    IReadOnlyList<CompositionNodeRequest>? Nodes,
+    bool? ServesFeatures = null,
+    bool? ServesTiles = null,
+    IReadOnlyList<string>? Capabilities = null);
 
 /// <summary>One entry in a composition: a group with its layers, or a layer.</summary>
 /// <param name="Group">The group's name, when this is a group.</param>
@@ -5675,6 +5685,67 @@ internal static class AdminEndpoints
         }
 
         /*
+          <b>What the service can do, chosen at publish — ADR-057 §5g.</b> Both halves are
+          narrowings and neither is a grant: a face that is off means the URL does not answer,
+          and the ceiling is intersected with what the caller's privileges carry and what the
+          data supports. A composition that says nothing about either publishes what every
+          service published before this existed.
+
+          <b>MapServer and the OGC faces are not here, and that is ADR-034 rather than an
+          omission.</b> They are derived from the feature face today — there is no column to set
+          and no endpoint to set it — so a switch for them would be a control for a capability
+          that does not exist. §5g used to say all four are switches; two of them are, and the
+          decision has been corrected rather than half-built.
+        */
+        if (request.Capabilities is { } wanted)
+        {
+            foreach (string capability in wanted)
+            {
+                if (!ServiceCapabilityLimits.Known.Contains(capability, StringComparer.Ordinal))
+                {
+                    await Refuse(
+                        context, 400,
+                        $"'{capability}' is not a capability this server understands. It knows "
+                        + $"{string.Join(", ", ServiceCapabilityLimits.Known)}.")
+                        .ConfigureAwait(false);
+
+                    return;
+                }
+            }
+
+            // <b>`Query` cannot be dropped here, and ADR-031 §2a keeps it droppable
+            // elsewhere.</b> A service that answers nothing is a real state and it is reached by
+            // *stopping* the service, which says so in the directory. Publishing straight into it
+            // would put a service in the catalogue that looks running and refuses everything, and
+            // the operator who did it by leaving a box unticked would have no way to tell.
+            if (!wanted.Contains("Query", StringComparer.Ordinal))
+            {
+                await Refuse(
+                    context, 400,
+                    "A published service answers queries. To publish one that serves nothing, "
+                    + "publish it and then stop it — a stopped service says so in the directory, "
+                    + "and one that is running and refusing everything does not.")
+                    .ConfigureAwait(false);
+
+                return;
+            }
+        }
+
+        // <b>Both faces off is a service at no address at all.</b> Unset is different: it means
+        // *whatever this server serves by default*, which is how every service published before
+        // §5g behaves.
+        if (request.ServesFeatures == false && request.ServesTiles == false)
+        {
+            await Refuse(
+                context, 400,
+                "A service with neither the feature face nor the tile face answers at no address. "
+                + "Leave one of them on, or stop the service after publishing it.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        /*
           <b>The three guards this endpoint was written without, added 2026-09-06.</b> Every one
           of them is on `POST /admin/layers`, twenty lines apart, and this route reached the
           catalogue past all three — which is [D-46](../../docs/architecture-debt.md) exactly: a
@@ -5793,7 +5864,10 @@ internal static class AdminEndpoints
                             : request.Description.Trim(),
                         PostgresSharing(scope),
                         request.Srid,
-                        composed),
+                        composed,
+                        request.ServesFeatures,
+                        request.ServesTiles,
+                        request.Capabilities),
                     current.Principal.Id,
                     cancellation)
                 .ConfigureAwait(false);
@@ -5807,6 +5881,9 @@ internal static class AdminEndpoints
                     layers = made.Layers.Count,
                     groups = made.Groups.Count,
                     srid = request.Srid,
+                    features = request.ServesFeatures,
+                    tiles = request.ServesTiles,
+                    capabilities = request.Capabilities,
                 }),
                 succeeded: true, cancellation).ConfigureAwait(false);
 
@@ -5821,6 +5898,13 @@ internal static class AdminEndpoints
                     ? $"/rest/services/{inside}/{made.Name}/FeatureServer"
                     : $"/rest/services/{made.Name}/FeatureServer",
                 srid = request.Srid,
+
+                // <b>Echoed, because a ceiling that was silently ignored looks like one that
+                // was applied.</b> The screen shows what it asked for either way; the answer is
+                // the only thing that can disagree with it.
+                servesFeatures = request.ServesFeatures,
+                servesTiles = request.ServesTiles,
+                capabilities = request.Capabilities,
                 layers = made.Layers.Select(l => new { name = l.Name, id = l.Index }),
                 groups = made.Groups.Select(g => new { name = g.Name, id = g.Index }),
             }, statusCode: StatusCodes.Status201Created).ExecuteAsync(context)

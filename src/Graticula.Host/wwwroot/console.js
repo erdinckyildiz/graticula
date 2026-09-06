@@ -10668,6 +10668,45 @@ async function openPublishDialog() {
       </div>
 
       <p class="hint" id="pbWarp"></p>
+
+      <!--
+        <b>What it can do — ADR-057 §5g.</b> Two faces and a ceiling, and every one of them is
+        something this server actually stores: serves_features, serves_tiles and
+        capability_ceiling are columns on the service row.
+
+        <b>MapServer and the OGC faces are named and not offered.</b> They follow the feature
+        face — derived, with no column to set — so a switch for them would be a control for a
+        capability that does not exist, which is ADR-034's prohibition. Saying so beats leaving
+        an operator to wonder whether the screen forgot them.
+      -->
+      <fieldset class="pbcaps">
+        <legend>What it can do</legend>
+
+        <div class="row">
+          <label class="pbtick"><input type="checkbox" id="pbFeatures" checked>
+            <span><b>FeatureServer</b> — query and, where privileges allow, edit</span></label>
+          <label class="pbtick"><input type="checkbox" id="pbTiles" checked>
+            <span><b>VectorTileServer</b> — vector tiles of these layers</span></label>
+        </div>
+
+        <p class="hint">MapServer and the OGC faces follow the feature face and are not chosen
+          separately — this server derives them rather than storing them.</p>
+
+        <div class="row" id="pbCeiling">
+          <label class="pbtick"><input type="checkbox" id="pbQuery" checked disabled>
+            <span>Query <span class="val">— always; a service that answers nothing is a
+              stopped one</span></span></label>
+          <label class="pbtick"><input type="checkbox" id="pbCreate" checked>
+            <span>Create</span></label>
+          <label class="pbtick"><input type="checkbox" id="pbUpdate" checked>
+            <span>Update</span></label>
+          <label class="pbtick"><input type="checkbox" id="pbDelete" checked>
+            <span>Delete</span></label>
+        </div>
+
+        <p class="hint" id="pbCapsSays"></p>
+      </fieldset>
+
       <p class="hint bad-inline" id="pbRefused" hidden role="alert"></p>
     </form>`;
 
@@ -10698,6 +10737,27 @@ async function openPublishDialog() {
       : `There is no folder called ${given} — publishing will create it.`;
   };
 
+  // <b>The ceiling is a ceiling, so the sentence says what a caller will actually get.</b>
+  // Ticking Update does not grant it: the answer is the intersection of this, the reader's
+  // privileges and whether the table has an integer identity. A screen that showed the ticks
+  // as the outcome would promise something the server can refuse.
+  const capsSay = () => {
+    const chosen = pubCeiling();
+    const faces = [
+      $("pbFeatures").checked ? "FeatureServer" : null,
+      $("pbTiles").checked ? "VectorTileServer" : null,
+    ].filter(Boolean);
+
+    $("pbCapsSays").innerHTML = faces.length === 0
+      ? `<span class="bad-inline">With neither face on, the service answers at no address.</span>`
+      : `Advertised as <code>${h(chosen.join(","))}</code> on ${faces.join(" and ")}. A reader
+         gets the part of that their privileges carry — the ceiling narrows, it never grants.`;
+  };
+
+  for (const id of ["pbFeatures", "pbTiles", "pbCreate", "pbUpdate", "pbDelete"]) {
+    $(id).addEventListener("change", capsSay);
+  }
+
   $("pbSrid").addEventListener("change", warp);
   $("pbFolder").addEventListener("input", folderNote);
   $("pbCancel").addEventListener("click", () => dialog.close());
@@ -10705,8 +10765,26 @@ async function openPublishDialog() {
   $("pbGo").addEventListener("click", sendPublish);
 
   warp();
+  capsSay();
   dialog.showModal();
   $("pbName").focus();
+}
+
+/**
+ * The capability ceiling the dialog is asking for, in ArcGIS's spelling.
+ *
+ * <b>`Query` is always in it.</b> The box is drawn ticked and disabled because the server
+ * refuses a ceiling without it — publishing a service that refuses everything is reached by
+ * stopping it, which says so in the directory, and this screen should not be a second way to
+ * arrive somewhere that looks running.
+ *
+ * @returns {string[]} the capability names, in document order
+ */
+function pubCeiling() {
+  return ["Query",
+    ...($("pbCreate")?.checked ? ["Create"] : []),
+    ...($("pbUpdate")?.checked ? ["Update"] : []),
+    ...($("pbDelete")?.checked ? ["Delete"] : [])];
 }
 
 /** Sends the composition, and turns a refusal into a sentence on the dialog. */
@@ -10741,6 +10819,12 @@ async function sendPublish() {
         description: $("pbAbout").value.trim() || null,
         sharing: $("pbShare").value,
         srid,
+
+        // Sent whichever way the boxes sit, because "unset" and "off" are different states on
+        // the service row and the operator has just answered the question either way.
+        servesFeatures: $("pbFeatures").checked,
+        servesTiles: $("pbTiles").checked,
+        capabilities: pubCeiling(),
         nodes,
       }),
     });

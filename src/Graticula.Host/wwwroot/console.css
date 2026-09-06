@@ -2023,6 +2023,28 @@ tr.groupband > td {
 .addgrid { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: var(--gap-5); }
 @media (max-width: 1100px) { .addgrid { grid-template-columns: minmax(0, 1fr); } }
 
+/* The Publish dialog's *What it can do* block — ADR-057 §5g.
+
+   A fieldset because it is one question with several answers, and a legend because a screen
+   reader announcing "checkbox, Create" without it has told the reader nothing about what is
+   being created. `.tick` next door is a table-cell width and is deliberately not reused: 34px
+   on a label would crush the sentence beside the box. */
+
+.pbcaps { border: 1px solid var(--rule); border-radius: var(--round); padding: 10px 12px 4px;
+  margin: 4px 0 0; }
+.pbcaps legend { padding: 0 6px; font: 600 var(--t-label)/1 var(--sans); color: var(--faint);
+  text-transform: uppercase; letter-spacing: .04em; }
+.pbcaps .row { gap: var(--gap-3); }
+.pbcaps .hint { margin: 6px 0 8px; }
+
+.pbtick { display: flex; align-items: baseline; gap: 8px; flex: 0 1 auto; cursor: pointer; }
+.pbtick input { margin: 0; flex: 0 0 auto; }
+.pbtick input:disabled { cursor: default; }
+
+/* A disabled box that is ticked on purpose reads as *settled*, not as broken — the same
+   problem `tr.already` below solves in a table. */
+.pbtick input:disabled + span { color: var(--muted); cursor: default; }
+
 .tick { width: 34px; }
 .thumbcell { width: 120px; padding-right: 0; }
 
