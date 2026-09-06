@@ -204,6 +204,10 @@ together. The order is: Publish first, then the endpoint requires layers, then t
 *Create empty service* comes off the screen. Doing it in any other order leaves this server
 with no way to publish anything.
 
+**The first of the three is done — 2026-09-06.** `POST /admin/publish` writes a service, its
+groups and its layers in one transaction, and Server's **Publish** tab composes one. So the
+other two are unblocked rather than waiting on anything, and they are §7 condition 4.
+
 ### 5i. One table is one layer, and the schema said so before this decision did
 
 **Found 2026-09-06, by publishing a composition that named one table twice.** The refusal

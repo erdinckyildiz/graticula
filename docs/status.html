@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>d438a10</code> · 2026-09-06 01:57</p>
+<p class="stamp">Generated from commit <code>75501f2</code> · 2026-09-06 03:25</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">57</div><div class="kpi-l">ADRs</div><div class="kpi-n">11 accepted outright</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">open debts</div><div class="kpi-n">205 repaid · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">14/85</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">2370</div><div class="kpi-l">tests</div><div class="kpi-n">267 source files, 108,705 lines</div></div>
+<div class="kpi good"><div class="kpi-v">2374</div><div class="kpi-l">tests</div><div class="kpi-n">267 source files, 108,705 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -402,14 +402,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:72.2%"></div></div><div class="bar-n">363</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:29.4%"></div></div><div class="bar-n">148</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:28.2%"></div></div><div class="bar-n">142</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:26.6%"></div></div><div class="bar-n">134</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.2%"></div></div><div class="bar-n">137</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:22.5%"></div></div><div class="bar-n">113</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:6.2%"></div></div><div class="bar-n">31</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:6.4%"></div></div><div class="bar-n">32</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:5.2%"></div></div><div class="bar-n">26</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:4.8%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>75501f2</code><time>2026-09-06</time><span>Two tables of one name become two layers of two names</span></li>
+<li><code>0e168c1</code><time>2026-09-06</time><span>Twenty-one waits asked whether a control is visible in a way that passes when it is absent</span></li>
+<li><code>84cf35b</code><time>2026-09-06</time><span>The Publish screen exists: tables into a tree, the tree is the service</span></li>
+<li><code>169b281</code><time>2026-09-06</time><span>The composition tests share two tables, because CI&#x27;s fixture has two</span></li>
+<li><code>0d4e9ee</code><time>2026-09-06</time><span>The composition tests take a table nothing is serving, which CI needed and my fixture hid</span></li>
+<li><code>9f03475</code><time>2026-09-06</time><span>The status page catches up with the composition endpoint</span></li>
 <li><code>d438a10</code><time>2026-09-06</time><span>POST /admin/publish: a whole service in one act, and the schema answered an open question</span></li>
 <li><code>93fe1c9</code><time>2026-09-06</time><span>The new writer parameters go on the end, because everything before them had callers</span></li>
 <li><code>da89fed</code><time>2026-09-06</time><span>The status page catches up with D-229</span></li>
@@ -418,12 +424,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>f65e8b2</code><time>2026-09-06</time><span>ADR-057 5h: a service is not created without layers</span></li>
 <li><code>548c561</code><time>2026-09-06</time><span>Two design reviews, and the worst thing each found was silence</span></li>
 <li><code>4f80d1f</code><time>2026-09-05</time><span>The status page catches up with D-229</span></li>
-<li><code>11a000c</code><time>2026-09-05</time><span>D-229: the served reference is plumbed, and the serving half is held back on a measurement</span></li>
-<li><code>a76edee</code><time>2026-09-05</time><span>The status page catches up with migration 39 and D-229</span></li>
-<li><code>d8a4b62</code><time>2026-09-05</time><span>Migration 39, and ADR-057 was wrong about the other half</span></li>
-<li><code>61a9a39</code><time>2026-09-05</time><span>The status page catches up with the ADR-056 correction</span></li>
-<li><code>adbaed2</code><time>2026-09-05</time><span>Three rasters were missing from their owner&#x27;s content, and ADR-056 was wrong about why</span></li>
-<li><code>d5f76f4</code><time>2026-09-05</time><span>The status page catches up with ADR-057</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
