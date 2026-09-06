@@ -173,7 +173,7 @@ public sealed class ScreenReviewTests : ConsoleTest
 
         await WaitForAsync(
             "location.hash.startsWith('#/service/') "
-            + "&& document.getElementById('serviceOverview')?.offsetParent !== null",
+            + "&& " + Shown("#serviceOverview"),
             "A content row did not open the service's own page on Overview. §5k: the row opens the "
             + "item, and the item lists its layers.");
 

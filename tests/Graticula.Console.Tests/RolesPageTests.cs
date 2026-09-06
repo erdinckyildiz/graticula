@@ -267,7 +267,7 @@ public sealed class RolesPageTests : ConsoleTest
         // editor that only appears after a click is an editor a reader arriving here does not
         // know exists.
         await WaitForAsync(
-            "document.getElementById('roleEditor')?.offsetParent !== null",
+            Shown("#roleEditor"),
             "The privilege editor is not on screen when the Roles page opens. It is beside the "
             + "list now rather than under it, so there is nothing below the fold for it to be "
             + "waiting in — if it is hidden, no reader will find it.");

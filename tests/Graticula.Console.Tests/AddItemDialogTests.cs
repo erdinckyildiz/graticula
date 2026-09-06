@@ -193,7 +193,7 @@ public sealed class AddItemDialogTests : ConsoleTest
         await ClickAsync("#newLayer");
 
         await WaitForAsync(
-            "document.getElementById('kindFeatureLayer')?.offsetParent !== null",
+            Shown("#kindFeatureLayer"),
             "The dialog never opened.");
 
         // <b>Opening lands on the drop zone's button, not the close cross.</b> `showModal` honours
@@ -214,7 +214,7 @@ public sealed class AddItemDialogTests : ConsoleTest
         await ClickAsync("#itemNext");
 
         await WaitForAsync(
-            "document.getElementById('dName')?.offsetParent !== null",
+            Shown("#dName"),
             "Next never reached the first route's form.");
 
         await AssertFocusIsInsideAsync("after Next");
@@ -248,13 +248,13 @@ public sealed class AddItemDialogTests : ConsoleTest
         await ClickAsync("#newLayer");
 
         await WaitForAsync(
-            "document.getElementById('kindFeatureLayer')?.offsetParent !== null",
+            Shown("#kindFeatureLayer"),
             "The New item dialog did not open.");
 
         await ClickAsync("#kindFeatureLayer");
 
         await WaitForAsync(
-            $"document.querySelector('.pickrow input[value=\"{route}\"]')?.offsetParent !== null",
+            Shown($".pickrow input[value='{route}']"),
             $"There is no '{route}' option on the Create a feature layer screen.");
 
         await ClickAsync($".pickrow input[value=\"{route}\"]");

@@ -393,6 +393,71 @@ public sealed class SuiteStabilityTests
     /// shape of the defect one row along.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// No console test asks whether a control is visible in a way that passes when it is absent.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><c>document.getElementById('x')?.offsetParent !== null</c> is true when there is no
+    /// x.</b> The optional chain yields <c>undefined</c>, and <c>undefined !== null</c> is true —
+    /// so a wait written that way passes instantly on a screen that drew nothing, and the failure
+    /// surfaces on the next line as a null reference with no idea what it was waiting for.
+    /// </para>
+    /// <para>
+    /// <b>Which defeats the one guard this console has for its own worst habit.</b> A control that
+    /// exists in the markup and renders nowhere has shipped three separate times here;
+    /// <c>offsetParent</c> is the check written after those, and an expression that cannot tell
+    /// <i>invisible</i> from <i>absent</i> wears the check without doing it.
+    /// </para>
+    /// <para>
+    /// <b>Found by being bitten, 2026-09-06</b>, on a wait for a dialog that passed before the
+    /// dialog existed — by which time the idiom was in ten files and twenty-three places.
+    /// <c>ConsoleTest.Shown</c> is the spelling that fails when the element is missing, and this
+    /// is what keeps the other one from coming back.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void No_console_test_treats_a_missing_control_as_a_visible_one()
+    {
+        string folder = Path.Combine(Root().FullName, "tests", "Graticula.Console.Tests");
+
+        List<string> found = [];
+
+        foreach (string file in Directory.EnumerateFiles(folder, "*.cs"))
+        {
+            // <b>`ConsoleTest` itself holds the sentence explaining the trap.</b> A guard that
+            // fails on the documentation of the thing it guards teaches people to delete the
+            // documentation.
+            if (Path.GetFileName(file) == "ConsoleTest.cs")
+            {
+                continue;
+            }
+
+            string[] lines = File.ReadAllLines(file);
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                // <b>Only the strict spelling, and the other two are genuinely fine.</b>
+                // `undefined != null` is **false** and `!!undefined` is **false**, so
+                // `?.offsetParent != null` and `!!x?.offsetParent` both fail on a missing
+                // element, which is what they should do. It is `!== null` alone that passes.
+                // Two of those safe spellings are in this suite and the first version of this
+                // guard flagged both, which would have taught somebody to rewrite working code.
+                if (lines[i].Contains("?.offsetParent !== null", StringComparison.Ordinal))
+                {
+                    found.Add($"{Path.GetFileName(file)}:{i + 1}");
+                }
+            }
+        }
+
+        Assert.True(
+            found.Count == 0,
+            "These ask whether a control is visible with an expression that is also true when the "
+            + "control is not there — `?.offsetParent` on a missing element is `undefined`, and "
+            + "`undefined !== null` passes. Use `Shown(\"#id\")`, which fails when the element "
+            + $"is missing:\n  {string.Join("\n  ", found)}");
+    }
+
     [Fact]
     public void A_console_test_qualifies_a_class_selector_that_names_more_than_one_kind_of_element()
     {

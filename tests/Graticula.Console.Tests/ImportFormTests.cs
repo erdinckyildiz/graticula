@@ -61,14 +61,14 @@ public sealed class ImportFormTests : ConsoleTest
         await ClickAsync("#newLayer");
 
         await WaitForAsync(
-            "document.getElementById('kindFeatureLayer')?.offsetParent !== null",
+            Shown("#kindFeatureLayer"),
             "The New item dialog did not open, or its Feature layer tile is not visible. A closed "
             + "`dialog` is `display: none`, so `offsetParent` answers both questions at once.");
 
         await ClickAsync("#kindFeatureLayer");
 
         await WaitForAsync(
-            "document.querySelector('.pickrow input[value=\"import\"]')?.offsetParent !== null",
+            Shown(".pickrow input[value='import']"),
             "The Create a feature layer step has no Upload a file option, so there is no route to "
             + "the import form at all.");
 
@@ -76,7 +76,7 @@ public sealed class ImportFormTests : ConsoleTest
         await ClickAsync("#itemNext");
 
         await WaitForAsync(
-            "document.getElementById('iFile')?.offsetParent !== null",
+            Shown("#iFile"),
             "Next did not reach the import form, or the form is not visible.");
     }
 
@@ -105,7 +105,7 @@ public sealed class ImportFormTests : ConsoleTest
         // put one, which is the loop the old form left an operator in.
         Assert.True(
             await Browser.EvaluateAsync<bool>(
-                "document.getElementById('iSrid')?.offsetParent !== null"),
+                Shown("#iSrid")),
             "There is no field for the coordinate system, so a shapefile can be selected and never "
             + "accepted — the server requires `srid` and refuses to infer it from the .prj.");
 

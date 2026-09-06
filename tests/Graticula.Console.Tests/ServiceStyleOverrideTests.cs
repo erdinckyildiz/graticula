@@ -300,7 +300,7 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
         await ClickAsync("#newService");
 
         await WaitForAsync(
-            "document.getElementById('cName')?.offsetParent !== null",
+            Shown("#cName"),
             "The New service drawer did not open.");
 
         // <b>The server's own sentence, which is what has to reach the screen.</b>

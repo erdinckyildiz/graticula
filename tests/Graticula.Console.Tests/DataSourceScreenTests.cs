@@ -127,7 +127,7 @@ public sealed class DataSourceScreenTests : ConsoleTest
         await ClickAsync("#sAdd");
 
         await WaitForAsync(
-            "document.getElementById('dcDatabase')?.offsetParent !== null",
+            Shown("#dcDatabase"),
             "The connection dialog did not open, or it has no database field.");
 
         await Browser.EvaluateAsync<bool>("""
@@ -282,7 +282,7 @@ public sealed class DataSourceScreenTests : ConsoleTest
             "No sources were listed, so there is no layout to measure.");
 
         await WaitForAsync(
-            "document.getElementById('sourceForm')?.offsetParent !== null",
+            Shown("#sourceForm"),
             "The register form is not on screen.");
 
         int[] box = await Browser.EvaluateAsync<int[]>("""
@@ -343,7 +343,7 @@ public sealed class DataSourceScreenTests : ConsoleTest
         await ClickAsync("#sAdd");
 
         await WaitForAsync(
-            "document.getElementById('dcTest')?.offsetParent !== null",
+            Shown("#dcTest"),
             "The connection dialog did not open, or it opened without its Test button.");
 
         await Browser.EvaluateAsync<bool>("""

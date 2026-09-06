@@ -168,7 +168,7 @@ public sealed class GroupsPageTests : ConsoleTest
             await Browser.EvaluateAsync<string>($"location.hash = '#/group/{Probe}/members'");
 
             await WaitForAsync(
-                "document.getElementById('groupAdd')?.offsetParent !== null",
+                Shown("#groupAdd"),
                 "The owner was not offered Add member on the Members tab.");
 
             await ClickAsync("#groupAdd");
@@ -561,7 +561,7 @@ public sealed class GroupsPageTests : ConsoleTest
                     $"The {tab} tab did not open.");
 
                 await WaitForAsync(
-                    $"document.getElementById('{control}')?.offsetParent !== null",
+                    Shown($"#{control}"),
                     $"#{control} is not visible to the owner on the {tab} tab. It may still exist in "
                     + "the document — that was the whole defect, and asserting presence passes "
                     + "against it.");
@@ -656,7 +656,7 @@ public sealed class GroupsPageTests : ConsoleTest
             await Browser.EvaluateAsync<string>($"location.hash = '#/group/{Probe}/members'");
 
             await WaitForAsync(
-                "document.getElementById('groupAdd')?.offsetParent !== null",
+                Shown("#groupAdd"),
                 "The owner of a group is not offered its controls, so the screen is read-only for "
                 + "everybody and the `mayManage` flag is being ignored.");
 
@@ -670,7 +670,7 @@ public sealed class GroupsPageTests : ConsoleTest
                 "The Settings tab did not open.");
 
             await WaitForAsync(
-                "document.getElementById('groupDelete')?.offsetParent !== null",
+                Shown("#groupDelete"),
                 "The owner is not offered Delete on the Settings tab, which only they may do.");
 
             string[] errors = await PageErrorsAsync();

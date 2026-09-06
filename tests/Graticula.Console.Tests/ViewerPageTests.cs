@@ -80,7 +80,7 @@ public sealed class ViewerPageTests : ConsoleTest
             "The viewer's script did not reach the end, so there is no strip to measure.");
 
         await WaitForAsync(
-            "document.getElementById('strip')?.offsetParent !== null",
+            Shown("#strip"),
             "The status strip is not on screen. It is in the markup — a control that exists and "
             + "cannot be seen is this console's most repeated defect.");
 
@@ -136,7 +136,7 @@ public sealed class ViewerPageTests : ConsoleTest
             "The viewer's script did not reach the end, so there is no legend to read.");
 
         await WaitForAsync(
-            "document.getElementById('legend')?.offsetParent !== null",
+            Shown("#legend"),
             "The legend is not on screen.");
 
         string said = await Browser.EvaluateAsync<string>(

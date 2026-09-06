@@ -1077,6 +1077,36 @@ public abstract class ConsoleTest : IAsyncLifetime
         Assert.True(typed, $"There is no filter input with id '{input}' on this screen.");
     }
 
+    /// <summary>
+    /// The condition <i>this control is on screen</i>, written so that a missing one fails it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Because the obvious spelling is true when the element is absent.</b>
+    /// <c>document.getElementById('x')?.offsetParent !== null</c> reads as *x is visible* and
+    /// evaluates to <c>undefined !== null</c> — <b>true</b> — the moment there is no x. Every
+    /// wait written that way passes instantly on a screen that drew nothing, and the failure
+    /// surfaces on the next line as a null reference with no idea what it was waiting for.
+    /// Found 2026-09-06 when a wait for a dialog passed before the dialog existed; it was in
+    /// ten files and twenty-three places by then.
+    /// </para>
+    /// <para>
+    /// <b>Which matters more here than in most suites.</b> This console has shipped a control
+    /// that existed and rendered nowhere three separate times, and <c>offsetParent</c> is the
+    /// check written to catch exactly that — so an expression that cannot tell *invisible* from
+    /// *absent* defeats the guard while looking like it.
+    /// </para>
+    /// </remarks>
+    /// <param name="selector">A CSS selector for the control.</param>
+    /// <returns>A JavaScript expression that is true only when it is there and visible.</returns>
+    protected static string Shown(string selector)
+    {
+        string quoted = JsonSerializer.Serialize(selector);
+
+        return $"(() => {{ const e = document.querySelector({quoted}); "
+            + "return !!e && e.offsetParent !== null; })()";
+    }
+
     protected async Task ClickAsync(string selector)
     {
         string quoted = JsonSerializer.Serialize(selector);

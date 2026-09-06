@@ -48,7 +48,7 @@ public sealed class MemberRemovalPageTests : ConsoleTest
             + "screen that shows it.");
 
         await WaitForAsync(
-            "document.querySelector('#members select[data-member-type]')?.offsetParent !== null",
+            Shown("#members select[data-member-type]"),
             "The user type control is in the markup and not on screen.");
 
         // <b>Every type the server names, in the server's order.</b> A short list here would be a
