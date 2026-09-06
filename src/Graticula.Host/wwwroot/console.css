@@ -2111,10 +2111,13 @@ tr.groupband > td {
 /* Where a table dropped on the map will land. */
 .pubcanvas.dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
 
-/* The indices, under the picture, because a drawing cannot say that this polygon is layer 2. */
-.pubwhatstrip { border-top: 1px solid var(--rule); padding: 8px 12px; max-height: 128px;
-  overflow-y: auto; }
-.pubwhatstrip:empty { display: none; }
+/* <b>The layer's number, where the layer is.</b> `FeatureServer/2` is how a client addresses
+   it, and a group and its children interleave — so counting rows is not reading the index. It
+   was a list under the preview repeating every name until 2026-09-06, which is one fact in two
+   places and the owner said so. Muted and monospaced: it is an address, not a heading, and it
+   must not compete with the name beside it. */
+.pubindex { flex: none; width: 15px; text-align: right;
+  font: var(--t-tiny)/1 var(--mono); color: var(--faint); }
 
 /* The reference, in the page's own action bar rather than in the dialog. */
 .pbserved { display: flex; align-items: center; gap: 8px; color: var(--muted);
@@ -3604,12 +3607,6 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
 .pubgeom.no.line { border-top-color: var(--rule-strong); }
 .pubwhy { padding: 0 8px 6px 54px; font-size: var(--t-tiny); color: var(--warn); line-height: 1.45; }
 
-.pubwill { margin: 0; padding: 4px 12px; list-style: none; }
-.pubwill li { padding: 6px 0; border-bottom: 1px solid var(--rule); font-size: var(--t-small); }
-.pubwill li:last-child { border-bottom: 0; }
-.pubwill code { font-family: var(--mono); font-size: 12.5px; }
-.pubwill .pubwarp { color: var(--accent); font-size: var(--t-tiny); }
-.pubwill .pubsame { color: var(--faint); font-size: var(--t-tiny); }
 
 @media (max-width: 1180px) {
   .composer { grid-template-columns: 1fr; }

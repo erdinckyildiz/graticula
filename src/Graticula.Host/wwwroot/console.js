@@ -10327,6 +10327,12 @@ let pubShotOf = "";
 /** The map under the drawing, built once when the screen first opens. */
 let pubMap = null;
 
+/** The composition, as a layer of that map, placed by the extent it was drawn for. */
+let pubShotLayer = null;
+
+/** Each node's index in the service, by node id — the number a client will address it by. */
+let pubIndices = new Map();
+
 /** Whether the map has been put over the composition once. */
 let pubFramed = false;
 
@@ -10562,9 +10568,24 @@ async function pubBuildMap() {
 
   if (!await loadOpenLayers()) return;
 
+  /*
+    <b>The drawing is a layer of the map, not a picture over it — and the owner found out why.</b>
+    It was an `<img>` stretched across the pane by CSS, which is right for exactly one view: the
+    one it was drawn for. Zoom out and the same pixels were stretched over a wider world, so
+    Türkiye's provinces sprawled across half of Europe until the redraw landed — *"zoom outta
+    böyle saçma bir durum ortaya çıkıyor. sonra düzeliyor"*, 2026-09-06.
+
+    <b>An `ol.layer.Image` is placed by the extent it was drawn for.</b> OpenLayers scales and
+    positions it against the view, so a stale picture during a zoom is the right ground at the
+    wrong resolution — which is what every map image layer in every GIS does, and what a reader
+    already knows how to interpret. Nothing about the request changed; what changed is that the
+    answer says where it belongs and something reads that.
+  */
+  pubShotLayer = new ol.layer.Image({ source: null });
+
   pubMap = new ol.Map({
     target: box,
-    layers: [new ol.layer.Tile({ source: new ol.source.OSM() })],
+    layers: [new ol.layer.Tile({ source: new ol.source.OSM() }), pubShotLayer],
     view: new ol.View({ center: [3350000, 4700000], zoom: 5 }),
     controls: [new ol.control.Zoom()],
   });
@@ -10656,6 +10677,7 @@ async function pubShoot(force) {
     // that there is nothing to draw is a sentence explaining what the reader can see.
     pubShotOf = "";
     image.hidden = true;
+    pubShotLayer?.setSource(null);
     note("");
     $("pubDrawSays").textContent = "";
     return;
@@ -10750,8 +10772,27 @@ async function pubShoot(force) {
       binary += String.fromCharCode(bytes[i]);
     }
 
-    image.src = "data:image/png;base64," + btoa(binary);
-    image.hidden = false;
+    const url = "data:image/png;base64," + btoa(binary);
+    const placed = (drawn || "").split(",").map(Number);
+
+    // <b>Placed by the extent the server drew it for.</b> Anything else is a picture that
+    // happens to be the right size for exactly one view.
+    if (pubShotLayer && placed.length === 4 && placed.every(Number.isFinite)) {
+      pubShotLayer.setSource(new ol.source.ImageStatic({
+        url,
+        imageExtent: placed,
+        projection: `EPSG:${PUB_MAP_SR}`,
+      }));
+
+      image.hidden = true;
+    } else {
+      // <b>No map, so the drawing is the whole of it.</b> OpenLayers may not have loaded, and a
+      // screen that loses its preview because a script did not arrive is worse than one that
+      // loses its panning.
+      image.src = url;
+      image.hidden = false;
+    }
+
     note("");
 
     // <b>The first drawing decides where the map looks; after that the operator does.</b>
@@ -10995,6 +11036,13 @@ function pubRows() {
 
 function pubNode(node, inside) {
   const picked = pubPicked.has(node.id) ? "sel" : "";
+
+  // <b>The number a client will ask for, on the thing it belongs to.</b> `FeatureServer/2` is
+  // how a layer is addressed, and the order of this tree is that numbering — but a group and
+  // its children interleave, so counting rows is not the same as reading the index. It used to
+  // be a second list under the preview repeating every name; the owner's word for that was
+  // *saçma*, and they were right that the list was already here.
+  const at = pubIndices.get(node.id) ?? 0;
   const open = node.open !== false;
   const twist = `<button class="pubtwist" data-pubtwist="${h(node.id)}"
       aria-expanded="${open}" aria-label="${open ? "Collapse" : "Expand"} ${h(node.name)}"
@@ -11012,7 +11060,7 @@ function pubNode(node, inside) {
     return `<div class="pubnode pubgroup ${inside ? "grouped" : ""} ${picked}" draggable="true"
         data-pubnode="${h(node.id)}">
         <div class="pubrow" data-pubgroup="${h(node.id)}">
-          ${twist}${tick}
+          <span class="pubindex">${num(at)}</span>${twist}${tick}
           <span aria-hidden="true" class="pubglyph">&#9707;</span>
           <span class="pubname pubgroupname">${h(node.name)}</span>
           <span class="pubcount">${num(node.children.length)}</span>
@@ -11031,7 +11079,7 @@ function pubNode(node, inside) {
   return `<div class="pubnode ${inside ? "grouped" : ""} ${picked}"
       draggable="true" data-pubnode="${h(node.id)}">
       <div class="pubrow">
-        ${twist}${tick}
+        <span class="pubindex">${num(at)}</span>${twist}${tick}
         <span class="pubname" title="${h(node.sourceName)} · ${h(node.schema)}.${h(node.table)}"
           >${h(node.name)}</span>
         ${warped ? `<span class="pubwarp" title="Stored in EPSG:${epsg(node.srid)}, served in
@@ -11826,6 +11874,12 @@ function pubDraw() {
 
   if (!tree) return;
 
+  // <b>Numbered once for the whole tree, not searched for per row.</b> Reading the index by
+  // scanning the flattened list from inside each row is a scan per row, and ADR-057 condition 3
+  // is about a composition of a thousand layers — a million comparisons on every keystroke is
+  // not a thing to leave behind on the way past.
+  pubIndices = new Map(pubRows().map((n, i) => [n.id, i]));
+
   // <b>A root called Map, which is what the tree is.</b> Every layer in the composition hangs
   // off one service, and a list with no head leaves the operator with nothing to right-click
   // when the thing they want to change is the service — its name, and the reference it is
@@ -11925,15 +11979,6 @@ function pubDraw() {
 
   $("pubOpen").disabled = layers.length === 0;
 
-  // <b>Under the picture, because the indices are what a client asks for.</b> A drawing cannot
-  // say that this polygon is layer 2; the strip can, and it is the half of *what will exist*
-  // that the preview does not replace.
-  $("pubWhat").innerHTML = layers.length
-    ? `<ul class="pubwill">${pubRows().map((n, i) => n.kind === "group"
-        ? `<li><b>${h(n.name)}</b> <span class="pubsame">group, index ${num(i)}</span></li>`
-        : `<li><code>${h(n.name)}</code> <span class="pubsame">index ${num(i)}</span></li>`)
-        .join("")}</ul>`
-    : "";
 }
 
 async function loadSources() {

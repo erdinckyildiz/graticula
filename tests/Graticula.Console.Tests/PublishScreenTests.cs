@@ -77,13 +77,15 @@ public sealed class PublishScreenTests : ConsoleTest
             "document.querySelectorAll('#pubTree [data-pubnode]').length === 1",
             "The table did not become a layer in the composition.");
 
-        // <b>The summary is the middle pane, and it is not a map.</b> Nothing on this server
-        // turns an unpublished composition into a picture, so what is drawn is the service that
-        // will exist — which is also the thing this test can assert.
+        // <b>The number a client will address it by, on the row.</b> This used to read a list
+        // under the preview that repeated every name in the tree; the owner's word for that was
+        // *saçma*, and the list was indeed already on the left. What the list carried that the
+        // tree did not is the index, and that is where it is now.
         await WaitForAsync(
-            "(document.getElementById('pubWhat')?.innerText || '').includes('index 0')",
-            "The summary does not say what will exist. It is the only thing on this screen that "
-            + "reports the composition, so an empty one is a screen that shows nothing.");
+            "(document.querySelector('#pubTree [data-pubnode] .pubindex')?.textContent || '')"
+            + ".trim() === '0'",
+            "The first layer does not say it will be layer 0. The tree's order is the service's "
+            + "numbering and a client asks for FeatureServer/0 by that number.");
 
         Assert.False(
             await Browser.EvaluateAsync<bool>("document.getElementById('pubOpen').disabled"),
