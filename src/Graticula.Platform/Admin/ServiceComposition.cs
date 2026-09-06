@@ -33,6 +33,11 @@ namespace Graticula.Platform.Admin;
 /// <param name="Description">What somebody finding it in a directory needs to know.</param>
 /// <param name="Sharing">Who may see it, in the catalogue's spelling.</param>
 /// <param name="Srid">The reference to serve in, or null for each layer's own.</param>
+/// <param name="SridWkt">
+/// The reference written out, for one EPSG has no code for — owner decision 2026-09-06,
+/// <i>"epsg güzel ama wkt de kabul etmemiz lazım"</i>. Never set beside <c>Srid</c>: migration
+/// 41 refuses a service row carrying both.
+/// </param>
 /// <param name="Nodes">The tree, in draw order — the first is drawn on top.</param>
 /// <param name="ServesFeatures">Whether the feature face answers, or null for the default.</param>
 /// <param name="ServesTiles">Whether the tile face answers, or null for the default.</param>
@@ -54,6 +59,7 @@ public sealed record ServiceComposition(
     string Sharing,
     int? Srid,
     IReadOnlyList<CompositionNode> Nodes,
+    string? SridWkt = null,
     bool? ServesFeatures = null,
     bool? ServesTiles = null,
     IReadOnlyList<string>? Capabilities = null);

@@ -176,8 +176,21 @@ public sealed class FeatureServerQueryWriter
         int srid = query.OutSrid ?? _layer.Srid;
 
         writer.WriteStartObject("spatialReference");
-        writer.WriteNumber("wkid", srid);
-        writer.WriteNumber("latestWkid", srid);
+
+        // <b>A written reference has no code to report, and reporting the layer's would be a
+        // lie about coordinates that have already been transformed.</b> `ST_Transform` to a
+        // definition returns SRID 0, and `wkt` is what the specification has always offered for
+        // exactly this.
+        if (query.OutWkt is { Length: > 0 } definition)
+        {
+            writer.WriteString("wkt", definition);
+        }
+        else
+        {
+            writer.WriteNumber("wkid", srid);
+            writer.WriteNumber("latestWkid", srid);
+        }
+
         writer.WriteEndObject();
 
         // Field types are not known until a value has been seen, and the header

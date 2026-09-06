@@ -645,6 +645,11 @@ public static class FeatureServerMetadataWriter
     /// <param name="capabilities">What the caller may do.</param>
     /// <param name="servedExtent">The extent already in the served reference, or null.</param>
     /// <param name="servedSrid">The reference the service is served in, or null for the layer's.</param>
+    /// <param name="servedWkt">
+    /// That reference written out, when the service named a definition rather than a code —
+    /// owner decision 2026-09-06. A geometry transformed to a definition carries SRID 0, so the
+    /// document says <c>wkt</c> and there is no code to report.
+    /// </param>
     /// <param name="relationships">
     /// Declared relationships this layer takes part in, from either side, in the
     /// shape an ArcGIS client reads. A relationship a client cannot discover is
@@ -690,7 +695,12 @@ public static class FeatureServerMetadataWriter
         // local had built — the same rule the `Columns` list keeps for its ordinals, for the
         // same reason.
         Envelope? servedExtent = null,
-        int? servedSrid = null)
+        int? servedSrid = null,
+
+        // <b>On the end and optional, like the two before it.</b> Two required parameters added
+        // mid-list here broke thirteen call sites in CI on 2026-09-05, and the lesson is the
+        // reason this one is where it is.
+        string? servedWkt = null)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
@@ -722,7 +732,8 @@ public static class FeatureServerMetadataWriter
             // the response contradicts — measured, and the reason D-229 held the query half
             // back until this existed. The caller hands over an extent already moved, because
             // relabelling numbers measured in another reference is the worse of the two wrongs.
-            extent = ExtentOrNull(servedExtent ?? description.Extent, servedSrid ?? layer.Srid),
+            extent = ExtentOrNull(
+            servedExtent ?? description.Extent, servedSrid ?? layer.Srid, servedWkt),
 
             capabilities,
 
@@ -948,18 +959,35 @@ public static class FeatureServerMetadataWriter
         return layer.IntegerIdentityColumn ?? layer.IdentityColumn;
     }
 
-    private static object SpatialReference(int srid) => new { wkid = srid, latestWkid = srid };
+    /// <summary>
+    /// A spatial reference object: a code, or the definition when there is no code.
+    /// </summary>
+    /// <remarks>
+    /// <b>`wkt` is the specification's own alternative to `wkid`, not an invention.</b> A
+    /// service may be served in a reference EPSG has no number for — owner decision 2026-09-06,
+    /// <i>"epsg güzel ama wkt de kabul etmemiz lazım"</i> — and a geometry transformed to a
+    /// written definition comes back from PostGIS with SRID 0, so there is no code to report
+    /// even if one wanted to invent it.
+    /// </remarks>
+    /// <param name="srid">The code.</param>
+    /// <param name="wkt">The definition, when the reference is one.</param>
+    /// <returns>The object a client reads.</returns>
+    private static object SpatialReference(int srid, string? wkt = null) =>
+        wkt is { Length: > 0 } written
+            ? new { wkt = written }
+            : new { wkid = srid, latestWkid = srid };
 
-    private static object? ExtentOrNull(Envelope? extent, int srid) => extent is { } box
-        ? new
-        {
-            xmin = box.MinX,
-            ymin = box.MinY,
-            xmax = box.MaxX,
-            ymax = box.MaxY,
-            spatialReference = SpatialReference(srid),
-        }
-        : null;
+    private static object? ExtentOrNull(Envelope? extent, int srid, string? wkt = null) =>
+        extent is { } box
+            ? new
+            {
+                xmin = box.MinX,
+                ymin = box.MinY,
+                xmax = box.MaxX,
+                ymax = box.MaxY,
+                spatialReference = SpatialReference(srid, wkt),
+            }
+            : null;
 
     /// <summary>
     /// The linear unit of a spatial reference.

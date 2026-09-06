@@ -33,6 +33,16 @@ namespace Graticula.Conformance.Tests;
 public sealed class PublishCompositionConformanceTests : ArcGisClient
 {
     /// <summary>A name nothing else in the fixture will collide with.</summary>
+    /// <summary>A reference written out, for the service that names one.</summary>
+    /// <remarks>
+    /// <b>UTM zone 36N, which covers Türkiye and whose numbers are checkable by hand:</b> six
+    /// figures of easting, seven of northing. Embedded rather than read out of a fixture's
+    /// <c>spatial_ref_sys</c>, because this suite may reference none of our assemblies and
+    /// should not depend on what a particular database happens to hold.
+    /// </remarks>
+    private const string Utm36N =
+        "PROJCS[\"WGS 84 / UTM zone 36N\",GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]],PROJECTION[\"Transverse_Mercator\"],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",33],PARAMETER[\"scale_factor\",0.9996],PARAMETER[\"false_easting\",500000],PARAMETER[\"false_northing\",0],UNIT[\"metre\",1],AXIS[\"Easting\",EAST],AXIS[\"Northing\",NORTH]]";
+
     /// <summary>A ceiling of the one capability every published service has.</summary>
     /// <remarks>
     /// Fields rather than literals at the call sites, because CA1861 is right about a constant
@@ -677,6 +687,185 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
         {
             await TearDownAsync(root, token!, name, [$"again{name}"], []);
         }
+    }
+
+    /// <summary>
+    /// A reference written out, for one this server has no code for.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner decision, 2026-09-06:</b> <i>"epsg güzel ama wkt de kabul etmemiz lazım."</i> A
+    /// national grid may have no EPSG number, and then the definition is the only way to name
+    /// the reference a service is served in.
+    /// </para>
+    /// <para>
+    /// <b>Both documents, because one of them agreeing is the bug D-229 was.</b> The layer's
+    /// `extent` and the query's own `spatialReference` are written by different code on
+    /// different paths; a service whose query answers in one reference while its document
+    /// reports another is a client placing features somewhere else with no error to explain it.
+    /// </para>
+    /// <para>
+    /// <b>The definition is embedded rather than read from the database.</b> This suite may not
+    /// reference any of our assemblies and should not depend on what a fixture's
+    /// `spatial_ref_sys` happens to hold; UTM zone 36N is stable, covers Türkiye, and its
+    /// numbers are checkable by hand.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_service_may_be_served_in_a_reference_written_out()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        (Guid source, string schema, string table, string geometry, string identity, int srid) =
+            await ATableAsync(root, token!);
+
+        string name = AName();
+
+        (HttpStatusCode made, string said) = await SendAsync(
+            HttpMethod.Post,
+            $"{root}/admin/publish",
+            token!,
+            JsonSerializer.Serialize(new
+            {
+                name,
+                folder = "hosted",
+                sharing = "private",
+                sridWkt = Utm36N,
+                nodes = new object[]
+                {
+                    new { layer = Layer($"wkt{name}", source, schema, table, geometry, identity, srid) },
+                },
+            }));
+
+        Assert.True(
+            made == HttpStatusCode.Created,
+            $"Publishing in a written reference answered {(int)made}: {said}");
+
+        try
+        {
+            (HttpStatusCode read, string document) = await SendAsync(
+                HttpMethod.Get,
+                $"{root}/rest/services/hosted/{name}/FeatureServer/0?f=json",
+                token!,
+                null);
+
+            Assert.Equal(HttpStatusCode.OK, read);
+
+            JsonElement extent = JsonDocument.Parse(document).RootElement.GetProperty("extent");
+            JsonElement reference = extent.GetProperty("spatialReference");
+
+            Assert.True(
+                reference.TryGetProperty("wkt", out JsonElement written),
+                "The layer document reports a wkid for a service served in a written reference. "
+                + "A geometry transformed to a definition carries SRID 0, so there is no code to "
+                + "report and reporting the table's would be a lie about coordinates that have "
+                + "already been moved.");
+
+            Assert.Contains("UTM zone 36N", written.GetString()!, StringComparison.Ordinal);
+
+            /*
+              <b>Moved, not relabelled.</b> A transverse Mercator easting stays within about a
+              million metres of its false easting whatever the longitude — PROJ computes one for
+              data outside the zone rather than refusing, and it comes back negative, which is a
+              real answer and not a failure. The fixture's own references do not look like that:
+              3857 eastings across Türkiye are three to four million, and 4326 ones are degrees.
+              So the magnitude is what separates a box that was moved from a label that was
+              changed.
+
+              <b>The first version of this asserted a positive easting and failed on a fixture
+              table west of the zone.</b> The number was right and the assertion was a guess
+              about where somebody's data is.
+            */
+            double xmin = extent.GetProperty("xmin").GetDouble();
+
+            Assert.True(
+                Math.Abs(xmin) is > 1 and < 1_000_000,
+                $"The extent reads {xmin}, which is neither a UTM easting nor near one — the "
+                + "reference was relabelled rather than the box moved.");
+
+            (HttpStatusCode queried, string answer) = await SendAsync(
+                HttpMethod.Get,
+                $"{root}/rest/services/hosted/{name}/FeatureServer/0/query"
+                + "?where=1%3D1&resultRecordCount=1&f=json",
+                token!,
+                null);
+
+            Assert.Equal(HttpStatusCode.OK, queried);
+
+            Assert.True(
+                JsonDocument.Parse(answer).RootElement
+                    .GetProperty("spatialReference").TryGetProperty("wkt", out _),
+                "The query answered in a reference it did not name as a definition, so the "
+                + "document and the answer describe different coordinates — D-229, on the other "
+                + "kind of reference.");
+        }
+        finally
+        {
+            await TearDownAsync(root, token!, name, [$"wkt{name}"], []);
+        }
+    }
+
+    /// <summary>
+    /// A reference is a code or a definition, and neither a nonsense one nor both at once.
+    /// </summary>
+    /// <remarks>
+    /// <b>Refused before anything is written.</b> A definition PROJ will not read reaches
+    /// <c>ST_Transform</c> on the service's first query otherwise — after it is in the catalogue
+    /// and the operator has moved on, which is the worst moment to find out.
+    /// </remarks>
+    [Fact]
+    public async Task A_reference_that_is_neither_one_thing_nor_readable_is_refused()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        (Guid source, string schema, string table, string geometry, string identity, int srid) =
+            await ATableAsync(root, token!);
+
+        async Task RefusedAsync(object reference, string expected, string why)
+        {
+            string name = AName();
+
+            (HttpStatusCode status, string said) = await SendAsync(
+                HttpMethod.Post,
+                $"{root}/admin/publish",
+                token!,
+                JsonSerializer.Serialize(new
+                {
+                    name,
+                    folder = "hosted",
+                    srid = (reference as int?),
+                    sridWkt = reference as string,
+                    nodes = new object[]
+                    {
+                        new
+                        {
+                            layer = Layer(
+                                $"no{name}", source, schema, table, geometry, identity, srid),
+                        },
+                    },
+                }));
+
+            Assert.True(
+                status == HttpStatusCode.BadRequest,
+                $"{why} answered {(int)status} rather than 400. The server said: {said}");
+
+            Assert.Contains(expected, said, StringComparison.OrdinalIgnoreCase);
+        }
+
+        await RefusedAsync(
+            "this is not a projection",
+            "could not read",
+            "A definition PROJ cannot read");
+
+        // <b>A code nothing knows, refused where a definition would be.</b> Both halves of the
+        // same question have to be asked, or one of them ships unasked.
+        await RefusedAsync(987654, "cannot project", "An EPSG code this server does not have");
     }
 
     /// <summary>

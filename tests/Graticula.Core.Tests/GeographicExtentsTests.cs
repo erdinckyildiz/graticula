@@ -29,6 +29,19 @@ public sealed class GeographicExtentsTests
     /// </remarks>
     private sealed class CountingProjector : IProjector
     {
+    /// <summary>Not something this double does; a caller's fallback is the table's own.</summary>
+    /// <param name="geometries">Ignored.</param>
+    /// <param name="fromSrid">Ignored.</param>
+    /// <param name="definition">Ignored.</param>
+    /// <param name="cancellationToken">Ignored.</param>
+    /// <returns>Null, meaning this projector cannot.</returns>
+    public Task<IReadOnlyList<Graticula.Geometries.Geometry>?> ProjectToDefinitionAsync(
+        IReadOnlyList<Graticula.Geometries.Geometry> geometries,
+        int fromSrid,
+        string definition,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<Graticula.Geometries.Geometry>?>(null);
+
 
         // <b>Never asked here.</b> `GeographicExtents` moves geometry; the datum question is
         // Q-141's notice, on a different path.
@@ -175,6 +188,19 @@ public sealed class GeographicExtentsTests
 
     private sealed class RefusingProjector : IProjector
     {
+    /// <summary>Not something this double does; a caller's fallback is the table's own.</summary>
+    /// <param name="geometries">Ignored.</param>
+    /// <param name="fromSrid">Ignored.</param>
+    /// <param name="definition">Ignored.</param>
+    /// <param name="cancellationToken">Ignored.</param>
+    /// <returns>Null, meaning this projector cannot.</returns>
+    public Task<IReadOnlyList<Graticula.Geometries.Geometry>?> ProjectToDefinitionAsync(
+        IReadOnlyList<Graticula.Geometries.Geometry> geometries,
+        int fromSrid,
+        string definition,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<Graticula.Geometries.Geometry>?>(null);
+
 
         // <b>Never asked here.</b> `GeographicExtents` moves geometry; the datum question is
         // Q-141's notice, on a different path.

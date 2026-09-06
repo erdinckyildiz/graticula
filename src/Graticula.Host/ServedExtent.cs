@@ -76,6 +76,62 @@ internal static class ServedExtent
             .ProjectAsync(outline, from, to, cancellationToken)
             .ConfigureAwait(false);
 
+        return Around(moved);
+    }
+
+    /// <summary>The same ground, in a reference written out rather than numbered.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner decision 2026-09-06, and it closes D-229 for the other kind of reference.</b> A
+    /// service served in a written definition answers its queries there; a document reporting
+    /// the table's extent instead would put the two into exactly the disagreement D-229 was —
+    /// the query in one reference, the document in another, and nothing saying so.
+    /// </para>
+    /// <para>
+    /// <b>Null when the projector cannot</b>, which is a projector with no PROJ behind it or a
+    /// definition PROJ will not read. The caller then reports the table's own reference, which
+    /// is the one thing it can still prove.
+    /// </para>
+    /// </remarks>
+    /// <param name="extent">The box, measured in <paramref name="from" />.</param>
+    /// <param name="from">The reference it is measured in.</param>
+    /// <param name="definition">The reference wanted, written out.</param>
+    /// <param name="projector">The projector every other face uses.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The box in that reference, or null when it cannot be put there.</returns>
+    public static async Task<Envelope?> InAsync(
+        Envelope? extent,
+        int from,
+        string definition,
+        IProjector projector,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(projector);
+
+        if (extent is not { } box || string.IsNullOrWhiteSpace(definition))
+        {
+            return null;
+        }
+
+        Point[] outline = CoverageWarp.ControlPoints(box, Steps, Steps, Steps);
+
+        IReadOnlyList<Geometry>? moved = await projector
+            .ProjectToDefinitionAsync(outline, from, definition, cancellationToken)
+            .ConfigureAwait(false);
+
+        return moved is null ? null : Around(moved);
+    }
+
+    /// <summary>The box around whatever came back, or null when it is not a box.</summary>
+    /// <remarks>
+    /// <b>PROJ answers with infinities rather than raising</b> for a point outside a reference's
+    /// domain, so the finiteness test is the failure check. It is in one place because two
+    /// copies of it would have drifted the first time either learnt something.
+    /// </remarks>
+    /// <param name="moved">The projected outline.</param>
+    /// <returns>Its bounding box, or null.</returns>
+    private static Envelope? Around(IReadOnlyList<Geometry> moved)
+    {
         double minX = double.MaxValue, minY = double.MaxValue;
         double maxX = double.MinValue, maxY = double.MinValue;
 

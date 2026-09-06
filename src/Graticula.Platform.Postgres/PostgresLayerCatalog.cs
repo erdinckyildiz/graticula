@@ -76,7 +76,8 @@ public sealed class PostgresLayerCatalog
 
         -- The reference this service is served in, or null for each layer's own
         -- (ADR-057 §5c, migration 39). On the end, per the rule above.
-        s.srid as service_srid
+        s.srid as service_srid,
+        s.srid_wkt as service_srid_wkt
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -455,7 +456,16 @@ public sealed class PostgresLayerCatalog
             // that decides which coordinates a client gets.
             reader.IsDBNull(reader.GetOrdinal("service_srid"))
                 ? null
-                : reader.GetInt32(reader.GetOrdinal("service_srid")));
+                : reader.GetInt32(reader.GetOrdinal("service_srid")))
+        {
+            // <b>The other half of the same column, and it travels or it does not exist.</b>
+            // A service may name its reference by writing it out (migration 41), and a layer
+            // that carried only the code would answer in its own reference while the service
+            // document said otherwise — which is what D-179 was.
+            ServedWkt = reader.IsDBNull(reader.GetOrdinal("service_srid_wkt"))
+                ? null
+                : reader.GetString(reader.GetOrdinal("service_srid_wkt")),
+        };
     }
 
     /// <summary>The group layers held by the services named.</summary>
@@ -680,7 +690,8 @@ public sealed class PostgresLayerCatalog
         HashSet<Guid> hidden = [];
         Dictionary<Guid, (string Name, string? Folder, string Kind, string? Description,
             Guid? Owner, SharingScope Sharing, ServiceStatus Status, string? Style,
-            ServiceCapabilityLimits Limits, Guid[] SharedWith, int? Srid)> heads = [];
+            ServiceCapabilityLimits Limits, Guid[] SharedWith, int? Srid,
+            string? SridWkt)> heads = [];
         List<Guid> order = [];
 
         // <b>Its own scope, so the reader is closed before the group query
@@ -725,7 +736,16 @@ public sealed class PostgresLayerCatalog
                         // this one is on the end for the same reason.
                         reader.IsDBNull(reader.GetOrdinal("service_srid"))
                             ? null
-                            : reader.GetInt32(reader.GetOrdinal("service_srid")));
+                            : reader.GetInt32(reader.GetOrdinal("service_srid")),
+
+                        // <b>The other half of the same choice.</b> A service names its
+                        // reference by code or by writing it out (migration 41), and a head
+                        // that carried only the code would describe a service whose layers
+                        // answer in something else — D-179 again, on the column that decides
+                        // which coordinates a client gets.
+                        reader.IsDBNull(reader.GetOrdinal("service_srid_wkt"))
+                            ? null
+                            : reader.GetString(reader.GetOrdinal("service_srid_wkt")));
                 }
 
                 // A left join, so a service with no layers arrives as one row of

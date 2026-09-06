@@ -152,6 +152,15 @@ public sealed class PublishedService
     /// </remarks>
     public int? Srid { get; }
 
+    /// <summary>
+    /// The written reference this service is served in, when it named one instead of a code.
+    /// </summary>
+    /// <remarks>
+    /// <b>Never beside <see cref="Srid"/>.</b> Migration 41's constraint refuses a row carrying
+    /// both, so a service reporting two would be reporting something that cannot exist.
+    /// </remarks>
+    public string? SridWkt { get; init; }
+
     /// <summary>What it is for, or null.</summary>
     public string? Description { get; }
 

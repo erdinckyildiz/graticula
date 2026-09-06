@@ -371,6 +371,42 @@ oversight.
 
 
 
+### 5m. A reference may be written out, not only numbered
+
+**By owner decision, 2026-09-06:** *"epsg güzel ama wkt de kabul etmemiz lazım."* A national grid
+a customer uses, or a local system, may have no EPSG number at all — and then the definition is
+the only way to name it. §5c said a service names its reference; this says a name is a code **or**
+a definition.
+
+**One or the other, never both.** Migration 41 adds `service.srid_wkt` beside `service.srid` with
+a check refusing a row that carries two, and `ServedReference` is the one type that reads the
+pair — so no reader has to decide which wins, because no row can pose the question.
+
+**Nothing is written into anybody's `spatial_ref_sys`, and that is the decision.** The cheap
+route is to insert the definition under a spare code and keep using integers everywhere. It
+writes into the database a *registered* source points at, which belongs to somebody else — the
+same line ADR-034 §5k draws when it refuses to drop a registered table with its service.
+**Measured before choosing:** PostGIS 3.4.3's `ST_Transform(geom, '<wkt>')` gives the same
+coordinates as `ST_Transform(geom, 5254)` **to the last digit** and needs no row, so the cheap
+route buys nothing it is allowed to spend.
+
+**A geometry transformed to a definition carries SRID 0** — measured the same way — so the
+documents say `wkt` rather than `wkid`, which is what the ArcGIS spatial reference object has
+always allowed. Both documents say it: the layer's `extent` and the query's own
+`spatialReference`, which is D-229's rule applied to the second kind of reference.
+
+**Refused before anything is written.** `POST /admin/publish` asks the projector whether it can
+serve in the reference chosen — `KnowsAsync` for a code, a one-point transform for a definition —
+because the alternative is a service in the catalogue that fails on its first query, after the
+operator has moved on.
+
+**And it cost an hour to the wrong kind of default.** `ProjectToDefinitionAsync` was added to
+`IProjector` with a default implementation answering *this projector cannot*. `BreakingProjector`
+decorates the real one and inherited that default, so the server refused every definition PostGIS
+had just accepted by hand — with a message blaming PROJ. **A default answer makes *cannot* and
+*nobody wrote this* the same word.** The default is gone and the compiler asks every implementer,
+which is four of them and worth it.
+
 ## 6. Consequences
 
 - ~~**Two catalogue changes before the screen is worth building**: a parent on the layer row

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(40);
+    public static SchemaVersion ComponentSchemaVersion => new(41);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -75,6 +75,7 @@ public static class PlatformMigrations
         SymbologyIsNoLongerBoundedV38,
         AServiceNamesItsReferenceV39,
         OneTableMayBeInManyServicesV40,
+        AReferenceMayBeWrittenOutV41,
     ]);
 
 
@@ -2536,6 +2537,60 @@ public static class PlatformMigrations
     /// satisfies the per-service one.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A service may name its reference by writing it out, not only by code.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>By owner decision, 2026-09-06:</b> <i>"epsg güzel ama wkt de kabul etmemiz lazım."</i>
+    /// Migration 39 gave a service an EPSG code to be served in; a national grid a customer uses
+    /// or a local system may have no code at all, and the definition is then the only way to name
+    /// it.
+    /// </para>
+    /// <para>
+    /// <b>A second column rather than a wider first one.</b> <c>srid</c> is an integer that
+    /// eight faces read and compare; making it text so it could hold either would make every one
+    /// of those reads a parse. The two are exclusive by constraint, so nothing downstream has to
+    /// decide which wins.
+    /// </para>
+    /// <para>
+    /// <b>Nothing is written into any <c>spatial_ref_sys</c>.</b> The cheap route is to insert
+    /// the definition under a spare code and keep using integers — and it writes into the
+    /// database a registered source points at, which belongs to somebody else and which this
+    /// product does not touch. Measured the same day on PostGIS 3.4.3:
+    /// <c>ST_Transform(geom, '&lt;wkt&gt;')</c> agrees with <c>ST_Transform(geom, 5254)</c> to
+    /// the last digit and needs no row.
+    /// </para>
+    /// </remarks>
+    private static Migration AReferenceMayBeWrittenOutV41 => Migration.Expand(
+        new SchemaVersion(41),
+        "A service's reference may be a written definition as well as an EPSG code.",
+
+        "alter table service add column if not exists srid_wkt text",
+
+        // <b>One or the other, never both.</b> A row carrying a code and a definition has two
+        // answers and no rule for which governs, and the reader that guesses is right about half
+        // the time and silent about it.
+        """
+        alter table service drop constraint if exists service_reference_is_one_thing
+        """,
+
+        """
+        alter table service add constraint service_reference_is_one_thing
+            check (srid is null or srid_wkt is null)
+        """,
+
+        // <b>Blank is not a definition.</b> An empty string would satisfy the check above and
+        // then reach PROJ, which answers with a failure about a projection nobody chose.
+        """
+        alter table service drop constraint if exists service_reference_not_blank
+        """,
+
+        """
+        alter table service add constraint service_reference_not_blank
+            check (srid_wkt is null or length(btrim(srid_wkt)) > 0)
+        """);
+
     private static Migration OneTableMayBeInManyServicesV40 => Migration.Expand(
         new SchemaVersion(40),
         "A table may be published into more than one service; the constraint is per service.",

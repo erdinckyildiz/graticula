@@ -224,6 +224,16 @@ public sealed class PublishedLayer
     /// </remarks>
     public int? ServedSrid { get; }
 
+    /// <summary>
+    /// The written reference this layer's service is served in, when it named one.
+    /// </summary>
+    /// <remarks>
+    /// <b>Set with <see cref="ServedSrid"/> and never beside it.</b> A service names its
+    /// reference by code or by definition — the schema refuses both (migration 41) — so a layer
+    /// carrying two would be reporting a row that cannot exist.
+    /// </remarks>
+    public string? ServedWkt { get; init; }
+
     /// <summary>The catalogue identity.</summary>
     public Guid Id { get; }
 

@@ -82,6 +82,10 @@ internal sealed record ServiceSridRequest(int? Srid);
 /// <param name="Sharing">Who may see it.</param>
 /// <param name="Srid">The reference to serve in, or null for each layer's own.</param>
 /// <param name="Nodes">The tree, in draw order — the first is drawn on top.</param>
+/// <param name="SridWkt">
+/// The reference written out, for one EPSG has no code for — owner decision 2026-09-06. Sent
+/// instead of <c>Srid</c>, never beside it.
+/// </param>
 /// <param name="ServesFeatures">Whether the feature face answers, or null for the default.</param>
 /// <param name="ServesTiles">Whether the tile face answers, or null for the default.</param>
 /// <param name="Capabilities">
@@ -96,6 +100,7 @@ internal sealed record CompositionRequest(
     string? Sharing,
     int? Srid,
     IReadOnlyList<CompositionNodeRequest>? Nodes,
+    string? SridWkt = null,
     bool? ServesFeatures = null,
     bool? ServesTiles = null,
     IReadOnlyList<string>? Capabilities = null);
@@ -5994,6 +5999,7 @@ internal static class AdminEndpoints
     /// <param name="request">The composition.</param>
     /// <param name="catalog">The catalogue.</param>
     /// <param name="systemServices">The addresses a published service may not take.</param>
+    /// <param name="projector">What is asked whether it can serve in the reference chosen.</param>
     /// <param name="audit">The log.</param>
     /// <param name="cancellation">The caller's.</param>
     /// <returns>The task.</returns>
@@ -6002,6 +6008,7 @@ internal static class AdminEndpoints
         CompositionRequest? request,
         IAdminCatalog catalog,
         PostgresSystemServices systemServices,
+        IProjector projector,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -6037,12 +6044,44 @@ internal static class AdminEndpoints
             return;
         }
 
-        if (request.Srid is { } srid && srid <= 0)
+        // <b>A code or a definition, never both — owner decision 2026-09-06.</b>
+        // `ServedReference` is where that rule lives, so the endpoint asks rather than
+        // restating it; migration 41's constraint says the same thing to the database, and two
+        // statements of one rule are one statement and a copy that drifts.
+        if (!ServedReference.TryRead(
+                request.Srid, request.SridWkt, out ServedReference reference, out string? badRef))
+        {
+            await Refuse(context, 400, badRef!).ConfigureAwait(false);
+            return;
+        }
+
+        // <b>Asked before anything is written, because the alternative is a published service
+        // that answers nothing.</b> A code PROJ does not know, or a definition it will not read,
+        // reaches `ST_Transform` on the first query and fails there — after the composition is
+        // in the catalogue and the operator has moved on.
+        if (reference.Srid is { } wantedCode
+            && !await projector.KnowsAsync(wantedCode, cancellation).ConfigureAwait(false))
         {
             await Refuse(
                 context, 400,
-                $"'{srid}' is not a spatial reference. Send an EPSG code, or leave it out to "
-                + "serve each layer in whatever its own table is stored in.").ConfigureAwait(false);
+                $"This server cannot project to EPSG:{wantedCode}. Send a reference it knows, "
+                + "the definition written out, or nothing to serve each layer in its own.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        if (reference.Wkt is { Length: > 0 } wantedText
+            && await projector
+                .ProjectToDefinitionAsync(
+                    [new Point(0, 0)], 4326, wantedText, cancellation)
+                .ConfigureAwait(false) is null)
+        {
+            await Refuse(
+                context, 400,
+                "This server could not read that reference definition. PROJ takes WKT 1, WKT 2 "
+                + "and a PROJ string; whatever was sent is none of them, or names something it "
+                + "does not have.").ConfigureAwait(false);
 
             return;
         }
@@ -6187,6 +6226,7 @@ internal static class AdminEndpoints
                         PostgresSharing(scope),
                         request.Srid,
                         composed!,
+                        request.SridWkt,
                         request.ServesFeatures,
                         request.ServesTiles,
                         request.Capabilities),

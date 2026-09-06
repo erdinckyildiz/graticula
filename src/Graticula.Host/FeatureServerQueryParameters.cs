@@ -166,6 +166,11 @@ internal static class FeatureServerQueryParameters
     /// one a client cannot page or select against.
     /// </param>
     /// <param name="layerSrid">The layer's SRID, for checking <c>outSR</c>.</param>
+    /// <param name="servedWkt">
+    /// The written reference the service is served in, when it named one instead of a code —
+    /// owner decision 2026-09-06. Used only when the caller asked for no <c>outSR</c> of their
+    /// own, for the same reason <paramref name="servedSrid"/> is.
+    /// </param>
     /// <param name="servedSrid">
     /// The reference the owning service is served in, or null for the layer's own. It is the
     /// answer when the caller names none, which is what makes it the service's reference rather
@@ -199,7 +204,8 @@ internal static class FeatureServerQueryParameters
         ServiceCostCeilings? cost = null,
         int serverDefaultRecordCount = DefaultRecordCount,
         int serverMaximumRecordCount = FeatureQuery.MaximumLimit,
-        int? servedSrid = null)
+        int? servedSrid = null,
+        string? servedWkt = null)
     {
         query = null;
         shape = QueryShape.Features;
@@ -322,7 +328,14 @@ internal static class FeatureServerQueryParameters
             tolerance,
             outSrid,
             where,
-            filterSrid);
+            filterSrid)
+        {
+            // <b>Only when the caller did not name a reference of their own.</b> `outSR` is the
+            // client asking for a code; a service served in a written definition still has to
+            // honour that, because a client that asked for 4326 and got a national grid has no
+            // way to know. The definition governs the default, not the request.
+            OutWkt = outSrid is null ? servedWkt : null,
+        };
 
         return true;
     }

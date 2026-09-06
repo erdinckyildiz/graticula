@@ -585,10 +585,18 @@
           ones one keystroke away and the box takes any code, which the server is then asked
           about — an input that accepts a reference this server cannot project to would be
           ADR-034's prohibition wearing a text field.
+
+          <b>And a definition, not only a code</b> — *"epsg guzel ama wkt de kabul etmemiz
+          lazim"*, the same day. A national grid may have no EPSG number, and then the definition
+          is the only way to name it. One box tells the two apart by shape rather than asking the
+          operator which kind of thing they are pasting: a code is digits, a definition is not.
+          `inputmode` is off it for that reason — a numeric keypad on a phone would make the
+          second kind untypeable.
         -->
         <label class="pbserved">Served in
-          <input id="pubSrid" list="pubReferences" inputmode="numeric" spellcheck="false"
-            size="9" placeholder="3857" aria-describedby="pubSridSaysHead">
+          <input id="pubSrid" list="pubReferences" spellcheck="false"
+            size="14" placeholder="3857 or a definition" aria-describedby="pubSridSaysHead"
+            title="An EPSG code, or a reference definition pasted whole — WKT 1, WKT 2 or a PROJ string">
           <datalist id="pubReferences"></datalist></label>
         <span class="pbsridsays" id="pubSridSaysHead" role="status" aria-live="polite"></span>
         <button id="pubRedraw" class="ghost">Preview</button>

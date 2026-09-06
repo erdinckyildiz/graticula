@@ -2677,11 +2677,20 @@ public static class Program
         // `ServedExtent` moves the box rather than relabelling it and answers null when PROJ
         // cannot put it there — in which case the document reports the table's reference, which
         // is the one thing it can still prove. D-229 is the row this closes.
+        // <b>A written reference moves the box the same way a code does.</b> `ServedExtent`
+        // takes either since 2026-09-06 — the projector transforms to a definition with the
+        // same `ST_Transform` it uses for a code, so the only difference is which of the two
+        // the service named.
         Envelope? served = layer.ServedSrid is { } wanted
             ? await ServedExtent
                 .InAsync(description.Extent, layer.Definition.Srid, wanted, projector, cancellation)
                 .ConfigureAwait(false)
-            : null;
+            : layer.ServedWkt is { Length: > 0 } written
+                ? await ServedExtent
+                    .InAsync(
+                        description.Extent, layer.Definition.Srid, written, projector, cancellation)
+                    .ConfigureAwait(false)
+                : null;
 
         object document = FeatureServerMetadataWriter.Layer(
             layer.Definition,
@@ -2698,7 +2707,8 @@ public static class Program
             layer.Symbology,
             relationshipsKnown: declared is not null,
             servedExtent: served,
-            servedSrid: served is null ? null : layer.ServedSrid);
+            servedSrid: served is null ? null : layer.ServedSrid,
+            servedWkt: served is null ? null : layer.ServedWkt);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
@@ -3720,7 +3730,8 @@ public static class Program
                 // <b>The service's reference, when it has named one.</b> It travels on the
                 // layer because this handler resolves a layer and never the service over it —
                 // the same reason the capability ceiling does, which is D-179.
-                layer.ServedSrid))
+                layer.ServedSrid,
+                layer.ServedWkt))
         {
             await Results.Json(
                 new { error = new { code = 400, message = error } },

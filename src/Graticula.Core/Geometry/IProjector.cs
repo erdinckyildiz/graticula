@@ -96,6 +96,35 @@ public interface IProjector
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Projects into a reference written out, for one EPSG has no code for.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner decision, 2026-09-06:</b> <i>"epsg güzel ama wkt de kabul etmemiz lazım."</i> A
+    /// national grid or a local system may have no number, and then the definition is the only
+    /// way to name it.
+    /// </para>
+    /// <para>
+    /// <b>No default implementation, and the first hour of this feature is why.</b> It was
+    /// written as a default returning null — *this projector cannot* — which every implementer
+    /// then inherited for free. `BreakingProjector` decorates the real one and inherited it too,
+    /// so the server refused every definition PostGIS had just accepted by hand, and the message
+    /// it refused with was about PROJ. **A default answer makes *cannot* and *nobody wrote this*
+    /// the same word.** Every implementer answers now, and the compiler is what asks.
+    /// </para>
+    /// </remarks>
+    /// <param name="geometries">What to move.</param>
+    /// <param name="fromSrid">The reference they are in.</param>
+    /// <param name="definition">The reference to put them in, written out.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The moved geometries, or null when this projector cannot.</returns>
+    Task<IReadOnlyList<Geometry>?> ProjectToDefinitionAsync(
+        IReadOnlyList<Geometry> geometries,
+        int fromSrid,
+        string definition,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Whether this deployment can work in a coordinate reference system at all.
     /// </summary>
     /// <remarks>

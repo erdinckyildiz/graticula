@@ -118,9 +118,10 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             """
             insert into service
                 (id, name, folder, kind, description, owner_principal_id, sharing, status,
-                 srid, next_layer_index, serves_features, serves_tiles, capability_ceiling)
+                 srid, srid_wkt, next_layer_index, serves_features, serves_tiles,
+                 capability_ceiling)
             values (@id, @name, @folder, 'FeatureServer', @description, @owner, @sharing,
-                    'started', @srid, @next, @features, @tiles, @ceiling::text[])
+                    'started', @srid, @sridwkt, @next, @features, @tiles, @ceiling::text[])
             """,
             connection,
             transaction))
@@ -133,6 +134,12 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             service.Parameters.AddWithValue("owner", owner);
             service.Parameters.AddWithValue("sharing", composition.Sharing);
             service.Parameters.AddWithValue("srid", (object?)composition.Srid ?? DBNull.Value);
+
+            // <b>One or the other, and the schema is what says so.</b> Migration 41's constraint
+            // refuses a row with both, so this passes whichever it was given and lets the
+            // database be the authority — a check here would be a second opinion that can drift.
+            service.Parameters.AddWithValue(
+                "sridwkt", (object?)composition.SridWkt ?? DBNull.Value);
             service.Parameters.AddWithValue("next", next);
 
             // <b>Null is unset and means *whatever this server serves*, which is not the same as

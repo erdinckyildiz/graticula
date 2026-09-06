@@ -10485,7 +10485,7 @@ async function pubReference() {
   pubDraw();
 
   if (!wanted) {
-    state("each layer in its own", false);
+    state(pubServedWkt() ? pubReferenceSays() : "each layer in its own", false);
     void pubShoot(true);
     return;
   }
@@ -10513,6 +10513,32 @@ async function pubReference() {
 
     state(e.message, true);
   }
+}
+
+/**
+ * What the box holds, said back in a sentence.
+ *
+ * <b>A definition is not asked about while it is typed.</b> A code is four digits and a question
+ * to the server costs nothing; a definition is several hundred characters pasted in one go, and
+ * checking it on every keystroke would ask about a hundred broken prefixes of one good answer.
+ * The publish asks — `POST /admin/publish` hands it to PROJ before it writes anything — and this
+ * says what kind of thing is in the box.
+ *
+ * @returns {string} a sentence for the reader
+ */
+function pubReferenceSays() {
+  const wkt = pubServedWkt();
+
+  if (!wkt) return "";
+
+  // <b>Named from the definition when it names itself.</b> The first quoted string in a WKT is
+  // the reference's own name, which is far more use to a reader than *a definition*.
+  const called = /^\s*(?:PROJCS|GEOGCS|PROJCRS|GEOGCRS|BOUNDCRS|COMPOUNDCRS)\s*\[\s*"([^"]{1,80})"/i
+    .exec(wkt);
+
+  return called
+    ? `${called[1]} — a written definition, checked when you publish`
+    : "a written definition, checked when you publish";
 }
 
 /**
@@ -11114,6 +11140,25 @@ function pubServedSrid() {
   return Number(typed.replace(/^epsg:\s*/i, "")) || 0;
 }
 
+/**
+ * The reference definition in the box, when what is in it is one rather than a code.
+ *
+ * <b>Owner decision 2026-09-06 — <i>"epsg güzel ama wkt de kabul etmemiz lazım"</i>.</b> A
+ * national grid or a local system may have no EPSG number at all, and then the definition is
+ * the only way to name it.
+ *
+ * <b>Told apart by shape, not by a second control.</b> A code is digits; a definition begins
+ * with a keyword and carries brackets. Two boxes would make the operator answer *which kind is
+ * this* about text they are pasting from somewhere else, which they should not have to.
+ *
+ * @returns {string} the definition, or an empty string when the box holds a code
+ */
+function pubServedWkt() {
+  const typed = ($("pubSrid")?.value || "").trim();
+
+  return typed && !pubServedSrid() ? typed : "";
+}
+
 /** Which shape a swatch draws: a fill, a line or a dot. @param {object} node the layer
  * @returns {string} a class name */
 function pubSwatchKind(node) {
@@ -11374,6 +11419,9 @@ async function sendPublish() {
         description: $("pbAbout").value.trim() || null,
         sharing: $("pbShare").value,
         srid,
+
+        // One or the other; the server refuses both and so does the schema.
+        sridWkt: pubServedWkt() || null,
 
         // Sent whichever way the boxes sit, because "unset" and "off" are different states on
         // the service row and the operator has just answered the question either way.

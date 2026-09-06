@@ -215,6 +215,18 @@ public sealed class FeatureQuery
     public int? OutSrid { get; }
 
     /// <summary>
+    /// A written reference to answer in, when the caller named one instead of a code.
+    /// </summary>
+    /// <remarks>
+    /// <b>Owner decision 2026-09-06 — <i>"epsg güzel ama wkt de kabul etmemiz lazım"</i>.</b> A
+    /// service may be served in a reference EPSG has no number for, and then the definition is
+    /// the only way to name it. It sits beside <see cref="OutSrid"/> rather than replacing it
+    /// because eight faces compare codes as integers; exactly one of the two is ever set, which
+    /// <c>ServedReference</c> is what enforces at every place either is chosen.
+    /// </remarks>
+    public string? OutWkt { get; init; }
+
+    /// <summary>
     /// The reference <see cref="BoundingBox"/> and <see cref="Spatial"/> are
     /// expressed in, or null when they are already in the layer's.
     /// </summary>

@@ -205,6 +205,19 @@ public sealed class DatumShiftNoticesTests
     private sealed class Projector(bool? shift, bool refuse = false, bool cancel = false)
         : IProjector
     {
+    /// <summary>Not something this double does; a caller's fallback is the table's own.</summary>
+    /// <param name="geometries">Ignored.</param>
+    /// <param name="fromSrid">Ignored.</param>
+    /// <param name="definition">Ignored.</param>
+    /// <param name="cancellationToken">Ignored.</param>
+    /// <returns>Null, meaning this projector cannot.</returns>
+    public Task<IReadOnlyList<Graticula.Geometries.Geometry>?> ProjectToDefinitionAsync(
+        IReadOnlyList<Graticula.Geometries.Geometry> geometries,
+        int fromSrid,
+        string definition,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<Graticula.Geometries.Geometry>?>(null);
+
         private bool _refuse = refuse;
 
         /// <summary>How many times the datum question was actually asked.</summary>

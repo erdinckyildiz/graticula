@@ -275,6 +275,82 @@ public sealed class PostGisProjector : IProjector
 
     /// <inheritdoc/>
     /// <remarks>
+    /// <b>The same statement as the code path with one parameter typed differently.</b>
+    /// PostGIS 3.4's <c>ST_Transform(geometry, text)</c> hands the definition to PROJ directly,
+    /// and it needs no row in <c>spatial_ref_sys</c> — measured 2026-09-06 against the code
+    /// path beside it: identical coordinates to the last digit. That is what makes a written
+    /// reference possible without writing into the database a registered source points at,
+    /// which belongs to somebody else.
+    /// </remarks>
+    public async Task<IReadOnlyList<Geometry>?> ProjectToDefinitionAsync(
+        IReadOnlyList<Geometry> geometries,
+        int fromSrid,
+        string definition,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(geometries);
+        ArgumentException.ThrowIfNullOrWhiteSpace(definition);
+
+        if (geometries.Count == 0)
+        {
+            return [];
+        }
+
+        // Ordered by an explicit index for the same reason the code path is: `unnest` does not
+        // promise input order, and geometries returned in another order is every coordinate
+        // right and every one attached to the wrong thing.
+        const string Sql = """
+            select ST_AsBinary(ST_Transform(ST_SetSRID(ST_GeomFromWKB(g), @from), @to))
+            from unnest(@geometries) with ordinality as t(g, n)
+            order by t.n
+            """;
+
+        byte[][] wkb = new byte[geometries.Count][];
+
+        for (int i = 0; i < geometries.Count; i++)
+        {
+            wkb[i] = WkbWriter.ToArray(geometries[i]);
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("from", fromSrid);
+        command.Parameters.AddWithValue("to", definition);
+        command.Parameters.Add(
+            new NpgsqlParameter("geometries", NpgsqlDbType.Array | NpgsqlDbType.Bytea)
+            {
+                Value = wkb,
+            });
+
+        List<Geometry> projected = new(geometries.Count);
+
+        try
+        {
+            await using NpgsqlDataReader reader =
+                await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (reader.IsDBNull(0))
+                {
+                    return null;
+                }
+
+                projected.Add(WkbReader.Read(reader.GetFieldValue<byte[]>(0)));
+            }
+        }
+        catch (PostgresException)
+        {
+            // <b>A definition PROJ will not read is a refusal, not a fault here.</b> The caller
+            // asked whether this reference can be used; *no* is an answer it has a route for,
+            // and the operator sees it where they typed it rather than as a stack trace.
+            return null;
+        }
+
+        return projected;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// <para>
     /// <b>One row of <c>spatial_ref_sys</c>, cached forever.</b> The table is PROJ's
     /// own, it is written when PostGIS is installed, and a deployment that edits it

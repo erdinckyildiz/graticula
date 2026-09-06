@@ -353,6 +353,18 @@ public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions
         {
             expression = $"st_transform({expression}, {srid.ToString(CultureInfo.InvariantCulture)})";
         }
+        else if (query.OutWkt is { Length: > 0 })
+        {
+            // <b>A parameter, and the one place in this expression that has to be.</b> Every
+            // other value here is a number this server produced; a written reference is text a
+            // caller supplied, and interpolating it would put their string in the statement.
+            //
+            // <b>`ST_Transform(geom, text)` needs no row in `spatial_ref_sys`</b> — PostGIS
+            // 3.4, measured 2026-09-06 against the code path beside it: the same coordinates to
+            // the last digit as `ST_Transform(geom, 5254)`. The geometry it returns carries SRID
+            // 0, which is why a document describing it says `wkt` rather than `wkid`.
+            expression = $"st_transform({expression}, @outwkt)";
+        }
 
         if (query.MaxAllowableOffset is > 0)
         {
@@ -672,6 +684,15 @@ public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions
         if (query.MaxAllowableOffset is { } tolerance and > 0)
         {
             command.Parameters.AddWithValue("tolerance", tolerance);
+        }
+
+        // <b>Bound whenever the query carries one, not only when the geometry expression used
+        // it.</b> A written reference can reach the statement through the output geometry and
+        // through the filter's own transform, and a parameter declared in one place and read in
+        // two is the cheaper mistake to avoid than to find.
+        if (query.OutWkt is { Length: > 0 } written)
+        {
+            command.Parameters.AddWithValue("outwkt", written);
         }
 
         if (query.Precision is { } places and >= 0)
