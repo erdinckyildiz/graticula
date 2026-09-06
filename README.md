@@ -129,6 +129,42 @@ It is then a FeatureServer at
 `https://localhost:8443/rest/services/places/FeatureServer/0`, discoverable from
 `/rest/info` the way any ArcGIS client expects.
 
+### A service of several layers, in one act
+
+One table is one layer. A service of several — with group layers, in a chosen order — is a
+single request, written in one transaction or not at all. There is no empty container to make
+first and fill afterwards: a service is not created without layers
+([ADR-057](docs/adr/ADR-057-composing-and-publishing-a-service.md)).
+
+```bash
+curl -sk -X POST https://localhost:8443/admin/publish \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"cadastre","folder":"hosted","sharing":"private",
+       "srid":3857,
+       "capabilities":["Query"],
+       "nodes":[
+         {"layer":{"name":"parcels","dataSourceId":"<id>","schemaName":"public",
+                   "tableName":"parcels","geometryColumn":"geom","identityColumn":"objectid",
+                   "objectIdColumn":"objectid","srid":4326,"geometryType":"Polygon"}},
+         {"group":"Planning","layers":[
+           {"name":"zoning","dataSourceId":"<id>","schemaName":"public",
+            "tableName":"zoning","geometryColumn":"geom","identityColumn":"objectid",
+            "objectIdColumn":"objectid","srid":4326,"geometryType":"Polygon"}]}]}'
+```
+
+`srid` is the reference the whole service answers in, whatever its tables are stored in —
+reprojection happens on the way out. Where a grid has no EPSG code, send `sridWkt` with the
+definition instead; the two are exclusive and the server refuses a reference it cannot project
+to before it writes anything.
+
+`capabilities` is a ceiling and never a grant: what a caller may do is that set intersected with
+their privileges and with what the data supports. `servesFeatures` and `servesTiles` turn the
+two faces on and off.
+
+The same act has a screen — **Server › Publish** — which composes the tree by dragging tables
+out of the registered databases, draws the result out of those databases *before* any of it is
+published, and sends this request when you press Publish.
+
 ### If nobody can administer it any more
 
 A store with accounts and no administrator cannot be recovered from the API, because every

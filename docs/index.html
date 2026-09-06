@@ -286,7 +286,7 @@ pre .k{color:var(--accent)}
           <span><b>5</b> service types</span>
           <span><b>18</b> of 22 geometry operations</span>
           <span><b>1</b> process, <b>1</b> database</span>
-          <span><b>52</b> decision records</span>
+          <span><b>58</b> decision records</span>
         </p>
       </div>
 
@@ -362,7 +362,8 @@ pre .k{color:var(--accent)}
                   <td>Tokens from <span class="nm">generateToken</span>, at all three of its spellings.</td></tr>
               <tr class="gone">
                   <td><i class="sw none"><span class="vh">not here:</span></i> Publishing from Pro</td>
-                  <td>Not supported. Publish in Studio or over the admin API.</td></tr>
+                  <td>Not supported. Publish on <b>Server &rsaquo; Publish</b>, in Studio, or over
+                  the admin API.</td></tr>
               <tr class="gone">
                   <td><i class="sw none"><span class="vh">not here:</span></i> Web tools and geoprocessing services</td>
                   <td>Not here at all, and not scheduled.</td></tr>
@@ -448,6 +449,20 @@ pre .k{color:var(--accent)}
             it. Measured against Pro over seven rounds, each read out of the request log.</p>
           </div>
           <div>
+            <!--
+              <b>Added 2026-09-06, when the owner asked whether this page had caught up.</b> It
+              had not: the front page described publishing one table at a time and the product
+              had grown a screen that composes a service out of several. Every sentence here is
+              a thing that was measured the day it was built — ADR-057.
+            -->
+            <h3>Composing a service</h3>
+            <p>Drag tables from a registered database into a tree, group them, order them, and
+            publish the lot in <b>one request and one transaction</b>. The map beside it is drawn
+            by the server out of those tables <b>before any of it exists</b>, so what you approve
+            is what gets served. Choose the reference by EPSG code or by <b>pasting the
+            definition</b> for a grid that has no code.</p>
+          </div>
+          <div>
             <h3>Members, roles and sharing</h3>
             <p>An item is private to its owner until it is shared. Role privileges are editable
             rather than fixed. Every mutation is audited, and the log is a thing you can query.</p>
@@ -455,7 +470,9 @@ pre .k{color:var(--accent)}
           <div>
             <h3>Getting data in</h3>
             <p>Import GeoJSON, a zipped shapefile or a File Geodatabase &mdash; or define an
-            empty schema and fill it through <code>applyEdits</code>.</p>
+            empty schema and fill it through <code>applyEdits</code>. A table already in a
+            database you registered needs no import at all: it is composed into a service where
+            it lies.</p>
           </div>
         </div>
       </div>
