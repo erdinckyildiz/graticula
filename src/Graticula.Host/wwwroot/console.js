@@ -10425,7 +10425,13 @@ function pubAdd(dbId, schema, table) {
   pubTree.unshift({
     kind: "layer",
     id: `L${++pubSeq}`,
-    name: found.tableName,
+
+    // <b>A layer's name is unique inside its service, and two schemas may hold one table
+    // name.</b> `public.parcels` and `arsiv.parcels` are an ordinary pair, and composing both
+    // under one name is refused by `layer_name_unique_in_service` — at the end, after the whole
+    // composition is built. The screen can see it coming, so it does, and the operator renames
+    // it afterwards if the suffix is not what they wanted.
+    name: pubFreeName(found.tableName),
     source: dbId,
     sourceName: db.name,
     schema: found.schemaName,
@@ -10438,6 +10444,65 @@ function pubAdd(dbId, schema, table) {
 
   found.used = true;
   pubPicked = new Set();
+  pubDraw();
+}
+
+/**
+ * A layer name nothing else in this composition is using.
+ *
+ * <b>Suffixed rather than refused.</b> Somebody dragging the second `parcels` in meant to add
+ * it; telling them they cannot until they rename something is a refusal for a problem the
+ * screen can solve, and the name is theirs to change afterwards.
+ *
+ * @param {string} wanted the name to start from
+ * @returns {string} that name, or the first free variation of it
+ */
+function pubFreeName(wanted) {
+  const used = new Set(pubLayers().map(l => l.name.toLowerCase()));
+
+  if (!used.has(wanted.toLowerCase())) return wanted;
+
+  for (let n = 2; ; n++) {
+    const tried = `${wanted}_${n}`;
+
+    if (!used.has(tried.toLowerCase())) return tried;
+  }
+}
+
+/**
+ * Renames a layer or a group in the composition.
+ *
+ * <b>The name is what a client asks for, so it is the operator's to choose.</b> A layer arrives
+ * named after its table because that is the only name the screen knows; a service somebody else
+ * will read deserves better than `ci_buildings_1a3afeeb`.
+ *
+ * @param {string} id which node
+ */
+function pubRename(id) {
+  const found = pubFind(id);
+
+  if (!found) return;
+
+  const given = prompt(
+    found.node.kind === "group" ? "Group name" : "Layer name", found.node.name);
+
+  if (given === null) return;
+
+  const wanted = given.trim();
+
+  if (!wanted) return;
+
+  if (found.node.kind === "layer") {
+    const clash = pubLayers().some(l =>
+      l.id !== id && l.name.toLowerCase() === wanted.toLowerCase());
+
+    if (clash) {
+      toast(`Another layer in this service is already called ${wanted}.`);
+      return;
+    }
+  }
+
+  found.node.name = wanted;
   pubDraw();
 }
 
@@ -10744,14 +10809,24 @@ document.addEventListener("contextmenu", event => {
 
   // <b>Group when several are chosen, ungroup on a group, remove either way.</b> ADR-057 §5b:
   // one level, so a group swept into a group contributes its layers.
-  if (found?.node.kind === "group") {
-    if (confirm(`Ungroup "${found.node.name}"?`)) pubUngroup(node.dataset.pubnode);
+  // <b>Grouping wins when several are chosen, because that is what several means.</b> With one
+  // node the question is about that node: ungroup it, or rename it.
+  if (pubPicked.size > 1) {
+    if (confirm(`Group ${pubPicked.size} layers?`)) pubGroup();
     return;
   }
 
-  if (pubPicked.size > 1) {
-    if (confirm(`Group ${pubPicked.size} layers?`)) pubGroup();
+  if (found?.node.kind === "group") {
+    if (confirm(`Ungroup "${found.node.name}"? Cancel to rename it instead.`)) {
+      pubUngroup(node.dataset.pubnode);
+    } else {
+      pubRename(node.dataset.pubnode);
+    }
+
+    return;
   }
+
+  pubRename(node.dataset.pubnode);
 });
 
 document.addEventListener("dragstart", event => {

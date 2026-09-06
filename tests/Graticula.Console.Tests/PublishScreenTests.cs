@@ -117,6 +117,62 @@ public sealed class PublishScreenTests : ConsoleTest
     }
 
     /// <summary>
+    /// Two tables of one name become two layers of two names.
+    /// </summary>
+    /// <remarks>
+    /// <b>`public.parcels` and `arsiv.parcels` are an ordinary pair.</b> A layer's name is
+    /// unique inside its service — `layer_name_unique_in_service` — so composing both under one
+    /// name is refused, at the end, after the whole composition is built. The screen can see it
+    /// coming, so it suffixes on the way in and the operator renames it afterwards if the suffix
+    /// is not what they wanted.
+    /// <para>
+    /// <b>Asked of the function rather than staged in the fixture.</b> This fixture happens to
+    /// hold no two tables of one name across its schemas, and seeding a pair to prove a naming
+    /// rule would be a fixture change for a screen's arithmetic.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_second_table_of_the_same_name_gets_a_name_of_its_own()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubDbTree [data-pubdb]').length > 0",
+            "No registered database is listed.");
+
+        await ClickAsync("#pubDbTree [data-pubdb]");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubDbTree [data-pubtable][draggable=true]').length > 0",
+            "No free table to compose with.");
+
+        await ClickAsync("#pubDbTree [data-pubtable][draggable=true]");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubTree [data-pubnode]').length === 1",
+            "The table did not become a layer.");
+
+        string taken = await Browser.EvaluateAsync<string>(
+            "pubLayers()[0].name") ?? string.Empty;
+
+        Assert.False(string.IsNullOrWhiteSpace(taken), "The composed layer has no name.");
+
+        Assert.Equal(
+            $"{taken}_2",
+            await Browser.EvaluateAsync<string>(
+                $"pubFreeName({System.Text.Json.JsonSerializer.Serialize(taken)})"));
+
+        // And a name nothing is using comes back untouched.
+        Assert.Equal(
+            "ZZZUnused",
+            await Browser.EvaluateAsync<string>("pubFreeName('ZZZUnused')"));
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// A table already served is offered and refused, with the reason where the table is.
     /// </summary>
     /// <remarks>
