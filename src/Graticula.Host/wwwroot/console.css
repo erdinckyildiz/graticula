@@ -3585,8 +3585,23 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pubtable .pubsrid { margin-left: auto; flex: 0 0 auto;
   font: var(--t-tiny)/1 var(--mono); color: var(--faint); }
-.pubdot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ok-dot); }
-.pubdot.no { background: var(--rule-strong); }
+/* <b>Point, line or area, beside every table.</b> Owner instruction 2026-09-06. The same three
+   shapes the contents tree draws for a layer's symbol, at the same size, so the pane and the
+   tree read as one screen — but in the pane's own grey, because here the shape is the fact and
+   a colour would imply a symbol nobody has chosen. A table with no geometry gets none of the
+   three: it is not a feature class, and the row beneath it says so in words. */
+.pubgeom { flex: none; width: 11px; height: 11px; }
+.pubgeom.dot { width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); opacity: .75; }
+.pubgeom.line { height: 0; width: 12px; border-top: 2px solid var(--accent); opacity: .75;
+  transform: rotate(-20deg); }
+.pubgeom.fill { border-radius: 2px; background: var(--accent-soft);
+  border: 1.5px solid var(--accent); opacity: .8; }
+
+/* Not publishable at all: the shape stays, so the row still says what the table holds, and the
+   colour goes, so it does not read as an offer. */
+.pubgeom.no.dot, .pubgeom.no.fill { background: var(--rule); border-color: var(--rule-strong); }
+.pubgeom.no.line { border-top-color: var(--rule-strong); }
 .pubwhy { padding: 0 8px 6px 54px; font-size: var(--t-tiny); color: var(--warn); line-height: 1.45; }
 
 .pubwill { margin: 0; padding: 4px 12px; list-style: none; }

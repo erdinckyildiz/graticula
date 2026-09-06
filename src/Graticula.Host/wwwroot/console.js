@@ -11162,7 +11162,26 @@ function pubServedWkt() {
 /** Which shape a swatch draws: a fill, a line or a dot. @param {object} node the layer
  * @returns {string} a class name */
 function pubSwatchKind(node) {
-  const kind = (node.geometryType || "").toLowerCase();
+  return pubShapeOf(node.geometryType);
+}
+
+/**
+ * Which of the three shapes a geometry type is.
+ *
+ * <b>One classifier, because two would disagree the first time either learnt a type.</b> The
+ * contents tree's swatch and the database list's mark answer the same question — *is this a
+ * point, a line or an area* — and they are drawn from the same three words.
+ *
+ * <b>Substring matching, because the two lists differ in case and in prefix.</b> The catalogue
+ * says `MultiPolygon` and the probe says `POLYGON`; matching either exactly would leave one of
+ * them silently falling through to *area*, which is right two thirds of the time and therefore
+ * the hardest kind of wrong to notice.
+ *
+ * @param {string|undefined} type a geometry type in either list's spelling
+ * @returns {string} `dot`, `line` or `fill`
+ */
+function pubShapeOf(type) {
+  const kind = (type || "").toLowerCase();
 
   if (kind.includes("point")) return "dot";
   if (kind.includes("line")) return "line";
@@ -11864,7 +11883,20 @@ function pubDraw() {
             ${can ? `draggable="true"` : ""}
             data-pubtable="${h(db.id)}|${h(schema.name)}|${h(t.tableName)}"
             title="${can ? "drag into Contents" : "cannot be published"}">
-          <span class="pubdot ${can ? "" : "no"}"></span>
+          <!--
+            <b>The shape, not a status light — owner instruction 2026-09-06:</b> *tabloların
+            point mi line mı poligon mu olduğunu bir simge ile gösterir misin.* This was a dot
+            that meant *publishable*, which the row already says by being draggable and by the
+            sentence under it when it is not. What it did not say was the one thing somebody
+            scanning sixty table names actually wants.
+
+            <b>The same three shapes the contents tree draws</b>, in the pane's own grey rather
+            than a symbol's colour: here the shape is the fact, and a colour would imply a
+            symbol nothing has chosen yet.
+          -->
+          <span class="pubgeom ${h(pubShapeOf(t.geometryType))} ${can ? "" : "no"}"
+            title="${h(t.geometryType || "no geometry")}"
+            aria-hidden="true"></span>
           <span title="${h(schema.name)}.${h(t.tableName)}">${h(t.tableName)}</span>
           <span class="pubsrid">${t.srid ? "EPSG:" + epsg(t.srid) : "—"}</span>
         </div>`;

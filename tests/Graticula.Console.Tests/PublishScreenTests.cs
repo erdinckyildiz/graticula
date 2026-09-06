@@ -513,6 +513,79 @@ public sealed class PublishScreenTests : ConsoleTest
     }
 
     /// <summary>
+    /// Every table in the Databases pane says whether it is points, lines or areas.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner instruction, 2026-09-06:</b> *"sağ taraftaki database bağlantısında listenen
+    /// tabloların point mi line mı poligon mu olduğunu bir simge ile gösterir misin?"* The mark
+    /// beside each table was a dot meaning *publishable* — which the row already says by being
+    /// draggable, and says in words underneath when it is not. It did not say the one thing
+    /// somebody scanning sixty table names wants.
+    /// </para>
+    /// <para>
+    /// <b>Checked against each row's own answer, not against the fixture's table names.</b> The
+    /// mark carries the geometry type in its title, so the assertion is that the shape drawn and
+    /// the type reported agree — which holds on any fixture and catches the failure that
+    /// matters: a classifier that falls through to *area* for a spelling it did not expect. The
+    /// probe says `POLYGON` where the catalogue says `MultiPolygon`, and matching either exactly
+    /// would be right two thirds of the time.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Each_table_shows_whether_it_is_points_lines_or_areas()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubDbTree [data-pubdb]').length > 0",
+            "No registered database is listed.");
+
+        await ClickAsync("#pubDbTree [data-pubdb]");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubDbTree [data-pubtable]').length > 0",
+            "Opening a database listed no tables.");
+
+        Assert.Equal(
+            0,
+            await Browser.EvaluateAsync<int>(
+                "document.querySelectorAll('#pubDbTree [data-pubtable]').length"
+                + " - document.querySelectorAll('#pubDbTree [data-pubtable] .pubgeom').length"));
+
+        // <b>The shape and the type it claims, compared row by row.</b>
+        string wrong = await Browser.EvaluateAsync<string>("""
+        [...document.querySelectorAll('#pubDbTree [data-pubtable] .pubgeom')]
+          .map(m => {
+            const said = (m.getAttribute("title") || "").toLowerCase();
+            const wanted = said.includes("point") ? "dot"
+              : said.includes("line") ? "line" : "fill";
+
+            return m.classList.contains(wanted) ? "" : said + " drawn as " + m.className;
+          })
+          .filter(Boolean)
+          .join(" | ")
+        """) ?? string.Empty;
+
+        Assert.True(
+            wrong.Length == 0,
+            $"A table's mark does not match the geometry it reports: {wrong}");
+
+        // <b>And the three are told apart, not all drawn the same.</b> A classifier answering
+        // *area* for everything would satisfy the comparison above on a fixture of polygons.
+        Assert.True(
+            await Browser.EvaluateAsync<int>(
+                "new Set([...document.querySelectorAll('#pubDbTree [data-pubtable] .pubgeom')]"
+                + ".map(m => m.classList.contains('dot') ? 'dot'"
+                + " : m.classList.contains('line') ? 'line' : 'fill')).size") > 1,
+            "Every table in this database draws the same shape, so either the fixture holds one "
+            + "geometry or the mark is not reading the type.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// A table another service already serves can still be dragged into a new one.
     /// </summary>
     /// <remarks>
