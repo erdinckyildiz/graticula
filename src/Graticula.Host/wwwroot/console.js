@@ -10333,6 +10333,15 @@ let pubShotLayer = null;
 /** Each node's index in the service, by node id — the number a client will address it by. */
 let pubIndices = new Map();
 
+/** The pending redraw, so a gesture asks once rather than once per settled frame. */
+let pubShootSoon = 0;
+
+/** The request in flight, so a superseded one stops costing the server a query per layer. */
+let pubShootStop = null;
+
+/** Where the composition is, in the map's reference — and which composition that was. */
+let pubWhere = { of: "", box: null };
+
 /** Whether the map has been put over the composition once. */
 let pubFramed = false;
 
@@ -10590,10 +10599,19 @@ async function pubBuildMap() {
     controls: [new ol.control.Zoom()],
   });
 
-  // <b>On `moveend`, not during the drag.</b> The reader keeps the picture they had while they
-  // pan and gets the new one when they stop — which is what every map-image layer does, and
-  // what keeps a composition of twenty layers from issuing twenty queries per frame.
-  pubMap.on("moveend", () => void pubShoot(true));
+  /*
+    <b>After the map settles, and then after a pause.</b> `moveend` alone is not once per
+    gesture: a kinetic pan, a wheel zoom and a `fit` each end more than once, and every ending
+    used to be a full render — a query per layer against somebody's database. The owner watched
+    the network panel fill with **280 requests and 3.4 MB** and asked the right question.
+
+    <b>A quarter of a second, which is shorter than a second gesture and longer than the tail of
+    one.</b> The picture still arrives while the hand is still on the mouse.
+  */
+  pubMap.on("moveend", () => {
+    clearTimeout(pubShootSoon);
+    pubShootSoon = setTimeout(() => void pubShoot(true), 250);
+  });
 }
 
 /**
@@ -10697,6 +10715,29 @@ async function pubShoot(force) {
   const body = JSON.stringify({ name: pubServiceName || "preview",
     srid: pubServedSrid() || null, nodes });
 
+  // <b>Asked once per composition, before the frame is judged against it.</b> The two questions
+  // are kept in one order: what is in the composition, then whether any of it is on screen.
+  await pubLearnWhere(body);
+
+  /*
+    <b>A view the data cannot appear in is not drawn — owner, 2026-09-06:</b> *"bu scalede yoksa
+    neden çizmeye çalışıyor? görüneni çizmesi lazım."* Panning away from the composition used to
+    keep asking the server to render it, once per settled frame, and every one of those is a
+    spatial query per layer against somebody's database that was always going to match nothing.
+
+    <b>The composition's own extent, asked for once and kept until the composition changes.</b>
+    It costs one request where the drawings cost one per view, and it is the same number the
+    map is framed on.
+  */
+  if (at && pubWhere.of === body && pubWhere.box && !pubOverlaps(pubWhere.box, at.box)) {
+    pubShotOf = body + "|away";
+    image.hidden = true;
+    pubShotLayer?.setSource(null);
+    note("Nothing in this composition is in view.");
+    $("pubDrawSays").textContent = "";
+    return;
+  }
+
   const where = at
     ? `?bbox=${at.box.join(",")}&size=${at.wide},${at.tall}&bboxSR=${PUB_MAP_SR}`
     : "";
@@ -10713,6 +10754,14 @@ async function pubShoot(force) {
   // the extent they panned away from, painted over the one they are looking at.
   const mine = ++pubDrawing;
 
+  // <b>The one it replaces is stopped, not merely ignored.</b> Discarding a late answer leaves
+  // the query that produced it running against somebody's database to the end; a pan across a
+  // city used to leave a trail of those.
+  pubShootStop?.abort();
+  pubShootStop = new AbortController();
+
+  const stop = pubShootStop;
+
   try {
     const answer = await fetch(`/admin/publish/preview${where}`, {
       method: "POST",
@@ -10720,6 +10769,7 @@ async function pubShoot(force) {
         ? { "Content-Type": "application/json", Authorization: "Bearer " + token }
         : { "Content-Type": "application/json" },
       body,
+      signal: stop.signal,
     });
 
     if (mine !== pubDrawing) return;
@@ -10800,12 +10850,56 @@ async function pubShoot(force) {
     // above is replaced within the moment by one drawn for the view it is being shown at.
     if (!at && drawn) pubFrameMap(drawn.split(",").map(Number));
   } catch (e) {
-    if (mine !== pubDrawing) return;
+    // <b>Abandoned on purpose is not a failure.</b> Saying so on the screen would report the
+    // operator's own next gesture back to them as an error.
+    if (e.name === "AbortError" || mine !== pubDrawing) return;
 
     pubShotOf = "";
     $("pubDrawSays").textContent = "";
     image.hidden = true;
     note(e.message);
+  }
+}
+
+/**
+ * Whether two boxes share any ground.
+ *
+ * @param {number[]} a `[minX, minY, maxX, maxY]`
+ * @param {number[]} b the same
+ * @returns {boolean} whether they touch
+ */
+function pubOverlaps(a, b) {
+  return a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
+}
+
+/**
+ * Reads where the composition is, once per composition.
+ *
+ * <b>So the screen can tell that a view holds none of it</b> without asking for a drawing to
+ * find out. `POST /admin/publish/extent` is one request and reports each layer's box; this
+ * keeps the union, and forgets it the moment the composition changes.
+ *
+ * @param {string} body the composition, as it will be sent
+ * @returns {Promise<void>} when the extent is known, or known to be unavailable
+ */
+async function pubLearnWhere(body) {
+  if (pubWhere.of === body) return;
+
+  pubWhere = { of: body, box: null };
+
+  try {
+    const answer = await api(`/admin/publish/extent?outSR=${PUB_MAP_SR}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+
+    // <b>Only if the composition has not changed under it.</b> Two tables dragged in quickly
+    // leave two of these in flight, and the older one must not overwrite the newer.
+    if (pubWhere.of === body) pubWhere.box = answer?.all || null;
+  } catch {
+    // <b>Not knowing is not the same as being away.</b> With no extent the skip above never
+    // fires, which is the behaviour this screen had before it could ask.
   }
 }
 

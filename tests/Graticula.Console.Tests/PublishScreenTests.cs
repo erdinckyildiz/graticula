@@ -515,6 +515,148 @@ public sealed class PublishScreenTests : ConsoleTest
     }
 
     /// <summary>
+    /// A gesture asks for one drawing, the one it replaces is cancelled, and an empty view asks
+    /// for none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner opened the network panel: 280 requests and 3.4 MB.</b> *"bu scalede yoksa
+    /// neden çizmeye çalışıyor? görüneni çizmesi lazım."* And then, on the cancellation:
+    /// *"zoom değişince gelene göre eski requestlerin cancel da olması lazım. bu var olan bir
+    /// gis yapısıdır."* Every settled frame was a full render — a spatial query per layer
+    /// against somebody's database — and a pan across a city left a trail of them running to
+    /// completion for answers nobody would look at.
+    /// </para>
+    /// <para>
+    /// <b>Counted rather than reasoned about.</b> Three numbers, and each of the three
+    /// mechanisms fails on its own: without the wait, twelve view changes are twelve requests;
+    /// without the abort, the superseded ones run to the end; without the extent check, a view
+    /// on the other side of the world still asks for a picture of nothing.
+    /// </para>
+    /// <para>
+    /// <b>Two of the screen's own facts are injected, because this suite cannot supply them.</b>
+    /// Every write is answered from inside the page, so <c>/admin/publish/extent</c> never
+    /// reaches a server and no drawing ever comes back — which means the screen never learns
+    /// where the composition is and never frames the map on it. On a real server the first draw
+    /// lands and both are true from then on. Injecting them is what makes the third number
+    /// measurable at all; the numbers before it need nothing.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_gesture_asks_once_cancels_what_it_replaces_and_skips_an_empty_view()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(Shown("#pubTree"), "The Publish screen drew no contents pane.");
+
+        await WaitForAsync(
+            "!!document.querySelector('#pubMap .ol-viewport')", "The preview is not a map.");
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          window.__asked = 0;
+          window.__stopped = 0;
+
+          const real = window.fetch;
+
+          window.fetch = (input, init) => {
+            const where = typeof input === "string" ? input : (input && input.url) || "";
+
+            if (where.includes("/admin/publish/preview")) {
+              window.__asked++;
+              init?.signal?.addEventListener("abort", () => window.__stopped++);
+            }
+
+            return real(input, init);
+          };
+
+          return true;
+        })();
+        """);
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          pubTree = [{
+            kind: "layer", id: "L" + (++pubSeq), name: "zz_quiet",
+            source: "00000000-0000-0000-0000-000000000000", sourceName: "probe",
+            schema: "public", table: "zz_quiet", geometry: "geom", identity: "objectid",
+            srid: 3857, geometryType: "MultiPolygon",
+          }];
+
+          pubDraw();
+          return true;
+        })();
+        """);
+
+        await Task.Delay(2500);
+
+        int settled = await Browser.EvaluateAsync<int>("window.__asked");
+
+        Assert.True(
+            settled is > 0 and <= 2,
+            $"Composing one layer asked for {settled} drawings. One is the answer; a handful "
+            + "means the screen is redrawing on something other than the composition changing.");
+
+        // Twelve view changes in quick succession, as a hand on a wheel makes.
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const v = pubMap.getView();
+
+          for (let i = 0; i < 12; i++) v.setZoom(v.getZoom() - 0.5);
+
+          return true;
+        })();
+        """);
+
+        await Task.Delay(2000);
+
+        int afterZoom = await Browser.EvaluateAsync<int>("window.__asked");
+
+        Assert.True(
+            afterZoom - settled <= 2,
+            $"Twelve view changes asked for {afterZoom - settled} drawings. Each is a query per "
+            + "layer against somebody's database, and the reader only ever sees the last.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<int>("window.__stopped") > 0,
+            "Nothing was cancelled. A superseded drawing that is merely ignored still runs to "
+            + "the end on the server — which is the half of this the owner named.");
+
+        // <b>What a successful first draw would have taught the screen.</b>
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          pubLearnWhere = async body => {
+            pubWhere = { of: body, box: [3657465, 4862565, 3664835, 4869935] };
+          };
+
+          pubFramed = true;
+          return true;
+        })();
+        """);
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          pubMap.getView().setCenter([-8000000, 4000000]);
+          pubMap.getView().setZoom(9);
+          return true;
+        })();
+        """);
+
+        await Task.Delay(2000);
+
+        Assert.Equal(afterZoom, await Browser.EvaluateAsync<int>("window.__asked"));
+
+        Assert.Contains(
+            "in view",
+            await Browser.EvaluateAsync<string>(
+                "document.getElementById('pubMapSays')?.textContent || \"\"") ?? string.Empty,
+            StringComparison.OrdinalIgnoreCase);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// A table dragged in keeps its geometry: the tree's symbol agrees with the pane's mark.
     /// </summary>
     /// <remarks>
