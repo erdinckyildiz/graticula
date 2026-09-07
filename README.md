@@ -1,11 +1,18 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/banner-dark.png">
-  <img alt="Graticula — the ArcGIS REST API, from one container and one Postgres. v0.1.0, PostGIS, Elastic License 2.0." src="docs/banner-light.png">
+  <img alt="Graticula — a GIS server and its portal, from one container and one Postgres. v0.1.0, PostGIS, Elastic License 2.0." src="docs/banner-light.png">
 </picture>
 
-Publish a PostGIS table and it is a feature service at a URL your existing clients
-already open. ArcGIS Pro connects, browses, adds the layer and edits it. There is no
-site to create, no data store tier to install and no portal to federate.
+**A GIS server and its portal, in one process.** `Server` does what a GIS Server site
+does — services at `/rest/services`, published out of PostGIS, opened by the clients you
+already have. `Studio` does what the portal does for content and people — items, members,
+roles, groups, sharing. ArcGIS Pro connects, browses, adds the layer and edits it.
+
+The three tiers are fused rather than federated
+([ADR-019](docs/adr/ADR-019-portal-server-split.md)), so there is no site to create, no
+data store tier to install and no portal to federate. What Studio does *not* do is author:
+no web maps, no app builder, no Living Atlas — the services are the product and the client
+is yours.
 
 **[The overview page](https://erdinckyildiz.github.io/graticula/)** says the same thing
 with room to breathe. A *graticule* is the net of meridians and parallels drawn on a map;

@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Graticula is an ArcGIS-compatible GIS server that runs on PostGIS: feature, map, image, vector tile and geometry services from one container and one Postgres.">
+<meta name="description" content="Graticula is an ArcGIS-compatible GIS server and portal on PostGIS: feature, map, image, vector tile and geometry services, with items, members, roles and sharing, from one container and one Postgres.">
 <meta name="color-scheme" content="light dark">
 <meta property="og:title" content="Graticula">
-<meta property="og:description" content="The ArcGIS REST API, from one container and one Postgres.">
+<meta property="og:description" content="A GIS server and its portal, from one container and one Postgres.">
 <meta property="og:type" content="website">
 <title>Graticula</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -267,10 +267,13 @@ pre .k{color:var(--accent)}
     <div class="hero-grid">
       <div>
         <p class="eyebrow">Graticula <span class="sep">/</span> v0.1.0 <span class="sep">/</span> source-available</p>
-        <h1>The ArcGIS REST API, from one container and one Postgres.</h1>
-        <p class="lede">Publish a PostGIS table and it is a <b>feature service</b> at a URL your
-        existing clients already open. Pro connects, browses, adds the layer and edits it.
-        <b>No site to create, no data store tier to install, no portal to federate.</b></p>
+        <h1>A GIS server and its portal, from one container and one Postgres.</h1>
+        <p class="lede"><b>Server</b> does what a GIS Server site does: services at
+        <span class="nm">/rest/services</span>, published out of PostGIS, opened by the clients
+        you already have. <b>Studio</b> does what the portal does &mdash; items, members, roles,
+        groups, sharing. They are one process and one API with two doors, because the three tiers
+        are fused rather than federated:
+        <b>no site to create, no data store tier to install, no portal to federate.</b></p>
         <div class="acts">
           <a class="btn btn-a" href="#start">Run it in four steps</a>
           <a class="btn btn-b" href="#gaps">Read what is missing</a>
@@ -355,7 +358,8 @@ pre .k{color:var(--accent)}
               <tr><td>Server Manager</td>
                   <td><b>Server</b>, the console an operator signs in to.</td></tr>
               <tr><td>Portal for ArcGIS</td>
-                  <td><b>Studio</b>, where publishers work. One API, two doors.</td></tr>
+                  <td><b>Studio</b>, where publishers work &mdash; items, members, roles, groups
+                  and sharing. One API, two doors, nothing to federate.</td></tr>
               <tr><td><span class="nm">/arcgis/rest/services/&hellip;</span></td>
                   <td><span class="nm">/rest/services/&hellip;</span> &mdash; the same document shapes.</td></tr>
               <tr><td>Tokens from <span class="nm">generateToken</span></td>
@@ -514,6 +518,23 @@ pre .k{color:var(--accent)}
             <div>
               <h3>No geocoding service</h3>
               <p>Address parsing, matching and reverse geocoding are designed and unbuilt.</p>
+            </div>
+          </div>
+
+          <!--
+            <b>Added 2026-09-07, with the framing above.</b> Calling Studio *the portal* is
+            [ADR-019](adr/ADR-019-portal-server-split.md)'s decision and it is the honest word
+            for what it does with content and people. It is not the honest word for the rest of
+            Portal, and this page's rule is that a limit goes on the front page rather than
+            being discovered later.
+          -->
+          <div class="gap">
+            <i class="sw none"><span class="vh">Not built.</span></i>
+            <div>
+              <h3>No web maps, apps or dashboards</h3>
+              <p>Studio is the portal's job for <b>content and people</b> &mdash; items, members,
+              roles, groups, sharing. It authors nothing: there is no web map to save, no app
+              builder and no Living Atlas. Bring your own client; the services are the product.</p>
             </div>
           </div>
 
