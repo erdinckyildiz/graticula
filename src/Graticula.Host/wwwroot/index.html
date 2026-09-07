@@ -573,32 +573,18 @@
       </div>
       <div class="pageacts">
         <!--
-          <b>The reference is here rather than in the Publish dialog, since 2026-09-06.</b> It
-          decides what the drawing beside it shows, so keeping it until the last screen made the
-          preview a picture of a choice the operator had not made yet. It is still sent with the
-          composition; this is only where it is chosen.
-        -->
-        <!--
-          <b>Typed, not chosen from three — owner instruction 2026-09-06:</b> *"sadece 3
-          projeksiyon görebiliyorum. kendi istediğimi de girebilmeliyim."* A list of three is a
-          list of what somebody thought of; PROJ knows thousands. The datalist keeps the common
-          ones one keystroke away and the box takes any code, which the server is then asked
-          about — an input that accepts a reference this server cannot project to would be
-          ADR-034's prohibition wearing a text field.
+          <b>The reference is on the map's own properties, since 2026-09-07 — owner
+          instruction:</b> *"onu şu anda bulunduğu yerden alıp map'e sağ tıklayınca açılan bir
+          ekrana koyalım. sonuçta map'in projeksiyonu hepsini kapsayacak."* It was a box on this
+          toolbar, sitting among the three verbs, as though choosing a reference were a fourth
+          act somebody performs each session. It is not: it is a property of the map, set once,
+          and every layer in the composition is drawn and served in it.
 
-          <b>And a definition, not only a code</b> — *"epsg guzel ama wkt de kabul etmemiz
-          lazim"*, the same day. A national grid may have no EPSG number, and then the definition
-          is the only way to name it. One box tells the two apart by shape rather than asking the
-          operator which kind of thing they are pasting: a code is digits, a definition is not.
-          `inputmode` is off it for that reason — a numeric keypad on a phone would make the
-          second kind untypeable.
+          <b>Which is also where the reader already looks for it.</b> The tree's root row is the
+          map and carries the reference beside its name; right-clicking that row, or the drawing
+          itself, opens the properties. ArcGIS Pro's contents pane is the reference the owner
+          named for this screen, and this is where Pro keeps it too.
         -->
-        <label class="pbserved">Served in
-          <input id="pubSrid" list="pubReferences" spellcheck="false"
-            size="14" placeholder="3857 or a definition" aria-describedby="pubSridSaysHead"
-            title="An EPSG code, or a reference definition pasted whole — WKT 1, WKT 2 or a PROJ string">
-          <datalist id="pubReferences"></datalist></label>
-        <span class="pbsridsays" id="pubSridSaysHead" role="status" aria-live="polite"></span>
         <button id="pubRedraw" class="ghost">Preview</button>
         <button id="pubClear" class="ghost">Clear</button>
         <button id="pubOpen" class="primary" disabled>Publish&hellip;</button>
@@ -1868,6 +1854,49 @@
   </header>
   <div class="dialogbody" id="pubsymBody"></div>
   <footer class="dialogfoot" id="pubsymFoot"></footer>
+</dialog>
+
+<!-- --------------------------------------------------------- the map's properties -->
+<!--
+  <b>One property, and it is the map's.</b> The reference decides what every layer is drawn and
+  served in, so it belongs to the thing that holds them rather than to any one of them — which
+  is why this is reached from the map and from the map's row, and from nowhere else.
+
+  <b>Typed, not chosen from a short list — owner instruction 2026-09-06:</b> *"sadece 3
+  projeksiyon görebiliyorum. kendi istediğimi de girebilmeliyim."* A list of three is a list of
+  what somebody thought of; PROJ knows thousands. The datalist keeps the common ones one
+  keystroke away and the box takes any code, which the server is then asked about — an input
+  that accepts a reference this server cannot project to would be ADR-034's prohibition wearing
+  a text field.
+
+  <b>And a definition, not only a code</b> — *"epsg güzel ama wkt de kabul etmemiz lazım"*, the
+  same day. A national grid may have no EPSG number, and then the definition is the only way to
+  name it. One box tells the two apart by shape rather than asking the operator which kind of
+  thing they are pasting: a code is digits, a definition is not. `inputmode` is off it for that
+  reason — a numeric keypad on a phone would make the second kind untypeable.
+-->
+<dialog id="mapprops" aria-labelledby="mappropsTitle">
+  <header class="dialoghead">
+    <h3 id="mappropsTitle" tabindex="-1">Map properties</h3>
+    <button class="tiny ghost" id="mappropsClose" aria-label="Close">&#10005;</button>
+  </header>
+  <div class="dialogbody">
+    <div class="row">
+      <label class="field" style="flex:1 1 100%">Coordinate system
+        <input id="pubSrid" list="pubReferences" spellcheck="false"
+          placeholder="3857, or a definition pasted whole"
+          aria-describedby="pubSridSaysHead"
+          title="An EPSG code, or a reference definition pasted whole — WKT 1, WKT 2 or a PROJ string">
+        <datalist id="pubReferences"></datalist></label>
+    </div>
+    <p class="hint"><span class="pbsridsays" id="pubSridSaysHead"
+      role="status" aria-live="polite"></span></p>
+    <p class="hint">Every layer is drawn and served in this. Leave it empty and the service
+      serves each layer in whatever its own table is stored in.</p>
+  </div>
+  <footer class="dialogfoot">
+    <button class="primary" id="mappropsDone">Done</button>
+  </footer>
 </dialog>
 
 <dialog id="dbconn" aria-labelledby="dbconnTitle">

@@ -256,6 +256,13 @@ public sealed class PublishScreenTests : ConsoleTest
         (string token, _) = await SignInAsync();
         await OpenAsync("/server/#/publish", token);
 
+        // <b>Behind the map's properties since 2026-09-07.</b> The reference is the map's, so
+        // it is reached the way the map's other properties are — `The_reference_is_reached_by
+        // _right_clicking_the_map` is what covers the route; this fact is about the answer.
+        await WaitForAsync(Shown("#pubShot"), "The map is not on the screen.");
+
+        await Browser.EvaluateAsync<bool>("(openMapProperties(), true)");
+
         await WaitForAsync(Shown("#pubSrid"), "There is no box to type a reference into.");
 
         Assert.Equal(
@@ -292,6 +299,347 @@ public sealed class PublishScreenTests : ConsoleTest
             + ".toLowerCase().includes('cannot')",
             "A code this server cannot project to was accepted without a word. The publish "
             + "would refuse it — after the composition was built, which is the worst moment.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// The reference is a property of the map, opened by right-clicking it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner instruction, 2026-09-07:</b> *"onu şu anda bulunduğu yerden alıp map'e sağ
+    /// tıklayınca açılan bir ekrana koyalım. sonuçta map'in projeksiyonu hepsini kapsayacak."*
+    /// The box sat on the page toolbar between <i>Preview</i> and <i>Clear</i>, which put a
+    /// property of the map among the verbs.
+    /// </para>
+    /// <para>
+    /// <b>Asserted from the map rather than from the dialog.</b> Checking that a dialog with an
+    /// input exists would pass with no way to reach it, which is the shape of every control
+    /// this console has shipped and left unreachable — including the symbol editor next door,
+    /// whose markup, menu item and swatch were all present while the function they called had
+    /// never been written.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_reference_is_reached_by_right_clicking_the_map()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(Shown("#pubShot"), "The map is not on the screen.");
+
+        Assert.False(
+            await Browser.EvaluateAsync<bool>(Shown("#pubSrid")),
+            "The reference box is still on screen without anybody opening the map's properties. "
+            + "It was moved off the toolbar on purpose: it is a property of the map, not a "
+            + "fourth verb beside Preview and Clear.");
+
+        // <b>The gesture, not the handler.</b> Calling the menu builder directly would pass on
+        // a screen where nothing listens for a right-click over the drawing.
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const map = document.getElementById("pubShot");
+          map.dispatchEvent(new MouseEvent("contextmenu",
+            { bubbles: true, clientX: 300, clientY: 300 }));
+          return true;
+        })();
+        """);
+
+        await WaitForAsync(
+            "(() => { const m = document.getElementById('pubmenu'); "
+            + "return !!m && m.getClientRects().length > 0; })()",
+            "Right-clicking the map offered nothing. The map and the root row are two views of "
+            + "one thing and the owner asked for the menu on the map.");
+
+        await WaitForAsync(
+            "!!document.querySelector('#pubmenu [data-pubact=props]')",
+            "The map's menu does not offer its properties, so the reference the whole service "
+            + "is served in is now unreachable.");
+
+        await ClickAsync("#pubmenu [data-pubact=props]");
+
+        await WaitForAsync(
+            Shown("#pubSrid"),
+            "Map properties did not open, or opened without the box it exists to hold.");
+
+        // <b>And the map's row says which, with the dialog shut.</b> A reference visible only
+        // inside a dialog is one that is forgotten between composing and publishing.
+        await Browser.EvaluateAsync<bool>("""
+        (document.getElementById("pubSrid").value = "32636", pubReference(), true)
+        """);
+
+        await WaitForAsync(
+            "(document.querySelector('#pubTree .pubroot .pubsr')?.textContent || '')"
+            + ".includes('32636')",
+            "The map's row does not carry the reference that was just chosen.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// A pasted definition is what the Publish dialog says, and what the request carries.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The dialog was lying, and this is the assertion that was missing.</b> Its <i>Served
+    /// in</i> line worked the reference out for itself from the box and only knew how to read a
+    /// code, so a pasted definition — accepted everywhere else since 2026-09-06 — made the last
+    /// line an operator reads before pressing Publish say <i>each layer's own</i> while the
+    /// request it then sent carried the definition.
+    /// </para>
+    /// <para>
+    /// <b>D-46.</b> One behaviour in two places, one copy taught about definitions and the
+    /// other not. The repair is that the sentence is written once, where the question is
+    /// answered, and the map's row, the map's properties and this dialog all read it — so this
+    /// test asserts on both ends of that: what the dialog shows and what the body holds.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_pasted_definition_is_confirmed_and_sent()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(Shown("#pubDbTree"), "The Databases pane did not draw.");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubDbTree [data-pubdb]').length > 0",
+            "No registered database is listed.");
+
+        await ClickAsync("#pubDbTree [data-pubdb]");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubDbTree [data-pubtable][draggable=true]').length > 0",
+            "This database offers no publishable table.");
+
+        await ClickAsync("#pubDbTree [data-pubtable][draggable=true]");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubTree [data-pubnode]').length === 1",
+            "The table did not become a layer.");
+
+        // <b>A definition, not a code</b> — TUREF / TM30 is a national grid and the point of
+        // accepting one at all.
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          document.getElementById("pubSrid").value =
+            'PROJCS["TUREF / TM30",GEOGCS["TUREF",DATUM["Turkish_National_Reference_Frame",'
+            + 'SPHEROID["GRS 1980",6378137,298.257222101]],PRIMEM["Greenwich",0],'
+            + 'UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],'
+            + 'PARAMETER["central_meridian",30],UNIT["metre",1]]';
+          pubReference();
+          return true;
+        })();
+        """);
+
+        await WaitForAsync(
+            "(document.getElementById('pubSridSaysHead')?.textContent || '').includes('TUREF')",
+            "The screen does not recognise the pasted definition as a reference with a name.");
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const real = window.fetch;
+          window.__body = null;
+          window.fetch = async (input, init) => {
+            const where = typeof input === "string" ? input : (input && input.url) || "";
+            if (where.includes("/admin/publish") && !where.includes("/preview")
+                && !where.includes("/extent")) {
+              window.__body = (init && init.body) || "";
+            }
+            return real(input, init);
+          };
+          return true;
+        })();
+        """);
+
+        await ClickAsync("#pubOpen");
+
+        await WaitForAsync(Shown("#pbName"), "The Publish dialog did not open.");
+
+        string said = await Browser.EvaluateAsync<string>(
+            "document.getElementById('pbSridSays').textContent") ?? string.Empty;
+
+        Assert.DoesNotContain("each layer", said, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Contains("TUREF", said, StringComparison.Ordinal);
+
+        await Browser.EvaluateAsync<bool>(
+            """(document.getElementById("pbName").value = "ZZZWktFromTheScreen", true)""");
+
+        await ClickAsync("#pbGo");
+
+        await WaitForAsync("!!window.__body", "Publishing sent nothing.");
+
+        string sent = await Browser.EvaluateAsync<string>("window.__body") ?? string.Empty;
+
+        Assert.Contains("\"sridWkt\":\"PROJCS", sent, StringComparison.Ordinal);
+
+        // <b>And no code beside it.</b> The server refuses both at once and so does the schema;
+        // a screen that sent a stale 3857 alongside the definition would be refused at the end
+        // of a composition rather than here.
+        Assert.Contains("\"srid\":null", sent, StringComparison.Ordinal);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// The swatch under a layer opens the symbol editor, and choosing a colour reaches the row.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This control threw a <c>ReferenceError</c> from the day it was drawn.</b> The dialog
+    /// markup, the swatch button, the <i>Symbol…</i> menu item, both click handlers and
+    /// <c>pubSymbolDocument</c> — which turns the answer into CIM — were all written;
+    /// <c>openPubSymbol</c> never was. So both ways in failed silently, `node.symbol` was set by
+    /// nothing, and every composition published <c>symbology: null</c>.
+    /// </para>
+    /// <para>
+    /// <b>It survived because no test pressed it.</b> Every fact on this class asserts on the
+    /// tree, the request or the map, and a swatch showing the default colours looks exactly
+    /// like a swatch showing a layer nobody has restyled. <c>NothingWentWrong</c> would have
+    /// caught it on the first click — there had never been one.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_swatch_opens_a_symbol_editor_that_exists()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(Shown("#pubDbTree"), "The Databases pane did not draw.");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubDbTree [data-pubdb]').length > 0",
+            "No registered database is listed.");
+
+        await ClickAsync("#pubDbTree [data-pubdb]");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubDbTree [data-pubtable][draggable=true]').length > 0",
+            "This database offers no publishable table.");
+
+        await ClickAsync("#pubDbTree [data-pubtable][draggable=true]");
+
+        await WaitForAsync(
+            "!!document.querySelector('#pubTree [data-pubsym]')",
+            "The layer has no swatch, so there is nothing to press.");
+
+        await ClickAsync("#pubTree [data-pubsym]");
+
+        await WaitForAsync(
+            Shown("#pubsymFill") + " || " + Shown("#pubsymLine"),
+            "Pressing the swatch opened no editor. Until 2026-09-07 it called a function that "
+            + "had never been written — and the click handler swallows what it throws, which is "
+            + "why nothing on this page says so and why the control looked fine for a day.");
+
+        // <b>A colour that is nothing like the generated one</b>, so the swatch cannot pass by
+        // accidentally still showing the default.
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const box = document.getElementById("pubsymLine");
+          box.value = "#ff0000";
+          box.dispatchEvent(new Event("input", { bubbles: true }));
+          return true;
+        })();
+        """);
+
+        await WaitForAsync(
+            "(document.querySelector('#pubTree .pubswatch')?.getAttribute('style') || '')"
+            + ".includes('#ff0000')",
+            "The colour that was chosen did not reach the layer's swatch, so the editor is "
+            + "writing somewhere the composition does not read.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// The menu takes focus, the arrows move through it, and Escape gives focus back.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The roles were a spelling rather than a behaviour.</b> <c>#pubmenu</c> has carried
+    /// <c>role="menu"</c> and its items <c>role="menuitem"</c> since they were written, and
+    /// nothing implemented what those roles mean: focus never entered the menu, the arrow keys
+    /// did nothing, and Escape left focus wherever it had been. A claimed role that is not
+    /// implemented is worse than no role — it tells assistive software to expect an interaction
+    /// model the page does not have.
+    /// </para>
+    /// <para>
+    /// <b>It matters most for this menu.</b> Since 2026-09-07 the map's coordinate system is
+    /// reached only from here, and the menu is at the end of the document — it has to be, since
+    /// a menu clipped by its own scrolling pane loses its last item — so tabbing to it means
+    /// tabbing past every control of every layer ahead of it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_menu_can_be_walked_with_the_keyboard()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(Shown("#pubShot"), "The map is not on the screen.");
+
+        // <b>Opened from the root row's button, which is the keyboard route in.</b> The pointer
+        // has a right-click; a keyboard has this.
+        await ClickAsync("#pubRootMenu");
+
+        await WaitForAsync(
+            "(() => { const m = document.getElementById('pubmenu'); "
+            + "return !!m && m.getClientRects().length > 0; })()",
+            "The root row's button opened no menu.");
+
+        await WaitForAsync(
+            "document.activeElement?.hasAttribute('data-pubact') === true",
+            "The menu opened without taking focus, so a keyboard user is left tabbing towards "
+            + "it through every control between here and the end of the document.");
+
+        string first = await Browser.EvaluateAsync<string>(
+            "document.activeElement.getAttribute('data-pubact')") ?? string.Empty;
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          document.activeElement.dispatchEvent(new KeyboardEvent("keydown",
+            { key: "ArrowDown", bubbles: true }));
+          return true;
+        })();
+        """);
+
+        string second = await Browser.EvaluateAsync<string>(
+            "document.activeElement?.getAttribute('data-pubact') || ''") ?? string.Empty;
+
+        Assert.NotEqual(first, second);
+
+        Assert.False(
+            string.IsNullOrEmpty(second),
+            "Pressing Down took focus out of the menu rather than to its next item.");
+
+        // <b>And End reaches the item this menu exists for.</b> Map properties is last on it.
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          document.activeElement.dispatchEvent(new KeyboardEvent("keydown",
+            { key: "End", bubbles: true }));
+          return true;
+        })();
+        """);
+
+        Assert.Equal(
+            "props",
+            await Browser.EvaluateAsync<string>(
+                "document.activeElement?.getAttribute('data-pubact') || ''"));
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          document.activeElement.dispatchEvent(new KeyboardEvent("keydown",
+            { key: "Escape", bubbles: true }));
+          return true;
+        })();
+        """);
+
+        await WaitForAsync(
+            "document.activeElement?.id === 'pubRootMenu'",
+            "Escape shut the menu and left focus inside it — which for a keyboard user is focus "
+            + "on nothing, at the end of the document, with no way back but Tab.");
 
         NothingWentWrong(await PageErrorsAsync());
     }

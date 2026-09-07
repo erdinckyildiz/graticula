@@ -351,6 +351,21 @@ different states.
 **Everything else about how a layer looks stays on the layer's own screen.** Classes, breaks and
 labels are a published layer's business; this is the choice made while composing.
 
+**This section described something that did not exist for a day, and the record is the point.**
+The swatch, the *Symbol…* item on the right-click menu, the dialog's markup, both click handlers
+and `pubSymbolDocument` — which turns the answer into the CIM document above — were all written.
+`openPubSymbol`, the function both handlers call, was not: `grep -c "function openPubSymbol"`
+answered `0` while two controls offered it. Both threw a `ReferenceError` the click handler
+swallowed, `node.symbol` was set by nothing, and **every composition published `symbology: null`**
+— so the paragraph above was a description of an intention.
+
+**It survived a full green suite** because no test pressed either control, and because a swatch
+drawn in the default colours is indistinguishable from a swatch showing a layer nobody has
+restyled. It is ADR-034's prohibition — *a control is not drawn for a feature that does not
+exist* — reached from the direction that register does not usually catch, since the feature was
+believed to exist by everyone including the document you are reading. Written 2026-09-07, with a
+test that presses the swatch and follows the colour to the row.
+
 ### 5l. The datastore is not one of the databases to compose from
 
 **By owner instruction, given twice** — *"datastore burada olmayacak"*, and then *"datastore
@@ -406,6 +421,63 @@ decorates the real one and inherited that default, so the server refused every d
 had just accepted by hand — with a message blaming PROJ. **A default answer makes *cannot* and
 *nobody wrote this* the same word.** The default is gone and the compiler asks every implementer,
 which is four of them and worth it.
+
+### 5n. The reference is a property of the map, and is set from the map
+
+**By owner instruction, 2026-09-07:** *"onu şu anda bulunduğu yerden alıp map'e sağ tıklayınca
+açılan bir ekrana koyalım. sonuçta map'in projeksiyonu hepsini kapsayacak."* §5c settled that a
+service names one reference and every layer is served in it; this settles where somebody says so.
+
+**It had been a box on the page's toolbar**, between *Preview* and *Clear*. That put a property
+of the map among the verbs — three buttons that do something and one field that is something —
+and it read as a fourth act to perform each session rather than as a fact about the map. The
+owner's sentence is the argument: *the map's projection covers all of them*, so it belongs to the
+map.
+
+**Right-clicking the drawing and right-clicking the map's row open the same menu**, because they
+are two views of one thing; *Map properties…* is on it, and the reference is chosen there. The
+tree's root row carries the answer beside the map's name, so it is readable with the dialog shut
+— a property visible only inside a dialog is one that is forgotten between composing and
+publishing. ArcGIS Pro's contents pane is the reference the owner named for this screen and keeps
+the same property in the same place.
+
+**Moving it exposed a second control answering the same question, wrongly.** The Publish dialog's
+*Served in* line worked the reference out for itself from the box and only knew how to read a
+code — so a definition pasted under 5m made **the last line an operator reads before pressing
+Publish** say *each layer's own* while the request it then sent carried the definition. The
+composer's own line was right about the same service at the same moment. That is
+[D-46](../architecture-debt.md): one behaviour in two places, one copy taught about definitions
+on 2026-09-06 and the other not. The repair is that the sentence is written once, where the
+question is answered, and the map's row, the map's properties and the Publish dialog all read it.
+
+**The review of the move found six things the move did not cause and one it did.** The one it
+caused is above. The six were already there and were only reachable once somebody read the new
+route end to end: the map's row carried its reference in a `.pubsr` badge styled as
+`.pubrow .pubsr`, which `.pubroot` does not match — so the badge that exists to be read at a
+glance had no rule at all and rendered at the row's own weight, beside the word it was meant to
+sit under; the Publish dialog's refusal state had no colour, because `.pbsridsays.bad` exists and
+`.pbreadonly.bad` did not; `Escape` dismissed either dialog without the redraw both close buttons
+did, so a colour changed and dismissed left a stale picture — the redraw now hangs off `close`,
+which fires for every way out, rather than off the two buttons that were the only ways anybody
+had tried; the symbol dialog's status line was not a live region while its twin was; the empty
+tree explained grouping and not where the coordinate system lives; and `#pubmenu` had carried
+`role="menu"` with `role="menuitem"` items since it was written **while implementing none of what
+those roles promise** — focus never entered it, the arrows did nothing, and `Escape` left focus at
+the end of the document. That last one matters here more than it did yesterday: the reference is
+now reached only through that menu.
+
+**A claimed role is the same defect as a called function that was never written**, one paragraph
+up. Both tell a reader — a person, a screen reader, a maintainer — that something exists because
+the name for it is present.
+
+**Two of the findings are the owner's to answer and are not taken here**, as
+[Q-146](../open-questions.md) and [Q-147](../open-questions.md): whether a new composition should
+start in EPSG:3857, as it does, or start empty and serve each layer in its own until somebody
+chooses; and whether the properties dialog needs a one-press way back to that unset state, which
+the symbol dialog has an equivalent of and this does not. The first is a real behaviour: today an
+operator who never opens the properties publishes every layer reprojected to Web Mercator without
+having been asked. §5c settles that a service names one reference and is silent on what it starts
+as, so the current answer is an implementation default wearing a decision's clothes.
 
 ## 6. Consequences
 

@@ -2051,6 +2051,14 @@ tr.groupband > td {
 .pubroot { display: flex; align-items: center; gap: 8px; padding: 8px 10px;
   border-bottom: 1px solid var(--rule); font-weight: 600; }
 .pubroot .pubglyph { color: var(--accent); }
+
+/* <b>The map's reference, and it is a label rather than a second name.</b> The per-layer badge
+   is styled as `.pubrow .pubsr`, and `.pubroot` is a different ancestor — so the root's badge
+   matched no rule at all and inherited the row's own 600 weight, arriving at the same visual
+   weight as the word *Map* beside it. A found review, 2026-09-07: the badge exists to be read at
+   a glance as secondary, and unstyled it read as a second heading. */
+.pubroot .pubsr { margin-left: auto; flex: 0 0 auto;
+  font: var(--t-tiny)/1 var(--mono); font-weight: 400; color: var(--faint); }
 .pubmapname { flex: 1; }
 
 .pubmenu { border: 0; background: none; cursor: pointer; color: var(--faint);
@@ -2119,16 +2127,24 @@ tr.groupband > td {
 .pubindex { flex: none; width: 15px; text-align: right;
   font: var(--t-tiny)/1 var(--mono); color: var(--faint); }
 
-/* The reference, in the page's own action bar rather than in the dialog. */
-.pbserved { display: flex; align-items: center; gap: 8px; color: var(--muted);
-  font-size: var(--t-small); }
-.pbserved input { font-size: var(--t-small); font-family: var(--mono); }
+/* The reference is set on the map's properties, so its box is a dialog field like any other —
+   monospaced, because what goes in it is a code or a definition and both are read character by
+   character. It was a rule for a toolbar control until 2026-09-07; ADR-057 §5n moved it. */
+#mapprops #pubSrid { font-family: var(--mono); }
 
-/* What the server says about the code that was typed: its name, or that it does not know it. */
-.pbsridsays { font-size: var(--t-small); color: var(--muted); max-width: 260px; }
+/* What the server says about the code that was typed: its name, or that it does not know it.
+   The width cap was for the toolbar, where it sat between two buttons; in the dialog the
+   sentence has the width of the dialog and capping it would wrap a name for no reason. */
+.pbsridsays { font-size: var(--t-small); color: var(--muted); }
 .pbsridsays.bad { color: var(--alert); }
 
 /* A value the dialog reports rather than asks for. */
+/* <b>And a refusal reads as one here too.</b> `.pbsridsays.bad` colours the same sentence on the
+   map's properties; without this rule the Publish dialog showed *this server cannot project to…*
+   in unalarmed black, at the one moment it matters most. The same fact in two places, styled in
+   one — which is the shape of the defect this pair of controls was built to end. */
+.pbreadonly.bad { color: var(--alert); }
+
 .pbreadonly { display: block; padding: 7px 0 0; font: 500 var(--t-body)/1 var(--mono);
   color: var(--ink); }
 
@@ -2143,7 +2159,10 @@ tr.groupband > td {
   padding: 7px 10px; border-radius: 3px; cursor: pointer;
   font-size: var(--t-small); color: var(--ink);
 }
-#pubmenu button:hover { background: var(--surface-2); }
+/* Hover and focus are the same state here, because the menu takes focus now: the arrow keys
+   move through it and a highlight nobody can see is the same as no highlight. */
+#pubmenu button:hover,
+#pubmenu button:focus-visible { background: var(--surface-2); outline: none; }
 #pubmenu button:disabled { color: var(--faint); cursor: default; background: none; }
 #pubmenu hr { border: 0; border-top: 1px solid var(--rule); margin: 4px 2px; }
 

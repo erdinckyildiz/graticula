@@ -10359,6 +10359,25 @@ const PUB_MAP_SR = 3857;
 /** The pending *is this reference known* question, so typing does not ask once per keystroke. */
 let pubSridAsking = 0;
 
+/**
+ * What the screen last worked out about the reference the service will be served in.
+ *
+ * <b>Kept because three controls answer the same question and one of them was lying.</b> The
+ * Publish dialog used to work the reference out for itself from the box, and it only knew how
+ * to read a code — so a pasted definition made it say *each layer's own* on the last line an
+ * operator reads before pressing Publish, while the request it then sent carried the
+ * definition. The composer's line was right about the same service at the same moment.
+ *
+ * <b>D-46 in the small.</b> The behaviour lived in two places, one copy learnt about
+ * definitions on 2026-09-06 and the other did not, and nothing in between could tell a partial
+ * fix from no fix. So the sentence is written once, where the question is actually answered,
+ * and the map's row, the map's properties and the Publish dialog all read it.
+ */
+let pubSridSaid = "each layer in its own";
+
+/** Whether {@link pubSridSaid} is a refusal rather than an answer. */
+let pubSridSaidBad = false;
+
 /** Every layer in the composition, groups flattened, in draw order. */
 function pubLayers() {
   const out = [];
@@ -10463,6 +10482,22 @@ async function loadPublish() {
     void pubReference();
   }
 
+  // <b>However either dialog is dismissed.</b> `close` fires for the buttons, for Escape and for
+  // the backdrop alike, so the redraw is written once instead of once per way out. Wired beside
+  // the box because this block already runs exactly once for the screen.
+  for (const which of ["mapprops", "pubsymbol"]) {
+    const dialog = $(which);
+
+    if (dialog && !dialog.dataset.wired) {
+      dialog.dataset.wired = "1";
+
+      dialog.addEventListener("close", () => {
+        pubDraw();
+        void pubShoot(true);
+      });
+    }
+  }
+
   pubDraw();
 
   // <b>After the tree, because the map needs the box it goes in to have a size.</b> It is also
@@ -10471,6 +10506,37 @@ async function loadPublish() {
   await pubBuildMap();
 
   void pubShoot(true);
+}
+
+/**
+ * Opens the map's properties, where the served reference is chosen.
+ *
+ * <b>Owner instruction, 2026-09-07:</b> *"onu şu anda bulunduğu yerden alıp map'e sağ tıklayınca
+ * açılan bir ekrana koyalım. sonuçta map'in projeksiyonu hepsini kapsayacak."* The box was on
+ * the page's toolbar between Preview and Clear, which put a property of the map among the verbs
+ * — and read as a fourth thing to do rather than a thing the map is.
+ *
+ * <b>The input is not rebuilt here.</b> It lives in the dialog's markup and is wired once when
+ * the screen is built, so everything that already reads `#pubSrid` — the tree's warp marks, the
+ * preview, the publish body — goes on reading the same control it always did. A dialog that
+ * rewrote its own field would have handed those readers a new element with an empty value every
+ * time it opened.
+ *
+ * @returns {void}
+ */
+function openMapProperties() {
+  const dialog = $("mapprops");
+
+  if (!dialog) return;
+
+  dialog.showModal();
+
+  // <b>Said again on opening.</b> The answer on screen may be from a code typed before the last
+  // failure, and the dialog is the one place it is read closely.
+  void pubReference();
+
+  $("pubSrid")?.focus();
+  $("pubSrid")?.select();
 }
 
 /**
@@ -10491,10 +10557,18 @@ async function pubReference() {
   const wanted = pubServedSrid();
 
   const state = (text, bad) => {
+    pubSridSaid = text;
+    pubSridSaidBad = Boolean(bad);
+
+    // <b>The row under the map's name carries the short form.</b> The properties dialog is shut
+    // most of the time, and a reference nobody can see without opening a dialog is a reference
+    // that gets forgotten between composing and publishing.
+    pubDraw();
+
     if (!says) return;
 
     says.textContent = text;
-    says.classList.toggle("bad", Boolean(bad));
+    says.classList.toggle("bad", pubSridSaidBad);
   };
 
   pubDraw();
@@ -11232,6 +11306,83 @@ function epsg(code) {
 }
 
 /**
+ * Opens the symbol editor for one layer.
+ *
+ * <b>Written 2026-09-07, and everything around it was already here.</b> The dialog's markup,
+ * the swatch button under every layer, the *Symbol…* item on the right-click menu, the two
+ * click handlers that call this, and {@link pubSymbolDocument} which turns the answer into CIM
+ * — all shipped. This function did not exist, so both controls threw a `ReferenceError`, and
+ * `node.symbol` was never set by anything, so every composition published `symbology: null`.
+ *
+ * <b>Which is ADR-034's prohibition twice over</b> — a control drawn for a capability that is
+ * not there — and it survived because no test presses either control and because a swatch
+ * showing the default colours looks exactly like a swatch showing a layer nobody has restyled.
+ * The lesson is the session's own: a script that is written and not run leaves a call site
+ * pointing at nothing, and nothing between here and the browser says so.
+ *
+ * <b>Three fields, because the CIM this writes has three places to put an answer.</b> A dot
+ * takes a fill and an outline, a line takes only its colour and width, an area takes all three;
+ * the dialog offers what the geometry can use rather than greying out what it cannot, since a
+ * disabled control still says *this could have been yours*.
+ *
+ * @param {string} id the layer
+ * @returns {void}
+ */
+function openPubSymbol(id) {
+  const found = pubFind(id);
+  const node = found?.node;
+  const dialog = $("pubsymbol");
+
+  if (!node || !dialog || node.kind === "group") return;
+
+  const kind = pubSwatchKind(node);
+  const fill = node.symbol?.fill || PUB_DEFAULT_FILL;
+  const line = node.symbol?.line || PUB_DEFAULT_LINE;
+  const width = node.symbol?.width ?? (kind === "line" ? 1.6 : 1);
+
+  $("pubsymTitle").textContent = node.name;
+
+  $("pubsymBody").innerHTML = `
+    <p class="hint">${h(node.geometryType)} — drawn as ${kind === "dot"
+      ? "a marker" : kind === "line" ? "a line" : "an area"}.</p>
+    <div class="row">
+      ${kind === "line" ? "" : `<label class="field">Fill
+        <input type="color" id="pubsymFill" value="${h(fill)}"></label>`}
+      <label class="field">${kind === "line" ? "Colour" : "Outline"}
+        <input type="color" id="pubsymLine" value="${h(line)}"></label>
+      <label class="field">${kind === "dot" ? "Size" : "Width"}
+        <input type="number" id="pubsymWidth" min="0" max="20" step="0.5"
+          value="${String(width)}"></label>
+    </div>
+    <p class="hint" id="pubsymSays" role="status" aria-live="polite"></p>`;
+
+  $("pubsymFoot").innerHTML = `
+    <button class="ghost" id="pubsymReset">Use the generated one</button>
+    <button class="primary" id="pubsymDone">Done</button>`;
+
+  dialog.dataset.pubfor = id;
+  dialog.showModal();
+
+  // <b>Applied as it is changed, not on Done.</b> The swatch is nine millimetres of colour and
+  // the picture behind the dialog is the actual answer; making somebody shut the dialog to see
+  // what they chose is making them guess.
+  const apply = () => {
+    node.symbol = {
+      fill: $("pubsymFill")?.value || fill,
+      line: $("pubsymLine")?.value || line,
+      width: Number($("pubsymWidth")?.value) || 0,
+    };
+
+    pubDraw();
+    $("pubsymSays").textContent = "The preview redraws when you close this.";
+  };
+
+  for (const box of ["pubsymFill", "pubsymLine", "pubsymWidth"]) {
+    $(box)?.addEventListener("input", apply);
+  }
+}
+
+/**
  * The chosen symbol as the CIM document the server stores and draws with.
  *
  * <b>Written here rather than on the server from three fields.</b> `layer.symbology` holds a
@@ -11305,6 +11456,32 @@ function pubServedSrid() {
   // everywhere else on this screen, so refusing it in the one box that takes one would be the
   // screen disagreeing with itself.
   return Number(typed.replace(/^epsg:\s*/i, "")) || 0;
+}
+
+/**
+ * The served reference in as few words as fit on the map's row.
+ *
+ * <b>Short, because the row it goes on is a row.</b> {@link pubSridSaid} is a sentence written
+ * for somebody who has just typed something and is waiting to hear whether it was any good;
+ * this is a label read at a glance by somebody who typed it ten minutes ago. Same fact, two
+ * lengths — and the long one is not a title on the short one, because a title nobody hovers is
+ * not a place to keep an answer.
+ *
+ * @returns {string} a label
+ */
+function pubServedShort() {
+  const code = pubServedSrid();
+
+  if (code) return `EPSG:${epsg(code)}`;
+
+  const wkt = pubServedWkt();
+
+  if (!wkt) return "each layer's own";
+
+  const called = /^\s*(?:PROJCS|GEOGCS|PROJCRS|GEOGCRS|BOUNDCRS|COMPOUNDCRS)\s*\[\s*"([^"]{1,60})"/i
+    .exec(wkt);
+
+  return called ? called[1] : "a written definition";
 }
 
 /**
@@ -11546,9 +11723,10 @@ async function openPublishDialog() {
   // somebody to repeat themselves, and *Map* is the placeholder rather than a name.
   if (pubServiceName && pubServiceName !== "Map") $("pbName").value = pubServiceName;
 
-  $("pbSridSays").textContent = pubServedSrid()
-    ? `EPSG:${epsg(pubServedSrid())}`
-    : "each layer's own";
+  // <b>The same words the map is showing</b>, refusals included: a reference this server cannot
+  // project to is worth repeating at the moment of commitment rather than smoothing into a code.
+  $("pbSridSays").textContent = pubSridSaid;
+  $("pbSridSays").classList.toggle("bad", pubSridSaidBad);
 
   warp();
   capsSay();
@@ -11717,6 +11895,15 @@ document.addEventListener("contextmenu", event => {
   const node = event.target.closest?.("[data-pubnode]");
   const root = event.target.closest?.("[data-pubroot]");
 
+  // <b>The drawing is the map, so it offers the map's menu — owner instruction 2026-09-07:</b>
+  // *"map'e sağ tıklayınca açılan bir ekran."* The root row and the picture are two views of
+  // one thing and a right-click on either means the same thing.
+  if (event.target.closest("#pubShot")) {
+    event.preventDefault();
+    pubMenuAt(event.clientX, event.clientY, null);
+    return;
+  }
+
   if (!event.target.closest("#pubTree") || (!node && !root)) return;
 
   event.preventDefault();
@@ -11732,15 +11919,31 @@ document.addEventListener("contextmenu", event => {
 /** Closes the menu on the next click anywhere, on Escape, and on a scroll under it. */
 document.addEventListener("keydown", event => {
   if (event.key === "Escape") pubMenuShut();
+
+  pubMenuKey(event);
 });
 
 document.addEventListener("scroll", () => pubMenuShut(), true);
 
-/** Takes the menu off the screen. */
+/**
+ * Takes the menu off the screen, and gives focus back to whatever opened it.
+ *
+ * <b>Focus is restored only when it is still inside the menu.</b> A click elsewhere on the page
+ * also shuts this, and moving focus back to the row somebody has just clicked away from would
+ * be the menu taking the cursor with it.
+ */
 function pubMenuShut() {
   const menu = $("pubmenu");
 
-  if (menu) menu.hidden = true;
+  if (!menu) return;
+
+  const inside = menu.contains(document.activeElement);
+
+  menu.hidden = true;
+
+  if (inside && pubMenuCameFrom?.isConnected) pubMenuCameFrom.focus();
+
+  pubMenuCameFrom = null;
 }
 
 /**
@@ -11778,6 +11981,12 @@ function pubMenuAt(x, y, id) {
     : [
         item("zoom", "Zoom to everything", noMap),
         item("rename", "Rename service"),
+        "<hr>",
+
+        // <b>Where the reference is chosen, since it left the toolbar on 2026-09-07.</b> It is
+        // the map's property and this is the map's menu; the row above it and the picture the
+        // menu was opened over are the two places somebody looks at the map.
+        item("props", "Map properties…"),
       ].join("");
 
   menu.dataset.pubfor = id || "";
@@ -11789,6 +11998,52 @@ function pubMenuAt(x, y, id) {
 
   menu.style.left = `${Math.min(x, window.innerWidth - box.width - 8)}px`;
   menu.style.top = `${Math.min(y, window.innerHeight - box.height - 8)}px`;
+
+  // <b>`role="menu"` is a promise about the keyboard, and it was only a spelling.</b> The
+  // element and its items carried the ARIA roles from the day they were written and nothing
+  // implemented what those roles mean: focus never entered the menu, the arrows did nothing,
+  // and Escape left focus wherever it had been. A role that is claimed and not implemented is
+  // worse than no role, because it tells assistive software to expect an interaction model the
+  // page does not have. Found by a review on 2026-09-07.
+  //
+  // <b>The menu is at the end of the document, and that is why this matters here.</b> It has to
+  // sit outside the tree — a menu clipped by its own scrolling pane loses its last item — so
+  // tabbing to it means tabbing past every control of every layer ahead of it. ADR-057
+  // condition 3 is about compositions of a thousand layers.
+  pubMenuCameFrom = document.activeElement;
+
+  menu.querySelector("[data-pubact]:not([disabled])")?.focus();
+}
+
+/** Where focus was when the menu opened, so Escape can put it back. */
+let pubMenuCameFrom = null;
+
+/**
+ * Arrow keys, Home and End inside the menu, which is what its role advertises.
+ *
+ * @param {KeyboardEvent} event the press
+ * @returns {void}
+ */
+function pubMenuKey(event) {
+  const menu = $("pubmenu");
+
+  if (!menu || menu.hidden || !menu.contains(event.target)) return;
+
+  const items = [...menu.querySelectorAll("[data-pubact]:not([disabled])")];
+
+  if (!items.length) return;
+
+  const at = items.indexOf(document.activeElement);
+
+  const go = next => {
+    event.preventDefault();
+    items[(next + items.length) % items.length].focus();
+  };
+
+  if (event.key === "ArrowDown") go(at + 1);
+  else if (event.key === "ArrowUp") go(at - 1);
+  else if (event.key === "Home") go(0);
+  else if (event.key === "End") go(items.length - 1);
 }
 
 /**
@@ -12007,10 +12262,8 @@ function pubDraw() {
       <span class="pubtwist" aria-hidden="true">&#9660;</span>
       <span class="pubglyph" aria-hidden="true">&#9635;</span>
       <span class="pubname pubmapname" id="pubMapName">${h(pubServiceName || "Map")}</span>
-      <span class="pubsr">${pubServedSrid()
-        ? `EPSG:${epsg(pubServedSrid())}`
-        : "each layer's own"}</span>
-      <button class="pubmenu" id="pubRootMenu"
+      <span class="pubsr" title="Right-click for the map's properties">${h(pubServedShort())}</span>
+      <button class="pubmenu" id="pubRootMenu" aria-haspopup="true"
         aria-label="Rename this service or change its reference">&#8942;</button>
     </div>`;
 
@@ -12018,7 +12271,8 @@ function pubDraw() {
     ? root + pubTree.map(n => pubNode(n, false)).join("")
     : root + `<div class="pubempty">Drag a table here from Databases.<br>
         <span style="font-size:11.5px">The order you build is the order it is served in —
-        the top is drawn on top. Select two and right-click to group them.</span></div>`;
+        the top is drawn on top. Select two and right-click to group them. Right-click <b>Map</b>,
+        above, for the coordinate system everything is served in.</span></div>`;
 
   // ------------------------------------------------------------ databases
   let html = "";
@@ -15926,6 +16180,7 @@ async function handleClick(event) {
       case "zoom": await pubZoomTo(id); break;
       case "symbol": if (id) openPubSymbol(id); break;
       case "rename": if (id) { pubRename(id); } else { pubRootMenu(); } break;
+      case "props": openMapProperties(); break;
       case "group": pubGroup(); break;
       case "ungroup": if (id) pubUngroup(id); break;
       case "remove": if (id) pubRemove(id); break;
@@ -15939,9 +16194,41 @@ async function handleClick(event) {
   // menu that acts on something else.
   if (!$("pubmenu")?.hidden) pubMenuShut();
 
+  if (t.id === "pubsymClose" || t.id === "pubsymDone" || t.id === "pubsymReset") {
+    const dialog = $("pubsymbol");
+
+    // <b>Unset, which is not the same as the default colours.</b> A layer with no symbology is
+    // what makes the server generate an appearance from the geometry, and that generated
+    // appearance is allowed to improve; a document that happens to match today's default would
+    // freeze it. {@link pubSymbolDocument} says the same thing from the other end.
+    if (t.id === "pubsymReset") {
+      const found = pubFind(dialog?.dataset.pubfor || "");
+
+      if (found) found.node.symbol = null;
+    }
+
+    // <b>Closed, and the redraw is on the `close` event rather than here.</b> Escape dismisses a
+    // native dialog without pressing anything, so a redraw hung off these buttons is a redraw
+    // that does not happen for the operator who changed a colour and hit Escape — and it hung
+    // off them until a review on 2026-09-07 looked.
+    dialog?.close();
+    return;
+  }
+
+  if (t.id === "mappropsClose" || t.id === "mappropsDone") {
+    $("mapprops")?.close();
+    return;
+  }
+
   // The root's own button opens the same menu the right-click does, so the two cannot drift.
   if (t.id === "pubRootMenu") {
     const at = t.getBoundingClientRect();
+
+    // <b>Focused before the menu opens, so Escape has somewhere to put focus back.</b> A button
+    // pressed with a pointer is focused by the browser on the way down; one pressed by script —
+    // and one activated by some assistive software — is not, and then the menu remembers the
+    // document body as the place it came from, which is the same as remembering nothing.
+    t.focus();
 
     pubMenuAt(at.left, at.bottom + 4, null);
     return;
