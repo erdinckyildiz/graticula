@@ -140,6 +140,24 @@ One reference is chosen at compose time and everything is served in it. A layer 
 another is reprojected per feature by PostGIS on the way out, which is what the drawing path
 already does for every request in another reference.
 
+**It starts as EPSG:3857 — owner decision, 2026-09-07** ([Q-146](../open-questions.md)):
+*"Q-146 3857 default olsun."* **Nothing in the code changed and that is the point of having
+asked.** The box was set to 3857 the first time the screen wired up, and this section was silent
+on the default, so the behaviour was an implementation habit that a UX review could not tell
+apart from a decision. It is now a decision: a service composed without anybody opening the map's
+properties is served in Web Mercator, which is what a web client wants and what the preview
+ground is already in.
+
+**What that costs is accepted rather than denied.** An operator whose tables sit in a national
+grid, who drags them in and publishes, gets them all reprojected. It is defensible because it is
+*visible*: the map's row carries `EPSG:3857` from the moment the screen loads, and every layer
+stored in something else carries a ⇄ mark against it (§5n). A default nobody can see would be a
+different decision.
+
+**Empty is still a real choice and not a missing answer** — the service then serves every layer
+in whatever its own table holds, and `service.srid` is null. Whether that choice is reachable by
+anything other than clearing the box is [Q-147](../open-questions.md), open.
+
 ### 5d. A folder is chosen or created by naming it
 
 The folder box lists what exists and accepts a name that does not; publishing creates it.
