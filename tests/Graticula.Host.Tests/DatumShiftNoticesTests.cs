@@ -259,6 +259,10 @@ public sealed class DatumShiftNoticesTests
         /// <summary>This double knows no areas of use, which is a complete answer.</summary>
         public Task<Envelope?> DomainOfAsync(int srid, CancellationToken cancellationToken) =>
             Task.FromResult<Envelope?>(null);
+
+        public Task<IReadOnlyList<KnownReference>> ReferencesAsync(
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<KnownReference>>([]);
     }
 
     /// <summary>An <see cref="ILogger"/> that keeps what it was told.</summary>

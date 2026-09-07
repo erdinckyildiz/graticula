@@ -10462,6 +10462,9 @@ async function loadPublish() {
     chooser.dataset.wired = "1";
     chooser.value = "3857";
 
+    // <b>The five most-typed, until the server answers.</b> They are a first paint rather than
+    // the list: `pubSuggest` replaces them with what the projection database actually holds as
+    // soon as anybody types, and with the matches for the initial code before that.
     $("pubReferences").innerHTML = PUB_REFERENCES
       .filter(r => r.code)
       .map(r => `<option value="${r.code}">${h(r.name)}</option>`).join("");
@@ -10573,6 +10576,12 @@ async function pubReference() {
 
   pubDraw();
 
+  // <b>Whatever is in the box, including nothing.</b> An empty box is the moment somebody is
+  // about to look for a reference, so it is the moment the list should hold the most of them —
+  // *"tanımlı tüm srid leri gösterebilir miyiz"*. The definition case is guarded inside, by
+  // length, because a pasted WKT is not a search.
+  void pubSuggest();
+
   if (!wanted) {
     state(pubServedWkt() ? pubReferenceSays() : "each layer in its own", false);
     void pubShoot(true);
@@ -10581,6 +10590,10 @@ async function pubReference() {
 
   const known = PUB_REFERENCES.find(r => r.code === wanted);
 
+  // <b>Painted from the short list first, then corrected by the server.</b> That is a cache with
+  // an authority rather than two answers: the five codes here are the ones an operator types
+  // most, and showing their name at once keeps the common case from flickering through
+  // *asking…*. Whatever the projection database says replaces it.
   state(known ? known.name : "asking…", false);
 
   try {
@@ -10595,13 +10608,95 @@ async function pubReference() {
       return;
     }
 
-    state(known ? known.name : `EPSG:${epsg(wanted)} — this server can project to it`, false);
+    // <b>The reference's own name, for any code — owner instruction 2026-09-07:</b> *"3857
+    // yazınca web mercator yazıyor ama 4236 yazınca adı çıkmıyor."* The screen used to know
+    // five names and answer *this server can project to it* for the rest, which tells an
+    // operator their code is usable and not which reference they asked for. 4236 is Hu Tzu Shan
+    // 1950 and a plausible typo for 4326; the name is what catches that.
+    state(
+      answer.name
+        ? `EPSG:${epsg(wanted)} — ${answer.name}`
+        : known
+          ? known.name
+          : `EPSG:${epsg(wanted)} — this server can project to it`,
+      false);
+
     void pubShoot(true);
   } catch (e) {
     if (pubServedSrid() !== wanted) return;
 
     state(e.message, true);
   }
+}
+
+/**
+ * Fills the box's list with references matching what has been typed.
+ *
+ * <b>Owner instruction, 2026-09-07:</b> *"tanımlı tüm srid leri gösterebilir miyiz."* The list
+ * held five codes, chosen by whoever wrote the constant; a deployment's projection database
+ * knows several thousand — 8,486 on the fixture this was measured against. A box that takes any
+ * code is only half of *let me type my own*: the other half is being able to find one without
+ * knowing its number already.
+ *
+ * <b>Searched, not shipped.</b> Six thousand options is a control no browser draws usefully.
+ * `GET /admin/references?q=` answers the twenty that match, ranked with an exact code first and
+ * EPSG before other authorities, and says how many it did not send.
+ *
+ * <b>Not asked while a definition is being pasted.</b> A WKT is several hundred characters and
+ * none of them is a search; the guard is length, because that is the difference between the two
+ * kinds of thing this one box takes.
+ *
+ * @returns {Promise<void>} when the list holds the answer
+ */
+async function pubSuggest() {
+  const typed = ($("pubSrid")?.value || "").trim();
+  const list = $("pubReferences");
+
+  if (!list || typed.length > 40) return;
+
+  try {
+    const answer = await api(`/admin/references?q=${encodeURIComponent(typed)}`);
+
+    // <b>Dropped if the box moved on.</b> Answers arrive in whatever order the network gives
+    // them back, and a list showing the results of a search two keystrokes ago is worse than a
+    // list showing nothing.
+    if (($("pubSrid")?.value || "").trim() !== typed) return;
+
+    const found = answer?.references || [];
+
+    list.innerHTML = found
+      .map(r => `<option value="${r.srid}">${h(r.name)}</option>`)
+      .join("");
+
+    const more = (answer?.matched || 0) - found.length;
+
+    pubSuggestSays(found.length, more, answer?.total || 0);
+  } catch {
+    // <b>Silent.</b> The box still takes any code, and the reference itself is answered by the
+    // request beside this one — a failed suggestion is a shorter list, not a refusal.
+  }
+}
+
+/**
+ * Says how much of the projection database the list is showing.
+ *
+ * @param {number} shown how many options are in the list
+ * @param {number} more how many matched and were not sent
+ * @param {number} total how many this server knows altogether
+ * @returns {void}
+ */
+function pubSuggestSays(shown, more, total) {
+  const says = $("pubSuggestSays");
+
+  if (!says) return;
+
+  says.textContent = !total
+    ? ""
+    : more > 0
+      ? `${num(shown)} of ${num(shown + more)} matches — keep typing to narrow it`
+      : shown
+        ? `${num(shown)} of ${num(total)} references this server knows`
+        : `nothing matches, of ${num(total)} references this server knows`;
 }
 
 /**

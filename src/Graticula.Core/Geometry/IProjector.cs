@@ -5,6 +5,29 @@ using System.Threading.Tasks;
 namespace Graticula.Geometries;
 
 /// <summary>
+/// A reference this deployment can serve in, with the name its projection database gives it.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Added 2026-09-07 by owner instruction:</b> *"tanımlı tüm srid leri gösterebilir miyiz.
+/// mesela 3857 yazınca web mercator yazıyor ama 4236 yazınca adı çıkmıyor."* The Publish screen
+/// carried five references by name in a constant and could say nothing about the other six
+/// thousand — it asked the server *can you project to this* and got yes, which tells an operator
+/// their code is usable and not which reference it is. A code accepted without a name is a code
+/// nobody can check they typed correctly.
+/// </para>
+/// <para>
+/// <b>The name is the projection database's, not ours.</b> A list written here would be a
+/// second opinion that drifts the first time somebody's PROJ is upgraded, which is the same
+/// argument that put the *can you project to this* question on the server in the first place.
+/// </para>
+/// </remarks>
+/// <param name="Srid">The code.</param>
+/// <param name="Name">What the projection database calls it.</param>
+/// <param name="Authority">The naming authority, usually <c>EPSG</c>.</param>
+public readonly record struct KnownReference(int Srid, string Name, string Authority);
+
+/// <summary>
 /// What a transformation actually did, so a caller can judge it.
 /// </summary>
 /// <param name="Engine">Which library performed it, and its version.</param>
@@ -179,6 +202,32 @@ public interface IProjector
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The area of use in degrees, or null when this deployment cannot say.</returns>
     Task<Envelope?> DomainOfAsync(int srid, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every reference this deployment can serve in, with its name.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Added 2026-09-07 so the screen can name a code rather than only accept it.</b>
+    /// <see cref="KnowsAsync"/> answers *can you project to this* and that was the whole of what
+    /// the Publish screen could ask: an operator typing 4236 was told yes and never that they
+    /// had asked for Hu Tzu Shan 1950. A code whose name is not shown is a typo nobody catches.
+    /// </para>
+    /// <para>
+    /// <b>All of them, in one answer, because filtering is the caller's business.</b> Naming one
+    /// code and searching for a word are the same question asked twice, and a port that answered
+    /// both separately would run two queries where the list serves both. It is a few thousand
+    /// short strings — measured at 6,184 rows and 174 KB against PostGIS 3.4.3.
+    /// </para>
+    /// <para>
+    /// <b>Empty is a complete answer.</b> A deployment whose projection database cannot be
+    /// listed still projects; the screen then shows a code with no name, which is where it was
+    /// before this existed. That is what makes adding it safe.
+    /// </para>
+    /// </remarks>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Every reference, or an empty list when this deployment cannot say.</returns>
+    Task<IReadOnlyList<KnownReference>> ReferencesAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// What a transformation between two references would be, without moving anything.

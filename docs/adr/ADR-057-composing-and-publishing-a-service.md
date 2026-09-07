@@ -479,6 +479,44 @@ operator who never opens the properties publishes every layer reprojected to Web
 having been asked. §5c settles that a service names one reference and is silent on what it starts
 as, so the current answer is an implementation default wearing a decision's clothes.
 
+### 5o. A reference is named, and every one this server knows can be found
+
+**By owner instruction, 2026-09-07:** *"tanımlı tüm srid leri gösterebilir miyiz. mesela 3857
+yazınca web mercator yazıyor ama 4236 yazınca adı çıkmıyor."* §5n moved the box; this is about
+what the box can tell you. It knew five references by name, from a constant in the page, and for
+everything else it asked the server *can you project to this* and reported yes. **Yes is not an
+answer an operator can check.** It says the code is usable; it does not say which reference it
+is, and those are different questions when 4236 is Hu Tzu Shan 1950, its area of use is Taiwan,
+and it is one keystroke from 4326.
+
+**The name comes from the projection database, because a list written here would drift.** That is
+the same argument that put *can you project to this* on the server in the first place — a
+console-side table of references is a second opinion that goes stale the first time somebody
+upgrades PROJ. `IProjector.ReferencesAsync` is the port; `GET /admin/references/{srid}` gains a
+`name`, and `GET /admin/references?q=` answers the twenty that match a word or a code.
+
+**Read from `spatial_ref_sys` rather than `postgis_srs_all()`, and that is measured.** Both know
+the names. The function materialises the whole PROJ database per call and answered one search in
+**1.37 s** against PostGIS 3.4.3; the table answered the same search in 0.61 s and an exact code
+in **0.42 ms**. The whole list — 6,184 EPSG rows, 8,486 with other authorities, 174 KB of names —
+is read once per process at **874 ms** and searched in memory afterwards, so a keystroke costs a
+string comparison rather than a query. The table is also the right authority for a second reason:
+it is what `KnowsAsync` already asks, so a reference this can name is one this server said yes to.
+
+**Nothing is written into anybody's `spatial_ref_sys`**, which §5m already decided and which rules
+out the obvious fix for the search being slow — an index on a registered database's own catalogue
+table. Reading it once and keeping the answer is what that decision leaves.
+
+**Ranked with the exact code first, then EPSG before other authorities.** The first ranking sorted
+by name length and put ESRI's `World_Mercator` above `WGS 84 / Pseudo-Mercator` for a search of
+*mercator*; a list whose first answer is not the one everybody means is a list nobody reads twice.
+The screen also says how many matched and how many were not sent, because a box offering twenty of
+eight thousand looks exactly like a box offering everything there is.
+
+**A definition is not a search.** The one box takes a code or a pasted WKT (§5m), and the
+suggestion is guarded by length rather than by asking the operator which kind of thing they are
+typing — the same rule that tells the two apart everywhere else on this screen.
+
 ## 6. Consequences
 
 - ~~**Two catalogue changes before the screen is worth building**: a parent on the layer row

@@ -59,6 +59,10 @@ public sealed class GeographicExtentsTests
         public Task<Envelope?> DomainOfAsync(int srid, CancellationToken cancellationToken) =>
             Task.FromResult<Envelope?>(null);
 
+        public Task<IReadOnlyList<KnownReference>> ReferencesAsync(
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<KnownReference>>([]);
+
         public Task<(IReadOnlyList<Graticula.Geometries.Geometry> Projected, ProjectionProvenance Provenance)>
             ProjectAsync(
                 IReadOnlyList<Graticula.Geometries.Geometry> geometries,
@@ -213,6 +217,10 @@ public sealed class GeographicExtentsTests
         /// <summary>This double knows no areas of use, which is a complete answer.</summary>
         public Task<Envelope?> DomainOfAsync(int srid, CancellationToken cancellationToken) =>
             Task.FromResult<Envelope?>(null);
+
+        public Task<IReadOnlyList<KnownReference>> ReferencesAsync(
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<KnownReference>>([]);
 
         public Task<(IReadOnlyList<Graticula.Geometries.Geometry> Projected, ProjectionProvenance Provenance)>
             ProjectAsync(

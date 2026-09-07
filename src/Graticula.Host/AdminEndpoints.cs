@@ -470,6 +470,11 @@ internal static class AdminEndpoints
         // control that accepts a code the server cannot project to is ADR-034's prohibition
         // wearing an input box.
         app.MapGet("/admin/references/{srid:int}", ReferenceKnownAsync);
+
+        // <b>Every reference this server can serve in, searchable — owner instruction,
+        // 2026-09-07:</b> *"tanımlı tüm srid leri gösterebilir miyiz."* The screen carried five
+        // by name in a constant and could say nothing about the other six thousand.
+        app.MapGet("/admin/references", SearchReferencesAsync);
         app.MapGet("/admin/layers", ListLayersAsync);
 
         // <b>What this caller owns, and what is shared with them — ADR-034 §5f.</b> The
@@ -2272,6 +2277,16 @@ internal static class AdminEndpoints
 
         bool known = await projector.KnowsAsync(srid, cancellation).ConfigureAwait(false);
 
+        // <b>And which reference it is, not only that it is one — owner instruction,
+        // 2026-09-07:</b> *"3857 yazınca web mercator yazıyor ama 4236 yazınca adı çıkmıyor."*
+        // The screen knew five names from a constant and was silent about the rest, so an
+        // operator typing a code got *yes, usable* and no way to check they had typed the code
+        // they meant. 4236 is Hu Tzu Shan 1950 and a typo for 4326 that this now catches.
+        string? name = known
+            ? (await projector.ReferencesAsync(cancellation).ConfigureAwait(false))
+                .FirstOrDefault(r => r.Srid == srid).Name
+            : null;
+
         // <b>The reference's own domain, when there is one.</b> It is what makes *this code is
         // known* useful rather than merely true: a projected reference for another country will
         // draw, and it will draw the operator's data somewhere absurd.
@@ -2283,9 +2298,104 @@ internal static class AdminEndpoints
         {
             srid,
             known,
+
+            // Empty rather than absent when the projection database cannot be listed: the
+            // screen then shows the code, which is where it was before names existed.
+            name = string.IsNullOrEmpty(name) ? null : name,
             domain = domain is { } d ? new[] { d.MinX, d.MinY, d.MaxX, d.MaxY } : null,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// The references this server can serve in, filtered by a word or a code.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner instruction, 2026-09-07:</b> *"tanımlı tüm srid leri gösterebilir miyiz."* The
+    /// Publish screen offered five references by name from a constant in the page and could say
+    /// nothing about the six thousand others a deployment's PROJ knows. A box that takes any
+    /// code is only half of *let me choose my own*: the other half is being able to find one.
+    /// </para>
+    /// <para>
+    /// <b>Searched rather than listed whole.</b> Six thousand options in a datalist is a control
+    /// no browser draws usefully and a payload nobody reads; a word gives the twenty that matter.
+    /// The whole list is read once by the projector and searched in memory, so this costs a
+    /// string comparison per row rather than a query — measured, because the obvious
+    /// implementation asks <c>postgis_srs_all()</c> per keystroke at 1.37 seconds a time.
+    /// </para>
+    /// <para>
+    /// <b>A code matches as a code, and it is ranked first.</b> Somebody typing 5254 wants
+    /// EPSG:5254, not the eleven references whose names contain those digits.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="projector">What knows.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task SearchReferencesAsync(
+        HttpContext context,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(projector);
+
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string wanted = (context.Request.Query["q"].ToString() ?? string.Empty).Trim();
+
+        IReadOnlyList<KnownReference> all =
+            await projector.ReferencesAsync(cancellation).ConfigureAwait(false);
+
+        IEnumerable<KnownReference> matching = wanted.Length is 0
+            ? all
+            : all.Where(r =>
+                r.Name.Contains(wanted, StringComparison.OrdinalIgnoreCase)
+                || r.Srid.ToString(CultureInfo.InvariantCulture)
+                    .StartsWith(wanted, StringComparison.Ordinal));
+
+        // <b>Exact code, then codes beginning with it, then EPSG before anybody else, then the
+        // name that begins with what was typed.</b> The reference somebody is looking at while
+        // they type is the one they typed; after that, a bare code means its EPSG meaning.
+        // <b>Measured against the obvious ranking</b>, which was shortest-name-first and put
+        // ESRI's `World_Mercator` above `WGS 84 / Pseudo-Mercator` for a search of *mercator* —
+        // a list whose first answer is not the one everybody means is a list nobody reads twice.
+        KnownReference[] answer = [.. matching
+            .OrderBy(r => Code(r) == wanted ? 0 : 1)
+            .ThenBy(r => wanted.Length is not 0
+                && Code(r).StartsWith(wanted, StringComparison.Ordinal) ? 0 : 1)
+            .ThenBy(r => string.Equals(r.Authority, "EPSG", StringComparison.OrdinalIgnoreCase)
+                ? 0 : 1)
+            .ThenBy(r => wanted.Length is not 0
+                && r.Name.StartsWith(wanted, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(r => wanted.Length is 0 ? 0 : r.Name.Length)
+            .ThenBy(r => r.Srid)
+            .Take(SearchCeiling)];
+
+        static string Code(KnownReference r) =>
+            r.Srid.ToString(CultureInfo.InvariantCulture);
+
+        await Results.Json(new
+        {
+            total = all.Count,
+            matched = matching.Count(),
+            references = answer.Select(r => new { srid = r.Srid, name = r.Name, authority = r.Authority }),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// How many references one search answers with.
+    /// </summary>
+    /// <remarks>
+    /// <b>A datalist is read, not scrolled.</b> Twenty is more than fits on the screen under the
+    /// box and few enough that the browser draws them all; the count of what matched is sent
+    /// beside them so the screen can say when there is more rather than pretending there is not.
+    /// </remarks>
+    private const int SearchCeiling = 20;
 
     /// <summary>
     /// Answers the address an empty service used to be created at.

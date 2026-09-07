@@ -645,6 +645,67 @@ public sealed class PublishScreenTests : ConsoleTest
     }
 
     /// <summary>
+    /// A typed code is named, whatever it is, and the list offers what the server knows.
+    /// </summary>
+    /// <remarks>
+    /// <b>Owner instruction, 2026-09-07:</b> *"tanımlı tüm srid leri gösterebilir miyiz. mesela
+    /// 3857 yazınca web mercator yazıyor ama 4236 yazınca adı çıkmıyor."* The screen knew five
+    /// names from a constant in the page. This drives a code that is deliberately not one of the
+    /// five, so the name on screen can only have come from the projection database.
+    /// </remarks>
+    [Fact]
+    public async Task Any_code_is_named_and_the_list_comes_from_the_server()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(Shown("#pubShot"), "The map is not on the screen.");
+
+        await Browser.EvaluateAsync<bool>("(openMapProperties(), true)");
+
+        await WaitForAsync(Shown("#pubSrid"), "The reference box did not open.");
+
+        // <b>Not one of the five in `PUB_REFERENCES`.</b> Asserted, so this test cannot start
+        // passing because somebody added it to the constant.
+        Assert.DoesNotContain(
+            "4236",
+            await Browser.EvaluateAsync<string>(
+                "JSON.stringify(PUB_REFERENCES.map(r => r.code))") ?? string.Empty,
+            StringComparison.Ordinal);
+
+        await Browser.EvaluateAsync<bool>("""
+        (document.getElementById("pubSrid").value = "4236", pubReference(), true)
+        """);
+
+        await WaitForAsync(
+            "(document.getElementById('pubSridSaysHead')?.textContent || '')"
+            + ".includes('Hu Tzu Shan')",
+            "A code outside the console's own short list was accepted without a name. That is "
+            + "the difference between 'this is usable' and 'this is the reference you meant' — "
+            + "4236 is one keystroke from 4326 and its area of use is Taiwan.");
+
+        // <b>And the list is the server's, not the constant's.</b> Five options would be the
+        // constant; a search for a word nothing in it contains proves where they came from.
+        await Browser.EvaluateAsync<bool>("""
+        (document.getElementById("pubSrid").value = "turef", pubSuggest(), true)
+        """);
+
+        await WaitForAsync(
+            "[...document.querySelectorAll('#pubReferences option')]"
+            + ".some(o => (o.textContent || '').toUpperCase().includes('TUREF'))",
+            "Typing a reference's name offered nothing. The box takes any code, which is only "
+            + "half of choosing your own — the other half is finding one without knowing its "
+            + "number already.");
+
+        await WaitForAsync(
+            "(document.getElementById('pubSuggestSays')?.textContent || '').length > 0",
+            "The screen does not say how much of the projection database it is showing, so a "
+            + "box offering twenty of eight thousand looks like a box offering everything.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// The preview is a map, it says nothing when the composition is empty, and it takes a drop.
     /// </summary>
     /// <remarks>

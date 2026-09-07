@@ -1181,4 +1181,90 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         return (response.StatusCode, await response.Content.ReadAsStringAsync());
     }
+    /// <summary>
+    /// A reference is named, not merely accepted — and so is every other one this server knows.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner instruction, 2026-09-07:</b> *"tanımlı tüm srid leri gösterebilir miyiz. mesela
+    /// 3857 yazınca web mercator yazıyor ama 4236 yazınca adı çıkmıyor."* The console carried
+    /// five references by name in a constant and asked the server only whether it could project
+    /// to a code. *Yes* is not an answer an operator can check: it says the code is usable and
+    /// not which reference it is.
+    /// </para>
+    /// <para>
+    /// <b>4236 is the example and it is a good one.</b> It is Hu Tzu Shan 1950, whose area of
+    /// use is Taiwan, and it is one keystroke from 4326. A code accepted silently is a typo
+    /// nobody catches until somebody opens the service and finds their country in the sea.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_reference_is_named_and_the_rest_can_be_searched()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        (HttpStatusCode status, string said) = await SendAsync(
+            HttpMethod.Get, $"{root}/admin/references/4236", token!, null);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+
+        JsonElement named = JsonDocument.Parse(said).RootElement;
+
+        Assert.True(named.GetProperty("known").GetBoolean());
+
+        Assert.Equal("Hu Tzu Shan 1950", named.GetProperty("name").GetString());
+
+        // <b>And nothing is invented for a code the projection database does not hold.</b>
+        (_, said) = await SendAsync(
+            HttpMethod.Get, $"{root}/admin/references/999999", token!, null);
+
+        JsonElement absent = JsonDocument.Parse(said).RootElement;
+
+        Assert.False(absent.GetProperty("known").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, absent.GetProperty("name").ValueKind);
+
+        // <b>The rest are searchable by name.</b> A box that takes any code is half of *let me
+        // choose my own*; finding one without knowing its number is the other half.
+        (status, said) = await SendAsync(
+            HttpMethod.Get, $"{root}/admin/references?q=mercator", token!, null);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+
+        JsonElement found = JsonDocument.Parse(said).RootElement;
+
+        Assert.True(
+            found.GetProperty("total").GetInt32() > 1000,
+            "This server says it knows almost no references, so the list the screen offers is "
+            + "the constant it was built to replace.");
+
+        JsonElement[] hits = [.. found.GetProperty("references").EnumerateArray()];
+
+        Assert.NotEmpty(hits);
+
+        Assert.All(
+            hits,
+            h => Assert.Contains(
+                "mercator",
+                h.GetProperty("name").GetString() ?? string.Empty,
+                StringComparison.OrdinalIgnoreCase));
+
+        // <b>EPSG before other authorities.</b> The first ranking sorted by name length and put
+        // ESRI's `World_Mercator` above `WGS 84 / Pseudo-Mercator`; a list whose first answer is
+        // not the one everybody means is a list nobody reads twice.
+        Assert.Equal("EPSG", hits[0].GetProperty("authority").GetString());
+
+        // <b>A code searches as a code.</b> Somebody typing 5254 wants EPSG:5254, not the
+        // references whose names happen to contain those digits.
+        (_, said) = await SendAsync(
+            HttpMethod.Get, $"{root}/admin/references?q=5254", token!, null);
+
+        JsonElement first = JsonDocument.Parse(said).RootElement
+            .GetProperty("references").EnumerateArray().First();
+
+        Assert.Equal(5254, first.GetProperty("srid").GetInt32());
+    }
+
 }
