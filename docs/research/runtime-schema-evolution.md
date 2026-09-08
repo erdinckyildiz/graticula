@@ -47,6 +47,14 @@ changes both, transactionally where possible.
 
 This is a small idea with large consequences, and it is one we should adopt:
 
+> **Declined for now, 2026-09-08 —
+> [ADR-058](../adr/ADR-058-the-datastore-schema-is-edited-from-the-screen.md)
+> alternative D.** Not because the idea is wrong — the four points below still
+> hold — but because adding and deleting a field needs none of it: this server
+> stores **no field list at all**, so a new column is visible without anything
+> being written down. The definition model is the right shape for Q-36 and it was
+> declined for this week's problem rather than for good.
+
 - The definition can describe things the table does not — computed fields,
   aliases, hidden columns, per-role field visibility.
 - The definition can be validated before any DDL runs.
@@ -125,11 +133,18 @@ not.**
 
 ## 8. New questions
 
-| # | Question |
-|---|---|
-| Q-35 | Which schema changes do we offer, per dialect, under the §5 classification? Needs the DDL cost and locking behaviour of all three engines verified first. |
-| Q-36 | Can the service definition describe fields the physical table does not have — computed, aliased, role-hidden? Cheap to allow now, expensive to retrofit. |
-| Q-37 | What is the contract for a request in flight across a schema change? |
+**Two of these three are answered, and this table said so nowhere until
+2026-09-08.** A research file that opens questions and never records their
+answers becomes a list of things that look open — the propagation shape
+[D-130](../architecture-debt.md) is about, found here by writing
+[ADR-058](../adr/ADR-058-the-datastore-schema-is-edited-from-the-screen.md)
+against this file's §3 and noticing that §8 still asked for its own conclusion.
+
+| # | Question | Where it stands |
+|---|---|---|
+| Q-35 | Which schema changes do we offer, per dialect, under the §5 classification? ~~Needs the DDL cost and locking behaviour of all three engines verified first.~~ | **Answered 2026-09-08** by owner instruction — [ADR-058](../adr/ADR-058-the-datastore-schema-is-edited-from-the-screen.md). **Add a field and delete a field, and nothing else**; a rename is add-copy-delete and a retype is a data migration. *Per dialect* had one dialect: v1 is PostGIS only, and the other five are a revisit trigger rather than a prerequisite |
+| Q-36 | Can the service definition describe fields the physical table does not have — computed, aliased, role-hidden? Cheap to allow now, expensive to retrofit. | **Open**, and ADR-058 alternative D is where the cost was weighed: the definition model is right for exactly this and is not needed to add a column, so it was declined for now rather than for good |
+| Q-37 | What is the contract for a request in flight across a schema change? | **Answered 2026-08-26 by watching one happen.** It finishes on the old shape and nothing in this server decides that: 42 MB delivered naming a column dropped 76 seconds earlier, because the rows were read before the DDL arrived |
 
 ## Sources
 
