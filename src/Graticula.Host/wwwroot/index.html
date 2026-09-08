@@ -1906,6 +1906,70 @@
   </footer>
 </dialog>
 
+<!--
+  <b>Renaming, in the product's own dialog rather than the browser's.</b> A design review on
+  2026-09-08 found this screen's two renames were the only interactions on it that dropped into
+  `prompt()`, and the cost is not styling: a native prompt blocks the page synchronously and can
+  say nothing until OK is pressed, so a colliding layer name was reported by a toast afterwards
+  where every other name on this screen is answered while it is typed.
+
+  <b>One dialog for both.</b> The service's name and a layer's are the same question asked about
+  a different row, and two dialogs would be two places for the rule about what a name may be.
+-->
+<!--
+  <b>Taking a database out of service, in a dialog rather than the browser's prompt.</b> A design
+  review on 2026-09-08 called this a finding rather than a preference, and the argument is the
+  blast radius: this is the one action on that screen gated by `admin:manageServer` because it can
+  make every service over a shared database answer 503 — and it was dispatched with the same
+  chrome the app uses for trivial confirmations, defaulting to the longest ordinary window, with
+  Enter accepting that default.
+
+  <b>Nothing is pre-filled.</b> The reflex that dismisses a native prompt is the same keystroke
+  that would have started a fifteen-minute outage.
+-->
+<dialog id="quiesce" aria-labelledby="quiesceTitle">
+  <header class="dialoghead">
+    <h3 id="quiesceTitle" tabindex="-1">Take a database out of service</h3>
+    <button class="tiny ghost" id="quiesceClose" aria-label="Close">&#10005;</button>
+  </header>
+  <div class="dialogbody">
+    <p class="hint" id="quiesceWhat"></p>
+
+    <div class="row">
+      <label class="field" style="flex:0 1 200px">For how many minutes
+        <input id="quiesceMinutes" type="number" min="1" max="60" step="1"
+          inputmode="numeric" placeholder="15"></label>
+      <label class="field" style="flex:1 1 240px">What you are doing
+        <input id="quiesceWhy" spellcheck="false"
+          placeholder="a schema change"></label>
+    </div>
+
+    <p class="hint" id="quiesceSays" role="status" aria-live="polite"></p>
+  </div>
+  <footer class="dialogfoot">
+    <button class="ghost" id="quiesceCancel">Cancel</button>
+    <button class="danger" id="quiesceGo">Take it out of service</button>
+  </footer>
+</dialog>
+
+<dialog id="rename" aria-labelledby="renameTitle">
+  <header class="dialoghead">
+    <h3 id="renameTitle" tabindex="-1">Rename</h3>
+    <button class="tiny ghost" id="renameClose" aria-label="Close">&#10005;</button>
+  </header>
+  <div class="dialogbody">
+    <div class="row">
+      <label class="field" style="flex:1 1 100%"><span id="renameWhat">Name</span>
+        <input id="renameBox" spellcheck="false" autocomplete="off"></label>
+    </div>
+    <p class="hint" id="renameSays" role="status" aria-live="polite"></p>
+  </div>
+  <footer class="dialogfoot">
+    <button class="ghost" id="renameCancel">Cancel</button>
+    <button class="primary" id="renameDone">Rename</button>
+  </footer>
+</dialog>
+
 <dialog id="dbconn" aria-labelledby="dbconnTitle">
   <header class="dialoghead">
     <h3 id="dbconnTitle" tabindex="-1">Database connection</h3>

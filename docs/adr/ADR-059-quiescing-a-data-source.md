@@ -119,6 +119,18 @@ on a real table; §7's condition 3 is that measurement.
 
 ### 5c. The refusal is what frees the lock. The pool is closed for two smaller reasons
 
+> **And the gate has to be where the pool is handed out, not only on the read
+> path — found 2026-09-08 by re-reading what had been built.** The first version
+> put the check in `BudgetedFeatureSource`, which is the *read* decorator. Writes,
+> tiles and attachments each took the pool directly, so a quiesced source **still
+> accepted `applyEdits`** — and an edit runs in a transaction, which is exactly
+> the state that blocks `ALTER TABLE`. Worse, every one of those paths calls
+> `GetOrAdd`, so the next request **rebuilt the pool the quiesce had just closed**:
+> the operator's instruction undone by the traffic it was meant to stop. The read
+> path had the second half of that fault too. One hand-out now, four callers, and a
+> test that enumerates them rather than sampling — because a test covering one path
+> would have passed on the broken version.
+
 ~~Quiescing closes the source's connection pool. **A refusal that left the
 connections open would be a slower way of doing nothing** — the DDL is blocked by
 *connections*, not by requests, so a source that refuses politely while holding

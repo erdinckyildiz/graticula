@@ -11342,12 +11342,20 @@ function pubRootMenu() {
   // <b>One question now.</b> It used to ask for a name and treat Cancel as *change the
   // reference instead*, which is a second act hidden behind refusing the first — the reference
   // is a control in the page's own header and the menu no longer pretends otherwise.
-  const given = prompt("What is this service called?", pubServiceName || "Map");
+  askName({
+    title: "Rename this service",
+    label: "Service name",
+    value: pubServiceName || "Map",
 
-  if (given === null) return;
-
-  pubServiceName = given.trim();
-  pubDraw();
+    // <b>Nothing is checked against the server here, and that is deliberate.</b> Whether the name
+    // is free is a question about a folder, and the folder is chosen in the Publish dialog — which
+    // asks it while somebody types (§5e). Asking twice would be two answers to one question, and
+    // the second one would be about a folder nobody had chosen yet.
+    then: wanted => {
+      pubServiceName = wanted;
+      pubDraw();
+    },
+  });
 }
 
 /** Opens one database and reads what can be published from it. */
@@ -11456,6 +11464,84 @@ function pubFreeName(wanted) {
 }
 
 /**
+ * Asks for a name in the product's own dialog, checking it while it is typed.
+ *
+ * <b>Replaces `prompt()` at the two places that used it — a design review, 2026-09-08.</b> The
+ * native prompt blocks the page synchronously, cannot be styled, and cannot say anything until it
+ * is dismissed: a name that collides was reported by a toast after the act, on a screen where
+ * every other name is answered as it is typed.
+ *
+ * <b>One dialog for the service's name and a layer's</b>, because they are the same question about
+ * a different row. Two would be two places for the rule about what a name may be.
+ *
+ * @param {{title: string, label: string, value: string,
+ *          check: ?function(string): ?string, then: function(string): void}} asked
+ *   what to put on the dialog, what makes a name unacceptable, and what to do with a good one
+ * @returns {void}
+ */
+function askName(asked) {
+  const dialog = $("rename");
+  const box = $("renameBox");
+  const says = $("renameSays");
+  const done = $("renameDone");
+
+  if (!dialog || !box) return;
+
+  $("renameTitle").textContent = asked.title;
+  $("renameWhat").textContent = asked.label;
+  box.value = asked.value || "";
+
+  const judge = () => {
+    const wanted = box.value.trim();
+
+    // <b>An empty box is not an error while somebody is still typing into it.</b> It is the state
+    // the dialog opens in when a name is being replaced rather than edited.
+    const why = !wanted ? "" : (asked.check ? asked.check(wanted) : null);
+
+    says.textContent = why || "";
+    says.classList.toggle("bad-inline", Boolean(why));
+    done.disabled = !wanted || Boolean(why);
+  };
+
+  const shut = () => {
+    box.removeEventListener("input", judge);
+    box.removeEventListener("keydown", onKey);
+    done.removeEventListener("click", accept);
+    dialog.close();
+  };
+
+  const accept = () => {
+    const wanted = box.value.trim();
+
+    if (!wanted || (asked.check && asked.check(wanted))) return;
+
+    shut();
+    asked.then(wanted);
+  };
+
+  // <b>Enter accepts, because a one-box dialog that needs the mouse is a prompt with extra
+  // steps.</b> The button is still there for whoever reaches for it.
+  const onKey = event => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      accept();
+    }
+  };
+
+  box.addEventListener("input", judge);
+  box.addEventListener("keydown", onKey);
+  done.addEventListener("click", accept);
+
+  $("renameCancel").onclick = shut;
+  $("renameClose").onclick = shut;
+
+  judge();
+  dialog.showModal();
+  box.focus();
+  box.select();
+}
+
+/**
  * Renames a layer or a group in the composition.
  *
  * <b>The name is what a client asks for, so it is the operator's to choose.</b> A layer arrives
@@ -11469,27 +11555,30 @@ function pubRename(id) {
 
   if (!found) return;
 
-  const given = prompt(
-    found.node.kind === "group" ? "Group name" : "Layer name", found.node.name);
+  /*
+    <b>The product's own dialog, since 2026-09-08.</b> A design review found the two renames on
+    this screen were its only `prompt()`s, and what that cost is not styling: a native prompt
+    blocks the page and cannot answer until OK is pressed, so a colliding layer name arrived as a
+    toast *after* the act where every other name here is answered while it is typed.
 
-  if (given === null) return;
-
-  const wanted = given.trim();
-
-  if (!wanted) return;
-
-  if (found.node.kind === "layer") {
-    const clash = pubLayers().some(l =>
-      l.id !== id && l.name.toLowerCase() === wanted.toLowerCase());
-
-    if (clash) {
-      toast(`Another layer in this service is already called ${wanted}.`);
-      return;
-    }
-  }
-
-  found.node.name = wanted;
-  pubDraw();
+    <b>The clash rule moves into the dialog rather than being repeated after it.</b> Two layers in
+    one service may not share a name — the server refuses `layer_name_unique_in_service` — and
+    saying so as somebody types is the same information at the moment it is useful.
+  */
+  askName({
+    title: found.node.kind === "group" ? "Rename group" : "Rename layer",
+    label: found.node.kind === "group" ? "Group name" : "Layer name",
+    value: found.node.name,
+    check: wanted => found.node.kind === "layer"
+      && pubLayers().some(l =>
+        l.id !== id && l.name.toLowerCase() === wanted.toLowerCase())
+      ? `Another layer in this service is already called ${wanted}.`
+      : null,
+    then: wanted => {
+      found.node.name = wanted;
+      pubDraw();
+    },
+  });
 }
 
 /** Puts a layer back: it stops being in the composition and becomes draggable again. */
@@ -13118,9 +13207,19 @@ function sourceHeldSays(held) {
     ? ""
     : until.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-  return `<div class="rowmeta bad-inline">Out of service until ${h(clock)} —
-    ${h(held.by)}${held.why ? `, ${h(held.why)}` : ""}. This worker has closed its
-    connections; another worker holds its own.</div>`;
+  /*
+    <b>`role="alert"`, because this is the durable statement and the toast is not.</b> A design
+    review found the toast announced and this did not — and the toast hides itself after seven
+    seconds, so a reader who was not attending at that moment has only a row that says nothing.
+    Every *this needs to be heard* paragraph in this file already uses the same role.
+
+    <b>Prepositions rather than commas.</b> It read *until 10:03 PM — ci, a schema change*, which
+    groups the operator and the reason behind one dash and leaves a reader to guess which is
+    which. ADR-059 §5e's own model sentence says *by X for Y*, and it is clearer.
+  */
+  return `<div class="rowmeta bad-inline" role="alert">Out of service until ${h(clock)},
+    taken out by ${h(held.by)}${held.why ? ` for ${h(held.why)}` : ""}. This worker has closed
+    its connections; another worker holds its own.</div>`;
 }
 
 /**
@@ -13136,38 +13235,122 @@ function sourceHeldSays(held) {
  * @returns {Promise<void>} when it is held, or refused
  */
 async function quiesceSource(id, name, layers) {
-  const minutes = prompt(
-    `Take "${name}" out of service for how many minutes?
+  const dialog = $("quiesce");
+  const minutes = $("quiesceMinutes");
+  const why = $("quiesceWhy");
+  const says = $("quiesceSays");
+  const go = $("quiesceGo");
 
-`
-    + `${layers} layer${layers === 1 ? "" : "s"} read from it and will answer 503 until the `
-    + "time is up or you press Resume. This worker closes its connections so a DBA can run "
-    + "their schema change; another worker holds its own.",
-    "15");
+  if (!dialog) return;
 
-  if (minutes === null) return;
+  $("quiesceWhat").innerHTML = `<b>${h(name)}</b> stops answering while it is out of service.
+    ${num(layers)} layer${layers === 1 ? "" : "s"} read from it and will answer 503 until the
+    time is up or you press Resume. This worker closes its connections so a DBA can run their
+    schema change; another worker holds its own and must be taken out separately.`;
 
-  const asked = Number(minutes);
+  // <b>Nothing pre-filled — a design review's finding, not a preference.</b> The default was 15
+  // and Enter accepted it, so the reflex that dismisses a native prompt was the same keystroke
+  // that started a fifteen-minute outage on every service over a shared database.
+  minutes.value = "";
+  why.value = "";
+  says.textContent = "";
+  says.classList.remove("bad-inline");
 
-  if (!Number.isFinite(asked) || asked <= 0) {
-    toast("That is not a number of minutes.");
-    return;
+  const judge = () => {
+    const asked = Number(minutes.value);
+    go.disabled = !(Number.isFinite(asked) && asked >= 1 && asked <= 60);
+  };
+
+  const shut = () => {
+    minutes.removeEventListener("input", judge);
+    go.removeEventListener("click", accept);
+    dialog.close();
+  };
+
+  async function accept() {
+    const asked = Number(minutes.value);
+
+    if (!(Number.isFinite(asked) && asked >= 1 && asked <= 60)) return;
+
+    go.disabled = true;
+
+    try {
+      const held = await api(`/admin/datasources/${encodeURIComponent(id)}/quiesce`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          seconds: Math.round(asked * 60),
+          why: why.value.trim() || "a schema change",
+        }),
+      });
+
+      shut();
+
+      /*
+        <b>What else went out with it, which the first version fetched and threw away.</b> Two
+        registered sources pointing at one database share a pool, so quiescing either takes both
+        out — ADR-059 §5d. The server says which; the toast said only the name that was pressed,
+        and on a paginated table the other row may not even be on screen. A design review found
+        this the same day the API stopped telling that half-truth, which is the propagation shape
+        [D-130](../../docs/architecture-debt.md) records.
+
+        <b>The deadline to the minute, matching the row.</b> They were the same instant printed
+        two ways — the toast to the second, the row to the minute — and two places a reader looks
+        should not disagree about a number.
+      */
+      const when = new Date(held.until)
+        .toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+      const also = (held.alsoQuiesced || []).length > 0
+        ? ` ${held.alsoQuiesced.join(", ")} ${held.alsoQuiesced.length === 1 ? "is" : "are"} `
+          + "the same database and went out with it."
+        : "";
+
+      toast(`${name} is out of service until ${when}.${also}`, true);
+
+      await loadSources();
+      focusSourceRow(id);
+    } catch (e) {
+      says.classList.add("bad-inline");
+      says.textContent = e.message;
+      go.disabled = false;
+    }
   }
 
-  try {
-    const held = await api(`/admin/datasources/${encodeURIComponent(id)}/quiesce`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ seconds: Math.round(asked * 60), why: "a schema change" }),
-    });
+  minutes.addEventListener("input", judge);
+  go.addEventListener("click", accept);
 
-    // <b>The time the server applied, not the one that was asked for.</b> A window longer than
-    // the ceiling is clamped rather than refused, and a screen echoing the request would be
-    // showing a deadline that is not the one being kept.
-    toast(`${name} is out of service until ${new Date(held.until).toLocaleTimeString()}.`, true);
-    loadSources();
-  } catch (e) {
-    toast(e.message);
+  $("quiesceCancel").onclick = shut;
+  $("quiesceClose").onclick = shut;
+
+  judge();
+  dialog.showModal();
+  minutes.focus();
+}
+
+/**
+ * Puts the cursor back on the row that was acted on, whichever button it now carries.
+ *
+ * <b>A third variant of a fix this file already has twice, and it needs to be.</b> `focusSources`
+ * goes to the first row, which a design review already caught being wrong for any other row; the
+ * connection dialog remembers its opener and returns to it. Neither works here, because the
+ * button is not restored — it is *replaced*: Quiesce becomes Resume and back again, so the
+ * element that had focus is gone by design rather than by redraw.
+ *
+ * <b>So the row is found by what identifies it.</b> The source's id survives the rewrite; the
+ * element does not.
+ *
+ * @param {string} id the data source that was acted on
+ * @returns {void}
+ */
+function focusSourceRow(id) {
+  const back = document.querySelector(
+    `[data-source-quiesce="${CSS.escape(id)}"], [data-source-resume="${CSS.escape(id)}"]`);
+
+  if (back && back.offsetParent !== null) {
+    back.focus({ preventScroll: true });
+  } else {
+    focusSources();
   }
 }
 
@@ -13191,7 +13374,8 @@ async function resumeSource(id, name) {
       ? `${name} answers again.`
       : `${name} was already answering: its window had ended.`, true);
 
-    loadSources();
+    await loadSources();
+    focusSourceRow(id);
   } catch (e) {
     toast(e.message);
   }

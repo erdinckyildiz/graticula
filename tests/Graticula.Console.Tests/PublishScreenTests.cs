@@ -1554,4 +1554,93 @@ public sealed class PublishScreenTests : ConsoleTest
           return true;
         })();
         """);
+
+    /// <summary>
+    /// Renaming happens in the product's own dialog, and a clash is said while it is typed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A design review on 2026-09-08 found the two renames on this screen were its only
+    /// `prompt()`s</b>, and the cost is not styling: a native prompt blocks the page
+    /// synchronously and can say nothing until it is dismissed, so a colliding layer name
+    /// arrived as a toast <i>after</i> the act — on a screen where every other name is answered
+    /// as it is typed.
+    /// </para>
+    /// <para>
+    /// <b>Asserted on the refusal rather than only on the rename.</b> A dialog that renamed
+    /// correctly and let a clash through would be the old behaviour with better styling, which
+    /// is the version of this change worth not shipping.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Renaming_is_answered_in_the_dialog_rather_than_after_it()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(Shown("#pubTree"), "The Publish screen drew no contents pane.");
+
+        // Two layers, so there is a name to collide with.
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const one = (name, table) => ({
+            kind: "layer", id: "L" + (++pubSeq), name,
+            source: "00000000-0000-0000-0000-000000000000", sourceName: "probe",
+            schema: "public", table, geometry: "geom", identity: "objectid",
+            srid: 3857, geometryType: "MultiPolygon", type: "MultiPolygon",
+          });
+
+          pubTree = [one("zz_first", "zz_a"), one("zz_second", "zz_b")];
+          pubDraw();
+          return true;
+        })();
+        """);
+
+        await Browser.EvaluateAsync<bool>(
+            "(pubRename(pubTree[1].id), true)");
+
+        await WaitForAsync(
+            "(() => { const e = document.getElementById('renameBox'); "
+            + "return !!e && e.offsetParent !== null; })()",
+            "Renaming did not open the product's own dialog. If it opened the browser's prompt "
+            + "instead, the page is blocked and this assertion could not run at all.");
+
+        // <b>The name the other layer already has.</b>
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const box = document.getElementById("renameBox");
+          box.value = "zz_first";
+          box.dispatchEvent(new Event("input", { bubbles: true }));
+          return true;
+        })();
+        """);
+
+        await WaitForAsync(
+            "(document.getElementById('renameSays')?.textContent || '').includes('already called')",
+            "A colliding name was accepted silently, so the dialog is a prompt with a nicer "
+            + "border.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>("document.getElementById('renameDone').disabled"),
+            "Rename is still armed on a name that collides.");
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const box = document.getElementById("renameBox");
+          box.value = "zz_renamed";
+          box.dispatchEvent(new Event("input", { bubbles: true }));
+          return true;
+        })();
+        """);
+
+        await ClickAsync("#renameDone");
+
+        await WaitForAsync(
+            "[...document.querySelectorAll('#pubTree .pubname')]"
+            + ".some(e => e.textContent.trim() === 'zz_renamed')",
+            "The layer was not renamed after the dialog was accepted.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
 }

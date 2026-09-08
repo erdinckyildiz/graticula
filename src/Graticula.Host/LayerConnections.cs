@@ -143,6 +143,44 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
     private readonly ConcurrentDictionary<string, NpgsqlDataSource> _pools = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The pool for one source, unless an operator has taken it out of service.
+    /// </summary>
+    /// <param name="connectionString">The source key.</param>
+    /// <returns>The pool.</returns>
+    /// <exception cref="SourceQuiescedException">When the source is quiesced.</exception>
+    /// <remarks>
+    /// <para>
+    /// <b>Written 2026-09-08 on re-reading what had just been built, and it closes a hole that
+    /// would have made ADR-059 fail at its own job.</b> The quiesce gate went into
+    /// <see cref="BudgetedFeatureSource"/>, which is the *read* path. Writes, tiles and
+    /// attachments each reached <c>_pools.GetOrAdd</c> directly — so a quiesced source still
+    /// accepted `applyEdits`, and an edit runs in a transaction, which is precisely the thing
+    /// that blocks a DBA's <c>ALTER TABLE</c>.
+    /// </para>
+    /// <para>
+    /// <b>And <c>GetOrAdd</c> would have rebuilt the pool that had just been closed.</b> The next
+    /// tile request after a quiesce would have reopened the connections §5c closes, which is the
+    /// same defect wearing a second face: the operator's instruction would have been undone by
+    /// the traffic it was meant to stop.
+    /// </para>
+    /// <para>
+    /// <b>One place, because there are four callers and a fifth will be written.</b> A check
+    /// repeated at each hand-out is a check the next hand-out forgets — which is exactly how this
+    /// hole came to exist.
+    /// </para>
+    /// </remarks>
+    private NpgsqlDataSource PoolFor(string connectionString)
+    {
+        if (_quiesce?.Holding(connectionString) is { } held)
+        {
+            throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
+        }
+
+        return _pools.GetOrAdd(connectionString, BuildPool);
+    }
+
+
     private readonly ConcurrentDictionary<string, NpgsqlDataSource> _attachmentPools =
         new(StringComparer.Ordinal);
     private bool _disposed;
@@ -154,9 +192,12 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
 
-        NpgsqlDataSource pool = _pools.GetOrAdd(
-            layer.ConnectionString,
-            BuildPool);
+        // <b>Through the gate like every other hand-out.</b> The read path's own refusal lives in
+        // `BudgetedFeatureSource`, which fires when a query runs — but the *pool* was still taken
+        // with `GetOrAdd`, so a quiesced source rebuilt the connections it had just closed on the
+        // first request that came in to be refused. The gate closes both halves; the decorator's
+        // check stays as the one that catches a quiesce beginning after this line.
+        NpgsqlDataSource pool = PoolFor(layer.ConnectionString);
 
         // <b>Lowered here, never raised.</b> The pool's own 30 seconds is in the connection
         // options and cannot be opted out of (ADR-007 §4.8); a service asking for more than that
@@ -272,7 +313,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ArgumentNullException.ThrowIfNull(layer);
 
         return new PostGisFeatureWriter(
-            _pools.GetOrAdd(layer.ConnectionString, BuildPool), layer.Definition, fields);
+            PoolFor(layer.ConnectionString), layer.Definition, fields);
     }
 
     /// <summary>A tile source for one layer, over the same shared pool.</summary>
@@ -289,7 +330,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ArgumentNullException.ThrowIfNull(layer);
 
         return new PostGisTileSource(
-            _pools.GetOrAdd(layer.ConnectionString, BuildPool), layer.Definition, attributes);
+            PoolFor(layer.ConnectionString), layer.Definition, attributes);
     }
 
     /// <summary>
@@ -311,6 +352,15 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
+
+        // <b>The same guard, on the second dictionary.</b> Attachments are a separate pool keyed
+        // the same way — a quiesced source that still served them would still be holding the
+        // database, which is what `CloseSource` empties both of.
+        if (_quiesce?.Holding(layer.ConnectionString) is { } attachmentsHeld)
+        {
+            throw new SourceQuiescedException(
+                SourceQuiesce.Says(attachmentsHeld), attachmentsHeld.Until);
+        }
 
         return new PostGisAttachmentStore(
             _attachmentPools.GetOrAdd(layer.ConnectionString, BuildAttachmentPool),
@@ -367,7 +417,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             origin.ConnectionString, related.ConnectionString, StringComparison.Ordinal);
 
         return new PostGisRelatedRecords(
-            _pools.GetOrAdd(origin.ConnectionString, BuildPool),
+            PoolFor(origin.ConnectionString),
             origin.Definition,
             related.Definition,
             same);
