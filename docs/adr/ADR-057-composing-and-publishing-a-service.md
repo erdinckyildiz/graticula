@@ -785,3 +785,34 @@ typing — the same rule that tells the two apart everywhere else on this screen
    `subLayerIds` are what the specification says; what Pro and the JavaScript API actually do
    with a group layer served by something that is not ArcGIS Server is not known here, and
    the first person to find out should not be the owner.
+
+   **PARTLY DISCHARGED 2026-09-08. The JavaScript API half is run and found two defects; Pro is
+   not run here and needs a machine with Pro on it.** This is exactly what the condition was for:
+   the document was correct in every particular the specification names, and the client never got
+   past its second request.
+
+   **Finding one, and it was fatal.** `Layer.fromArcGISServerUrl` reads
+   `/FeatureServer?f=json` and then immediately `/FeatureServer/layers?f=json` — *All Layers and
+   Tables*, one document holding the full definition of every layer so a client need not make a
+   request per layer. **This server answered 404** and the API abandoned the whole service:
+   `request:server, Unable to load … status: 404`. Written, and built from the same function
+   `/FeatureServer/{id}` answers with rather than a second writer, because the served extent, the
+   symbology and the relationship list have all been added to that document since it was written
+   and a copy would have missed each one silently — [D-46](../architecture-debt.md).
+
+   **Finding two, which the first uncovered.** The layer resource did not carry `parentLayerId`
+   **at all**. The service document said layer 2 was inside group 1; the layer's own document had
+   no key for it, so a client that read one layer could not tell it was in a group. Both documents
+   now say it, and the conformance test asserts they agree — two documents disagreeing about
+   which group a layer is in is the shape this condition is about, because a client reads one of
+   them.
+
+   **What the API does with the group is not a defect of ours, and that was measured rather than
+   assumed.** It flattens: one group layer titled after the service, the feature layers as flat
+   children, also titled after the service. The same call against
+   `sampleserver6.arcgisonline.com` — ArcGIS Server's own — produces the **identical** shape. The
+   constructor ignores group layers for everybody. Recording that difference as our bug was the
+   available mistake, and one request to somebody else's server is what avoided it.
+
+   **What is left is Pro**, which is the client the owner's users actually have and which cannot
+   be run from here. The condition stays open for it.

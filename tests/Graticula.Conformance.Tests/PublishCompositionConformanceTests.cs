@@ -1507,4 +1507,144 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
         Assert.Equal(5254, first.GetProperty("srid").GetInt32());
     }
 
+    /// <summary>
+    /// A service answers <c>/FeatureServer/layers</c>, and a layer says which group it is in.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-057](../../docs/adr/ADR-057-composing-and-publishing-a-service.md) condition 5,
+    /// and both facts below are things a specification reading would not have found.</b> The
+    /// condition asks for a grouped service to be opened by a real ArcGIS client rather than
+    /// checked against the document. Esri's own JavaScript API —
+    /// <c>Layer.fromArcGISServerUrl</c> against the service — reads
+    /// <c>/FeatureServer?f=json</c> and then immediately <c>/FeatureServer/layers?f=json</c>.
+    /// This server answered <b>404</b> and the API abandoned the whole service.
+    /// </para>
+    /// <para>
+    /// <b>And the layer's own document did not say which group it was in.</b> The service
+    /// document carried <c>parentLayerId</c> for every layer; the layer resource did not carry
+    /// the key at all, so a client that read one layer could not tell it was inside a group.
+    /// </para>
+    /// <para>
+    /// <b>What the API does with the group is not asserted, because it is not ours.</b> The same
+    /// call against <c>sampleserver6.arcgisonline.com</c> — ArcGIS Server's own — produces the
+    /// identical shape: one group layer titled after the service, with the feature layers as
+    /// flat children also titled after the service. The constructor ignores group layers for
+    /// everybody. Measured rather than assumed, because the alternative was recording a
+    /// difference as a defect of ours.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_grouped_service_answers_the_resource_a_client_asks_for_next()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        (Guid source, string schema, string table, string geometry, string identity, int srid) =
+            await ATableAsync(root, token!);
+
+        (_, string schema2, string table2, string geometry2, string identity2, int srid2) =
+            await ATableAsync(root, token!, skip: 1);
+
+        string name = AName();
+
+        string body = JsonSerializer.Serialize(new
+        {
+            name,
+            folder = "hosted",
+            sharing = "private",
+            nodes = new object[]
+            {
+                new { layer = Layer($"top{name}", source, schema, table, geometry, identity, srid) },
+                new
+                {
+                    group = "Reference",
+                    layers = new[]
+                    {
+                        Layer($"inside{name}", source, schema2, table2, geometry2, identity2, srid2),
+                    },
+                },
+            },
+        });
+
+        (HttpStatusCode made, string said) = await SendAsync(
+            HttpMethod.Post, $"{root}/admin/publish", token!, body);
+
+        Assert.True(made == HttpStatusCode.Created, $"Publishing answered {(int)made}: {said}");
+
+        try
+        {
+            (HttpStatusCode listed, string all) = await SendAsync(
+                HttpMethod.Get,
+                $"{root}/rest/services/hosted/{name}/FeatureServer/layers?f=json", token!, null);
+
+            Assert.True(
+                listed == HttpStatusCode.OK,
+                $"/FeatureServer/layers answered {(int)listed}. Esri's JavaScript API asks for "
+                + "this immediately after the service document and abandons the service without "
+                + "it.");
+
+            JsonElement document = JsonDocument.Parse(all).RootElement;
+
+            // <b>Both keys, and `tables` is empty rather than absent.</b> A client reading the
+            // document expects it; omitting it is the kind of nearly-right that costs an
+            // afternoon.
+            Assert.True(document.TryGetProperty("tables", out JsonElement tables));
+            Assert.Equal(JsonValueKind.Array, tables.ValueKind);
+
+            JsonElement[] layers = [.. document.GetProperty("layers").EnumerateArray()];
+
+            Assert.Equal(3, layers.Length);
+
+            JsonElement group = layers.Single(l =>
+                string.Equals(l.GetProperty("type").GetString(), "Group Layer", StringComparison.Ordinal));
+
+            int groupId = group.GetProperty("id").GetInt32();
+
+            JsonElement child = layers.Single(l =>
+                string.Equals(l.GetProperty("name").GetString(), $"inside{name}", StringComparison.Ordinal));
+
+            Assert.Equal(groupId, child.GetProperty("parentLayerId").GetInt32());
+
+            JsonElement top = layers.Single(l =>
+                string.Equals(l.GetProperty("name").GetString(), $"top{name}", StringComparison.Ordinal));
+
+            Assert.Equal(-1, top.GetProperty("parentLayerId").GetInt32());
+
+            // <b>Full definitions, not the summaries the service document carries.</b> That is
+            // what makes this resource worth a client's request: fifty layers in one round trip
+            // instead of fifty. A document of summaries would answer 200 and save nothing.
+            Assert.True(
+                child.TryGetProperty("fields", out JsonElement fields)
+                    && fields.ValueKind == JsonValueKind.Array
+                    && fields.GetArrayLength() > 0,
+                "The layers in this document carry no fields, so it is the service document "
+                + "again under a different address and a client still needs a request per layer.");
+
+            // <b>And the layer's own resource says the same thing.</b> The two documents
+            // disagreeing about which group a layer is in is the shape this whole condition is
+            // about: a client reads one of them.
+            (HttpStatusCode one, string alone) = await SendAsync(
+                HttpMethod.Get,
+                $"{root}/rest/services/hosted/{name}/FeatureServer/"
+                + $"{child.GetProperty("id").GetInt32()}?f=json",
+                token!,
+                null);
+
+            Assert.Equal(HttpStatusCode.OK, one);
+
+            Assert.Equal(
+                groupId,
+                JsonDocument.Parse(alone).RootElement.GetProperty("parentLayerId").GetInt32());
+        }
+        finally
+        {
+            // <b>The group by its index, which the document above already told us.</b> Groups
+            // are torn down by number rather than by name — the same numbering `subLayerIds`
+            // addresses.
+            await TearDownAsync(root, token!, name, [$"top{name}", $"inside{name}"], [1]);
+        }
+    }
 }

@@ -1532,6 +1532,14 @@ public static class Program
             app.MapGet($"{prefix}/{{serviceName}}/FeatureServer", ServiceMetadataAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // <b>All Layers and Tables, and a real client asks for it before the individual
+            // layers.</b> Registered before the `{layerId:int}` route only for readability —
+            // `layers` is not an integer, so the two cannot collide. ADR-057 condition 5 found
+            // this by pointing Esri's own JavaScript API at a grouped service: it read the
+            // service document, asked for this, got a 404 and abandoned the service.
+            app.MapGet($"{prefix}/{{serviceName}}/FeatureServer/layers", AllLayersAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
             app.MapGet($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}", LayerMetadataAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
@@ -2600,6 +2608,225 @@ public static class Program
         await Results.Ok(document).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Every layer and table of a service, in one document.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found 2026-09-08 by ADR-057 condition 5, which is what that condition is for.</b> The
+    /// condition asks for a grouped service to be opened by a real ArcGIS client rather than
+    /// checked against the specification, and Esri's own JavaScript API — <c>Layer</c>.
+    /// <c>fromArcGISServerUrl</c> against a multi-layer FeatureServer — asks for
+    /// <c>/FeatureServer?f=json</c> and then immediately for <c>/FeatureServer/layers?f=json</c>.
+    /// This server answered <b>404</b>, and the API gave up on the whole service:
+    /// <c>request:server, Unable to load … status: 404</c>. The service document was correct in
+    /// every particular and the client never got past the second request.
+    /// </para>
+    /// <para>
+    /// <b>It is <i>All Layers and Tables</i> in the REST specification</b> — one document holding
+    /// the full definition of every layer, so a client can build its tree without a request per
+    /// layer. A service of fifty layers is fifty round trips otherwise, which is why the
+    /// resource exists and why a client reaches for it before the individual ones.
+    /// </para>
+    /// <para>
+    /// <b>Built from the same function <c>/FeatureServer/{id}</c> answers with.</b> Two writers
+    /// producing "the same" layer document is [D-46](../../docs/architecture-debt.md) waiting to
+    /// happen: the extent in the served reference, the symbology and the relationship list have
+    /// all been added since that document was first written, and a copy would have missed each
+    /// one silently.
+    /// </para>
+    /// <para>
+    /// <b><c>tables</c> is empty and is emitted anyway.</b> A table in ArcGIS is a layer with no
+    /// geometry, which this server does not publish — every layer it has is spatial. A client
+    /// reading the document still expects the key, and omitting it is the kind of nearly-right
+    /// that costs somebody an afternoon.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="serviceName">The service.</param>
+    /// <param name="catalog">The catalogue.</param>
+    /// <param name="contexts">Where each layer's shape comes from.</param>
+    /// <param name="relationships">Declared relationships.</param>
+    /// <param name="settings">The server's record ceiling.</param>
+    /// <param name="projector">What moves an extent into the served reference.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task AllLayersAsync(
+        HttpContext context,
+        string serviceName,
+        CatalogFallback catalog,
+        ServiceContexts contexts,
+        PostgresRelationshipCatalog relationships,
+        HostSettings settings,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
+        PublishedService? owning = await ServiceLookup
+            .ServiceAsync(context, catalog, serviceName, cancellation)
+            .ConfigureAwait(false);
+
+        if (owning is null)
+        {
+            return;
+        }
+
+        List<object> layers = [];
+
+        // <b>In index order, which is the order the service document lists them in.</b> A client
+        // matching this document against that one by position rather than by id is doing
+        // something fragile, and it is doing it against every ArcGIS Server too — so the order
+        // is the same one rather than whatever the catalogue returned.
+        foreach (FeatureServerMetadataWriter.ServiceGroup group in
+            owning.Groups
+                .Select(g => new FeatureServerMetadataWriter.ServiceGroup(
+                    g.Index, g.Name, g.ParentIndex, owning.ChildrenOf(g.Index)))
+                .OrderBy(g => g.Id))
+        {
+            layers.Add(FeatureServerMetadataWriter.GroupLayerDocument(
+                group, CapabilitiesFor(context, owning)));
+        }
+
+        foreach (PublishedLayer layer in owning.Layers.OrderBy(l => l.LayerIndex))
+        {
+            (object one, _) = await LayerDocumentAsync(
+                context, layer, contexts, relationships, catalog, settings, projector,
+                cancellation).ConfigureAwait(false);
+
+            layers.Add(one);
+        }
+
+        object document = new
+        {
+            layers = layers.OrderBy(Index).ToArray(),
+            tables = Array.Empty<object>(),
+        };
+
+        if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
+        {
+            await Results.Content(
+                RestDirectory.Document(
+                    context.Request.Path,
+                    $"{owning.Name} - all layers and tables",
+                    document,
+                    [.. owning.Layers
+                        .OrderBy(l => l.LayerIndex)
+                        .Select(l => (
+                            Label: l.Definition.Name,
+                            Href: $"/rest/services/{owning.QualifiedName}/FeatureServer/{l.LayerIndex}"))],
+                    linksLabel: "Layers"),
+                "text/html; charset=utf-8")
+                .ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
+
+        await Results.Ok(document).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>The <c>id</c> of a layer or group document, for ordering one list of both.</summary>
+    /// <remarks>
+    /// <b>Read off the anonymous object rather than tracked beside it.</b> The two writers each
+    /// produce their own shape and both carry <c>id</c>; a parallel list of indices would be a
+    /// second thing to keep in step with a document that already says it.
+    /// </remarks>
+    /// <param name="document">A layer or group document.</param>
+    /// <returns>Its id, or <see cref="int.MaxValue"/> when it has none.</returns>
+    private static int Index(object document) =>
+        document.GetType().GetProperty("id")?.GetValue(document) is int id ? id : int.MaxValue;
+
+    /// <summary>
+    /// The document one feature layer answers with, wherever it is being asked for.
+    /// </summary>
+    /// <remarks>
+    /// <b>Extracted 2026-09-08 because a second route needed it, which is the moment
+    /// [D-46](../../docs/architecture-debt.md) says to stop copying.</b>
+    /// <c>/FeatureServer/{id}</c> built this inline; <c>/FeatureServer/layers</c> has to build
+    /// the same thing for every layer at once, and a copy would have drifted the first time
+    /// either learnt something — the served extent, the symbology, the relationship list are all
+    /// things this has gained since it was written.
+    /// </remarks>
+    /// <param name="context">The request, for the capability evaluation.</param>
+    /// <param name="layer">The layer.</param>
+    /// <param name="contexts">Where its shape comes from.</param>
+    /// <param name="relationships">Its declared relationships.</param>
+    /// <param name="catalog">The catalogue, for the relationship lookup.</param>
+    /// <param name="settings">The server's record ceiling.</param>
+    /// <param name="projector">What moves the extent into the served reference.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>
+    /// The layer document, and the shape it was built from.
+    /// <para>
+    /// <b>Both, because the HTML directory needs the extent and asking twice would be a second
+    /// call for an answer already in hand.</b> <c>ServiceContexts</c> would serve it from memory,
+    /// so the cost is small — but a function that hands back one of the two things it computed
+    /// invites its caller to recompute the other, which is how a cheap call becomes a habit.
+    /// </para>
+    /// </returns>
+    private static async Task<(object Document, LayerDescription Description)> LayerDocumentAsync(
+        HttpContext context,
+        PublishedLayer layer,
+        ServiceContexts contexts,
+        PostgresRelationshipCatalog relationships,
+        CatalogFallback catalog,
+        HostSettings settings,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
+        (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
+            .ConfigureAwait(false);
+
+        // <b>Null is *the platform store could not be asked*, and it is not the same as
+        // none</b> — ADR-026 condition 3. The document is told which, so a client that saved it
+        // can still see that this field was unknown rather than empty when it was written.
+        IEnumerable<object>? declared =
+            await RelationshipsForAsync(layer, relationships, catalog, cancellation)
+                .ConfigureAwait(false);
+
+        // <b>The extent in the reference this service answers in, or nothing.</b> ADR-057 §5c.
+        // `ServedExtent` moves the box rather than relabelling it and answers null when PROJ
+        // cannot put it there — in which case the document reports the table's reference, which
+        // is the one thing it can still prove. D-229 is the row this closes.
+        // <b>A written reference moves the box the same way a code does.</b> `ServedExtent`
+        // takes either since 2026-09-06 — the projector transforms to a definition with the
+        // same `ST_Transform` it uses for a code, so the only difference is which of the two
+        // the service named.
+        Envelope? served = layer.ServedSrid is { } wanted
+            ? await ServedExtent
+                .InAsync(description.Extent, layer.Definition.Srid, wanted, projector, cancellation)
+                .ConfigureAwait(false)
+            : layer.ServedWkt is { Length: > 0 } written
+                ? await ServedExtent
+                    .InAsync(
+                        description.Extent, layer.Definition.Srid, written, projector, cancellation)
+                    .ConfigureAwait(false)
+                : null;
+
+        object document = FeatureServerMetadataWriter.Layer(
+            layer.Definition,
+            layer.GeometryType,
+            description,
+            CapabilitiesFor(context, layer),
+            declared ?? [],
+            layer.LayerIndex,
+            layer.Cost.MaximumRecordCount,
+            settings.MaximumRecordCount,
+
+            // ADR-033 §5a: the stored canonical document, or null for the generated
+            // appearance. The writer decides which; this only carries it.
+            layer.Symbology,
+            relationshipsKnown: declared is not null,
+            servedExtent: served,
+            servedSrid: served is null ? null : layer.ServedSrid,
+            servedWkt: served is null ? null : layer.ServedWkt,
+
+            // <b>The group it is in, which this document did not carry until 2026-09-08.</b>
+            // The service document said so and the layer's own did not, so a client reading one
+            // layer could not tell it was inside a group — ADR-057 condition 5.
+            parentLayerId: layer.ParentIndex);
+
+        return (document, description);
+    }
+
     private static async Task LayerMetadataAsync(
         HttpContext context,
         string serviceName,
@@ -2663,52 +2890,9 @@ public static class Program
             return;
         }
 
-        (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
+        (object document, LayerDescription description) = await LayerDocumentAsync(
+            context, layer, contexts, relationships, catalog, settings, projector, cancellation)
             .ConfigureAwait(false);
-
-        // <b>Null is *the platform store could not be asked*, and it is not the same as
-        // none</b> — ADR-026 condition 3. The document is told which, so a client that saved it
-        // can still see that this field was unknown rather than empty when it was written.
-        IEnumerable<object>? declared =
-            await RelationshipsForAsync(layer, relationships, catalog, cancellation)
-                .ConfigureAwait(false);
-
-        // <b>The extent in the reference this service answers in, or nothing.</b> ADR-057 §5c.
-        // `ServedExtent` moves the box rather than relabelling it and answers null when PROJ
-        // cannot put it there — in which case the document reports the table's reference, which
-        // is the one thing it can still prove. D-229 is the row this closes.
-        // <b>A written reference moves the box the same way a code does.</b> `ServedExtent`
-        // takes either since 2026-09-06 — the projector transforms to a definition with the
-        // same `ST_Transform` it uses for a code, so the only difference is which of the two
-        // the service named.
-        Envelope? served = layer.ServedSrid is { } wanted
-            ? await ServedExtent
-                .InAsync(description.Extent, layer.Definition.Srid, wanted, projector, cancellation)
-                .ConfigureAwait(false)
-            : layer.ServedWkt is { Length: > 0 } written
-                ? await ServedExtent
-                    .InAsync(
-                        description.Extent, layer.Definition.Srid, written, projector, cancellation)
-                    .ConfigureAwait(false)
-                : null;
-
-        object document = FeatureServerMetadataWriter.Layer(
-            layer.Definition,
-            layer.GeometryType,
-            description,
-            CapabilitiesFor(context, layer),
-            declared ?? [],
-            layer.LayerIndex,
-            layer.Cost.MaximumRecordCount,
-            settings.MaximumRecordCount,
-
-            // ADR-033 §5a: the stored canonical document, or null for the generated
-            // appearance. The writer decides which; this only carries it.
-            layer.Symbology,
-            relationshipsKnown: declared is not null,
-            servedExtent: served,
-            servedSrid: served is null ? null : layer.ServedSrid,
-            servedWkt: served is null ? null : layer.ServedWkt);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {

@@ -678,6 +678,9 @@ public static class FeatureServerMetadataWriter
     /// <see langword="false"/> only while the platform store is unreachable — see the remarks
     /// on <see cref="RelationshipsUnknown"/>.
     /// </param>
+    /// <param name="parentLayerId">
+    /// The group this layer sits in, or null for a layer at the top of the service.
+    /// </param>
     public static object Layer(
         LayerDefinition layer,
         GeometryKind geometryType,
@@ -700,7 +703,14 @@ public static class FeatureServerMetadataWriter
         // <b>On the end and optional, like the two before it.</b> Two required parameters added
         // mid-list here broke thirteen call sites in CI on 2026-09-05, and the lesson is the
         // reason this one is where it is.
-        string? servedWkt = null)
+        string? servedWkt = null,
+
+        // <b>The group this layer is in, and it was missing entirely until 2026-09-08.</b> The
+        // *service* document said layer 2 was inside group 1; the layer's own document did not
+        // carry the key at all, so a client that read a layer directly could not tell it was in
+        // a group. Found by ADR-057 condition 5 — pointing Esri's JavaScript API at a grouped
+        // service — and on the end for the reason the two above give.
+        int? parentLayerId = null)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
@@ -717,6 +727,17 @@ public static class FeatureServerMetadataWriter
             description = string.Empty,
             geometryType = ArcGisGeometryWriter.TypeName(geometryType),
             copyrightText = string.Empty,
+
+            // <b>-1 for a layer at the top, which is what the specification means by no
+            // parent</b> — the same spelling `Service()` and `GroupLayerDocument()` already use
+            // for a group at the top. Null would be a third way of saying it, in a document that
+            // already has two readers.
+            parentLayerId = parentLayerId ?? -1,
+
+            // <b>Always null, and emitted rather than omitted.</b> A feature layer has no
+            // children; a client that reads the key and finds nothing learns that, and one that
+            // does not find the key at all has to guess whether this server forgot.
+            subLayerIds = (int[]?)null,
 
             // Null when the layer has no integer identity. ADR-013 §2a: such a
             // layer is refused by the query endpoint, and a client reading this
