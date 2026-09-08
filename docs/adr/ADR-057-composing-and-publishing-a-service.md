@@ -156,7 +156,7 @@ different decision.
 
 **Empty is still a real choice and not a missing answer** — the service then serves every layer
 in whatever its own table holds, and `service.srid` is null. Whether that choice is reachable by
-anything other than clearing the box is [Q-147](../open-questions.md), open.
+anything other than clearing the box is [Q-148](../open-questions.md), open.
 
 ### 5d. A folder is chosen or created by naming it
 
@@ -564,7 +564,7 @@ up. Both tell a reader — a person, a screen reader, a maintainer — that some
 the name for it is present.
 
 **Two of the findings are the owner's to answer and are not taken here**, as
-[Q-146](../open-questions.md) and [Q-147](../open-questions.md): whether a new composition should
+[Q-146](../open-questions.md) and [Q-148](../open-questions.md): whether a new composition should
 start in EPSG:3857, as it does, or start empty and serve each layer in its own until somebody
 chooses; and whether the properties dialog needs a one-press way back to that unset state, which
 the symbol dialog has an equivalent of and this does not. The first is a real behaviour: today an
@@ -639,15 +639,27 @@ typing — the same rule that tells the two apart everywhere else on this screen
    for a request while somebody types; whether that is one query or a listing walked in the
    browser decides whether the screen is usable on a full server, and nobody has looked.
 
-   **PARTLY DISCHARGED 2026-09-08, and the two halves are worth separating because this
-   condition ran them together.** *Which implementation it is* is settled: `FindServiceAtAsync`
-   is a single lookup on the expression `service_name_in_folder_ci` is built on, and the console
-   debounces at 250 ms and drops superseded answers, so a keystroke costs one indexed read and
-   never a catalogue walk. *Whether it is fast enough* is not settled and nobody has still
-   looked — a thousand services in one folder is the case where an index lookup and a sequential
-   scan stop being indistinguishable, and 250 ms is a number chosen for feel exactly as the
-   preview's ceiling in condition 6 was. What remains is the measurement, on the
-   implementation that now exists rather than on a choice between two.
+   ***(Discharged 2026-09-08 — measured, and it was written `PARTLY DISCHARGED` for the hour
+   between building the check and running the benchmark.)*** *Which implementation it is* is
+   settled: `FindServiceAtAsync` is a single lookup on the expression
+   `service_name_in_folder_ci` is built on, so a keystroke costs one indexed read and never a
+   catalogue walk. *Whether it is fast enough* is now measured
+   ([benchmarks/publish-scale](../../benchmarks/publish-scale/RESULTS.md)): forty checks against
+   a folder of **3** services and forty against the same folder holding **1,000**, and the size
+   does not move it — **5.7 ms** median on the full folder against 15.1 ms on the empty one,
+   which is the empty run paying for a cold pool rather than the index doing something clever.
+
+   **The p95 is ~17–18 ms in all four sets while three of four medians are under 8**, which is
+   bimodal and is not the query: an index lookup does not have two speeds. It is the same in an
+   empty folder as a full one, so it belongs to the harness — TLS or a GC pause — and is left
+   un-chased because 18 ms is inside a keystroke either way. Written down rather than smoothed
+   out, because a benchmark that reports only the number it went looking for is one nobody can
+   re-read later.
+
+   **And it moved the reason for the 250 ms debounce without moving the number.** At 6 ms a
+   check the debounce is not protecting the server from cost; it is protecting the operator from
+   a sentence that changes under their fingers. That is still a reason, and it is a different one
+   from the one it was written with.
 2. **The faces become flags, or the two undrawable switches come off the screen.** MapServer
    and OGC are drawn as choices and are not choices yet. Either the catalogue gains the two
    columns or the screen stops offering what it cannot deliver, and shipping it in between is
@@ -668,6 +680,20 @@ typing — the same rule that tells the two apart everywhere else on this screen
    writes the service, its groups and its layers in one transaction, and every composition
    anybody has published so far has held three things. A service assembled from a whole
    database is the case where one long transaction stops being free, and nobody has looked.
+   ***(Discharged 2026-09-08 — measured.)*** A single `POST /admin/publish` naming **1,000
+   layers** over a thousand tables answered **201 in 0.68 s**
+   ([benchmarks/publish-scale](../../benchmarks/publish-scale/RESULTS.md)). The tables were
+   empty on purpose: this is the catalogue transaction, which is what the condition asks about.
+
+   **The transaction is the cheap part of publishing, and the round trip is not.** Inside it a
+   row costs ≈0.7 ms; the same thousand layers published one service at a time cost 25 ms each.
+   *One long transaction stops being free* turns out to be the wrong worry by a factor of
+   thirty-five — the worry that survives is anything that publishes one at a time.
+
+   **One number nobody was looking for.** Deleting those services cost 58 ms each against 25 ms
+   to create, because the delete path walks group indices and unpublishes layer by layer where
+   publishing writes them in one statement. Recorded so the next person timing a bulk teardown
+   does not think they have found a fault.
 4. **`POST /admin/featureservices` requires layers, and the drawer's *Create empty service*
    comes off the screen.** 5h decides this and cannot be applied yet: that endpoint is the only
    way to make a service until the Publish path exists. The condition is here so the sequence
@@ -706,6 +732,38 @@ typing — the same rule that tells the two apart everywhere else on this screen
    or what forty layers cost at once. **Until it is measured the screen is fast on a fixture and
    unproven on an estate**, which is exactly the shape §60 warns about from the other direction.
 
+
+   ***(Discharged 2026-09-08 — measured, and the measurement changed what the number is a
+   bound on.)*** A generated corpus crossing row count with vertex count, drawn through the real
+   endpoint at a fixed frame ([benchmarks/publish-scale](../../benchmarks/publish-scale/RESULTS.md)).
+
+   **The condition asked whether the answer is rows or vertices. It is vertices.** Holding rows
+   fixed and going from 5 vertices to 500 multiplies the time by **ten**, at every row count.
+   Holding vertices fixed and going from 250 rows to 4,000 multiplies it by two at 5 vertices.
+   **4,000 simple polygons draw in 61 ms; 1,000 complex ones take 291 ms.** The ceiling is on
+   the cheaper variable.
+
+   **And it bounds what is returned, not what is read.** A 16,000-row table capped to 4,000
+   drawn still costs **1,113 ms** at 500 vertices, against 716 ms for a 4,000-row table drawn
+   whole — the `LIMIT` does not stop PostGIS reading and simplifying the candidates. The
+   ten-fold difference is spent in the database: the response is 21–22 KB either way, because
+   simplification to one pixel happens there.
+
+   **A composition of a database is linear, at about 7 ms a layer.** One layer 40 ms, fifty
+   layers 397 ms, on simple data — the right order of magnitude for a screen that redraws on pan.
+
+   **The number stays at 4,000, and now it has a criterion.** The ceiling exists to stop a
+   *large* layer making the preview unusable, and on that shape it is measured to work: 8,000
+   and 16,000 rows cost what 4,000 costs. Lowering it would buy nothing on the case that is
+   actually slow — 1,000 dense rows already take 291 ms — and would make the drawing a sample
+   far more often, trading a picture the operator can trust for a problem it does not fix.
+   **That choice is mine rather than the owner's**, and it is written out so it can be
+   overturned; what is no longer available is defending 4,000 by feel.
+
+   **What is left is not this condition.** A single dense layer costs a second and fifty would
+   cost a minute, and no per-layer row ceiling reaches that. Whether a preview should bound
+   vertices rather than rows — and how, since a `LIMIT` cannot express it — is
+   [Q-148](../open-questions.md).
 7. **A preview that samples says so on the screen.** Where the ceiling bites, the drawing is
    part of the layer and looks like all of it — and an operator deciding what to publish from a
    picture that silently omits half the features is being misled by the thing built to inform

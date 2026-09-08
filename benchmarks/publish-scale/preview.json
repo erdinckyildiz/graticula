@@ -1,0 +1,195 @@
+{
+  "url": "https://127.0.0.1:8451",
+  "at": "2026-09-08T20:19:04",
+  "bbox": "3650000,4855000,3675000,4880000",
+  "size": "900,620",
+  "repeats": 7,
+  "rows": {
+    "250x5": {
+      "median_ms": 30.8,
+      "min_ms": 26.9,
+      "max_ms": 39.5,
+      "bytes": 4665,
+      "sampled": null,
+      "ceiling": "4000"
+    },
+    "250x50": {
+      "median_ms": 42.1,
+      "min_ms": 40.9,
+      "max_ms": 43.2,
+      "bytes": 4136,
+      "sampled": null,
+      "ceiling": "4000"
+    },
+    "250x500": {
+      "median_ms": 98.8,
+      "min_ms": 90.5,
+      "max_ms": 101.1,
+      "bytes": 4081,
+      "sampled": null,
+      "ceiling": "4000"
+    },
+    "1000x5": {
+      "median_ms": 44.9,
+      "min_ms": 41.0,
+      "max_ms": 49.1,
+      "bytes": 7544,
+      "sampled": null,
+      "ceiling": "4000"
+    },
+    "1000x50": {
+      "median_ms": 67.0,
+      "min_ms": 54.7,
+      "max_ms": 75.9,
+      "bytes": 6954,
+      "sampled": null,
+      "ceiling": "4000"
+    },
+    "1000x500": {
+      "median_ms": 290.9,
+      "min_ms": 268.0,
+      "max_ms": 299.1,
+      "bytes": 6752,
+      "sampled": null,
+      "ceiling": "4000"
+    },
+    "2000x5": {
+      "median_ms": 46.0,
+      "min_ms": 45.2,
+      "max_ms": 47.5,
+      "bytes": 12497,
+      "sampled": null,
+      "ceiling": "4000"
+    },
+    "2000x50": {
+      "median_ms": 97.9,
+      "min_ms": 86.0,
+      "max_ms": 101.4,
+      "bytes": 12066,
+      "sampled": null,
+      "ceiling": "4000"
+    },
+    "2000x500": {
+      "median_ms": 439.2,
+      "min_ms": 407.5,
+      "max_ms": 442.8,
+      "bytes": 11913,
+      "sampled": null,
+      "ceiling": "4000"
+    },
+    "4000x5": {
+      "median_ms": 61.1,
+      "min_ms": 54.7,
+      "max_ms": 69.9,
+      "bytes": 22051,
+      "sampled": "L0",
+      "ceiling": "4000"
+    },
+    "4000x50": {
+      "median_ms": 163.3,
+      "min_ms": 153.3,
+      "max_ms": 179.4,
+      "bytes": 21664,
+      "sampled": "L0",
+      "ceiling": "4000"
+    },
+    "4000x500": {
+      "median_ms": 715.7,
+      "min_ms": 698.2,
+      "max_ms": 745.4,
+      "bytes": 21373,
+      "sampled": "L0",
+      "ceiling": "4000"
+    },
+    "8000x5": {
+      "median_ms": 54.1,
+      "min_ms": 50.2,
+      "max_ms": 64.1,
+      "bytes": 22051,
+      "sampled": "L0",
+      "ceiling": "4000"
+    },
+    "8000x50": {
+      "median_ms": 160.2,
+      "min_ms": 156.4,
+      "max_ms": 177.1,
+      "bytes": 21664,
+      "sampled": "L0",
+      "ceiling": "4000"
+    },
+    "8000x500": {
+      "median_ms": 755.5,
+      "min_ms": 698.2,
+      "max_ms": 785.9,
+      "bytes": 21373,
+      "sampled": "L0",
+      "ceiling": "4000"
+    },
+    "16000x5": {
+      "median_ms": 52.5,
+      "min_ms": 50.2,
+      "max_ms": 64.4,
+      "bytes": 22051,
+      "sampled": "L0",
+      "ceiling": "4000"
+    },
+    "16000x50": {
+      "median_ms": 171.2,
+      "min_ms": 161.0,
+      "max_ms": 172.7,
+      "bytes": 21664,
+      "sampled": "L0",
+      "ceiling": "4000"
+    },
+    "16000x500": {
+      "median_ms": 1112.9,
+      "min_ms": 1092.9,
+      "max_ms": 1148.1,
+      "bytes": 21373,
+      "sampled": "L0",
+      "ceiling": "4000"
+    }
+  },
+  "layers": {
+    "1": {
+      "median_ms": 40.0,
+      "min_ms": 30.0,
+      "max_ms": 43.6,
+      "bytes": 7544,
+      "sampled": null,
+      "ceiling": "4000"
+    },
+    "5": {
+      "median_ms": 66.7,
+      "min_ms": 57.4,
+      "max_ms": 71.0,
+      "bytes": 8448,
+      "sampled": null,
+      "ceiling": "4000"
+    },
+    "10": {
+      "median_ms": 105.5,
+      "min_ms": 92.2,
+      "max_ms": 110.7,
+      "bytes": 8242,
+      "sampled": null,
+      "ceiling": "4000"
+    },
+    "25": {
+      "median_ms": 205.3,
+      "min_ms": 196.1,
+      "max_ms": 210.0,
+      "bytes": 8221,
+      "sampled": null,
+      "ceiling": "4000"
+    },
+    "50": {
+      "median_ms": 397.0,
+      "min_ms": 375.4,
+      "max_ms": 425.4,
+      "bytes": 8199,
+      "sampled": null,
+      "ceiling": "4000"
+    }
+  }
+}

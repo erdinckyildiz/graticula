@@ -1,0 +1,46 @@
+{
+  "url": "https://127.0.0.1:8451",
+  "at": "2026-09-08T20:15:20",
+  "empty_folder": {
+    "free": {
+      "n": 40,
+      "min": 4.424,
+      "median": 15.056,
+      "p95": 17.285,
+      "max": 17.946
+    },
+    "taken": {
+      "n": 40,
+      "min": 4.49,
+      "median": 6.696,
+      "p95": 17.225,
+      "max": 18.43
+    }
+  },
+  "services": {
+    "count": 1000,
+    "seconds": 25.45
+  },
+  "full_folder": {
+    "free": {
+      "n": 40,
+      "min": 4.577,
+      "median": 5.713,
+      "p95": 17.612,
+      "max": 18.219
+    },
+    "taken": {
+      "n": 40,
+      "min": 5.484,
+      "median": 7.458,
+      "p95": 17.381,
+      "max": 18.168
+    }
+  },
+  "composition": {
+    "layers": 1000,
+    "seconds": 0.679,
+    "status": 201
+  },
+  "torn_down_seconds": 58.43
+}
