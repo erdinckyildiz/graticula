@@ -143,9 +143,15 @@ a geometry column, and `Graticula.Providers.PostGis` is the only provider. **v1 
 PostGIS only** ([v1-scope.md](v1-scope.md) §3a) — a deferral rather than a removal,
 with the other databases added afterwards by owner decision.
 
-**So this candidate is currently unspent.** The abstraction that forfeits the
-thin-server dividend exists — `IFeatureSource`, `ITileSource`, `ICoverageReader` — and
-the second implementation that would justify it does not. [ADR-008](adr/ADR-008-query-engine.md)
+**So this candidate is mostly unspent, and *mostly* is the accurate word.** The
+abstraction that forfeits the thin-server dividend exists — `IFeatureSource`,
+`ITileSource`, `ICoverageReader` — and on the **vector** side, which is what Q-18 is
+about, the second implementation that would justify it does not. On the raster side it
+does: `TiffCoverageReaderFactory` implements `ICoverageReaderFactory` and reads a format
+PostGIS does not hold at all, which is a genuine second provider and is why
+[ADR-043](adr/ADR-043-imageserver-and-the-raster-face.md) exists. **That does not rescue
+the vector case**, because the thin-server dividend is a *vector* dividend: pg_tileserv's
+four deletions are all about tables in a database. [ADR-008](adr/ADR-008-query-engine.md)
 §4a-i already records the cost of that: `FeatureQuery.Where` carries ready-made SQL
 text into the domain model, which §4.1 forbids *precisely so that a non-database
 provider stays possible*, and it was recorded rather than repaired on the grounds that
@@ -302,8 +308,16 @@ The ledger is not one-directional, and these are the entries that matter most fo
 because each is a subsystem this project **did not build**.
 
 - **`ST_AsMVT` is the encoding path**, not our own encoder —
-  [ADR-021](adr/ADR-021-tile-encoding.md), after four benchmark rounds. That is
-  research §4.4 taken exactly as written, and it deleted a subsystem from this design.
+  [ADR-021](adr/ADR-021-tile-encoding.md), after four benchmark rounds
+  (`benchmarks/mvt-generation/`). That is research §4.4 taken, **and taken further than it
+  asked**: §4.4 wanted `ST_AsMVT` as the default *"with our own encoder as the fallback for
+  providers that cannot"*, and **there is no encoder in `src/` at all** — no class matching
+  `MvtEncoder`, `VectorTileEncoder` or `EncodeTile`. v1 has no provider that cannot, so the
+  fallback would be code written for a caller that does not exist, which is §82's question
+  answered in the only honest direction. It comes back with the second provider, and the
+  measured design for it is in the experiment rather than in the product — the rule
+  [CLAUDE.md](../CLAUDE.md) §1 states as *an experiment becomes a specification with a measured
+  target attached*.
 - **Arbitrary SQL is publishable, through the database's own view mechanism.**
   Research §4.3 asks for *function layers*. None were built — and one is not needed for
   the unparameterised case, because `PostgresDataSourceProbe` accepts `relkind in ('r',
