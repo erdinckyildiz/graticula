@@ -351,13 +351,45 @@ no library type crosses a boundary.
    what happens without it: 30.30 s against 0.296 s. A test that holds a read open
    and asks for a column, and gets a refusal rather than a stall, is what makes
    this real.
+   ***(Discharged 2026-09-08.)*** `AlterUnderLockTests` makes a hosted table through
+   the importer, holds a `select` open in a transaction — `ACCESS SHARE`, which is
+   what an ordinary unfinished request takes — and asks for a column. The change is
+   refused with **55P03** in about **2 s**, and the same request succeeds once the
+   reader rolls back.
+
+   **The clock is asserted beside the code, and that is the point of the test rather
+   than a detail of it.** The right `SqlState` arriving after thirty seconds would be
+   D-08 wearing a better error code; the bound is loose — ten seconds against a
+   two-second timeout — because what is being ruled out is *waiting for the statement
+   timeout*, not a tight claim about scheduling on a loaded machine.
+
+   **It lives in `Graticula.Platform.Postgres.Tests` rather than in the conformance
+   suite**, which talks HTTP and references none of our assemblies on purpose. Holding
+   a lock needs a second connection, so the test is at the level that has one, and the
+   endpoint's translation of 55P03 into a 409 is a visible two-line mapping above it.
 2. **The dependency list is enforced by something that fails when it is
    incomplete.** §5c lists three holders — it listed four until one of them turned
-   out not to exist — and §6 says the fourth real one will not add itself.
-   Either a test enumerates every place this server reads a column by name and
-   asserts each is covered, or the list is a comment that will be wrong within a
-   month. **Until that exists, this ADR's confidence on the dependency list stays
-   `MEDIUM` for exactly this reason.**
+   out not to exist — and §6 says the fourth real one will not add itself. Either a
+   test enumerates every place this server reads a column by name and asserts each
+   is covered, or the list is a comment that will be wrong within a month. **Until
+   that exists, this ADR's confidence on the dependency list stays `MEDIUM` for
+   exactly this reason.**
+   ***(PARTLY DISCHARGED 2026-09-08, and the half that is not covered is named rather
+   than glossed.)*** `EveryColumnNameIsGuardedTests` reads the two types that describe
+   a published layer, takes every property whose name ends in `Column` or `Field` —
+   which is the whole class of *this holds the name of a column* — and asserts each is
+   named in `HoldingOn`. Adding a fifth without touching the guard fails the build.
+
+   **Verified by breaking it**, because a test that cannot fail proves nothing: with
+   the time-field branch removed the suite reports *a published layer stores the name
+   of a column in TimeField, and HoldingOn does not mention it*. A second assertion
+   checks the guard still exists at all, so a rename cannot turn this into a
+   comparison against an empty string that passes forever.
+
+   **What it does not cover is a column name that never becomes a property** — inside
+   the symbology document, which the guard handles by compiling it rather than by
+   reading a field. That half is still judgement, and the confidence stays `MEDIUM`
+   because of it rather than because nothing was built.
 3. **The screen goes through the ux-designer before it ships**, which is the
    owner's standing instruction and the same condition
    [ADR-038](ADR-038-how-a-geodatabase-becomes-a-service.md) carries.
@@ -371,6 +403,11 @@ no library type crosses a boundary.
 4. **A hosted layer altered behind our back is still noticed**, tested rather than
    reasoned. §5a rests on the drift path continuing to work for hosted tables, and
    the temptation once *we* own the schema is to stop asking.
+   ***(Discharged 2026-09-08.)*** `ServiceContextsTests` gains the same expiry
+   assertion the registered case has, on a layer whose definition says hosted. Nothing
+   in that class reads `IsHosted` today, which is exactly why the test is worth having:
+   the shortcut this guards against would be a branch that never fires for a registered
+   layer, so no existing test would notice it appearing.
 
 ## 8. Assumptions this decision rests on
 

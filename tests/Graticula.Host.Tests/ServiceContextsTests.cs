@@ -70,6 +70,43 @@ public sealed class ServiceContextsTests
         Assert.Equal(2, counts.Describes);
     }
 
+    /// <summary>
+    /// A hosted layer is re-read too, and that is a rule rather than a side effect.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-058](../../docs/adr/ADR-058-the-datastore-schema-is-edited-from-the-screen.md)
+    /// condition 4.</b> That decision makes the datastore's schema this server's responsibility —
+    /// nobody connects to it to change a column, every change comes from the screen — and the
+    /// temptation once *we* own the schema is to stop asking. The instruction assigns
+    /// responsibility; it does not remove the credentials, and the drift path is what keeps a
+    /// change made behind our back to thirty seconds rather than forever.
+    /// </para>
+    /// <para>
+    /// <b>The same assertion as the test above, on a hosted layer</b>, because the shortcut this
+    /// guards against would be a branch that never fires for a registered one. Nothing in
+    /// <c>ServiceContexts</c> reads <c>IsHosted</c> today, and this is what makes adding such a
+    /// read a failing test instead of a quiet optimisation.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_hosted_shape_is_forgotten_on_the_same_schedule_as_any_other()
+    {
+        (ServiceContexts contexts, CountingConnections counts, FakeTimeProvider clock) = BuildWithClock();
+        PublishedLayer layer = Layer("survey", "hosted", "survey_a1b2c3d4", hosted: true);
+
+        await contexts.GetAsync(layer, CancellationToken.None);
+        clock.Advance(ServiceContexts.Lifetime + TimeSpan.FromSeconds(1));
+        await contexts.GetAsync(layer, CancellationToken.None);
+
+        Assert.True(
+            counts.Describes == 2,
+            "A hosted layer's shape was not re-read after its lifetime. ADR-058 §5a rests on the "
+            + "drift path staying on for the datastore: our screen being the supported way to "
+            + "change a column is a rule about people, and anybody holding the datastore's "
+            + "credentials can still run DDL.");
+    }
+
     [Fact]
     public async Task A_shape_is_still_trusted_one_tick_before_it_expires()
     {
@@ -416,10 +453,15 @@ public sealed class ServiceContextsTests
         string table,
         string connection = "Host=one",
         SharingScope sharing = SharingScope.Organization,
-        ServiceStatus status = ServiceStatus.Started) =>
+        ServiceStatus status = ServiceStatus.Started,
+
+        // <b>On the end and optional, so every caller above still reads the same.</b> One test
+        // needs a hosted layer — ADR-058 condition 4 — and the rest are about a rule that does
+        // not depend on where the table lives.
+        bool hosted = false) =>
         new(
             Guid.NewGuid(),
-            new LayerDefinition(name, schema, table, "geom", 3857, "id", "objectid", false),
+            new LayerDefinition(name, schema, table, "geom", 3857, "id", "objectid", hosted),
             "source",
             connection,
             GeometryKind.Polygon,
