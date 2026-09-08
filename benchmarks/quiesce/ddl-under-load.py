@@ -98,18 +98,24 @@ def alter(container, table, column, seconds=10):
 class Load:
     """Readers against one layer, until told to stop."""
 
-    def __init__(self, server, layer, threads):
+    def __init__(self, server, layer, threads, page):
         self.server = server
         self.layer = layer
         self.threads = threads
+        self.page = page
         self.stop = threading.Event()
         self.answers = {"ok": 0, "refused": 0}
         self._lock = threading.Lock()
         self._workers = []
 
     def _read(self):
+        # <b>The largest page the model allows, and the first run is why.</b> Eight threads
+        # against a small fixture layer produced 1,612 queries and blocked nothing: each held
+        # `ACCESS SHARE` for milliseconds, so the DDL slotted into a gap immediately. The case
+        # quiesce exists for is a *long* read -- D-08's 30.30 s was a full-extent render over a
+        # million rows -- so the load has to be one.
         path = (f"/rest/services/{self.layer}/FeatureServer/0/query"
-                "?where=1%3D1&outFields=*&resultRecordCount=1000&f=json")
+                f"?where=1%3D1&outFields=*&resultRecordCount={self.page}&f=json")
 
         while not self.stop.is_set():
             status, _ = self.server.call("GET", path)
@@ -144,6 +150,7 @@ def main():
     parser.add_argument("--table", required=True, help="schema.table the layer reads")
     parser.add_argument("--source", required=True, help="the data source id to quiesce")
     parser.add_argument("--threads", type=int, default=8)
+    parser.add_argument("--page", type=int, default=50000)
     parser.add_argument("--out", default="benchmarks/quiesce/measured.json")
 
     options = parser.parse_args()
@@ -156,13 +163,13 @@ def main():
     measured["idle"] = alter(options.container, options.table, "zzz_q_idle")
     print("idle:", measured["idle"])
 
-    with Load(server, options.layer, options.threads) as load:
+    with Load(server, options.layer, options.threads, options.page) as load:
         measured["under_load"] = alter(options.container, options.table, "zzz_q_load")
         measured["under_load"]["requests"] = dict(load.answers)
 
     print("under load:", measured["under_load"])
 
-    with Load(server, options.layer, options.threads) as load:
+    with Load(server, options.layer, options.threads, options.page) as load:
         status, said = server.call(
             "POST", f"/admin/datasources/{options.source}/quiesce",
             {"seconds": 60, "why": "a quiesce benchmark"})

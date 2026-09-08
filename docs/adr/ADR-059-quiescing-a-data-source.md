@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `HIGH` for the refusal and the deadline · `MEDIUM` for the window's length |
+| **Confidence** | `HIGH` for the refusal and the deadline · `MEDIUM` for the window's length · **`LOW` for the premise** — see §1, measured 2026-09-08 |
 | **Decided** | 2026-09-08 |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -36,11 +36,42 @@ obligation with every review column blank, and
 [ADR-058](ADR-058-the-datastore-schema-is-edited-from-the-screen.md) §6 names it
 again as the thing that decision does not touch.
 
-**What its absence costs, exactly.** A DBA who wants to alter a registered table
+~~**What its absence costs, exactly.** A DBA who wants to alter a registered table
 has three options today: run the DDL and hope no request is mid-read; run it with
 a `lock_timeout` and retry until one lands in a gap; or stop the server. The
 first is the one they take, and it is the one that stalls the table for the
-statement timeout.
+statement timeout.~~
+
+**Measured 2026-09-08, and the premise did not survive it —
+[benchmarks/quiesce](../../benchmarks/quiesce/RESULTS.md).** *Hope no request is
+mid-read* turns out to be a race the DBA wins essentially every time:
+
+| The DDL arrives while… | `ALTER TABLE` |
+|---|---|
+| eight threads query a small layer continuously | **0.394 s**, got the lock |
+| eight threads page 50,000 features from a 200,000-polygon layer | **0.526 s**, got the lock |
+| a throttled client is still streaming a 50,000-feature response | **0.27 s**, got the lock |
+
+**And [Q-37](../open-questions.md) had already explained why, on 2026-08-26.** The
+rows are read out of PostgreSQL before the first byte reaches the client, so the
+backend is `idle` while the response streams: a slow client holds our memory and
+our permit, not the table's lock. Nothing this server issues through any face
+holds `ACCESS SHARE` long enough to matter, which
+[benchmarks/statement-timeout](../../benchmarks/statement-timeout/RESULTS.md)
+reached from the other direction — the most expensive statement over a million
+rows is a full-extent render at 330 ms.
+
+**So §4.8's discipline works, and this decision is insurance rather than a
+repair.** What survives as its value is narrower and worth stating plainly: an
+operator can **guarantee** a clear window rather than rely on one, and can show a
+DBA an empty `pg_stat_activity` rather than ask them to trust it.
+
+**The case it is genuinely for has not been built.** RLS delegation (A-036, §4.8)
+runs inside an explicit transaction holding `ACCESS SHARE` for the whole stream —
+a reader that *does* block DDL for as long as a slow client takes. Every
+measurement above failed to produce that shape because this server does not do it
+yet. When it does, quiesce stops being insurance, and that is why this ADR is not
+withdrawn on the strength of the numbers above.
 
 ## 2. Alternatives considered
 
@@ -281,11 +312,18 @@ whose §6 names quiesce as the thing it does not touch.
    `lock_timeout`). That answers *what blocks* and it corrected this decision's
    own account of why quiesce works.
 
-   **What is still owed is the end-to-end run**: a service under load, a source
-   quiesced, an `ALTER TABLE` timed against the same statement issued without
-   quiescing. The conformance suite asserts what a client sees — the refusal, its
-   sentence, its `Retry-After`, and the source answering again — and that is not
-   the same as showing the DBA got their lock.
+   ***(Discharged 2026-09-08, and it answered a different question from the one it
+   asked.)*** The end-to-end run is in
+   [benchmarks/quiesce](../../benchmarks/quiesce/RESULTS.md): the DDL was timed
+   idle, under concurrent load, under a 50,000-feature page, and under a throttled
+   client still streaming. **It got its lock in every case, in under 0.6 s, quiesced
+   or not.**
+
+   **So the condition's own sentence — *this is a feature that refuses requests and
+   may still not free the lock* — is answered in the most awkward available way:
+   there was no lock to free.** §1 now carries that, and the confidence on the
+   premise is `LOW` because of it. The mechanism is sound and the problem is
+   smaller than the decision claimed.
 2. **The node-local limit is tested rather than only written down.** §4 says a
    second worker holds its own connections; a test that quiesces one and shows
    the other still serving is what stops that becoming a surprise in a

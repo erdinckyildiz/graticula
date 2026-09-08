@@ -1,0 +1,27 @@
+{
+  "at": "2026-09-08T22:18:48",
+  "threads": 8,
+  "idle": {
+    "seconds": 0.272,
+    "got_the_lock": true,
+    "said": "ALTER TABLE"
+  },
+  "under_load": {
+    "seconds": 0.526,
+    "got_the_lock": true,
+    "said": "ALTER TABLE",
+    "requests": {
+      "ok": 8,
+      "refused": 0
+    }
+  },
+  "quiesced": {
+    "seconds": 0.369,
+    "got_the_lock": true,
+    "said": "ALTER TABLE",
+    "requests": {
+      "ok": 8,
+      "refused": 1684
+    }
+  }
+}
