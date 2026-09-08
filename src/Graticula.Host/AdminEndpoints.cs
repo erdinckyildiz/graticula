@@ -7752,6 +7752,16 @@ internal static class AdminEndpoints
                 // having it.
                 l.Hosted,
 
+                // <b>Whether its schema may be edited — ADR-058, and it is not the same as
+                // hosted.</b> A datastore source can serve a schema this server did not create,
+                // and the field endpoints refuse that; the console needs the server's answer
+                // rather than its own guess, or it draws an Add field button that always fails.
+                alterable = HostedDataEndpoints.AlterableSchema(
+                    l.Hosted,
+                    l.Qualified.Contains('.', StringComparison.Ordinal)
+                        ? l.Qualified[..l.Qualified.IndexOf('.', StringComparison.Ordinal)]
+                        : null),
+
                 // <b>Where it is, which ADR-020 §2 asked for and this listing did not give.</b>
                 // A caller that has to work out a layer's URL from its name walks the services
                 // directory, and a stopped service is absent from that walk — see AdminLayer's

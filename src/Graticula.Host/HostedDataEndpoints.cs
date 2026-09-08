@@ -1870,10 +1870,7 @@ internal static class HostedDataEndpoints
           it there, and altering it because a catalogue row pointed at it is the one thing that
           class must never do.
         */
-        if (!string.Equals(
-                found.Definition.SchemaName,
-                PostGisImporter.HostedSchema,
-                StringComparison.Ordinal))
+        if (!AlterableSchema(true, found.Definition.SchemaName))
         {
             await Fail(
                 context, 409,
@@ -1989,6 +1986,29 @@ internal static class HostedDataEndpoints
         // listing already reads, so there is nothing new to store.
         await catalog.TouchServiceAsync(layer.ServiceName, cancellation).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Whether this server may alter a layer's table, which is two facts and not one.
+    /// </summary>
+    /// <param name="hosted">Whether the layer's source is the datastore.</param>
+    /// <param name="schema">The schema its table is in.</param>
+    /// <returns>Whether the field endpoints will accept it.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Written once because it is asked in two places, and conflating the two facts cost a
+    /// 500.</b> <c>Hosted</c> says the *source* is the datastore; it says nothing about the
+    /// schema, and a datastore source can serve any schema of that database. Only what this
+    /// server created — the <c>hosted</c> schema — is its to alter.
+    /// </para>
+    /// <para>
+    /// <b>The listing needs the same answer the endpoint gives</b>, so the console can leave the
+    /// control off a layer that would be refused rather than drawing one that always fails —
+    /// [ADR-034](../../docs/adr/ADR-034-server-and-studio.md). Two expressions of one rule is how
+    /// the screen comes to offer what the server declines.
+    /// </para>
+    /// </remarks>
+    internal static bool AlterableSchema(bool hosted, string? schema) =>
+        hosted && string.Equals(schema, PostGisImporter.HostedSchema, StringComparison.Ordinal);
 
     /// <summary>One audited act, in the shape this file already writes them.</summary>
     /// <param name="context">The request, for the caller's address.</param>

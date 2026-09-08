@@ -361,6 +361,13 @@ no library type crosses a boundary.
 3. **The screen goes through the ux-designer before it ships**, which is the
    owner's standing instruction and the same condition
    [ADR-038](ADR-038-how-a-geodatabase-becomes-a-service.md) carries.
+
+   **Not yet done for this one.** The Fields view gained an *Add field* row and a Delete per
+   droppable column on 2026-09-08, and the review that ran that day was of the Publish screen.
+   What it found there is worth reading before this one is drawn any further: the whole Databases
+   pane was unreachable by keyboard, and a paragraph that answers asynchronously had no live
+   region. Both are shapes this screen has too — a table of rows with buttons in them, and a hint
+   that changes after a request.
 4. **A hosted layer altered behind our back is still noticed**, tested rather than
    reasoned. §5a rests on the drift path continuing to work for hosted tables, and
    the temptation once *we* own the schema is to stop asking.

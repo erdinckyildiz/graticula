@@ -3796,6 +3796,158 @@ function drawServiceData() {
   else $("dataRows").innerHTML = "";
 }
 
+
+/**
+ * Whether this server will alter the table behind the layer the Data tab is showing.
+ *
+ * <b>Asked, not guessed — ADR-058 §5h.</b> Hosted is not the same as *this server created the
+ * table*: a datastore source can serve a schema somebody else made, and the field endpoints
+ * refuse that. The listing computes the answer with the same predicate the endpoint enforces, so
+ * a control is drawn only where it will work — [ADR-034](../../docs/adr/ADR-034-server-and-studio.md).
+ *
+ * @param {string} index the layer's index within the open service
+ * @returns {Promise<boolean>} whether the field controls belong on this layer
+ */
+async function dataAlterable(index) {
+  if (!serviceOpen) return false;
+
+  const listing = await api("/admin/layers").catch(() => null);
+  if (!listing) return false;
+
+  const wanted = String(index);
+
+  // <b>Matched on the service and the index, not on the name.</b> Two layers of one name in two
+  // services is ordinary here, and the Data tab is showing one of them.
+  return (listing.layers || []).some(l =>
+    String(l.layerIndex) === wanted
+    && String(l.service || "") === String(serviceOpen.name || "")
+    && l.alterable === true);
+}
+
+/**
+ * Whether a field may be offered a Delete button at all.
+ *
+ * <b>ADR-058 §5d: the system columns are not fields.</b> They are refused by the server with a
+ * sentence, and a button that is always refused is a control for an act that does not exist. The
+ * geometry never reaches this list; the object id and the editor-tracking columns do.
+ *
+ * @param {object} field one entry of the layer document's `fields`
+ * @returns {boolean} whether to draw the button
+ */
+function dataDroppable(field) {
+  const type = String(field.type || "");
+  const name = String(field.name || "").toLowerCase();
+
+  if (type === "esriFieldTypeOID" || type === "esriFieldTypeGeometry") return false;
+  if (type === "esriFieldTypeGlobalID") return false;
+
+  return name !== "objectid";
+}
+
+/**
+ * Adds a field to the layer the Data tab is showing.
+ *
+ * <b>The server's sentence is what is shown on a refusal</b>, because it names the column, the
+ * holder and where to change it — which is the whole point of ADR-058 §5c's dependency check.
+ *
+ * @param {string} root the layer's REST address, for redrawing afterwards
+ * @param {string} index the layer's index
+ * @returns {Promise<void>} when it has been added, or refused
+ */
+async function addField(root, index) {
+  const says = $("fldSays");
+  const name = $("fldName").value.trim();
+
+  if (!name) {
+    says.textContent = "A name first — it is what the column is called.";
+    says.classList.add("bad-inline");
+    return;
+  }
+
+  const layer = dataLayerName(index);
+  if (!layer) return;
+
+  says.classList.remove("bad-inline");
+  says.textContent = "Adding…";
+
+  try {
+    const made = await api(`/admin/hosted/${encodeURIComponent(layer)}/fields`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, type: $("fldType").value }),
+    });
+
+    // <b>The name that was made, not the one that was typed.</b> The server rewrites what it
+    // must — a space becomes an underscore — and a screen that showed the request back would be
+    // showing a column that does not exist.
+    toast(`Added ${made.field}.`);
+    loadServiceData();
+  } catch (e) {
+    says.classList.add("bad-inline");
+    says.textContent = e.message;
+  }
+}
+
+/**
+ * Drops a field, after saying plainly what that costs.
+ *
+ * <b>The warning is before the press and names the column — ADR-058 §5e.</b> That is the one
+ * fact that decides it: the data in the column cannot be recovered, and a confirmation that said
+ * only *are you sure* would be asking about nothing in particular.
+ *
+ * @param {string} root the layer's REST address
+ * @param {string} index the layer's index
+ * @param {string} field the column
+ * @returns {Promise<void>} when it has gone, or been refused
+ */
+async function dropField(root, index, field) {
+  const layer = dataLayerName(index);
+  if (!layer) return;
+
+  if (!confirm(
+    `Delete the field "${field}" from ${layer}?\n\n`
+    + "The data in it is removed with it and cannot be recovered.")) {
+    return;
+  }
+
+  try {
+    await api(
+      `/admin/hosted/${encodeURIComponent(layer)}/fields/${encodeURIComponent(field)}`,
+      { method: "DELETE" });
+
+    toast(`Deleted ${field}.`);
+    loadServiceData();
+  } catch (e) {
+    // <b>Shown rather than toasted for a refusal that explains itself.</b> The server names what
+    // holds the column and where to change that, and a toast is gone before it has been read.
+    const says = $("fldSays");
+
+    if (says) {
+      says.classList.add("bad-inline");
+      says.textContent = e.message;
+    } else {
+      toast(e.message);
+    }
+  }
+}
+
+/**
+ * The name the admin API knows the open layer by.
+ *
+ * <b>The field endpoints address a layer by name, and the Data tab holds an index.</b> The two
+ * are different addresses for the same thing — the index is the service's numbering and the name
+ * is what `/admin/layers` uses — and the layer document carries the name.
+ *
+ * @param {string} index the layer's index within the open service
+ * @returns {string} the layer's name, or an empty string
+ */
+function dataLayerName(index) {
+  const picker = $("dataLayer");
+  const chosen = [...(picker?.options || [])].find(o => o.value === String(index));
+
+  return chosen ? chosen.textContent.trim() : "";
+}
+
 /**
  * Which layer the Data tab shows, when an address asked for one.
  *
@@ -3823,23 +3975,64 @@ async function loadServiceData() {
     const fields = document.fields || [];
 
     if (dataView === "fields") {
-      // <b>Named as the reference names them: what it is called and what it is called on the wire.</b>
-      // Their screen has Display Name, Field Name and Type, and the distinction is real here too — an
-      // alias is what an operator reads and the column is what a query names.
+      /*
+        <b>Named as the reference names them: what it is called and what it is called on the
+        wire.</b> Their screen has Display Name, Field Name and Type, and the distinction is real
+        here too — an alias is what an operator reads and the column is what a query names.
+
+        <b>And since 2026-09-08 the columns can be added and dropped here — ADR-058.</b> Owner
+        instruction: the datastore's schema is ours and every change comes from the screen. The
+        paragraph under this table used to say dropping a column was not built; it is, for the
+        tables this server created, and the server is asked which those are rather than this
+        screen guessing.
+      */
+      const may = await dataAlterable(index);
+
       box.innerHTML = `
         <table>
-          <thead><tr><th>Display name</th><th>Field</th><th>Type</th><th>Length</th></tr></thead>
+          <thead><tr><th>Display name</th><th>Field</th><th>Type</th><th>Length</th>${
+            may ? "<th></th>" : ""}</tr></thead>
           <tbody>${fields.map(field => `
             <tr>
               <td class="name">${h(field.alias || field.name || "")}</td>
               <td class="mono">${h(field.name || "")}</td>
               <td class="val">${h((field.type || "").replace(/^esriFieldType/, ""))}</td>
               <td class="num">${field.length ? num(field.length) : ""}</td>
+              ${may ? `<td class="right">${dataDroppable(field)
+                ? `<button type="button" class="ghost small" data-drop-field="${
+                    h(field.name || "")}">Delete</button>`
+                : ""}</td>` : ""}
             </tr>`).join("")}</tbody>
         </table>
-        <p class="hint"><b>Dropping a column is not built yet.</b> It is acceptable on hosted data and
-          has to be planned for a registered table, which points at somebody else's database — ADR-034
-          §5k. The list is what the service document declares.</p>`;
+        ${may ? `
+          <div class="row" style="margin-top:12px;align-items:flex-end">
+            <label class="field"><span>New field</span>
+              <input id="fldName" spellcheck="false" placeholder="notes"></label>
+            <label class="field"><span>Type</span>
+              <select id="fldType">
+                <option value="text">Text</option>
+                <option value="integer">Integer</option>
+                <option value="double">Number</option>
+                <option value="date">Date</option>
+                <option value="boolean">Yes / no</option>
+              </select></label>
+            <button type="button" class="primary" id="fldAdd">Add field</button>
+          </div>
+          <p class="hint" id="fldSays">Every existing feature will have the new field empty.
+            A column added to a table that already holds rows cannot be required.</p>`
+        : `<p class="hint">The columns of this layer are not edited here: its table was not
+            created by this server. A registered table is changed in the database it was
+            registered from, and this server reads the new shape within thirty seconds.</p>`}`;
+
+      if (may) {
+        $("fldAdd").addEventListener("click", () => addField(root, index));
+
+        for (const button of box.querySelectorAll("[data-drop-field]")) {
+          button.addEventListener(
+            "click", () => dropField(root, index, button.getAttribute("data-drop-field")));
+        }
+      }
+
       return;
     }
 
@@ -11739,8 +11932,14 @@ async function openPublishDialog() {
         read the name only when Publish was pressed, so a collision was found after the
         composition was finished — and the decision that a name of *yours* is offered as a
         replacement had nowhere to happen at all.
+
+        <b>A live region, which it was not for its first hours.</b> A UX review found this the
+        same day: the sentence arrives 250 ms after typing stops and a screen reader said nothing,
+        so somebody would have to guess when the answer had come and go back to read it — before
+        deciding whether to overwrite a published service. Two paragraphs of exactly this shape in
+        this file already carried a status role; this one was the third and did not.
       -->
-      <p class="hint" id="pbNameSays" hidden></p>
+      <p class="hint" id="pbNameSays" role="status" aria-live="polite" hidden></p>
 
       <div class="row">
         <label class="field" style="flex:1 1 100%">Description <span class="val">(optional)</span>
@@ -12208,6 +12407,29 @@ document.addEventListener("keydown", event => {
   pubMenuKey(event);
 });
 
+/**
+ * Enter and Space on a Databases row do what a click does.
+ *
+ * <b>The same handler, not a second one — and that is the point.</b> The rows in that pane are
+ * `div`s with a role, so the browser gives them focus and nothing else: a keyboard press has to
+ * be turned into the gesture. Dispatching a real click means the open/close and add logic stays
+ * in one place, so a change to what clicking a table does cannot leave the keyboard behind.
+ *
+ * <b>Space is prevented, because on a focused div it scrolls the page.</b> A row that opened a
+ * schema and jumped the pane at the same time would be a control nobody uses twice.
+ */
+document.addEventListener("keydown", event => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+
+  const row = event.target?.closest?.(
+    "#pubDbTree [data-pubdb], #pubDbTree [data-pubschema], #pubDbTree [data-pubtable]");
+
+  if (!row) return;
+
+  event.preventDefault();
+  row.click();
+});
+
 document.addEventListener("scroll", () => pubMenuShut(), true);
 
 /**
@@ -12563,7 +12785,18 @@ function pubDraw() {
   let html = "";
 
   for (const db of pubDatabases) {
-    html += `<div class="pubdb" data-pubdb="${h(db.id)}">
+    /*
+      <b>Reachable by keyboard, which none of this pane was until a UX review walked it.</b>
+      Tab went from the toolbar straight past every database, schema and table to the sidebar:
+      a keyboard-only operator could not open a database, could not open a schema, and could not
+      get one table into a composition — which is the entire task this screen exists for.
+
+      <b>A tabindex and a role, which is the pattern this console already uses</b> for the log
+      rows and for the Classes screen. The click handler is shared: the keydown listener
+      dispatches a real click rather than being a second path that can drift from it.
+    */
+    html += `<div class="pubdb" data-pubdb="${h(db.id)}" tabindex="0" role="button"
+        aria-expanded="${db.open ? "true" : "false"}">
       <span style="width:12px;color:var(--faint);font-size:10px">${db.open ? "&#9660;" : "&#9654;"}</span>
       <span>${h(db.name)}</span>
       ${db.reading ? `<span class="val" style="margin-left:auto">reading…</span>` : ""}
@@ -12577,7 +12810,8 @@ function pubDraw() {
     }
 
     for (const schema of db.schemas || []) {
-      html += `<div class="pubschema" data-pubschema="${h(db.id)}:${h(schema.name)}">
+      html += `<div class="pubschema" data-pubschema="${h(db.id)}:${h(schema.name)}"
+          tabindex="0" role="button" aria-expanded="${schema.open ? "true" : "false"}">
         <span style="width:12px;font-size:10px">${schema.open ? "&#9660;" : "&#9654;"}</span>
         <span>${h(schema.name)}</span>
       </div>`;
@@ -12591,8 +12825,11 @@ function pubDraw() {
         // or without an integer this server can use as an object id cannot become a layer at
         // all, and the row below says which. Everything else can be dragged, however many
         // services already serve it.
+        // <b>Only a publishable table takes focus.</b> One that cannot become a layer is not
+        // a control — tabbing through sixty of them to reach the one that works is worse than
+        // not offering them, and the row already says why it is refused.
         html += `<div class="pubtable ${can ? "" : "no"}"
-            ${can ? `draggable="true"` : ""}
+            ${can ? `draggable="true" tabindex="0" role="button"` : ""}
             data-pubtable="${h(db.id)}|${h(schema.name)}|${h(t.tableName)}"
             title="${can ? "drag into Contents" : "cannot be published"}">
           <!--
