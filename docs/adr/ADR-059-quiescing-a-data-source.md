@@ -223,9 +223,10 @@ would have been the bug. What needed fixing was the response, which named only
 the source that was asked for: it now lists the others that went out with it, and
 says why.
 
-The datastore can be quiesced too. It is a data source like any other here, and
-[ADR-058](ADR-058-the-datastore-schema-is-edited-from-the-screen.md)'s field
-endpoints go through the same pool.
+The datastore can be quiesced too. It is a data source like any other here.
+~~and [ADR-058](ADR-058-the-datastore-schema-is-edited-from-the-screen.md)'s field
+endpoints go through the same pool.~~ **The second half of that sentence was
+false, and it is the subject of §5g.**
 
 ### 5e. The refusal says who, why and how long is left
 
@@ -251,6 +252,91 @@ the answer.
 Nothing about a layer changes. This is an operational act on the process and on
 somebody's database, and it makes every service over that source unavailable —
 which is the shape `admin:manageServer` already guards.
+
+### 5g. There was a second pool, and the gate never saw it
+
+**Written 2026-09-09, and what it corrects is a sentence in §5d written the day
+before: *ADR-058's field endpoints go through the same pool*. They do not.** That
+was asserted rather than measured, in a decision whose own §5c had just been
+rewritten twice by measurement — so the rule was in front of me and I applied it
+to the mechanism and not to the plumbing.
+
+**There are two pools, and only one of them is gated.**
+`LayerConnections` holds a pool per registered source and hands every one of them
+out through `PoolFor`, which refuses when the source is quiesced. The **datastore**
+reaches PostGIS through a *different* pool — the keyed `datastore`
+`NpgsqlDataSource` that `PostGisImporter` and `PostGisProjector` are constructed
+with — and `PoolFor` never sees it. `PoolFor`'s own comment says *one place,
+because there are four callers and a fifth will be written*. The fifth already
+existed, in another class, with its own pool.
+
+**Measured against a running server with the datastore quiesced, before anything
+was fixed.** A read of the same database was refused with 503 throughout:
+
+| Endpoint | Answered | What it did |
+|---|---|---|
+| `POST /admin/hosted/define` | **201** | `create table hosted.zzzquiescedefine_b34d8e52` |
+| `POST /admin/hosted/import` | **201** | created a table **and inserted a row** |
+| `DELETE /admin/featureservices/{n}?drop=true` | **200** | **`drop table`** |
+| `GeometryServer/project` | **200** | `ST_Transform` in the quiesced database |
+| `POST /admin/hosted/{layer}/fields` | 503 | refused — but see below |
+| a layer's `query`, tiles, `applyEdits`, attachments | 503 | refused by `PoolFor` |
+
+**The field endpoints refused, and that is worse than it looks.** §5d's sentence
+was *accidentally* true of them and false about the reason. They are refused
+because they ask `ServiceContexts` for the layer's shape before issuing any DDL —
+and the first line of `ServiceContexts.GetAsync` is `_connections.SourceFor(layer)`,
+which is one of `PoolFor`'s four gated hand-outs. So the refusal came from the read
+path standing in front of the write path, not from anything in
+`HostedDataEndpoints`, which does not mention quiesce anywhere. An accident that
+holds today is not a guarantee — reorder those two steps and it is gone — and it is
+invisible to a test that checks only the outcome, so the conformance test asserts
+`define` and `drop`, which have no such read in front of them and were genuinely
+open.
+
+**One thing that could have collided and does not.** `ServiceContexts` serves a
+remembered shape when the source is *unreachable* (D-127), and `SourceBreaker.Unreachable`
+is what decides. A `SourceQuiescedException` derives from `Exception` rather than
+from `NpgsqlException` or `SourceUnreachableException`, so that method answers
+**false** and the quiesce propagates instead of being absorbed into the fallback.
+Checked rather than assumed, because that same file records the one time two
+resilience mechanisms met and one silenced the other.
+
+**The gate is now inside `PostGisImporter.OpenAsync`**, so every method that
+touches the datastore has to come through it to get a connection, including ones
+written later. That is `PoolFor`'s own argument applied where it was missing: a
+check at each call site is a check the next call site forgets. It takes a
+delegate rather than the register itself, because `SourceQuiesce` is the host's
+and the importer is a provider — a provider referencing the host would be the
+dependency running backwards.
+
+**A second defect, found by a test written to assert something else.** With the
+datastore quiesced, `?drop=true` answered **200** with `unpublished: true,
+dropped: false` and the quiesce sentence in `failure`. The per-layer `catch` there
+is written for *one table that will not drop* and is right about that; a quiesce is
+not one table, it is the whole database, so every layer fails the same way — after
+being unpublished. The catalogue half of the delete committed and the database
+half did not: **the registration gone, the table orphaned, and a 200 saying it went
+well.** At fifty-five layers that is fifty-five orphaned tables and an emptied
+catalogue. It is now a precondition asked once, before anything is unpublished.
+
+**The projector is a deliberate exception and is left ungated.**
+`PostGisProjector` runs `ST_Transform` on literals through the same pool, and
+refusing it would take out `GeometryServer/project` and every capabilities
+document whenever the datastore is quiesced — surfaces with no interest in the
+datastore's tables. §5c's measurement is what makes that defensible rather than
+convenient: an idle pooled connection does not block `ALTER TABLE`, and a single
+non-transactional statement against `spatial_ref_sys` takes no lock on any user
+table. What it costs is that §5e's sentence — *this server has closed its
+connections to that database* — is not quite true while a projection is in flight.
+The sentence is about the layers, and this is recorded rather than reworded
+because the honest version would be longer than it is worth.
+
+**`/healthz/ready` also opens a connection to the quiesced datastore and answers
+`ready`.** Left alone: a readiness probe exists to say whether the store is
+reachable, and it is. Whether a load balancer should keep sending traffic to a
+worker that will 503 every layer request is a real question and a different one —
+[Q-149](../open-questions.md).
 
 ## 4. Consequences
 
@@ -367,6 +453,27 @@ whose §6 names quiesce as the thing it does not touch.
    **The review has not run.** The two before it each found a paragraph with no
    live region and a control a redraw threw the cursor off; this screen has both
    shapes.
+
+5. **Every path to a quiesced database is enumerated rather than assumed**, and
+   the enumeration is a test rather than a sentence in this document. §5g exists
+   because §5d asserted one and it was false; a second assertion in the same
+   shape would be the same mistake with a paragraph in front of it.
+   ***(Discharged 2026-09-09, and the enumeration is what found the holes.)***
+   `QuiesceConformanceTests.A_quiesced_datastore_refuses_to_create_or_drop_its_own_tables`
+   quiesces the datastore **by id, through the admin route**, and asserts 503 from
+   `/admin/hosted/define` and from `?drop=true`. Quiescing by id is the part that
+   matters: the gate is keyed by the datastore's connection string and wired with
+   the same expression `EnsureDatastoreAsync` registers the row with, so if those
+   two ever stop being the same expression this test fails rather than the hole
+   silently reopening.
+
+   **Falsified three ways, one per fix.** Removing the importer's gate makes
+   `define` answer 201; removing the delete's precondition makes `?drop=true`
+   answer 200 with an orphaned table; both restored, both green.
+
+   **What is enumerated and what is left**: the four measured paths are in §5g's
+   table, and the projector and `/healthz/ready` are recorded there as deliberate
+   exceptions with their reasons rather than left off the list.
 
 ## 8. Revisit triggers
 

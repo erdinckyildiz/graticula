@@ -422,8 +422,25 @@ public static class Program
             DatastorePool,
             (_, _) => new NpgsqlDataSourceBuilder(DatastoreConnection(settings.PlatformStore)).Build());
 
+        // <b>The datastore's own pool is gated too, and it was not until 2026-09-09.</b> The
+        // quiesce gate went into `LayerConnections.PoolFor`, which every *registered* source is
+        // handed out through — and the datastore reaches PostGIS through this second pool
+        // instead, which that gate never sees. Measured against a running server with the
+        // datastore quiesced: `/admin/hosted/define` created a table, `/admin/hosted/import`
+        // created one and filled it, and `?drop=true` dropped one. ADR-059 §5g.
+        //
+        // <b>The key is the same expression `EnsureDatastoreAsync` registers the row with</b>,
+        // which is what makes the lookup match: a quiesce is keyed by the source's connection
+        // string, the datastore's row stores this string, and if the two ever stop being the
+        // same expression the gate stops firing silently. `QuiesceConformanceTests` quiesces by
+        // *id* through the admin route and then asks this surface, so a divergence fails a test
+        // rather than becoming a hole again.
         builder.Services.AddSingleton(services =>
-            new PostGisImporter(services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool)));
+            new PostGisImporter(
+                services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool),
+                RefusalWhen(
+                    services.GetRequiredService<SourceQuiesce>(),
+                    DatastoreConnection(settings.PlatformStore))));
 
         // <b>The raster reader and the coverage catalogue, ADR-043.</b> The factory is
         // the only place the host names a raster format, which is what makes the
@@ -2489,22 +2506,16 @@ public static class Program
         IProjector projector,
         CancellationToken cancellation)
     {
+        // <b>The feature face's door, which carries the <c>AllowsFeatures</c> check.</b> ADR-031
+        // condition 2: a service whose feature face is configured off answers as absent. This
+        // used to be three lines written out here, and being written out here is how two other
+        // routes came to be missing them — see `ServiceLookup.FeatureServiceAsync`.
         PublishedService? service = await ServiceLookup
-            .ServiceAsync(context, catalog, serviceName, cancellation)
+            .FeatureServiceAsync(context, catalog, serviceName, cancellation)
             .ConfigureAwait(false);
 
         if (service is null)
         {
-            return;
-        }
-
-        // The feature face, if configured off, answers as absent — ADR-031
-        // condition 2. Asserted here as well as in ServiceLookup.LayerAsync,
-        // because a service document is reachable without resolving a layer and a
-        // document listing layers nobody may then read is worse than no document.
-        if (!service.Limits.AllowsFeatures(dataSupportsIt: true))
-        {
-            await Authorize.RefuseReadAsync(context, service.Name).ConfigureAwait(false);
             return;
         }
 
@@ -2667,8 +2678,21 @@ public static class Program
         IProjector projector,
         CancellationToken cancellation)
     {
+        /*
+          <b>The feature face's door, and this route went through the other one from the day it
+          was written until the next morning.</b> `ServiceAsync` answers about *sharing*; whether
+          the feature face is configured on is a second question, and this document — every
+          layer's field names, extent, symbology and capabilities string — was answering it
+          wrongly.
+
+          <b>Measured on a running fixture rather than reasoned about.</b> With `servesFeatures`
+          false on a public service, `/FeatureServer` answered 404 and `/FeatureServer/0`
+          answered 404, while this route answered **200 to an anonymous caller**. The operator
+          had turned the feature face off and two of the three routes honoured it, which is worse
+          than none of them doing so: the two that refuse are the evidence that the setting works.
+        */
         PublishedService? owning = await ServiceLookup
-            .ServiceAsync(context, catalog, serviceName, cancellation)
+            .FeatureServiceAsync(context, catalog, serviceName, cancellation)
             .ConfigureAwait(false);
 
         if (owning is null)
@@ -2849,8 +2873,13 @@ public static class Program
         // directory — arrives here, and a 404 for an id the service advertised
         // is the kind of self-contradiction that makes a client abandon the
         // whole service.
+        // <b>The feature face's door, and the group branch below is why it has to be here.</b>
+        // `ServiceLookup.LayerAsync` carries the same check, but a group layer never reaches it:
+        // the branch answers from the service alone. So a service with its feature face off
+        // still served its group documents — found 2026-09-09 while closing the same hole in
+        // `/FeatureServer/layers`, and it is the third route of four that had it.
         PublishedService? owning = await ServiceLookup
-            .ServiceAsync(context, catalog, serviceName, cancellation)
+            .FeatureServiceAsync(context, catalog, serviceName, cancellation)
             .ConfigureAwait(false);
 
         if (owning is null)
@@ -3688,6 +3717,26 @@ public static class Program
         context.Items.TryGetValue(AskedWith, out object? asked) && asked is string method
             ? method
             : context.Request.Method;
+
+    /// <summary>
+    /// A gate that refuses while one database is out of service.
+    /// </summary>
+    /// <param name="quiesce">The register of what an operator has taken out.</param>
+    /// <param name="connectionString">The database this gate is about.</param>
+    /// <returns>An action that throws when that database is quiesced.</returns>
+    /// <remarks>
+    /// <b>For pools that are not <see cref="LayerConnections"/>'s.</b> Every registered source is
+    /// handed out through <c>PoolFor</c>, which carries this check; the datastore has a second
+    /// pool of its own, and this is how that one gets the same refusal. See
+    /// <c>PostGisImporter.OpenAsync</c> for what it cost to find that out.
+    /// </remarks>
+    private static Action RefusalWhen(SourceQuiesce quiesce, string connectionString) => () =>
+    {
+        if (quiesce.Holding(connectionString) is { } held)
+        {
+            throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
+        }
+    };
 
     /// <summary>The key for the datastore's own connection pool.</summary>
     private const string DatastorePool = "datastore";

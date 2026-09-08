@@ -31,9 +31,20 @@ namespace Graticula.Conformance.Tests;
 /// caller supplied and everything else has to match.
 /// </para>
 /// <para>
-/// <b>Three paths, because they refuse from three places.</b> The service document and the layer
+/// <b>Four paths, because they refuse from four places.</b> The service document and the layer
 /// document resolve through different methods, and <c>query</c> is the one with its own history
-/// of resolving a layer by itself. Asserting one of them would leave the other two to drift.
+/// of resolving a layer by itself. Asserting one of them would leave the others to drift.
+/// </para>
+/// <para>
+/// <b>And one of them drifted, four days after that sentence was written.</b>
+/// <c>/FeatureServer/layers</c> was added on 2026-09-08 and resolved its service through
+/// <c>ServiceLookup.ServiceAsync</c>, which answers about <i>sharing</i> — so with the feature
+/// face off it answered <b>200 to an anonymous caller</b>, carrying every layer's field names,
+/// extent, symbology and capabilities string, while <c>/FeatureServer</c> and
+/// <c>/FeatureServer/0</c> both answered 404. Two doors refusing and two open is worse than none
+/// refusing: the two that work are the evidence an operator has that the setting does anything.
+/// The fix is <c>ServiceLookup.FeatureServiceAsync</c>, one door for the feature face; this list
+/// is what stops the next route from going through the other one.
 /// </para>
 /// <para>
 /// <b>It mutates a real service and puts back what it read</b> — the pattern
@@ -77,6 +88,12 @@ public sealed class FaceOffLooksAbsentTests : ArcGisClient
             foreach (string suffix in new[]
                      {
                          "/FeatureServer",
+
+                         // <b>Added 2026-09-08, and it was open when it was added.</b> The
+                         // all-layers document resolves the service without resolving a layer,
+                         // which is the shape that skips the check — see the remarks.
+                         "/FeatureServer/layers",
+
                          "/FeatureServer/0",
                          "/FeatureServer/0/query?where=1%3D1",
                      })
@@ -109,6 +126,103 @@ public sealed class FaceOffLooksAbsentTests : ArcGisClient
         // that leaves a face off fails every suite that runs after it, with its own name nowhere
         // in the failure.
         Assert.Equal(200, await StatusOfAsync($"{prefix}/{bare}/FeatureServer"));
+    }
+
+    /// <summary>
+    /// A group layer's document goes dark with the feature face too.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The fifth path, and it needs a fixture the other test does not.</b>
+    /// <c>LayerMetadataAsync</c> answers a group's document from the *service* alone — the
+    /// branch runs before <c>ServiceLookup.LayerAsync</c>, which is where the feature-face check
+    /// used to live. So a service with its feature face off still described its structure: the
+    /// group's name, its index, and the ids of the layers inside it.
+    /// </para>
+    /// <para>
+    /// <b>Separate from the four-path test above because the shape is different.</b> That one
+    /// walks suffixes on any service; this one needs a service that <i>has</i> a group, and the
+    /// index it asks for has to be the group's rather than a layer's — so it takes
+    /// <c>GRATICULA_TEST_GROUPED</c> and reads the id out of the service document rather than
+    /// assuming one.
+    /// </para>
+    /// <para>
+    /// <b>Status only, not the body.</b> The four-path test compares whole bodies against an
+    /// absent service's, which is the assertion ADR-031 condition 2 actually wants; here the
+    /// group id is a number that does not exist on the absent service either, so the two
+    /// refusals differ in the id they name and comparing bodies would fail on the caller's own
+    /// input. What this adds is the path, and the path is what was missing.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_group_layers_document_goes_dark_with_the_feature_face()
+    {
+        string root = await RequireServerAsync();
+
+        string? service = Environment.GetEnvironmentVariable("GRATICULA_TEST_GROUPED");
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(service),
+            "GRATICULA_TEST_GROUPED is not set, so this test FAILS rather than skips. Name a "
+            + "service with a group layer in it: a group's document is answered from a branch "
+            + "that no other test in this class reaches.");
+
+        string[] parts = service!.Trim('/').Split('/');
+        string? folder = parts.Length > 1 ? parts[0] : null;
+        string bare = parts[^1];
+
+        string prefix = folder is { Length: > 0 } ? $"/rest/services/{folder}" : "/rest/services";
+
+        // <b>The group's own id, read rather than assumed.</b> An index is never reused, so a
+        // group's number depends on what the service was built from and guessing it would make
+        // this test pass against a layer.
+        (HttpStatusCode listed, string document) =
+            await AnonymousAsync($"{prefix}/{bare}/FeatureServer?f=json");
+
+        Assert.Equal(HttpStatusCode.OK, listed);
+
+        int? group = null;
+
+        foreach (JsonElement one in
+            JsonDocument.Parse(document).RootElement.GetProperty("layers").EnumerateArray())
+        {
+            if (one.TryGetProperty("subLayerIds", out JsonElement children)
+                && children.ValueKind == JsonValueKind.Array)
+            {
+                group = one.GetProperty("id").GetInt32();
+                break;
+            }
+        }
+
+        Assert.True(
+            group is not null,
+            $"{service} lists no layer with subLayerIds, so it has no group in it and this test "
+            + "is pointed at the wrong service.");
+
+        string at = $"{prefix}/{bare}/FeatureServer/{group}";
+
+        Assert.Equal(200, await StatusOfAsync(at));
+
+        string before = await CapabilitiesAsync(root, bare, folder);
+
+        await SetFeatureFaceAsync(root, bare, folder, serves: false);
+
+        try
+        {
+            int off = await StatusOfAsync(at);
+
+            Assert.True(
+                off == 404,
+                $"With the feature face off, a group layer's document answered {off} rather than "
+                + "404. The group branch answers from the service alone, so it skips the check "
+                + "every other route in this class is covered by — ADR-031 condition 2.");
+        }
+        finally
+        {
+            await RestoreAsync(root, bare, before);
+        }
+
+        Assert.Equal(200, await StatusOfAsync(at));
     }
 
     /// <summary>A service's capability document, as it stands now.</summary>

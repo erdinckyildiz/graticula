@@ -193,6 +193,61 @@ internal static class ServiceLookup
     }
 
     /// <summary>
+    /// The service at this URL, when its feature face is on — or null with the refusal written.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="catalog">The catalogue.</param>
+    /// <param name="serviceName">The name from the route.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The service, or null.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Written 2026-09-09, because the check it carries had been copied into two routes and
+    /// missed by two others.</b> <see cref="LayerAsync"/> has always refused a service whose
+    /// feature face is configured off (ADR-031 condition 2), and every route that resolves a
+    /// *layer* goes through it. The routes that resolve a *service* do not, and there are four of
+    /// them: the service document, the all-layers document, a group layer's document, and
+    /// whatever is written next.
+    /// </para>
+    /// <para>
+    /// <b>Two of the four were closed and two were open, which is the worst of the three
+    /// possible states</b> — an operator reading the two that refuse has every reason to believe
+    /// the setting works. Measured on a running fixture with <c>servesFeatures</c> false on a
+    /// public service: <c>/FeatureServer</c> 404, <c>/FeatureServer/0</c> 404, and
+    /// <c>/FeatureServer/layers</c> <b>200 to an anonymous caller</b>, carrying every layer's
+    /// field names, extent and symbology.
+    /// </para>
+    /// <para>
+    /// <b>Not folded into <see cref="ServiceAsync"/>, which is where it would look tidiest.</b>
+    /// The tile path resolves through that method too, so gating there would turn off both faces
+    /// at once and make the tiles-only configuration unreachable — the configuration this feature
+    /// exists for. Two doors, named for which face they open.
+    /// </para>
+    /// </remarks>
+    public static async Task<PublishedService?> FeatureServiceAsync(
+        HttpContext context,
+        CatalogFallback catalog,
+        string serviceName,
+        CancellationToken cancellation)
+    {
+        PublishedService? service = await ServiceAsync(context, catalog, serviceName, cancellation)
+            .ConfigureAwait(false);
+
+        if (service is null)
+        {
+            return null;
+        }
+
+        if (!service.Limits.AllowsFeatures(dataSupportsIt: true))
+        {
+            await Authorize.RefuseReadAsync(context, service.Name).ConfigureAwait(false);
+            return null;
+        }
+
+        return service;
+    }
+
+    /// <summary>
     /// The layer at this URL, or null with the refusal already written.
     /// </summary>
     /// <param name="context">The request.</param>
@@ -208,23 +263,14 @@ internal static class ServiceLookup
         int layerId,
         CancellationToken cancellation)
     {
-        PublishedService? service = await ServiceAsync(context, catalog, serviceName, cancellation)
-            .ConfigureAwait(false);
+        // <b>Through the feature face's door, which is where the `AllowsFeatures` check lives.</b>
+        // It used to be written out here, and being written out here is how three routes that
+        // resolve a service rather than a layer came to be missing it.
+        PublishedService? service = await FeatureServiceAsync(
+            context, catalog, serviceName, cancellation).ConfigureAwait(false);
 
         if (service is null)
         {
-            return null;
-        }
-
-        // <b>The feature face, if it has been turned off, answers as absent</b> —
-        // ADR-031 condition 2, and the same refusal ADR-018 gives for a service
-        // nobody may see. The gate is here rather than in `ServiceAsync` because
-        // the tile path resolves through that method too: gating there would turn
-        // off both faces at once and make the tiles-only configuration
-        // unreachable, which is the configuration this feature was asked for.
-        if (!service.Limits.AllowsFeatures(dataSupportsIt: true))
-        {
-            await Authorize.RefuseReadAsync(context, service.Name).ConfigureAwait(false);
             return null;
         }
 

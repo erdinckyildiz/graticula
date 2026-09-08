@@ -101,13 +101,57 @@ public sealed class PostGisImporter
     public const bool KeepsNativeReference = true;
 
     private readonly NpgsqlDataSource _dataSource;
+    private readonly Action? _refuseIfOutOfService;
 
     /// <summary>Creates an importer over the datastore.</summary>
     /// <param name="dataSource">The datastore pool. Must be able to see PostGIS.</param>
-    public PostGisImporter(NpgsqlDataSource dataSource)
+    /// <param name="refuseIfOutOfService">
+    /// Throws when an operator has taken the datastore out of service, or null when nothing
+    /// can. See <see cref="OpenAsync"/> for why this is a constructor argument rather than a
+    /// check at each call site.
+    /// </param>
+    public PostGisImporter(NpgsqlDataSource dataSource, Action? refuseIfOutOfService = null)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         _dataSource = dataSource;
+        _refuseIfOutOfService = refuseIfOutOfService;
+    }
+
+    /// <summary>
+    /// A connection to the datastore, unless an operator has taken it out of service.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The open connection.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Written 2026-09-09, after measuring that a quiesce did not stop this class —
+    /// [ADR-059](../../docs/adr/ADR-059-quiescing-a-data-source.md) §5g.</b> The gate built that
+    /// day lives in <c>LayerConnections.PoolFor</c>, and its own comment says <i>one place,
+    /// because there are four callers and a fifth will be written</i>. The fifth already existed:
+    /// this class holds a <b>different pool</b> — the keyed <c>datastore</c> data source — which
+    /// that gate never sees. With the datastore quiesced, <c>POST /admin/hosted/define</c>
+    /// created a table, <c>POST /admin/hosted/import</c> created one and filled it, and
+    /// <c>DELETE /admin/featureservices/{name}?drop=true</c> <b>dropped one</b>, all measured
+    /// against a running server on 2026-09-08.
+    /// </para>
+    /// <para>
+    /// <b>So the gate is here rather than at the five call sites</b>, for the reason that comment
+    /// gives: a check repeated at each hand-out is a check the next hand-out forgets, and this
+    /// class is exactly where that happened. Every method that touches the datastore has to come
+    /// through here to get a connection, including ones written later.
+    /// </para>
+    /// <para>
+    /// <b>A delegate rather than the type itself, because of the layering.</b> `SourceQuiesce` is
+    /// the host's and this project is a provider; a provider that referenced the host would be
+    /// the dependency running backwards. What this class needs to know is only <i>am I allowed to
+    /// open a connection</i>, which is one call and no types.
+    /// </para>
+    /// </remarks>
+    private async Task<NpgsqlConnection> OpenAsync(CancellationToken cancellationToken)
+    {
+        _refuseIfOutOfService?.Invoke();
+
+        return await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -132,7 +176,7 @@ public sealed class PostGisImporter
         string table = TableNameFor(requestedName);
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await OpenAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlTransaction transaction =
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -184,9 +228,19 @@ public sealed class PostGisImporter
     /// <param name="table">The table.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The counts and the reasons.</returns>
+    /// <remarks>
+    /// <b>The gate is invoked rather than the connection taken</b>, because this is the one
+    /// method that hands the pool to somebody else. <see cref="OpenAsync"/> says why the gate
+    /// exists; the shape here is the exception it has to allow for, and it is written out so
+    /// that a reader does not take the missing <c>OpenAsync</c> for an oversight.
+    /// </remarks>
     public Task<GeometryValidity> ValidityOfAsync(
-        string schema, string table, CancellationToken cancellationToken) =>
-        GeometryValidity.MeasureAsync(_dataSource, schema, table, "geom", cancellationToken);
+        string schema, string table, CancellationToken cancellationToken)
+    {
+        _refuseIfOutOfService?.Invoke();
+
+        return GeometryValidity.MeasureAsync(_dataSource, schema, table, "geom", cancellationToken);
+    }
 
     /// <summary>
     /// Creates an empty feature class from a schema somebody designed.
@@ -245,7 +299,7 @@ public sealed class PostGisImporter
         sql.Append(')');
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await OpenAsync(cancellationToken).ConfigureAwait(false);
 
         await using (NpgsqlTransaction transaction =
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false))
@@ -301,7 +355,7 @@ public sealed class PostGisImporter
         RefuseOutsideHosted(schemaName, tableName, "drop");
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await OpenAsync(cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(
             connection, null, $"drop table if exists {Qualified(tableName)}", cancellationToken)
@@ -358,7 +412,7 @@ public sealed class PostGisImporter
         string column = ColumnNameFor(field.Name);
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await OpenAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlTransaction transaction =
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -402,7 +456,7 @@ public sealed class PostGisImporter
         RefuseOutsideHosted(schemaName, tableName, "drop a column from");
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await OpenAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlTransaction transaction =
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);

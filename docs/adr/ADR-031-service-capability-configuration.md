@@ -322,6 +322,40 @@ with the service on the request that needs it.
    giving the service document its own refusal message: *Strings differ*, and it passes on
    restore. **The restore is asserted too**: a test that leaves a face off fails every suite
    after it with its own name nowhere in the failure.)*
+
+   **Reopened and re-discharged 2026-09-09, because the list of paths was the load-bearing
+   part and it went stale in twelve days.** That note says *three paths, because the face is
+   gated in three places* — and the gating was written out at each of them, so the fourth
+   place written was the fourth place missing it. `GET /FeatureServer/layers`, added
+   2026-09-08, resolved its service through `ServiceLookup.ServiceAsync`, which answers about
+   **sharing**; whether the feature face is on is a second question. Measured on a running
+   fixture with `servesFeatures` false on a public service: `/FeatureServer` **404**,
+   `/FeatureServer/0` **404**, `/FeatureServer/layers` **200 to an anonymous caller**, carrying
+   every layer's field names, extent, symbology and capabilities string. A group layer's
+   document had the same hole, from the branch in `LayerMetadataAsync` that answers before
+   reaching `ServiceLookup.LayerAsync`.
+
+   **Two doors refusing and two open is worse than none refusing**, because the two that work
+   are the evidence an operator has that the setting does anything at all.
+
+   **So the check moved into one door rather than being copied a fourth time**:
+   `ServiceLookup.FeatureServiceAsync` is `ServiceAsync` plus `AllowsFeatures`, and the three
+   routes that resolve a service for the feature face — the service document, the all-layers
+   document, a group layer's document — go through it, as does `LayerAsync` for everything
+   else. It is deliberately **not** folded into `ServiceAsync`: the tile path resolves through
+   that, so gating there would turn both faces off at once and make the tiles-only
+   configuration unreachable. Two doors, named for which face they open.
+
+   **Both new paths are tested, and the second one needed a fixture the first did not.** The
+   body-comparison test's list gains `/FeatureServer/layers` — **falsified** by putting that
+   route back through `ServiceAsync`, which fails it at *answered 200 and a service that does
+   not exist answered 404*. A group's document gets its own `[Fact]`, because it needs a service
+   that **has** a group and an index read out of the service document rather than assumed:
+   `A_group_layers_document_goes_dark_with_the_feature_face`, on `GRATICULA_TEST_GROUPED`,
+   **falsified** the same way and failing at *a group layer's document answered 200 rather than
+   404*. It asserts the status rather than the whole body, and says why: the group's id does not
+   exist on the absent service either, so the two refusals differ in the id they name and
+   comparing bodies would fail on the caller's own input.
 3. **The timeout override is tested at its bound** — that it can lower and cannot raise
    or unset — because D-42 is the record of that exact control being wrong once already,
    and it was wrong in the permissive direction.

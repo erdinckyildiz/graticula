@@ -1743,6 +1743,7 @@ internal static class AdminEndpoints
         ServiceContexts contexts,
         ITileCache tiles,
         IAuditLog audit,
+        SourceQuiesce quiesce,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageAllContent)
@@ -1778,6 +1779,35 @@ internal static class AdminEndpoints
                 .Where(l => string.Equals(l.ServiceName, name, StringComparison.Ordinal)
                     && string.Equals(l.Folder ?? null, at, StringComparison.Ordinal))
                 .ToList();
+
+            /*
+              <b>A quiesced database is a precondition, not a per-layer failure — and the
+              difference is what this loop got wrong until 2026-09-09.</b> The `catch` below is
+              written for *one table that will not drop*, and it is right about that. A quiesce
+              is not one table: every layer in this list is on the database an operator has taken
+              out of service, so every iteration would fail the same way — after unpublishing.
+
+              <b>Measured, by a test written to assert something else.</b> With the datastore
+              quiesced, this endpoint answered **200** with `unpublished: true, dropped: false`
+              and the quiesce sentence in `failure`. So the catalogue half of the delete
+              committed and the database half did not: the registration is gone, the table is
+              still there, and the two have diverged with a success status on the response. At
+              fifty-five layers that is fifty-five orphaned tables and an empty catalogue.
+
+              <b>So it is asked once, before anything is unpublished.</b> `SourceQuiescedException`
+              carries its own sentence and `ErrorResponse` turns it into the 503 every other
+              surface gives, so the operator gets the same answer here as anywhere else: come
+              back when the window ends. Nothing has been changed in the meantime, which is the
+              property the per-layer catch cannot offer.
+            */
+            foreach (PublishedLayer held in inside.Where(l => l.Definition.IsHosted))
+            {
+                if (quiesce.Holding(held.ConnectionString) is { } outOfService)
+                {
+                    throw new SourceQuiescedException(
+                        SourceQuiesce.Says(outOfService), outOfService.Until);
+                }
+            }
 
             foreach (PublishedLayer layer in inside)
             {
