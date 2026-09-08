@@ -33,7 +33,12 @@ internal sealed class BudgetedFeatureSource(
     IFeatureSource inner,
     ConnectionBudget budget,
     string source,
-    SourceBreaker breaker) : IFeatureSource, IFeatureVersions
+    SourceBreaker breaker,
+
+    // <b>On the end and optional, because every caller predates it.</b> A source constructed
+    // without one is never quiesced, which is what every path that does not go through
+    // `LayerConnections` wants — ADR-059 is about the request path against a registered database.
+    SourceQuiesce? quiesce = null) : IFeatureSource, IFeatureVersions
 {
     /// <summary>
     /// Refuses at once when this source failed a moment ago, and reports what happens.
@@ -57,6 +62,15 @@ internal sealed class BudgetedFeatureSource(
     private async ValueTask<T> GuardedAsync<T>(
         Func<CancellationToken, ValueTask<T>> work, CancellationToken cancellationToken)
     {
+        // <b>Before the breaker, which is before the budget.</b> A source nobody is allowed to
+        // reach must not take a permit on its way to being refused — the same argument the
+        // breaker's own placement rests on, one step earlier because a quiesce is certain where
+        // a tripped breaker is a guess about the next attempt.
+        if (quiesce?.Holding(source) is { } held)
+        {
+            throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
+        }
+
         if (breaker.IsOpen(source))
         {
             throw new SourceUnreachableException();
@@ -112,6 +126,15 @@ internal sealed class BudgetedFeatureSource(
         // this decorator for the provider's own methods is still asking the same database,
         // and exempting it would leave the hole exactly where an ArcGIS client's first
         // request goes — the same reasoning this method's remarks give for the budget.
+        // <b>Before the breaker, which is before the budget.</b> A source nobody is allowed to
+        // reach must not take a permit on its way to being refused — the same argument the
+        // breaker's own placement rests on, one step earlier because a quiesce is certain where
+        // a tripped breaker is a guess about the next attempt.
+        if (quiesce?.Holding(source) is { } held)
+        {
+            throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
+        }
+
         if (breaker.IsOpen(source))
         {
             throw new SourceUnreachableException();
@@ -160,6 +183,15 @@ internal sealed class BudgetedFeatureSource(
         // throwing to the caller, where the exception middleware sees it — the breaker
         // misses that one trip and catches the next request's, which costs one slow
         // request rather than a design.
+        // <b>Before the breaker, which is before the budget.</b> A source nobody is allowed to
+        // reach must not take a permit on its way to being refused — the same argument the
+        // breaker's own placement rests on, one step earlier because a quiesce is certain where
+        // a tripped breaker is a guess about the next attempt.
+        if (quiesce?.Holding(source) is { } held)
+        {
+            throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
+        }
+
         if (breaker.IsOpen(source))
         {
             throw new SourceUnreachableException();

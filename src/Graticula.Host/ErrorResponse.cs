@@ -127,6 +127,13 @@ internal static class ErrorResponse
         // is refused again in microseconds, which is the whole point of D-131's repair.
         SourceUnreachableException => (int)Math.Ceiling(SourceBreaker.Cooling.TotalSeconds),
 
+        // <b>The other one, and it is the more certain of the two.</b> A quiesce ends at a
+        // deadline an operator set and this server is holding, so the number is the time
+        // remaining rather than a window that may or may not be enough — ADR-059 §5b.
+        SourceQuiescedException quiesced => Math.Max(
+            1,
+            (int)Math.Ceiling((quiesced.Until - DateTimeOffset.UtcNow).TotalSeconds)),
+
         _ => null,
     };
 
@@ -415,6 +422,22 @@ internal static class ErrorResponse
         // D-131: a database that failed moments ago is asked again on the next request and
         // blackholes for another four seconds, holding a connection throughout. This says the
         // same thing as the NpgsqlException case below and says it immediately.
+        /*
+          <b>Before the unreachable case, because a quiesced source is not an unreachable one.</b>
+          ADR-059 §5e: this is planned, the database is healthy, and it ends at a time this server
+          is holding. The refusal below says who did it and when it ends; sending the reader to a
+          health check would be [D-150](../../docs/architecture-debt.md)'s mistake made on purpose.
+
+          <b>The public form keeps the deliberateness and loses the name.</b> That a person took
+          the source out of service is what a client needs in order not to page anybody; which
+          person is an operator's business.
+        */
+        SourceQuiescedException quiesced => new(
+            StatusCodes.Status503ServiceUnavailable,
+            quiesced.Message,
+            "This service was taken out of service deliberately while its database is worked on. "
+            + "It answers again shortly; nothing is wrong with it."),
+
         SourceUnreachableException breaker => new(
             StatusCodes.Status503ServiceUnavailable,
             breaker.Message

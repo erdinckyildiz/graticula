@@ -231,6 +231,12 @@ public static class Program
         builder.Services.AddSingleton(services => new SourceBreaker(
             services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()));
 
+        // <b>Beside the breaker, because they are the same kind of thing.</b> Both hold a set of
+        // sources this process is refusing and both end by themselves; one is a reaction to a
+        // failure and the other is an instruction from an operator — ADR-059. Node-local for the
+        // same reason the breaker is: it is about this process's connections.
+        builder.Services.AddSingleton<SourceQuiesce>();
+
         builder.Services.AddSingleton(services => new CatalogFallback(
             services.GetRequiredService<PostgresLayerCatalog>(),
             services.GetRequiredService<TimeProvider>(),

@@ -463,6 +463,16 @@ internal static class AdminEndpoints
         app.MapPut("/admin/datasources/{id:guid}", UpdateDataSourceAsync);
         app.MapDelete("/admin/datasources/{id:guid}", RemoveDataSourceAsync);
         app.MapGet("/admin/datasources/{id:guid}/capability", CapabilityAsync);
+
+        /*
+          <b>ADR-059: the fifth of ADR-007 §4.8's five bullets, and the one never built.</b> A
+          held connection blocks a DBA's `ALTER TABLE`, and on PostgreSQL the waiting DDL queues
+          every request behind it — D-08 measured a 296 ms read holding its connection for 30.30 s
+          that way. Quiescing closes this worker's pool for one source and refuses its requests
+          until a deadline it sets itself.
+        */
+        app.MapPost("/admin/datasources/{id:guid}/quiesce", QuiesceAsync);
+        app.MapDelete("/admin/datasources/{id:guid}/quiesce", ResumeAsync);
         app.MapPost("/admin/layers", PublishAsync);
         app.MapPost("/admin/publish", PublishCompositionAsync);
 
@@ -6628,6 +6638,191 @@ internal static class AdminEndpoints
 
             await Refuse(context, 409, sentence).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>What an operator asks for when taking a source out of service.</summary>
+    /// <param name="Seconds">
+    /// How long, or null for the default. Clamped to <see cref="SourceQuiesce.LongestWindow"/>.
+    /// </param>
+    /// <param name="Why">
+    /// What they are doing, which goes into the sentence every refused caller reads. Optional and
+    /// worth filling in: <i>quiesced for a schema change</i> is what stops somebody paging the
+    /// on-call engineer about a 503.
+    /// </param>
+    internal sealed record QuiesceRequest(int? Seconds, string? Why);
+
+    /// <summary>
+    /// Takes a data source out of service so its tables can be altered.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-059](../../docs/adr/ADR-059-quiescing-a-data-source.md).</b> This closes the
+    /// worker's pool for that source and refuses every request that would reach it, with a
+    /// sentence naming who did it and when it ends. It does not hold requests: a wait whose
+    /// length an operator controls is a queue that grows until it collapses, which is what
+    /// [ADR-046](../../docs/adr/ADR-046-admission-control-bounds-the-queue-not-the-wait.md)
+    /// already decided about waits.
+    /// </para>
+    /// <para>
+    /// <b>It ends by itself, and that is the safety rather than a convenience.</b> Every other
+    /// refusal in this server ends on its own — the breaker cools, the queue drains. This is the
+    /// only one a person starts, so an operator called away mid-change would otherwise leave a
+    /// service down with the server behaving exactly as instructed.
+    /// </para>
+    /// <para>
+    /// <b><c>admin:manageServer</c>, not a content privilege.</b> Nothing about a layer changes;
+    /// this makes every service over that source unavailable, which is an operational act on the
+    /// process and on somebody's database.
+    /// </para>
+    /// <para>
+    /// <b>Node-local.</b> A second worker holds its own connections and must be quiesced too —
+    /// ADR-059 §4 states that as a limit, and the response says so rather than leaving an
+    /// operator to find out from a DBA who is still blocked.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="id">The data source.</param>
+    /// <param name="request">How long, and why.</param>
+    /// <param name="catalog">The catalogue, for the source's connection string.</param>
+    /// <param name="connections">The pools, which are what actually hold the tables.</param>
+    /// <param name="quiesce">The register of sources out of service.</param>
+    /// <param name="audit">The log.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task QuiesceAsync(
+        HttpContext context,
+        Guid id,
+        QuiesceRequest? request,
+        IAdminCatalog catalog,
+        LayerConnections connections,
+        SourceQuiesce quiesce,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(quiesce);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await catalog.ConnectionStringOfAsync(id, cancellation).ConfigureAwait(false)
+            is not { Length: > 0 } connection)
+        {
+            await Refuse(context, 404, $"There is no data source with id {id}.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        SourceQuiesce.Held held = quiesce.Hold(
+            connection,
+            current.Principal.Name,
+            request?.Seconds is { } seconds ? TimeSpan.FromSeconds(seconds) : null,
+            string.IsNullOrWhiteSpace(request?.Why) ? null : request!.Why!.Trim());
+
+        // <b>Marked before the pool is closed, and the order is the whole of §5c.</b> Closing
+        // first would leave a window in which a request rebuilds the pool it was about to be
+        // refused from — and the rebuilt pool is exactly the connection the DBA is waiting for.
+        bool closed = connections.CloseSource(connection);
+
+        await AuditAsync(
+            context, audit, "datasource.quiesce", id.ToString(),
+            Detail(new
+            {
+                until = held.Until,
+                why = held.Why,
+                poolWasOpen = closed,
+            }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            source = id,
+            quiesced = true,
+            by = held.Who,
+            since = held.Since,
+            until = held.Until,
+            why = held.Why,
+
+            // <b>Said, because *nothing was open* and *the connections are gone* look identical
+            // from here and mean different things to whoever is about to run the DDL.</b>
+            poolWasOpen = closed,
+            note = "This worker has closed its connections to that database and refuses requests "
+                 + "that would reach it until the time above. A request already in flight keeps "
+                 + "its connection until it finishes. Another worker holds its own connections "
+                 + "and must be quiesced separately.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Puts a data source back in service before its window ends.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="id">The data source.</param>
+    /// <param name="catalog">The catalogue.</param>
+    /// <param name="quiesce">The register.</param>
+    /// <param name="audit">The log.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    /// <remarks>
+    /// <b>Nothing is reopened here, and that is deliberate.</b> The pool is keyed by connection
+    /// string and rebuilt on the next request, which is the path a cold start takes — so resuming
+    /// is only the removal of a refusal. Opening one eagerly would be this server deciding to
+    /// connect to a database at a moment nobody asked it to, which is what it spent D-131
+    /// learning not to do.
+    /// </remarks>
+    private static async Task ResumeAsync(
+        HttpContext context,
+        Guid id,
+        IAdminCatalog catalog,
+        SourceQuiesce quiesce,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(quiesce);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await catalog.ConnectionStringOfAsync(id, cancellation).ConfigureAwait(false)
+            is not { Length: > 0 } connection)
+        {
+            await Refuse(context, 404, $"There is no data source with id {id}.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        bool was = quiesce.Resume(connection);
+
+        await AuditAsync(
+            context, audit, "datasource.resume", id.ToString(),
+            Detail(new { wasQuiesced = was }), succeeded: true, cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            source = id,
+            quiesced = false,
+
+            // <b>*It was not quiesced* is a real answer and not an error.</b> A window that ended
+            // by itself leaves nothing to resume, and an operator pressing Resume after lunch has
+            // done nothing wrong — answering 404 would tell them the source is missing.
+            wasQuiesced = was,
+            note = was
+                ? "That database answers again. The pool is rebuilt on the next request."
+                : "That database was already answering: the window had ended by itself, or "
+                + "nobody had quiesced it on this worker.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>

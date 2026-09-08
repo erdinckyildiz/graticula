@@ -56,17 +56,86 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 {
     private readonly ConnectionBudget _budget;
     private readonly SourceBreaker _breaker;
+    private readonly SourceQuiesce? _quiesce;
 
     /// <summary>Creates the pool cache.</summary>
     /// <param name="budget">ADR-007 §4.8's bound on how much of a database this worker asks for.</param>
     /// <param name="breaker">§4.8's N3, which was the last of that section's four still absent.</param>
-    public LayerConnections(ConnectionBudget budget, SourceBreaker breaker)
+    /// <param name="quiesce">
+    /// §4.8's fifth bullet, which was the actual last one — ADR-059.
+    /// <para>
+    /// <b>Optional, so the tests that build this directly do not have to care.</b> They are about
+    /// pooling and the budget; a null register is a process where nothing is ever quiesced.
+    /// </para>
+    /// </param>
+    public LayerConnections(
+        ConnectionBudget budget,
+        SourceBreaker breaker,
+        SourceQuiesce? quiesce = null)
     {
         ArgumentNullException.ThrowIfNull(budget);
         ArgumentNullException.ThrowIfNull(breaker);
 
         _budget = budget;
         _breaker = breaker;
+        _quiesce = quiesce;
+    }
+
+    /// <summary>
+    /// Closes this source's pool, so nothing of ours is holding its tables.
+    /// </summary>
+    /// <param name="connectionString">The source key, which is how the pools are keyed.</param>
+    /// <returns>Whether a pool was open.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-059 §5c — and this is not what frees the DBA's lock, which the ADR got backwards
+    /// until it was measured.</b> An idle pooled connection does not block <c>ALTER TABLE</c> at
+    /// all: 0.410 s with one held open, against 5.262 s to <c>lock_timeout</c> with a connection
+    /// idle *in a transaction*. What frees the lock is the refusal — no new query starts and the
+    /// running ones drain.
+    /// </para>
+    /// <para>
+    /// <b>So this is here for three smaller reasons, all real.</b> A DBA verifies by looking at
+    /// <c>pg_stat_activity</c> and cannot tell a source that is refusing from one that ignored
+    /// them; a delegated query is idle-in-transaction and <i>does</i> block (A-036), so those are
+    /// exactly the connections worth removing; and the connection count goes back, which matters
+    /// on a database near <c>max_connections</c> at the moment somebody is working on it.
+    /// </para>
+    /// <para>
+    /// <b>Removed from the cache as well as disposed.</b> The pool is keyed by connection string
+    /// and rebuilt by <c>GetOrAdd</c> on the next request after the quiesce ends, which is the
+    /// same path a cold start takes — so there is nothing to reopen and nothing to remember.
+    /// </para>
+    /// <para>
+    /// <b>A request already in flight keeps its connection to the end.</b> Disposing a
+    /// <c>NpgsqlDataSource</c> does not kill borrowed connections, and killing them would be
+    /// [D-144](../../docs/architecture-debt.md)'s problem — a response part-written is worse than
+    /// a lock held a few seconds longer. ADR-059 §4 states this as a cost rather than hiding it.
+    /// </para>
+    /// </remarks>
+    public bool CloseSource(string connectionString)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+
+        bool closed = false;
+
+        if (_pools.TryRemove(connectionString, out NpgsqlDataSource? pool))
+        {
+            pool.Dispose();
+            closed = true;
+        }
+
+        // <b>The attachment pools too, and forgetting them would have been the whole defect.</b>
+        // They are a second dictionary keyed the same way, opened by the attachment store, and a
+        // source whose feature pool is closed while its attachment pool is open is a source still
+        // holding the table.
+        if (_attachmentPools.TryRemove(connectionString, out NpgsqlDataSource? attachments))
+        {
+            attachments.Dispose();
+            closed = true;
+        }
+
+        return closed;
     }
 
     /// <summary>How long a single statement may run before PostgreSQL stops it.</summary>
@@ -107,7 +176,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
                     : null),
             _budget,
             layer.ConnectionString,
-            _breaker);
+            _breaker,
+            _quiesce);
     }
 
     /// <summary>
