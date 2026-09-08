@@ -183,6 +183,16 @@ When a DBA alters a registered table:
 
 - **The running service is stale.** Its field list, types and metadata no longer
   match. ArcGIS requires a manual service restart.
+  **Cited 2026-09-08, having been asserted since 2026-08-12.** Esri's own
+  documentation says it, and says more than this line did: a map service holds a
+  **schema lock** on its source by default, so a DBA is blocked until an operator
+  turns that off — and *changing the schema locking setting requires you to restart
+  the service*. After a change that alters an existing field's definition, another
+  restart. Adding or deleting a field generally needs a **republish**. Their own
+  warning about doing it under load is worth quoting: users *"can experience
+  unexpected behavior, such as missing layers and fields, failing queries, and
+  unavailable services"* —
+  [Change schema in map services](https://doc.esri.com/en/arcgis-enterprise/latest/administer/disabling-schema-locking-on-a-map-service.html).
 - **We can block the DBA.** A running service holds open connections, and DDL
   needs an exclusive lock. This fails differently on each engine and none of
   them is pleasant:
@@ -229,7 +239,18 @@ check on error, and compare. If it changed, refresh the service definition,
 invalidate caches and refresh workers automatically.
 
 ArcGIS requires a manual restart here. Detecting and refreshing is a concrete
-improvement over the incumbent, which is what §86 asks for. Polling was already
+improvement over the incumbent, which is what §86 asks for.
+
+**And the claim now has a citation and a number on both sides — 2026-09-08.**
+Theirs is above. Ours is **30 seconds**, `ServiceContexts.Lifetime`, or
+immediately with `POST /admin/layers/{name}/refresh`; what a request already
+answering does was measured for [Q-37](open-questions.md) and it finishes on the
+old shape. **What is still not built is this paragraph's own proposal.** Nothing
+polls `information_schema` and nothing keeps a fingerprint: the mechanism is a
+time-to-live, which is cheaper and answers a narrower question — *is what I
+remember old* rather than *has it changed*. A-023 is about the polling and stays
+`UNVALIDATED` because the polling does not exist, which is a different thing from
+the assumption having been tested and failed. Polling was already
 the assumed mechanism because `LISTEN`/`NOTIFY` is not portable
 ([ADR-002](adr/ADR-002-primary-data-architecture.md) §4a.4), so this reuses
 machinery we need anyway.
