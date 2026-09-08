@@ -394,12 +394,34 @@ no library type crosses a boundary.
    owner's standing instruction and the same condition
    [ADR-038](ADR-038-how-a-geodatabase-becomes-a-service.md) carries.
 
-   **Not yet done for this one.** The Fields view gained an *Add field* row and a Delete per
-   droppable column on 2026-09-08, and the review that ran that day was of the Publish screen.
-   What it found there is worth reading before this one is drawn any further: the whole Databases
-   pane was unreachable by keyboard, and a paragraph that answers asynchronously had no live
-   region. Both are shapes this screen has too — a table of rows with buttons in them, and a hint
-   that changes after a request.
+   ***(Discharged 2026-09-08 — run, and it found four things.)*** Two of them were **the same
+   two faults the Publish screen's review had found hours earlier, rebuilt in the screen written
+   immediately afterwards**, which is the strongest argument for the standing instruction that
+   this repository has produced:
+
+   - **Every successful Add and Delete showed a red failure toast.** `toast(message, ok = false)`
+     defaults to the alert colour and both success paths omitted the second argument, while every
+     other success in that file passes `true`. On a screen whose whole job is an irreversible
+     operation, a successful delete that looks like a failed one is the wrong signal at the worst
+     moment — an operator retries, or panics.
+   - **Focus fell to `<body>` after every success.** Both paths redraw the panel, so the focused
+     control stops existing; a keyboard operator who adds one field is thrown to the top of the
+     document and has to find the panel again. The reviewer isolated the cause exactly by
+     cancelling the confirm — no redraw, focus intact.
+   - **`#fldSays` had no live region**, and it is the *only* feedback on every error path: the
+     empty name, the duplicate name, and §5c's dependency refusal all land there and none of them
+     toast. Silent to a screen reader.
+   - **The Delete button was `ghost small`**, and `.small` is not a class this stylesheet has —
+     dead markup — while `danger` is what every other row-level Delete in the product uses.
+
+   All four are fixed and verified in a browser: `role="status" aria-live="polite"`, `tiny
+   danger`, `on good` toasts, and the cursor back on the name box after both acts.
+
+   **What the reviewer confirmed rather than found** is worth recording too, because it is what
+   the check is for: the controls genuinely render (`offsetParent` is not null), a layer this
+   server did not create shows the explanatory paragraph and **zero** controls, and the copy —
+   the confirmation, the dependency refusal, the duplicate-name message — reads in the product's
+   voice and names what it should.
 4. **A hosted layer altered behind our back is still noticed**, tested rather than
    reasoned. §5a rests on the drift path continuing to work for hosted tables, and
    the temptation once *we* own the schema is to stop asking.

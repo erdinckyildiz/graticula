@@ -378,7 +378,24 @@ policy, and it should be an idle timeout rather than aggressive closing.
   the window is one number rather than a growing one, which is enough while a failed
   connect costs four seconds and would not be if it cost thirty.)***
 - **Quiesce** is an administrative operation on a data source: drain its
-  connections, hold its requests, let the DBA work, resume.
+  connections, ~~hold its requests~~ **refuse its requests**, let the DBA work,
+  resume.
+  ***(Built 2026-09-08 — [ADR-059](ADR-059-quiescing-a-data-source.md), the last of
+  this section's five.)*** `POST /admin/datasources/{id}/quiesce` closes the
+  worker's pool for one source and refuses what would reach it until a deadline
+  it sets itself.
+
+  **Two things that bullet had wrong, and ADR-059 records both.** *Hold* became
+  *refuse*: a wait whose length an operator controls is a queue that grows until
+  it collapses, which is what
+  [ADR-046](ADR-046-admission-control-bounds-the-queue-not-the-wait.md) decided
+  about waits in general — and the four built bullets above are all about not
+  letting a slow thing accumulate callers. And *drain its connections* is not what
+  frees the lock: **the table above already said so** and it took a measurement to
+  notice. An idle pooled connection does not block `ALTER TABLE` — 0.410 s with one
+  held open, against 5.262 s to `lock_timeout` with a connection idle in a
+  transaction. The refusal is the mechanism; closing the pool is worth doing for
+  smaller reasons, which ADR-059 §5c lists.
 
 > **Amended by
 > [ADR-046](ADR-046-admission-control-bounds-the-queue-not-the-wait.md).** This

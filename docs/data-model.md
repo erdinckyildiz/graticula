@@ -212,9 +212,16 @@ Two obligations, and the second is an improvement on the incumbent.
 
 **1. Never stand in the DBA's way.**
 Short-lived connections. Never idle in transaction. Aggressive idle timeouts. An
-admin operation to quiesce a data source — drain its connections and hold
-requests — so a DBA can run DDL cleanly. Belongs to
+admin operation to quiesce a data source — drain its connections and ~~hold~~
+**refuse** requests — so a DBA can run DDL cleanly. Belongs to
 [ADR-007](adr/ADR-007-service-runtime.md) and the admin API (§39).
+
+**Built 2026-09-08 — [ADR-059](adr/ADR-059-quiescing-a-data-source.md).** It
+refuses rather than holds, and it ends by itself after a deadline, because it is
+the only refusal in this server that a person starts. What frees the DBA's lock
+is the refusal and not the connection close: an idle pooled connection does not
+block `ALTER TABLE` at all, which was measured after this sentence had claimed
+otherwise for a month.
 
 **2. Detect schema drift and refresh ourselves.**
 Keep a fingerprint of each layer's schema. Poll `information_schema` cheaply, or

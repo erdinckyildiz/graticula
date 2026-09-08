@@ -3850,6 +3850,12 @@ function dataDroppable(field) {
  * <b>The server's sentence is what is shown on a refusal</b>, because it names the column, the
  * holder and where to change it — which is the whole point of ADR-058 §5c's dependency check.
  *
+ * <b>And the cursor goes back to the name box afterwards.</b> Success redraws the whole panel, so
+ * the focused control stops existing and focus falls to `<body>` — a keyboard operator who adds
+ * one field is thrown to the top of the document and has to find the panel again to add a second.
+ * That is the same fault a UX review found on the Publish screen hours before this screen was
+ * written, and writing it again is the argument for the check rather than for the fix.
+ *
  * @param {string} root the layer's REST address, for redrawing afterwards
  * @param {string} index the layer's index
  * @returns {Promise<void>} when it has been added, or refused
@@ -3880,8 +3886,13 @@ async function addField(root, index) {
     // <b>The name that was made, not the one that was typed.</b> The server rewrites what it
     // must — a space becomes an underscore — and a screen that showed the request back would be
     // showing a column that does not exist.
-    toast(`Added ${made.field}.`);
-    loadServiceData();
+    // <b>`true`, because `toast` defaults to the failure colour.</b> Both of this screen's
+    // success messages went out in alert red until a UX review put them beside a real error and
+    // found them identical — on a screen whose whole job is an irreversible operation, a
+    // successful delete that looks like a failed one is the wrong signal at the worst moment.
+    toast(`Added ${made.field}.`, true);
+    await loadServiceData();
+    $("fldName")?.focus();
   } catch (e) {
     says.classList.add("bad-inline");
     says.textContent = e.message;
@@ -3915,8 +3926,13 @@ async function dropField(root, index, field) {
       `/admin/hosted/${encodeURIComponent(layer)}/fields/${encodeURIComponent(field)}`,
       { method: "DELETE" });
 
-    toast(`Deleted ${field}.`);
-    loadServiceData();
+    toast(`Deleted ${field}.`, true);
+    await loadServiceData();
+
+    // <b>The add box, not the button that has just gone.</b> The row this Delete belonged to no
+    // longer exists, so there is nowhere to put the cursor back; the next thing anybody does on
+    // this screen is add or delete something else, and both start here.
+    $("fldName")?.focus();
   } catch (e) {
     // <b>Shown rather than toasted for a refusal that explains itself.</b> The server names what
     // holds the column and where to change that, and a toast is gone before it has been read.
@@ -3999,7 +4015,7 @@ async function loadServiceData() {
               <td class="val">${h((field.type || "").replace(/^esriFieldType/, ""))}</td>
               <td class="num">${field.length ? num(field.length) : ""}</td>
               ${may ? `<td class="right">${dataDroppable(field)
-                ? `<button type="button" class="ghost small" data-drop-field="${
+                ? `<button type="button" class="tiny danger" data-drop-field="${
                     h(field.name || "")}">Delete</button>`
                 : ""}</td>` : ""}
             </tr>`).join("")}</tbody>
@@ -4018,7 +4034,8 @@ async function loadServiceData() {
               </select></label>
             <button type="button" class="primary" id="fldAdd">Add field</button>
           </div>
-          <p class="hint" id="fldSays">Every existing feature will have the new field empty.
+          <p class="hint" id="fldSays" role="status" aria-live="polite">Every existing feature
+            will have the new field empty.
             A column added to a table that already holds rows cannot be required.</p>`
         : `<p class="hint">The columns of this layer are not edited here: its table was not
             created by this server. A registered table is changed in the database it was
