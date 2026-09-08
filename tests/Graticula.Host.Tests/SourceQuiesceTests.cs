@@ -179,6 +179,46 @@ public sealed class SourceQuiesceTests
     }
 
     /// <summary>
+    /// A quiesce with no reason says none, rather than one nobody gave.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A design review's finding, 2026-09-09, and it was two faults wearing one placeholder.</b>
+    /// The dialog's reason box shows a grey <c>a schema change</c>; an empty box sent that exact
+    /// string as a real value, so the row and the audit recorded a reason nobody typed. And when
+    /// that was fixed, this sentence kept doing it one layer down: <c>Says</c> substituted
+    /// <i>for a schema change</i> whenever <c>Why</c> was null, which is the half an ArcGIS
+    /// client reads.
+    /// </para>
+    /// <para>
+    /// <b>The clause is dropped rather than replaced.</b> *for no stated reason* would be a
+    /// reproach aimed at somebody who is not reading it, and quiescing without typing a reason is
+    /// an ordinary thing for an operator in a hurry to do.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_refusal_with_no_reason_invents_none()
+    {
+        Clock clock = new();
+        SourceQuiesce quiesce = new(clock.Read);
+
+        string says = SourceQuiesce.Says(
+            quiesce.Hold(Source, "erdinc", TimeSpan.FromMinutes(15), why: null),
+            clock.Now);
+
+        Assert.DoesNotContain("schema change", says, StringComparison.OrdinalIgnoreCase);
+
+        // <b>Everything else it says is unchanged</b>, because what was wrong was one clause.
+        Assert.Contains("erdinc", says, StringComparison.Ordinal);
+        Assert.Contains("in about 15 minutes", says, StringComparison.Ordinal);
+        Assert.Contains("Nothing is wrong with the database", says, StringComparison.Ordinal);
+
+        // And it still reads as a sentence: no dangling dash where the reason was.
+        Assert.Contains(
+            "by erdinc, so this server", says, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Quiescing one source leaves the others answering.
     /// </summary>
     /// <remarks>

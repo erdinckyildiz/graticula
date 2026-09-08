@@ -1569,8 +1569,8 @@ internal static class HostedDataEndpoints
     /// </para>
     /// <para>
     /// <b>Nothing is written to the catalogue, and that is §5f rather than an omission.</b> This
-    /// server stores no field list: <c>ServiceContexts</c> reads <c>information_schema</c> per
-    /// table and keeps the answer thirty seconds. So a new column is visible as soon as that
+    /// server stores no field list: <c>ServiceContexts</c> reads the database's own catalogue
+    /// per table and keeps the answer thirty seconds. So a new column is visible as soon as that
     /// memory is dropped, which is what this method does after the DDL.
     /// </para>
     /// </remarks>

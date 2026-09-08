@@ -1121,9 +1121,42 @@ public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Read from <c>information_schema.columns</c>, which is privilege-filtered
-    /// — so it shows what this credential may actually see, not what exists.
-    /// That is the honest answer for a capability report.
+    /// <b>Privilege-filtered, so it shows what this credential may actually see rather than what
+    /// exists.</b> That is the honest answer for a capability report, and it is the property that
+    /// had to survive the change below.
+    /// </para>
+    /// <para>
+    /// <b>Read from <c>pg_attribute</c> since 2026-09-09, and it was
+    /// <c>information_schema.columns</c> before — which does not list a materialized view at
+    /// all.</b> They are not in the SQL standard, so PostgreSQL leaves them out of
+    /// <c>information_schema</c>; <c>PostgresDataSourceProbe</c> reads <c>pg_class</c>, which
+    /// does list them, so a materialized view published successfully and then served
+    /// <b>zero fields</b> — its <c>query</c> returned only the object id and <c>applyEdits</c>
+    /// answered <i>'owner' is not a column of this layer</i> about a column that is one. Two
+    /// catalogues disagreeing, with nothing to notice it: [D-231](../../docs/architecture-debt.md).
+    /// </para>
+    /// <para>
+    /// <b>The filter is reproduced rather than dropped, and that was measured before it was
+    /// written.</b> <c>has_column_privilege</c> is what <c>information_schema</c> applies
+    /// internally; against a role granted <c>select</c> on three of five columns, the two queries
+    /// return the same three, with the same <c>udt_name</c>, nullability and length for every one
+    /// — including a <c>varchar(12)</c>. So this is not a disclosure change, which is the thing a
+    /// repair here could most easily have been.
+    /// </para>
+    /// <para>
+    /// <b><c>_pg_char_max_length</c> is <c>information_schema</c>'s own helper</b>, called rather
+    /// than reimplemented: the arithmetic differs by type — <c>varchar</c>, <c>bpchar</c>,
+    /// <c>bit</c> — and a second copy of it here would be a second place to be subtly wrong about
+    /// a column width.
+    /// </para>
+    /// <para>
+    /// <b>A domain is resolved to its base type, and the first version of this query was not.</b>
+    /// <c>information_schema</c> reports <c>varchar</c> for a column of
+    /// <c>create domain postcode as varchar(10)</c>; <c>pg_type.typname</c> reports
+    /// <c>postcode</c>, which <c>MapType</c> has never heard of, so the column arrived as
+    /// <c>Unknown</c>. Measured while re-reading this change rather than after somebody's
+    /// postcode column came back as the wrong type. The length moves with it, because a domain
+    /// carries its own <c>typtypmod</c> and the column's <c>atttypmod</c> is −1.
     /// </para>
     /// <para>
     /// <b>The geometry column is excluded because it is the shape, not a
@@ -1135,11 +1168,27 @@ public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions
         CancellationToken cancellationToken)
     {
         const string Sql = """
-            select column_name, udt_name, is_nullable, character_maximum_length
-            from information_schema.columns
-            where table_schema = @schema and table_name = @table
-              and column_name <> @geometry
-            order by ordinal_position
+            select
+              a.attname,
+              -- A domain reports its base type, which is what `information_schema` does and
+              -- what `MapType` knows how to read. Without this a `varchar(10)` domain arrives
+              -- as its own name and falls through to `Unknown` — measured.
+              coalesce(bt.typname, t.typname),
+              case when a.attnotnull then 'NO' else 'YES' end,
+              information_schema._pg_char_max_length(
+                coalesce(nullif(t.typbasetype, 0), a.atttypid),
+                case when t.typtype = 'd' then t.typtypmod else a.atttypmod end)
+            from pg_class c
+            join pg_namespace n on n.oid = c.relnamespace
+            join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+            join pg_type t on t.oid = a.atttypid
+            left join pg_type bt on bt.oid = nullif(t.typbasetype, 0)
+            where n.nspname = @schema
+              and c.relname = @table
+              and c.relkind in ('r', 'v', 'm', 'f', 'p')
+              and a.attname <> @geometry
+              and pg_catalog.has_column_privilege(c.oid, a.attnum, 'SELECT')
+            order by a.attnum
             """;
 
         await using NpgsqlCommand command = Command(Sql);

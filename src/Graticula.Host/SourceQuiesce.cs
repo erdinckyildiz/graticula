@@ -211,8 +211,19 @@ internal sealed class SourceQuiesce
                 ? $"in about {Math.Max(1, (int)Math.Round(left.TotalSeconds))} seconds"
                 : $"in about {(int)Math.Round(left.TotalMinutes)} minutes";
 
+        /*
+          <b>No reason rather than an invented one — a design review's finding, 2026-09-09.</b>
+          This said *for a schema change* when nobody had given a reason, which is a sentence a
+          caller reads as something the operator typed. The console was doing the same thing one
+          layer up, sending its own placeholder as a real value, and both were fixed together;
+          this half is the one an ArcGIS client sees.
+
+          <b>The clause is dropped rather than replaced.</b> *for no stated reason* would be a
+          reproach aimed at somebody who is not reading it, and a quiesce with no reason is a
+          perfectly ordinary thing for an operator in a hurry to have done.
+        */
         return $"This layer's database was taken out of service by {held.Who}"
-            + (held.Why is { Length: > 0 } why ? $" — {why}" : " for a schema change")
+            + (held.Why is { Length: > 0 } why ? $" — {why}" : string.Empty)
             + ", so this server has closed its connections to let the work happen. It answers "
             + "again " + when + " unless it is resumed sooner. Nothing is wrong with the "
             + "database.";

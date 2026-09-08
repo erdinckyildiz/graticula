@@ -14,9 +14,10 @@ namespace Graticula.Host;
 /// <remarks>
 /// <para>
 /// <b>What this fixes (D-17).</b> Every FeatureServer request re-derived the
-/// table's shape from the data source: <c>information_schema.columns</c> for the
-/// fields and <c>ST_EstimatedExtent</c> for the extent, two round trips before
-/// any feature was read. Measured against a real layer on 2026-08-14, the fixed
+/// table's shape from the data source: the catalogue for the fields — it was
+/// <c>information_schema.columns</c> then and is <c>pg_attribute</c> since 2026-09-09,
+/// [D-231](../../docs/architecture-debt.md) — and <c>ST_EstimatedExtent</c> for the extent, two
+/// round trips before any feature was read. Measured against a real layer on 2026-08-14, the fixed
 /// rediscovery cost was <b>~4–6 ms per request</b> — 51–67% of a 100-row query
 /// and 43% of a 1000-row query. The work is the same on every request and the
 /// answer is the same on every request.

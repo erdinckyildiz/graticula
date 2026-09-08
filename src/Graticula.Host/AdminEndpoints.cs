@@ -7549,22 +7549,43 @@ internal static class AdminEndpoints
         // per-request cost, and it is the same decrypt `capability` already does for one.
         List<object> listed = [];
 
+        /*
+          <b>Which sources reach the same database, worked out before anything is listed.</b>
+          A quiesce is keyed by connection string (ADR-059 §5d), so two sources pointing at one
+          database go out together — and until 2026-09-09 the screen said so only *afterwards*,
+          in a toast that hides after seven seconds. A design review put it plainly: the dialog
+          on `datastore` said **8 layers** when nine were about to stop answering, and never
+          named `probe`; the persistent row on `probe` then read as though somebody had taken
+          *it* out deliberately.
+
+          <b>Computed here rather than guessed on the screen.</b> The console could group by the
+          `summary` it already shows — but that is host, port and database, so two sources
+          differing only in their credential would look shared and would not be. The key the
+          register actually uses is the whole connection string, `Ordinal`, and this is the one
+          place that holds every decrypted one.
+        */
+        Dictionary<Guid, string> reachable = [];
+
         foreach (RegisteredDataSource source in sources)
         {
-            string? connection = null;
-
             try
             {
-                connection = await catalog
-                    .ConnectionStringOfAsync(source.Id, cancellation).ConfigureAwait(false);
+                if (await catalog.ConnectionStringOfAsync(source.Id, cancellation)
+                        .ConfigureAwait(false) is { Length: > 0 } key)
+                {
+                    reachable[source.Id] = key;
+                }
             }
             catch (CryptographicException)
             {
-                // <b>A source sealed with a key this build no longer holds is still a row worth
-                // listing.</b> Failing the whole page would hide every working source behind one that
-                // needs its secret re-entered — and *the summary is unavailable* is exactly the fact
-                // an operator needs in order to know which one that is.
+                // Sealed with another key. It is listed below without a summary, and it cannot
+                // be said to share a database with anything, because nobody here can read which.
             }
+        }
+
+        foreach (RegisteredDataSource source in sources)
+        {
+            string? connection = reachable.GetValueOrDefault(source.Id);
 
             listed.Add(new
             {
@@ -7590,6 +7611,18 @@ internal static class AdminEndpoints
                             why = held.Why,
                         }
                         : null,
+
+                // <b>The other sources this one shares a database with, by name.</b> Empty for
+                // almost every deployment; the screen uses it to say what a quiesce is really
+                // about to take out, before the operator agrees to it rather than after.
+                sharesWith = connection is null
+                    ? Array.Empty<string>()
+                    : sources
+                        .Where(other => other.Id != source.Id
+                            && reachable.TryGetValue(other.Id, out string? key)
+                            && string.Equals(key, connection, StringComparison.Ordinal))
+                        .Select(other => other.Name)
+                        .ToArray(),
             });
         }
 

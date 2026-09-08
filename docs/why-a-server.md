@@ -399,12 +399,23 @@ successfully, and its layer document came back with **`fields: []`** while its `
 returned features carrying only `id`. Every attribute is invisible; `applyEdits`
 answers *'owner' is not a column of this layer* about a column that is one.
 
-**One line fixes the reading half** — the field query would have to come off `pg_attribute`
-rather than `information_schema` — and it is not obviously the right fix, because
-`information_schema` is *privilege-filtered* and that is deliberate: `ReadFieldsAsync`'s
-own comment says it *"shows what this credential may actually see, not what exists.
-That is the honest answer for a capability report."* `pg_attribute` is not filtered, so
-the naive repair would report columns the credential cannot read. Also [D-231](architecture-debt.md).
+**Repaired the same day, and the trap was the privilege filter.** The field query now
+reads `pg_attribute`, whose `relkind` filter admits a materialized view. That is not the
+naive swap it looks like: `information_schema` is *privilege-filtered* and
+`ReadFieldsAsync`'s own comment says that is the point — *"it shows what this credential
+may actually see, not what exists. That is the honest answer for a capability report."* —
+so reading `pg_attribute` unfiltered would have turned a missing field list into a
+**disclosure**. `has_column_privilege` is what `information_schema` applies internally, and
+against a role granted `select` on three of five columns the two queries return the same
+three with the same type, nullability and length for each. Both halves are tests, both
+falsified. [D-231](architecture-debt.md).
+
+**The editing half of §6a stays open, and asking this question sharpened it.** Two things
+were tangled in one row. The **over-claim** is not a product decision at all — advertising
+an operation the database will refuse is ADR-008 §2's rule broken outright, and
+`pg_column_is_updatable` answers it exactly. What *is* the owner's is whether a
+non-updatable relation should be refused at publish, published read-only, or published
+with a warning.
 
 ## 7. What is left, and it is the owner's
 

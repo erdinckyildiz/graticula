@@ -13163,7 +13163,7 @@ async function loadSources() {
               + "Graticula:PlatformStore setting on every start, so it is neither edited "
               + "here nor removed"
             : ""}</div>
-          ${d.quiesced ? sourceHeldSays(d.quiesced) : ""}</td>
+          ${d.quiesced ? sourceHeldSays(d.quiesced, d.sharesWith) : ""}</td>
         <td class="val">${d.sealedWithAnotherKey
           ? `<span class="bad-inline">sealed with a key this build does not hold</span>`
           : h(d.summary || "—")}</td>
@@ -13174,7 +13174,10 @@ async function loadSources() {
             ? ` <button class="primary" data-source-resume="${h(d.id)}"
                   data-source-name="${h(d.name)}">Resume</button>`
             : ` <button data-source-quiesce="${h(d.id)}" data-source-name="${h(d.name)}"
-                  data-source-layers="${num(d.layerCount)}">Quiesce…</button>`}${
+                  data-source-layers="${num(d.layerCount)}"
+                  data-source-shares="${h((d.sharesWith || []).join(","))}"
+                  data-source-shared-layers="${num(sharedLayers(dataSources, d))}"
+                  >Quiesce…</button>`}${
             d.name === "datastore"
               ? ""
               : ` <button data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
@@ -13184,6 +13187,25 @@ async function loadSources() {
                     data-source-name="${h(d.name)}"
                     data-source-layers="${num(d.layerCount)}">Remove</button>`}</td>
       </tr>`).join("");
+}
+
+/**
+ * How many layers go out with a source, counting the ones on the same database.
+ *
+ * <b>A design review found the dialog understating this, 2026-09-09.</b> Quiescing `datastore`
+ * said *8 layers read from it* — and took `probe`'s one out as well, for nine. The number was
+ * right about the source and wrong about the act, at the one moment a reader can still decline.
+ *
+ * @param {Array<object>} all every listed data source
+ * @param {object} one the source about to be taken out
+ * @returns {number} the layers that stop answering, including the siblings'
+ */
+function sharedLayers(all, one) {
+  const names = new Set(one.sharesWith || []);
+
+  return (all || []).reduce(
+    (total, d) => total + (d.id === one.id || names.has(d.name) ? Number(d.layerCount) || 0 : 0),
+    0);
 }
 
 /**
@@ -13201,7 +13223,7 @@ async function loadSources() {
  * @param {{by: string, since: string, until: string, why: ?string}} held what the server reports
  * @returns {string} the markup
  */
-function sourceHeldSays(held) {
+function sourceHeldSays(held, shares) {
   const until = new Date(held.until);
   const clock = Number.isNaN(until.valueOf())
     ? ""
@@ -13217,9 +13239,25 @@ function sourceHeldSays(held) {
     groups the operator and the reason behind one dash and leaves a reader to guess which is
     which. ADR-059 §5e's own model sentence says *by X for Y*, and it is clearer.
   */
+  /*
+    <b>The shared database, said where it outlives the toast — a design review's finding,
+    2026-09-09.</b> The API's own `note` carries *this connection is also registered as probe,
+    and those are out of service too*; the toast carried a shorter version of it and hides after
+    seven seconds; this paragraph, which is the durable one, dropped it. So `probe`'s row read as
+    though somebody had taken *probe* out on purpose, and an operator arriving later — or a second
+    operator — had nothing to connect it to.
+
+    <b>Named rather than counted.</b> *One other source went out with it* leaves the reader to
+    find which; the names are what they act on.
+  */
+  const also = (shares || []).length > 0
+    ? ` The same database is also registered as ${h((shares || []).join(", "))}, and
+      ${shares.length === 1 ? "it is" : "they are"} out of service too.`
+    : "";
+
   return `<div class="rowmeta bad-inline" role="alert">Out of service until ${h(clock)},
-    taken out by ${h(held.by)}${held.why ? ` for ${h(held.why)}` : ""}. This worker has closed
-    its connections; another worker holds its own.</div>`;
+    taken out by ${h(held.by)}${held.why ? ` for ${h(held.why)}` : ""}.${also} This worker has
+    closed its connections; another worker holds its own.</div>`;
 }
 
 /**
@@ -13234,7 +13272,7 @@ function sourceHeldSays(held) {
  * @param {number} layers how many layers depend on it
  * @returns {Promise<void>} when it is held, or refused
  */
-async function quiesceSource(id, name, layers) {
+async function quiesceSource(id, name, layers, shares, sharedLayerCount) {
   const dialog = $("quiesce");
   const minutes = $("quiesceMinutes");
   const why = $("quiesceWhy");
@@ -13243,10 +13281,30 @@ async function quiesceSource(id, name, layers) {
 
   if (!dialog) return;
 
+  /*
+    <b>What actually stops answering, which is not always what this source owns — a design
+    review's finding, 2026-09-09.</b> A quiesce is per *database* (ADR-059 §5d), so a second
+    source registered against the same one goes out with it. This sentence said **8 layers** on
+    `datastore` while nine were about to stop, and never named `probe`; the sentence about
+    another *worker* sat right beside it and reads as reassurance that a sibling source is
+    unaffected, which is the opposite of what happens.
+
+    <b>The siblings are named and their layers are counted in</b>, because the number is what an
+    operator weighs and the names are what they check.
+  */
+  const others = shares || [];
+  const stopping = Number(sharedLayerCount) || Number(layers) || 0;
+
+  const shared = others.length > 0
+    ? ` The same database is also registered as <b>${h(others.join(", "))}</b>, so
+      ${others.length === 1 ? "it goes" : "they go"} out too — a quiesce is per database, which
+      is where the lock is.`
+    : "";
+
   $("quiesceWhat").innerHTML = `<b>${h(name)}</b> stops answering while it is out of service.
-    ${num(layers)} layer${layers === 1 ? "" : "s"} read from it and will answer 503 until the
-    time is up or you press Resume. This worker closes its connections so a DBA can run their
-    schema change; another worker holds its own and must be taken out separately.`;
+    ${num(stopping)} layer${stopping === 1 ? "" : "s"} will answer 503 until the time is up or
+    you press Resume.${shared} This worker closes its connections so a DBA can run their schema
+    change; another worker <i>process</i> holds its own and must be taken out separately.`;
 
   // <b>Nothing pre-filled — a design review's finding, not a preference.</b> The default was 15
   // and Enter accepted it, so the reflex that dismisses a native prompt was the same keystroke
@@ -13256,9 +13314,36 @@ async function quiesceSource(id, name, layers) {
   says.textContent = "";
   says.classList.remove("bad-inline");
 
+  /*
+    <b>A whole number of minutes, and the button says why when it will not go — both from the
+    same review.</b> `2.5` passed the range check and enabled Go, because the range was tested
+    and the `step` was not; the request then asked for 150 seconds, which is not a thing anybody
+    typed. And a reader who typed `0` or `61` got a button that silently refused to enable, with
+    no border, no `aria-invalid` and nothing in the dialog's own live region — which was wired
+    only for a failed request.
+  */
   const judge = () => {
-    const asked = Number(minutes.value);
-    go.disabled = !(Number.isFinite(asked) && asked >= 1 && asked <= 60);
+    const typed = minutes.value.trim();
+    const asked = Number(typed);
+    const ok = typed !== "" && Number.isInteger(asked) && asked >= 1 && asked <= 60;
+
+    go.disabled = !ok;
+    minutes.setAttribute("aria-invalid", typed !== "" && !ok ? "true" : "false");
+
+    // Nothing to say about an empty box: it is the state the dialog opens in, and calling it
+    // wrong the moment somebody arrives is telling them off for not having typed yet.
+    if (typed === "" || ok) {
+      if (!says.classList.contains("bad-inline")) {
+        says.textContent = "";
+      }
+
+      return;
+    }
+
+    says.classList.remove("bad-inline");
+    says.textContent = Number.isFinite(asked) && !Number.isInteger(asked)
+      ? "Whole minutes only."
+      : "Between 1 and 60 minutes.";
   };
 
   const shut = () => {
@@ -13280,7 +13365,14 @@ async function quiesceSource(id, name, layers) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           seconds: Math.round(asked * 60),
-          why: why.value.trim() || "a schema change",
+          /*
+            <b>No reason rather than the placeholder's, which the same review caught being
+            written down as though somebody had typed it.</b> The box showed a grey
+            `a schema change` and an empty field sent exactly that string, so the row and the
+            audit both recorded a reason nobody gave. `sourceHeldSays` and the refusal sentence
+            already omit the clause when there is none, so the honest answer costs nothing.
+          */
+          why: why.value.trim() || null,
         }),
       });
 
@@ -17129,7 +17221,12 @@ async function handleClick(event) {
 
   // ADR-059: the DBA's problem is visible on this screen, so the lever that fixes it is here too.
   if (d.sourceQuiesce) {
-    await quiesceSource(d.sourceQuiesce, d.sourceName, Number(d.sourceLayers) || 0);
+    await quiesceSource(
+      d.sourceQuiesce,
+      d.sourceName,
+      Number(d.sourceLayers) || 0,
+      d.sourceShares ? d.sourceShares.split(",").filter(Boolean) : [],
+      Number(d.sourceSharedLayers) || 0);
     return;
   }
 

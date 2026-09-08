@@ -450,9 +450,65 @@ whose §6 names quiesce as the thing it does not touch.
    takes both out — correct behaviour, and a response naming only the one that was
    asked for was a half-truth. It now lists the others.
 
-   **The review has not run.** The two before it each found a paragraph with no
+   ~~**The review has not run.** The two before it each found a paragraph with no
    live region and a control a redraw threw the cursor off; this screen has both
-   shapes.
+   shapes.~~
+
+   ***(DISCHARGED 2026-09-09 — it ran, and it found four things, two of them about the
+   pair of sources §5d is written for.)***
+   [design-quiesce-control-2026-09-09.md](../reviews/design-quiesce-control-2026-09-09.md).
+
+   **Neither of the two shapes this row predicted reproduced**, and that is worth as
+   much as the findings: the row's paragraph carries `role="alert"` and fires, and
+   `focusSourceRow` puts the cursor on the replacement button after both Quiesce and
+   Resume. What was wrong on the row was the **content** rather than the mechanism,
+   which is a fault no accessibility check would have caught.
+
+   **What it found, in the order it costs:**
+
+   - **The dialog understated the act at the one moment a reader can decline it.**
+     Quiescing `datastore` said *8 layers* while nine were about to stop answering, and
+     never named `probe` — with the sentence about another *worker* right beside it,
+     reading as reassurance that a sibling source is unaffected. This is §5d's own
+     correction arriving on the screen: the register keys by connection string, and the
+     screen was speaking about one row. Repaired with **`sharesWith`** on the data-source
+     listing, computed server-side from the decrypted connection strings, `Ordinal` —
+     because the console could have grouped by the `summary` it already shows, and two
+     sources differing only in their credential would have looked shared and would not
+     be.
+   - **The row dropped the fact the toast carried.** §5d's own response `note` says
+     *this connection is also registered as probe, and those are out of service too*; the
+     toast said a shorter version and hides after seven seconds; the durable paragraph
+     said none of it. So `probe`'s row read as a deliberate target. Same repair.
+   - **An empty reason box sent its placeholder as a real value**, so the row, the toast
+     and the audit recorded *a schema change* when nobody typed it — the same failure the
+     minutes field had already been fixed for, in the field beside it. **And fixing the
+     console found the server doing it too**: §5e's sentence substituted the same words
+     whenever `Why` was null, so the refusal an ArcGIS client reads carried an invented
+     reason even after the screen stopped sending one. The clause is dropped rather than
+     replaced.
+   - **`2.5` minutes enabled Go** — the range was checked and the `step` beside it was
+     not — and the request then asked for 150 seconds. Whole minutes now, with
+     `aria-invalid` and a sentence in the dialog's own live region, which had been wired
+     only for a failed request.
+
+   **Two findings are recorded rather than repaired**, both larger than this screen:
+   [D-232](../architecture-debt.md), the Services screen reporting every service as
+   `started` at 100% while every request answers 503; and
+   [D-233](../architecture-debt.md), white text failing WCAG AA across the leading half
+   of the shared primary button's gradient — 2.57:1 at the teal end, computed by hand
+   because a sampled pixel is not a gradient.
+
+   **One finding was pushed back on with evidence**, and the review document says so
+   rather than smoothing it: the reported focus trap is Chromium's own `a → b → c → BODY
+   → a` for a bare `<dialog>`, dispositioned on 2026-09-08 for the same reason, and the
+   review's own measurements — the page behind is `inert`, 18 elements carry
+   `aria-hidden`, `Sign out` refuses `.focus()`, Escape restores the opener — are what
+   support that reading.
+
+   **All four repairs are tests, and all four were falsified**: three in
+   `QuiesceControlTests` over the live console, one in `SourceQuiesceTests` for the
+   refusal's sentence.
 
 5. **Every path to a quiesced database is enumerated rather than assumed**, and
    the enumeration is a test rather than a sentence in this document. §5g exists

@@ -932,8 +932,11 @@ internal static class VectorTileEndpoints
     /// </para>
     /// <para>
     /// <b><see cref="FieldType.Unknown"/> is what the geometry column comes back
-    /// as</b> from <c>information_schema</c>, since PostGIS types are not
-    /// standard SQL types. Excluding it by type as well as by name means a layer
+    /// as</b>, since PostGIS types are not standard SQL types and
+    /// <c>PostGisFeatureSource.MapType</c> has no arm for them. (It used to say *from
+    /// <c>information_schema</c>*; the field list moved to <c>pg_attribute</c> on 2026-09-09 —
+    /// [D-231](../../docs/architecture-debt.md) — and the answer here is unchanged, because it
+    /// is the mapping rather than the catalogue that decides it.) Excluding it by type as well as by name means a layer
     /// with a second geometry column does not ship it as a tag — which would put
     /// a whole WKB blob in every tile of the pyramid.
     /// </para>
