@@ -75,6 +75,11 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["ServiceContexts._known"] = "one per table; removed by Forget on unpublish and refresh",
         ["ServiceContexts._times"] = "one per layer; removed by Forget on unpublish and refresh (D-160)",
         ["SourceBreaker._tripped"] = "one per data source; removed on recovery",
+
+        // ADR-059's register, and it is the breaker's shape: an operator can only quiesce a
+        // source that exists, and every entry is removed as it is read once its window has ended.
+        ["SourceQuiesce._quiesced"] =
+            "one per data source; removed when its window ends or an operator resumes it",
         ["TileSingleFlight._building"] = "one per tile being built right now",
         ["CatalogFallback._last"] = "explicit capacity; cleared when full",
         ["DatumShiftNotices._seen"] =

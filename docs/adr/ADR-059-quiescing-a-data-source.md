@@ -257,6 +257,27 @@ whose §6 names quiesce as the thing it does not touch.
    second worker holds its own connections; a test that quiesces one and shows
    the other still serving is what stops that becoming a surprise in a
    deployment.
+   ***(Discharged 2026-09-08 — measured with two workers.)*** Two processes against
+   one platform store, on 8451 and 8453, both answering a count on the same layer:
+
+   | | 8451 | 8453 |
+   |---|---|---|
+   | before | 200 | 200 |
+   | after quiescing **on 8451** | **503** | **200** |
+   | after resuming on 8451 | 200 | — |
+
+   **So the limit is real and it is exactly what §4 says.** An operator who quiesces
+   one worker and hands the database to a DBA has left the other worker's
+   connections in place; the DDL still waits behind them. The response says so in
+   its own words rather than leaving it to be discovered from a DBA who is still
+   blocked.
+
+   **Not turned into a suite test, and why.** The conformance suite is pointed at
+   one server by `GRATICULA_TEST_URL`; a second is a harness change for one
+   assertion, and the assertion is about deployment topology rather than about the
+   server's behaviour. Coordinating quiesce across workers is
+   [runtime-supervisor.md](../runtime-supervisor.md) §7 and
+   [Q-65](../open-questions.md), and that is where a test of it belongs.
 3. **The window is measured against a real customer's DDL** before fifteen
    minutes is defended as anything but a guess. §5b says so; this is the row that
    keeps it from being forgotten.
