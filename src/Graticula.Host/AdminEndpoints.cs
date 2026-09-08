@@ -6730,6 +6730,32 @@ internal static class AdminEndpoints
         // refused from — and the rebuilt pool is exactly the connection the DBA is waiting for.
         bool closed = connections.CloseSource(connection);
 
+        /*
+          <b>Which other registered sources this takes out with it — found by running it.</b>
+          ADR-059 §5d said *per data source*; the register is keyed by connection string, because
+          that is what a pool is keyed by (ADR-007 §4.8), and two registered sources may point at
+          one database. Quiescing either takes both out, which is correct — the DBA's lock is on
+          the database — and a response naming only the one that was asked for is a half-truth an
+          operator would find out about from whoever was serving the other.
+        */
+        List<string> also = [];
+
+        foreach (RegisteredDataSource other in
+            await catalog.ListDataSourcesAsync(cancellation).ConfigureAwait(false))
+        {
+            if (other.Id == id)
+            {
+                continue;
+            }
+
+            if (await catalog.ConnectionStringOfAsync(other.Id, cancellation).ConfigureAwait(false)
+                is { Length: > 0 } theirs
+                && string.Equals(theirs, connection, StringComparison.Ordinal))
+            {
+                also.Add(other.Name);
+            }
+        }
+
         await AuditAsync(
             context, audit, "datasource.quiesce", id.ToString(),
             Detail(new
@@ -6752,10 +6778,21 @@ internal static class AdminEndpoints
             // <b>Said, because *nothing was open* and *the connections are gone* look identical
             // from here and mean different things to whoever is about to run the DDL.</b>
             poolWasOpen = closed,
+
+            // <b>And which other sources went out with it.</b> Empty is the ordinary case; a
+            // name in here means somebody registered the same database twice and both are now
+            // refusing.
+            alsoQuiesced = also,
             note = "This worker has closed its connections to that database and refuses requests "
                  + "that would reach it until the time above. A request already in flight keeps "
                  + "its connection until it finishes. Another worker holds its own connections "
-                 + "and must be quiesced separately.",
+                 + "and must be quiesced separately."
+                 + (also.Count > 0
+                     ? " This connection is also registered as "
+                       + string.Join(", ", also)
+                       + ", and those are out of service too: a quiesce is per database, and "
+                       + "that is where the DBA's lock is."
+                     : string.Empty),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -7454,7 +7491,10 @@ internal static class AdminEndpoints
     }
 
     private static async Task ListDataSourcesAsync(
-        HttpContext context, IAdminCatalog catalog, CancellationToken cancellation)
+        HttpContext context,
+        IAdminCatalog catalog,
+        SourceQuiesce quiesce,
+        CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentRegisterDataStore)
             .ConfigureAwait(false))
@@ -7504,6 +7544,22 @@ internal static class AdminEndpoints
                 source.LayerCount,
                 summary = connection is null ? null : Summarise(connection),
                 sealedWithAnotherKey = connection is null,
+
+                // <b>Whether this worker is holding it out of service — ADR-059.</b> A quiesce
+                // is invisible otherwise: the screen that registers a source is where somebody
+                // looks when a DBA says the database will not let them work, and a listing that
+                // did not say would leave the operator's own instruction the last place they
+                // would think to check.
+                quiesced = connection is { Length: > 0 } key
+                    && quiesce.Holding(key) is { } held
+                        ? new
+                        {
+                            by = held.Who,
+                            since = held.Since,
+                            until = held.Until,
+                            why = held.Why,
+                        }
+                        : null,
             });
         }
 

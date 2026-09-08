@@ -161,11 +161,24 @@ credited the wrong half of it. Recorded rather than quietly fixed because the
 wrong version was written *with §4.8 open in the next tab*, which is how a claim
 survives being obviously checkable.
 
-### 5d. It is per data source, which is the unit the lock lives on
+### 5d. It is per database, which is the unit the lock lives on
 
-Not per service and not per layer. A hundred services can share one registered
-database, and the DBA is altering a table in *that*; quiescing a service would
-leave the other ninety-nine holding the connections that block them.
+~~It is per data source~~ — **corrected 2026-09-08 by running it.** Not per
+service and not per layer: a hundred services can share one registered database
+and the DBA is altering a table in *that*, so quiescing a service would leave the
+other ninety-nine holding the connections that block them. That much was right.
+
+**What was wrong is the unit.** The register is keyed by connection string,
+because that is what a *pool* is keyed by (ADR-007 §4.8) — and two registered
+data sources may point at one database. Quiescing either takes both out. Measured
+on a fixture where a source was registered against the same PostgreSQL the
+datastore uses: quiescing the datastore left both rows refusing.
+
+**That behaviour is correct and the wording was not.** The DBA's lock is on the
+database, so taking one source out and leaving the other holding connections
+would have been the bug. What needed fixing was the response, which named only
+the source that was asked for: it now lists the others that went out with it, and
+says why.
 
 The datastore can be quiesced too. It is a data source like any other here, and
 [ADR-058](ADR-058-the-datastore-schema-is-edited-from-the-screen.md)'s field
@@ -283,6 +296,19 @@ whose §6 names quiesce as the thing it does not touch.
    keeps it from being forgotten.
 4. **The console offers it where the DBA's problem is visible**, and goes through
    the ux-designer first — the owner's standing instruction.
+   ***(PARTLY DISCHARGED 2026-09-08.)*** The Data sources screen carries *Quiesce…*
+   and, on a held source, *Resume* and a line saying who took it out and until
+   when. That is the screen somebody is on when a DBA tells them the database will
+   not let them work.
+
+   **Running it found the wording of §5d wrong**, which is recorded there: two
+   registered sources pointing at one database share a pool, so quiescing either
+   takes both out — correct behaviour, and a response naming only the one that was
+   asked for was a half-truth. It now lists the others.
+
+   **The review has not run.** The two before it each found a paragraph with no
+   live region and a control a redraw threw the cursor off; this screen has both
+   shapes.
 
 ## 8. Revisit triggers
 

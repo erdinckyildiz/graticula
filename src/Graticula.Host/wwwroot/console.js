@@ -13073,13 +13073,20 @@ async function loadSources() {
             ? " · this server's own hosted store: its connection comes from the "
               + "Graticula:PlatformStore setting on every start, so it is neither edited "
               + "here nor removed"
-            : ""}</div></td>
+            : ""}</div>
+          ${d.quiesced ? sourceHeldSays(d.quiesced) : ""}</td>
         <td class="val">${d.sealedWithAnotherKey
           ? `<span class="bad-inline">sealed with a key this build does not hold</span>`
           : h(d.summary || "—")}</td>
         <td class="num">${num(d.layerCount)}</td>
         <td class="acts"><button data-probe="${h(d.id)}"
-            data-probe-name="${h(d.name)}">Probe</button>${d.name === "datastore"
+            data-probe-name="${h(d.name)}">Probe</button>
+          ${d.quiesced
+            ? ` <button class="primary" data-source-resume="${h(d.id)}"
+                  data-source-name="${h(d.name)}">Resume</button>`
+            : ` <button data-source-quiesce="${h(d.id)}" data-source-name="${h(d.name)}"
+                  data-source-layers="${num(d.layerCount)}">Quiesce…</button>`}${
+            d.name === "datastore"
               ? ""
               : ` <button data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
                     data-source-summary="${h(d.summary || "")}"
@@ -13088,6 +13095,106 @@ async function loadSources() {
                     data-source-name="${h(d.name)}"
                     data-source-layers="${num(d.layerCount)}">Remove</button>`}</td>
       </tr>`).join("");
+}
+
+/**
+ * What a quiesced source says on its own row.
+ *
+ * <b>[ADR-059](../../docs/adr/ADR-059-quiescing-a-data-source.md) §5e, on the screen rather than
+ * only in the refusal.</b> A quiesce is invisible otherwise: this is where somebody looks when a
+ * DBA says the database will not let them work, and an operator's own instruction is the last
+ * place they would think to check.
+ *
+ * <b>The deadline is what the row leads with.</b> Every other refusal in this server ends on its
+ * own and nobody has to remember it; this is the one a person started, so *when does it stop* is
+ * the question the row exists to answer.
+ *
+ * @param {{by: string, since: string, until: string, why: ?string}} held what the server reports
+ * @returns {string} the markup
+ */
+function sourceHeldSays(held) {
+  const until = new Date(held.until);
+  const clock = Number.isNaN(until.valueOf())
+    ? ""
+    : until.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  return `<div class="rowmeta bad-inline">Out of service until ${h(clock)} —
+    ${h(held.by)}${held.why ? `, ${h(held.why)}` : ""}. This worker has closed its
+    connections; another worker holds its own.</div>`;
+}
+
+/**
+ * Takes a data source out of service, after saying what that costs.
+ *
+ * <b>The layer count is in the question, because it is the blast radius.</b> Quiescing a source
+ * with ninety layers on it makes ninety services answer 503, and an operator who reads *quiesce
+ * this source* without that number is agreeing to something they have not been told.
+ *
+ * @param {string} id the source
+ * @param {string} name its name
+ * @param {number} layers how many layers depend on it
+ * @returns {Promise<void>} when it is held, or refused
+ */
+async function quiesceSource(id, name, layers) {
+  const minutes = prompt(
+    `Take "${name}" out of service for how many minutes?
+
+`
+    + `${layers} layer${layers === 1 ? "" : "s"} read from it and will answer 503 until the `
+    + "time is up or you press Resume. This worker closes its connections so a DBA can run "
+    + "their schema change; another worker holds its own.",
+    "15");
+
+  if (minutes === null) return;
+
+  const asked = Number(minutes);
+
+  if (!Number.isFinite(asked) || asked <= 0) {
+    toast("That is not a number of minutes.");
+    return;
+  }
+
+  try {
+    const held = await api(`/admin/datasources/${encodeURIComponent(id)}/quiesce`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ seconds: Math.round(asked * 60), why: "a schema change" }),
+    });
+
+    // <b>The time the server applied, not the one that was asked for.</b> A window longer than
+    // the ceiling is clamped rather than refused, and a screen echoing the request would be
+    // showing a deadline that is not the one being kept.
+    toast(`${name} is out of service until ${new Date(held.until).toLocaleTimeString()}.`, true);
+    loadSources();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+/**
+ * Puts a data source back in service.
+ *
+ * <b>No confirmation, because resuming is the safe direction.</b> The destructive act was the
+ * quiesce; this ends it, and a screen that asked twice about undoing a refusal would be treating
+ * the wrong half as dangerous.
+ *
+ * @param {string} id the source
+ * @param {string} name its name
+ * @returns {Promise<void>} when it is answering again
+ */
+async function resumeSource(id, name) {
+  try {
+    const back = await api(`/admin/datasources/${encodeURIComponent(id)}/quiesce`,
+      { method: "DELETE" });
+
+    toast(back.wasQuiesced
+      ? `${name} answers again.`
+      : `${name} was already answering: its window had ended.`, true);
+
+    loadSources();
+  } catch (e) {
+    toast(e.message);
+  }
 }
 
 /** What the connection dialog is doing: the source it corrects, or null to register one. */
@@ -16833,6 +16940,17 @@ async function handleClick(event) {
 
   if (d.sourceRemove) {
     await removeSource(d.sourceRemove, d.sourceName, Number(d.sourceLayers) || 0);
+    return;
+  }
+
+  // ADR-059: the DBA's problem is visible on this screen, so the lever that fixes it is here too.
+  if (d.sourceQuiesce) {
+    await quiesceSource(d.sourceQuiesce, d.sourceName, Number(d.sourceLayers) || 0);
+    return;
+  }
+
+  if (d.sourceResume) {
+    await resumeSource(d.sourceResume, d.sourceName);
     return;
   }
 
