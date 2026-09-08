@@ -184,9 +184,17 @@ The datastore can be quiesced too. It is a data source like any other here, and
 [ADR-058](ADR-058-the-datastore-schema-is-edited-from-the-screen.md)'s field
 endpoints go through the same pool.
 
-### 5e. The refusal says who, why and until when
+### 5e. The refusal says who, why and how long is left
 
-*Quiesced by `erdinc` at 14:02 for a schema change; answering again at 14:17.*
+*Taken out of service by `erdinc` — a schema change. It answers again in about
+twelve minutes unless it is resumed sooner. Nothing is wrong with the database.*
+
+**A duration rather than a clock time, and the first version got that wrong.** The
+instants here are UTC, so a sentence formatting them as `HH:mm` printed a UTC wall
+clock into prose read by an operator in their own timezone — *answers again at
+14:17* to somebody whose clock says 17:14 reads as a fact they can check, and is
+not one. Three hours wrong for this project's own owner. The exact instant is in
+the response body as a proper offset for anything that needs to compute with it.
 
 **Because the alternative is a 503 that looks like an outage.** This server
 already has one refusal an operator can mistake for a broken database —

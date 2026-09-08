@@ -157,12 +157,22 @@ public sealed class SourceQuiesceTests
         SourceQuiesce.Held held =
             quiesce.Hold(Source, "erdinc", TimeSpan.FromMinutes(15), "adding a column");
 
-        string says = SourceQuiesce.Says(held);
+        string says = SourceQuiesce.Says(held, clock.Now);
 
         Assert.Contains("erdinc", says, StringComparison.Ordinal);
         Assert.Contains("adding a column", says, StringComparison.Ordinal);
-        Assert.Contains("14:00", says, StringComparison.Ordinal);
-        Assert.Contains("14:15", says, StringComparison.Ordinal);
+
+        /*
+          <b>A duration, and the first version said a clock time that was three hours wrong.</b>
+          These instants are UTC, so formatting them as `HH:mm` printed a UTC wall clock into a
+          sentence read by an operator in their own timezone — *answers again at 14:17* to
+          somebody whose clock says 17:14 reads as a fact they can check, and is not one.
+
+          <b>It is also the more useful of the two.</b> What a reader does with this is decide
+          whether to wait, and *in about fifteen minutes* answers that without arithmetic.
+        */
+        Assert.Contains("in about 15 minutes", says, StringComparison.Ordinal);
+        Assert.DoesNotContain("14:", says, StringComparison.Ordinal);
 
         // <b>And it says the database is fine</b>, which is the sentence that stops a page.
         Assert.Contains("Nothing is wrong with the database", says, StringComparison.Ordinal);
@@ -172,9 +182,11 @@ public sealed class SourceQuiesceTests
     /// Quiescing one source leaves the others answering.
     /// </summary>
     /// <remarks>
-    /// <b>ADR-059 §5d: per data source, which is the unit the lock lives on.</b> A hundred
-    /// services can share one registered database and the DBA is altering a table in that one;
-    /// a register that took them all out would make the feature unusable on a busy server.
+    /// <b>ADR-059 §5d: per database, which is the unit the lock lives on.</b> A hundred services
+    /// can share one registered database and the DBA is altering a table in that one; a register
+    /// that took them all out would make the feature unusable on a busy server. Two registered
+    /// sources pointing at <i>one</i> database do share a key — that is §5d's own correction, and
+    /// it is right: the lock is on the database.
     /// </remarks>
     [Fact]
     public void Holding_one_source_leaves_another_answering()

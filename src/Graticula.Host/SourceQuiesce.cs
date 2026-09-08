@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 
 namespace Graticula.Host;
@@ -178,13 +177,46 @@ internal sealed class SourceQuiesce
     /// at the one moment somebody already knows the answer —
     /// [D-150](../../docs/architecture-debt.md) is this server's own instance of that mistake.
     /// </remarks>
-    public static string Says(Held held) =>
-        $"This layer's database was taken out of service by {held.Who} at "
-        + held.Since.ToString("HH:mm", CultureInfo.InvariantCulture)
-        + (held.Why is { Length: > 0 } why ? $" — {why}" : " for a schema change")
-        + ", so this server has closed its connections to let the work happen. It answers again "
-        + "at " + held.Until.ToString("HH:mm", CultureInfo.InvariantCulture)
-        + " unless it is resumed sooner. Nothing is wrong with the database.";
+    public static string Says(Held held) => Says(held, DateTimeOffset.UtcNow);
+
+    /// <summary>The refusal, as of a given moment.</summary>
+    /// <param name="held">What is holding the source.</param>
+    /// <param name="now">When the refusal is being written.</param>
+    /// <returns>The sentence.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A duration, not a clock time — and the first version of this was three hours wrong for
+    /// anybody outside UTC.</b> These instants are `DateTimeOffset.UtcNow`, so formatting them as
+    /// <c>HH:mm</c> printed a UTC wall clock into a sentence read by an operator in their own
+    /// timezone. *Answers again at 14:17* to somebody whose clock says 17:14 is worse than saying
+    /// nothing: it reads as a time they can check, and it is wrong.
+    /// </para>
+    /// <para>
+    /// <b>And a duration is the more useful of the two anyway.</b> What a reader does with this
+    /// is decide whether to wait; *in about twelve minutes* answers that without arithmetic, and
+    /// the exact instant is in the response body as a proper offset for anything that needs it.
+    /// </para>
+    /// <para>
+    /// <b>The clock is a parameter so the sentence can be tested</b>, which is the same reason
+    /// the register takes one.
+    /// </para>
+    /// </remarks>
+    public static string Says(Held held, DateTimeOffset now)
+    {
+        TimeSpan left = held.Until - now;
+
+        string when = left <= TimeSpan.Zero
+            ? "in a moment"
+            : left < TimeSpan.FromMinutes(2)
+                ? $"in about {Math.Max(1, (int)Math.Round(left.TotalSeconds))} seconds"
+                : $"in about {(int)Math.Round(left.TotalMinutes)} minutes";
+
+        return $"This layer's database was taken out of service by {held.Who}"
+            + (held.Why is { Length: > 0 } why ? $" — {why}" : " for a schema change")
+            + ", so this server has closed its connections to let the work happen. It answers "
+            + "again " + when + " unless it is resumed sooner. Nothing is wrong with the "
+            + "database.";
+    }
 }
 
 /// <summary>
