@@ -298,13 +298,7 @@ public sealed class PostGisImporter
     /// </remarks>
     public async Task DropAsync(string schemaName, string tableName, CancellationToken cancellationToken)
     {
-        if (!string.Equals(schemaName, HostedSchema, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"Refusing to drop '{schemaName}.{tableName}': only tables in the "
-                + $"'{HostedSchema}' schema were created by this server, and a table we did not "
-                + "create is somebody else's data.");
-        }
+        RefuseOutsideHosted(schemaName, tableName, "drop");
 
         await using NpgsqlConnection connection =
             await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -312,6 +306,138 @@ public sealed class PostGisImporter
         await ExecuteAsync(
             connection, null, $"drop table if exists {Qualified(tableName)}", cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>How long an <c>ALTER TABLE</c> here waits for its lock before refusing.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-058](../../docs/adr/ADR-058-the-datastore-schema-is-edited-from-the-screen.md)
+    /// §5g, and the number comes from a measurement of what happens without it.</b>
+    /// <c>ALTER TABLE</c> takes <c>ACCESS EXCLUSIVE</c>, and a request already reading the table
+    /// holds it off — while every request arriving afterwards queues behind the *waiting* DDL,
+    /// so one blocked alteration stops the whole table. [D-08](../../docs/architecture-debt.md)
+    /// measured that shape: 30.30 s against 0.296 s unblocked.
+    /// </para>
+    /// <para>
+    /// <b>Two seconds, because the operator is watching.</b> This is a person pressing a button
+    /// on a screen, not a migration running overnight: a refusal they can retry beats a stall
+    /// they cannot understand, and the sentence they get says the table is being read.
+    /// </para>
+    /// </remarks>
+    private const string LockTimeout = "set local lock_timeout = '2s'";
+
+    /// <summary>
+    /// Adds a column to a hosted table.
+    /// </summary>
+    /// <param name="schemaName">Its schema, which must be the hosted one.</param>
+    /// <param name="tableName">The table.</param>
+    /// <param name="field">The field to add.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The column name as it was actually created.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Nullable, always, and that is not a parameter this takes.</b> A column added to a table
+    /// that already holds rows cannot be <c>not null</c> without a default, and a default is a
+    /// value this server would be inventing on the operator's behalf. Every existing row gets
+    /// null, which is the honest answer to *what was this field before it existed*.
+    /// </para>
+    /// <para>
+    /// <b>The name goes through <see cref="ColumnNameFor"/>, so what is created is what the
+    /// import path would have created.</b> Two ways to name a column is two sets of rules for
+    /// what a legal name is, and the one nobody tested is the one that lets a quote through.
+    /// </para>
+    /// </remarks>
+    public async Task<string> AddFieldAsync(
+        string schemaName,
+        string tableName,
+        FieldDescription field,
+        CancellationToken cancellationToken)
+    {
+        RefuseOutsideHosted(schemaName, tableName, "add a column to");
+
+        string column = ColumnNameFor(field.Name);
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        await ExecuteAsync(connection, transaction, LockTimeout, cancellationToken)
+            .ConfigureAwait(false);
+
+        await ExecuteAsync(
+            connection,
+            transaction,
+            $"alter table {Qualified(tableName)} add column "
+            + $"{LayerDefinition.Quote(column)} {SqlTypeForField(field.Type)}",
+            cancellationToken).ConfigureAwait(false);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+        return column;
+    }
+
+    /// <summary>
+    /// Drops a column from a hosted table.
+    /// </summary>
+    /// <param name="schemaName">Its schema, which must be the hosted one.</param>
+    /// <param name="tableName">The table.</param>
+    /// <param name="column">The column.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The work.</returns>
+    /// <remarks>
+    /// <b>No <c>if exists</c>, deliberately.</b> The caller has already decided this column may
+    /// go — it checked the dependencies — so a column that is not there means the caller and the
+    /// table disagree about what exists, and answering *done* to that is how a screen comes to
+    /// report success for an act it did not perform.
+    /// </remarks>
+    public async Task DropFieldAsync(
+        string schemaName,
+        string tableName,
+        string column,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(column);
+        RefuseOutsideHosted(schemaName, tableName, "drop a column from");
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        await ExecuteAsync(connection, transaction, LockTimeout, cancellationToken)
+            .ConfigureAwait(false);
+
+        await ExecuteAsync(
+            connection,
+            transaction,
+            $"alter table {Qualified(tableName)} drop column {LayerDefinition.Quote(column)}",
+            cancellationToken).ConfigureAwait(false);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The guard <see cref="DropAsync"/> has always had, shared once there were three.</summary>
+    /// <param name="schemaName">The schema a catalogue row named.</param>
+    /// <param name="tableName">The table, for the message.</param>
+    /// <param name="what">What was being attempted, for the message.</param>
+    /// <remarks>
+    /// <b>The one thing this class must never do is DDL in a registered customer database
+    /// because a row said so.</b> That sentence was written once for <c>DropAsync</c>; ADR-058
+    /// added two more ways in, and a guard copied twice is a guard that will be forgotten a
+    /// third time.
+    /// </remarks>
+    private static void RefuseOutsideHosted(string schemaName, string tableName, string what)
+    {
+        if (!string.Equals(schemaName, HostedSchema, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Refusing to {what} '{schemaName}.{tableName}': only tables in the "
+                + $"'{HostedSchema}' schema were created by this server, and a table we did not "
+                + "create is somebody else's data.");
+        }
     }
 
     private static string Qualified(string table) =>

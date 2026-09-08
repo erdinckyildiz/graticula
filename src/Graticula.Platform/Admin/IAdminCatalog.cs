@@ -786,6 +786,28 @@ public interface IAdminCatalog
     /// <returns>The services, ordered by folder then name.</returns>
     Task<IReadOnlyList<AdminService>> ListServicesAsync(CancellationToken cancellationToken);
 
+    /// <summary>Moves a service's change stamp, without changing anything else.</summary>
+    /// <param name="name">The service.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether a service of that name was found.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-058](../../../docs/adr/ADR-058-the-datastore-schema-is-edited-from-the-screen.md)
+    /// §5g.</b> A hosted layer's schema changes in the datastore and nothing in the catalogue
+    /// describes its shape — §5f — so there is no row to update and, without this, no sign
+    /// anywhere that the service is not what it was. ArcGIS moves a timestamp on the item for
+    /// exactly this reason; here the service row's <c>updated_at</c> is already what a listing
+    /// reads, so nothing new is stored.
+    /// </para>
+    /// <para>
+    /// <b>Its own method rather than a flag on something else.</b> Every other write here moves
+    /// the stamp as a side effect of changing a column; this is the one act whose whole content
+    /// is *something about this service is different now*, and hiding it inside an unrelated
+    /// update would make the next reader look for the change it made.
+    /// </para>
+    /// </remarks>
+    Task<bool> TouchServiceAsync(string name, CancellationToken cancellationToken);
+
     /// <summary>What already occupies a folder and a name, or null when nothing does.</summary>
     /// <param name="folder">The folder, or null for the root.</param>
     /// <param name="name">The name being asked about.</param>

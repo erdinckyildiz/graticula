@@ -8297,7 +8297,14 @@ internal static class AdminEndpoints
     /// how the same collision is already resolved everywhere a service is addressed.
     /// </para>
     /// </remarks>
-    private static async Task<PublishedLayer?> OneNamedLayerAsync(
+    /// <remarks>
+    /// <b><c>internal</c> since 2026-09-08, because ADR-058's field endpoints need the same
+    /// lookup.</b> D-109's rule — an ambiguous name is refused rather than resolved by sort
+    /// order — is a property of *how this server addresses a layer by name*, not of one
+    /// endpoint. A second implementation of it would be a second answer to *which layer did you
+    /// mean*, and only one of them would have been tested.
+    /// </remarks>
+    internal static async Task<PublishedLayer?> OneNamedLayerAsync(
         HttpContext context,
         PostgresLayerCatalog layers,
         string name,

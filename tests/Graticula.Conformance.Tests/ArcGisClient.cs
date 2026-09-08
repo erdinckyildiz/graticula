@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -964,5 +966,131 @@ public abstract class ArcGisClient : IDisposable
         }
 
         GC.SuppressFinalize(this);
+    }
+
+    /*
+      <b>Moved here 2026-09-08, from PublishCompositionConformanceTests, when a second class
+      needed them.</b> `ATableAsync` in particular carries a lesson that was learnt in CI and
+      nowhere else — that a table already served cannot be borrowed, so a test must skip past the
+      taken ones — and a copy of it would have been a second answer to *which table may I use*
+      with only one of the two knowing that. [D-46](../../docs/architecture-debt.md) is the row
+      about a second way in that does not carry what the first way carries.
+    */
+    /// <summary>One publishable table out of the datastore, whatever the fixture holds.</summary>
+    /// <param name="root">The server.</param>
+    /// <param name="token">The credential.</param>
+    /// <returns>Enough to publish it.</returns>
+    protected async Task<(Guid Source, string Schema, string Table, string Geometry,
+        string Identity, int Srid)> ATableAsync(string root, string token, int skip = 0)
+    {
+        (HttpStatusCode status, string body) = await RequestAsync(
+            HttpMethod.Get, $"{root}/admin/datasources", token, null);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+
+        JsonElement datastore = JsonDocument.Parse(body).RootElement
+            .GetProperty("dataSources").EnumerateArray()
+            .First(d => string.Equals(
+                d.GetProperty("name").GetString(), "datastore", StringComparison.Ordinal));
+
+        Guid id = datastore.GetProperty("id").GetGuid();
+
+        (HttpStatusCode probed, string what) = await RequestAsync(
+            HttpMethod.Get, $"{root}/admin/datasources/{id}/capability", token, null);
+
+        Assert.Equal(HttpStatusCode.OK, probed);
+
+        // <b>Free tables only, and CI is where that turned out to matter.</b>
+        // `layer_table_unique` is on (source, schema, table, geometry) and is <b>global</b>: a
+        // table already served by a layer cannot be served by a second one, here or in another
+        // service. Locally the datastore holds ninety-one tables and almost none are published,
+        // so taking the first worked; CI's seed publishes what it makes, so the first table is
+        // always taken and both of these tests failed there and nowhere else.
+        //
+        // <b>Skipped rather than reused for the same reason</b> — a composition naming one
+        // table twice is refused by the schema, which is the answer to ADR-057's open *two
+        // layers, one table* and stricter than that question assumed (§5i).
+        (HttpStatusCode listed, string served) = await RequestAsync(
+            HttpMethod.Get, $"{root}/admin/layers", token, null);
+
+        Assert.Equal(HttpStatusCode.OK, listed);
+
+        HashSet<string> taken = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (JsonElement layer in JsonDocument.Parse(served).RootElement
+            .GetProperty("layers").EnumerateArray())
+        {
+            if (layer.TryGetProperty("table", out JsonElement qualified)
+                && qualified.GetString() is { Length: > 0 } where)
+            {
+                taken.Add(where);
+            }
+        }
+
+        JsonElement[] publishable =
+            [.. JsonDocument.Parse(what).RootElement
+                .GetProperty("tables").EnumerateArray()
+                .Where(t => t.TryGetProperty("objectIdColumn", out JsonElement oid)
+                    && oid.ValueKind == JsonValueKind.String)
+                .Where(t => !taken.Contains(
+                    $"{t.GetProperty("schemaName").GetString()}."
+                    + t.GetProperty("tableName").GetString()))];
+
+        Assert.True(
+            publishable.Length > skip,
+            $"The datastore offers {publishable.Length} table(s) that are publishable and not "
+            + $"already served, and this test needs at least {skip + 1}. A table is one layer "
+            + "on this server, so a test cannot borrow one that is in use.");
+
+        JsonElement table = publishable[skip];
+
+        return (
+            id,
+            table.GetProperty("schemaName").GetString()!,
+            table.GetProperty("tableName").GetString()!,
+            table.GetProperty("geometryColumn").GetString()!,
+            table.GetProperty("objectIdColumn").GetString()!,
+            table.GetProperty("srid").GetInt32());
+    }
+
+    /// <summary>One layer of a composition, as the endpoint takes it.</summary>
+    /// <param name="name">What to call it.</param>
+    /// <param name="source">Which registered source it reads from.</param>
+    /// <param name="schema">Its schema.</param>
+    /// <param name="table">Its table.</param>
+    /// <param name="geometry">Its geometry column.</param>
+    /// <param name="identity">Its identity column.</param>
+    /// <param name="srid">The reference its table is stored in.</param>
+    /// <returns>The layer.</returns>
+    protected static object CompositionLayer(
+        string name, Guid source, string schema, string table,
+        string geometry, string identity, int srid) => new
+        {
+            name,
+            dataSourceId = source,
+            schemaName = schema,
+            tableName = table,
+            geometryColumn = geometry,
+            identityColumn = identity,
+            objectIdColumn = identity,
+            srid,
+            geometryType = "POLYGON",
+        };
+
+    protected async Task<(HttpStatusCode Status, string Body)> RequestAsync(
+        HttpMethod method, string url, string token, string? json)
+    {
+        using HttpRequestMessage request = new(method, url);
+
+        if (json is not null)
+        {
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        }
+
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+
+        return (response.StatusCode, await response.Content.ReadAsStringAsync());
     }
 }

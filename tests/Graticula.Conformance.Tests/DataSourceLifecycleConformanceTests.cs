@@ -63,7 +63,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
             "GRATICULA_TEST_PG is not set, so these tests FAIL rather than skip. They need one "
             + "connection string they can point a source at.");
 
-        (HttpStatusCode status, string body) = await SendAsync(
+        (HttpStatusCode status, string body) = await RequestAsync(
             HttpMethod.Post, $"{root}/admin/datasources", token!,
             $"{{\"name\":\"{name}\",\"connectionString\":{JsonSerializer.Serialize(Connection)}}}");
 
@@ -80,7 +80,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
     {
         string root = await RequireServerAsync();
 
-        await SendAsync(HttpMethod.Delete, $"{root}/admin/datasources/{id}", token, null);
+        await RequestAsync(HttpMethod.Delete, $"{root}/admin/datasources/{id}", token, null);
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
 
         try
         {
-            (HttpStatusCode status, string body) = await SendAsync(
+            (HttpStatusCode status, string body) = await RequestAsync(
                 HttpMethod.Put, $"{root}/admin/datasources/{id}", token,
                 "{\"connectionString\":\"Host=doesnotexist.invalid;Port=5432;Database=gis;"
                 + "Username=gis;Password=gis\"}");
@@ -132,7 +132,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
 
         try
         {
-            (HttpStatusCode published, string layer) = await SendAsync(
+            (HttpStatusCode published, string layer) = await RequestAsync(
                 HttpMethod.Post, $"{root}/admin/layers", token,
                 $$"""
                   {"name":"zz_ds_elsewhere_layer","dataSourceId":"{{id}}","schemaName":"public",
@@ -152,7 +152,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
                 string elsewhere = Connection!.Replace(
                     "Database=gis", "Database=postgres", StringComparison.OrdinalIgnoreCase);
 
-                (HttpStatusCode status, string body) = await SendAsync(
+                (HttpStatusCode status, string body) = await RequestAsync(
                     HttpMethod.Put, $"{root}/admin/datasources/{id}", token,
                     $"{{\"connectionString\":{JsonSerializer.Serialize(elsewhere)}}}");
 
@@ -164,7 +164,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
                 // And it says how to proceed deliberately.
                 Assert.Contains("force=true", Message(body), StringComparison.Ordinal);
 
-                (HttpStatusCode forced, _) = await SendAsync(
+                (HttpStatusCode forced, _) = await RequestAsync(
                     HttpMethod.Put, $"{root}/admin/datasources/{id}?force=true", token,
                     $"{{\"connectionString\":{JsonSerializer.Serialize(elsewhere)}}}");
 
@@ -172,14 +172,14 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
             }
             finally
             {
-                await SendAsync(
+                await RequestAsync(
                     HttpMethod.Delete, $"{root}/admin/layers/zz_ds_elsewhere_layer", token, null);
             }
         }
         finally
         {
             await RemoveAsync(token, id);
-            await SendAsync(HttpMethod.Post, $"{root}/admin/featureservices/sweep", token, "{}");
+            await RequestAsync(HttpMethod.Post, $"{root}/admin/featureservices/sweep", token, "{}");
         }
     }
 
@@ -191,7 +191,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
 
         try
         {
-            await SendAsync(
+            await RequestAsync(
                 HttpMethod.Post, $"{root}/admin/layers", token,
                 $$"""
                   {"name":"zz_ds_held_layer","dataSourceId":"{{id}}","schemaName":"public",
@@ -199,16 +199,16 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
                    "objectIdColumn":"srid","srid":4326,"geometryType":"Point","sharing":"private"}
                   """);
 
-            (HttpStatusCode status, string body) = await SendAsync(
+            (HttpStatusCode status, string body) = await RequestAsync(
                 HttpMethod.Delete, $"{root}/admin/datasources/{id}", token, null);
 
             Assert.Equal(HttpStatusCode.Conflict, status);
             Assert.Contains("layer", Message(body), StringComparison.OrdinalIgnoreCase);
 
-            await SendAsync(HttpMethod.Delete, $"{root}/admin/layers/zz_ds_held_layer", token, null);
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/layers/zz_ds_held_layer", token, null);
 
             // And once nothing is on it, it goes.
-            (HttpStatusCode removed, _) = await SendAsync(
+            (HttpStatusCode removed, _) = await RequestAsync(
                 HttpMethod.Delete, $"{root}/admin/datasources/{id}", token, null);
 
             Assert.Equal(HttpStatusCode.OK, removed);
@@ -216,7 +216,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
         finally
         {
             await RemoveAsync(token, id);
-            await SendAsync(HttpMethod.Post, $"{root}/admin/featureservices/sweep", token, "{}");
+            await RequestAsync(HttpMethod.Post, $"{root}/admin/featureservices/sweep", token, "{}");
         }
     }
 
@@ -237,7 +237,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
 
         Assert.False(token is null, "No administrator credential.");
 
-        (_, string listed) = await SendAsync(
+        (_, string listed) = await RequestAsync(
             HttpMethod.Get, $"{root}/admin/datasources", token!, null);
 
         string? datastore = null;
@@ -253,7 +253,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
 
         Assert.False(datastore is null, "The datastore is not registered, which is a different fault.");
 
-        (HttpStatusCode status, string body) = await SendAsync(
+        (HttpStatusCode status, string body) = await RequestAsync(
             HttpMethod.Delete, $"{root}/admin/datasources/{datastore}", token!, null);
 
         Assert.Equal(HttpStatusCode.Conflict, status);
@@ -287,7 +287,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
 
         try
         {
-            (HttpStatusCode status, string body) = await SendAsync(
+            (HttpStatusCode status, string body) = await RequestAsync(
                 HttpMethod.Get, $"{root}/admin/datasources/{id}/connection", token, null);
 
             Assert.Equal(HttpStatusCode.OK, status);
@@ -332,7 +332,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
 
         Assert.False(token is null, "No administrator credential.");
 
-        (_, string listed) = await SendAsync(
+        (_, string listed) = await RequestAsync(
             HttpMethod.Get, $"{root}/admin/datasources", token!, null);
 
         string? datastore = null;
@@ -348,7 +348,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
 
         Assert.False(datastore is null, "The datastore is not registered, which is a different fault.");
 
-        (HttpStatusCode read, string why) = await SendAsync(
+        (HttpStatusCode read, string why) = await RequestAsync(
             HttpMethod.Get, $"{root}/admin/datasources/{datastore}/connection", token!, null);
 
         Assert.Equal(HttpStatusCode.Conflict, read);
@@ -357,7 +357,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
         // <b>The same string it is already on, so a missing guard would succeed rather than
         // break the fixture.</b> A test that proves a refusal by asking for something harmful is
         // a test that does the harm on the day the refusal is gone.
-        (HttpStatusCode changed, string said) = await SendAsync(
+        (HttpStatusCode changed, string said) = await RequestAsync(
             HttpMethod.Put,
             $"{root}/admin/datasources/{datastore}",
             token!,
@@ -385,7 +385,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
 
             Assert.False(string.IsNullOrWhiteSpace(summary), "The listing carried no summary.");
 
-            (_, string listed) = await SendAsync(
+            (_, string listed) = await RequestAsync(
                 HttpMethod.Get, $"{root}/admin/datasources", token, null);
 
             // <b>The shape, not a substring search for the password — which is what the first version
@@ -407,7 +407,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
 
     private async Task<string> SummaryAsync(string root, string token, string id)
     {
-        (_, string listed) = await SendAsync(HttpMethod.Get, $"{root}/admin/datasources", token, null);
+        (_, string listed) = await RequestAsync(HttpMethod.Get, $"{root}/admin/datasources", token, null);
 
         foreach (JsonElement source in
                  JsonDocument.Parse(listed).RootElement.GetProperty("dataSources").EnumerateArray())
@@ -483,7 +483,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
             password = Field("Password"),
         });
 
-        (HttpStatusCode status, string body) = await SendAsync(
+        (HttpStatusCode status, string body) = await RequestAsync(
             HttpMethod.Post, $"{root}/admin/datasources/databases", token!, asked);
 
         Assert.Equal(HttpStatusCode.OK, status);
@@ -510,7 +510,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
         Assert.Equal([.. names.OrderBy(x => x, StringComparer.Ordinal)], names);
 
         // <b>The other end, and it answers 200 with a sentence about the credential.</b>
-        (HttpStatusCode refused, string why) = await SendAsync(
+        (HttpStatusCode refused, string why) = await RequestAsync(
             HttpMethod.Post, $"{root}/admin/datasources/databases", token!,
             JsonSerializer.Serialize(new
             {
@@ -549,7 +549,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
 
         Assert.False(token is null, "No administrator credential.");
 
-        (HttpStatusCode status, string body) = await SendAsync(
+        (HttpStatusCode status, string body) = await RequestAsync(
             HttpMethod.Post, $"{root}/admin/datasources/test", token!,
             JsonSerializer.Serialize(new
             {
@@ -617,7 +617,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
 
         try
         {
-            (HttpStatusCode set, string said) = await SendAsync(
+            (HttpStatusCode set, string said) = await RequestAsync(
                 HttpMethod.Put, $"{root}/admin/services/{bare}/srid", token!,
                 JsonSerializer.Serialize(new { srid = other }));
 
@@ -673,7 +673,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
         }
         finally
         {
-            await SendAsync(
+            await RequestAsync(
                 HttpMethod.Put, $"{root}/admin/services/{bare}/srid", token!,
                 JsonSerializer.Serialize(new { srid = (int?)null }));
         }
@@ -701,7 +701,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
             ? qualified[(qualified.LastIndexOf('/') + 1)..]
             : qualified;
 
-        (HttpStatusCode status, string body) = await SendAsync(
+        (HttpStatusCode status, string body) = await RequestAsync(
             HttpMethod.Put, $"{root}/admin/services/{bare}/srid", token!,
             JsonSerializer.Serialize(new { srid = 0 }));
 
@@ -717,7 +717,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
     private async Task<(int Wkid, double West, double East)> DocumentReferenceAsync(
         string root, string token, string path)
     {
-        (HttpStatusCode status, string body) = await SendAsync(
+        (HttpStatusCode status, string body) = await RequestAsync(
             HttpMethod.Get, $"{root}/rest/services/{path}?f=json", token, null);
 
         Assert.Equal(HttpStatusCode.OK, status);
@@ -747,7 +747,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
     private async Task<int> ServedWkidAsync(
         string root, string token, string qualified, string extra = "")
     {
-        (HttpStatusCode status, string body) = await SendAsync(
+        (HttpStatusCode status, string body) = await RequestAsync(
             HttpMethod.Get,
             $"{root}/rest/services/{qualified}/FeatureServer/0/query"
             + $"?where=1%3D1&returnGeometry=true&resultRecordCount=1&f=json{extra}",
@@ -795,20 +795,4 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
         return string.Empty;
     }
 
-    private async Task<(HttpStatusCode Status, string Body)> SendAsync(
-        HttpMethod method, string url, string token, string? json)
-    {
-        using HttpRequestMessage request = new(method, url);
-
-        if (json is not null)
-        {
-            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-        }
-
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-        using HttpResponseMessage response = await Http.SendAsync(request);
-
-        return (response.StatusCode, await response.Content.ReadAsStringAsync());
-    }
 }

@@ -1066,6 +1066,19 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> TouchServiceAsync(string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update service set updated_at = now() where lower(name) = lower(@name)");
+
+        command.Parameters.AddWithValue("name", name);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<ServiceAtAddress?> FindServiceAtAsync(
         string? folder, string name, CancellationToken cancellationToken)
     {

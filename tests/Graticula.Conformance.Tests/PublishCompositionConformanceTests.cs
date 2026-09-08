@@ -91,19 +91,19 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             srid = srid == 4326 ? 3857 : 4326,
             nodes = new object[]
             {
-                new { layer = Layer($"top{name}", source, schema, table, geometry, identity, srid) },
+                new { layer = CompositionLayer($"top{name}", source, schema, table, geometry, identity, srid) },
                 new
                 {
                     group = "Reference",
                     layers = new[]
                     {
-                        Layer($"inside{name}", source, schema2, table2, geometry2, identity2, srid2),
+                        CompositionLayer($"inside{name}", source, schema2, table2, geometry2, identity2, srid2),
                     },
                 },
             },
         });
 
-        (HttpStatusCode status, string said) = await SendAsync(
+        (HttpStatusCode status, string said) = await RequestAsync(
             HttpMethod.Post, $"{root}/admin/publish", token!, body);
 
         Assert.True(
@@ -132,7 +132,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             Assert.Equal([0, 1, 2], [.. taken.OrderBy(x => x)]);
 
             // <b>And the document a client reads is ArcGIS's tree.</b>
-            (HttpStatusCode read, string document) = await SendAsync(
+            (HttpStatusCode read, string document) = await RequestAsync(
                 HttpMethod.Get,
                 $"{root}/rest/services/hosted/{name}/FeatureServer?f=json", token!, null);
 
@@ -205,8 +205,8 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             sharing = "private",
             nodes = new object[]
             {
-                new { layer = Layer($"fine{name}", source, schema, table, geometry, identity, srid) },
-                new { layer = Layer($"alsofine{name}", source, schema2, table2, geometry2, identity2, srid2) },
+                new { layer = CompositionLayer($"fine{name}", source, schema, table, geometry, identity, srid) },
+                new { layer = CompositionLayer($"alsofine{name}", source, schema2, table2, geometry2, identity2, srid2) },
 
                 // No table: refused by the reader every publish already goes through.
                 new
@@ -227,7 +227,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             },
         });
 
-        (HttpStatusCode status, string said) = await SendAsync(
+        (HttpStatusCode status, string said) = await RequestAsync(
             HttpMethod.Post, $"{root}/admin/publish", token!, body);
 
         Assert.Equal(HttpStatusCode.BadRequest, status);
@@ -237,7 +237,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         // <b>And nothing of it exists.</b> The two good layers before the bad one are the ones
         // a non-transactional publish would have left behind.
-        (HttpStatusCode looked, _) = await SendAsync(
+        (HttpStatusCode looked, _) = await RequestAsync(
             HttpMethod.Get,
             $"{root}/rest/services/hosted/{name}/FeatureServer?f=json", token!, null);
 
@@ -282,7 +282,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             sharing = "private",
             nodes = new object[]
             {
-                new { layer = Layer($"only{name}", source, schema, table, geometry, identity, srid) },
+                new { layer = CompositionLayer($"only{name}", source, schema, table, geometry, identity, srid) },
             },
         });
 
@@ -293,11 +293,11 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             sharing = "private",
             nodes = new object[]
             {
-                new { layer = Layer($"other{name}", source, schema2, table2, geometry2, identity2, srid2) },
+                new { layer = CompositionLayer($"other{name}", source, schema2, table2, geometry2, identity2, srid2) },
             },
         });
 
-        (HttpStatusCode made, string said) = await SendAsync(
+        (HttpStatusCode made, string said) = await RequestAsync(
             HttpMethod.Post, $"{root}/admin/publish", token!, first);
 
         Assert.True(made == HttpStatusCode.Created, $"The first publish answered {(int)made}: {said}");
@@ -310,13 +310,13 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             replace = true,
             nodes = new object[]
             {
-                new { layer = Layer($"other{name}", source, schema2, table2, geometry2, identity2, srid2) },
+                new { layer = CompositionLayer($"other{name}", source, schema2, table2, geometry2, identity2, srid2) },
             },
         });
 
         try
         {
-            (HttpStatusCode again, string refused) = await SendAsync(
+            (HttpStatusCode again, string refused) = await RequestAsync(
                 HttpMethod.Post, $"{root}/admin/publish", token!, second);
 
             Assert.Equal(HttpStatusCode.Conflict, again);
@@ -335,7 +335,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
             // <b>And the one that is there still is.</b> A refusal that damages what it refused
             // to replace is worse than one that succeeds.
-            (HttpStatusCode read, string document) = await SendAsync(
+            (HttpStatusCode read, string document) = await RequestAsync(
                 HttpMethod.Get,
                 $"{root}/rest/services/hosted/{name}/FeatureServer?f=json", token!, null);
 
@@ -356,7 +356,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
               row, because what an operator is promised is that the URL they gave somebody now
               answers with the new composition.
             */
-            (HttpStatusCode over, string done) = await SendAsync(
+            (HttpStatusCode over, string done) = await RequestAsync(
                 HttpMethod.Post, $"{root}/admin/publish", token!, overwrite);
 
             Assert.True(
@@ -368,7 +368,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
                 "The replacement answered without saying it replaced anything, so a screen "
                 + "cannot tell an operator whether it overwrote a service or made one.");
 
-            (HttpStatusCode after, string now) = await SendAsync(
+            (HttpStatusCode after, string now) = await RequestAsync(
                 HttpMethod.Get,
                 $"{root}/rest/services/hosted/{name}/FeatureServer?f=json", token!, null);
 
@@ -421,7 +421,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         string name = AName();
 
-        (HttpStatusCode free, string open) = await SendAsync(
+        (HttpStatusCode free, string open) = await RequestAsync(
             HttpMethod.Get,
             $"{root}/admin/publish/name?name={name}&folder=hosted", token!, null);
 
@@ -442,18 +442,18 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             sharing = "private",
             nodes = new object[]
             {
-                new { layer = Layer($"only{name}", source, schema, table, geometry, identity, srid) },
+                new { layer = CompositionLayer($"only{name}", source, schema, table, geometry, identity, srid) },
             },
         });
 
-        (HttpStatusCode made, string said) = await SendAsync(
+        (HttpStatusCode made, string said) = await RequestAsync(
             HttpMethod.Post, $"{root}/admin/publish", token!, body);
 
         Assert.True(made == HttpStatusCode.Created, $"The publish answered {(int)made}: {said}");
 
         try
         {
-            (HttpStatusCode taken, string held) = await SendAsync(
+            (HttpStatusCode taken, string held) = await RequestAsync(
                 HttpMethod.Get,
                 $"{root}/admin/publish/name?name={name}&folder=hosted", token!, null);
 
@@ -491,7 +491,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
               nothing reaches it through an address a person can type, because every system
               service lives in the folder the earlier rule already refuses.
             */
-            (HttpStatusCode reserved, string system) = await SendAsync(
+            (HttpStatusCode reserved, string system) = await RequestAsync(
                 HttpMethod.Get,
                 $"{root}/admin/publish/name?name=Geometry&folder=Utilities", token!, null);
 
@@ -509,7 +509,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             // <b>And the publish agrees, asked directly.</b> Asserting the check alone would
             // prove the check consistent with itself; what an operator is promised is that a
             // name the box accepted is a name the publish takes, and the inverse.
-            (HttpStatusCode refusedThere, _) = await SendAsync(
+            (HttpStatusCode refusedThere, _) = await RequestAsync(
                 HttpMethod.Post,
                 $"{root}/admin/publish",
                 token!,
@@ -520,7 +520,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
                     sharing = "private",
                     nodes = new object[]
                     {
-                        new { layer = Layer($"probe{name}", source, schema, table, geometry, identity, srid) },
+                        new { layer = CompositionLayer($"probe{name}", source, schema, table, geometry, identity, srid) },
                     },
                 }));
 
@@ -583,11 +583,11 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             capabilities = QueryOnly,
             nodes = new object[]
             {
-                new { layer = Layer($"only{name}", source, schema, table, geometry, identity, srid) },
+                new { layer = CompositionLayer($"only{name}", source, schema, table, geometry, identity, srid) },
             },
         });
 
-        (HttpStatusCode status, string said) = await SendAsync(
+        (HttpStatusCode status, string said) = await RequestAsync(
             HttpMethod.Post, $"{root}/admin/publish", token!, body);
 
         Assert.True(
@@ -596,7 +596,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         try
         {
-            (HttpStatusCode read, string document) = await SendAsync(
+            (HttpStatusCode read, string document) = await RequestAsync(
                 HttpMethod.Get,
                 $"{root}/rest/services/hosted/{name}/FeatureServer?f=json",
                 token!,
@@ -610,7 +610,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
             // <b>The tile face is off, so its address is not there.</b> Answering 200 with an
             // empty document would tell a client the service has tiles and none of them work.
-            (HttpStatusCode tiles, _) = await SendAsync(
+            (HttpStatusCode tiles, _) = await RequestAsync(
                 HttpMethod.Get,
                 $"{root}/rest/services/hosted/{name}/VectorTileServer?f=json",
                 token!,
@@ -635,7 +635,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         string open = AName();
 
-        (HttpStatusCode made, string openSaid) = await SendAsync(
+        (HttpStatusCode made, string openSaid) = await RequestAsync(
             HttpMethod.Post,
             $"{root}/admin/publish",
             token!,
@@ -648,7 +648,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
                 {
                     new
                     {
-                        layer = Layer(
+                        layer = CompositionLayer(
                             $"open{open}", source, schema2, table2, geometry2, identity2, srid2),
                     },
                 },
@@ -660,7 +660,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         try
         {
-            (HttpStatusCode read, string document) = await SendAsync(
+            (HttpStatusCode read, string document) = await RequestAsync(
                 HttpMethod.Get,
                 $"{root}/rest/services/hosted/{open}/FeatureServer?f=json",
                 token!,
@@ -705,11 +705,11 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             await ATableAsync(root, token!);
 
         object One(string layer) =>
-            new { layer = Layer(layer, source, schema, table, geometry, identity, srid) };
+            new { layer = CompositionLayer(layer, source, schema, table, geometry, identity, srid) };
 
         async Task RefusedAsync(object composition, string expected, string why)
         {
-            (HttpStatusCode status, string said) = await SendAsync(
+            (HttpStatusCode status, string said) = await RequestAsync(
                 HttpMethod.Post,
                 $"{root}/admin/publish",
                 token!,
@@ -789,7 +789,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         Assert.False(token is null, "No administrator credential.");
 
-        (HttpStatusCode listed, string layers) = await SendAsync(
+        (HttpStatusCode listed, string layers) = await RequestAsync(
             HttpMethod.Get, $"{root}/admin/layers", token!, null);
 
         Assert.Equal(HttpStatusCode.OK, listed);
@@ -810,7 +810,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         // The probe reports the rest of what a publish needs, and it reports it for every table
         // whether or not a layer already claims one.
-        (HttpStatusCode found, string capability) = await SendAsync(
+        (HttpStatusCode found, string capability) = await RequestAsync(
             HttpMethod.Get, $"{root}/admin/datasources", token!, null);
 
         Assert.Equal(HttpStatusCode.OK, found);
@@ -821,7 +821,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
                 d.GetProperty("name").GetString(), "datastore", StringComparison.Ordinal))
             .GetProperty("id").GetGuid();
 
-        (HttpStatusCode probed, string tables) = await SendAsync(
+        (HttpStatusCode probed, string tables) = await RequestAsync(
             HttpMethod.Get, $"{root}/admin/datasources/{datastore}/capability", token!, null);
 
         Assert.Equal(HttpStatusCode.OK, probed);
@@ -846,7 +846,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         string name = AName();
 
-        (HttpStatusCode made, string said) = await SendAsync(
+        (HttpStatusCode made, string said) = await RequestAsync(
             HttpMethod.Post,
             $"{root}/admin/publish",
             token!,
@@ -859,7 +859,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
                 {
                     new
                     {
-                        layer = Layer(
+                        layer = CompositionLayer(
                             $"again{name}",
                             datastore,
                             parts[0],
@@ -881,7 +881,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
         {
             // <b>Served, not merely recorded.</b> A row that inserts and answers 404 would pass
             // the assertion above and deliver nothing.
-            (HttpStatusCode read, _) = await SendAsync(
+            (HttpStatusCode read, _) = await RequestAsync(
                 HttpMethod.Get,
                 $"{root}/rest/services/hosted/{name}/FeatureServer/0?f=json",
                 token!,
@@ -930,7 +930,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         string name = AName();
 
-        (HttpStatusCode made, string said) = await SendAsync(
+        (HttpStatusCode made, string said) = await RequestAsync(
             HttpMethod.Post,
             $"{root}/admin/publish",
             token!,
@@ -942,7 +942,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
                 sridWkt = Utm36N,
                 nodes = new object[]
                 {
-                    new { layer = Layer($"wkt{name}", source, schema, table, geometry, identity, srid) },
+                    new { layer = CompositionLayer($"wkt{name}", source, schema, table, geometry, identity, srid) },
                 },
             }));
 
@@ -952,7 +952,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         try
         {
-            (HttpStatusCode read, string document) = await SendAsync(
+            (HttpStatusCode read, string document) = await RequestAsync(
                 HttpMethod.Get,
                 $"{root}/rest/services/hosted/{name}/FeatureServer/0?f=json",
                 token!,
@@ -992,7 +992,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
                 $"The extent reads {xmin}, which is neither a UTM easting nor near one — the "
                 + "reference was relabelled rather than the box moved.");
 
-            (HttpStatusCode queried, string answer) = await SendAsync(
+            (HttpStatusCode queried, string answer) = await RequestAsync(
                 HttpMethod.Get,
                 $"{root}/rest/services/hosted/{name}/FeatureServer/0/query"
                 + "?where=1%3D1&resultRecordCount=1&f=json",
@@ -1037,7 +1037,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
         {
             string name = AName();
 
-            (HttpStatusCode status, string said) = await SendAsync(
+            (HttpStatusCode status, string said) = await RequestAsync(
                 HttpMethod.Post,
                 $"{root}/admin/publish",
                 token!,
@@ -1051,7 +1051,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
                     {
                         new
                         {
-                            layer = Layer(
+                            layer = CompositionLayer(
                                 $"no{name}", source, schema, table, geometry, identity, srid),
                         },
                     },
@@ -1116,11 +1116,11 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             srid = 3857,
             nodes = new object[]
             {
-                new { layer = Layer($"seen{name}", source, schema, table, geometry, identity, srid) },
+                new { layer = CompositionLayer($"seen{name}", source, schema, table, geometry, identity, srid) },
             },
         });
 
-        (HttpStatusCode before, string listedBefore) = await SendAsync(
+        (HttpStatusCode before, string listedBefore) = await RequestAsync(
             HttpMethod.Get, $"{root}/admin/featureservices", token!, null);
 
         Assert.Equal(HttpStatusCode.OK, before);
@@ -1196,7 +1196,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             + "which is what a wrong extent, a collapsed reprojection and a query that matched "
             + "nothing all look like.");
 
-        (HttpStatusCode after, string listedAfter) = await SendAsync(
+        (HttpStatusCode after, string listedAfter) = await RequestAsync(
             HttpMethod.Get, $"{root}/admin/featureservices", token!, null);
 
         Assert.Equal(HttpStatusCode.OK, after);
@@ -1240,7 +1240,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         Assert.False(token is null, "No administrator credential.");
 
-        (HttpStatusCode retired, string why) = await SendAsync(
+        (HttpStatusCode retired, string why) = await RequestAsync(
             HttpMethod.Post,
             $"{root}/admin/featureservices",
             token!,
@@ -1253,7 +1253,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         Assert.Contains("/admin/publish", why, StringComparison.Ordinal);
 
-        (HttpStatusCode bare, string bareWhy) = await SendAsync(
+        (HttpStatusCode bare, string bareWhy) = await RequestAsync(
             HttpMethod.Post,
             $"{root}/admin/publish",
             token!,
@@ -1289,138 +1289,21 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
     {
         foreach (string layer in layers)
         {
-            await SendAsync(HttpMethod.Delete, $"{root}/admin/layers/{layer}", token, null);
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/layers/{layer}", token, null);
         }
 
         foreach (int index in groups)
         {
-            await SendAsync(
+            await RequestAsync(
                 HttpMethod.Delete,
                 $"{root}/admin/services/{name}/groups/{index}?folder=hosted", token, null);
         }
 
-        await SendAsync(
+        await RequestAsync(
             HttpMethod.Delete,
             $"{root}/admin/featureservices/{name}?folder=hosted", token, null);
     }
 
-    /// <summary>One publishable table out of the datastore, whatever the fixture holds.</summary>
-    /// <param name="root">The server.</param>
-    /// <param name="token">The credential.</param>
-    /// <returns>Enough to publish it.</returns>
-    private async Task<(Guid Source, string Schema, string Table, string Geometry,
-        string Identity, int Srid)> ATableAsync(string root, string token, int skip = 0)
-    {
-        (HttpStatusCode status, string body) = await SendAsync(
-            HttpMethod.Get, $"{root}/admin/datasources", token, null);
-
-        Assert.Equal(HttpStatusCode.OK, status);
-
-        JsonElement datastore = JsonDocument.Parse(body).RootElement
-            .GetProperty("dataSources").EnumerateArray()
-            .First(d => string.Equals(
-                d.GetProperty("name").GetString(), "datastore", StringComparison.Ordinal));
-
-        Guid id = datastore.GetProperty("id").GetGuid();
-
-        (HttpStatusCode probed, string what) = await SendAsync(
-            HttpMethod.Get, $"{root}/admin/datasources/{id}/capability", token, null);
-
-        Assert.Equal(HttpStatusCode.OK, probed);
-
-        // <b>Free tables only, and CI is where that turned out to matter.</b>
-        // `layer_table_unique` is on (source, schema, table, geometry) and is <b>global</b>: a
-        // table already served by a layer cannot be served by a second one, here or in another
-        // service. Locally the datastore holds ninety-one tables and almost none are published,
-        // so taking the first worked; CI's seed publishes what it makes, so the first table is
-        // always taken and both of these tests failed there and nowhere else.
-        //
-        // <b>Skipped rather than reused for the same reason</b> — a composition naming one
-        // table twice is refused by the schema, which is the answer to ADR-057's open *two
-        // layers, one table* and stricter than that question assumed (§5i).
-        (HttpStatusCode listed, string served) = await SendAsync(
-            HttpMethod.Get, $"{root}/admin/layers", token, null);
-
-        Assert.Equal(HttpStatusCode.OK, listed);
-
-        HashSet<string> taken = new(StringComparer.OrdinalIgnoreCase);
-
-        foreach (JsonElement layer in JsonDocument.Parse(served).RootElement
-            .GetProperty("layers").EnumerateArray())
-        {
-            if (layer.TryGetProperty("table", out JsonElement qualified)
-                && qualified.GetString() is { Length: > 0 } where)
-            {
-                taken.Add(where);
-            }
-        }
-
-        JsonElement[] publishable =
-            [.. JsonDocument.Parse(what).RootElement
-                .GetProperty("tables").EnumerateArray()
-                .Where(t => t.TryGetProperty("objectIdColumn", out JsonElement oid)
-                    && oid.ValueKind == JsonValueKind.String)
-                .Where(t => !taken.Contains(
-                    $"{t.GetProperty("schemaName").GetString()}."
-                    + t.GetProperty("tableName").GetString()))];
-
-        Assert.True(
-            publishable.Length > skip,
-            $"The datastore offers {publishable.Length} table(s) that are publishable and not "
-            + $"already served, and this test needs at least {skip + 1}. A table is one layer "
-            + "on this server, so a test cannot borrow one that is in use.");
-
-        JsonElement table = publishable[skip];
-
-        return (
-            id,
-            table.GetProperty("schemaName").GetString()!,
-            table.GetProperty("tableName").GetString()!,
-            table.GetProperty("geometryColumn").GetString()!,
-            table.GetProperty("objectIdColumn").GetString()!,
-            table.GetProperty("srid").GetInt32());
-    }
-
-    /// <summary>One layer of a composition, as the endpoint takes it.</summary>
-    /// <param name="name">What to call it.</param>
-    /// <param name="source">Which registered source it reads from.</param>
-    /// <param name="schema">Its schema.</param>
-    /// <param name="table">Its table.</param>
-    /// <param name="geometry">Its geometry column.</param>
-    /// <param name="identity">Its identity column.</param>
-    /// <param name="srid">The reference its table is stored in.</param>
-    /// <returns>The layer.</returns>
-    private static object Layer(
-        string name, Guid source, string schema, string table,
-        string geometry, string identity, int srid) => new
-        {
-            name,
-            dataSourceId = source,
-            schemaName = schema,
-            tableName = table,
-            geometryColumn = geometry,
-            identityColumn = identity,
-            objectIdColumn = identity,
-            srid,
-            geometryType = "POLYGON",
-        };
-
-    private async Task<(HttpStatusCode Status, string Body)> SendAsync(
-        HttpMethod method, string url, string token, string? json)
-    {
-        using HttpRequestMessage request = new(method, url);
-
-        if (json is not null)
-        {
-            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-        }
-
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-        using HttpResponseMessage response = await Http.SendAsync(request);
-
-        return (response.StatusCode, await response.Content.ReadAsStringAsync());
-    }
     /// <summary>
     /// A reference is named, not merely accepted — and so is every other one this server knows.
     /// </summary>
@@ -1446,7 +1329,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         Assert.False(token is null, "No administrator credential.");
 
-        (HttpStatusCode status, string said) = await SendAsync(
+        (HttpStatusCode status, string said) = await RequestAsync(
             HttpMethod.Get, $"{root}/admin/references/4236", token!, null);
 
         Assert.Equal(HttpStatusCode.OK, status);
@@ -1458,7 +1341,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
         Assert.Equal("Hu Tzu Shan 1950", named.GetProperty("name").GetString());
 
         // <b>And nothing is invented for a code the projection database does not hold.</b>
-        (_, said) = await SendAsync(
+        (_, said) = await RequestAsync(
             HttpMethod.Get, $"{root}/admin/references/999999", token!, null);
 
         JsonElement absent = JsonDocument.Parse(said).RootElement;
@@ -1468,7 +1351,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         // <b>The rest are searchable by name.</b> A box that takes any code is half of *let me
         // choose my own*; finding one without knowing its number is the other half.
-        (status, said) = await SendAsync(
+        (status, said) = await RequestAsync(
             HttpMethod.Get, $"{root}/admin/references?q=mercator", token!, null);
 
         Assert.Equal(HttpStatusCode.OK, status);
@@ -1498,7 +1381,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         // <b>A code searches as a code.</b> Somebody typing 5254 wants EPSG:5254, not the
         // references whose names happen to contain those digits.
-        (_, said) = await SendAsync(
+        (_, said) = await RequestAsync(
             HttpMethod.Get, $"{root}/admin/references?q=5254", token!, null);
 
         JsonElement first = JsonDocument.Parse(said).RootElement
@@ -1557,26 +1440,26 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             sharing = "private",
             nodes = new object[]
             {
-                new { layer = Layer($"top{name}", source, schema, table, geometry, identity, srid) },
+                new { layer = CompositionLayer($"top{name}", source, schema, table, geometry, identity, srid) },
                 new
                 {
                     group = "Reference",
                     layers = new[]
                     {
-                        Layer($"inside{name}", source, schema2, table2, geometry2, identity2, srid2),
+                        CompositionLayer($"inside{name}", source, schema2, table2, geometry2, identity2, srid2),
                     },
                 },
             },
         });
 
-        (HttpStatusCode made, string said) = await SendAsync(
+        (HttpStatusCode made, string said) = await RequestAsync(
             HttpMethod.Post, $"{root}/admin/publish", token!, body);
 
         Assert.True(made == HttpStatusCode.Created, $"Publishing answered {(int)made}: {said}");
 
         try
         {
-            (HttpStatusCode listed, string all) = await SendAsync(
+            (HttpStatusCode listed, string all) = await RequestAsync(
                 HttpMethod.Get,
                 $"{root}/rest/services/hosted/{name}/FeatureServer/layers?f=json", token!, null);
 
@@ -1626,7 +1509,7 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             // <b>And the layer's own resource says the same thing.</b> The two documents
             // disagreeing about which group a layer is in is the shape this whole condition is
             // about: a client reads one of them.
-            (HttpStatusCode one, string alone) = await SendAsync(
+            (HttpStatusCode one, string alone) = await RequestAsync(
                 HttpMethod.Get,
                 $"{root}/rest/services/hosted/{name}/FeatureServer/"
                 + $"{child.GetProperty("id").GetInt32()}?f=json",

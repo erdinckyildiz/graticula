@@ -6,15 +6,18 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Api.ArcGis;
+using Graticula.Cartography;
 using Graticula.Features;
 using Graticula.Formats;
 using System.Text;
 using Graticula.Geometries;
 using Graticula.Platform.Admin;
+using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Graticula.Platform.Jobs;
 using Graticula.Platform.Postgres;
 using Graticula.Providers.PostGis;
+using Graticula.Tiles;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -86,6 +89,19 @@ internal static class HostedDataEndpoints
         // them into one service. ADR-038.
         app.MapPost("/admin/hosted/geodatabase", PublishGeodatabaseAsync);
         app.MapPost("/admin/hosted/define", DefineAsync);
+
+        /*
+          <b>ADR-058 §5b: the datastore's schema is edited here, and here only.</b> Owner
+          instruction 2026-09-08 — nobody connects to the datastore to change a column. Two
+          operations and no third: a rename is add-copy-delete and a retype is a data migration,
+          so neither is offered as one press.
+
+          <b>Under `/admin`, not on the layer's feature address.</b> DDL on a read surface would
+          make `content:publishFeatures` carry a meaning it was not designed around, and ArcGIS
+          puts the same three operations on a separate admin endpoint for the same reason.
+        */
+        app.MapPost("/admin/hosted/{layer}/fields", AddFieldAsync);
+        app.MapDelete("/admin/hosted/{layer}/fields/{field}", DropFieldAsync);
 
         // The original path, kept working. It was only ever the import, and
         // moving it silently would break the one thing already built against it.
@@ -1540,6 +1556,476 @@ internal static class HostedDataEndpoints
 
         _ => "This archive is not one this server imports.",
     };
+
+    /// <summary>
+    /// Adds a column to a hosted layer's table.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-058](../../docs/adr/ADR-058-the-datastore-schema-is-edited-from-the-screen.md)
+    /// §5b.</b> Until this existed a datastore layer's shape was frozen at creation and the only
+    /// repair was to drop it and import again — which loses the item, its sharing, its symbology
+    /// and every service composed over it.
+    /// </para>
+    /// <para>
+    /// <b>Nothing is written to the catalogue, and that is §5f rather than an omission.</b> This
+    /// server stores no field list: <c>ServiceContexts</c> reads <c>information_schema</c> per
+    /// table and keeps the answer thirty seconds. So a new column is visible as soon as that
+    /// memory is dropped, which is what this method does after the DDL.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="layer">The layer's name.</param>
+    /// <param name="field">The column to add.</param>
+    /// <param name="layers">The published layers, for the lookup.</param>
+    /// <param name="importer">What runs the DDL.</param>
+    /// <param name="contexts">The remembered shapes.</param>
+    /// <param name="tiles">The tile cache.</param>
+    /// <param name="catalog">The catalogue, for the change stamp.</param>
+    /// <param name="audit">The log.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task AddFieldAsync(
+        HttpContext context,
+        string layer,
+        FieldDesign? field,
+        PostgresLayerCatalog layers,
+        PostGisImporter importer,
+        ServiceContexts contexts,
+        ITileCache tiles,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (await HostedLayerAsync(context, layers, layer, "add a field to", cancellation)
+            .ConfigureAwait(false) is not { } found)
+        {
+            return;
+        }
+
+        if (field is null || string.IsNullOrWhiteSpace(field.Name))
+        {
+            await Fail(context, 400, "`name` is required: it is what the column is called.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        if (!TryFields([field], out List<FieldDescription> read, out string? unreadable))
+        {
+            await Fail(context, 400, unreadable!).ConfigureAwait(false);
+            return;
+        }
+
+        (_, LayerDescription shape) = await contexts.GetAsync(found, cancellation)
+            .ConfigureAwait(false);
+
+        // <b>Asked before the DDL, so the refusal names the column rather than a constraint.</b>
+        // PostgreSQL would refuse a duplicate anyway, with a message about a relation.
+        if (shape.Find(field.Name) is not null)
+        {
+            await Fail(
+                context, 409,
+                $"'{found.Definition.Name}' already has a field called '{field.Name}'.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        string column;
+
+        try
+        {
+            column = await importer.AddFieldAsync(
+                found.Definition.SchemaName, found.Definition.TableName, read[0], cancellation)
+                .ConfigureAwait(false);
+        }
+        catch (Npgsql.PostgresException blocked) when (blocked.SqlState == "55P03")
+        {
+            // §5g and condition 1: a table somebody is reading refuses quickly rather than
+            // taking ACCESS EXCLUSIVE and queueing every request behind the waiting DDL — which
+            // D-08 measured at 30.30 s against 0.296 s unblocked.
+            await Fail(
+                context, 409,
+                $"'{found.Definition.Name}' is being read right now, so its table could not be "
+                + "altered — the change was abandoned rather than made to wait, because a "
+                + "waiting ALTER holds up every request that arrives after it. Try again.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation)
+            .ConfigureAwait(false);
+
+        await RecordAsync(
+            context, audit, "layer.field.add", found.Definition.Name,
+            new { column, type = field.Type }, cancellation).ConfigureAwait(false);
+
+        await Results.Json(
+            new
+            {
+                layer = found.Definition.Name,
+                field = column,
+
+                // <b>Said back, because the name that was asked for is not always the name that
+                // was made.</b> `ColumnNameFor` is the import path's rule and it lower-cases and
+                // rewrites what it must; a screen that went on showing what somebody typed would
+                // be showing a column that does not exist.
+                asked = field.Name,
+                nullable = true,
+                note = "Every existing row has this field empty. A column added to a table that "
+                     + "already holds rows cannot be required without a default, and a default "
+                     + "would be a value this server invented for data it has not seen.",
+            },
+            statusCode: StatusCodes.Status201Created).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Drops a column from a hosted layer's table, unless something depends on it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-058 §5c: the refusal is a dependency check, not only a privilege one.</b> A column
+    /// the layer's time dimension or its symbology reads is refused with the holder named,
+    /// because <i>this field is in use</i> sends somebody to look through four screens.
+    /// </para>
+    /// <para>
+    /// <b>And the system columns are not fields</b> (§5d). The object id, the identity and the
+    /// geometry column are how a layer is addressed; they are refused here and the screen does
+    /// not draw them, because a control for an act that is always refused is
+    /// [ADR-034](../../docs/adr/ADR-034-server-and-studio.md)'s prohibition.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="layer">The layer's name.</param>
+    /// <param name="field">The column.</param>
+    /// <param name="layers">The published layers, for the lookup.</param>
+    /// <param name="importer">What runs the DDL.</param>
+    /// <param name="contexts">The remembered shapes.</param>
+    /// <param name="tiles">The tile cache.</param>
+    /// <param name="catalog">The catalogue, for the change stamp.</param>
+    /// <param name="audit">The log.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task DropFieldAsync(
+        HttpContext context,
+        string layer,
+        string field,
+        PostgresLayerCatalog layers,
+        PostGisImporter importer,
+        ServiceContexts contexts,
+        ITileCache tiles,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (await HostedLayerAsync(context, layers, layer, "drop a field from", cancellation)
+            .ConfigureAwait(false) is not { } found)
+        {
+            return;
+        }
+
+        (_, LayerDescription shape) = await contexts.GetAsync(found, cancellation)
+            .ConfigureAwait(false);
+
+        if (shape.Find(field) is not { } column)
+        {
+            /*
+              <b>Not in the field list is not the same as not in the table, and answering 404 for
+              the geometry column was measured wrong on the first run.</b> `LayerDescription`
+              lists the *attributes* — the geometry column is not one, because no client asks for
+              it as a field. So `DELETE …/fields/geom` fell through to *has no field called
+              'geom'*, which tells an operator their geometry column is already gone.
+
+              <b>So the holders are asked before the 404 rather than after it.</b> A name this
+              server refuses to drop is refused with its reason whether or not it appears in the
+              list a client reads; only a name that is neither an attribute nor a system column
+              is genuinely absent.
+            */
+            if (HoldingOn(found, field) is { } system)
+            {
+                await Fail(context, 409, system).ConfigureAwait(false);
+                return;
+            }
+
+            await Fail(
+                context, 404,
+                $"'{found.Definition.Name}' has no field called '{field}'.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        if (HoldingOn(found, column.Name) is { } holder)
+        {
+            await Fail(context, 409, holder).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            await importer.DropFieldAsync(
+                found.Definition.SchemaName, found.Definition.TableName, column.Name, cancellation)
+                .ConfigureAwait(false);
+        }
+        catch (Npgsql.PostgresException blocked) when (blocked.SqlState == "55P03")
+        {
+            await Fail(
+                context, 409,
+                $"'{found.Definition.Name}' is being read right now, so its table could not be "
+                + "altered — the change was abandoned rather than made to wait. Try again.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation)
+            .ConfigureAwait(false);
+
+        await RecordAsync(
+            context, audit, "layer.field.drop", found.Definition.Name,
+            new { column = column.Name }, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            layer = found.Definition.Name,
+            field = column.Name,
+            dropped = true,
+            note = "The data that was in this field is gone and cannot be recovered.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The layer named, when it is hosted and the caller may change it.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layers">The published layers.</param>
+    /// <param name="name">The layer's name.</param>
+    /// <param name="what">What was being attempted, for the refusal.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The layer, or null when a refusal has been written.</returns>
+    /// <remarks>
+    /// <b>ADR-058 §5h: a registered table is refused, and told where it is changed instead.</b>
+    /// That table is in somebody else's database; this server re-reads its shape within thirty
+    /// seconds of a DBA altering it and does not alter it itself. Saying so beats a 404 that
+    /// leaves an operator wondering whether the layer exists.
+    /// </remarks>
+    private static async Task<PublishedLayer?> HostedLayerAsync(
+        HttpContext context,
+        PostgresLayerCatalog layers,
+        string name,
+        string what,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+            .ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        if (await AdminEndpoints.OneNamedLayerAsync(context, layers, name, cancellation)
+            .ConfigureAwait(false) is not { } found)
+        {
+            return null;
+        }
+
+        if (!found.Definition.IsHosted)
+        {
+            // <b>*Somebody else administers it* is what this said until it was read back on a
+            // fixture where a registered source pointed at this server's own database.</b> That
+            // is a legitimate setup — an operator may register the same PostgreSQL — and the
+            // sentence then claimed a stranger owned a table we made. The true statement is
+            // narrower and is the one that matters: the schema belongs to the source it was
+            // registered from, not to this server.
+            await Fail(
+                context, 409,
+                $"'{found.Definition.Name}' is a registered layer, so this server does not "
+                + $"{what} it: its schema belongs to the database it was registered from. Its "
+                + $"table is '{found.Definition.SchemaName}.{found.Definition.TableName}' — "
+                + "change it there, and this server picks the new shape up within thirty "
+                + "seconds or immediately with "
+                + $"POST /admin/layers/{found.Definition.Name}/refresh.")
+                .ConfigureAwait(false);
+
+            return null;
+        }
+
+        /*
+          <b>Hosted is not the same as *we made this table*, and the first version of this guard
+          conflated them.</b> `IsHosted` says the layer's **source** is the datastore; it says
+          nothing about the schema. A datastore source can serve any schema of that database —
+          the conformance fixture publishes `cicorpus.shapes` through it — and such a layer
+          reached `PostGisImporter`, whose own guard threw, and the caller got a **500** for a
+          state this endpoint should have refused in a sentence.
+
+          <b>Found by the test that was written to check something else.</b> It was meant to
+          exercise the registered branch, borrowed a table the way every other test here does,
+          and got an unhandled exception instead — which is the argument for writing the test
+          before believing the guard.
+
+          <b>The rule the importer keeps is the right one and this repeats it in the operator's
+          words rather than replacing it.</b> Only tables in the schema this server creates into
+          were created by this server; anything else in the same database belongs to whoever put
+          it there, and altering it because a catalogue row pointed at it is the one thing that
+          class must never do.
+        */
+        if (!string.Equals(
+                found.Definition.SchemaName,
+                PostGisImporter.HostedSchema,
+                StringComparison.Ordinal))
+        {
+            await Fail(
+                context, 409,
+                $"'{found.Definition.Name}' is served from the datastore but its table is "
+                + $"'{found.Definition.SchemaName}.{found.Definition.TableName}', and this "
+                + $"server does not {what} a table it did not create. Only what it imported or "
+                + $"defined — everything in the '{PostGisImporter.HostedSchema}' schema — is "
+                + "its to alter.")
+                .ConfigureAwait(false);
+
+            return null;
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// Whatever stops a column being dropped, as the sentence to answer with.
+    /// </summary>
+    /// <param name="layer">The layer.</param>
+    /// <param name="column">The column, as the table spells it.</param>
+    /// <returns>The refusal, or null when nothing holds it.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-058 §5c and §5d, and this list is the whole safety of the delete.</b> Nothing in
+    /// the language ties <i>this code reads a column by name</i> to <i>this column may not be
+    /// dropped</i>, so the next feature that reads one will not add itself here. That is recorded
+    /// as the ADR's strongest counterargument and as its second condition, not smoothed over.
+    /// </para>
+    /// <para>
+    /// <b>The first draft of the ADR listed a fourth holder — a layer filter — and there is no
+    /// such thing in this server.</b> The list was wrong by imagining a dependency before it was
+    /// ever wrong by missing one, which is worth knowing about a list maintained this way.
+    /// </para>
+    /// </remarks>
+    private static string? HoldingOn(PublishedLayer layer, string column)
+    {
+        bool Same(string? other) =>
+            other is { Length: > 0 }
+            && string.Equals(other, column, StringComparison.OrdinalIgnoreCase);
+
+        if (Same(layer.Definition.GeometryColumn))
+        {
+            return $"'{column}' is this layer's geometry. A layer without geometry is not a "
+                 + "layer, so it cannot be dropped — republish without it if that is what you "
+                 + "mean.";
+        }
+
+        if (Same(layer.Definition.IdentityColumn) || Same(layer.Definition.IntegerIdentityColumn))
+        {
+            return $"'{column}' is how this layer's features are addressed. Every query, every "
+                 + "edit and every tile identifies a feature by it, so it cannot be dropped.";
+        }
+
+        if (Same(layer.TimeField))
+        {
+            return $"'{column}' is this layer's time field, so WMS-T and any time-aware client "
+                 + "read it. Clear the time field on the layer's own screen first, and this "
+                 + "field can then go.";
+        }
+
+        if (layer.Symbology is { Length: > 0 } document)
+        {
+            SymbologyPlan plan = SymbologyPlan.Compile(document);
+
+            if (plan.Fields.Any(Same))
+            {
+                return $"'{column}' is what this layer's symbology draws with — its classes are "
+                     + "built from it. Change the symbology to a different field, or back to the "
+                     + "generated appearance, and this field can then go.";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Drops what this server remembered about a layer whose shape has just changed.
+    /// </summary>
+    /// <param name="layer">The layer.</param>
+    /// <param name="contexts">The remembered shapes.</param>
+    /// <param name="tiles">The tile cache.</param>
+    /// <param name="catalog">The catalogue.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The work.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-058 §5g, and thirty seconds is not good enough here.</b> For a registered table the
+    /// TTL is the only bound available because nothing tells us. For a hosted one <i>we</i> made
+    /// the change, so serving a stale field list afterwards would be a staleness we chose to keep
+    /// for no reason.
+    /// </para>
+    /// <para>
+    /// <b>The tiles go whichever way the schema moved.</b> A tile built from a column that no
+    /// longer exists is not out of date, it is wrong
+    /// ([ADR-010](../../docs/adr/ADR-010-caching.md) §5.1); one built before a column was added
+    /// is merely stale. Purging both is one rule, and a screen that purged sometimes is a rule
+    /// nobody could predict.
+    /// </para>
+    /// </remarks>
+    private static async Task AfterSchemaChangeAsync(
+        PublishedLayer layer,
+        ServiceContexts contexts,
+        ITileCache tiles,
+        IAdminCatalog catalog,
+        CancellationToken cancellation)
+    {
+        contexts.Forget(layer);
+        tiles.Purge(layer.Id);
+
+        // <b>The stamp, so anything listing the service sees that it changed.</b> ArcGIS moves a
+        // timestamp on the item for exactly this; here the service row's `updated_at` is what a
+        // listing already reads, so there is nothing new to store.
+        await catalog.TouchServiceAsync(layer.ServiceName, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>One audited act, in the shape this file already writes them.</summary>
+    /// <param name="context">The request, for the caller's address.</param>
+    /// <param name="audit">The log.</param>
+    /// <param name="action">What was done.</param>
+    /// <param name="subject">What it was done to.</param>
+    /// <param name="detail">Whatever is worth reading afterwards.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The work.</returns>
+    /// <remarks>
+    /// <b>Written once here rather than reached for from <c>AdminEndpoints</c>.</b> That class
+    /// has its own <c>AuditAsync</c> and its own <c>Detail</c>; making either visible across the
+    /// two files would be a shared helper whose two callers disagree about what a failed act
+    /// looks like. Two schema changes were about to be the third and fourth hand-rolled copy in
+    /// this file, which is where a helper earns its place.
+    /// </remarks>
+    private static async Task RecordAsync(
+        HttpContext context,
+        IAuditLog audit,
+        string action,
+        string subject,
+        object detail,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        await audit.RecordAsync(
+            new AuditEvent(
+                current.Principal.Id,
+                current.Principal.Name,
+                CallerAddress.Of(context)?.ToString(),
+                action,
+                subject,
+                JsonSerializer.Serialize(detail),
+                true),
+            cancellation).ConfigureAwait(false);
+    }
 
     private static Task Fail(HttpContext context, int code, string message) =>
         Results.Json(new { error = new { code, message } }, statusCode: code)

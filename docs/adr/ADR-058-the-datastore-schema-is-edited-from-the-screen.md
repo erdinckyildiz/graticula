@@ -101,9 +101,12 @@ week's.
 
 **A delete that a dependency check missed is data loss, and the check is
 hand-maintained.** Nothing in the compiler ties *this code reads a column by
-name* to *this column may not be deleted*. The list is `time_field`, the
-symbology document's classification field and the layer's filter today, and the
-next thing that reads a column by name will not add itself. **This is the
+name* to *this column may not be deleted*. The list is `time_field` and the
+columns the symbology reads, and the next thing that reads a column by name will
+not add itself. **The first draft of this ADR listed a third — a layer filter —
+and there is no such thing in this server**, so the list was wrong in the
+direction of imagining a dependency before it was ever wrong in the direction of
+missing one. **This is the
 strongest argument against and it is not answered by the design** — it is
 answered by a condition (§7.2) and by the delete being explicit rather than
 inferred.
@@ -191,14 +194,27 @@ Delete is refused when the column is:
 - the layer's **identity or object id column**, or its **geometry column** —
   these are not fields, they are how the layer is addressed (§5d);
 - its **time field** (`layer.time_field`, [Q-129](../open-questions.md));
-- named by its **symbology** — the classification field of a `uniqueValue` or
-  `classBreaks` renderer;
-- named by the layer's **filter** in `layer.definition`.
+- named by its **symbology** — every column `SymbologyPlan.Compile` reports the
+  style reads, which is the classification field of a `uniqueValue` or
+  `classBreaks` renderer and anything else a future style expression names.
+
+~~- named by the layer's **filter** in `layer.definition`.~~ **Struck the same day
+it was written, on trying to implement it: there is no filter.** `LayerDefinition`
+carries a name, a schema, a table, a geometry column, an SRID and an identity
+column, and the `layer` row adds an object id, a geometry type, a cache lifetime,
+a symbology and a time field. Nothing anywhere holds a where clause. **This ADR
+listed a dependency on a feature that does not exist**, which is precisely the
+shape [ADR-034](ADR-034-server-and-studio.md) prohibits, reached from the
+direction where the document is the thing that is wrong rather than the screen —
+and it is worth leaving visible, because §7.2's whole argument is that this list
+is maintained by somebody remembering. It was wrong within the hour.
 
 **The refusal says which of these holds it and where to change that**, because
 *this field is in use* sends somebody to look through four screens. This is
 ArcGIS's rule reached independently and confirmed by their documentation, which
-refuses a field used by *styles, the time slider, filter, labels, or search*.
+refuses a field used by *styles, the time slider, filter, labels, or search* —
+three of which we do not have, which is why our list is shorter and why §7.2 is a
+condition rather than a note.
 
 **What is not checked is what does not exist yet.** We have no labels, no popups
 and no saved searches; when one arrives it adds itself to this list, and §7.2 is
@@ -265,7 +281,23 @@ across a whole service is not something they could have understood.
 ### 5h. A registered table is refused here, and keeps the path it has
 
 The endpoint refuses a layer whose source is not the datastore, naming the
-reason: that table belongs to somebody else's database and is changed there.
+reason: that table belongs to the database it was registered from and is changed
+there.
+
+**And it refuses a second case the first draft of this section did not see:
+hosted is not the same as *we made this table*.** `IsHosted` says the layer's
+**source** is the datastore and says nothing about the schema — a datastore
+source can serve any schema of that database, and the conformance fixture
+publishes one that does. Such a layer passed the check, reached `PostGisImporter`,
+and hit *its* guard, which throws: the caller got a **500** for a state this
+endpoint should have refused in a sentence.
+
+**Found by a test written to check the other branch.** It borrowed a table the
+way every other test in that suite does and got an unhandled exception, which is
+the argument for writing the test before believing the guard. Both checks are now
+made here, in the operator's words, and the importer keeps its own — that class
+must never run DDL in a schema it did not create because a catalogue row pointed
+at it, and a guard stated once in two places is one guard and one backstop.
 Everything in [data-model.md §3](../data-model.md) continues to apply to it — the
 30-second re-read, `POST /admin/layers/{name}/refresh`, and the fact that a
 request already answering finishes on the old shape.
@@ -320,7 +352,8 @@ no library type crosses a boundary.
    and asks for a column, and gets a refusal rather than a stall, is what makes
    this real.
 2. **The dependency list is enforced by something that fails when it is
-   incomplete.** §5c lists four holders and §6 says the fifth will not add itself.
+   incomplete.** §5c lists three holders — it listed four until one of them turned
+   out not to exist — and §6 says the fourth real one will not add itself.
    Either a test enumerates every place this server reads a column by name and
    asserts each is covered, or the list is a comment that will be wrong within a
    month. **Until that exists, this ADR's confidence on the dependency list stays
