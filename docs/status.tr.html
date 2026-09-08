@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>ffb6881</code> · 2026-09-09 00:56</p>
+<p class="stamp">Şu commit’ten üretildi: <code>b3ad88e</code> · 2026-09-09 01:01</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">59</div><div class="kpi-l">ADR</div><div class="kpi-n">11 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">166/224</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">58 canlı · 0 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">167/224</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">57 canlı · 0 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">38</div><div class="kpi-l">açık soru</div><div class="kpi-n">118 yanıtlandı · 2 engelleyici</div></div>
 <div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">açık borç</div><div class="kpi-n">205 ödendi · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">14/85</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">2438</div><div class="kpi-l">test</div><div class="kpi-n">270 kaynak dosya, 112,800 satır</div></div>
+<div class="kpi good"><div class="kpi-v">2442</div><div class="kpi-l">test</div><div class="kpi-n">270 kaynak dosya, 112,911 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">11 açık</span></div><p><b>Q-18</b> — What genuinely justifies a server over static cloud-native publishing and over a stateless thin server plus a capable database?</p><p><b>Q-146</b> — Does a new composition start in EPSG:3857, or in nothing?</p><p><b>Q-147</b> — Is there a one-press way back to each layer&#x27;s own?</p><p><b>Q-150</b> — Is auto-discovery owed as a publishing mode, or is the wizard the answer?</p><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">84 madde</span></div><p><b>58 ADR conditions</b> outstanding across 35 decisions — the largest commitment on this page.</p><p><b>22 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">83 madde</span></div><p><b>57 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>22 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -165,7 +165,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-054 · The symbology document is not boun</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-056 · An item is its own thing, and a se</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-057 · Composing and publishing a service</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-058 · The datastore&#x27;s schema is edited f</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -241,7 +240,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">055</td><td>A connection is fields, and this server assembles it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num">0/2</td></tr>
 <tr><td class="id">056</td><td>An item is its own thing, and a service is one kind of it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — MEDIUM on the field layout until 2026-09-05, when condition 1 was answered</td><td class="num">1/2</td></tr>
 <tr><td class="id">057</td><td>Composing and publishing a service</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the composition and the publish rules · MEDIUM for the faces</td><td class="num">6/7</td></tr>
-<tr><td class="id">058</td><td>The datastore&#x27;s schema is edited from the screen</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the rule and the refusals · MEDIUM for the dependency list</td><td class="num">3/4</td></tr>
+<tr><td class="id">058</td><td>The datastore&#x27;s schema is edited from the screen</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the rule and the refusals · HIGH for the dependency list — MEDIUM until…</td><td class="num">4/4</td></tr>
 <tr><td class="id">059</td><td>Quiescing a data source</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the refusal and the deadline · MEDIUM for the window&#x27;s length · LOW for the…</td><td class="num">3/5</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
@@ -408,18 +407,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">529</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:86.8%"></div></div><div class="bar-n">459</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:80.9%"></div></div><div class="bar-n">428</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:81.5%"></div></div><div class="bar-n">431</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:68.8%"></div></div><div class="bar-n">364</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:29.1%"></div></div><div class="bar-n">154</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:28.0%"></div></div><div class="bar-n">148</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:26.8%"></div></div><div class="bar-n">142</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:21.4%"></div></div><div class="bar-n">113</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:6.4%"></div></div><div class="bar-n">34</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:6.6%"></div></div><div class="bar-n">35</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:4.9%"></div></div><div class="bar-n">26</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.2%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>b3ad88e</code><time>2026-09-09</time><span>Two claims in the Q-18 ledger were stronger than the code</span></li>
+<li><code>a8593e6</code><time>2026-09-09</time><span>The status page catches up with the commit before it</span></li>
 <li><code>ffb6881</code><time>2026-09-09</time><span>Two guards written yesterday were missing their second copy, and Q-18 gets its evidence</span></li>
 <li><code>9760277</code><time>2026-09-08</time><span>Q-20: two of its three open items close, and one of them found the engines differ</span></li>
 <li><code>b27a9bf</code><time>2026-09-08</time><span>Measuring quiesce answered its condition in the most awkward available way</span></li>
@@ -432,8 +433,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>a85e38d</code><time>2026-09-08</time><span>The Fields screen&#x27;s review found two faults fixed on the last screen and rebuilt on this one</span></li>
 <li><code>576f683</code><time>2026-09-08</time><span>ADR-059: a data source can be quiesced, and measuring it corrected the ADR</span></li>
 <li><code>9df291d</code><time>2026-09-08</time><span>ADR-058&#x27;s conditions get tests, and the one that guards the delete was broken to prove it</span></li>
-<li><code>42a7231</code><time>2026-09-08</time><span>The Publish screen can be used without a mouse, and its twist says which thing it folds</span></li>
-<li><code>6a8018c</code><time>2026-09-08</time><span>The Fields view edits fields, and the Databases pane can be reached by keyboard</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

@@ -1932,19 +1932,61 @@ internal static class HostedDataEndpoints
                  + "field can then go.";
         }
 
-        if (layer.Symbology is { Length: > 0 } document)
+        if (layer.Symbology is { Length: > 0 } document && SymbologyNames(document).Any(Same))
         {
-            SymbologyPlan plan = SymbologyPlan.Compile(document);
-
-            if (plan.Fields.Any(Same))
-            {
-                return $"'{column}' is what this layer's symbology draws with — its classes are "
-                     + "built from it. Change the symbology to a different field, or back to the "
-                     + "generated appearance, and this field can then go.";
-            }
+            return $"'{column}' is what this layer's symbology draws with — its classes are "
+                 + "built from it. Change the symbology to a different field, or back to the "
+                 + "generated appearance, and this field can then go.";
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Every column a stored symbology document names.
+    /// </summary>
+    /// <param name="document">The stored style.</param>
+    /// <returns>The column names, or none when the document cannot be read.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The document rather than the picture, and until 2026-09-09 this asked for the
+    /// picture.</b> It compiled the style and took <c>SymbologyPlan.Fields</c>, which is
+    /// collected from the paint expressions the compilation produces — the right answer to
+    /// *what does drawing this need to fetch* and the wrong one to *what does this document
+    /// name*. A unique-value renderer whose classes all carry the same colour derives a
+    /// <c>match</c> with one outcome; that collapses to a constant, the plan reports **no
+    /// fields**, and the guard let the column be dropped. `CimProjection.AllFields` says why
+    /// that matters: the map does not change, the **document** breaks.
+    /// </para>
+    /// <para>
+    /// <b>A MapLibre document still goes through the plan</b>, because there is nothing else to
+    /// ask — a paint expression is the only place it names a column, and reading it means
+    /// compiling it. ADR-052 made CIM canonical, so this is the older shape rather than the
+    /// common one.
+    /// </para>
+    /// <para>
+    /// <b>An unreadable document names nothing, and does not stop the drop.</b> A style this
+    /// server cannot compile is already refused everywhere it is drawn; making it also block a
+    /// schema change would turn one broken document into a layer nobody can edit, and the
+    /// operator would have no way to tell which of the two problems they had.
+    /// </para>
+    /// </remarks>
+    private static IReadOnlyList<string> SymbologyNames(string document)
+    {
+        try
+        {
+            if (System.Text.Json.Nodes.JsonNode.Parse(document) is System.Text.Json.Nodes.JsonObject body
+                && Cim.IsRenderer(body))
+            {
+                return Cim.Project(body).AllFields();
+            }
+
+            return SymbologyPlan.Compile(document).Fields;
+        }
+        catch (Exception e) when (e is SymbologyException or System.Text.Json.JsonException)
+        {
+            return [];
+        }
     }
 
     /// <summary>

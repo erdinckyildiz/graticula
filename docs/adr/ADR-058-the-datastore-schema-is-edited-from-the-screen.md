@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `HIGH` for the rule and the refusals · `MEDIUM` for the dependency list |
+| **Confidence** | `HIGH` for the rule and the refusals · `HIGH` for the dependency list — `MEDIUM` until 2026-09-09, when condition 2's second half stopped being a judgement |
 | **Decided** | 2026-09-08, by owner decision |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -371,9 +371,10 @@ no library type crosses a boundary.
    incomplete.** §5c lists three holders — it listed four until one of them turned
    out not to exist — and §6 says the fourth real one will not add itself. Either a
    test enumerates every place this server reads a column by name and asserts each
-   is covered, or the list is a comment that will be wrong within a month. **Until
+   is covered, or the list is a comment that will be wrong within a month. ~~**Until
    that exists, this ADR's confidence on the dependency list stays `MEDIUM` for
-   exactly this reason.**
+   exactly this reason.**~~ **It exists as of 2026-09-09, in two halves, and the
+   confidence is `HIGH`.**
    ***(PARTLY DISCHARGED 2026-09-08, and the half that is not covered is named rather
    than glossed.)*** `EveryColumnNameIsGuardedTests` reads the two types that describe
    a published layer, takes every property whose name ends in `Column` or `Field` —
@@ -386,10 +387,52 @@ no library type crosses a boundary.
    checks the guard still exists at all, so a rename cannot turn this into a
    comparison against an empty string that passes forever.
 
-   **What it does not cover is a column name that never becomes a property** — inside
+   ~~**What it does not cover is a column name that never becomes a property** — inside
    the symbology document, which the guard handles by compiling it rather than by
    reading a field. That half is still judgement, and the confidence stays `MEDIUM`
-   because of it rather than because nothing was built.
+   because of it rather than because nothing was built.~~
+
+   ***(DISCHARGED 2026-09-09 — the second half too, and closing it found a defect in
+   the first one's mechanism.)*** The symbology half has an authoritative list after all:
+   `Cim` declares its renderer kinds as constants and `Cim.Project` dispatches on them,
+   so `SymbologyNamesItsColumnsTests` reads those constants **by reflection**, keeps one
+   document per kind that draws by a marker column, and asserts each reports it. **An
+   eighth renderer fails the test by name** — *Cim declares CIMWhateverRenderer and this
+   test has no document for it* — which is the same enforcement shape the property half
+   uses, applied to the half that had none. `EveryColumnNameIsGuardedTests` gains the
+   link: the guard must still ask.
+
+   **And writing that test found the guard asking the wrong question.** It asked
+   `SymbologyPlan.Fields`, which is collected from the *compiled paint expressions* —
+   the right answer to *what does drawing this need to fetch*. The first draft of the
+   test used one shared colour for every class, because the colours are not what it is
+   about, and **two renderers reported no fields at all**: a `match` whose outcomes are
+   all the same value collapses to that value, so the derived style carries no `get`,
+   so the plan is empty and correct.
+
+   **Correct for drawing and wrong for a delete guard.** A unique-value renderer whose
+   classes happen to draw alike would have let its classifying column be dropped.
+   Nothing on the map changes — which is exactly why it is worth refusing: the **stored
+   document** goes on naming a column that no longer exists, so the symbology editor and
+   both derived faces fail on the next read, and the operator has no way to connect that
+   to a field they dropped days earlier. The guard now asks
+   `CimProjection.AllFields`, which reads the document rather than the picture and
+   gathers every place a column can be named — the single `Field`, the unique-value
+   `Fields`, each visual variable's, and heat, dots and chart.
+
+   **Falsified three ways, and the first attempt did not fail.** Removing the
+   unique-value list from `AllFields` left the test green, because a *single*-field
+   classification is also carried by `CimProjection.Field` — so the document now
+   classifies by **two** columns with the marker second, which is the one only the list
+   can reach, and the same falsification then fails. Removing a renderer's document
+   reports that renderer by name; putting the guard back on `SymbologyPlan.Fields` fails
+   the link test with what it would cost.
+
+   **The confidence on the dependency list moves to `HIGH`**, and what is left is
+   narrower than *judgement*: a renderer whose own reading of its document is
+   incomplete — one that reads two columns and reports one — would still pass, because
+   the marker is found. That is what `CimTests` and the per-renderer suites beside it
+   are for, and it is a different claim from *nothing enumerates this half*.
 3. **The screen goes through the ux-designer before it ships**, which is the
    owner's standing instruction and the same condition
    [ADR-038](ADR-038-how-a-geodatabase-becomes-a-service.md) carries.

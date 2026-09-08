@@ -33,10 +33,14 @@ namespace Graticula.Architecture.Tests;
 /// <i>enforced by something that fails when it is incomplete</i> means.
 /// </para>
 /// <para>
-/// <b>What this cannot catch</b> is a column name that reaches the server without being stored on
-/// the layer — inside the symbology document, for instance, which the guard handles by compiling
-/// it rather than by reading a property. That half stays a judgement, and saying so is better
-/// than a green test implying otherwise.
+/// <b>What this cannot catch by reading properties</b> is a column name that reaches the server
+/// without being stored on the layer — inside the symbology document, which the guard handles by
+/// compiling it rather than by reading a property. **That half is no longer a judgement, and it
+/// is covered from the other end**: `SymbologyNamesItsColumnsTests` enumerates the renderer kinds
+/// `Cim` declares — by reflection over its constants, so an eighth fails by name — and asserts
+/// each one reports the column it draws with in `SymbologyPlan.Fields`, which is the list the
+/// guard asks. What is left here is the *link* between the two: this file asserts the guard still
+/// asks it at all, below.
 /// </para>
 /// </remarks>
 public sealed class EveryColumnNameIsGuardedTests
@@ -98,6 +102,49 @@ public sealed class EveryColumnNameIsGuardedTests
             + "the next request against a table that no longer has it — ADR-058 condition 2. "
             + "Either refuse the column there with a sentence naming what holds it, or say in "
             + "the guard why this one does not need refusing.");
+    }
+
+    /// <summary>
+    /// The guard still asks the symbology what columns it draws with.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The link between the two halves of ADR-058 condition 2, and it is one line of source
+    /// that nothing else would miss.</b> The property half is above; the renderer half is
+    /// `SymbologyNamesItsColumnsTests`, which proves every renderer kind reports its column in
+    /// <c>SymbologyPlan.Fields</c>. Neither is worth anything if the guard stops consulting that
+    /// list — and deleting the four lines that do would break no other test, because every one of
+    /// them is about a column stored as a property.
+    /// </para>
+    /// <para>
+    /// <b>Asserted on the source rather than on behaviour</b>, for the reason the class remarks
+    /// give: the guard is a private method in the host, this project is about rules, and a
+    /// behavioural version would need a database, a hosted layer and a stored style to check a
+    /// fact that is visible in four lines.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_guard_asks_the_symbology_which_columns_it_draws_with()
+    {
+        Assert.Contains("layer.Symbology", Guard(), StringComparison.Ordinal);
+
+        string all = File.ReadAllText(
+            Path.Combine(Root, "Graticula.Host", "HostedDataEndpoints.cs"));
+
+        // <b>And what it asks the document, which is the half that changed on 2026-09-09.</b>
+        // Asking `SymbologyPlan.Fields` is asking what *drawing* reads, and a renderer whose
+        // classes all carry one colour compiles to a constant and reports nothing — measured in
+        // `SymbologyNamesItsColumnsTests`. `CimProjection.AllFields` reads the document instead,
+        // which is what breaks when the column goes.
+        Assert.True(
+            all.Contains("AllFields()", StringComparison.Ordinal),
+            "Nothing in HostedDataEndpoints asks CimProjection.AllFields any more. If the guard "
+            + "has gone back to compiling the style and reading SymbologyPlan.Fields, a layer "
+            + "whose classes all draw the same colour reports no fields at all — so its "
+            + "classifying column can be dropped, the map does not change, and the stored "
+            + "document is left naming a column that no longer exists. ADR-058 condition 2's "
+            + "second half, and [D-218](../../docs/architecture-debt.md) is the shape of what "
+            + "the reader sees afterwards.");
     }
 
     /// <summary>

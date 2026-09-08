@@ -1584,6 +1584,75 @@ public sealed record CimProjection(
     /// <summary>What joins the values of several fields into one class key.</summary>
     public string Delimiter { get; init; } = ", ";
 
+    /// <summary>
+    /// Every column this renderer names, wherever in the document it names it.
+    /// </summary>
+    /// <returns>The column names, without duplicates, in no particular order.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Written 2026-09-09 for the delete guard, and the distinction it draws is the whole
+    /// reason it exists.</b> <c>SymbologyPlan.Fields</c> answers *which columns does drawing this
+    /// read* — it is collected from the compiled paint expressions, which is right for a renderer
+    /// deciding what to fetch. <c>HostedDataEndpoints.HoldingOn</c> was asking it a different
+    /// question: *which columns does this document name*, so that dropping one is refused.
+    /// </para>
+    /// <para>
+    /// <b>The two differ, and it is measurable.</b> A unique-value renderer whose classes all
+    /// carry the same colour derives a MapLibre <c>match</c> with one outcome, which collapses to
+    /// a constant — so the plan reports **no fields at all**, and the guard would have allowed
+    /// the column to be dropped. Nothing visible changes on the map, which is why this is not a
+    /// rendering defect; what breaks is the **document**, which still names a column that no
+    /// longer exists, so the symbology editor and both derived faces fail on the next read.
+    /// Found by <c>SymbologyNamesItsColumnsTests</c>, whose first draft used one colour for every
+    /// class and was reporting the collapse as a missing field — ADR-058 condition 2.
+    /// </para>
+    /// <para>
+    /// <b>Every place a column can be named is read here rather than in the caller</b>, because
+    /// there are six and the seventh will be added beside them: the single <c>Field</c>, the
+    /// unique-value <c>Fields</c>, each visual variable's, and the three renderers that carry
+    /// their own — heat, dots and chart.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<string> AllFields()
+    {
+        List<string> named = [];
+
+        void Add(string? one)
+        {
+            if (one is { Length: > 0 }
+                && !named.Contains(one, StringComparer.OrdinalIgnoreCase))
+            {
+                named.Add(one);
+            }
+        }
+
+        Add(Field);
+
+        foreach (string one in Fields)
+        {
+            Add(one);
+        }
+
+        foreach (CimVary varying in Vary)
+        {
+            Add(varying.Field);
+        }
+
+        Add(Heat?.Field);
+
+        foreach (string one in Dots?.Fields ?? [])
+        {
+            Add(one);
+        }
+
+        foreach (string one in Pie?.Fields ?? [])
+        {
+            Add(one);
+        }
+
+        return named;
+    }
+
     /// <summary>The chart, for a chart renderer. Null for every other.</summary>
     public CimPie? Pie { get; init; }
 
