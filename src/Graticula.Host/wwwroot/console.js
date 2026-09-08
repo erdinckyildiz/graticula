@@ -10321,6 +10321,24 @@ let pubSeq = 0;
  */
 let pubServiceName = "";
 
+/**
+ * What the server last said about the name in the dialog — ADR-057 §5e.
+ *
+ * <b>Held rather than re-derived, because the answer is the server's and not this screen's.</b>
+ * Whether an address is free, reserved by a system service, in a folder nobody may name, or held
+ * by a service of the operator's own are four different facts, and only one of them is knowable
+ * here. `reason` is the server's word for which; `replaceable` is the only one that opens a door.
+ *
+ * @type {{reason: string, replaceable: boolean, refusal: string|null, existing: object|null}}
+ */
+let pubNameSaid = { reason: "", replaceable: false, refusal: null, existing: null };
+
+/** Which name check is the current one, so a slow answer to an old keystroke is dropped. */
+let pubNameSeq = 0;
+
+/** The debounce for the name check, cleared when a keystroke replaces it. */
+let pubNameSoon = null;
+
 /** Which composition, in which frame, the picture on screen is of — so it is not redrawn. */
 let pubShotOf = "";
 
@@ -11695,6 +11713,14 @@ async function openPublishDialog() {
       </div>
       <p class="hint" id="pbNewFolder" hidden></p>
 
+      <!--
+        <b>ADR-057 §5e: the name is answered while it is typed.</b> Until 2026-09-08 this screen
+        read the name only when Publish was pressed, so a collision was found after the
+        composition was finished — and the decision that a name of *yours* is offered as a
+        replacement had nowhere to happen at all.
+      -->
+      <p class="hint" id="pbNameSays" hidden></p>
+
       <div class="row">
         <label class="field" style="flex:1 1 100%">Description <span class="val">(optional)</span>
           <input id="pbAbout" spellcheck="false"
@@ -11809,7 +11835,15 @@ async function openPublishDialog() {
     $(id).addEventListener("change", capsSay);
   }
 
-  $("pbFolder").addEventListener("input", folderNote);
+  // <b>The folder is half of the address, so it re-asks the same question.</b> `cadastre` is
+  // free at the root and taken in `planning`; a check that only watched the name box would show
+  // the answer to the previous folder while the operator reads the new one.
+  $("pbFolder").addEventListener("input", () => {
+    folderNote();
+    pubCheckName();
+  });
+
+  $("pbName").addEventListener("input", pubCheckName);
   $("pbCancel").addEventListener("click", () => dialog.close());
   $("publishClose").onclick = () => dialog.close();
   $("pbGo").addEventListener("click", sendPublish);
@@ -11825,6 +11859,18 @@ async function openPublishDialog() {
 
   warp();
   capsSay();
+
+  // <b>Reset before asking, because the dialog is reopened rather than rebuilt.</b> A previous
+  // answer left in place would arm the button for a name that is no longer in the box — and the
+  // answer it would arm is the one that replaces a service.
+  pubNameSaid = { reason: "", replaceable: false, refusal: null, existing: null };
+  pubNameArm();
+
+  // <b>Asked on open, not only on the first keystroke.</b> The name is usually already there,
+  // carried in from the map's root node, so an operator who opens this dialog and presses
+  // Publish would otherwise never have been checked at all.
+  pubCheckName();
+
   dialog.showModal();
   $("pbName").focus();
 }
@@ -11844,6 +11890,124 @@ function pubCeiling() {
     ...($("pbCreate")?.checked ? ["Create"] : []),
     ...($("pbUpdate")?.checked ? ["Update"] : []),
     ...($("pbDelete")?.checked ? ["Delete"] : [])];
+}
+
+/**
+ * Asks the server about the name in the box, and draws the answer under it.
+ *
+ * <b>ADR-057 §5e, and the request is the server's rather than a filtered listing.</b> A screen
+ * that fetched every service and looked through them would answer the same question and get
+ * slower with every service a deployment has ever published — which is condition 1, and this is
+ * the side of it that was a choice rather than a measurement.
+ *
+ * <b>Debounced, sequenced and never left mid-answer.</b> A keystroke replaces the pending check
+ * rather than joining it, and an answer whose sequence has been superseded is dropped: typing
+ * `cadastre` fast otherwise ends with whichever of eight requests came back last, which on a
+ * loaded server is not the last one sent.
+ *
+ * @returns {void}
+ */
+function pubCheckName() {
+  clearTimeout(pubNameSoon);
+
+  const said = $("pbNameSays");
+  const name = $("pbName")?.value.trim() ?? "";
+
+  // <b>An empty box is not a refusal.</b> It is the state the dialog opens in when nothing was
+  // named on the screen behind it, and colouring it red would greet an operator with an error
+  // for not having typed yet.
+  if (!name) {
+    pubNameSaid = { reason: "", replaceable: false, refusal: null, existing: null };
+    said.hidden = true;
+    pubNameArm();
+    return;
+  }
+
+  const mine = ++pubNameSeq;
+
+  pubNameSoon = setTimeout(async () => {
+    const folder = $("pbFolder")?.value.trim() ?? "";
+    const asked = `/admin/publish/name?name=${encodeURIComponent(name)}`
+      + (folder ? `&folder=${encodeURIComponent(folder)}` : "");
+
+    const answer = await api(asked).catch(() => null);
+
+    // The box has moved on; this answer is about a name nobody is typing any more.
+    if (mine !== pubNameSeq) return;
+
+    // <b>Silence rather than a guess when the check itself failed.</b> The publish still
+    // refuses a taken name, so a check that cannot answer costs a late refusal — while a
+    // check that says *free* because it got a 500 costs a destroyed service.
+    if (!answer) {
+      pubNameSaid = { reason: "", replaceable: false, refusal: null, existing: null };
+      said.hidden = true;
+      pubNameArm();
+      return;
+    }
+
+    pubNameSaid = {
+      reason: answer.reason || "",
+      replaceable: answer.replaceable === true,
+      refusal: answer.refusal || null,
+      existing: answer.existing || null,
+    };
+
+    said.hidden = false;
+    said.classList.toggle("bad-inline", answer.available === false && !answer.replaceable);
+
+    if (answer.available) {
+      said.textContent = `${name} is free here.`;
+    } else if (answer.replaceable && answer.existing) {
+      const was = answer.existing;
+      const when = String(was.published || "").slice(0, 10);
+
+      // <b>What is there, named — §5e's own requirement.</b> A tick that said only *replace it*
+      // would ask somebody to agree to something they cannot see, and the two facts that make
+      // it a decision are how much is in it and how long it has been there.
+      said.innerHTML = `<b>${h(was.name)}</b> is already published here, by you —
+        ${num(was.layers)} layer${was.layers === 1 ? "" : "s"}${was.groups
+          ? ` in ${num(was.groups)} group${was.groups === 1 ? "" : "s"}` : ""},
+        published ${h(when)}.
+        <label class="pbtick" style="margin-top:6px">
+          <input type="checkbox" id="pbReplace">
+          <span>Replace it — its layers are removed and these are published in their place</span>
+        </label>`;
+
+      $("pbReplace").addEventListener("change", pubNameArm);
+    } else {
+      said.textContent = answer.refusal || `${name} cannot be used here.`;
+    }
+
+    pubNameArm();
+  }, 250);
+}
+
+/**
+ * Enables or disables Publish from what the name check last said, and names the act.
+ *
+ * <b>The button says which of the two things it does.</b> Publishing and replacing are different
+ * acts — one of them destroys a composition somebody may be using — and a button whose label did
+ * not change would make them the same gesture.
+ *
+ * @returns {void}
+ */
+function pubNameArm() {
+  const button = $("pbGo");
+  if (!button) return;
+
+  const count = pubLayers().length;
+  const plural = count === 1 ? "" : "s";
+  const blocked = pubNameSaid.reason === "taken"
+    || pubNameSaid.reason === "system"
+    || pubNameSaid.reason === "folder";
+
+  const replacing = pubNameSaid.replaceable && $("pbReplace")?.checked === true;
+
+  button.disabled = blocked || (pubNameSaid.replaceable && !replacing);
+  button.classList.toggle("danger", replacing);
+  button.textContent = replacing
+    ? `Replace with ${num(count)} layer${plural}`
+    : `Publish ${num(count)} layer${plural}`;
 }
 
 /** Sends the composition, and turns a refusal into a sentence on the dialog. */
@@ -11887,6 +12051,11 @@ async function sendPublish() {
         servesFeatures: $("pbFeatures").checked,
         servesTiles: $("pbTiles").checked,
         capabilities: pubCeiling(),
+
+        // <b>Only when the tick is on — ADR-057 §5e.</b> Sent as a fact rather than as a
+        // permission: the server refuses an occupied address without it, and refuses it with
+        // it too when the service is somebody else's. This screen cannot grant either.
+        replace: $("pbReplace")?.checked === true,
         nodes,
       }),
     });

@@ -302,6 +302,18 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
         Assert.True(made == HttpStatusCode.Created, $"The first publish answered {(int)made}: {said}");
 
+        string overwrite = JsonSerializer.Serialize(new
+        {
+            name,
+            folder = "hosted",
+            sharing = "private",
+            replace = true,
+            nodes = new object[]
+            {
+                new { layer = Layer($"other{name}", source, schema2, table2, geometry2, identity2, srid2) },
+            },
+        });
+
         try
         {
             (HttpStatusCode again, string refused) = await SendAsync(
@@ -309,7 +321,17 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
             Assert.Equal(HttpStatusCode.Conflict, again);
 
-            Assert.Contains("unique inside a folder", refused, StringComparison.OrdinalIgnoreCase);
+            /*
+              <b>The sentence changed on 2026-09-08, and the change is ADR-057 §5e.</b> This
+              assertion read *unique inside a folder* — the 23505 handler's words, which is what
+              a collision produced when nothing checked the address first. That sentence is still
+              written, for the name held by *somebody else* and for two people pressing Publish in
+              the same second, but it is no longer what this test's own principal is told: a name
+              already taken by you is offered as a replacement, and being told to rename is the
+              wrong instruction when you own the thing in the way.
+            */
+            Assert.Contains("by you", refused, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("replace", refused, StringComparison.OrdinalIgnoreCase);
 
             // <b>And the one that is there still is.</b> A refusal that damages what it refused
             // to replace is worse than one that succeeds.
@@ -319,9 +341,193 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
 
             Assert.Equal(HttpStatusCode.OK, read);
 
+            JsonElement before = JsonDocument.Parse(document).RootElement;
+
+            Assert.Equal(1, before.GetProperty("layers").GetArrayLength());
+
             Assert.Equal(
-                1,
-                JsonDocument.Parse(document).RootElement.GetProperty("layers").GetArrayLength());
+                $"only{name}",
+                before.GetProperty("layers")[0].GetProperty("name").GetString());
+
+            /*
+              <b>And with the flag it goes through, at the same address.</b> §5e's replacement is
+              one act: the service keeps its id — it *is* its item, so a shared link survives —
+              and its layers are the new composition's. Asserted at the face rather than at the
+              row, because what an operator is promised is that the URL they gave somebody now
+              answers with the new composition.
+            */
+            (HttpStatusCode over, string done) = await SendAsync(
+                HttpMethod.Post, $"{root}/admin/publish", token!, overwrite);
+
+            Assert.True(
+                over == HttpStatusCode.OK,
+                $"Replacing answered {(int)over} rather than 200: {done}");
+
+            Assert.True(
+                JsonDocument.Parse(done).RootElement.GetProperty("replaced").GetBoolean(),
+                "The replacement answered without saying it replaced anything, so a screen "
+                + "cannot tell an operator whether it overwrote a service or made one.");
+
+            (HttpStatusCode after, string now) = await SendAsync(
+                HttpMethod.Get,
+                $"{root}/rest/services/hosted/{name}/FeatureServer?f=json", token!, null);
+
+            Assert.Equal(HttpStatusCode.OK, after);
+
+            JsonElement replaced = JsonDocument.Parse(now).RootElement;
+
+            Assert.Equal(1, replaced.GetProperty("layers").GetArrayLength());
+
+            Assert.Equal(
+                $"other{name}",
+                replaced.GetProperty("layers")[0].GetProperty("name").GetString());
+        }
+        finally
+        {
+            // <b>Both names, because which one is there depends on how far this got.</b> A
+            // teardown that only knew the first would leave the replacement published when the
+            // replacement is what failed.
+            await TearDownAsync(root, token!, name, [$"only{name}", $"other{name}"], []);
+        }
+    }
+
+    /// <summary>
+    /// The name check answers the three states before anything is published.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-057](../../docs/adr/ADR-057-composing-and-publishing-a-service.md) §5e.</b> The
+    /// name is checked where it is typed rather than where Publish is pressed, so this asks the
+    /// endpoint the screen asks: free before anything is there, and *yours* — with what is there
+    /// — afterwards.
+    /// </para>
+    /// <para>
+    /// <b>What it also asserts is that the check and the publish agree.</b> A check that answered
+    /// *free* about a name the publish then refuses is worse than no check, because the operator
+    /// has been told it was fine and finds out after composing. So the free answer is taken
+    /// first, the publish is made against it, and the same address is asked again.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_name_is_answered_before_it_is_published()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        (Guid source, string schema, string table, string geometry, string identity, int srid) =
+            await ATableAsync(root, token!);
+
+        string name = AName();
+
+        (HttpStatusCode free, string open) = await SendAsync(
+            HttpMethod.Get,
+            $"{root}/admin/publish/name?name={name}&folder=hosted", token!, null);
+
+        Assert.Equal(HttpStatusCode.OK, free);
+
+        JsonElement nothing = JsonDocument.Parse(open).RootElement;
+
+        Assert.True(
+            nothing.GetProperty("available").GetBoolean(),
+            $"'{name}' is published nowhere and the check said it was taken: {open}");
+
+        Assert.Equal("free", nothing.GetProperty("reason").GetString());
+
+        string body = JsonSerializer.Serialize(new
+        {
+            name,
+            folder = "hosted",
+            sharing = "private",
+            nodes = new object[]
+            {
+                new { layer = Layer($"only{name}", source, schema, table, geometry, identity, srid) },
+            },
+        });
+
+        (HttpStatusCode made, string said) = await SendAsync(
+            HttpMethod.Post, $"{root}/admin/publish", token!, body);
+
+        Assert.True(made == HttpStatusCode.Created, $"The publish answered {(int)made}: {said}");
+
+        try
+        {
+            (HttpStatusCode taken, string held) = await SendAsync(
+                HttpMethod.Get,
+                $"{root}/admin/publish/name?name={name}&folder=hosted", token!, null);
+
+            Assert.Equal(HttpStatusCode.OK, taken);
+
+            JsonElement mine = JsonDocument.Parse(held).RootElement;
+
+            Assert.False(mine.GetProperty("available").GetBoolean());
+            Assert.True(mine.GetProperty("replaceable").GetBoolean());
+            Assert.Equal("yours", mine.GetProperty("reason").GetString());
+
+            // <b>What is there, which is what makes it a decision rather than a warning.</b>
+            // §5e asks for the layer count and the publication date by name: a dialog that said
+            // only *this exists* would ask somebody to agree to something they cannot see.
+            JsonElement standing = mine.GetProperty("existing");
+
+            Assert.Equal(1, standing.GetProperty("layers").GetInt32());
+            Assert.NotEqual(default, standing.GetProperty("published").GetDateTimeOffset());
+
+            /*
+              <b>200 for a refusal, and it is deliberate.</b> Nothing here is an error — the
+              caller asked a question and each answer is a fact about the address. A 409 would
+              make an operator trying names produce a red console on the ordinary path.
+
+              <b>And the reason is `folder`, which is what running this taught.</b> It was
+              written expecting `system`: `Utilities/Geometry` is the address ADR-028 condition 5
+              exists to protect, so that looked like the branch it would reach. It does not —
+              `Utilities` is a *reserved folder* and is refused a step earlier, by the same check
+              in the same order that `POST /admin/publish` makes.
+
+              <b>Which is the assertion that matters, and it is stronger than the one intended.</b>
+              What this test is for is that the check and the publish refuse the same addresses;
+              an answer of `folder` where the publish also says `folder` is that agreement. The
+              `system` branch stays in the endpoint as the publish's own guard has to, and today
+              nothing reaches it through an address a person can type, because every system
+              service lives in the folder the earlier rule already refuses.
+            */
+            (HttpStatusCode reserved, string system) = await SendAsync(
+                HttpMethod.Get,
+                $"{root}/admin/publish/name?name=Geometry&folder=Utilities", token!, null);
+
+            Assert.Equal(HttpStatusCode.OK, reserved);
+
+            JsonElement blocked = JsonDocument.Parse(system).RootElement;
+
+            Assert.False(
+                blocked.GetProperty("available").GetBoolean(),
+                "A reserved folder's address was offered as free, so the check and the publish "
+                + "disagree about an address the publish refuses.");
+
+            Assert.Equal("folder", blocked.GetProperty("reason").GetString());
+
+            // <b>And the publish agrees, asked directly.</b> Asserting the check alone would
+            // prove the check consistent with itself; what an operator is promised is that a
+            // name the box accepted is a name the publish takes, and the inverse.
+            (HttpStatusCode refusedThere, _) = await SendAsync(
+                HttpMethod.Post,
+                $"{root}/admin/publish",
+                token!,
+                JsonSerializer.Serialize(new
+                {
+                    name = "Geometry",
+                    folder = "Utilities",
+                    sharing = "private",
+                    nodes = new object[]
+                    {
+                        new { layer = Layer($"probe{name}", source, schema, table, geometry, identity, srid) },
+                    },
+                }));
+
+            Assert.True(
+                refusedThere is HttpStatusCode.BadRequest or HttpStatusCode.Conflict,
+                $"The check refuses Utilities/Geometry and the publish answered {(int)refusedThere}. "
+                + "A check that disagrees with the act it precedes is worse than no check.");
         }
         finally
         {

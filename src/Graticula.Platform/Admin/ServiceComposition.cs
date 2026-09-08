@@ -52,6 +52,23 @@ namespace Graticula.Platform.Admin;
 /// before this field existed.
 /// </para>
 /// </param>
+/// <param name="Replacing">
+/// The service already at this address that this composition replaces, or null to create one.
+/// <para>
+/// <b>§5e, and the id is reused rather than a new one allocated.</b> A service <i>is</i> its
+/// item — there is no item table, so the id a person shared, bookmarked or wrote into a client is
+/// this row's id. Replacing by delete-then-create would keep the URL and break every one of
+/// those, which is the opposite of what *replace* means to whoever pressed it. So the row stays,
+/// its contents are rewritten, and <c>created_at</c> keeps saying when this address was first
+/// published while <c>updated_at</c> moves.
+/// </para>
+/// <para>
+/// <b>The layers do not survive it.</b> They are deleted and the new composition's are inserted,
+/// so every layer gets a new id — which is what republishing has always done
+/// ([D-34](../../../docs/architecture-debt.md)) and what makes the old service's cached tiles
+/// unreachable rather than wrong.
+/// </para>
+/// </param>
 public sealed record ServiceComposition(
     string Name,
     string? Folder,
@@ -62,7 +79,8 @@ public sealed record ServiceComposition(
     string? SridWkt = null,
     bool? ServesFeatures = null,
     bool? ServesTiles = null,
-    IReadOnlyList<string>? Capabilities = null);
+    IReadOnlyList<string>? Capabilities = null,
+    Guid? Replacing = null);
 
 /// <summary>One entry in a composition: a group, or a layer.</summary>
 /// <remarks>
@@ -88,9 +106,20 @@ public sealed record CompositionNode(
 /// <param name="Folder">Its folder, or null for the root.</param>
 /// <param name="Layers">Each layer's name and the index it answers at.</param>
 /// <param name="Groups">Each group's name and the index it answers at.</param>
+/// <param name="ReplacedLayers">
+/// The ids of the layers this composition replaced, empty when it created a service.
+/// <para>
+/// <b>Carried out of the transaction because the caches live outside it.</b> A replaced layer's
+/// tiles are keyed by its id, so they become unreachable the moment the row goes and would sit in
+/// the cache for as long as the deployment lives. The endpoint purges them, which is the same
+/// thing the unpublish and delete paths do with the same two calls — and it can only do it if it
+/// is told which ids went.
+/// </para>
+/// </param>
 public sealed record PublishedComposition(
     Guid ServiceId,
     string Name,
     string? Folder,
     IReadOnlyList<(string Name, int Index)> Layers,
-    IReadOnlyList<(string Name, int Index)> Groups);
+    IReadOnlyList<(string Name, int Index)> Groups,
+    IReadOnlyList<Guid>? ReplacedLayers = null);

@@ -322,6 +322,43 @@ public readonly record struct AdminService(
 }
 
 /// <summary>
+/// Whatever already occupies a folder and a name, for the screen that is about to ask for it.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>[ADR-057](../../../docs/adr/ADR-057-composing-and-publishing-a-service.md) §5e, and the
+/// shape of this record is the whole of that decision.</b> A name already taken by somebody else
+/// is refused; a name already taken by <i>you</i> is offered as a replacement <i>naming what is
+/// there</i> — so the two facts that turn a refusal into a decision, how many layers it holds
+/// and when it was published, are carried here rather than fetched in a second call the screen
+/// would have to make while somebody is typing.
+/// </para>
+/// <para>
+/// <b>The owner is a principal id and not a name, because the comparison is an authorization
+/// one.</b> <see cref="AdminService"/> carries <c>OwnerName</c>, which is what a listing draws,
+/// and two principals may be renamed into each other's display names — matching on that would
+/// decide <i>may I overwrite this</i> on a string somebody can change.
+/// </para>
+/// </remarks>
+/// <param name="Id">The service occupying the address.</param>
+/// <param name="Name">Its name as it is spelled in the catalogue, which may differ in case.</param>
+/// <param name="Folder">Its folder, or null for the root.</param>
+/// <param name="Owner">Who owns it, or null when the principal that published it is gone.</param>
+/// <param name="OwnerName">Their display name, for the sentence the screen writes.</param>
+/// <param name="Layers">How many feature layers it holds.</param>
+/// <param name="Groups">How many group layers it holds.</param>
+/// <param name="Published">When it was published.</param>
+public readonly record struct ServiceAtAddress(
+    Guid Id,
+    string Name,
+    string? Folder,
+    Guid? Owner,
+    string? OwnerName,
+    int Layers,
+    int Groups,
+    DateTimeOffset Published);
+
+/// <summary>
 /// What happened, or did not, when something was asked to be deleted.
 /// </summary>
 /// <remarks>
@@ -748,6 +785,31 @@ public interface IAdminCatalog
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The services, ordered by folder then name.</returns>
     Task<IReadOnlyList<AdminService>> ListServicesAsync(CancellationToken cancellationToken);
+
+    /// <summary>What already occupies a folder and a name, or null when nothing does.</summary>
+    /// <param name="folder">The folder, or null for the root.</param>
+    /// <param name="name">The name being asked about.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The service at that address, or null.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>One query rather than a listing, and [ADR-057](../../../docs/adr/ADR-057-composing-and-publishing-a-service.md)
+    /// condition 1 is why it is written this way before anybody has measured it.</b> §5e asks for
+    /// a check while somebody types, and the two implementations of that are a request per
+    /// keystroke against an index and <see cref="ListServicesAsync"/> filtered in the browser.
+    /// The second is free to write and gets slower with every service a deployment publishes —
+    /// on a full server it carries every row of the catalogue to answer a question about one.
+    /// </para>
+    /// <para>
+    /// <b>Matched the way the index is built.</b> <c>service_name_in_folder_ci</c> is on
+    /// <c>(coalesce(lower(folder), ''), lower(name))</c>, so this predicate is that expression
+    /// and nothing else — a lookup shaped differently from the constraint it is predicting can
+    /// answer *free* about a name the insert will then refuse, which is the worst of the three
+    /// possible answers because it is discovered after the composition is finished.
+    /// </para>
+    /// </remarks>
+    Task<ServiceAtAddress?> FindServiceAtAsync(
+        string? folder, string name, CancellationToken cancellationToken);
 
     /// <summary>
     /// Deletes a service, but only while it is empty.

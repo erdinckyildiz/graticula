@@ -134,7 +134,7 @@ internal sealed class ServiceContexts
     /// no longer exist were unreachable and immortal.
     /// </para>
     /// <para>
-    /// <b>Moving it here is the whole fix.</b> <see cref="Forget"/> is already called by
+    /// <b>Moving it here is the whole fix.</b> <see cref="Forget(PublishedLayer?)"/> is already called by
     /// the unpublish and refresh paths and already clears both other memories; putting
     /// this one beside them means it is cleared by code that was already clearing
     /// everything else, rather than by a second thing somebody has to remember.
@@ -359,6 +359,26 @@ internal sealed class ServiceContexts
         // not forgetting.
         _known.TryRemove(key, out _);
     }
+
+    /// <summary>
+    /// Forgets what was measured about one layer by id, when the layer itself is already gone.
+    /// </summary>
+    /// <param name="layerId">The layer that no longer exists.</param>
+    /// <remarks>
+    /// <b>For the replacement path, which deletes rows before anything can be handed a
+    /// <see cref="PublishedLayer"/> for them.</b> ADR-057 §5e replaces a whole composition in one
+    /// transaction and reports the ids it removed; those ids are all that is left of the layers,
+    /// and <see cref="_times"/> is the memory keyed by them. Leaving them is
+    /// [D-160](../../docs/architecture-debt.md) exactly — entries for layers that no longer exist,
+    /// unreachable and immortal — reached this time by a path that did not exist when that was
+    /// fixed.
+    /// <para>
+    /// The two table-keyed memories are deliberately untouched. They describe a <i>table</i>, and
+    /// a replaced composition usually serves the same tables: dropping them would throw away a
+    /// correct answer and buy a round trip.
+    /// </para>
+    /// </remarks>
+    public void Forget(Guid layerId) => _times.TryRemove(layerId, out _);
 
     /// <summary>What makes two layers the same table.</summary>
     private readonly record struct Key(string Connection, string Schema, string Table, string Geometry)

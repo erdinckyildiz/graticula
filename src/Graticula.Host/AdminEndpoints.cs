@@ -93,6 +93,15 @@ internal sealed record ServiceSridRequest(int? Srid);
 /// narrows and never grants: what a caller may do is this intersected with their privileges and
 /// with what the data supports.
 /// </param>
+/// <param name="Replace">
+/// Whether a service already at this address should be replaced — ADR-057 §5e.
+/// <para>
+/// <b>Absent means no, and that is what makes the check worth having.</b> A publish onto an
+/// occupied address is refused unless the caller says this, so the ordinary mistake — the same
+/// name typed twice — cannot destroy a service by default. The screen only sends it after showing
+/// what is there.
+/// </para>
+/// </param>
 internal sealed record CompositionRequest(
     string? Name,
     string? Folder,
@@ -103,7 +112,8 @@ internal sealed record CompositionRequest(
     string? SridWkt = null,
     bool? ServesFeatures = null,
     bool? ServesTiles = null,
-    IReadOnlyList<string>? Capabilities = null);
+    IReadOnlyList<string>? Capabilities = null,
+    bool? Replace = null);
 
 /// <summary>One entry in a composition: a group with its layers, or a layer.</summary>
 /// <param name="Group">The group's name, when this is a group.</param>
@@ -464,6 +474,11 @@ internal static class AdminEndpoints
         // <b>Where each layer is, so the screen can move a map to one.</b> Owner instruction
         // 2026-09-06 — *sağ clickte zoom to layer yapabilmeliyim*.
         app.MapPost("/admin/publish/extent", CompositionExtentAsync);
+
+        // <b>ADR-057 §5e: the name is checked where it is typed, not where it is pressed.</b> A
+        // GET because it asks a question and changes nothing, and one request per name rather
+        // than a listing the browser filters — condition 1 is about which of those two this is.
+        app.MapGet("/admin/publish/name", PublishNameAsync);
 
         // <b>Whether this server can serve in a reference the operator typed.</b> The Publish
         // screen offered three codes and nothing else; any EPSG code is now typeable, and a
@@ -6145,6 +6160,8 @@ internal static class AdminEndpoints
     /// <param name="catalog">The catalogue.</param>
     /// <param name="systemServices">The addresses a published service may not take.</param>
     /// <param name="projector">What is asked whether it can serve in the reference chosen.</param>
+    /// <param name="contexts">The remembered shapes, so a replaced layer's are dropped.</param>
+    /// <param name="tiles">The tile cache, so a replaced layer's pictures are dropped.</param>
     /// <param name="audit">The log.</param>
     /// <param name="cancellation">The caller's.</param>
     /// <returns>The task.</returns>
@@ -6154,6 +6171,8 @@ internal static class AdminEndpoints
         IAdminCatalog catalog,
         PostgresSystemServices systemServices,
         IProjector projector,
+        ServiceContexts contexts,
+        ITileCache tiles,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -6339,6 +6358,56 @@ internal static class AdminEndpoints
             return;
         }
 
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        /*
+          <b>§5e, at the end of the address checks and before anything is read out of the tree.</b>
+          The constraint below is still the authority — two people pressing Publish in the same
+          second is a race no pre-check can win, which is why the 23505 handler stays. What this
+          adds is the *decision*: whether an occupied address is a refusal or a replacement, and
+          who is allowed to make it.
+
+          <b>Not yours is refused whatever the request says.</b> Replacing somebody else's service
+          is deleting it, and this endpoint's privilege is `content:publishFeatures` — the one
+          that says a person may publish, not that they may destroy what other people published.
+          An administrator who genuinely means to take the address has a route already: delete it
+          and publish, which is two deliberate acts and is audited as two.
+        */
+        Guid? replacing = null;
+
+        if (await catalog.FindServiceAtAsync(folder, request.Name.Trim(), cancellation)
+            .ConfigureAwait(false) is { } standing)
+        {
+            bool mine = standing.Owner is { } owner && owner == current.Principal.Id;
+            string where = folder is { Length: > 0 } ? $"folder '{folder}'" : "the root";
+
+            if (!mine)
+            {
+                await Refuse(
+                    context, 409,
+                    $"'{standing.Name}' is already published in {where} by somebody else. Names "
+                    + "are unique inside a folder; another folder may hold the same one.")
+                    .ConfigureAwait(false);
+
+                return;
+            }
+
+            if (request.Replace != true)
+            {
+                await Refuse(
+                    context, 409,
+                    $"'{standing.Name}' is already published in {where}, by you: "
+                    + $"{Count(standing.Layers, "layer")} and {Count(standing.Groups, "group layer")}, "
+                    + $"published {standing.Published:yyyy-MM-dd}. Send `replace: true` to publish "
+                    + "over it, or choose another name.")
+                    .ConfigureAwait(false);
+
+                return;
+            }
+
+            replacing = standing.Id;
+        }
+
         if (!TryComposition(request, out List<CompositionNode>? composed, out string? unreadable))
         {
             await Refuse(context, 400, unreadable!).ConfigureAwait(false);
@@ -6352,8 +6421,6 @@ internal static class AdminEndpoints
 
             return;
         }
-
-        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         try
         {
@@ -6374,10 +6441,28 @@ internal static class AdminEndpoints
                         request.SridWkt,
                         request.ServesFeatures,
                         request.ServesTiles,
-                        request.Capabilities),
+                        request.Capabilities,
+                        replacing),
                     current.Principal.Id,
                     cancellation)
                 .ConfigureAwait(false);
+
+            /*
+              <b>The replaced layers' tiles go, and the ids are the transaction's rather than the
+              check's.</b> `FindServiceAtAsync` ran before the transaction and a layer could have
+              been published into that service in between; the delete inside the transaction is
+              what actually happened, so it is what says which pictures are now unreachable.
+
+              <b>Unreachable is not the same as gone.</b> A new layer gets a new id, so nothing
+              serves the old tiles — they would simply occupy the cache for the life of the
+              deployment. This is the same pair of calls the unpublish and delete paths make, for
+              the same reason ADR-010 §5.1 gives about republishing over a different table.
+            */
+            foreach (Guid gone in made.ReplacedLayers ?? [])
+            {
+                contexts.Forget(gone);
+                tiles.Purge(gone);
+            }
 
             await AuditAsync(
                 context, audit, "service.publish", made.Name,
@@ -6391,10 +6476,23 @@ internal static class AdminEndpoints
                     features = request.ServesFeatures,
                     tiles = request.ServesTiles,
                     capabilities = request.Capabilities,
+
+                    // <b>Audited as its own fact, because it is a different act.</b> A
+                    // replacement destroys a composition somebody could still be using, and a
+                    // log that recorded it as a publish would leave nothing to read afterwards
+                    // about where the previous one went.
+                    replaced = replacing is not null,
+                    replacedLayers = made.ReplacedLayers?.Count ?? 0,
                 }),
                 succeeded: true, cancellation).ConfigureAwait(false);
 
-            context.Response.StatusCode = StatusCodes.Status201Created;
+            // <b>200 when it replaced, 201 when it created</b> — the codes mean *here is the
+            // result* and *a new thing exists at this address*, and a replacement is the first.
+            int code = replacing is null
+                ? StatusCodes.Status201Created
+                : StatusCodes.Status200OK;
+
+            context.Response.StatusCode = code;
 
             await Results.Json(new
             {
@@ -6414,7 +6512,14 @@ internal static class AdminEndpoints
                 capabilities = request.Capabilities,
                 layers = made.Layers.Select(l => new { name = l.Name, id = l.Index }),
                 groups = made.Groups.Select(g => new { name = g.Name, id = g.Index }),
-            }, statusCode: StatusCodes.Status201Created).ExecuteAsync(context)
+
+                // <b>Said back, because the caller asked for a replacement and a create looks
+                // identical from here.</b> `replace: true` on a free name creates one — the
+                // operator's intent is *let this address be this service* either way — and the
+                // screen's confirmation should not claim something was overwritten when nothing
+                // was there.
+                replaced = replacing is not null,
+            }, statusCode: code).ExecuteAsync(context)
                 .ConfigureAwait(false);
         }
         catch (PostgresException e) when (e.SqlState == "23505")
@@ -6480,6 +6585,172 @@ internal static class AdminEndpoints
 
             await Refuse(context, 409, sentence).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Answers whether a service may be published under a name, while somebody is typing it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-057](../../docs/adr/ADR-057-composing-and-publishing-a-service.md) §5e, which was
+    /// decided on 2026-09-05 and had no code behind it until 2026-09-08.</b> The screen read the
+    /// name only when Publish was pressed, so a collision was found after the composition was
+    /// finished — and the sentence that came back was a translated constraint violation, which is
+    /// a good refusal in the wrong place. The decision was *checked where it is made*.
+    /// </para>
+    /// <para>
+    /// <b>It answers 200 for every outcome, including the refusals.</b> Nothing here is an error:
+    /// the caller asked a question and each answer is a fact about the address. Spending 409 on
+    /// *taken* would make the browser's console red on the ordinary path of someone trying names,
+    /// and would make the reply indistinguishable from the publish that really is refused.
+    /// </para>
+    /// <para>
+    /// <b>Every refusal the publish can make about an address is made here, in the same order.</b>
+    /// A check that knew about existing services and not about reserved folders or system service
+    /// addresses would answer *free* about a name `POST /admin/publish` then refuses — which is
+    /// worse than not checking, because the operator has been told it was fine.
+    /// </para>
+    /// <para>
+    /// <b>The owner is named only when it is the caller.</b> A service somebody else owns is
+    /// reported as taken and nothing else: this endpoint is reachable by anyone who may publish,
+    /// and the alternative turns a name box into a way to enumerate who owns what. What is
+    /// already disclosed by the publish refusal — that the address is occupied — is disclosed
+    /// here and no more.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="name">The name being typed.</param>
+    /// <param name="folder">The folder chosen, or null for the root.</param>
+    /// <param name="catalog">The catalogue.</param>
+    /// <param name="systemServices">The addresses a published service may not take.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task PublishNameAsync(
+        HttpContext context,
+        string? name,
+        string? folder,
+        IAdminCatalog catalog,
+        PostgresSystemServices systemServices,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        // The same privilege the publish takes. Asking whether a name is free is a step in
+        // publishing, and a caller who may not publish has no question to ask here.
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            await Refuse(context, 400, "`name` is required: it is what is being checked.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        string wanted = name.Trim();
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        static async Task Say(HttpContext context, object answer) =>
+            await Results.Json(answer).ExecuteAsync(context).ConfigureAwait(false);
+
+        if (at is { Length: > 0 } inFolder
+            && !inFolder.Equals(
+                FeatureServerMetadataWriter.HostedFolder, StringComparison.OrdinalIgnoreCase)
+            && !TryReadFolderName(inFolder, out string? folderError))
+        {
+            await Say(context, new
+            {
+                name = wanted,
+                folder = at,
+                available = false,
+                replaceable = false,
+                reason = "folder",
+                refusal = folderError,
+            }).ConfigureAwait(false);
+
+            return;
+        }
+
+        if (await SystemServiceAsync(systemServices, wanted, at, cancellation)
+            .ConfigureAwait(false) is { } system)
+        {
+            await Say(context, new
+            {
+                name = wanted,
+                folder = at,
+                available = false,
+                replaceable = false,
+                reason = "system",
+                refusal = $"This server already serves a {system.Kind} called '{wanted}'"
+                    + (at is { Length: > 0 } ? $" in folder '{at}'" : " at the root")
+                    + ", so a published service cannot take that address.",
+            }).ConfigureAwait(false);
+
+            return;
+        }
+
+        if (await catalog.FindServiceAtAsync(at, wanted, cancellation).ConfigureAwait(false)
+            is not { } standing)
+        {
+            await Say(context, new
+            {
+                name = wanted,
+                folder = at,
+                available = true,
+                replaceable = false,
+                reason = "free",
+                refusal = (string?)null,
+            }).ConfigureAwait(false);
+
+            return;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        bool mine = standing.Owner is { } owner && owner == current.Principal.Id;
+
+        string where = at is { Length: > 0 } ? $"folder '{at}'" : "the root";
+
+        if (!mine)
+        {
+            await Say(context, new
+            {
+                name = wanted,
+                folder = at,
+                available = false,
+                replaceable = false,
+                reason = "taken",
+                refusal = $"'{standing.Name}' is already published in {where} by somebody else. "
+                    + "Names are unique inside a folder; another folder may hold the same one.",
+            }).ConfigureAwait(false);
+
+            return;
+        }
+
+        // <b>What is there, so overwriting is a decision made against the thing being
+        // overwritten</b> — §5e's own words. A dialog that says only *this exists, replace it?*
+        // asks somebody to agree to something they cannot see.
+        await Say(context, new
+        {
+            name = wanted,
+            folder = at,
+            available = false,
+            replaceable = true,
+            reason = "yours",
+            refusal = (string?)null,
+            existing = new
+            {
+                id = standing.Id,
+                name = standing.Name,
+                layers = standing.Layers,
+                groups = standing.Groups,
+                published = standing.Published,
+                owner = standing.OwnerName,
+            },
+        }).ConfigureAwait(false);
     }
 
     /// <summary>

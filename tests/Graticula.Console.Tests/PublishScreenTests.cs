@@ -1309,4 +1309,114 @@ public sealed class PublishScreenTests : ConsoleTest
 
         NothingWentWrong(await PageErrorsAsync());
     }
+
+    /// <summary>
+    /// A name already published by this operator is offered as a replacement, not refused.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-057](../../docs/adr/ADR-057-composing-and-publishing-a-service.md) §5e, which
+    /// was decided on 2026-09-05 and had nothing behind it until 2026-09-08.</b> The dialog read
+    /// the name only when Publish was pressed, so a collision arrived after the composition was
+    /// finished — and the half of the decision about a name of your own had nowhere to happen.
+    /// </para>
+    /// <para>
+    /// <b>The check is a GET, which is why this suite can see it.</b> Every non-GET here is
+    /// trapped and answered with <c>{}</c>; the name check asks a question and changes nothing,
+    /// so it reaches the real server and the answer under the box is the server's.
+    /// </para>
+    /// <para>
+    /// <b>Asserted on the button as well as on the sentence.</b> A screen that explained the
+    /// collision and left Publish armed would still destroy a service on the next press, and
+    /// that is the failure this test is for: the tick is what arms it, and the label is what
+    /// says which of the two acts is about to happen.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_name_of_your_own_is_offered_as_a_replacement()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(Shown("#pubTree"), "The Publish screen drew no contents pane.");
+
+        // A composition, without touching a database: what is under test is the dialog, and a
+        // layer it will never send is enough to open one.
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          pubTree = [{
+            kind: "layer", id: "L" + (++pubSeq), name: "zz_name",
+            source: "00000000-0000-0000-0000-000000000000", sourceName: "probe",
+            schema: "public", table: "zz_name", geometry: "geom", identity: "objectid",
+            srid: 3857, geometryType: "MultiPolygon", type: "MultiPolygon",
+          }];
+
+          pubDraw();
+          return true;
+        })();
+        """);
+
+        await ClickAsync("#pubOpen");
+
+        await WaitForAsync(
+            "(() => { const e = document.getElementById('pbName'); "
+            + "return !!e && e.offsetParent !== null; })()",
+            "The Publish dialog did not open.");
+
+        // <b>A service this fixture certainly has, published by the account this suite signs in
+        // as.</b> The seed publishes everything into `hosted` as the administrator, which is who
+        // is typing here — so this reaches the *yours* branch rather than the one that refuses.
+        string address = await AnyServiceAddressAsync();
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(address),
+            "This fixture publishes nothing at all, so there is no name of the operator's own "
+            + "to collide with and this test is checking nothing.");
+
+        string[] parts = address.Split('/');
+        string where = parts.Length > 1 ? parts[0] : string.Empty;
+        string mine = parts[^1];
+
+        await Browser.EvaluateAsync<bool>($$"""
+        (() => {
+          const name = document.getElementById("pbName");
+          const folder = document.getElementById("pbFolder");
+
+          folder.value = {{System.Text.Json.JsonSerializer.Serialize(where)}};
+          folder.dispatchEvent(new Event("input", { bubbles: true }));
+
+          name.value = {{System.Text.Json.JsonSerializer.Serialize(mine)}};
+          name.dispatchEvent(new Event("input", { bubbles: true }));
+          return true;
+        })();
+        """);
+
+        await WaitForAsync(
+            "(() => { const e = document.getElementById('pbNameSays'); "
+            + "return !!e && e.offsetParent !== null "
+            + "&& (e.innerText || '').includes('by you'); })()",
+            "The dialog did not say that the name is already published by this operator. A "
+            + "control that exists and renders nowhere has shipped here three times, which is "
+            + "what offsetParent is in this assertion for.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>("document.getElementById('pbGo').disabled"),
+            "Publish is armed over a service the operator already owns, with nothing ticked. "
+            + "The next press would replace it.");
+
+        await ClickAsync("#pbReplace");
+
+        Assert.False(
+            await Browser.EvaluateAsync<bool>("document.getElementById('pbGo').disabled"),
+            "Ticking the replacement did not arm Publish, so the decision the dialog asks for "
+            + "leads nowhere.");
+
+        Assert.Contains(
+            "Replace",
+            await Browser.EvaluateAsync<string>("document.getElementById('pbGo').textContent")
+                ?? string.Empty,
+            StringComparison.Ordinal);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
 }

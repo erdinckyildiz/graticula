@@ -173,6 +173,63 @@ A name already taken by **somebody else** is refused outright. A name already ta
 **you** is offered as a replacement, naming what is there — its layer count and when it was
 published — so overwriting is a decision made against the thing being overwritten.
 
+**Written 2026-09-08, three days after it was decided, and the gap is the finding.** Everything
+above was `ACCEPTED` on 2026-09-05 and had no code behind it: `pbName` was read when Publish was
+pressed and nowhere else, and the replacement half — the whole of the second paragraph — existed
+in no file. A collision came back as a translated constraint violation, which is a good refusal
+in the wrong place, and *offered as a replacement* had never been implemented at all. It survived
+a green suite for the same reason [§5k](#5k-the-symbol-is-chosen-while-composing)'s missing
+function did: no test pressed the name box, and a dialog that refuses late looks exactly like one
+that refuses early until somebody composes twenty layers first.
+
+**What was built.** `GET /admin/publish/name?name=&folder=` answers one of five reasons — `free`,
+`yours`, `taken`, `system`, `folder` — and the console asks it 250 ms after the last keystroke,
+sequenced so a superseded answer is dropped. `POST /admin/publish` takes `replace: true`, and
+refuses an occupied address without it.
+
+**Every refusal the publish makes about an address is made by the check, in the same order**, and
+that is the property worth stating rather than the endpoint. A check that knew about existing
+services and not about reserved folders would answer *free* about a name the publish then
+refuses — which is worse than not checking, because the operator has been told it was fine.
+Asserted directly: the conformance test asks the check about `Utilities/Geometry` and then asks
+the publish, and the pair has to agree. It also taught something the test was written not
+expecting: the answer is `folder`, not `system`, because `Utilities` is a reserved folder and is
+refused a step earlier. The `system` branch is unreachable through any address a person can type
+today, and it stays because the publish's own guard does.
+
+**One query, not a listing** — condition 1's first half, and it was a choice rather than a
+measurement. `FindServiceAtAsync` matches on `coalesce(lower(folder), '')` and `lower(name)`,
+which is the expression `service_name_in_folder_ci` is built on. A predicate shaped differently
+from the constraint it predicts would agree with it for every name typed so far and disagree the
+first time two folders differed only in case — in the direction that says *free*.
+
+**The replacement keeps the service's id, and this is a decision taken while implementing rather
+than one the owner made.** It is written here so it can be overturned like
+[§5i](#5i-one-table-is-one-layer-within-a-service--and-the-schemas-answer-was-not-a-decision)
+was. A service **is** its item — [ADR-056](ADR-056-an-item-is-its-own-thing-and-a-service-is-one-kind.md)
+stores no item row, so the id somebody shared or bookmarked is the service row's id — and
+replacing by delete-then-create would keep the URL and break every one of those, which is the
+opposite of what *replace* means to whoever pressed it. So the row survives, every column the
+composition carries is rewritten, `created_at` goes on saying when this address was first
+published, and `updated_at` moves. Three columns are deliberately not written: the owner, because
+only the owner may replace; `created_at`; and the id itself.
+
+**Its layers do not survive it**, and that is not a compromise: they are deleted and reinserted
+inside the same transaction, so every layer gets a new id — which is what republishing has always
+done ([D-34](../architecture-debt.md)) and what makes the previous composition's cached tiles
+unreachable rather than wrong. The endpoint purges them by the ids the *transaction* reports
+rather than the ids the check read, because a layer could have been published into that service
+in between.
+
+**In one transaction, for the reason §5h gives about creation.** Emptying a service and refilling
+it in two calls has a window in which the address exists and serves nothing — the empty residue
+this ADR refuses to create on purpose, reached by accident instead.
+
+**Only the owner, and an administrator is not an exception.** `content:publishFeatures` says a
+person may publish, not that they may destroy what other people published. An administrator who
+means to take the address has a route already — delete, then publish — which is two deliberate
+acts and is audited as two.
+
 ### 5f. A published service is running
 
 Publishing means serving: the URLs answer immediately. There is no draft state and no second
@@ -563,6 +620,16 @@ typing — the same rule that tells the two apart everywhere else on this screen
 1. **The name check is measured against a folder with a thousand services in it.** 5e asks
    for a request while somebody types; whether that is one query or a listing walked in the
    browser decides whether the screen is usable on a full server, and nobody has looked.
+
+   **PARTLY DISCHARGED 2026-09-08, and the two halves are worth separating because this
+   condition ran them together.** *Which implementation it is* is settled: `FindServiceAtAsync`
+   is a single lookup on the expression `service_name_in_folder_ci` is built on, and the console
+   debounces at 250 ms and drops superseded answers, so a keystroke costs one indexed read and
+   never a catalogue walk. *Whether it is fast enough* is not settled and nobody has still
+   looked — a thousand services in one folder is the case where an index lookup and a sequential
+   scan stop being indistinguishable, and 250 ms is a number chosen for feel exactly as the
+   preview's ceiling in condition 6 was. What remains is the measurement, on the
+   implementation that now exists rather than on a choice between two.
 2. **The faces become flags, or the two undrawable switches come off the screen.** MapServer
    and OGC are drawn as choices and are not choices yet. Either the catalogue gains the two
    columns or the screen stops offering what it cannot deliver, and shipping it in between is

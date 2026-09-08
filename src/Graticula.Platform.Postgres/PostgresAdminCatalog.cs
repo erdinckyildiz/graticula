@@ -63,10 +63,51 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         await using NpgsqlTransaction transaction =
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-        Guid serviceId = Guid.NewGuid();
+        Guid serviceId = composition.Replacing ?? Guid.NewGuid();
         string? folder = string.IsNullOrWhiteSpace(composition.Folder)
             ? null
             : composition.Folder.Trim();
+
+        /*
+          <b>§5e's replacement, and it is inside this transaction for the reason §5h gives about
+          creation.</b> Emptying a service and refilling it in two calls has a window in which
+          the address exists and serves nothing — the empty residue that decision refuses to
+          create on purpose, reached by accident instead. One transaction means the composition
+          that was there is what answers until the new one does.
+
+          <b>The old layer ids are read before they are deleted</b>, because the caller has
+          caches keyed by them and nothing else can tell it which ones to drop.
+        */
+        List<Guid> replaced = [];
+
+        if (composition.Replacing is { } standing)
+        {
+            await using (NpgsqlCommand were = new(
+                "select id from layer where service_id = @service", connection, transaction))
+            {
+                were.Parameters.AddWithValue("service", standing);
+
+                await using NpgsqlDataReader reader =
+                    await were.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    replaced.Add(reader.GetGuid(0));
+                }
+            }
+
+            await using (NpgsqlCommand clear = new(
+                """
+                delete from layer where service_id = @service;
+                delete from group_layer where service_id = @service;
+                """,
+                connection,
+                transaction))
+            {
+                clear.Parameters.AddWithValue("service", standing);
+                await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
 
         if (folder is not null)
         {
@@ -114,15 +155,50 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 nameof(composition));
         }
 
+        /*
+          <b>An update when replacing, and every column the composition carries is written.</b>
+          Leaving one out would make *replace* mean *replace the layers and keep whatever the
+          description said last time*, which is a rule nobody could predict from the screen: the
+          dialog asks for all of them and shows what it will send.
+
+          <b>Three columns are deliberately not in the update.</b> `owner_principal_id`, because
+          only the owner may replace (§5e) and writing it would be a no-op that looks like a
+          transfer; `created_at`, because it says when this address was first published and a
+          replacement is not a first publication; and `id`, which is the point of the whole
+          branch — the item is the service, and keeping the id is what makes a shared link
+          survive.
+
+          <b>`status` is set to started, which is §5f.</b> Publishing means serving, so replacing
+          a stopped service starts it. That is a real change of state and it is the same one the
+          create branch makes; a replacement that silently stayed stopped would answer 503 to
+          somebody who had just watched it publish.
+        */
         await using (NpgsqlCommand service = new(
-            """
-            insert into service
-                (id, name, folder, kind, description, owner_principal_id, sharing, status,
-                 srid, srid_wkt, next_layer_index, serves_features, serves_tiles,
-                 capability_ceiling)
-            values (@id, @name, @folder, 'FeatureServer', @description, @owner, @sharing,
-                    'started', @srid, @sridwkt, @next, @features, @tiles, @ceiling::text[])
-            """,
+            composition.Replacing is null
+                ? """
+                  insert into service
+                      (id, name, folder, kind, description, owner_principal_id, sharing, status,
+                       srid, srid_wkt, next_layer_index, serves_features, serves_tiles,
+                       capability_ceiling)
+                  values (@id, @name, @folder, 'FeatureServer', @description, @owner, @sharing,
+                          'started', @srid, @sridwkt, @next, @features, @tiles, @ceiling::text[])
+                  """
+                : """
+                  update service
+                     set name = @name,
+                         folder = @folder,
+                         description = @description,
+                         sharing = @sharing,
+                         status = 'started',
+                         srid = @srid,
+                         srid_wkt = @sridwkt,
+                         next_layer_index = @next,
+                         serves_features = @features,
+                         serves_tiles = @tiles,
+                         capability_ceiling = @ceiling::text[],
+                         updated_at = now()
+                   where id = @id
+                  """,
             connection,
             transaction))
         {
@@ -235,7 +311,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             composition.Name,
             folder,
             [.. layers.ConvertAll(l => (l.Name, l.Index))],
-            groups);
+            groups,
+            replaced);
     }
 
     /// <summary>Creates the catalogue.</summary>
@@ -986,6 +1063,52 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         }
 
         return services;
+    }
+
+    /// <inheritdoc/>
+    public async Task<ServiceAtAddress?> FindServiceAtAsync(
+        string? folder, string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        // <b>The index's own expression, not a lookalike.</b> `service_name_in_folder_ci` is on
+        // `(coalesce(lower(folder), ''), lower(name))`; writing `s.folder = @folder` here would
+        // agree with it for every name anybody has typed so far and disagree the first time two
+        // folders differ only in case — and it would disagree in the direction that answers
+        // *free* about a name the insert then refuses, which is the one answer of the three that
+        // is not discovered until the composition is finished.
+        const string Sql = """
+            select s.id, s.name, s.folder, s.owner_principal_id, p.name,
+                   (select count(*) from layer l where l.service_id = s.id),
+                   (select count(*) from group_layer g where g.service_id = s.id),
+                   s.created_at
+              from service s
+              left join principal p on p.id = s.owner_principal_id
+             where coalesce(lower(s.folder), '') = coalesce(lower(@folder), '')
+               and lower(s.name) = lower(@name)
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        return new ServiceAtAddress(
+            reader.GetGuid(0),
+            reader.GetString(1),
+            reader.IsDBNull(2) ? null : reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetGuid(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4),
+            (int)reader.GetInt64(5),
+            (int)reader.GetInt64(6),
+            reader.GetFieldValue<DateTimeOffset>(7));
     }
 
     /// <inheritdoc/>
