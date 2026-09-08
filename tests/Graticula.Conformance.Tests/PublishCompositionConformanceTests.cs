@@ -1150,6 +1150,40 @@ public sealed class PublishCompositionConformanceTests : ArcGisClient
             && said.FirstOrDefault() == "3857",
             "The drawing does not say which reference it is in.");
 
+        /*
+          <b>The ceiling travels always — ADR-057 condition 7.</b> A preview draws at most so
+          many features of each layer, and until 2026-09-08 nothing said so: a drawing that was
+          part of a layer and one that was all of it were the same picture. The header is
+          unconditional so a screen can name the number instead of hard-coding one that would go
+          stale the first time the server's changed.
+
+          <b>And `X-Graticula-Sampled` is absent here, which is the assertion that costs
+          something.</b> This fixture's layers are far under the ceiling, so a notice would be a
+          false one — and a screen that says *this may be part of it* about a complete drawing
+          teaches an operator to ignore the sentence.
+
+          <b>The bitten case is measured out of band, and here is the measurement.</b> The same
+          composition against a server started with `Graticula__MaximumRecordCount=200`, over a
+          600-feature table, answered `x-graticula-ceiling: 200` and
+          `x-graticula-sampled: cok%20kayit` — which is also where the percent-encoding earned
+          its place, the layer's name having a space in it. It is not asserted in this suite
+          because reaching it needs either a second server at a different ceiling or a fixture of
+          four thousand features, and both cost more than they would catch.
+        */
+        Assert.True(
+            answer.Headers.TryGetValues("X-Graticula-Ceiling", out IEnumerable<string>? bound)
+                && int.TryParse(
+                    System.Linq.Enumerable.First(bound),
+                    out int drawnAtMost)
+                && drawnAtMost > 0,
+            "The preview did not say how many features per layer it draws, so a screen showing "
+            + "a sampled drawing has no number to name.");
+
+        Assert.False(
+            answer.Headers.Contains("X-Graticula-Sampled"),
+            "The preview said it sampled a layer that is nowhere near the ceiling. A notice "
+            + "that appears when it should not is one an operator learns to read past.");
+
         Assert.True(
             answer.Headers.Contains("X-Graticula-Extent"),
             "The drawing does not say what it covers, so nothing can pan or zoom it.");

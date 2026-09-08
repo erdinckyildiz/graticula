@@ -768,8 +768,17 @@ internal static class WmsEndpoints
     /// Where to say that an area was outside what this layer can be projected into, or null
     /// on a path that has no logger — D-163.
     /// </param>
-    /// <returns>The work.</returns>
-    public static async Task DrawLayerAsync(
+    /// <returns>
+    /// How many features were drawn.
+    /// <para>
+    /// <b>Returned so a caller can tell a full drawing from a truncated one</b> — ADR-057
+    /// condition 7. The ceiling is applied inside the query and nothing outside could see
+    /// whether it bit, so a preview drawn to it looked exactly like a preview of the whole
+    /// layer. Every existing caller <c>await</c>s this and ignores the number, which is why the
+    /// return type could change without touching them.
+    /// </para>
+    /// </returns>
+    public static async Task<int> DrawLayerAsync(
         ServiceContexts contexts,
         MapRenderer renderer,
         PixelTransform transform,
@@ -805,7 +814,7 @@ internal static class WmsEndpoints
         {
             // Every style layer is switched off at this zoom. Reading the features
             // to draw none of them is the whole query for nothing.
-            return;
+            return 0;
         }
 
         /*
@@ -845,7 +854,7 @@ internal static class WmsEndpoints
             // what a map of somewhere that cannot exist looks like.
             if (inside.MaxX <= inside.MinX || inside.MaxY <= inside.MinY)
             {
-                return;
+                return 0;
             }
 
             query = inside;
@@ -904,12 +913,15 @@ internal static class WmsEndpoints
           an error. Anything else propagates untouched: a swallowed database fault is a map
           that silently loses a layer, which is the failure this whole area is about.
         */
+        int drawn = 0;
+
         try
         {
             await foreach (Feature feature
                 in source.ReadAsync(features, cancellation).ConfigureAwait(false))
             {
                 pass.Draw(feature);
+                drawn++;
             }
         }
         catch (PostgresException outside) when (ErrorResponse.IsOutsideItsReference(outside))
@@ -923,6 +935,11 @@ internal static class WmsEndpoints
                 Log.MapAreaOutsideReference(log, layer.Definition.Name, srid);
             }
         }
+
+        // <b>Counted after the catch, so a layer that fell outside its reference reports what
+        // it managed rather than nothing.</b> The number is *what was drawn*, which is the
+        // question a caller comparing it against a ceiling is asking.
+        return drawn;
     }
 
     /// <summary>

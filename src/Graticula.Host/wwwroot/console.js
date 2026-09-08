@@ -11041,7 +11041,28 @@ async function pubShoot(force) {
       image.hidden = false;
     }
 
-    note("");
+    /*
+      <b>A drawing that is part of a layer says so — ADR-057 condition 7.</b> The preview reads
+      at most a few thousand features of each layer, and where that bites the picture looks
+      exactly like the whole thing: an operator judging a composition by eye would be judging a
+      sample and have no way to know it. The server names which layers reached the ceiling and
+      what the ceiling is, so this sentence carries both rather than hard-coding a number that
+      would go stale the first time the server's changed.
+
+      <b>Percent-decoded, because a layer's name is whatever somebody typed.</b> A header value
+      is ASCII and `su hattı` is an ordinary name.
+    */
+    const sampled = (answer.headers.get("X-Graticula-Sampled") || "")
+      .split(",").filter(Boolean).map(decodeURIComponent);
+
+    const ceiling = Number(answer.headers.get("X-Graticula-Ceiling")) || 0;
+
+    note(sampled.length === 0
+      ? ""
+      : `${sampled.length === 1 ? "" : `${num(sampled.length)} layers — `}`
+        + `${sampled.join(", ")} reached the preview's `
+        + `${ceiling ? num(ceiling) + "-feature " : ""}ceiling, so what is drawn may be part of `
+        + `${sampled.length === 1 ? "it" : "them"}. The published service is not limited by it.`);
 
     // <b>The first drawing decides where the map looks; after that the operator does.</b>
     // Fitting fires `moveend`, which redraws at the frame that was fitted — so the picture

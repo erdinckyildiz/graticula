@@ -383,6 +383,24 @@ which is what a client asks for and what the drawing replaced when it took the s
 a preview is looked at while somebody is still deciding, so it is answered quickly or it is not
 looked at.
 
+**And where it bites, the screen says so — built 2026-09-08, condition 7.** `DrawLayerAsync`
+returns how many features it drew; the endpoint compares that against the ceiling per layer and
+answers `X-Graticula-Ceiling` always and `X-Graticula-Sampled` when it bit, and the line over the
+map names the layers. Until then the class's own comment read *the drawing is a sample of the
+layer and the screen says so* while nothing anywhere reported it — a sampled drawing and a
+complete one were the same picture, and an operator judging a composition by eye had no way to
+tell which they were looking at.
+
+**A layer at exactly the ceiling is reported too**, which is a false positive of one and is the
+safe direction. The sentence says *reached the ceiling, so this may be part of it* rather than
+claiming a completeness that would cost a second count query per layer to establish.
+
+**Names travel percent-encoded, and indices were the first idea.** A header value is ASCII and a
+layer's name is whatever the operator typed. Indices looked cheaper until the mismatch showed:
+the composition's numbering counts groups as well as layers, and the drawing loop walks the
+layers alone and bottom-first, so an index emitted there would have meant something different
+from the index the screen draws — and would have meant it silently.
+
 **And the drawing sits on a map — owner instruction the same day:** *"preview kısmında bir
 harita olsun. nothing to draw yet yazmasın."* The pane held a sentence saying there was nothing
 to show; a ground answers *where am I* without being read, and an empty composition is then an
@@ -692,6 +710,18 @@ typing — the same rule that tells the two apart everywhere else on this screen
    part of the layer and looks like all of it — and an operator deciding what to publish from a
    picture that silently omits half the features is being misled by the thing built to inform
    them. The server knows when it truncated; nothing carries that to the page yet.
+   ***(Discharged 2026-09-08.)*** The last sentence was the whole problem and it was half wrong:
+   the server did **not** know. `DrawLayerAsync` returned `Task`, the ceiling went into the query
+   and nothing outside it could see whether it had bitten — so *carrying it to the page* had
+   nothing to carry. It now returns what it drew, `POST /admin/publish/preview` answers
+   `X-Graticula-Ceiling` always and `X-Graticula-Sampled` when it bit, and the line over the map
+   names the layers and says the published service is not limited by it. A layer at exactly the
+   ceiling is included, which is a false positive of one in the safe direction. §5j carries what
+   the header encoding cost and why indices were rejected.
+
+   **The number in the ceiling is condition 6 and is untouched by this.** Saying *this is a
+   sample* is honest whatever the bound is; whether 4,000 is the right bound is still a guess
+   nobody has measured, and discharging this one must not be read as having answered that.
 
 5. **A service with a group is opened by a real ArcGIS client.** `type: "Group Layer"` and
    `subLayerIds` are what the specification says; what Pro and the JavaScript API actually do

@@ -2080,13 +2080,33 @@ internal static class AdminEndpoints
 
         renderer.Clear(Rgba.Transparent);
 
+        /*
+          <b>Which layers reached the ceiling — ADR-057 condition 7.</b> The preview draws at
+          most `RecordCeiling` features of each layer, and until 2026-09-08 nothing said when
+          that bit: the drawing is *part of* the layer and looks exactly like all of it, so an
+          operator judged a composition on a picture that was quietly a sample. The class's own
+          comment claimed "the screen says so" while no code anywhere did.
+
+          <b>At the ceiling, not over it.</b> A layer with exactly as many features as the
+          ceiling is reported too. That is a false positive of one, and it is the safe
+          direction — the sentence says *reached the ceiling, so this may be part of it*, which
+          is true either way, rather than promising a completeness nothing here can check
+          without a second count query per layer.
+        */
+        int ceiling = CompositionPreview.RecordCeiling(settings.MaximumRecordCount);
+        List<string> sampled = [];
+
         foreach (PublishedLayer layer in layers)
         {
-            await WmsEndpoints
+            int drawn = await WmsEndpoints
                 .DrawLayerAsync(
-                    contexts, renderer, transform, layer, srid, null,
-                    CompositionPreview.RecordCeiling(settings.MaximumRecordCount), cancellation)
+                    contexts, renderer, transform, layer, srid, null, ceiling, cancellation)
                 .ConfigureAwait(false);
+
+            if (drawn >= ceiling)
+            {
+                sampled.Add(layer.Definition.Name);
+            }
         }
 
         renderer.FinishLabels();
@@ -2102,6 +2122,29 @@ internal static class AdminEndpoints
 
         context.Response.Headers["X-Graticula-Srid"] =
             srid.ToString(CultureInfo.InvariantCulture);
+
+        // <b>The ceiling always, so a screen can name the number rather than hard-code it.</b>
+        // A console with 4,000 written into it would go on saying 4,000 after the server's
+        // limit changed, which is the class of drift this repository keeps finding.
+        context.Response.Headers["X-Graticula-Ceiling"] =
+            ceiling.ToString(CultureInfo.InvariantCulture);
+
+        /*
+          <b>Percent-encoded, and that is not fussiness.</b> A header value is ASCII, and a
+          layer's name is whatever the operator typed — `su hattı` and a comma are both
+          ordinary. Encoding each name and joining with commas keeps the list parseable by
+          `split(",").map(decodeURIComponent)` and cannot be broken by a name.
+
+          <b>Names rather than indices, although the indices were the first idea.</b> The
+          composition's numbering counts groups as well as layers, and this loop walks the
+          layers alone and bottom-first — so an index emitted here would mean something
+          different from the index the screen draws, and would mean it silently.
+        */
+        if (sampled.Count > 0)
+        {
+            context.Response.Headers["X-Graticula-Sampled"] =
+                string.Join(",", sampled.Select(Uri.EscapeDataString));
+        }
 
         context.Response.ContentType = "image/png";
 

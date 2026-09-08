@@ -64,6 +64,19 @@ internal static class CompositionPreview
     /// still deciding, so it is answered quickly or it is not looked at; a served map is fetched
     /// by a client that will wait. The number is a bound rather than a promise — where it bites,
     /// the drawing is a sample of the layer and the screen says so.
+    /// <para>
+    /// <b>That last clause was false for two days, and it is the reason ADR-057 condition 7
+    /// exists.</b> Written 2026-09-06 as a description of intent; nothing anywhere reported
+    /// whether the ceiling had bitten, so a sampled drawing and a complete one were the same
+    /// picture. Since 2026-09-08 <c>DrawLayerAsync</c> returns what it drew,
+    /// <c>POST /admin/publish/preview</c> answers with <c>X-Graticula-Ceiling</c> and — when it
+    /// bit — <c>X-Graticula-Sampled</c>, and the sentence over the map names the layers.
+    /// </para>
+    /// <para>
+    /// <b>The number itself is still a guess</b>, which is condition 6 and is not this one. It
+    /// was picked for feel: nobody has measured where a preview stops being instant, or whether
+    /// the bound should be rows or vertices.
+    /// </para>
     /// </remarks>
     private const int PreviewRecordCeiling = 4000;
 
