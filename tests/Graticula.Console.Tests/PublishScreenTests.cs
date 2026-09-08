@@ -1419,4 +1419,139 @@ public sealed class PublishScreenTests : ConsoleTest
 
         NothingWentWrong(await PageErrorsAsync());
     }
+
+    /// <summary>
+    /// The whole composing task can be done from the keyboard.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>None of it could be, until 2026-09-08.</b> A UX review walked the screen and found that
+    /// Tab went from the toolbar straight past every database, schema and table to the sidebar:
+    /// the Databases pane carried no tab stop anywhere, so a keyboard-only operator could not
+    /// open a database, could not open a schema and could not get one table into a composition —
+    /// which is the entire task this screen exists for. Selecting two layers to group them was
+    /// mouse-only for the same reason, so <i>Group N layers</i> never appeared for them.
+    /// </para>
+    /// <para>
+    /// <b>And a redraw took the cursor, twice.</b> Every gesture rewrites both panes, so the
+    /// focused row stops existing and focus falls to the body — the operator's <i>second</i>
+    /// press does nothing, which is worse than the control never having worked. The first fix
+    /// covered the Contents tree only; adding a second table is the case that found the other
+    /// half, and it is why this walks the task rather than checking for attributes. A test that
+    /// asserted <c>tabindex</c> would pass on a screen where pressing Enter did nothing.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_whole_composition_can_be_built_from_the_keyboard()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/publish", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubDbTree [data-pubdb]').length > 0",
+            "No registered database is listed, so there is nothing to compose from.");
+
+        await FocusAsync("#pubDbTree [data-pubdb]");
+        await PressAsync("Enter");
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubDbTree [data-pubschema]').length > 0",
+            "Pressing Enter on a database did not open it. This pane was unreachable by keyboard "
+            + "entirely until 2026-09-08, and this is what keeps it reachable.");
+
+        await FocusAsync("#pubDbTree [data-pubschema]");
+        await PressAsync("Enter");
+
+        await WaitForAsync(
+            Publishable + ".length > 1",
+            "Opening a schema from the keyboard listed fewer than two publishable tables, so "
+            + "there is nothing to select two of.");
+
+        // <b>One at a time, re-queried between.</b> The pane is rewritten by each press, so an
+        // element held across one is detached — which is how the focus defect was found.
+        for (int i = 0; i < 2; i++)
+        {
+            await Browser.EvaluateAsync<bool>($"({Publishable}[{i}].focus(), true)");
+            await PressAsync("Enter");
+
+            await WaitForAsync(
+                $"document.querySelectorAll('#pubTree [data-pubnode]').length === {i + 1}",
+                $"Pressing Enter on a table did not compose it: expected {i + 1} in the tree.");
+        }
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "!!document.activeElement?.closest?.('#pubDbTree [data-pubtable]')"),
+            "The cursor left the Databases pane when the table was composed, so an operator has "
+            + "to tab back through the page for every table they add.");
+
+        /*
+          <b>And a selection of two, from the keyboard.</b> Enter selects; ArrowDown moves the
+          cursor without selecting, because walking the list to see what is there must not destroy
+          the selection somebody is walking it to build; Control+Enter adds to it.
+        */
+        await FocusAsync("#pubTree [data-pubnode]");
+        await PressAsync("Enter");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "!!document.activeElement?.closest?.('#pubTree [data-pubnode]')"),
+            "Selecting a row from the keyboard threw the cursor out of the tree, so the next "
+            + "press goes nowhere.");
+
+        await PressAsync("ArrowDown");
+        await PressAsync("Enter", control: true);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#pubTree [aria-selected=\"true\"]').length === 2",
+            "Two layers could not be selected from the keyboard, so Group N layers is "
+            + "unreachable without a mouse.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>Every table in the Databases pane that can be published, as an expression.</summary>
+    /// <remarks>
+    /// <b>Only a publishable table takes focus</b>, which is deliberate: tabbing through sixty
+    /// rows that refuse to be composed to reach the one that works is worse than not offering
+    /// them, and the row already says why it is refused.
+    /// </remarks>
+    private const string Publishable =
+        "[...document.querySelectorAll('#pubDbTree [data-pubtable][tabindex=\"0\"]')]";
+
+    /// <summary>Puts the cursor on the first thing matching a selector.</summary>
+    /// <param name="selector">What to focus.</param>
+    /// <returns>The work.</returns>
+    private async Task FocusAsync(string selector) =>
+        await Browser.EvaluateAsync<bool>(
+            $"(document.querySelector('{selector}').focus(), true)");
+
+    /// <summary>
+    /// Presses a key on whatever holds the cursor.
+    /// </summary>
+    /// <param name="key">The key, as <c>KeyboardEvent.key</c> spells it.</param>
+    /// <param name="control">Whether Control is held.</param>
+    /// <param name="shift">Whether Shift is held.</param>
+    /// <returns>The work.</returns>
+    /// <remarks>
+    /// <b>Dispatched at the focused element, which is what this harness can send.</b> The screen
+    /// listens on <c>document</c> and reads the target, so a synthetic event that bubbles reaches
+    /// the same handler a real press does — and the modifiers have to be carried, because the
+    /// selection rules are entirely about them.
+    /// </remarks>
+    private async Task PressAsync(string key, bool control = false, bool shift = false) =>
+        await Browser.EvaluateAsync<bool>($$"""
+        (() => {
+          document.activeElement.dispatchEvent(new KeyboardEvent("keydown", {
+            key: {{System.Text.Json.JsonSerializer.Serialize(key)}},
+            ctrlKey: {{(control ? "true" : "false")}},
+            shiftKey: {{(shift ? "true" : "false")}},
+            bubbles: true,
+            cancelable: true,
+          }));
+
+          return true;
+        })();
+        """);
 }

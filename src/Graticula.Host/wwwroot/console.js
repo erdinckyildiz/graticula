@@ -11564,8 +11564,25 @@ function pubNode(node, inside) {
   // *saçma*, and they were right that the list was already here.
   const at = pubIndices.get(node.id) ?? 0;
   const open = node.open !== false;
+
+  /*
+    <b>The same control means two different things, and a UX review found it saying so in one
+    voice.</b> On a group the twist opens its children; on a layer it opens that layer's own
+    symbol swatch and nothing else. Both were drawn with the same triangle and both said
+    *Expand <name>*, so a collapsed layer was indistinguishable from a collapsed group — a row
+    implying nested content that does not exist.
+
+    <b>Fixed in the label rather than in the glyph.</b> The triangle is the right affordance for
+    both — something is folded away either way — and two different glyphs would make an operator
+    learn a second symbol to be told the same thing. What was wrong was that the control claimed
+    the same *content*, which is what the name now says.
+  */
+  const folded = node.kind === "group"
+    ? `${open ? "Collapse" : "Expand"} ${h(node.name)}`
+    : `${open ? "Hide" : "Show"} the symbol for ${h(node.name)}`;
+
   const twist = `<button class="pubtwist" data-pubtwist="${h(node.id)}"
-      aria-expanded="${open}" aria-label="${open ? "Collapse" : "Expand"} ${h(node.name)}"
+      aria-expanded="${open}" aria-label="${folded}" title="${folded}"
       >${open ? "&#9660;" : "&#9654;"}</button>`;
 
   // <b>The visibility tick is the layer's, and it is not the same as removing it.</b> A layer
@@ -11578,6 +11595,7 @@ function pubNode(node, inside) {
 
   if (node.kind === "group") {
     return `<div class="pubnode pubgroup ${inside ? "grouped" : ""} ${picked}" draggable="true"
+        tabindex="0" role="option" aria-selected="${pubPicked.has(node.id)}"
         data-pubnode="${h(node.id)}">
         <div class="pubrow" data-pubgroup="${h(node.id)}">
           <span class="pubindex">${num(at)}</span>${twist}${tick}
@@ -11596,8 +11614,20 @@ function pubNode(node, inside) {
   // the answer to *what is this service actually doing to my data*.
   const warped = pubServedSrid() && node.srid !== pubServedSrid();
 
+  /*
+    <b>A tab stop and a selection state, neither of which this row had.</b> Selecting two layers
+    to group them was mouse-only: `pubPick` branches on shift and control, and the only caller was
+    a click handler on a `div` nothing could focus. A keyboard operator could reach each row's
+    buttons — the tick, the remove, the swatch — and could never build a selection, so
+    *Group N layers* was unreachable for them entirely.
+
+    <b>`role="option"` and `aria-selected`, because that is what this is.</b> The tree is a list
+    somebody picks from and the selection is the thing the group action reads; a row that looked
+    selected and did not say so left a screen reader with the picture and none of the state.
+  */
   return `<div class="pubnode ${inside ? "grouped" : ""} ${picked}"
-      draggable="true" data-pubnode="${h(node.id)}">
+      draggable="true" tabindex="0" role="option" aria-selected="${pubPicked.has(node.id)}"
+      data-pubnode="${h(node.id)}">
       <div class="pubrow">
         <span class="pubindex">${num(at)}</span>${twist}${tick}
         <span class="pubname" title="${h(node.sourceName)} · ${h(node.schema)}.${h(node.table)}"
@@ -12430,6 +12460,61 @@ document.addEventListener("keydown", event => {
   row.click();
 });
 
+/**
+ * The Contents tree, from the keyboard: move between rows, and select with the same rules.
+ *
+ * <b>Selecting two layers to group them was mouse-only until 2026-09-08.</b> {@link pubPick}
+ * branches on shift and control and its only caller was a click handler on a `div` nothing could
+ * focus, so `pubPicked.size > 1` was unreachable from the keyboard and *Group N layers* never
+ * appeared. Found by a UX review walking the task the screen exists for.
+ *
+ * <b>The press is turned into a real click carrying the modifiers</b>, rather than calling
+ * `pubPick` again from here. The click path also redraws, closes menus and updates the map; a
+ * second entrance would be a second set of those, and the one nobody exercises is the one that
+ * stops matching.
+ *
+ * <b>Arrow keys move focus and do not select.</b> Selection following focus would make *walk down
+ * the list to see what is there* destroy a selection somebody had built, which is the thing they
+ * are walking the list in order to do.
+ *
+ * @param {KeyboardEvent} event the press
+ * @returns {void}
+ */
+function pubTreeKey(event) {
+  const row = event.target?.closest?.("#pubTree [data-pubnode]");
+
+  if (!row) return;
+
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+
+    row.dispatchEvent(new MouseEvent("click", {
+      bubbles: true,
+      shiftKey: event.shiftKey,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+    }));
+
+    return;
+  }
+
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+
+  const rows = [...document.querySelectorAll("#pubTree [data-pubnode]")];
+  const at = rows.indexOf(row);
+
+  if (at < 0) return;
+
+  const next = rows[at + (event.key === "ArrowDown" ? 1 : -1)];
+
+  if (!next) return;
+
+  event.preventDefault();
+  next.focus();
+}
+
+document.addEventListener("keydown", pubTreeKey);
+
 document.addEventListener("scroll", () => pubMenuShut(), true);
 
 /**
@@ -12475,15 +12560,37 @@ function pubMenuAt(x, y, id) {
 
   const noMap = !pubMap;
 
+  /*
+    <b>Which of these act on the selection and which on the row under the pointer — a UX review
+    asked and the menu did not say.</b> With two layers selected it read *Zoom to layer*,
+    *Symbol…*, *Rename layer* — all singular, all acting on the one row clicked — directly above
+    *Group 2 layers*, which acts on the set, and *Remove layer*, singular again. The gesture that
+    had just drawn attention to the selection was answered by a menu that ignored it without
+    saying so.
+
+    <b>Named rather than annotated.</b> The row's own name in the singular items is shorter than
+    a note explaining the rule and cannot be misread: *Rename "roads"* is unambiguous beside
+    *Group 2 layers* in a way that *Rename layer* is not. Only when there is a selection to be
+    confused with — one selected row and one menu is the ordinary case and gains nothing from
+    repeating its own name.
+  */
+  const only = several && found ? `“${found.node.name}”` : "";
+
   menu.innerHTML = id
     ? [
-        item("zoom", group ? "Zoom to group" : "Zoom to layer", noMap),
-        group ? "" : item("symbol", "Symbol…"),
-        item("rename", group ? "Rename group" : "Rename layer"),
+        item("zoom", group
+          ? (only ? `Zoom to ${only}` : "Zoom to group")
+          : (only ? `Zoom to ${only}` : "Zoom to layer"), noMap),
+        group ? "" : item("symbol", only ? `Symbol of ${only}…` : "Symbol…"),
+        item("rename", only
+          ? `Rename ${only}`
+          : (group ? "Rename group" : "Rename layer")),
         "<hr>",
         several ? item("group", `Group ${num(pubPicked.size)} layers`) : "",
         group ? item("ungroup", "Ungroup") : "",
-        item("remove", group ? "Remove group" : "Remove layer"),
+        item("remove", only
+          ? `Remove ${only}`
+          : (group ? "Remove group" : "Remove layer")),
       ].filter(Boolean).join("")
     : [
         item("zoom", "Zoom to everything", noMap),
@@ -12750,10 +12857,66 @@ function pubPick(id, event) {
   pubPicked = new Set([id]);
 }
 
+/**
+ * Which row of either pane holds the cursor, as something a redraw can find again.
+ *
+ * <b>Both panes, because both are rewritten by every gesture.</b> The first version of this
+ * remembered only the Contents tree, and pressing Enter on a table in Databases then threw the
+ * cursor to `<body>` — the operator adds one table and has to Tab back through the page for the
+ * second. Found by a script that tried to add two, which is the ordinary case.
+ *
+ * <b>An attribute rather than the element.</b> The element is about to stop existing; what
+ * survives the redraw is what identified it.
+ *
+ * @returns {?{what: string, which: string}} the attribute and its value, or null
+ */
+function pubFocusHeld() {
+  const active = document.activeElement;
+
+  if (!active?.closest) return null;
+
+  for (const what of ["data-pubnode", "data-pubdb", "data-pubschema", "data-pubtable"]) {
+    const row = active.closest(`[${what}]`);
+
+    if (row) return { what, which: row.getAttribute(what) };
+  }
+
+  return null;
+}
+
+/**
+ * Puts the cursor back on the row it was on, when that row still exists.
+ *
+ * <b>Silently does nothing when it does not.</b> A table that has just been composed leaves the
+ * Databases pane's list unchanged, but a database somebody collapsed takes its schemas with it —
+ * and moving focus somewhere arbitrary would be worse than leaving it where the browser put it.
+ *
+ * @param {?{what: string, which: string}} held what {@link pubFocusHeld} returned
+ * @returns {void}
+ */
+function pubFocusRestore(held) {
+  if (!held) return;
+
+  document.querySelector(`[${held.what}="${CSS.escape(held.which)}"]`)?.focus?.();
+}
+
 function pubDraw() {
   const tree = $("pubTree");
 
   if (!tree) return;
+
+  /*
+    <b>Which row had the cursor, so a redraw does not take it.</b> Every gesture on this tree
+    rewrites the whole of it, and the focused element then no longer exists — focus falls to
+    `<body>`, and the next Arrow key does nothing. That is the shape a keyboard operator meets on
+    their *second* press, which is worse than the control never having worked: the first press
+    taught them it does.
+
+    <b>Read before the write and restored after it</b>, rather than the draw trying to remember
+    what it was doing. Focus is a property of the page and not of the composition, and the
+    composition is what everything else here is about.
+  */
+  const held = pubFocusHeld();
 
   // <b>Numbered once for the whole tree, not searched for per row.</b> Reading the index by
   // scanning the flattened list from inside each row is a scan per row, and ADR-057 condition 3
@@ -12874,6 +13037,9 @@ function pubDraw() {
 
   $("pubOpen").disabled = layers.length === 0;
 
+  // <b>Last, once both panes have been rewritten.</b> Restoring before the Databases pane is
+  // redrawn would put the cursor on a row about to be replaced, which is the fault this is for.
+  pubFocusRestore(held);
 }
 
 async function loadSources() {
