@@ -206,6 +206,33 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
         throw new InvalidOperationException();
     }
 
+    /// <summary>One boolean out of PostgreSQL, for a query taking two geometries and a number.</summary>
+    /// <param name="sql">The query, using <c>@g0</c>, <c>@g1</c> and <c>@d</c>.</param>
+    /// <param name="left">The first geometry.</param>
+    /// <param name="right">The second.</param>
+    /// <param name="distance">The distance.</param>
+    /// <returns>What PostGIS said.</returns>
+    /// <remarks>
+    /// <b>Its own helper rather than a third parameter on <see cref="ScalarAsync"/>.</b> That one
+    /// takes a variable number of geometries and returns a double; widening it for one caller
+    /// would make every existing call site read as though it might be passing a distance.
+    /// </remarks>
+    /// <summary>How many representable doubles separate two values.</summary>
+    private static long Ulps(double a, double b) =>
+        Math.Abs(BitConverter.DoubleToInt64Bits(a) - BitConverter.DoubleToInt64Bits(b));
+
+    private async Task<bool> BoolAsync(
+        string sql, Geometry left, Geometry right, double distance)
+    {
+        await using NpgsqlCommand command = _source!.CreateCommand(sql);
+
+        command.Parameters.AddWithValue("g0", WkbWriter.ToArray(left));
+        command.Parameters.AddWithValue("g1", WkbWriter.ToArray(right));
+        command.Parameters.AddWithValue("d", distance);
+
+        return (bool)(await command.ExecuteScalarAsync(CancellationToken.None))!;
+    }
+
     private async Task<double> ScalarAsync(string sql, params Geometry[] operands)
     {
         await using NpgsqlCommand command = _source!.CreateCommand(sql);
@@ -244,16 +271,33 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
     // ---------- distance ----------
 
     /// <summary>
-    /// distance matches ST_Distance on every pair tried.
+    /// distance agrees with ST_Distance to six places on every pair tried.
     /// </summary>
     /// <remarks>
-    /// <b>Exact agreement is the right bar here, and it would not be for buffer.</b>
-    /// A minimum over segment pairs is arithmetic both engines do the same way;
-    /// a buffer approximates a curve and the two need not choose the same
-    /// number of segments.
+    /// <para>
+    /// <b>Six places is what this asserts, and *exactly* is what it used to be called —
+    /// corrected 2026-09-08 when the two were measured against each other properly.</b> Over
+    /// **1,000 real OSM polygon pairs**, 689 of the two engines' distances are **bit-identical**
+    /// and **311 are not**: median relative difference **7.7×10⁻¹²**, worst **2.0×10⁻⁸**. A
+    /// minimum over segment pairs is arithmetic both engines do the same way in principle and
+    /// evidently not in the last bits, and a name promising exactness described a bar this had
+    /// never cleared.
+    /// </para>
+    /// <para>
+    /// <b>Six places is still the right bar rather than a retreat to a passing one.</b> The
+    /// worst observed difference is relative, so at the corpus's magnitudes it is ~10⁻⁶ absolute
+    /// — inside six places — and what the assertion is for is a wrong formula, a wrong operand or
+    /// a wrong unit, all of which move the answer by orders of magnitude rather than by the
+    /// twelfth significant figure.
+    /// </para>
+    /// <para>
+    /// <b>And it would not be the right bar for buffer</b>, which approximates a curve: the two
+    /// engines need not choose the same number of segments, so <see cref="Buffer_agrees_with_PostGIS_on_area"/>
+    /// compares area within a per cent instead.
+    /// </para>
     /// </remarks>
     [Fact]
-    public async Task Distance_matches_PostGIS_exactly()
+    public async Task Distance_agrees_with_PostGIS_to_six_places()
     {
         Require();
 
@@ -275,6 +319,155 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
         }
 
         Assert.True(compared >= 5, $"only {compared} pairs were compared.");
+    }
+
+    /// <summary>
+    /// <c>st_dwithin</c> is its own distance compared inclusively, and the two engines' distances
+    /// differ by less than any distance a caller writes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[Q-20](../../docs/open-questions.md)'s second remaining item, and it named the
+    /// obstacle exactly: <i>`st_dwithin`, which has one engine and therefore no oracle</i>.</b>
+    /// Nothing in the worker answers *are these within d*, so there is no second predicate to
+    /// disagree with PostGIS's.
+    /// </para>
+    /// <para>
+    /// <b>But the predicate's definition is a quantity both engines compute</b>, so the oracle is
+    /// the definition rather than a second implementation: <c>ST_DWithin(a, b, d)</c> is
+    /// <c>ST_Distance(a, b) &lt;= d</c>, and both engines measure a distance.
+    /// </para>
+    /// <para>
+    /// <b>Measured 2026-09-08 over 1,000 real OSM polygon pairs, and they do not agree
+    /// exactly.</b> 689 distances are bit-identical; **311 differ**, median relative
+    /// **7.7×10⁻¹²** and worst **2.0×10⁻⁸**. So a <c>d</c> taken from one engine and tested on
+    /// the other flips within that window — 466 of 5,000 such comparisons did — and the window is
+    /// what this test bounds.
+    /// </para>
+    /// <para>
+    /// <b>Which is not reachable through the product, and that is the answer rather than an
+    /// excuse.</b> Only PostGIS evaluates <c>st_dwithin</c>; the worker never sees a distance
+    /// predicate. A caller cannot obtain one engine's distance and hand it to the other, because
+    /// the only distance a caller can obtain is the one the same engine will compare against.
+    /// </para>
+    /// <para>
+    /// <b>So the test asserts two separable things.</b> The contract — inclusive at its own
+    /// distance, exclusive one representable step below it — using **PostGIS's own** number,
+    /// where the comparison is exact and any drift is a change in `ST_DWithin` itself. And the
+    /// window — that the two engines' distances stay within 10⁻⁷ relative, five times the worst
+    /// measured, so a genuine divergence fails and floating-point noise does not.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Dwithin_is_its_own_distance_and_the_engines_agree_within_a_bound()
+    {
+        Require();
+
+        IReadOnlyList<Geometry> corpus = await CorpusAsync(200);
+
+        int boundaries = 0;
+        double worst = 0;
+
+        for (int i = 0; i + 1 < corpus.Count; i += 2)
+        {
+            double theirs = await ScalarAsync(
+                "select ST_Distance(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1))",
+                corpus[i], corpus[i + 1]);
+
+            EngineResult ours = await RunAsync(
+                EngineOperation.Distance, [corpus[i]], [corpus[i + 1]]);
+
+            // <b>Skip a touching pair.</b> At a distance of zero there is no step below to ask
+            // about, and *is it within nothing* is a different question from this one.
+            if (theirs <= 0)
+            {
+                continue;
+            }
+
+            worst = Math.Max(worst, Math.Abs(theirs - ours.Scalar!.Value) / theirs);
+
+            Assert.True(
+                await BoolAsync(Dwithin, corpus[i], corpus[i + 1], theirs),
+                $"ST_DWithin was false at exactly its own ST_Distance of {theirs:R}. The "
+                + "predicate is documented as distance <= d; if it has become strict, every "
+                + "filter written at a boundary has changed meaning.");
+
+            Assert.False(
+                await BoolAsync(Dwithin, corpus[i], corpus[i + 1], Math.BitDecrement(theirs)),
+                $"ST_DWithin was true one representable step below its own ST_Distance of "
+                + $"{theirs:R}, so it is answering about some other number than the one this "
+                + "test read back from the same engine.");
+
+            boundaries++;
+        }
+
+        Assert.True(
+            boundaries >= 3,
+            $"only {boundaries} pairs were separated by a real distance, so the boundary this "
+            + "test exists for was barely exercised.");
+
+        /*
+          <b>Five times the worst measured, and the number is a bound rather than a target.</b>
+          The 1,000-pair run put the worst relative difference at 2.0×10⁻⁸; 10⁻⁷ leaves room for
+          a corpus with worse-conditioned pairs and still fails on anything that is a formula
+          difference rather than a rounding one — a wrong operand or a wrong unit moves this by
+          orders of magnitude.
+        */
+        Assert.True(
+            worst < 1e-7,
+            $"The two engines' distances differ by {worst:E3} relative, and the measured worst "
+            + "over a thousand real pairs was 2.0E-008. A difference this large is no longer "
+            + "rounding: one of them has changed how it computes a distance, and Q-20's answer "
+            + "about st_dwithin rests on the two staying close.");
+    }
+
+    /// <summary>The predicate under test, written once because three assertions use it.</summary>
+    private const string Dwithin =
+        "select ST_DWithin(ST_GeomFromWKB(@g0), ST_GeomFromWKB(@g1), @d)";
+
+    /// <summary>
+    /// A distance is in the reference's own units, and a degree is not a metre.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[Q-20](../../docs/open-questions.md) calls this out by name: `st_dwithin` is <i>the one
+    /// predicate where a projected unit and a degree could be confused</i>.</b> The column is
+    /// PostgreSQL's <c>geometry</c>, not <c>geography</c>, so the distance is in whatever units
+    /// the SRID uses — degrees at 4326, metres at 3857 — and nothing in this server converts.
+    /// </para>
+    /// <para>
+    /// <b>Asserted so that a later kindness cannot pass silently.</b> Turning this into metres
+    /// would be a defensible product decision and an indefensible quiet one: every existing
+    /// caller's filter would start meaning something else, with no error anywhere. The test
+    /// fails if it happens, which makes it a decision rather than a drift.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_distance_is_in_the_references_own_units()
+    {
+        Require();
+
+        // Two points one degree apart in longitude, near the equator. In degrees they are 1.0
+        // apart; in metres they are about 111 km.
+        Point west = new(0, 0);
+        Point east = new(1, 0);
+
+        Assert.True(
+            await BoolAsync(
+                "select ST_DWithin(ST_SetSRID(ST_GeomFromWKB(@g0), 4326), "
+                + "ST_SetSRID(ST_GeomFromWKB(@g1), 4326), @d)",
+                west, east, 1.0),
+            "One degree apart is not within a distance of 1 at EPSG:4326, so the distance is "
+            + "being read as something other than the reference's own unit.");
+
+        Assert.False(
+            await BoolAsync(
+                "select ST_DWithin(ST_SetSRID(ST_GeomFromWKB(@g0), 4326), "
+                + "ST_SetSRID(ST_GeomFromWKB(@g1), 4326), @d)",
+                west, east, 0.9),
+            "One degree apart is within 0.9 at EPSG:4326, which it cannot be in degrees. If this "
+            + "is passing because the distance was converted to metres, every filter written "
+            + "against this server has quietly changed meaning.");
     }
 
     // ---------- buffer ----------
@@ -559,6 +752,37 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
     [InlineData("collapsed sliver")]
     [InlineData("polygon inside a hole")]
     [InlineData("multipolygon touching at one part")]
+
+    /*
+      <b>Pairs where neither side is a polygon — Q-20's third open item, added 2026-09-08.</b>
+      That row records *mixed-dimension pairs, which are not covered at all*, and the fifteen
+      cases above are why: every one of them pairs something against the unit square, so a
+      point-against-a-line or a line-against-a-line had never been asked of either engine.
+
+      <b>The dimension of the intersection is where DE-9IM is at its most delicate</b>, and it is
+      exactly what these change. Two lines crossing meet in a point; two lines overlapping meet
+      in a line; a point on a line meets it in a point and has no interior of its own. Every one
+      of the eight patterns above reads a different cell for those, and the named predicates are
+      built from the same matrix — `crosses` in particular is *defined* by the dimensions of the
+      arguments, so it is the predicate a disagreement would surface in first.
+
+      <b>What is deliberately not here: a `GeometryCollection` of mixed dimension.</b> The
+      surface reads four shapes — `rings`, `paths`, `points`, `x`/`y` — so a collection cannot be
+      expressed through the product at all, and a case that reaches one engine and not the other
+      is the same *not reachable* argument the empty-geometry divergence rests on.
+    */
+    [InlineData("two lines crossing")]
+    [InlineData("two lines overlapping along a stretch")]
+    [InlineData("two lines meeting at an endpoint")]
+    [InlineData("two lines a separation apart")]
+    [InlineData("point on a line")]
+    [InlineData("point at a line's end")]
+    [InlineData("point a separation off a line")]
+    [InlineData("two identical points")]
+    [InlineData("two points a separation apart")]
+    [InlineData("multipoint straddling a line")]
+    [InlineData("multipoint against a polygon")]
+    [InlineData("multiline touching a line")]
     public async Task Both_engines_agree_on_the_case_engines_disagree_about(string which)
     {
         Require();
@@ -736,6 +960,49 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
             "multipolygon touching at one part" => (
                 new MultiPolygon([Square(0, 0, 5, 5), Square(20, 20, 25, 25)]),
                 Square(5, 0, 10, 5)),
+
+            /*
+              <b>Neither side a polygon — Q-20's mixed-dimension item.</b> The fifteen cases above
+              all pair something against the unit square, so the cells of the DE-9IM matrix that
+              describe a *line's* interior against a *line's* interior, or a point's against a
+              line's, had never been read on either side.
+
+              <b>The separation is the same function of magnitude</b>, so these slices mean the
+              same thing at 2×10⁷ as at the origin — which is the property the far slice's own
+              assertion protects.
+            */
+            "two lines crossing" => (Line(0, 5, 10, 5), Line(5, 0, 5, 10)),
+            "two lines overlapping along a stretch" => (Line(0, 5, 10, 5), Line(4, 5, 14, 5)),
+            "two lines meeting at an endpoint" => (Line(0, 5, 10, 5), Line(10, 5, 20, 5)),
+            "two lines a separation apart" => (
+                Line(0, 5, 10, 5),
+                Line(10 + Separation(at), 5, 20, 5)),
+
+            "point on a line" => (new Point(5 + at, 5 + at), Line(0, 5, 10, 5)),
+            "point at a line's end" => (new Point(0 + at, 5 + at), Line(0, 5, 10, 5)),
+            "point a separation off a line" => (
+                new Point(5 + at, 5 + at + Separation(at)),
+                Line(0, 5, 10, 5)),
+
+            "two identical points" => (new Point(5 + at, 5 + at), new Point(5 + at, 5 + at)),
+            "two points a separation apart" => (
+                new Point(5 + at, 5 + at),
+                new Point(5 + at + Separation(at), 5 + at)),
+
+            // One part on the line and one off it, so the pair's answer depends on the whole
+            // rather than on either point — which is where a library that folds a multipoint to
+            // its first part would show.
+            "multipoint straddling a line" => (
+                new MultiPoint([new Point(5 + at, 5 + at), new Point(5 + at, 9 + at)]),
+                Line(0, 5, 10, 5)),
+
+            "multipoint against a polygon" => (
+                new MultiPoint([new Point(5 + at, 5 + at), new Point(50 + at, 50 + at)]),
+                unit),
+
+            "multiline touching a line" => (
+                new MultiLineString([Line(0, 5, 10, 5), Line(0, 9, 10, 9)]),
+                Line(10, 5, 20, 5)),
 
             _ => throw new ArgumentOutOfRangeException(nameof(which), which, "No such case."),
         };

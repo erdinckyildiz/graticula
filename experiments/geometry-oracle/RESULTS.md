@@ -158,12 +158,35 @@ comparison no caller can make.
   vacuous rather than harder, and a different set would be needed.
 - **Curves and Z.** Both refused by both engines (ADR-005 §3.3c; `WkbReader` drops
   Z), so there is nothing to compare — but that is an argument, not a measurement.
-- **`st_dwithin`** has one engine, so no divergence and no oracle. A distance
-  predicate is the one place a projected unit and a degree could be confused, and
-  nothing checks ours against anything.
-- **Multi-geometry beyond one case.** One multipolygon pair is in the test and none in
+- ~~**`st_dwithin`** has one engine, so no divergence and no oracle.~~ **Closed
+  2026-09-08, and the oracle turned out to be the definition rather than a second
+  implementation.** `ST_DWithin(a, b, d)` is `ST_Distance(a, b) <= d`, and both engines
+  measure a distance — so a predicate with one engine still has a question that can be
+  asked of two. **Measured over 1,000 real OSM polygon pairs: 689 distances are
+  bit-identical and 311 are not**, median relative difference **7.7×10⁻¹²**, worst
+  **2.0×10⁻⁸**. A `d` taken from one engine and tested on the other flips inside that
+  window — 466 of 5,000 such comparisons did — and **it is not reachable through the
+  product**, because only PostGIS evaluates the predicate and the only distance a caller
+  can obtain is the one the same engine will compare against.
+
+  **The unit confusion this bullet named is asserted rather than reasoned about.** The
+  column is `geometry`, not `geography`, so a distance is in the SRID's own units: one
+  degree apart is within 1 at EPSG:4326 and not within 0.9. Turning that into metres
+  would be a defensible product decision and an indefensible quiet one, so it now fails
+  a test.
+- ~~**Multi-geometry beyond one case.** One multipolygon pair is in the test and none in
   the experiment's own list. Mixed dimensions — a multipolygon against a multiline —
-  are not covered at all.
+  are not covered at all.~~ **Closed 2026-09-08.** Every one of the fifteen hand-written
+  cases paired something against the unit square, so the DE-9IM cells describing a
+  *line's* interior against a line's, or a point's against a line's, had never been read
+  on either side. **Twelve cases added** and the two engines agree on all of them —
+  **27 × 14 × 3 = 1,134 comparisons**. Falsified by making `Crosses` mean `Overlaps` in
+  the worker, which fails eight cases, five of them new.
+
+  **A `GeometryCollection` of mixed dimension is deliberately still absent**: the surface
+  reads `rings`, `paths`, `points` and `x`/`y` and nothing else, so a collection cannot
+  reach either engine through the product — the same argument the empty-geometry
+  divergence rests on.
 - **The four deferred engines.** Nothing here says anything about DuckDB, MySQL,
   MariaDB, SQL Server or Oracle. Q-20's original count is right for the product
   those decisions would create; it is wrong for the product v1 is.
