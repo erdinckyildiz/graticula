@@ -9,7 +9,7 @@ council investigates, prototypes, benchmarks and decides on its own.
 
 ---
 
-## Carried from Phase 0 — these were blocking, and two of five are now closed
+## Carried from Phase 0 — these were blocking, and three of five are now closed
 
 *Renamed 2026-08-14. The heading said **Blocking Phase 0** for a day after Phase
 0 ended, which made five questions look retired by a date rather than by an
@@ -22,10 +22,21 @@ dissolved**, which is a different thing and is marked as one: nothing in this pr
 holds a PROJ transformation object, so the question has no subject in v1, and nobody
 established whether a `PJ` is thread-affine. It is kept in this table, struck
 through, because a dissolved question comes back if the decision that dissolved it
-reverses. **Three remain open** — Q-01, Q-18 and Q-20 — and the sentence that
-follows is about those three. Per [CLAUDE.md](../CLAUDE.md) §1, a carried item
+reverses. ~~**Three remain open** — Q-01, Q-18 and Q-20 — and the sentence that
+follows is about those three.~~ Per [CLAUDE.md](../CLAUDE.md) §1, a carried item
 does not become finished by being carried, and Phase 1 does not end with any of
 them still open.*
+
+*Corrected 2026-09-08, and what it cost is why the correction is written out rather
+than applied silently. **Q-01 was answered on 2026-08-25** — .NET, by owner decision,
+[ADR-001](adr/ADR-001-core-language.md) — and its row moved to **Answered** below on
+the same day. The heading and the paragraph above went on naming it as open for
+fourteen days, so this file said **open** at the top and **answered** in the table,
+about one question. That is [D-149](architecture-debt.md)'s shape exactly — a register
+contradicting itself on two lines of the same file — and it is worth noting that the
+shape was found by reading, not by a tool: `tools/status-page.py` reads the rows and
+never the prose around them, so nothing here could have caught it. **Two remain
+open** — Q-18 and Q-20 — and the sentence above is about those two.*
 
 *Found by [tools/status-page.py](../tools/status-page.py), which reads this
 file's headings rather than trusting them — the first thing the generated page
