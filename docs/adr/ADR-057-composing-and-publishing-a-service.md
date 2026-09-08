@@ -633,6 +633,27 @@ typing — the same rule that tells the two apart everywhere else on this screen
 - **Tags are asked for nowhere**, because a service has no tag column. On an item they are
   obvious, which is ADR-056's territory rather than this one's.
 
+## 6a. The screen went through the ux-designer, and what it found
+
+**Run 2026-09-08** — the owner's standing instruction — and recorded in
+[design-publish-and-fields-2026-09-08.md](../reviews/design-publish-and-fields-2026-09-08.md)
+rather than here, because a review has findings and dispositions and an ADR has a
+decision.
+
+**The headline is that the screen was unusable without a mouse.** Not awkward:
+unusable. The Databases pane had no tab stop anywhere, so a keyboard operator
+could not open a database, could not open a schema, and could not get one table
+into a composition — which is the whole of what this decision built. Selecting two
+layers to group them was mouse-only for the same reason, so §5b's groups were
+unreachable for them entirely. Both are fixed and both are now asserted as *the
+task* rather than as attributes: a test that checked for `tabindex` would pass on a
+screen where pressing Enter did nothing.
+
+**And the §5e name check, written that morning, had no live region** — so the
+sentence that decides whether somebody overwrites a published service arrived
+silently, 250 ms after they stopped typing. Two paragraphs of that exact shape in
+the same file already had one.
+
 ## 7. Conditions
 
 1. **The name check is measured against a folder with a thousand services in it.** 5e asks
