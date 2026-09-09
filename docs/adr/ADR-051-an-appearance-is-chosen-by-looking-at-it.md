@@ -127,7 +127,7 @@ before and after a preview and has to be the same text.
 ## 5. Status of this decision under the CIM reversal
 
 The project owner decided on 2026-09-03 that the **canonical** symbology model
-becomes Esri's CIM rather than MapLibre, reversing ADR-033 §1. That decision
+becomes Esri's CIM rather than MapLibre, reversing ADR-033 §5a. That decision
 changes *what document this endpoint receives and stores*. It does not change
 anything decided here: the preview is still drawn by the server through the
 serving renderer, still writes nothing, still refuses in a sentence, and the

@@ -14,10 +14,17 @@ namespace Graticula.Cartography;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>ADR-033 §5a: the canonical document is a MapLibre style, stored per layer.</b>
+/// <b>ADR-052 §3.1: the canonical document is a CIM renderer, stored per layer.</b>
 /// This class is the whole of the conversion the decision rests on — a caller may
-/// author in MapLibre or paste an Esri <c>drawingInfo</c>, and the feature face has
-/// to be handed a <c>drawingInfo</c> whichever they did.
+/// author in CIM, in MapLibre or in an Esri <c>drawingInfo</c>, and every face has to
+/// be handed its own vocabulary whichever they did.
+/// </para>
+/// <para>
+/// <b>This said MapLibre until 2026-09-09, six days after it stopped being true.</b>
+/// ADR-033 §5a made the canonical document a MapLibre style; ADR-052 reversed that on
+/// 2026-09-03 by owner decision, and the code followed the same day while the remarks
+/// did not. It is corrected rather than deleted because the sentence a reader meets
+/// first, when learning what the column holds, is the one that must not be wrong.
 /// </para>
 /// <para>
 /// <b>Every conversion reports what it lost, and that is §7's second condition
@@ -31,15 +38,22 @@ namespace Graticula.Cartography;
 /// <para>
 /// <b>Three renderer families and no more</b> — <c>simple</c>, <c>uniqueValue</c>,
 /// <c>classBreaks</c>, with <c>esriSFS</c>, <c>esriSLS</c> and <c>esriSMS</c> symbols
-/// (§5e). CIM is not claimed. A-077 is the assumption that this covers the
-/// overwhelming majority of published layers, and it is `UNVALIDATED`: what is
-/// written here is the bet, not evidence for it.
+/// (ADR-033 §5e, which ADR-052 keeps). <b>That is a statement about the
+/// <c>drawingInfo</c> <em>face</em>, not about the store</b>, and it used to read
+/// <i>CIM is not claimed</i> — which was true when the canonical document was a
+/// MapLibre style and is now the opposite of what is stored. What the face emits is
+/// still the simple-symbol subset; what it derives that from is a CIM renderer.
+/// A-077 is the assumption that the subset covers the overwhelming majority of
+/// published layers, and it is `UNVALIDATED`: what is written here is the bet, not
+/// evidence for it.
 /// </para>
 /// <para>
-/// <b>Not a symbology model.</b> §2D rejected inventing one and this is not it
-/// arriving by the back door: there is no intermediate type here that both formats
-/// are projected onto. The canonical MapLibre document *is* the model, and this
-/// reads and writes it directly.
+/// <b>Not a symbology model.</b> ADR-033 §2D rejected inventing one and this is not
+/// it arriving by the back door: there is no intermediate type here that the
+/// vocabularies are projected onto. The stored CIM renderer *is* the model, and this
+/// reads and writes it directly. <b>The argument is unchanged by ADR-052 and its
+/// subject is not</b> — the model moved from MapLibre to CIM, and the reason for
+/// having no third thing in between moved with it.
 /// </para>
 /// </remarks>
 public static class SymbologyConversion
@@ -73,7 +87,11 @@ public static class SymbologyConversion
     /// <summary>
     /// Reads either kind of document and returns the canonical form.
     /// </summary>
-    /// <param name="document">A MapLibre style or an Esri <c>drawingInfo</c>.</param>
+    /// <param name="document">
+/// A CIM renderer, a MapLibre style or an Esri <c>drawingInfo</c>. CIM is tried
+/// first, because it is what is stored; the three are told apart by disjoint root
+/// keys and never by guessing.
+/// </param>
     /// <param name="geometry">
     /// The layer's geometry, which decides what a paint property means. A style
     /// authored for the wrong geometry is a refusal rather than a loss.
@@ -191,7 +209,7 @@ public static class SymbologyConversion
     /// could not be undone.
     /// </para>
     /// <para>
-    /// <b>A document stored before the reversal still answers.</b> ADR-052 §3.6: a MapLibre
+    /// <b>A document stored before the reversal still answers.</b> ADR-052 §3.9: a MapLibre
     /// style is recognised by its `layers` array and converted on read. It is not rewritten
     /// here — a read that quietly migrated the store would make the migration untestable and
     /// unrepeatable.
@@ -240,7 +258,7 @@ public static class SymbologyConversion
     /// A layer's stored document as a CIM renderer, converting one stored before the reversal.
     /// </summary>
     /// <remarks>
-    /// <b>The tolerance ADR-052 §3.6 promises, in one place.</b> Every face goes through here,
+    /// <b>The tolerance ADR-052 §3.9 promises, in one place.</b> Every face goes through here,
     /// so a document written under ADR-033 behaves identically to one written after — and when
     /// it does not, it is one function that is wrong rather than three.
     /// </remarks>

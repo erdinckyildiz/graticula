@@ -96,9 +96,14 @@ public sealed class PublishedLayer
     /// This layer's canonical symbology document, or null for the generated one.
     /// </summary>
     /// <remarks>
-    /// <b>A MapLibre style, and the only authored artefact for appearance</b>
-    /// (ADR-033 §5a). Both protocol faces derive from it on read, which is what
-    /// stops them drifting apart: there is nothing to edit separately. Null is the
+    /// <b>A CIM renderer, and the only authored artefact for appearance</b>
+    /// (ADR-052 §3.1, reversing ADR-033 §5a on 2026-09-03). Every protocol face
+    /// derives from it on read, which is what stops them drifting apart: there is
+    /// nothing to edit separately. <b>This remark said <i>a MapLibre style</i> for
+    /// six days after that stopped being true, and it is the remark a new reader of
+    /// this column meets first</b> — the reader most able to act on it wrongly, and
+    /// the one place in this sweep where the stale sentence had a plausible path to
+    /// a defect. Null is the
     /// ordinary case and a real answer — §5b gives an unstyled layer a generated
     /// appearance that is deterministic from its name.
     /// </remarks>

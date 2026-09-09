@@ -187,7 +187,11 @@ public enum AppearanceKind
 /// <b>Deliberately not a symbology model</b> — ADR-033 §2D rejected inventing one, and
 /// this is not it reappearing. It carries exactly what a *generated* default needs so
 /// that two writers can project the same decision, and it is never stored: the canonical
-/// document is MapLibre (§5a), and an unstyled layer has no canonical document at all.
+/// document is a CIM renderer (ADR-052 §3.1), and an unstyled layer has no canonical
+/// document at all. <b>This said MapLibre until 2026-09-09</b>, which was ADR-033 §5a's
+/// answer and stopped being true on 2026-09-03. The point it is making survives the
+/// correction unchanged — what matters here is that nothing is stored, not which
+/// vocabulary the stored thing would have been.
 /// </remarks>
 /// <param name="Colour">The main colour, as <c>#rrggbb</c>.</param>
 /// <param name="Kind">Which shape of paint this is.</param>

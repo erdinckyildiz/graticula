@@ -6,7 +6,7 @@
 | **Confidence** | `MEDIUM-HIGH` for the canonical model · `MEDIUM` for the derivation's fidelity |
 | **Decided** | 2026-08-17 |
 | **Supersedes** | — |
-| **Superseded by** | [ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md) — §1 only: the canonical vocabulary |
+| **Superseded by** | [ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md) — §5a, with §5c's write-normalisation and §6's State line only: the canonical document. *(Corrected 2026-09-09 from **§1**, which is this document's Context — [D-238](../architecture-debt.md).)* |
 | **Amends** | [ADR-028](ADR-028-style-documents.md) — a style stops being *per service* and becomes *per layer, composed into a service* |
 
 ---
@@ -14,7 +14,7 @@
 > **Amended 2026-09-03 by [ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md),
 > by owner decision: the canonical document is Esri's CIM, not MapLibre.**
 >
-> **What changed.** §1's *one canonical MapLibre Style Spec v8 document per layer* is
+> **What changed.** §5a's *the canonical document is a MapLibre style, stored per layer* is
 > the one thing ADR-052 reverses. The stored document is now a CIM renderer, and
 > **both** the MapLibre style and the Esri `drawingInfo` are derived from it.
 >
@@ -194,6 +194,8 @@ OGC Symbology Encoding for the SLD that §2E declines.
 ## 5. Decision
 
 ### 5a. The canonical document is a MapLibre style, stored per layer
+
+> ***Reversed 2026-09-03 by [ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md) §3.1, and this is the section it reverses.** The stored document is a CIM renderer; the MapLibre style is now one of two derived faces. Left standing rather than rewritten, because the banner at the top of this file says what changed and a decision deleted is a decision nobody can see was taken. **Marked here as well as there** because the banner is eleven lines from the top and this section is two hundred lines down: a reader who arrives by search or by a link to §5a never passes it. That is the propagation shape [D-130](../architecture-debt.md) records, and this is an instance of it — see [D-238](../architecture-debt.md).*
 
 One column on the layer, holding a validated MapLibre Style Spec v8 document. It is the
 only authored artefact; everything else about appearance is derived from it on read.
@@ -393,7 +395,7 @@ looks symmetrical.
   [A-077](../architecture-assumptions.md) still lists their absence against the model's
   sufficiency.
 
-**State.** *Catalogue*: **a MapLibre style document on the layer**, and the
+**State.** *Catalogue*: **a MapLibre style document on the layer** — *(a CIM renderer from 2026-09-03, [ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md) §3.1; the column and its shape are unchanged, the vocabulary in it is not)* — and the
 per-service style [ADR-028](ADR-028-style-documents.md) already had; both text, both with a size check
 constraint rather than a C# guard, because §7's fifth condition asks for the bound to be the
 database's. *Runtime*: the derived `drawingInfo` and tile style are computed per request from

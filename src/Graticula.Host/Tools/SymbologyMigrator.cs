@@ -14,7 +14,7 @@ namespace Graticula.Host.Tools;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>[ADR-052](../../../docs/adr/ADR-052-the-canonical-symbology-document-is-cim.md) §3.6.</b>
+/// <b>[ADR-052](../../../docs/adr/ADR-052-the-canonical-symbology-document-is-cim.md) §3.9.</b>
 /// A document stored before 2026-09-03 is a MapLibre style, and every face reads it by
 /// converting on the fly. That is correct and it is slower and it means a deployment carries
 /// two shapes indefinitely, so there is a command that ends it.
@@ -145,7 +145,7 @@ internal static class SymbologyMigrator
         {
             Console.Error.WriteLine(
                 $"{refused.Count} layer(s) were left as they are. They still serve: every face "
-                + "converts a MapLibre document on read (ADR-052 §3.6). Fix the document, or "
+                + "converts a MapLibre document on read (ADR-052 §3.9). Fix the document, or "
                 + "PUT a new one through /admin/layers/{name}/symbology.");
         }
 

@@ -1908,6 +1908,103 @@ def an_outbound_licence_claim_that_is_stale():
     return problems
 
 
+def a_canonical_symbology_claim_that_is_stale():
+    """A document or a docstring saying the canonical symbology document is MapLibre.
+
+    **[ADR-052](../docs/adr/ADR-052-the-canonical-symbology-document-is-cim.md), and
+    it was eleven sites rather than one.** The canonical model became CIM on
+    2026-09-03 by owner decision. The code followed the same day; the sentences
+    describing it did not, and six days later `SymbologyConversion`, `SymbologyPlan`,
+    `GeneratedSymbology`, `FeatureServerMetadataWriter` and -- worst -- `PublishedLayer`,
+    which is the remark a new reader of the column meets first, all still said the
+    store holds a MapLibre style. [D-238](../docs/architecture-debt.md).
+
+    **This scans source as well as prose, which is the point.** The licence check
+    beside it reads only `.md` and `.html`, and every one of those five sites is a
+    C# docstring -- so the mechanism that catches this shape in documents had no
+    view of the place it actually happened. Two more were user-facing strings in
+    `console.js`.
+
+    **Proximity first, and an exemption only where proximity was measured to fail.**
+    A claim is allowed when a correction stands near it -- ADR-052 or CIM named
+    within 400 characters, which is what an annotated history sentence has and a
+    stale one does not. That covers every `.cs` and `.js` site, including all five
+    that drifted, and it cleared two test files and one ADR mention on its own.
+
+    **Three ADRs are exempt by name because the rule genuinely does not fit them.**
+    ADR-033 is written end to end under the old model -- five separate mentions, in
+    alternatives and consequences that must state the decision as it was made -- and
+    its reversal is marked in two places rather than beside every sentence. ADR-052
+    is the document that reverses it and has to be able to quote what it reverses.
+    ADR-051 argues about it. The alternative was to bury reversal markers in the
+    middle of recorded reasoning, which damages the record to satisfy a check. This
+    is the same shape as the licence check's exemption for ADR-047, and for the same
+    reason: a decision document must be able to name what it replaced.
+
+    **What is deliberately not exempt is every file where this actually went wrong.**
+    """
+    exempt = ("ADR-033-symbology.md",
+              "ADR-052-the-canonical-symbology-document-is-cim.md",
+              "ADR-051-an-appearance-is-chosen-by-looking-at-it.md")
+    # <b>Words and spaces between, not "any character".</b> The first version used
+    # `[^.]{0,90}` and matched `canonical); string wanted = MapLibre` -- two unrelated
+    # identifiers in a method body. A claim about the model is written in prose, so the
+    # gap between the two words is prose or it is a coincidence.
+    ours = re.compile(
+        r"canonical[\w\s,'’-]{0,70}MapLibre"
+        r"|MapLibre[\w\s,'’-]{0,70}canonical"
+        r"|CIM is not claimed",
+        re.I)
+
+    corrected = re.compile(r"ADR-052|\bCIM\b")
+
+    problems = []
+
+    for base, _, names in os.walk(conditions.ROOT):
+        if any(part in base for part in (".git", "REFERENCES", "node_modules", "obj", "bin")):
+            continue
+
+        for name in names:
+            if not name.endswith((".md", ".html", ".cs", ".js")):
+                continue
+
+            shown = os.path.relpath(os.path.join(base, name), conditions.ROOT)
+            shown = shown.replace(os.sep, "/")
+
+            # The status pages are generated from the registers, so a row quoted
+            # there is the same claim counted twice.
+            if shown in ("docs/status.html", "docs/status.tr.html"):
+                continue
+
+            if any(part in shown for part in exempt):
+                continue
+
+            try:
+                text = io.open(os.path.join(base, name), encoding="utf-8").read()
+            except OSError:
+                continue
+
+            living = re.sub(r"~~.*?~~", "", text, flags=re.S)
+            flowed = re.sub(r"\s*\n\s*", " ", living)
+
+            for found in ours.finditer(flowed):
+                near = flowed[max(0, found.start() - 400):found.end() + 400]
+
+                if corrected.search(near):
+                    continue
+
+                problems.append(
+                    f'{shown} says "{found.group(0)[:70]}" with no correction beside it. '
+                    "The canonical symbology document has been a CIM renderer since "
+                    "2026-09-03 (ADR-052 §3.1, reversing ADR-033 §5a). Five C# docstrings "
+                    "described the old model for six days after the code stopped using it. "
+                    "If this is history, say which decision replaced it within the same "
+                    "paragraph -- naming ADR-052 or CIM nearby is what makes an annotated "
+                    "sentence legal here. D-238, D-130.")
+
+    return problems
+
+
 def an_answered_question_still_filed_as_open():
     """A question whose own row opens with its answer, still under an Open heading.
 
@@ -3044,6 +3141,7 @@ def main() -> int:
                 + an_open_question_that_asks_without_saying_why()
                 + an_answered_question_still_filed_as_open()
                 + an_outbound_licence_claim_that_is_stale()
+                + a_canonical_symbology_claim_that_is_stale()
                 + a_corpus_file_a_test_reads_but_a_clone_does_not_get()
                 + a_real_data_test_without_the_trait_ci_filters_on()
                 + a_test_project_ci_never_runs()

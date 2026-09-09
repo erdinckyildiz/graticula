@@ -15,7 +15,12 @@ namespace Graticula.Cartography;
 /// [ADR-033](../../../docs/adr/ADR-033-symbology.md)'s document rather than
 /// translating it.</b> Until now the canonical form has been derived into a MapLibre
 /// style for one face and an Esri <c>drawingInfo</c> for another, and both
-/// derivations were checked by reading them. This one draws, which is why
+/// derivations were checked by reading them. <i>(Written when ADR-033 §5a made the
+/// canonical form a MapLibre style. It is a CIM renderer from 2026-09-03
+/// ([ADR-052](../../../docs/adr/ADR-052-the-canonical-symbology-document-is-cim.md)
+/// §3.1), so MapLibre is now a third derivation rather than the source — which makes
+/// this paragraph's point stronger rather than weaker, and it is left standing with
+/// the correction beside it for that reason.)</i> This one draws, which is why
 /// [A-077](../../../docs/architecture-assumptions.md) says the document's fidelity
 /// has been asserted since 2026-08-17 and tested by nothing.
 /// </para>

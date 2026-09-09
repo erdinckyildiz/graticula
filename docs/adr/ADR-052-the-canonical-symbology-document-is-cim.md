@@ -5,7 +5,7 @@
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` |
 | **Decided** | 2026-09-03 |
-| **Supersedes** | [ADR-033](ADR-033-symbology.md) §1 (the canonical vocabulary only) |
+| **Supersedes** | [ADR-033](ADR-033-symbology.md) §5a, with §5c's write-normalisation and §6's State line — the canonical document only. *(Corrected 2026-09-09: this field said **§1**, and §1 of ADR-033 is Context. A context section states a problem and decides nothing, so nothing in it can be superseded; the decision reversed here is §5a, `The canonical document is a MapLibre style, stored per layer`. The wrong citation had been copied into three other places — [D-238](../architecture-debt.md).)* |
 | **Superseded by** | — |
 
 ---
@@ -283,7 +283,7 @@ root has `"version": 8` and `"layers"` is a MapLibre style and is converted on
 read; anything with a `"type"` beginning `CIM` is CIM. A `PUT` rewrites it in CIM,
 so a layer migrates the first time anybody edits it.
 
-A one-shot `graticula symbology migrate` rewrites the whole store so that no
+A one-shot `graticula tools symbology-migrate` rewrites the whole store so that no
 deployment carries two shapes forever. It is not run automatically: a migration
 that runs itself at startup is a migration nobody can decline.
 

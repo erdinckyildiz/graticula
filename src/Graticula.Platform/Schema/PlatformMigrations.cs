@@ -591,6 +591,15 @@ public static class PlatformMigrations
     /// derived from it on read, so the two cannot drift apart by being edited separately.
     /// </para>
     /// <para>
+    /// <i>(<b>A CIM renderer from 2026-09-03</b>,
+    /// [ADR-052](../../../docs/adr/ADR-052-the-canonical-symbology-document-is-cim.md)
+    /// §3.1. The column and its type are exactly what this migration made them and the
+    /// vocabulary inside it is not, so this is annotated rather than rewritten — the same
+    /// treatment the withdrawn size bound got a few paragraphs down. The migration's own
+    /// <c>Description</c> is left alone: that string records what migration 23 did on the
+    /// day it ran, which is still true.)</i>
+    /// </para>
+    /// <para>
     /// <b>Text, not <c>jsonb</c>, for migration 14's reason and one more.</b> 14 said it
     /// first: <c>jsonb</c> normalises whitespace, reorders keys and collapses duplicates,
     /// so a cartographer diffing their style against the one the server returned would
@@ -1051,6 +1060,12 @@ public static class PlatformMigrations
 
     private static Migration LayerSymbologyV23 => Migration.Expand(
         new SchemaVersion(23),
+        // <b>Left exactly as it ran.</b> A migration's description records what that
+        // migration did on the day it was applied, and migration 23 really did add a
+        // column holding a MapLibre document. The vocabulary in it is a CIM renderer
+        // from 2026-09-03 (ADR-052 §3.1); the column is unchanged. The summary above
+        // carries that correction, because a summary describes what the thing is and
+        // a description records what was done.
         "A canonical MapLibre symbology document per layer, which both faces derive from.",
 
         "alter table layer add column symbology text",

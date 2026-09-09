@@ -665,9 +665,11 @@ public static class FeatureServerMetadataWriter
     /// and the server's is advertised, because that is the one a client will meet.
     /// </param>
     /// <param name="symbology">
-    /// The layer's canonical MapLibre document, or null for the generated
-    /// appearance. ADR-033 §5a: this is the only authored artefact for how a layer
-    /// looks, and both faces derive from it rather than holding their own copy.
+    /// The layer's canonical CIM renderer, or null for the generated appearance.
+    /// ADR-052 §3.1: this is the only authored artefact for how a layer looks, and
+    /// every face derives from it rather than holding its own copy — including this
+    /// one, which derives the <c>drawingInfo</c> it writes. <b>Said MapLibre until
+    /// 2026-09-09</b>, from ADR-033 §5a, which ADR-052 reversed on 2026-09-03.
     /// </param>
     /// <param name="serverMaxRecordCount">
     /// What this deployment permits at most, so the document never advertises more than the

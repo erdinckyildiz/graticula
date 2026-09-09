@@ -581,7 +581,7 @@ public static class Program
         // the machine rather than by re-arming setup — which would print a credential to the
         // log every time the last administrator's grant disappeared, and that is a state an
         // attacker would like to arrange. It refuses on a store that already has one.
-        // <b>ADR-052 §3.6.</b> The reversal left every existing deployment carrying a MapLibre
+        // <b>ADR-052 §3.9.</b> The reversal left every existing deployment carrying a MapLibre
         // document that every face converts on read. This ends that, and it is a command rather
         // than something startup does: a migration that runs itself is one nobody can decline
         // and nobody can rehearse.
