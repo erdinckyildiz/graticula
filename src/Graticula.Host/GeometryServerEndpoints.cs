@@ -153,10 +153,27 @@ internal static class GeometryServerEndpoints
     /// does not decide usefulness.
     /// </para>
     /// <para>
-    /// <b>What is left is not refused on cost at all.</b> All three are editing
+    /// ~~<b>What is left is not refused on cost at all.</b> All three are editing
     /// operations over existing features rather than calculations on the geometry
     /// sent, and the open question is whether they belong on this service or on
-    /// FeatureServer. That is a design question, and it has not been answered.
+    /// FeatureServer. That is a design question, and it has not been answered.~~
+    /// </para>
+    /// <para>
+    /// <b>Corrected 2026-09-09 — that was false, and it was false about the
+    /// specification rather than about us ([Q-99](../../docs/open-questions.md)).</b>
+    /// The ArcGIS REST specification defines <c>autoComplete</c> over
+    /// <c>polygons</c> + <c>polylines</c>, <c>reshape</c> over <c>target</c> +
+    /// <c>reshaper</c>, and <c>trimExtend</c> over <c>polylines</c> +
+    /// <c>trimExtendTo</c>: every geometry arrives in the request, none names a
+    /// layer, and each returns geometry. They are calculators exactly like the
+    /// eighteen already here, so the *where do they belong* question has one answer
+    /// and it is this service — which is also where ADR-022 §4b's own rule puts
+    /// them, the caller having brought the geometry.
+    /// </para>
+    /// <para>
+    /// <b>So what is left is not a design question, it is unwritten code</b>, and
+    /// saying otherwise told a caller something untrue about why they could not
+    /// have it — the exact failure ADR-022 §2b was written to end.
     /// </para>
     /// </remarks>
     private static readonly Dictionary<string, string> Blocked = new(StringComparer.Ordinal)
@@ -174,18 +191,22 @@ internal static class GeometryServerEndpoints
             + "that is not an answer to it.",
 
         ["autoComplete"] =
-            "It closes a polygon against its neighbours, which is an editing operation over a "
-            + "set of existing features rather than a calculation on the geometry sent.",
+            "It closes polygons against the lines you send with them — a calculation on the "
+            + "geometries in this request, not a change to anything stored: the specification "
+            + "takes `polygons` and `polylines` and returns geometries, naming no layer. So it "
+            + "belongs here, and it is simply not written yet. The pieces are present, since "
+            + "closing a boundary is union-then-polygonize and `cut` already does that.",
 
         ["reshape"] =
-            "An editing operation: it replaces part of a boundary with a supplied line. The "
-            + "topology engine it needs is already running — this is a question of whether "
-            + "editing an existing feature belongs on this service or on FeatureServer, and that "
-            + "has not been answered.",
+            "It replaces part of a line or a boundary with a supplied line. Like `autoComplete` "
+            + "this is a calculation on the geometries in the request — the specification "
+            + "takes `target` and `reshaper` and returns the reshaped geometry, naming no layer "
+            + "— so it belongs here and is not written yet rather than declined.",
 
         ["trimExtend"] =
-            "An editing operation on lines against a trimming geometry. Same open question as "
-            + "reshape: it edits features rather than calculating on the geometry sent.",
+            "It trims or extends lines against a trimming geometry, from the `polylines` and "
+            + "`trimExtendTo` you send. Not written yet rather than declined, for the same "
+            + "reason as `reshape`: everything it needs is in the request.",
     };
 
     /// <summary>Maps the surface.</summary>

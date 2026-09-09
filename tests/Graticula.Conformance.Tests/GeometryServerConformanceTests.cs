@@ -384,13 +384,14 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
         Assert.Equal(3, new HashSet<string>([autoComplete, reshape, trimExtend]).Count);
 
         // Each names what it actually does.
-        Assert.Contains("neighbours", autoComplete, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("closes", autoComplete, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("boundary", reshape, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("lines", trimExtend, StringComparison.OrdinalIgnoreCase);
 
-        // <b>None of them may blame cost.</b> The three that are left are open
-        // design questions, not expensive operations, and saying "too expensive"
-        // would be the same lie in a new place.
+        // <b>None of them may blame cost.</b> ~~The three that are left are open
+        // design questions~~ — corrected 2026-09-09 with Q-99: they are unwritten
+        // code, not design questions and not expensive operations, and saying
+        // "too expensive" would be the same lie in a new place.
         // findTransformations is the fourth refusal and is not an editing
         // operation: it needs PROJ's operation database, which this server does
         // not have. Its reason must not claim to be one of the other three.
@@ -402,7 +403,22 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
 
         foreach (string message in (string[])[autoComplete, reshape, trimExtend])
         {
-            Assert.Contains("editing", message, StringComparison.OrdinalIgnoreCase);
+            /*
+              <b>Inverted 2026-09-09 — this assertion held a false sentence in place for
+              twenty-five days ([Q-99](../../docs/open-questions.md)).</b> It required all
+              three refusals to call themselves *editing operations over existing features*,
+              and the ArcGIS specification says they are nothing of the kind: `autoComplete`
+              takes `polygons` + `polylines`, `reshape` takes `target` + `reshaper`, and
+              `trimExtend` takes `polylines` + `trimExtendTo` — every geometry in the
+              request, no layer named, geometry returned. They are calculators like the
+              eighteen that work.
+
+              <b>So correcting the sentence failed a green test, which is why nobody
+              did.</b> A test that asserts the wording of a claim is only as true as the
+              claim; this one now refuses the word instead of demanding it, so the refusal
+              cannot drift back to blaming an edit nobody makes.
+            */
+            Assert.DoesNotContain("editing", message, StringComparison.OrdinalIgnoreCase);
 
             // And every one says what is available instead.
             Assert.Contains("project", message, StringComparison.Ordinal);

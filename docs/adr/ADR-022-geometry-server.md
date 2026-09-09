@@ -296,11 +296,24 @@ explicit pattern.
 
 ### What is still refused, and it is no longer about cost
 
-`autoComplete`, `reshape` and `trimExtend`. All three edit existing features
+`autoComplete`, `reshape` and `trimExtend`. ~~All three edit existing features
 rather than calculating on the geometry the request carries, and whether they
 belong on GeometryServer or on FeatureServer is an open design question —
-[Q-99](../open-questions.md). Saying "too expensive" about them would be the same
+[Q-99](../open-questions.md).~~ Saying "too expensive" about them would be the same
 lie in a new place.
+
+**Corrected 2026-09-09, and it was the same kind of lie in a different place —
+[Q-99](../open-questions.md).** None of the three edits anything. The ArcGIS REST
+specification defines `autoComplete` over `polygons` + `polylines`, `reshape` over
+`target` + `reshaper`, and `trimExtend` over `polylines` + `trimExtendTo`: every
+geometry arrives in the request, none names a layer, and each returns geometry. They
+are calculators exactly like the eighteen that ship, so *where do they belong* has one
+answer and it is this service — which is where §4b's own rule puts them anyway, the
+caller having brought the geometry. **What is left is unwritten code, not a design
+question**, and the refusals now say so. The wrong reason survived twenty-five days
+because a passing conformance test required each message to contain the word
+*editing*, so correcting the sentence failed a green suite; that assertion is
+inverted.
 
 **18 of 22 supported, 4 refused with reasons** — see §2c for the three that
 were not on any list until the owner compared this service with a real one.
@@ -575,7 +588,7 @@ than the missing thing.
 | `simplify` | ArcGIS `simplify` repairs topology. Offering `generalize` under that name would be the worst kind of compatibility |
 | `relation` | DE-9IM against a topology engine. One exists in the worker; nobody has wired it |
 | `distance` | O(n×m) over segment pairs, and the containment case needs point-in-polygon. Only not written |
-| `autoComplete`, `reshape`, `trimExtend` | Editing operations over existing features, not calculations on the geometry sent |
+| `autoComplete`, `reshape`, `trimExtend` | ~~Editing operations over existing features, not calculations on the geometry sent~~ **Corrected 2026-09-09 ([Q-99](../open-questions.md)): they are calculations on the geometry sent — every input is in the request and each returns geometry — so they belong here and are simply not written yet** |
 | `toGeoCoordinateString`, `fromGeoCoordinateString`, `findTransformations` | **Were not even on the refusal list** until the comparison. *(Resolved §2c: the two string operations ship; `findTransformations` is refused and its route is [Q-100](../open-questions.md).)* |
 
 **10 of 22 supported, 9 refused with reasons, 3 newly discovered.** *(Superseded within the day: §2b took it to 16, §2c to 18.)*
