@@ -201,7 +201,19 @@ it is the one that matters most.
 |---|---|---|
 | **1. Push down to the provider** | In the database, before anything crosses the wire | Bounding-box filter, **clip**, **simplify**, and any predicate the dialect supports |
 | **2. Ours, on flat arrays** | In our process, no geometry objects | Rectangle clip, tile simplification, tile-space transform and quantisation, MVT encoding |
-| **3. Adopted — NetTopologySuite** | In our process, on NTS geometry | Genuine topology: overlay, buffer, validity, precise predicates, convex hull, everything GeometryServer exposes |
+| **3. Adopted — NetTopologySuite** | ~~In our process, on NTS geometry~~ **In `Graticula.Overlay.Worker`, out of process, on NTS geometry — corrected 2026-09-09** | Genuine topology: overlay, buffer, validity, precise predicates, convex hull, everything GeometryServer exposes |
+
+**§6a's placement was wrong for as long as [Q-97](../open-questions.md) has been answered, and
+§9's own revisit trigger had fired without anybody writing it down — corrected 2026-09-09 with
+[Q-66](../open-questions.md).** Tier 3 is not in this process: `Graticula.Overlay.Worker`
+references NetTopologySuite *there and nowhere else*, the host references that project with
+`ReferenceOutputAssembly="false"`, and `NativeDependencyTests` fails if either changes. §9 lists
+*"Q-66 resolves toward coordinates rather than geometry objects, which would move the tier 2/3
+boundary rather than merely optimise behind it"* as a trigger — and that is what happened, except
+that the boundary moved further than the trigger imagined: it is a **process** boundary, so the
+serving process holds one representation rather than two. That is also what settles
+[A-006](../architecture-assumptions.md), which stood `CONTESTED` for twenty-seven days predicting
+exactly this resolution.
 
 **Tier 1 is first because it beats the other two by an order of magnitude, and
 not for the reason we expected.** [benchmarks/mvt-generation/RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md) finding 11: a z16 tile with 327
