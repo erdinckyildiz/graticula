@@ -658,6 +658,45 @@ internal static class ErrorResponse
             "This layer is busy while something else finishes with it. The query was not run. "
             + "Retry in a few seconds."),
 
+        // <b>A relation the database will not write to is not an unreachable database, and it
+        // was answered as one — the seventh time this file has mistaken a specific fault for a
+        // connectivity failure,</b> after `XX000`, `23505`, `42883`, `42703`, `55P03` and class
+        // 53. PostgreSQL raises `55000` for *cannot insert into view*, `42809` when the target
+        // is the wrong kind of object, and `0A000` for a feature it does not support. None had
+        // an arm, so a write to a non-updatable view was answered *a database this server
+        // depends on is unreachable… retry in a few seconds* — advice this same file elsewhere
+        // calls worse than none, for a fault that is permanent.
+        //
+        // <b>[D-231](../../docs/architecture-debt.md) named this as one of three things tangled
+        // together</b>, and it is the one that is a line rather than a change. The other two
+        // stay open and are not touched here: `PrivilegedCapabilities` advertising
+        // `Create,Update,Delete` from the caller's privileges alone — which is
+        // [ADR-008](../../docs/adr/ADR-008-query-engine.md) §2's never-over-claim rule broken,
+        // and needs a per-layer catalogue read — and the product decision about whether a
+        // non-updatable relation is refused at publish, published read-only, or published with
+        // a warning.
+        //
+        // <b>The database's own sentence is quoted, because it is better than one written
+        // here.</b> PostgreSQL answers *cannot insert into view "x"* and adds a DETAIL saying
+        // views that do not select from a single table are not automatically updatable. That
+        // names the relation and the reason; an invented sentence would name neither.
+        //
+        // <b>500 rather than 400 or 503.</b> Not the caller's fault — the service document
+        // advertised the operation, which is the over-claim above — so a 4xx would blame them
+        // for believing us. Not 503, because nothing here is temporary and no retry helps. The
+        // public form says an administrator is needed, which is true: the repair is at publish
+        // time, not in the request.
+        PostgresException { SqlState: "55000" or "42809" or "0A000" } relation => new(
+            StatusCodes.Status500InternalServerError,
+            "This layer's table cannot accept this write, and the database says why: "
+            + $"{relation.MessageText}"
+            + (string.IsNullOrWhiteSpace(relation.Detail) ? string.Empty : $" {relation.Detail}")
+            + " The database is healthy and the request is well formed; the relation behind this "
+            + "layer is not writable. Retrying will not help. If this layer should be editable, "
+            + "the repair is at the source — a view needs an INSTEAD OF trigger, or the layer "
+            + "should be published read-only.",
+            NeedsAnAdministrator),
+
         // <b>A full datastore is not an unreachable one, and it was answered as one — the
         // sixth time this file has mistaken a specific fault for a connectivity failure,</b>
         // after `XX000`, `23505`, `42883`, `42703` and `55P03`. Class 53 is PostgreSQL's

@@ -296,6 +296,9 @@ public sealed class ErrorResponseTests
         arms.Add("missing column", WithSqlState("42703"));
         arms.Add("lock wait cut", WithSqlState("55P03"));
         arms.Add("disk full", WithSqlState("53100"));
+        arms.Add("view is not writable", WithSqlState("55000"));
+        arms.Add("wrong object kind", WithSqlState("42809"));
+        arms.Add("feature unsupported", WithSqlState("0A000"));
         arms.Add("out of memory", WithSqlState("53200"));
         arms.Add("too many connections", WithSqlState("53300"));
         arms.Add("past a configured limit", WithSqlState("53400"));
@@ -451,6 +454,62 @@ public sealed class ErrorResponseTests
         // <b>No Retry-After.</b> Nobody here knows how long a DBA holds a lock, and a number
         // invented for the header makes every client that believes it retry in lockstep.
         Assert.Null(ErrorResponse.RetryAfterFor(WithSqlState("55P03")));
+    }
+
+    /// <summary>
+    /// A relation the database will not write to is not a database that cannot be reached.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The seventh time this file has mistaken a specific fault for a connectivity
+    /// failure</b>, after <c>XX000</c>, <c>23505</c>, <c>42883</c>, <c>42703</c>,
+    /// <c>55P03</c> and class 53. PostgreSQL raises <c>55000</c> for <em>cannot insert into
+    /// view</em>, <c>42809</c> when the target is the wrong kind of object, and
+    /// <c>0A000</c> for an unsupported feature. None had an arm, so a write to a
+    /// non-updatable view fell to the general branch and was answered <em>a database this
+    /// server depends on is unreachable… retry in a few seconds</em> — which this same file
+    /// elsewhere calls worse advice than none, for a fault that never clears.
+    /// </para>
+    /// <para>
+    /// <b>Named by [D-231](../../docs/architecture-debt.md) as one of three tangled things,
+    /// and the only one that is a line.</b> The other two stay open: the capabilities
+    /// over-claim, which needs a per-layer catalogue read, and the product decision about
+    /// whether a non-updatable relation is refused at publish, published read-only, or
+    /// published with a warning.
+    /// </para>
+    /// <para>
+    /// <b>The database's own sentence is quoted rather than replaced.</b> PostgreSQL says
+    /// <em>cannot insert into view "x"</em> and adds a DETAIL explaining that views which
+    /// do not select from a single table are not automatically updatable — naming the
+    /// relation and the reason, which an invented sentence would do for neither. Verified
+    /// against a live PostgreSQL before this was written.
+    /// </para>
+    /// </remarks>
+    /// <param name="state">The SQLSTATE.</param>
+    [Theory]
+    [InlineData("55000")]
+    [InlineData("42809")]
+    [InlineData("0A000")]
+    public void A_relation_that_will_not_take_a_write_does_not_read_as_an_outage(string state)
+    {
+        PostgresException refused = new(
+            messageText: "cannot insert into view \"parcels_v\"", severity: "ERROR",
+            invariantSeverity: "ERROR", sqlState: state);
+
+        (int status, string message) = ErrorResponse.Classify(refused);
+
+        Assert.Equal(StatusCodes.Status500InternalServerError, status);
+
+        // <b>The database's own words, because they name the relation.</b>
+        Assert.Contains("parcels_v", message, StringComparison.Ordinal);
+
+        // The defect itself: this is the word that sent an operator to the network.
+        Assert.DoesNotContain("unreachable", message, StringComparison.OrdinalIgnoreCase);
+
+        // <b>And it must not invite a retry</b>, which is what 503 did. Nothing here clears
+        // by waiting; the repair is at the source.
+        Assert.Contains("will not help", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(ErrorResponse.RetryAfterFor(refused));
     }
 
     /// <summary>
