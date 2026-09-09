@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>b7587a2</code> · 2026-09-09 16:59</p>
+<p class="stamp">Şu commit’ten üretildi: <code>3cfe4e3</code> · 2026-09-09 17:18</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">61</div><div class="kpi-l">ADR</div><div class="kpi-n">11 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">183/230</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">47 canlı · 0 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">23</div><div class="kpi-l">açık soru</div><div class="kpi-n">133 yanıtlandı · 2 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">24</div><div class="kpi-l">açık borç</div><div class="kpi-n">217 ödendi · 5 kısmen</div></div>
+<div class="kpi "><div class="kpi-v">20</div><div class="kpi-l">açık soru</div><div class="kpi-n">136 yanıtlandı · 2 engelleyici</div></div>
+<div class="kpi warn"><div class="kpi-v">24</div><div class="kpi-l">açık borç</div><div class="kpi-n">218 ödendi · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">15/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">2495</div><div class="kpi-l">test</div><div class="kpi-n">273 kaynak dosya, 114,423 satır</div></div>
+<div class="kpi good"><div class="kpi-v">2495</div><div class="kpi-l">test</div><div class="kpi-n">273 kaynak dosya, 114,454 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -263,10 +263,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-146</span><span class="owner">Owner</span></div><p>Does a new composition start in EPSG:3857, or in nothing?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-147</span><span class="owner">Owner</span></div><p>Is there a one-press way back to each layer&#x27;s own?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-150</span><span class="owner">**[OWNER]**</span></div><p>Is auto-discovery owed as a publishing mode, or is the wizard the answer?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-34</span><span class="owner">Council</span></div><p>Are pre-generalised geometry tables per zoom level a datastore-only feature, or attempted on registered sources where we happen to have write access?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-36</span><span class="owner">Council</span></div><p>Can the service definition describe fields the physical table does not have — computed, aliased, role-hidden?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-41</span><span class="owner">Council</span></div><p>Do we offer an optional companion schema in a registered database where granted rights, to hold versioning and editor-tracking bookkeeping?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-48</span><span class="owner">Council</span></div><p>How are the platform store and the datastore backed up and restored consistently?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-58c</span><span class="owner">Council</span></div><p>Domains, subtypes and editor tracking — the rest of the FeatureServer data model.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-65</span><span class="owner">Council</span></div><p>What is the worker adoption protocol after a supervisor restart, and how is it made idempotent?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-74</span><span class="owner">Council</span></div><p>What is the Python SDK, and how does data cross the boundary?</p></article>
@@ -299,7 +296,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-221</td><td>The symbology editor needs 1,180 pixels and nothing under that width has an answer.</td><td class="muted-t">The first report of styling a layer on a narrow screen — A-081&#x27;s own falsification.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-229</td><td>service.srid exists and nothing reads it.</td><td class="muted-t">The Publish screen, which offers the choice and cannot mean it until this is done</td><td><span class="pill cond">PARTLY</span></td></tr>
 </tbody></table></div>
-<p class="sub">217 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">218 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -409,6 +406,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>3cfe4e3</code><time>2026-09-09</time><span>The face that carries the most bytes does not stream, and said it did</span></li>
 <li><code>b7587a2</code><time>2026-09-09</time><span>The identity-source lockout is decided before the code that would cause it</span></li>
 <li><code>97ea524</code><time>2026-09-09</time><span>ADR-060 rested on two assumptions the register never heard of</span></li>
 <li><code>ab69149</code><time>2026-09-09</time><span>Seventeen ADRs were resting on assumptions they described wrongly</span></li>
@@ -422,7 +420,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>826088f</code><time>2026-09-09</time><span>The status page catches up with the commit before it</span></li>
 <li><code>8e5d36c</code><time>2026-09-09</time><span>The wrong word was asserted in two places, and I fixed one</span></li>
 <li><code>693c516</code><time>2026-09-09</time><span>Two conditions describe a repository that has moved</span></li>
-<li><code>22a6ed2</code><time>2026-09-09</time><span>ADR-052&#x27;s property table is three renderer types behind its own prose</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

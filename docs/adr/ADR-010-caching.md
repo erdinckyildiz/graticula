@@ -239,8 +239,18 @@ Two consequences, both good:
   The old bytes become garbage to be collected rather than stale data to be
   found.
 
-For tiles the plan identity is small and stable: layer, `z/x/y`, and the
-generalisation parameters for that zoom.
+For tiles the plan identity is small and stable: ~~layer, `z/x/y`, and the
+generalisation parameters for that zoom~~ — **corrected 2026-09-09, and it was
+wrong in both directions.** `TileCacheKey.Path()` is
+`{layer}/v{TilePipeline.Version}/{fingerprint}/{z}/{x}/{y}.mvt`, where the
+fingerprint covers the srid, the geometry column, the attribute list, the extent
+and the buffer. So this sentence **named a component that does not exist** —
+nothing in the tile path is generalised per zoom, and
+[Q-34](../open-questions.md) confirmed that no pre-generalisation of any kind
+exists — **and omitted two that do**: the pipeline generation, which is what
+[D-155](../architecture-debt.md) added so that a change to how a tile is drawn
+throws away the tiles it would draw differently, and the fingerprint, which is
+what makes a layer's shape part of its own key. [D-246](../architecture-debt.md).
 
 ## 5. Invalidation — the hard half
 
@@ -251,7 +261,7 @@ generalisation parameters for that zoom.
 | Data changed | **Stale** | May be served while it refreshes |
 | Field added | **Stale** | May be served |
 | Field removed or retyped | **Wrong** | Must be purged before it can be served again |
-| Style or generalisation parameters changed | **Wrong** | Purge |
+| Style ~~or generalisation parameters~~ changed | **Wrong** | Purge. *(The generalisation half has no reachable trigger: there are no per-zoom generalisation parameters — §4, corrected 2026-09-09. The style half is real and is what the pipeline generation and the fingerprint between them cover.)* |
 | Layer unpublished or permissions changed | **Wrong** | Purge, and this one is a security matter |
 
 The distinction is not cosmetic. Serving stale data is a freshness compromise;

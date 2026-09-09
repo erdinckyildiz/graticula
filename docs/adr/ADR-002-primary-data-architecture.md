@@ -145,6 +145,44 @@ following shape:
    platform database. They may be foreign, read-only, numerous, and of different
    provider types. We require no DDL rights on them, and no rights at all beyond
    what the registered service needs.
+
+   **And we do not exercise DDL rights we happen to be granted.** *Added
+   2026-09-09, answering [Q-34](../open-questions.md), [Q-36](../open-questions.md)
+   and [Q-41](../open-questions.md), which had all three been standing on this
+   sentence's silence for a month.* The clause above says what this server
+   **requires**; it said nothing about what it does with a connection that turns
+   out to hold `CREATE`, and each of those three questions is a different way of
+   asking that. The rule, stated once:
+
+   > **This server writes rows into a database it does not own, and never
+   > schema.** Data-manipulation on a registered source, where that source's own
+   > grants allow it. Data-definition only in the `hosted` schema of the
+   > datastore — the only schema this server creates. **Anything a service
+   > definition needs to say that the customer's table cannot carry is stored in
+   > our own platform store and re-checked against the table on every read, with
+   > a failed check reported rather than enforced.**
+
+   **This is recorded rather than decided**: the code has said it in three places
+   for some time, each for a narrower local reason — `PostGisImporter`'s guard
+   (*the one thing this class must never do is DDL in a registered customer
+   database because a row said so*), `HostedDataEndpoints.AlterableSchema`, and
+   the 409 that names the source database. What did not exist was the sentence
+   they are three instances of, which is why a fourth path —
+   `PostGisAttachmentStore` — was written without it
+   ([D-242](../architecture-debt.md)).
+
+   **One decision now stands alone against it and is not overruled here.**
+   [ADR-013](ADR-013-feature-service-data-model.md) §4c says *registered layer, we
+   hold write and DDL rights → full support; we create the companion table*. It
+   is `ACCEPTED`, it is unbuilt, and the endpoint that would do it refuses with a
+   501 naming it. It is the only sentence in this repository that would have this
+   server run DDL in a customer's database, so **whether it stands or falls is
+   ADR-013's to settle, not this clause's** — and if it stands it needs a probe
+   that does not exist, because `PostgresDataSourceProbe` asks
+   `has_table_privilege(…, 'INSERT, UPDATE, DELETE')` and asks nothing about
+   `CREATE` on the schema. Today the server cannot tell whether it holds the
+   rights §4c conditions on; it would find out by failing halfway through an
+   upload, which is the failure the 501 exists to avoid.
 3. **Files are an export and import format, not the source of truth.** Full or
    partial platform state serialises to a documented, human-readable,
    diff-friendly format, and imports back. This serves air-gapped promotion,
