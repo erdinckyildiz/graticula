@@ -344,6 +344,45 @@ overviews), [ADR-010](ADR-010-caching.md) (proxied ranges are cacheable),
 
 1. **Bomb checks run at registration, in an isolated process, before anything is
    catalogued.** This is the security condition and it is not optional.
+
+   **NOT MET, established 2026-09-09 by reading the path rather than by assuming it, and
+   deliberately not marked.** Three separate facts, and only the first is in this
+   condition's favour.
+
+   **There is a check, and it is at the right moment.** `POST /admin/coverages`
+   (`CoverageAdminEndpoints.RegisterAsync`) opens the file through
+   `ICoverageReaderFactory` *before* it catalogues anything, catches `InvalidDataException`
+   and refuses **400** with the reader's own sentence. So *before anything is catalogued*
+   holds.
+
+   **It is not in an isolated process, and the parser is not ours.**
+   `Graticula.Raster.Tiff` is a `ProjectReference` from `Graticula.Host`, and
+   `TiffCoverageReader.Open` calls `BitMiracle.LibTiff.Classic.Tiff.Open` — a third-party
+   TIFF parser, running inside the serving process, with its error handler replaced by a
+   `Quiet` one so that a malformed file's complaints do not reach stdout. A parser defect
+   on a registered file is therefore a fault in the process that is serving every other
+   layer, which is the whole thing *isolated process* was asked for. Being managed rather
+   than native does not change that and does mean `NativeDependencyTests`' confinement rule
+   does not cover it.
+
+   **And there is no bomb check in the sense the word is used here.** Nothing bounds the
+   declared dimensions at registration. What saves it today is an accident of ordering
+   rather than a control: `Open` reads the tags and does **not** allocate from them, and the
+   size guards — *the window is too large* — are on the **read** path. So a TIFF claiming
+   impossible dimensions is catalogued happily and refused later, per request.
+
+   **Why it has not bitten**, which is the honest reason it is still open rather than a
+   defence: ImageServer is cut from v1 ([v1-scope](../v1-scope.md) §3b), so the face that
+   would read these at scale does not ship — **but the registration route does**, and it is
+   reachable in the built server by anyone holding `content:publishFeatures`.
+
+   **What discharging it needs**, in the order that buys the most first: a dimension and
+   pixel-count bound applied at registration from the tags already read, which is cheap and
+   closes the *bomb* half; then the isolation, which is
+   [ADR-037](ADR-037-job-workers-come-in-two-kinds.md) §5's existing shape — a child process
+   the server starts and kills — and is the same argument that already put the geodatabase
+   reader out of process. That parser is out of process because its input is chosen by
+   somebody else; **so is this one.**
 2. **A-032 must be measured** before proxying is committed to at scale. If
    imagery traffic dwarfs tile traffic, the default flips.
 3. **The read-only non-COG gap is documented**, not left to be discovered.
