@@ -752,7 +752,13 @@ internal static partial class OgcFeaturesEndpoints
             described.Fields,
             time?.Field,
             time?.From,
-            time?.Until);
+            time?.Until,
+
+            // <b>The reference the service names, so a client can ask for it.</b> Not
+            // the default and not `storageCrs` — see `CollectionMetadata`. Null when
+            // the service names none, which is every service published before
+            // migration 39.
+            layer.ServedSrid);
     }
 
     private static async Task<Envelope?> GeographicAsync(

@@ -294,6 +294,38 @@ public sealed class TheMapFacesPublishWhatTheServiceChoseTests : ArcGisClient
                 + $"{(int)drawn} as {type ?? "nothing"} while the service publishes EPSG:{other}. "
                 + "Publishing in one reference is not the same claim as being capable of only "
                 + "that one, and ADR-057 §5c says so in as many words.");
+
+            // ---- OGC API Features: offered, never the default, and storageCrs unmoved ----
+            //
+            // <b>A third shape, and the difference is the specification's rather than
+            // ours.</b> The owner's sentence names WMS and WFS, where the service's
+            // reference becomes the default. It cannot become the default here: this face
+            // publishes GeoJSON, whose default is CRS84, and a bare `/items` answering in
+            // EPSG:5253 would be non-conforming. So the repair is that the choice is
+            // *askable* — before 2026-09-09 the collection offered CRS84, 4326 and the
+            // table's, and `crs=` naming the service's reference was refused with *not one
+            // of this collection's reference systems*.
+            (IReadOnlyList<string> offered, string storage) = await CollectionCrsAsync(bare);
+
+            Assert.True(
+                offered.Contains(CrsUri(other), StringComparer.Ordinal),
+                $"`{bare}` is published in EPSG:{other} and its OGC collection offers "
+                + $"{string.Join(", ", offered)}. A reference a client cannot name is a "
+                + "reference this face does not have, whatever two other faces advertise.");
+
+            Assert.True(
+                offered.Count > 0 && offered[0] == Crs84,
+                $"The first entry is the default and it reads {(offered.Count == 0 ? "nothing" : offered[0])}. "
+                + "GeoJSON is longitude-first CRS84 by the specification, so a collection "
+                + "that made the service's reference its default would be non-conforming — "
+                + "this is a no rather than a not-yet.");
+
+            Assert.True(
+                storage == CrsUri(stored),
+                $"`storageCrs` reads {storage} while the table holds EPSG:{stored}. Part 2's "
+                + "word is *storage*: moving it to the service's choice would be a false "
+                + "statement about the database rather than a repair, and this is the one "
+                + "place in the server where the two can differ.");
         }
         finally
         {
@@ -307,6 +339,32 @@ public sealed class TheMapFacesPublishWhatTheServiceChoseTests : ArcGisClient
     }
 
     // ---------- plumbing ----------
+
+    /// <summary>CRS84, which is what a GeoJSON collection defaults to.</summary>
+    private const string Crs84 = "http://www.opengis.net/def/crs/OGC/1.3/CRS84";
+
+    /// <summary>One EPSG code, spelled the way OGC API Features spells one.</summary>
+    private static string CrsUri(int code) =>
+        "http://www.opengis.net/def/crs/EPSG/0/" + code.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>What an OGC collection offers, and what it says it is stored in.</summary>
+    private async Task<(IReadOnlyList<string> Offered, string Storage)> CollectionCrsAsync(
+        string collection)
+    {
+        (HttpStatusCode code, string body, _) = await GetAsync(
+            $"/ogc/features/v1/collections/{Escape(collection)}?f=json");
+
+        Assert.True(
+            code == HttpStatusCode.OK,
+            $"The OGC collection `{collection}` answered {(int)code}: {body}");
+
+        using JsonDocument document = JsonDocument.Parse(body);
+
+        return (
+            [.. document.RootElement.GetProperty("crs").EnumerateArray()
+                .Select(c => c.GetString() ?? string.Empty)],
+            document.RootElement.GetProperty("storageCrs").GetString() ?? string.Empty);
+    }
 
     /// <summary>The EPSG code in this feature type's <c>DefaultCRS</c>.</summary>
     private async Task<int> DefaultCrsAsync(string type)
