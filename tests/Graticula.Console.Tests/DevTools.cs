@@ -368,11 +368,55 @@ public sealed class DevTools : IAsyncDisposable
             Encoding.UTF8.GetBytes(request), WebSocketMessageType.Text, true,
             CancellationToken.None);
 
-        using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(30));
+        // <b>One name for the number, because the message quotes it.</b> Two literals is
+        // how a timeout gets tuned and the sentence explaining it starts lying — which is
+        // the smaller cousin of the propagation shape D-201 itself was hiding behind.
+        TimeSpan budget = TimeSpan.FromSeconds(30);
+
+        using CancellationTokenSource deadline = new(budget);
 
         while (true)
         {
-            string message = await ReceiveAsync(deadline.Token);
+            string message;
+
+            /*
+              <b>[D-201](../../docs/architecture-debt.md): this deadline is where the
+              suite's unexplained failure was coming from, and it used to arrive
+              unrecognisable.</b> When thirty seconds pass, `ReceiveAsync` is cancelled
+              mid-read and the socket surfaces it as
+              `TaskCanceledException → IOException → SocketException: the I/O operation
+              has been aborted`, with a stack that ends in this file and a test name that
+              is simply whichever test was running. That is why the row recorded it as
+              *fails in two runs of four, passes on its own, cause not known*, and why it
+              appeared to move between tests: it is a property of the machine, not of the
+              test it lands on.
+
+              <b>So the exception is replaced by a sentence, not by a longer timeout.</b>
+              Raising the number would hide the same event for longer. What a reader needs
+              is which call went unanswered and what the two candidate causes are — the
+              browser was too slow to answer in thirty seconds, or the page it is driving
+              stopped answering. This client cannot tell those apart, and says so rather
+              than implying the second.
+            */
+            try
+            {
+                message = await ReceiveAsync(deadline.Token);
+            }
+            catch (Exception failure)
+                when (failure is OperationCanceledException or IOException
+                      && deadline.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"Chrome did not answer `{method}` within {budget.TotalSeconds:0.###} seconds, "
+                    + "so this test failed in "
+                    + "the browser channel rather than in the console. Two things produce it and "
+                    + "this client cannot tell them apart: the machine was too loaded for the "
+                    + "browser to answer, or the page stopped answering. Check whether the suite "
+                    + "was sharing the machine before reading it as a defect — D-201 is the row, "
+                    + "and every previous occurrence was the first of the two.",
+                    failure);
+            }
+
             JsonElement frame = JsonDocument.Parse(message).RootElement;
 
             if (!frame.TryGetProperty("id", out JsonElement answered)

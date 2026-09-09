@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>f7b088f</code> · 2026-09-09 09:32</p>
+<p class="stamp">Generated from commit <code>277cba6</code> · 2026-09-09 12:28</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">60</div><div class="kpi-l">ADRs</div><div class="kpi-n">11 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">172/228</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">56 live · 0 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">36</div><div class="kpi-l">open questions</div><div class="kpi-n">120 answered · 2 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">19</div><div class="kpi-l">open debts</div><div class="kpi-n">211 repaid · 3 partly</div></div>
+<div class="kpi "><div class="kpi-v">33</div><div class="kpi-l">open questions</div><div class="kpi-n">123 answered · 2 blocking</div></div>
+<div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">open debts</div><div class="kpi-n">211 repaid · 3 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
-<div class="kpi warn"><div class="kpi-v">14/85</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">2471</div><div class="kpi-l">tests</div><div class="kpi-n">272 source files, 113,624 lines</div></div>
+<div class="kpi warn"><div class="kpi-v">15/85</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
+<div class="kpi good"><div class="kpi-v">2471</div><div class="kpi-l">tests</div><div class="kpi-n">272 source files, 113,637 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">11 open</span></div><p><b>Q-18</b> — What genuinely justifies a server over static cloud-native publishing and over a stateless thin server plus a capable database?</p><p><b>Q-146</b> — Does a new composition start in EPSG:3857, or in nothing?</p><p><b>Q-147</b> — Is there a one-press way back to each layer&#x27;s own?</p><p><b>Q-150</b> — Is auto-discovery owed as a publishing mode, or is the wizard the answer?</p><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">79 items</span></div><p><b>56 ADR conditions</b> outstanding across 35 decisions — the largest commitment on this page.</p><p><b>19 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">80 items</span></div><p><b>56 ADR conditions</b> outstanding across 35 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -251,7 +251,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card blocking"><div class="card-h"><span class="id">Q-18</span><span class="owner blocking-tag">BLOCKING</span></div><p>What genuinely justifies a server over static cloud-native publishing and over a stateless thin server plus a capable database?</p></article>
 <article class="card blocking"><div class="card-h"><span class="id">Q-20</span><span class="owner blocking-tag">BLOCKING</span></div><p>How many distinct geometry engines end up evaluating our predicates, and how do we prevent behavioural divergence?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-09</span><span class="owner">Council</span></div><p>Should the platform be polyglot (§80.2)?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-100</span><span class="owner">Council</span></div><p>How does findTransformations reach PROJ&#x27;s operation database?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-102</span><span class="owner">Council</span></div><p>Is there a deployment-level capability manifest, distinct from the per-layer capability report?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-104</span><span class="owner">Council</span></div><p>Is the catalogue exportable as a manifest that can be diffed, reviewed and applied?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-106</span><span class="owner">**[OWNER]**</span></div><p>What is the reference implementation&#x27;s real licence?</p></article>
@@ -279,9 +278,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-58c</span><span class="owner">Council</span></div><p>Domains, subtypes and editor tracking — the rest of the FeatureServer data model.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-61</span><span class="owner">Council</span></div><p>How are per-user datastore quotas enforced, and what happens at the limit?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-65</span><span class="owner">Council</span></div><p>What is the worker adoption protocol after a supervisor restart, and how is it made idempotent?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-66</span><span class="owner">Council</span></div><p>Re-scoped 2026-08-14 to the feature path: there is no in-process tile path any more (ADR-021).</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-74</span><span class="owner">Council</span></div><p>What is the Python SDK, and how does data cross the boundary?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-86</span><span class="owner">Council</span></div><p>§82 answer, per newly-scoped capability — sweep S3, severe.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-91</span><span class="owner">Council</span></div><p>How does a streaming response report a failure that happens after bytes are on the wire?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-99</span><span class="owner">Council</span></div><p>Do ArcGIS&#x27;s geometry editing operations — autoComplete, reshape, trimExtend — belong on GeometryServer or on FeatureServer?</p></article>
 </div></section>
@@ -299,11 +296,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-107</td><td>Elevation in the source is dropped and only counted.</td><td class="muted-t">Whenever 3D storage is decided, or the first user who notices their contours flattened</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-108</td><td>The pipe streams and the importer does not, so the million-feature ceiling has not moved — it has changed owner.</td><td class="muted-t">The first archive with a layer past a million features, which is an ordinary size for a national road network</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-115</td><td>The Server/Studio surface split is the single cause of four recorded console defects.</td><td class="muted-t">The next defect whose cause is the split</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-144</td><td>Nothing bounds how long one request may hold a database permit.</td><td class="muted-t">A way to refuse before the first byte, or a way to end a response that says why.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-144</td><td>~~Nothing bounds how long one request may hold a database permit.~~ The headline is struck 2026-09-09 rather than reworded, because it was false and the correction had already been written into this row&#x27;s status cell without reaching its first sentence — half…</td><td class="muted-t">A way to refuse before the first byte, or a way to end a response that says why.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-145</td><td>The load generator cannot prove the queue bound works under sustained load, because it runs on the machine under test.</td><td class="muted-t">A load generator that is not this machine.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-162</td><td>A provider that is not PostGIS would be handed PostGIS SQL.</td><td class="muted-t">When DuckDB is designed as the file-format query engine (Q-81), and not after.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-201</td><td>A console test fails in two full runs out of four and passes on its own, and the cause is not known.</td><td class="muted-t">Run the console suite with -v n piped to a file until it fails, then read the message.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-234</td><td>WMS advertises every legend as 20×20 and draws them at whatever size the labels need.</td><td class="muted-t">Already fired for any layer with a classified style, which is the ordinary case for a thematic map.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-235</td><td>No shipped image can import a geodatabase, and the serving image&#x27;s own claim that it carries no GDAL is what makes that true.</td><td class="muted-t">Already fired, and it is the release itself.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-231</td><td>A view publishes, and the two catalogues this server reads disagree about it — so a materialized view is served with no fields and advertised as editable.</td><td class="muted-t">Already fired for any estate that publishes from a view, which is the ordinary way a GIS shop exposes a join or an…</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-221</td><td>The symbology editor needs 1,180 pixels and nothing under that width has an answer.</td><td class="muted-t">The first report of styling a layer on a narrow screen — A-081&#x27;s own falsification.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-229</td><td>service.srid exists and nothing reads it.</td><td class="muted-t">The Publish screen, which offers the choice and cannot mean it until this is done</td><td><span class="pill cond">PARTLY</span></td></tr>
@@ -318,7 +316,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">A-003</td><td>Most published services are idle most of the time, making shared workers viable</td><td><span class="pill warn">DOWNGRADED</span></td></tr>
 <tr><td class="id">A-004</td><td>Hot-path geometry overhead is material enough to justify our own primitives</td><td><span class="pill good">VALIDATED</span></td></tr>
 <tr><td class="id">A-005</td><td>Geometry running in the same runtime meaningfully reduces defect resolution time versus FFI</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
-<tr><td class="id">A-006</td><td>One internal geometry representation can serve both the feature path and the tile path without a second conversion</td><td><span class="pill warn">CONTESTED</span></td></tr>
+<tr><td class="id">A-006</td><td>One internal geometry representation can serve both the feature path and the tile path without a second conversion</td><td><span class="pill good">VALIDATED</span></td></tr>
 <tr><td class="id">A-007</td><td>Crash containment is required in practice, not merely in principle — workers really do die (GDAL on malformed input, plugins, OOM)</td><td><span class="pill warn">CONTESTED,</span></td></tr>
 <tr><td class="id">A-008</td><td>Administrators will not correctly hand-tune per-service worker settings, so defaults must be good and adaptive</td><td><span class="pill warn">VALIDATING</span></td></tr>
 <tr><td class="id">A-011</td><td>A distinguished central manager process is a robustness and recovery liability, so placement and routing state must be recoverable without one</td><td><span class="pill warn">VALIDATING</span></td></tr>
@@ -416,6 +414,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.2%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>277cba6</code><time>2026-09-09</time><span>The Python worker was reversed on 2026-08-19 and four documents still describe it</span></li>
+<li><code>446253b</code><time>2026-09-09</time><span>A request holder has been bounded since 2026-08-18, and four documents said it was not</span></li>
+<li><code>3c8c387</code><time>2026-09-09</time><span>Four questions the code had already answered, and two registers that never learned</span></li>
+<li><code>1b57158</code><time>2026-09-09</time><span>The status page catches up with the commit before it</span></li>
 <li><code>f7b088f</code><time>2026-09-09</time><span>A non-COG GeoTIFF serves, so ADR-009&#x27;s documented gap was the wrong gap</span></li>
 <li><code>22c554e</code><time>2026-09-09</time><span>Readiness stays ready through a quiesce, because the question&#x27;s premise was false</span></li>
 <li><code>4a7a4b1</code><time>2026-09-09</time><span>Q-123 was answered by an ADR that shipped while the register still called it open</span></li>
@@ -426,10 +428,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>d35a110</code><time>2026-09-09</time><span>D-202 was wrong in all three of its premises, and it hid a real defect</span></li>
 <li><code>e8b2d42</code><time>2026-09-09</time><span>The axis order comes from the authority&#x27;s register, not from a number range</span></li>
 <li><code>dbb4e16</code><time>2026-09-09</time><span>A colour ramp told to read words is a reported loss, not an empty list</span></li>
-<li><code>ef4cad5</code><time>2026-09-09</time><span>The tile-pipeline guard was red for a comment that changed no tile</span></li>
-<li><code>7b9aac8</code><time>2026-09-09</time><span>The completeness table was a day behind on what quiesce still owes</span></li>
-<li><code>288646f</code><time>2026-09-09</time><span>The status page catches up with the commit before it</span></li>
-<li><code>e7b0d09</code><time>2026-09-09</time><span>The quiesce control goes through the ux-designer, and D-231&#x27;s reading half closes</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
