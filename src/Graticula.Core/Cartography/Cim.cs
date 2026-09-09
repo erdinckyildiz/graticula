@@ -1585,6 +1585,70 @@ public sealed record CimProjection(
     public string Delimiter { get; init; } = ", ";
 
     /// <summary>
+    /// Every column this renderer reads as a <b>number</b>, which is not every column it reads.
+    /// </summary>
+    /// <returns>The column names, without duplicates.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-218](../../../docs/architecture-debt.md)'s open half.</b> A colour ramp told to read
+    /// a field of words paints the whole layer one colour and says nothing: at draw time
+    /// <c>Interpolate.Evaluate</c> reads the value with <c>AsNumber(text) ?? 0</c>, so every
+    /// feature scores nought and takes the ramp's low end. Measured on a real layer: **1,752
+    /// pixels of a single colour** from a text field against **45 distinct colours** from a
+    /// numeric one, both stored with <c>losses: []</c>. The console's own form now refuses it —
+    /// and a document authored in ArcGIS Pro never passes through that form.
+    /// </para>
+    /// <para>
+    /// <b>Separate from <see cref="AllFields"/> because the distinction is the whole point.</b>
+    /// A unique-value renderer <i>matches</i> its fields, and a field of words is exactly what
+    /// people classify by; a class-breaks renderer, a proportional symbol, a heat map, a dot
+    /// density, a chart and every visual variable all <i>interpolate</i> theirs, and a field of
+    /// words there is a map that is wrong without looking wrong. Asking one list for both
+    /// questions would refuse the ordinary case to catch the broken one.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<string> NumericFields()
+    {
+        List<string> named = [];
+
+        void Add(string? one)
+        {
+            if (one is { Length: > 0 }
+                && !named.Contains(one, StringComparer.OrdinalIgnoreCase))
+            {
+                named.Add(one);
+            }
+        }
+
+        // <b>The single `Field`, except where the renderer matches on it.</b> `Cim.Project` fills
+        // it for class breaks, proportional and heat — all of which read a number — and for a
+        // single-field unique-value classification, which does not.
+        if (!string.Equals(Kind, Cim.UniqueValue, StringComparison.Ordinal))
+        {
+            Add(Field);
+        }
+
+        foreach (CimVary varying in Vary)
+        {
+            Add(varying.Field);
+        }
+
+        Add(Heat?.Field);
+
+        foreach (string one in Dots?.Fields ?? [])
+        {
+            Add(one);
+        }
+
+        foreach (string one in Pie?.Fields ?? [])
+        {
+            Add(one);
+        }
+
+        return named;
+    }
+
+    /// <summary>
     /// Every column this renderer names, wherever in the document it names it.
     /// </summary>
     /// <returns>The column names, without duplicates, in no particular order.</returns>

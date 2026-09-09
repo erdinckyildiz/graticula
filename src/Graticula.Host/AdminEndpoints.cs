@@ -3593,6 +3593,13 @@ internal static class AdminEndpoints
         string name,
         IAdminCatalog catalog,
         IAuditLog audit,
+
+        // <b>Two more, for D-218's open half.</b> A renderer that interpolates a column of words
+        // draws one flat colour and said `losses: []`; checking that needs the layer's schema,
+        // which is what these two answer between them. `ServiceContexts` keeps it thirty
+        // seconds, so the cost on a write nobody makes often is a cached read.
+        PostgresLayerCatalog published,
+        ServiceContexts contexts,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -3649,11 +3656,40 @@ internal static class AdminEndpoints
             return;
         }
 
+        /*
+          <b>The layer's columns, so a ramp told to read words is reported rather than drawn —
+          [D-218](../../docs/architecture-debt.md)'s open half.</b> The console's form refuses the
+          choice now; a document authored in ArcGIS Pro arrives here without passing through it,
+          and used to be stored with `losses: []` and drawn as one flat colour.
+
+          <b>Best effort, because a schema this server cannot read must not stop somebody storing
+          a style.</b> `ServiceContexts` answers from a thirty-second memory and falls back to
+          what it last knew; if the source is unreachable there is nothing to check against, and
+          refusing the write would turn a database outage into an editing outage. `Read` reports
+          nothing when the fields are null, which is what it always did.
+        */
+        IReadOnlyList<Graticula.Features.FieldDescription>? columns = null;
+
+        if (await published.FindAsync(name, cancellation).ConfigureAwait(false) is { } known)
+        {
+            try
+            {
+                (_, Graticula.Features.LayerDescription shape) =
+                    await contexts.GetAsync(known, cancellation).ConfigureAwait(false);
+
+                columns = shape.Fields;
+            }
+            catch (Exception e) when (e is Npgsql.NpgsqlException or InvalidOperationException)
+            {
+                // Nothing to check against. The write goes ahead and says what it always said.
+            }
+        }
+
         SymbologyWrite written;
 
         try
         {
-            written = SymbologyConversion.Read(body, layer.Geometry);
+            written = SymbologyConversion.Read(body, layer.Geometry, columns);
         }
         catch (SymbologyException e)
         {

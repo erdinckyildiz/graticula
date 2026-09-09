@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Graticula.Features;
 using Graticula.Geometries;
 
 namespace Graticula.Cartography;
@@ -79,7 +80,16 @@ public static class SymbologyConversion
     /// </param>
     /// <returns>The canonical document, what was lost, and which shape came in.</returns>
     /// <exception cref="SymbologyException">The document is not usable.</exception>
-    public static SymbologyWrite Read(string document, GeometryKind geometry)
+    /// <param name="fields">
+    /// The layer's attribute columns, or <see langword="null"/> when the caller does not know
+    /// them. Supplied, a renderer that interpolates a column of words is reported as a loss —
+    /// see <see cref="NotNumbers"/>. On the end and optional, because everything before it had
+    /// callers.
+    /// </param>
+    public static SymbologyWrite Read(
+        string document,
+        GeometryKind geometry,
+        IReadOnlyList<FieldDescription>? fields = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(document);
 
@@ -133,7 +143,10 @@ public static class SymbologyConversion
         {
             CimProjection projection = Cim.Project(body);
 
-            return new SymbologyWrite(Serialise(body), projection.NotDrawn, "CIM");
+            return new SymbologyWrite(
+                Serialise(body),
+                [.. projection.NotDrawn, .. NotNumbers(projection, fields)],
+                "CIM");
         }
 
         if (body.ContainsKey("renderer"))
@@ -1244,6 +1257,113 @@ public static class SymbologyConversion
     /// §7's third condition needs; rounding to two would give 1.9998.
     /// </remarks>
     private static double Round(double value) => Math.Round(value, 4);
+
+    /// <summary>
+    /// A sentence per column this renderer reads as a number and the layer stores as something
+    /// else.
+    /// </summary>
+    /// <param name="projection">The renderer, projected onto what this server draws.</param>
+    /// <param name="fields">The layer's columns, or null when the caller does not know them.</param>
+    /// <returns>The losses, or none.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-218](../../../docs/architecture-debt.md)'s open half, closed 2026-09-09.</b> The
+    /// console's *Vary with a number* form used to offer every column of the layer and accept
+    /// whichever was chosen; at draw time <c>Interpolate.Evaluate</c> reads the value with
+    /// <c>AsNumber(text) ?? 0</c>, so a column of words scores nought on every feature and the
+    /// whole layer takes the ramp's low end. **1,752 pixels of one colour against 45 distinct
+    /// ones**, both stored with <c>losses: []</c>. The form was fixed; a document authored in
+    /// ArcGIS Pro never passes through it, which is what this closes.
+    /// </para>
+    /// <para>
+    /// <b>A loss rather than a refusal, and the choice is deliberate.</b> This server refuses a
+    /// style it cannot draw ([ADR-028](../../../docs/adr/ADR-028-style-documents.md)); it does
+    /// not refuse one it can draw badly, because a stored document belongs to its author and
+    /// because the column may be numeric text a future reader casts. What the author must not get
+    /// is <c>losses: []</c> about a map that will be one flat colour, which is what they were
+    /// getting.
+    /// </para>
+    /// <para>
+    /// <b>Null fields means silence rather than a guess.</b> Two callers know the layer's schema
+    /// and pass it; anything that does not — a test, a conversion with no layer behind it —
+    /// reports what it always did. Reporting a loss for a column nobody has checked would be an
+    /// invented fact, which is the failure this whole entry is about.
+    /// </para>
+    /// <para>
+    /// <b>An unknown column is not reported either.</b> A renderer naming a column the layer does
+    /// not have is a different fault with a different repair —
+    /// [D-231](../../../docs/architecture-debt.md) is the shape of what happens when the field
+    /// list itself is wrong — and saying *this is not a number* about a column that is not there
+    /// would send the reader to fix the wrong thing.
+    /// </para>
+    /// </remarks>
+    private static List<string> NotNumbers(
+        CimProjection projection,
+        IReadOnlyList<FieldDescription>? fields)
+    {
+        if (fields is null || fields.Count == 0)
+        {
+            return [];
+        }
+
+        List<string> said = [];
+
+        foreach (string named in projection.NumericFields())
+        {
+            FieldDescription? found = null;
+
+            foreach (FieldDescription one in fields)
+            {
+                if (string.Equals(one.Name, named, StringComparison.OrdinalIgnoreCase))
+                {
+                    found = one;
+                    break;
+                }
+            }
+
+            if (found is not { } column || Numeric(column.Type))
+            {
+                continue;
+            }
+
+            said.Add(
+                $"`{column.Name}` is {Describe(column.Type)} and this renderer reads it as a "
+                + "number, so every feature scores zero and the whole layer draws at the low end "
+                + "of the ramp. Choose a numeric column, or classify by value instead of by "
+                + "range.");
+        }
+
+        return said;
+    }
+
+    /// <summary>Whether a column can be interpolated.</summary>
+    /// <param name="type">The column's type.</param>
+    /// <returns>True when arithmetic on it means something.</returns>
+    private static bool Numeric(FieldType type) => type
+        is FieldType.SmallInteger
+        or FieldType.Integer
+        or FieldType.BigInteger
+        or FieldType.Single
+        or FieldType.Double;
+
+    /// <summary>What to call a type in a sentence an operator reads.</summary>
+    /// <param name="type">The column's type.</param>
+    /// <returns>The words.</returns>
+    /// <remarks>
+    /// <b><see cref="FieldType.Unknown"/> is *a type this server does not recognise* rather than
+    /// *not a number*</b>, because it is what a PostGIS type or a domain this server has no arm
+    /// for comes back as, and telling somebody their column is the wrong kind when the truth is
+    /// that we could not read its kind sends them to change the data.
+    /// </remarks>
+    private static string Describe(FieldType type) => type switch
+    {
+        FieldType.Text => "text",
+        FieldType.Boolean => "true or false",
+        FieldType.Date => "a date",
+        FieldType.Guid => "a unique identifier",
+        FieldType.Binary => "bytes",
+        _ => "a type this server does not recognise as a number",
+    };
 
     /// <summary>The canonical document as it will be stored.</summary>
     /// <remarks>
