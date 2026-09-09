@@ -2317,6 +2317,10 @@ def an_answered_question_still_filed_as_open():
     # cell, which is right for an ordinary row and wrong for a struck one — there the
     # question it no longer is comes first. Using `search` on an anchored pattern silently
     # behaves like `match`, which is how the widened check passed its own falsification once.
+    # <b>A verdict with a date on it, wherever it sits in the cell.</b> See the use
+    # below for why this one is not gated on the cell being struck.
+    dated = re.compile(r"\*\*(ANSWERED|RESOLVED|WITHDRAWN)\s+20\d\d-\d\d-\d\d")
+
     inside = re.compile(
         r"\*{0,2}(ANSWERED|Answered|RESOLVED|Resolved|Re-answered|Re-ANSWERED"
         r"|DISSOLVED|Dissolved|WITHDRAWN|Withdrawn|CLOSED|Closed)\b")
@@ -2348,6 +2352,23 @@ def an_answered_question_still_filed_as_open():
             # is, and puts the verdict after the second `~~`.
             found = verdict.match(cell) or (
                 inside.search(cell) if cell.startswith("~~") else None)
+
+            # <b>And a dated verdict anywhere, which is how five of them hid.</b>
+            # Measured 2026-09-09: Q-126, Q-136, Q-138, Q-144 and Q-146 each carried
+            # `**ANSWERED <date>` between characters 1,300 and 3,200 of their own
+            # cell, with the headline unstruck -- so neither branch above could see
+            # them, and four of the five were **owner decisions** sitting in the open
+            # pile for up to twenty days. Q-144 had been answered by an ADR the same
+            # register cites.
+            #
+            # <b>The date is what makes this safe to search anywhere.</b> The two
+            # branches above are deliberately narrow because *answered* appears in
+            # ordinary prose -- a row discussing another question's answer, a row
+            # saying what would answer it. `**ANSWERED 2026-09-03` is not prose: the
+            # emphasis and the date together are the register's own way of recording
+            # that somebody decided something on a day, and a row that contains one
+            # has been settled whatever its headline still says.
+            found = found or dated.search(cell)
 
             if not found:
                 continue
