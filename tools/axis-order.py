@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""Generates `src/Graticula.Core/Geometry/AxisOrderRegister.cs` from PROJ's own register.
+
+**Why this exists.** Two questions this server asks about a spatial reference —
+*does the authority list latitude or northing first* and *is this in degrees* —
+were both answered by the same expression, `srid is >= 4000 and <= 4999`, and both
+answers were wrong for two thirds of the codes that matter. Measured against PROJ
+7.2.1's register: **2,125 EPSG codes are north/south-first and 1,444 of them are
+outside that block**, including every Turkish national grid (5251-5259, 5263-5264,
+5269-5275) and TUREF itself (5252). See Q-123 and ADR-060.
+
+**Where the truth is.** Not in PostgreSQL: `spatial_ref_sys.srtext` is a
+visualisation-order rendering, `postgis_srs` returns WKT1 without `AXIS` for these
+codes, and `ST_Transform` normalises even the URN form. PROJ's `proj.db` carries the
+authority's own axis table, and PostGIS ships it — this reads that, and bakes the
+answer into the product so that nothing at runtime needs PROJ or GDAL to ask
+(ADR-009 §2.2 keeps GDAL out of the serving process).
+
+**Run it like this**, with the database PostGIS itself is using:
+
+    docker cp gis-experiment-postgis:/usr/share/proj/proj.db /tmp/proj.db
+    python tools/axis-order.py /tmp/proj.db
+
+The generated file records which register it came from. `AxisOrderRegisterTests`
+regenerates and compares when a `proj.db` is available, so a stale register is a
+failing test rather than a wrong map.
+"""
+
+import os
+import sqlite3
+import sys
+
+NORTH_FIRST = """
+SELECT crs.code
+FROM (SELECT auth_name, code, coordinate_system_auth_name csa, coordinate_system_code csc
+      FROM geodetic_crs
+      UNION ALL
+      SELECT auth_name, code, coordinate_system_auth_name, coordinate_system_code
+      FROM projected_crs) crs
+JOIN axis a
+  ON a.coordinate_system_auth_name = crs.csa
+ AND a.coordinate_system_code = crs.csc
+ AND a.coordinate_system_order = 1
+WHERE crs.auth_name = 'EPSG'
+  AND a.orientation IN ('north', 'south')
+  AND crs.code GLOB '[0-9]*'
+"""
+
+GEOGRAPHIC = """
+SELECT code FROM geodetic_crs
+WHERE auth_name = 'EPSG'
+  AND code GLOB '[0-9]*'
+  AND type IN ('geographic 2D', 'geographic 3D')
+"""
+
+
+def codes(connection, sql):
+    """Every EPSG code the query names, sorted and de-duplicated."""
+    return sorted({int(row[0]) for row in connection.execute(sql)})
+
+
+def runs(values):
+    """Consecutive codes collapsed into (first, last) pairs."""
+    out = []
+    start = previous = values[0]
+
+    for value in values[1:]:
+        if value == previous + 1:
+            previous = value
+        else:
+            out.append((start, previous))
+            start = previous = value
+
+    out.append((start, previous))
+    return out
+
+
+def emit(name, summary, pairs, remark):
+    """One `int[]` of packed run bounds, with what it is above it."""
+    flat = [n for pair in pairs for n in pair]
+    body = ",\n        ".join(
+        ", ".join(str(n) for n in flat[i:i + 12]) for i in range(0, len(flat), 12))
+
+    return f"""    /// <summary>{summary}</summary>
+    /// <remarks>
+{remark}
+    /// </remarks>
+    private static readonly int[] {name} =
+    [
+        {body},
+    ];
+"""
+
+
+def main(argv):
+    """Writes the register, or says why it cannot."""
+    if len(argv) not in (2, 3):
+        print(__doc__, file=sys.stderr)
+        return 2
+
+    where = argv[1]
+
+    # <b>A second argument so a test can write somewhere else and compare.</b> ADR-060
+    # condition 2 is that a stale register fails a build rather than serving a wrong map, and
+    # the cheapest way to check that is to run this again and diff — which needs somewhere to
+    # put the answer that is not the file being checked.
+    destination = argv[2] if len(argv) == 3 else os.path.join(
+        "src", "Graticula.Core", "Geometry", "AxisOrderRegister.cs")
+
+    if not os.path.exists(where):
+        print(f"{where} is not there. Copy it out of the PostGIS container first.",
+              file=sys.stderr)
+        return 1
+
+    connection = sqlite3.connect(where)
+
+    # <b>`EPSG.VERSION` and `EPSG.DATE`, not the layout version.</b> The first attempt read
+    # `%VERSION%` in key order and got `DATABASE.LAYOUT.VERSION.MAJOR` — "1" — which names the
+    # file format rather than the register, and would have put a meaningless number in the one
+    # line a reader checks to see whether this file is stale.
+    have = dict(connection.execute("SELECT key, value FROM metadata"))
+    version = f"{have.get('EPSG.VERSION', 'unknown')} ({have.get('EPSG.DATE', 'no date')})"
+
+    north = codes(connection, NORTH_FIRST)
+    geographic = codes(connection, GEOGRAPHIC)
+
+    outside = [n for n in north if not 4000 <= n <= 4999]
+    outside_count = f"{len(outside):,}"
+    north_count = f"{len(north):,}"
+    turkish = [n for n in north if 5250 <= n <= 5290]
+
+    text = f'''// <auto-generated>
+//   Generated by tools/axis-order.py from PROJ's register — EPSG {version}.
+//   Do not edit by hand: run the tool again against a newer proj.db instead.
+// </auto-generated>
+
+namespace Graticula.Geometries;
+
+/// <summary>
+/// Which spatial references the authority defines north-first, and which are in degrees.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>[Q-123](../../../docs/open-questions.md), and the rule it replaces was wrong about two
+/// thirds of the codes that matter.</b> Both questions used to be answered by the same
+/// expression — <c>srid is &gt;= 4000 and &lt;= 4999</c> — and measured against this register
+/// that misses <b>{outside_count} of the {north_count}</b> north/south-first codes, including
+/// every Turkish national grid: {", ".join(str(n) for n in turkish)}. Measured on a running
+/// server, a feature served in EPSG:5252 came back transposed against the same feature in
+/// EPSG:4326, whose axis definition is identical.
+/// </para>
+/// <para>
+/// <b>Baked rather than looked up, and the alternatives were measured before this was
+/// chosen.</b> PostgreSQL cannot answer it: <c>spatial_ref_sys.srtext</c> is a
+/// visualisation-order rendering, <c>postgis_srs</c> returns WKT1 with no <c>AXIS</c> for these
+/// codes, and <c>ST_Transform</c> normalises even the URN form. PROJ's <c>proj.db</c> answers it
+/// exactly and PostGIS ships one — so the answer is generated from that register at build time
+/// and carried as data, which keeps GDAL and PROJ out of the serving process
+/// ([ADR-009](../../../docs/adr/ADR-009-raster-engine.md) §2.2) and costs no round trip.
+/// </para>
+/// <para>
+/// <b>What it costs is staleness, and that is measurable rather than hoped about.</b> EPSG
+/// revises; this file does not. <c>AxisOrderRegisterTests</c> regenerates from a
+/// <c>proj.db</c> when one is present and fails when the two disagree, so a register that has
+/// fallen behind is a red build rather than a wrong map.
+/// </para>
+/// </remarks>
+internal static class AxisOrderRegister
+{{
+{emit("NorthFirst", "EPSG codes whose first axis points north or south, as runs.", runs(north),
+      """    /// <b>Both orientations, because both mean the same thing here.</b> A southing-first
+    /// grid puts the north-south ordinate first exactly as a northing-first one does; what this
+    /// answers is *which ordinate comes first*, not which way it counts.""")}
+{emit("Geographic", "EPSG codes that are geographic 2D or 3D, and therefore in degrees.", runs(geographic),
+      """    /// <b>Geocentric references are not here.</b> They are metres from the centre of the
+    /// earth, so the two questions this class answers separate: a geocentric code is neither
+    /// degrees nor north-first, and the old expression called it both.""")}
+    /// <summary>Whether the authority lists this reference's north-south ordinate first.</summary>
+    /// <param name="srid">The EPSG code.</param>
+    /// <returns>True when latitude or northing comes first.</returns>
+    internal static bool IsNorthFirst(int srid) => Holds(NorthFirst, srid);
+
+    /// <summary>Whether this reference is measured in degrees.</summary>
+    /// <param name="srid">The EPSG code.</param>
+    /// <returns>True for a geographic 2D or 3D reference.</returns>
+    internal static bool IsGeographic(int srid) => Holds(Geographic, srid);
+
+    /// <summary>Whether a code falls in one of the runs.</summary>
+    /// <param name="runs">Pairs of first and last, ascending and disjoint.</param>
+    /// <param name="srid">The code.</param>
+    /// <returns>True when it is covered.</returns>
+    /// <remarks>
+    /// <b>A binary search over run bounds rather than a set of every code.</b> The runs are a
+    /// third of the codes and the comparison is the same either way; what it buys is a file a
+    /// person can read a diff of when the register moves.
+    /// </remarks>
+    private static bool Holds(int[] runs, int srid)
+    {{
+        int low = 0;
+        int high = (runs.Length / 2) - 1;
+
+        while (low <= high)
+        {{
+            int middle = low + ((high - low) / 2);
+            int first = runs[middle * 2];
+            int last = runs[(middle * 2) + 1];
+
+            if (srid < first)
+            {{
+                high = middle - 1;
+            }}
+            else if (srid > last)
+            {{
+                low = middle + 1;
+            }}
+            else
+            {{
+                return true;
+            }}
+        }}
+
+        return false;
+    }}
+}}
+'''
+
+    out = destination
+
+    with open(out, "w", encoding="utf-8", newline="") as handle:
+        handle.write(text)
+
+    print(f"wrote {out}", file=sys.stderr)
+    print(f"  EPSG register {version}", file=sys.stderr)
+    print(f"  north/south-first: {len(north)} codes in {len(runs(north))} runs "
+          f"({len(outside)} outside 4000-4999)", file=sys.stderr)
+    print(f"  geographic:        {len(geographic)} codes in {len(runs(geographic))} runs",
+          file=sys.stderr)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
