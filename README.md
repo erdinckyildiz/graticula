@@ -204,6 +204,16 @@ export GRATICULA_TEST_PG="Host=localhost;Port=55432;Database=gis;Username=gis;Pa
 dotnet test --filter "Category=Integration"
 ```
 
+One architecture test needs PROJ's own register rather than a database. `AxisOrder`'s table
+is baked into the assembly ([ADR-060](docs/adr/ADR-060-the-axis-order-comes-from-the-register.md)),
+and the whole cost of baking it is that it can fall behind EPSG — so the check regenerates
+the file with `tools/axis-order.py` and compares bytes. PostGIS ships the register:
+
+```bash
+docker cp gis-experiment-postgis:/usr/share/proj/proj.db /tmp/proj.db
+export GRATICULA_TEST_PROJ_DB=/tmp/proj.db
+```
+
 The conformance suite needs a **running server** and a fixture name for each shape it
 checks. It also fails rather than skips, and each failure names the variable it wanted, so
 a first run reads as a checklist. The fixtures cannot be discovered from the catalogue: a
@@ -219,7 +229,22 @@ export GRATICULA_TEST_MULTILAYER="hosted/EarlyAlert_Reports_HD" # more than one 
 export GRATICULA_TEST_GROUPED="hosted/EarlyAlert"               # contains a group layer
 export GRATICULA_TEST_TILE_SERVICE="hosted/parcels"             # has a VectorTileServer
 export GRATICULA_TEST_EDITABLE="editable"                       # layer 0 accepts edits
+export GRATICULA_TEST_LARGE="hosted/many"                       # enough features to queue
+export GRATICULA_TEST_LOG="/var/log/graticula/server.log"       # the file the server writes
 ```
+
+The last two are not fixtures in the same sense and are listed here because a first run
+asks for them and this file did not. `GRATICULA_TEST_LARGE` needs a layer with enough
+features that admission control has something to queue
+([ADR-046](docs/adr/ADR-046-admission-control-bounds-the-queue-not-the-wait.md)).
+`GRATICULA_TEST_LOG` is the path the server is writing to, because
+[ADR-015](docs/adr/ADR-015-authentication.md) condition 2 requires redaction to be asserted
+against real log output rather than against the call that produced it.
+
+The console suite drives a real browser and finds one on the path by itself; set
+`GRATICULA_TEST_CHROME` to a Chrome or Chromium executable when it cannot. It fails rather
+than skips for the same reason as everything above: a console test that passes with no
+browser has asserted that the console behaves.
 
 ## The record
 
