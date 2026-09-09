@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>ed9c264</code> · 2026-09-09 17:30</p>
+<p class="stamp">Şu commit’ten üretildi: <code>7498b2c</code> · 2026-09-09 18:02</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">61</div><div class="kpi-l">ADR</div><div class="kpi-n">11 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">183/230</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">47 canlı · 0 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">20</div><div class="kpi-l">açık soru</div><div class="kpi-n">136 yanıtlandı · 2 engelleyici</div></div>
+<div class="kpi "><div class="kpi-v">17</div><div class="kpi-l">açık soru</div><div class="kpi-n">139 yanıtlandı · 2 engelleyici</div></div>
 <div class="kpi warn"><div class="kpi-v">24</div><div class="kpi-l">açık borç</div><div class="kpi-n">218 ödendi · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">15/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">2498</div><div class="kpi-l">test</div><div class="kpi-n">273 kaynak dosya, 114,563 satır</div></div>
+<div class="kpi good"><div class="kpi-v">2498</div><div class="kpi-l">test</div><div class="kpi-n">273 kaynak dosya, 114,576 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -249,8 +249,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Q-18</span><span class="owner blocking-tag">ENGELLEYİCİ</span></div><p>What genuinely justifies a server over static cloud-native publishing and over a stateless thin server plus a capable database?</p></article>
 <article class="card blocking"><div class="card-h"><span class="id">Q-20</span><span class="owner blocking-tag">ENGELLEYİCİ</span></div><p>How many distinct geometry engines end up evaluating our predicates, and how do we prevent behavioural divergence?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-09</span><span class="owner">Council</span></div><p>Should the platform be polyglot (§80.2)?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-102</span><span class="owner">Council</span></div><p>Is there a deployment-level capability manifest, distinct from the per-layer capability report?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-104</span><span class="owner">Council</span></div><p>Is the catalogue exportable as a manifest that can be diffed, reviewed and applied?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-106</span><span class="owner">**[OWNER]**</span></div><p>What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-126</span><span class="owner">**[OWNER]**</span></div><p>Does add the server have to work in ArcGIS Pro, or is add the service enough?</p></article>
@@ -266,7 +264,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-36</span><span class="owner">Council</span></div><p>Can the service definition describe fields the physical table does not have — computed, aliased, role-hidden?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-58c</span><span class="owner">Council</span></div><p>Domains, subtypes and editor tracking — the rest of the FeatureServer data model.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-65</span><span class="owner">Council</span></div><p>What is the worker adoption protocol after a supervisor restart, and how is it made idempotent?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-74</span><span class="owner">Council</span></div><p>What is the Python SDK, and how does data cross the boundary?</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -406,6 +403,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>7498b2c</code><time>2026-09-09</time><span>The shipped image cannot import a shapefile or answer any overlay</span></li>
 <li><code>ed9c264</code><time>2026-09-09</time><span>D-229&#x27;s remainder is smaller than &quot;the other faces&quot;</span></li>
 <li><code>7904f9c</code><time>2026-09-09</time><span>A view that will not take a write was answered as an outage</span></li>
 <li><code>302d9cb</code><time>2026-09-09</time><span>Three questions close on one rule that was never written down</span></li>
@@ -419,7 +417,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>5e5ea7b</code><time>2026-09-09</time><span>The decision about metric labels was living in a code comment</span></li>
 <li><code>f9e0b0e</code><time>2026-09-09</time><span>Two questions close on their own premises being false</span></li>
 <li><code>c283d53</code><time>2026-09-09</time><span>A full datastore was answered as an unreachable one</span></li>
-<li><code>176e30b</code><time>2026-09-09</time><span>Editing is a derived capability, and this server met every clause and omitted it</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

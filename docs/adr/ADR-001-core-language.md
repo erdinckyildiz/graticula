@@ -79,7 +79,9 @@ the product again — so the requirement was retired rather than satisfied.
 **What this does not license.** A waived condition is not a discharged one, and the honest reading
 of §9's revisit triggers is unchanged: if a proven polyglot boundary appears, or a measurement
 shows the runtime is the constraint, this decision is revisited on evidence rather than on the
-absence of it. **`experiments/lang-slice` stays as it is** — `SUPERSEDED, not run` — because a
+absence of it. *(Written 2026-08-25. The polyglot half had already been tested and refused a week
+earlier — ADR-037 §5a, 2026-08-18 — and this sentence restated it as untried. Corrected 2026-09-09;
+see §9's third trigger, which now carries the measurement.)* **`experiments/lang-slice` stays as it is** — `SUPERSEDED, not run` — because a
 comparison that was deliberately skipped is a fact about this project worth keeping legible.
 
 ## 1. Context
@@ -406,8 +408,20 @@ necessary and is run then — with a reason, rather than as a ritual.
   necessary after all, and it would reopen this ADR with a reason rather than as
   a ritual.
 - The chosen language's geometry or GDAL binding becomes unmaintained.
-- A polyglot boundary (§80.2) proves necessary for a worker class, which would
-  change what "core language" means.
+- ~~A polyglot boundary (§80.2) proves necessary for a worker class, which would
+  change what "core language" means.~~ **Fired and did not prove necessary —
+  2026-08-18, recorded here 2026-09-09.**
+  [ADR-037](ADR-037-job-workers-come-in-two-kinds.md) chose a Python worker for
+  geodatabase import and §5a reversed it the same day on a measurement against
+  the owner's own data: the same 3,659-feature layer took **0.29 s through
+  `pyogrio` and 0.06 s through a .NET GDAL binding**, plus a second runtime and a
+  second image. The trigger's condition — *proves necessary* — was tested and
+  came back no, so this decision stands on evidence rather than on the absence of
+  it. **The rule that replaces the trigger is ADR-037 §5's**, and the criterion it
+  found is not the one this bullet implies: a library that does not exist in .NET
+  can be **bound**, so what would justify a second runtime is somebody else's
+  *ecosystem* — user-authored tools — and not somebody else's *library*.
+  [Q-09](../open-questions.md).
 
 ## 10. Dissent
 

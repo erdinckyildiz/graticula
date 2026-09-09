@@ -429,6 +429,40 @@ This ADR is `ACCEPTED WITH CONDITIONS`. The conditions:
    format shaped by the schema rather than by the operator, and it is the kind
    of thing that never gets fixed.
 
+   ***BREACHED, recorded 2026-09-09 — and this is a fourth state, not an open
+   condition.*** The admin API shipped: **83 mapped `/admin` routes** and
+   **`v0.1.0` is tagged**. The format is unspecified, and `graticula --help` —
+   which is maintained against the argument matches deliberately, so it is
+   evidence rather than documentation — lists `serve`, `keygen`, `migrate`,
+   `tools symbology-migrate` and `tools admincreator` and nothing else. A grep
+   of `/src` for a catalogue export finds one hit and it is
+   `GetManifestResourceStream` in the map canvas.
+
+   **The distinction matters and is why this is marked rather than left open.**
+   An open condition is work not yet done. This one carried a *deadline*, the
+   deadline passed, and no register noticed — `tools/conditions.py` reports
+   *2 of 3 discharged* either way, because the tool counts discharge and has no
+   concept of a condition whose moment has gone. So it has looked identical to
+   ordinary outstanding work for as long as it has been wrong.
+
+   **What it costs is exactly what it predicted.** The schema is now
+   established — ten catalogue tables, every one `uuid` primary key with a
+   unique name — so any format written from here is shaped by the schema, which
+   is the outcome the condition existed to prevent. **The condition cannot now
+   be met as written**, and the honest options are two: amend it to say what is
+   owed *given* an established schema, or discharge it with a specification that
+   accepts the retrofit and says so. [Q-104](../open-questions.md) is where that
+   choice is recorded; **it must not stay unmet and unmentioned**, which is
+   [ADR-005](ADR-005-api-architecture.md) condition 1's phrasing and the
+   precedent for this note.
+
+   **And the unresolved design point is credentials**, which is what the
+   condition would have forced early: `data_source` carries
+   `connection_secret bytea not null` with a `key_version`, so an export either
+   omits credentials — and does not reproduce a deployment — or carries
+   ciphertext bound to a key version, and a *human-readable, diff-friendly* file
+   is then partly opaque and key-coupled.
+
 ## 10. Revisit triggers
 
 - Q-22 answers that PostgreSQL-free is a goal.
