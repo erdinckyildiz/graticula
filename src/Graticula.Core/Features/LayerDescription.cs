@@ -91,7 +91,37 @@ public readonly record struct FieldDescription(
 /// <param name="Extent">
 /// Where its features are, or null if that cannot be determined.
 /// </param>
+/// <param name="Writable">
+/// Whether the store will accept writes to whatever this layer sits on, or null when it
+/// could not be asked.
+/// </param>
 /// <remarks>
+/// <para>
+/// <b><see cref="Writable"/> is the store's answer, not the caller's privileges —
+/// [D-231](../../../docs/architecture-debt.md).</b> The ArcGIS layer document advertised
+/// <c>Query,Create,Update,Delete</c> from the caller's privileges alone, so a layer over a
+/// materialized view or a join view — relations PostgreSQL refuses every write to — told a
+/// client it could edit and then refused every edit. Measured 2026-09-10 across four
+/// relation kinds: all four advertised editing, and two of them accepted none of it.
+/// <see cref="Graticula.Features.LayerDescription"/> is where the answer belongs because it
+/// is the one shape the request path already has in hand.
+/// </para>
+/// <para>
+/// <b>It is read on every describe rather than stored at publish time</b>, which is a
+/// decision and not an accident. A view becomes writable the moment somebody adds an
+/// <c>INSTEAD OF</c> trigger and stops being writable when they drop it, so a column
+/// written when the layer was published would be right on the day it was written and
+/// drifting from then on. What bounds the staleness is the describe cache's own lifetime,
+/// the same bound the field list has.
+/// </para>
+/// <para>
+/// <b>Null means <em>nobody asked</em>, and it is not a no.</b> The narrowing acts on a
+/// definite <c>false</c> only: a surface that cannot reach a store to ask must not
+/// silently take a capability away, because an under-claim looks exactly like a
+/// deliberately read-only layer and there is nothing in the document to say otherwise.
+/// The one production provider always answers; the default is for the surfaces and the
+/// fakes that have no relation to ask about.
+/// </para>
 /// <para>
 /// <b>The extent may be an estimate, and callers must treat it as one.</b> A
 /// client uses it to decide where to put the map, and being slightly wrong there
@@ -105,7 +135,8 @@ public readonly record struct FieldDescription(
 /// symptom of exactly this confusion.
 /// </para>
 /// </remarks>
-public sealed record LayerDescription(IReadOnlyList<FieldDescription> Fields, Envelope? Extent)
+public sealed record LayerDescription(
+    IReadOnlyList<FieldDescription> Fields, Envelope? Extent, bool? Writable = null)
 {
     /// <summary>Finds a field by name, or null.</summary>
     public FieldDescription? Find(string name)

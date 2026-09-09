@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Graticula.Platform.Identity;
 using Xunit;
 
@@ -120,10 +121,22 @@ public sealed class EnumeratedValuesAreCoveredTests
             }
 
             // Quoted, so prose mentioning the word is not an enumeration.
+            //
+            // <b>And not an XML doc attribute, which is what it counted until
+            // 2026-09-10.</b> `<param name="group">` is a parameter called `group`, and
+            // `<see cref="..."/>` and `<paramref name="..."/>` are the same shape. This
+            // fired on `PortalGroup.cs`, which enumerates *group visibility* — members and
+            // organisation — and has nothing to do with sharing scopes: it quoted
+            // `"private"` from that map and `"group"` from a parameter name, and the guard
+            // read two scopes and a silence. **A guard that fires on a file it has no
+            // business reading teaches people to add opt-out markers**, and the marker here
+            // means *the default is deliberate*, which would have been a false statement.
+            // Excluding an attribute value narrows nothing real: no enumeration of a scope
+            // has ever been written as `name="public"`.
             string[] present =
             [
-                .. scopes.Where(scope => text.Contains(
-                    "\"" + scope + "\"", StringComparison.Ordinal)),
+                .. scopes.Where(scope => Regex.IsMatch(
+                    text, "(?<![A-Za-z]=)\"" + scope + "\"")),
             ];
 
             if (present.Length < 2 || present.Length == scopes.Length)

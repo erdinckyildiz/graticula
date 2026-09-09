@@ -702,24 +702,29 @@ internal static class ErrorResponse
         // calls worse than none, for a fault that is permanent.
         //
         // <b>[D-231](../../docs/architecture-debt.md) named this as one of three things tangled
-        // together</b>, and it is the one that is a line rather than a change. The other two
-        // stay open and are not touched here: `PrivilegedCapabilities` advertising
-        // `Create,Update,Delete` from the caller's privileges alone — which is
-        // [ADR-008](../../docs/adr/ADR-008-query-engine.md) §2's never-over-claim rule broken,
-        // and needs a per-layer catalogue read — and the product decision about whether a
-        // non-updatable relation is refused at publish, published read-only, or published with
-        // a warning.
+        // together</b>, and it is the one that is a line rather than a change. One of the other
+        // two closed on 2026-09-10: `PrivilegedCapabilities` advertised `Create,Update,Delete`
+        // from the caller's privileges alone — [ADR-008](../../docs/adr/ADR-008-query-engine.md)
+        // §2's never-over-claim rule broken outright — and `LayerDescription.Writable` now
+        // carries the database's own answer into the capability string, so a layer over a
+        // materialized view or a join view advertises `Query` alone. What stays open is the
+        // product decision: whether a non-updatable relation is refused at publish, published
+        // read-only, or published with a warning.
         //
         // <b>The database's own sentence is quoted, because it is better than one written
         // here.</b> PostgreSQL answers *cannot insert into view "x"* and adds a DETAIL saying
         // views that do not select from a single table are not automatically updatable. That
         // names the relation and the reason; an invented sentence would name neither.
         //
-        // <b>500 rather than 400 or 503.</b> Not the caller's fault — the service document
-        // advertised the operation, which is the over-claim above — so a 4xx would blame them
-        // for believing us. Not 503, because nothing here is temporary and no retry helps. The
-        // public form says an administrator is needed, which is true: the repair is at publish
-        // time, not in the request.
+        // <b>500 rather than 400 or 503, and the reason changed on 2026-09-10 without the
+        // answer changing.</b> It used to be *the service document advertised the operation, so
+        // a 4xx would blame the caller for believing us*. The document no longer advertises it,
+        // and this is still not the caller's fault: what reaches here now is a relation that
+        // stopped being writable under a client holding a document that was true when it was
+        // read, or one of the write paths that never consults the capability string. Both are
+        // the server's business rather than the request's. Not 503, because nothing here is
+        // temporary and no retry helps. The public form says an administrator is needed, which
+        // is true: the repair is at the source, not in the request.
         PostgresException { SqlState: "55000" or "42809" or "0A000" } relation => new(
             StatusCodes.Status500InternalServerError,
             "This layer's table cannot accept this write, and the database says why: "

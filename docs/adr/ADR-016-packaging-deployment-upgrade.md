@@ -24,7 +24,7 @@ This ADR takes all of them, because they are one problem seen from four angles:
 
 | Image | Contains | Why separate |
 |---|---|---|
-| **server** | The request-serving runtime, admin API, supervisor. **No GDAL, no Python.** | A-016's rule: the serving container ships no GDAL. Small, and the smallest attack surface of the three |
+| **server** | The request-serving runtime, admin API, supervisor, **and the two sibling executables it runs** — the overlay worker and, since 2026-09-10, the import reader with GDAL. ~~**No GDAL, no Python.**~~ | ~~A-016's rule: the serving container ships no GDAL. Small, and the smallest attack surface of the three~~ **See §2a. That sentence had been quoting a version of [A-016](../architecture-assumptions.md) that stopped existing on 2026-08-19**, and the owner decided on 2026-09-10 where GDAL lives |
 | **datastore** | PostGIS, our initialisation, our backup agent, a version stamp | Mandatory (Q-69). A thin derived image rather than stock `postgis/postgis`, because Q-32 promised an appliance **we** configure, back up and upgrade — and we cannot promise that about an image we do not build |
 | ~~**job-worker**~~ | ~~GDAL, PROJ grids, the Python runtime and a curated wheel set~~ **Corrected 2026-09-09: this image does not exist, and nothing replaced it.** [ADR-037](ADR-037-job-workers-come-in-two-kinds.md) §5a reversed the Python worker on 2026-08-19 — one kind of worker, a .NET child process with GDAL linked through `MaxRev.Gdal.Core` — but no image carries it. `deploy/` holds **two** Dockerfiles and [ADR-050](ADR-050-releases-are-tags-and-two-images.md) publishes **two** images, and neither is this one. | ~~Where the heavy, risky and slow things live~~ **Measured 2026-09-09, and the result is [D-235](../architecture-debt.md).** `dotnet publish` of the host produces no `importer/` directory, and `GeodatabaseReader` resolves the reader at `AppContext.BaseDirectory/importer` — so the serving image's *No GDAL and no Python* claim is **true**, and the price of it being true is that **no shipped image can import a geodatabase**, which v1 scope says is important. The inspector logs `InspectorIdleWithoutReader` and stops. |
 
@@ -41,6 +41,54 @@ classes need different resource limits in practice, split then.
 
 **The interesting number is not three. It is what lives in a volume**, which is
 §3.
+
+### 2a. Amended 2026-09-10 — GDAL ships in the serving image
+
+*Owner decision, asked where GDAL should live now that no published artefact can import
+anything: **the serving image.***
+
+**The row above had been quoting a rule that no longer existed.** It said *A-016's rule: the
+serving container ships no GDAL* — and [A-016](../architecture-assumptions.md) was amended on
+2026-08-19 to say the opposite of that phrasing: **the boundary is the process, not the
+image**. `ADR-037` §5a had made GDAL a package in this solution, loaded by a child process, and
+A-016 followed it the same day. This table did not, so for three weeks the strongest
+attack-surface claim in the packaging decision cited an authority that had withdrawn it. That
+is [D-130](../architecture-debt.md)'s shape, and finding it is most of what this amendment is.
+
+**What was actually traded, in one sentence each.** A published image can now import a
+geodatabase and a shapefile — which [v1-scope](../v1-scope.md) calls important and which **no
+shipped artefact could do**, through a release. And the image on disk now carries GDAL's
+libraries beside the server.
+
+**What did not change is the part A-016 actually asserts.** The serving *process* still never
+loads GDAL: the reader is a separate executable in its own directory with its own dependency
+closure, and `NativeDependencyTests` checks that in both directions, including through project
+references. So *no GDAL in the serving process* is still true and still enforced; *no GDAL in
+the serving image* is what stopped being true, and it is the weaker of the two claims —
+`ADR-009` §2.2's words for why the reader is a child process are that it *removes an untrusted
+file parser from the process that serves public requests*, and a file on disk parses nothing.
+
+**Rejected: a second image.** It was the shape §2 originally promised, and it is not packaging
+— `GeodatabaseReader` starts the reader as a **child process beside itself** and speaks to it
+over its own stdin and stdout, so moving it to another container means inventing a wire, a
+failure model and a deployment story for it. That is a redesign of ADR-037 §5a's worker, taken
+because an image boundary would look tidier, and §82 asks what concrete problem it solves that
+a directory does not.
+
+**What it costs, measured 2026-09-10 rather than estimated.** The published output is 866 MB,
+of which the import reader is **426 MB** and the overlay worker is 2.3 MB. **264 MB of the
+reader is `win-x64` and `linux-arm64` native payloads that a Linux image will never load** —
+`MaxRev.Gdal.WindowsRuntime.Minimal` and the ARM runtime are restored unconditionally. Halving
+the cost is a RID-conditional restore and nobody has decided to pay for it or to accept it;
+recorded here so it is a known number rather than a surprise.
+
+**And a mistake worth keeping.** The overlay worker was carried into the image first, on the
+argument that it has no GDAL and therefore costs nothing this table claims. That was true of
+the worker and false of the copy: a sibling's build output can hold a **stale copy of the other
+sibling**, and it did — 426 MB of `importer/` nested inside `overlay/`, accumulating, because
+each recursive copy carried the last one. So for one commit the *free* half was carrying GDAL
+into the image by the back door while this row still forbade it. The copy targets now exclude
+a nested sibling; the finding is in [D-235](../architecture-debt.md).
 
 ---
 

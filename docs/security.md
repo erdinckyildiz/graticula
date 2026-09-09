@@ -76,7 +76,7 @@ deployment around it.
 | Layer | Who enforces | Always available | Built |
 |---|---|---|---|
 | Service and layer visibility | **Us** | Yes | **Yes.** Sharing and the privilege model, enforced on every route |
-| Field visibility | **Us** | Yes | **No.** `FieldDescription` is `(Name, Type, Nullable, MaxLength)` and carries no visibility; `outFields=*` expands to every column the *connection* may read. The one filter that exists is `has_column_privilege` in `PostGisFeatureSource.ReadFieldsAsync`, which is the stored credential's grant and hides a column from **everyone equally** — not per caller. [Q-36](open-questions.md) |
+| Field visibility | **Us** | Yes | **No.** `FieldDescription` is `(Name, Type, Nullable, MaxLength)` and carries no visibility; `outFields=*` expands to every column the *connection* may read. The one filter that exists is `has_column_privilege` in `PostGisFeatureSource.ReadShapeAsync`, which is the stored credential's grant and hides a column from **everyone equally** — not per caller. [Q-36](open-questions.md) |
 | Row filtering — our rules | **Us**, compiled into the query plan | Yes | **No.** The caller's identity never reaches the query: no principal appears anywhere in `PostGisFeatureSource`, and `AttachmentEndpoints` says *"once row filtering exists"* in its own comment |
 | Row filtering — the customer's existing RLS | **The database**, if delegation is available | **No — a capability** | **No**, and correctly marked as a capability rather than a fact. `SET LOCAL ROLE` appears once in the whole solution, in a docstring |
 

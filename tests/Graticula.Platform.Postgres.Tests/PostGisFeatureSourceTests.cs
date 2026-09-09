@@ -388,13 +388,31 @@ public sealed class PostGisFeatureSourceTests : PostgresFixture
         Assert.True(extent.MinY > 4_900_000 && extent.MaxY < 5_200_000, $"y out of range: {extent}");
     }
 
+    /// <summary>A layer whose table is gone says so, rather than describing nothing.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This asserted the opposite until 2026-09-10, and its own comment argued for it:</b>
+    /// <em>a metadata request for a layer whose table was dropped should degrade to "nothing
+    /// to see", because the alternative is a 500 on the endpoint an administrator would use to
+    /// diagnose exactly that.</em> The argument is worth keeping visible because it is not
+    /// silly — it is the counter-case to [D-244](../../docs/architecture-debt.md), and it lost
+    /// on evidence rather than on taste.
+    /// </para>
+    /// <para>
+    /// <b>What it got wrong is that <em>nothing to see</em> is not a diagnosis.</b> D-244
+    /// walked every surface an operator checks: `/healthz/ready` answered 200, `/admin/health`
+    /// answered `ok` with the ghost counted, `/rest/services` listed the service, and the layer
+    /// document answered 200 with `fields: []` and no extent. **The first person to learn the
+    /// estate had diverged was a client running a query**, not the operator who caused it. The
+    /// 500 this now produces is not a bare failure either: it carries *the registration and the
+    /// database have diverged — this is a catalogue problem, not a transient one, and retrying
+    /// will not help*, which is a better answer on the diagnostic endpoint than an empty one.
+    /// </para>
+    /// </remarks>
+    /// <returns>The task.</returns>
     [Fact]
-    public async Task Describe_on_a_table_that_does_not_exist_reports_no_fields_rather_than_throwing()
+    public async Task Describe_on_a_table_that_does_not_exist_says_so_rather_than_answering_nothing()
     {
-        // information_schema simply has no rows for it. A metadata request for a
-        // layer whose table was dropped should degrade to "nothing to see",
-        // because the alternative is a 500 on the endpoint an administrator
-        // would use to diagnose exactly that.
         await RequireCorpusAsync();
 
         LayerDefinition missing = new(
@@ -402,11 +420,11 @@ public sealed class PostGisFeatureSourceTests : PostgresFixture
             geometryColumn: "way", srid: 3857, identityColumn: "id",
             integerIdentityColumn: "id", isHosted: false);
 
-        LayerDescription description =
-            await new PostGisFeatureSource(DataSource, missing).DescribeAsync(CancellationToken.None);
+        PostgresException refused = await Assert.ThrowsAsync<PostgresException>(
+            () => new PostGisFeatureSource(DataSource, missing)
+                .DescribeAsync(CancellationToken.None));
 
-        Assert.Empty(description.Fields);
-        Assert.Null(description.Extent);
+        Assert.Equal("42P01", refused.SqlState);
     }
 
     // ---------- distinct ----------

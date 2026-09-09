@@ -42,7 +42,17 @@ public sealed class MyContentIsWhatTheCallerOwnsTests : ArcGisClient
     private const string Member = "q127_second_owner";
 
     /// <summary>What they publish, named so a leftover is obviously this test's.</summary>
-    private const string Service = "q127_second_owner_service";
+    /// <remarks>
+    /// <b>The `zz_` is not decoration — [D-111](../../docs/architecture-debt.md).</b> Three
+    /// other conformance classes walk the catalogue, and a class that publishes into it while
+    /// they are walking makes them fail for a reason that is not theirs. `ArcGisClient.Fixture`
+    /// skips a name carrying a fixture prefix, so this service is invisible to those walks.
+    /// The alternative was joining the *catalogue walk* collection and running in sequence with
+    /// them, which would serialise this test against three others to protect them from one
+    /// service. The guard that caught this is `SuiteStabilityTests`, and it caught it on the
+    /// day the class was written, which is the point of it.
+    /// </remarks>
+    private const string Service = "zz_q127_second_owner_service";
 
     /// <summary>Two owners, two listings, and neither one is the catalogue.</summary>
     /// <returns>The task.</returns>

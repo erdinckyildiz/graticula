@@ -1182,13 +1182,17 @@ public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions, IGe
     /// <inheritdoc/>
     public async Task<LayerDescription> DescribeAsync(CancellationToken cancellationToken)
     {
+        (IReadOnlyList<FieldDescription> fields, bool? writable) =
+            await ReadShapeAsync(cancellationToken).ConfigureAwait(false);
+
         return new LayerDescription(
-            await ReadFieldsAsync(cancellationToken).ConfigureAwait(false),
-            await ReadExtentAsync(cancellationToken).ConfigureAwait(false));
+            fields,
+            await ReadExtentAsync(cancellationToken).ConfigureAwait(false),
+            writable);
     }
 
     /// <summary>
-    /// The attribute columns, geometry excluded.
+    /// The attribute columns, geometry excluded, and whether the relation takes writes.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -1234,11 +1238,104 @@ public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions, IGe
     /// field.</b> An ArcGIS client that finds <c>way</c> in the field list will
     /// offer to label features with WKB.
     /// </para>
+    /// <para>
+    /// <b>Whether the relation takes writes comes back with the fields, in the same round
+    /// trip — [D-231](../../docs/architecture-debt.md), 2026-09-10.</b> The layer document
+    /// advertised <c>Query,Create,Update,Delete</c> from the caller's privileges alone and
+    /// asked the database nothing, so a materialized view and a join view — relations
+    /// PostgreSQL refuses every write to — told an ArcGIS client it could edit them, and
+    /// every edit then failed. Advertising an operation the store will refuse is
+    /// [ADR-008](../../docs/adr/ADR-008-query-engine.md) §2's never-over-claim rule broken
+    /// outright. The narrowing needed a per-layer catalogue read; this is that read, folded
+    /// into the query that was already being sent rather than added beside it.
+    /// </para>
+    /// <para>
+    /// <b>The same pair of questions <c>PostgresDataSourceProbe</c> asks, deliberately.</b>
+    /// That one answers <em>may this be published</em> at registration time and this one
+    /// answers <em>may this be edited</em> on every describe. Two surfaces disagreeing about
+    /// one relation is [D-46](../../docs/architecture-debt.md)'s shape, and
+    /// <c>TheDescribedShapeSaysWhetherTheDatabaseWillTakeAWriteTests</c> pins them to the
+    /// same answer over four relation kinds. They cannot share the text: the probe is in the
+    /// platform assembly and this is in the provider, and the only assembly both reach is
+    /// Tier 1, where [CLAUDE.md](../../CLAUDE.md) §4 says no PostgreSQL concept may appear.
+    /// </para>
+    /// <para>
+    /// <b><c>has_table_privilege</c> alone was the bug, and it is kept as half of the
+    /// answer.</b> It reports the <em>grant</em> — whether this credential would be allowed
+    /// to write if the relation took writes — and answered yes for all four kinds measured
+    /// on 2026-09-10. <c>pg_column_is_updatable(oid, attnum, true)</c> is the other half and
+    /// gets all four right: table yes, auto-updatable view yes, join view no, materialized
+    /// view no. The <c>true</c> is <em>count an INSTEAD OF trigger</em>, which is the case a
+    /// flag stored at publish time could never have followed — a view becomes writable the
+    /// day somebody adds one.
+    /// </para>
+    /// <para>
+    /// <b>Its bar is <c>UPDATE</c> and <c>DELETE</c>, measured 2026-09-10 rather than read out
+    /// of the documentation.</b> A view carrying an <c>INSTEAD OF UPDATE</c> trigger alone still
+    /// answers false, because PostgreSQL requires both before it calls a column updatable — the
+    /// right bar for a string that offers both, and it cost a test failure that looked like a
+    /// defect in this query. <b>What it does not check is <c>INSERT</c></b>, so a view given
+    /// update and delete triggers and no insert trigger would still be advertised <c>Create</c>.
+    /// That is the one over-claim left here, it is narrow, and it lands on the arm
+    /// <c>ErrorResponse</c> added for exactly this family — a 500 quoting PostgreSQL's own
+    /// sentence and saying retrying will not help. Left rather than closed because the second
+    /// question would have to be asked identically in <c>PostgresDataSourceProbe</c> too, and
+    /// two surfaces answering one question differently is the failure this whole row is.
+    /// </para>
+    /// <para>
+    /// <b>The geometry column is the one asked about, and the error runs the safe way.</b> A
+    /// view whose geometry is a computed expression reports not-writable even where its other
+    /// columns accept writes. Understating a capability produces a refusal somebody can ask
+    /// about; overstating one produces an edit that fails after the client believed us, which
+    /// is the whole of D-231.
+    /// </para>
+    /// <para>
+    /// <b>The relation drives the query now and the attributes hang off it, which is why the
+    /// join became a <c>left join</c>.</b> The old shape returned one row per visible column,
+    /// so a relation whose columns this credential may not select returned nothing at all —
+    /// and a per-relation fact carried on a per-column row would have come back as
+    /// <em>unknown</em> exactly there, which is where over-claiming is least affordable. An
+    /// existing relation now always answers, with or without columns; a relation that is not
+    /// there still answers nothing, and the extent probe is what raises <c>42P01</c> for it
+    /// ([D-244](../../docs/architecture-debt.md)).
+    /// </para>
     /// </remarks>
-    private async Task<IReadOnlyList<FieldDescription>> ReadFieldsAsync(
+    /// <param name="cancellationToken">The caller's.</param>
+    /// <returns>
+    /// The fields, and whether the relation takes writes — null when there is no such
+    /// relation to ask about.
+    /// </returns>
+    private async Task<(IReadOnlyList<FieldDescription> Fields, bool? Writable)> ReadShapeAsync(
         CancellationToken cancellationToken)
     {
         const string Sql = """
+            with relation as (
+              select
+                c.oid,
+                -- <b>Both halves, and asking only the first is what D-231 is.</b>
+                -- `has_table_privilege` answers about the grant; `pg_column_is_updatable`
+                -- answers about the relation, and the second is the one a materialized view
+                -- and a join view fail. `true` counts an INSTEAD OF trigger, so a view that
+                -- was made writable after it was published reports writable.
+                pg_catalog.has_table_privilege(c.oid, 'INSERT, UPDATE, DELETE')
+                  and coalesce(
+                    (
+                      select pg_catalog.pg_column_is_updatable(c.oid, g.attnum, true)
+                      from pg_attribute g
+                      where g.attrelid = c.oid
+                        and g.attname = @geometry
+                        and g.attnum > 0
+                        and not g.attisdropped
+                    ),
+                    -- No such geometry column: the layer is misregistered and every write
+                    -- to it will fail, so the honest answer is no rather than unknown.
+                    false) as writable
+              from pg_class c
+              join pg_namespace n on n.oid = c.relnamespace
+              where n.nspname = @schema
+                and c.relname = @table
+                and c.relkind in ('r', 'v', 'm', 'f', 'p')
+            )
             select
               a.attname,
               -- A domain reports its base type, which is what `information_schema` does and
@@ -1248,17 +1345,20 @@ public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions, IGe
               case when a.attnotnull then 'NO' else 'YES' end,
               information_schema._pg_char_max_length(
                 coalesce(nullif(t.typbasetype, 0), a.atttypid),
-                case when t.typtype = 'd' then t.typtypmod else a.atttypmod end)
-            from pg_class c
-            join pg_namespace n on n.oid = c.relnamespace
-            join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
-            join pg_type t on t.oid = a.atttypid
-            left join pg_type bt on bt.oid = nullif(t.typbasetype, 0)
-            where n.nspname = @schema
-              and c.relname = @table
-              and c.relkind in ('r', 'v', 'm', 'f', 'p')
+                case when t.typtype = 'd' then t.typtypmod else a.atttypmod end),
+              r.writable
+            from relation r
+            -- <b>Left, so the relation answers even with no column this credential may read.</b>
+            -- The privilege filter moves into the join condition with it and keeps doing what
+            -- it did: a column that fails it is absent from the list rather than described.
+            left join pg_attribute a
+              on a.attrelid = r.oid
+              and a.attnum > 0
+              and not a.attisdropped
               and a.attname <> @geometry
-              and pg_catalog.has_column_privilege(c.oid, a.attnum, 'SELECT')
+              and pg_catalog.has_column_privilege(r.oid, a.attnum, 'SELECT')
+            left join pg_type t on t.oid = a.atttypid
+            left join pg_type bt on bt.oid = nullif(t.typbasetype, 0)
             order by a.attnum
             """;
 
@@ -1268,12 +1368,24 @@ public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions, IGe
         command.Parameters.AddWithValue("geometry", _layer.GeometryColumn);
 
         List<FieldDescription> fields = [];
+        bool? writable = null;
 
         await using NpgsqlDataReader reader =
             await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
+            // The relation's own answer rides on every row, including the placeholder one.
+            // No row at all means no such relation, and that stays null rather than false:
+            // a layer we cannot find is not a layer we know to be read-only.
+            writable = reader.IsDBNull(4) ? null : reader.GetBoolean(4);
+
+            if (reader.IsDBNull(0))
+            {
+                // The left join's placeholder for a relation with no readable column.
+                continue;
+            }
+
             string type = reader.GetString(1);
 
             // A second geometry or geography column is not an attribute either.
@@ -1290,7 +1402,7 @@ public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions, IGe
                 reader.IsDBNull(3) ? null : reader.GetInt32(3)));
         }
 
-        return fields;
+        return (fields, writable);
     }
 
     /// <summary>

@@ -100,6 +100,51 @@ public sealed class TheImageCarriesWhatItRunsTests
     }
 
     [Fact]
+    public void A_publish_carries_the_import_reader_too()
+    {
+        string targets = Read("Directory.Build.targets");
+
+        Assert.True(
+            targets.Contains("$(PublishDir)importer", StringComparison.Ordinal),
+            "Nothing copies the import reader into $(PublishDir)importer, which is where "
+            + "GeodatabaseReader looks. Owner decision 2026-09-10 put GDAL in the serving image "
+            + "(ADR-016 §2a); before that, no published artefact could import a geodatabase or a "
+            + "shapefile, through a release. D-235.");
+    }
+
+    [Theory]
+    [InlineData("PublishedOverlayWorkerFiles")]
+    [InlineData("PublishedImportReaderFiles")]
+    [InlineData("OverlayWorkerFiles")]
+    [InlineData("ImportReaderFiles")]
+    public void A_copy_of_a_sibling_does_not_carry_the_other_sibling(string group)
+    {
+        string targets = Read("Directory.Build.targets");
+
+        int at = targets.IndexOf("<" + group, StringComparison.Ordinal);
+
+        Assert.True(at >= 0, $"The item group `{group}` has been renamed or removed.");
+
+        int end = targets.IndexOf("/>", at, StringComparison.Ordinal);
+
+        Assert.True(end > at, $"`{group}` has no closing tag.");
+
+        string item = targets[at..end];
+
+        Assert.True(
+            item.Contains("Exclude=", StringComparison.Ordinal)
+                && item.Contains("overlay", StringComparison.Ordinal)
+                && item.Contains("importer", StringComparison.Ordinal),
+            $"`{group}` copies a sibling's build output recursively without excluding a nested "
+            + "`overlay/` or `importer/`. That is not hypothetical: measured 2026-09-10, the "
+            + "overlay worker's bin held a 426 MB `importer/` and the reader's bin held an "
+            + "855 MB `importer/` with another `overlay/` inside it — it accumulates, because "
+            + "each copy carries the last one. For one commit the overlay copy, whose whole "
+            + "justification was that the worker has no GDAL, was carrying GDAL into the image "
+            + "nested one directory down. D-235.");
+    }
+
+    [Fact]
     public void The_image_build_can_see_the_file_that_carries_the_siblings()
     {
         string dockerfile = Read("deploy", "server.Dockerfile");

@@ -16,8 +16,25 @@
           AfterTargets="Build"
           Condition="'$(CopyOverlayWorker)' == 'true'">
     <ItemGroup>
+
+      <!--
+        <b>Excluding the other sibling, and this is not defensive tidiness — it shipped.</b>
+        A worker's build output can contain a stale `overlay/` or `importer/` from an earlier
+        build that was pointed at it, and the copy below is recursive. Measured 2026-09-10:
+        `Graticula.Overlay.Worker/bin` held a 426 MB `importer/`, and
+        `Graticula.Import.Reader/bin` held an 855 MB `importer/` inside which was another
+        `overlay/` — it accumulates, because each copy carries the last one.
+
+        <b>The consequence was the opposite of what the overlay copy was for.</b> Carrying
+        the overlay worker into the image is free precisely because it has no GDAL; carrying
+        a stale `importer/` nested inside it puts GDAL in by the back door, silently, which
+        is what [ADR-016](docs/adr/ADR-016-packaging-deployment-upgrade.md) §2's claim was
+        about. A first measurement showed 12 files and a later one 426 MB, from the same
+        target against the same project.
+      -->
       <OverlayWorkerFiles
-        Include="$(MSBuildThisFileDirectory)src\Graticula.Overlay.Worker\bin\$(Configuration)\$(TargetFramework)\**\*" />
+        Include="$(MSBuildThisFileDirectory)src\Graticula.Overlay.Worker\bin\$(Configuration)\$(TargetFramework)\**\*"
+        Exclude="$(MSBuildThisFileDirectory)src\Graticula.Overlay.Worker\bin\$(Configuration)\$(TargetFramework)\**\overlay\**\*;$(MSBuildThisFileDirectory)src\Graticula.Overlay.Worker\bin\$(Configuration)\$(TargetFramework)\**\importer\**\*" />
     </ItemGroup>
 
     <Copy SourceFiles="@(OverlayWorkerFiles)"
@@ -43,7 +60,8 @@
           Condition="'$(CopyImportReader)' == 'true'">
     <ItemGroup>
       <ImportReaderFiles
-        Include="$(MSBuildThisFileDirectory)src\Graticula.Import.Reader\bin\$(Configuration)\$(TargetFramework)\**\*" />
+        Include="$(MSBuildThisFileDirectory)src\Graticula.Import.Reader\bin\$(Configuration)\$(TargetFramework)\**\*"
+        Exclude="$(MSBuildThisFileDirectory)src\Graticula.Import.Reader\bin\$(Configuration)\$(TargetFramework)\**\overlay\**\*;$(MSBuildThisFileDirectory)src\Graticula.Import.Reader\bin\$(Configuration)\$(TargetFramework)\**\importer\**\*" />
     </ItemGroup>
 
     <Copy SourceFiles="@(ImportReaderFiles)"
@@ -76,7 +94,8 @@
           Condition="'$(CopyOverlayWorker)' == 'true'">
     <ItemGroup>
       <PublishedOverlayWorkerFiles
-        Include="$(MSBuildThisFileDirectory)src\Graticula.Overlay.Worker\bin\$(Configuration)\$(TargetFramework)\**\*" />
+        Include="$(MSBuildThisFileDirectory)src\Graticula.Overlay.Worker\bin\$(Configuration)\$(TargetFramework)\**\*"
+        Exclude="$(MSBuildThisFileDirectory)src\Graticula.Overlay.Worker\bin\$(Configuration)\$(TargetFramework)\**\overlay\**\*;$(MSBuildThisFileDirectory)src\Graticula.Overlay.Worker\bin\$(Configuration)\$(TargetFramework)\**\importer\**\*" />
     </ItemGroup>
 
     <Error Condition="'@(PublishedOverlayWorkerFiles)' == ''"
@@ -84,6 +103,41 @@
 
     <Copy SourceFiles="@(PublishedOverlayWorkerFiles)"
           DestinationFolder="$(PublishDir)overlay\%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <!--
+    <b>And the import reader, by owner decision 2026-09-10 —
+    [D-235](docs/architecture-debt.md).</b> This one was held back when the overlay worker
+    went in, because it is the half that costs something: it carries GDAL's native runtimes,
+    and [ADR-016](docs/adr/ADR-016-packaging-deployment-upgrade.md) §2's server row claimed
+    *No GDAL, no Python* as an attack-surface argument. Asked where GDAL should live, the
+    owner chose the serving image — so that claim is struck in ADR-016 rather than quietly
+    contradicted here, and [A-016](docs/architecture-assumptions.md) goes with it.
+
+    <b>What was traded, in one sentence.</b> A published image can now import a geodatabase
+    and a shapefile, which v1 scope calls important and which no shipped artefact could do;
+    and the process that serves public requests now has GDAL's libraries on disk beside it.
+    **It still does not load them** — the reader is a separate process and
+    `NativeDependencyTests` checks that in both directions, including through project
+    references — so what changed is the image's contents rather than the serving process's
+    address space. That distinction is the whole of what is left of the original argument,
+    and ADR-016 says so rather than pretending nothing moved.
+  -->
+  <Target Name="PublishImportReader"
+          AfterTargets="Publish"
+          Condition="'$(CopyImportReader)' == 'true'">
+    <ItemGroup>
+      <PublishedImportReaderFiles
+        Include="$(MSBuildThisFileDirectory)src\Graticula.Import.Reader\bin\$(Configuration)\$(TargetFramework)\**\*"
+        Exclude="$(MSBuildThisFileDirectory)src\Graticula.Import.Reader\bin\$(Configuration)\$(TargetFramework)\**\overlay\**\*;$(MSBuildThisFileDirectory)src\Graticula.Import.Reader\bin\$(Configuration)\$(TargetFramework)\**\importer\**\*" />
+    </ItemGroup>
+
+    <Error Condition="'@(PublishedImportReaderFiles)' == ''"
+           Text="The import reader's build output is empty, so this publish would produce an image that cannot import a geodatabase or a shapefile. That is D-235 and it is not something to warn about." />
+
+    <Copy SourceFiles="@(PublishedImportReaderFiles)"
+          DestinationFolder="$(PublishDir)importer\%(RecursiveDir)"
           SkipUnchangedFiles="true" />
   </Target>
 

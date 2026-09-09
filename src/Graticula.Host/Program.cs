@@ -2590,10 +2590,18 @@ public static class Program
         // is the cost of a document that states a real full extent.
         List<FeatureServerMetadataWriter.ServiceLayer> layers = [];
 
+        // <b>Kept so the capabilities string can be the intersection over all of them</b> —
+        // [D-231](../../docs/architecture-debt.md). The describes below were already happening
+        // for the extents; this only stops throwing away the half of each answer that says
+        // whether the database will take a write.
+        List<LayerDescription> shapes = [];
+
         foreach (PublishedLayer layer in service.Layers)
         {
             (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation)
                 .ConfigureAwait(false);
+
+            shapes.Add(described);
 
             // <b>The reference this service answers in, and the extent moved into it.</b>
             // ADR-057 §5c. The writer takes each layer's own reference and unions the extents,
@@ -2630,7 +2638,7 @@ public static class Program
         // client to a page size that does not exist.
         object document = FeatureServerMetadataWriter.Service(
             layers,
-            CapabilitiesFor(context, service),
+            CapabilitiesFor(context, service, WritabilityOf(shapes)),
             service.Description,
             groups,
             service.Limits.Cost.MaximumRecordCount,
@@ -2766,6 +2774,25 @@ public static class Program
 
         List<object> layers = [];
 
+        // <b>The layers are built before the groups now, and only because of
+        // [D-231](../../docs/architecture-debt.md).</b> A group's capabilities string is the
+        // service's, and the service's is the intersection over every layer's relation — so it
+        // cannot be assembled until every layer has been described. Nothing in the answer moves:
+        // the array is sorted by id below, which is what a client matches on.
+        List<LayerDescription> shapes = [];
+
+        foreach (PublishedLayer layer in owning.Layers.OrderBy(l => l.LayerIndex))
+        {
+            (object one, LayerDescription described) = await LayerDocumentAsync(
+                context, layer, contexts, relationships, catalog, settings, projector,
+                cancellation).ConfigureAwait(false);
+
+            shapes.Add(described);
+            layers.Add(one);
+        }
+
+        string serviceCapabilities = CapabilitiesFor(context, owning, WritabilityOf(shapes));
+
         // <b>In index order, which is the order the service document lists them in.</b> A client
         // matching this document against that one by position rather than by id is doing
         // something fragile, and it is doing it against every ArcGIS Server too — so the order
@@ -2777,16 +2804,7 @@ public static class Program
                 .OrderBy(g => g.Id))
         {
             layers.Add(FeatureServerMetadataWriter.GroupLayerDocument(
-                group, CapabilitiesFor(context, owning)));
-        }
-
-        foreach (PublishedLayer layer in owning.Layers.OrderBy(l => l.LayerIndex))
-        {
-            (object one, _) = await LayerDocumentAsync(
-                context, layer, contexts, relationships, catalog, settings, projector,
-                cancellation).ConfigureAwait(false);
-
-            layers.Add(one);
+                group, serviceCapabilities));
         }
 
         object document = new
@@ -2899,7 +2917,12 @@ public static class Program
             layer.Definition,
             layer.GeometryType,
             description,
-            CapabilitiesFor(context, layer),
+
+            // <b>The shape's own answer about writes, not only the caller's privileges</b> —
+            // [D-231](../../docs/architecture-debt.md). This document is what an ArcGIS client
+            // reads before it shows an edit button, and it was offering one over relations
+            // PostgreSQL refuses every write to.
+            CapabilitiesFor(context, layer, description.Writable),
             declared ?? [],
             layer.LayerIndex,
             layer.Cost.MaximumRecordCount,
@@ -2956,8 +2979,31 @@ public static class Program
             FeatureServerMetadataWriter.ServiceGroup entry = new(
                 group.Index, group.Name, group.ParentIndex, owning.ChildrenOf(group.Index));
 
+            /*
+              <b>This route reads the database now, and it did not before —
+              [D-231](../../docs/architecture-debt.md).</b> A group layer has no relation of its
+              own, so its capabilities string is the service's, and the service's is the
+              intersection over every layer's. Answering it without asking would leave this one
+              document advertising `Create,Update,Delete` while the service document and
+              `/FeatureServer/layers` — both of which describe every layer already — said
+              `Query`. Three documents, one service, and no way for a client to tell which is
+              right: that is [D-179](../../docs/architecture-debt.md)'s failure exactly, and it
+              was worth a round trip then too.
+
+              <b>The cost is the service document's cost, not a new one.</b> `ServiceContexts`
+              remembers each shape for its own lifetime, and the two neighbouring routes have
+              always paid this on a cold cache — so a fifty-layer service pays fifty describes
+              here for the same thirty seconds it pays them there. A group document is not a hot
+              path, and the alternative was answering from whatever happened to be cached, which
+              would make the document depend on what somebody else had asked for a moment ago.
+            */
             object groupDocument = FeatureServerMetadataWriter.GroupLayerDocument(
-                entry, CapabilitiesFor(context, owning));
+                entry,
+                CapabilitiesFor(
+                    context,
+                    owning,
+                    await WritabilityOfAsync(owning, contexts, cancellation)
+                        .ConfigureAwait(false)));
 
             if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
             {
@@ -3500,7 +3546,10 @@ public static class Program
     /// through ArcGIS — no integer identity, ADR-013 §2a — makes the service
     /// read-only, because a client reads one capabilities string for the service
     /// and offers one edit button. Claiming Update because two layers of three
-    /// support it puts that button in front of a refusal.
+    /// support it puts that button in front of a refusal. Since 2026-09-10 one layer whose
+    /// relation the database will not write to does the same, by
+    /// <see cref="WritabilityOf(System.Collections.Generic.IEnumerable{LayerDescription})"/>
+    /// — [D-231](../../docs/architecture-debt.md).
     /// </remarks>
     /// <summary>
     /// What this caller may do in this service — the intersection of three things.
@@ -3514,14 +3563,92 @@ public static class Program
     /// no branch here that adds a capability, which is what stops a configured
     /// service from handing out what a role does not carry.
     /// </remarks>
-    private static string CapabilitiesFor(HttpContext context, PublishedService service)
+    /// <param name="context">The request, for the caller's privileges.</param>
+    /// <param name="service">The service.</param>
+    /// <param name="writable">
+    /// Whether the database will take writes to every layer's relation, from
+    /// <see cref="WritabilityOf(System.Collections.Generic.IEnumerable{LayerDescription})"/>,
+    /// or null where no layer was described.
+    /// </param>
+    /// <returns>The capability string.</returns>
+    private static string CapabilitiesFor(
+        HttpContext context, PublishedService service, bool? writable)
     {
         if (service.Layers.Count == 0 || service.Layers.Any(l => !l.Definition.HasIntegerIdentity))
         {
             return Join(service.Limits.Restrict(["Query"]));
         }
 
-        return CapabilitiesFor(context, service.Layers[0], service.Limits);
+        return CapabilitiesFor(context, service.Layers[0], service.Limits, writable);
+    }
+
+    /// <summary>The service-wide answer, for a caller holding a service rather than its shapes.</summary>
+    /// <param name="service">The service.</param>
+    /// <param name="contexts">Where a layer's shape comes from, cached.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>What <see cref="WritabilityOf"/> makes of every layer.</returns>
+    /// <remarks>
+    /// <b>For the group-layer document, which is the one place that has a service and no
+    /// shapes.</b> The service document and <c>/FeatureServer/layers</c> describe every layer
+    /// on their way to the answer and pass what they already have; this route answered from
+    /// the catalogue alone, and after [D-231](../../docs/architecture-debt.md) that is no longer
+    /// enough to know what the service may offer.
+    /// </remarks>
+    private static async Task<bool?> WritabilityOfAsync(
+        PublishedService service, ServiceContexts contexts, CancellationToken cancellation)
+    {
+        List<LayerDescription> shapes = [];
+
+        foreach (PublishedLayer layer in service.Layers)
+        {
+            (_, LayerDescription described) =
+                await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+            shapes.Add(described);
+        }
+
+        return WritabilityOf(shapes);
+    }
+
+    /// <summary>
+    /// Whether the database will take a write to every one of these layers.
+    /// </summary>
+    /// <param name="described">The shapes, one per layer of a service.</param>
+    /// <returns>False if any refuses writes, true if all take them, null if any was unknown.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The same intersection the identity rule uses, for the same reason —
+    /// [D-231](../../docs/architecture-debt.md).</b> A client reads one capabilities string
+    /// for a service and offers one edit button, so a service holding one materialized view
+    /// beside three tables must not advertise editing: three of the four edits would work and
+    /// the fourth would be refused by PostgreSQL after the client had already committed to
+    /// the batch.
+    /// </para>
+    /// <para>
+    /// <b>Unknown propagates and does not become a no.</b> A layer nobody could describe is
+    /// not a layer known to be read-only, and taking a capability away on an absence would
+    /// make an outage look like a configuration choice — indistinguishable, in the document,
+    /// from an operator having set the ceiling.
+    /// </para>
+    /// </remarks>
+    private static bool? WritabilityOf(IEnumerable<LayerDescription> described)
+    {
+        bool? all = true;
+
+        foreach (LayerDescription one in described)
+        {
+            if (one.Writable is false)
+            {
+                return false;
+            }
+
+            if (one.Writable is null)
+            {
+                all = null;
+            }
+        }
+
+        return all;
     }
 
     /// <summary>The capability string for a layer resolved without its service.</summary>
@@ -3535,8 +3662,9 @@ public static class Program
     /// read. `PublishedLayer` now carries the ceiling beside the cost ceilings it always
     /// carried.
     /// </remarks>
-    private static string CapabilitiesFor(HttpContext context, PublishedLayer layer) =>
-        CapabilitiesFor(context, layer, CeilingOf(layer));
+    private static string CapabilitiesFor(
+        HttpContext context, PublishedLayer layer, bool? writable) =>
+        CapabilitiesFor(context, layer, CeilingOf(layer), writable);
 
     /// <summary>The service's capability ceiling as limits, from a layer alone.</summary>
     private static ServiceCapabilityLimits CeilingOf(PublishedLayer layer) =>
@@ -3544,10 +3672,57 @@ public static class Program
             ? ServiceCapabilityLimits.Unset
             : new ServiceCapabilityLimits(null, null, layer.CapabilityCeiling, null);
 
-    private static string CapabilitiesFor(
-        HttpContext context, PublishedLayer layer, ServiceCapabilityLimits limits)
+    /// <summary>What this caller may do with this layer, under this ceiling.</summary>
+    /// <param name="context">The request, for the caller's privileges.</param>
+    /// <param name="layer">The layer.</param>
+    /// <param name="limits">The service's configured ceiling.</param>
+    /// <param name="writable">
+    /// Whether the database will take writes to the relation behind it —
+    /// <see cref="LayerDescription.Writable"/> — or null when nothing asked.
+    /// </param>
+    /// <returns>The capability string.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b><c>internal</c> rather than <c>private</c> so a test can drive the decision
+    /// directly.</b> The alternative was a conformance test needing a running server, a
+    /// registered data source and a materialized view built by hand, which is a test nobody
+    /// runs before pushing — and this decision is exactly the kind that has to be falsified
+    /// rather than read. <c>TheLayerDocumentDoesNotOfferAnEditTheDatabaseRefusesTests</c>.
+    /// </para>
+    /// </remarks>
+    internal static string CapabilitiesFor(
+        HttpContext context, PublishedLayer layer, ServiceCapabilityLimits limits, bool? writable)
     {
         if (!layer.Definition.HasIntegerIdentity)
+        {
+            return Join(limits.Restrict(["Query"]));
+        }
+
+        /*
+          <b>The database's answer, and it used to be nobody's — [D-231](../../docs/architecture-debt.md),
+          2026-09-10.</b> Everything below this line reasons about the *caller*:
+          `PrivilegedCapabilities` reads their privileges and `Limits.Restrict` reads the
+          service's configuration. Neither asks whether the thing underneath will take a write,
+          so a layer over a materialized view or a join view — relations PostgreSQL refuses
+          every write to — advertised `Query,Create,Update,Delete` and then answered `42809` or
+          `55000` to every edit. Measured across four relation kinds on 2026-09-10: all four
+          advertised editing, two of them accepted none of it.
+
+          <b>Advertising an operation the store will refuse is [ADR-008](../../docs/adr/ADR-008-query-engine.md)
+          §2 broken outright</b> — *never degrade silently*, whose whole point is that a
+          capability report exists so a client does not have to discover a limit by hitting it.
+
+          <b>The same shape as the identity guard above, deliberately.</b> That one is *there is
+          no way to name a row*; this one is *there is no way to write one*. Both are facts about
+          the data rather than about the caller, both remove rather than add, and both leave
+          `Query` — a relation nobody can write to is still one anybody may read.
+
+          <b>`is false`, not `is not true`.</b> Null means nothing asked — a service document
+          assembled without a describe, or a source that could not be reached — and taking a
+          capability away on an absence would make an outage indistinguishable, in the document,
+          from an operator having configured the service read-only.
+        */
+        if (writable is false)
         {
             return Join(limits.Restrict(["Query"]));
         }

@@ -67,7 +67,18 @@ public enum ProbeOutcome
 /// <see cref="SourceTable.CandidateObjectIdColumn"/> is the first of these, and is kept
 /// because it is the one the console offers as a one-click nomination.
 /// </param>
-/// <param name="Writable">Whether our credential may write to it.</param>
+/// <param name="Writable">
+/// Whether a write to it would succeed: our credential is granted one <em>and</em> the
+/// relation itself accepts one.
+/// <para>
+/// <b>Both halves since 2026-09-10 — [D-231](../../../docs/architecture-debt.md).</b> This
+/// said <i>whether our credential may write to it</i>, and that was the whole of what was
+/// asked: a materialized view and a join view both reported writable, because the grant says
+/// yes and the relation refuses. The sentence is corrected here as well as in the query,
+/// because a doc comment that describes the old question is where the next reader learns the
+/// wrong one.
+/// </para>
+/// </param>
 public readonly record struct SourceTable(
     string SchemaName,
     string TableName,
