@@ -925,6 +925,21 @@ what does not vary.
    test that reads the schema**, so that a rename in a later CIM version fails
    here rather than in a map. Where that is not practical, the table is re-read
    by hand whenever a type is added to it, and the ADR records the date.
+   **NOT DISCHARGED, and the fallback is now overdue — measured 2026-09-09.** The
+   schema-reading half is not startable: no CIM schema file exists anywhere in this
+   repository, and `CimEsriTests` round-trips hand-written JSON literals rather than
+   anything published. **The by-hand half has fallen behind its own trigger.** Three
+   renderer types were added to the reader on 2026-09-04 — `CIMHeatMapRenderer`,
+   `CIMDotDensityRenderer` and `CIMChartRenderer`, each with a real projection function —
+   and §3.2's table still lists the six it had before, so §3.16's *"seven are read"*
+   counts types the table does not carry. **The condition's own words are *whenever a
+   type is added to it*, and three were added without it.**
+   **Deliberately not filled in by this sweep.** The table is a per-type property list
+   and the three projections read overlapping names from shared helpers, so the property
+   sets cannot be lifted out by reading call sites — getting them wrong would put a false
+   claim about the published specification into the one table that exists to be checked
+   against it. What is owed is three rows written by somebody reading the projections,
+   and a date beside them.
 3. **A document stored under ADR-033 still serves after this lands**, asserted by
    a test that writes a MapLibre style directly into the column and then asks for
    a rendered tile, a `drawingInfo` and a style.
