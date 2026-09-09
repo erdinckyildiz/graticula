@@ -117,6 +117,100 @@ second copy.
 **The SOAP catalogue is not built.** If Pro's portal connection does not arrive, that is a new
 decision with this ADR's evidence in front of it, not a fallback to be taken quietly.
 
+### 4a. Amended 2026-09-09 — our groups are portal groups, published read-only
+
+*Owner decision, asked what a portal group should mean here: **"gruplarımızı göster."***
+
+**What was wrong was an answer, not an absence.** `/sharing/rest/community/groups` returned an
+empty list, and §4 above filed it beside `subscriptionInfo` and `categorySchema` as *a document an
+organisation has and this one does not*. It was not one.
+[ADR-036](ADR-036-groups.md)'s groups are real, a service can be shared with one, and *this portal
+has no groups* was therefore **false** — while the two beside it are true. A 404 would have been
+worse, because it says *this is not a portal*; that reasoning was right and is why the wrong answer
+survived three weeks. [Q-127](../open-questions.md).
+
+**What was missing was never code.** A portal group carries its own membership, its own owner and
+its own item sharing, and whether ours **are** that or merely resemble it had never been asked. It
+is asked here and the answer is that they are the same thing: one group model, published through a
+second face, with the fields this server holds and none invented to fill a shape.
+
+**Read-only, and that is the boundary rather than an omission.** A portal creates, joins and shares
+through this surface. Here a group is made on the admin API, where ADR-036's privilege model lives.
+Accepting a create here would be a second write path to one table with a different authorization
+story, which is how two surfaces come to disagree — and §4's *nothing is stored for the portal
+surface* is the property that would be lost first.
+
+#### The mapping, and the four places it is imperfect
+
+`PortalGroup` is where it lives, as a type of its own so it can be asserted without a web host —
+`PortalQuery`'s reason. Exact, field for field:
+
+| Portal | Ours | |
+|---|---|---|
+| `id` | `Id` as 32 hex characters | the same rule an item's id follows |
+| `title` | `Title`, or `Name` when there is none | a portal group has one name; ours has a unique name and a label |
+| `owner` | `Owner`, or `graticula` when the principal is gone | what an item does when nobody owns it |
+| `description`, `snippet` | `Description`, `Summary` | |
+| `access` | `Members` → `private`, `Organization` → `org` | there is **no** `public`; [Q-119](../open-questions.md) removed it 2026-08-25 |
+| `isInvitationOnly`, `autoJoin` | the three join policies | neither flag set is the reference's own *ask and be approved*, so the three-way map is exact |
+| `isViewOnly` | `Contribute == Managers` | *only the owner and managers may put things in* |
+| `hiddenMembers` | `MemberList == Managers` | |
+| `leavingDisallowed` | `!MembersMayLeave` | the reference's *administrative group* |
+| `protected` | `DeleteLocked` | |
+| `userMembership.memberType` | the four standings | their `admin` is our manager; owner and manager stay distinct in both models |
+
+And **four places it is not**, named here rather than discovered later:
+
+1. **`modified` is the creation time**, because nothing records when a group was last changed. A
+   client sorting by it sorts by age. `now` was the alternative and would have made every group
+   look freshly edited on every request.
+2. **`capabilities` cannot express `ownItems`.** `updateitemcontrol` is the reference's name for
+   ADR-036 §4a-i's *allItems*, and their shared update is all-or-nothing. *Own items* publishes as
+   no capability at all — an **understatement**, not a false claim, and the server goes on
+   honouring it. The direction of the loss is pinned by a test.
+3. **`tags` is empty**, because our groups carry none and the reference requires one on create.
+4. **Every portal field this server does not hold is left out rather than defaulted** — `phone`,
+   `sortField`, `provider`, `membershipAccess` and the rest. A defaulted field is a claim:
+   `sortField: "title"` says somebody chose one.
+
+#### What it discloses, and what it does not
+
+**Seeing a group is not reading it**, which is ADR-036 §4g, and it is kept by what is left out: no
+member list, no item list, and no count of either. An organisation-visible group reaches a
+non-member with `memberType: "none"` — discoverability without membership, which is what a portal
+means by it. The owner's name **is** published, and that is the line the reference draws too:
+`hiddenMembers` hides the members, and a group's owner shows in its details whatever it says. It is
+also the line `/admin/groups` already drew, so this face discloses nothing the admin face does not.
+
+**An anonymous caller gets an empty list, and that answer is now true** rather than a shape. No
+group is visible to an anonymous caller since Q-119, so the directory is not even asked.
+
+**It is not widened for an administrator, and the admin API is.** `/admin/groups` lists every group
+on the server to a holder of `admin:manageAllContent`, because a group whose owner has left must be
+administrable. This face does not, because a client files the result under *My Groups*.
+
+#### The same list on all three user documents
+
+**A client reads the caller's groups from whichever of `portals/self`, `community/self` and
+`community/users/{name}` it happens to use.** Only the third carried a group list before, and it
+carried `[]` — with a comment in the source admitting that was not a claim the account has no
+groups, which is exactly what a client reads it as. **A field that has to be explained in a comment
+is a field lying to somebody who cannot read the comment.** All three now carry the same list from
+the same read, so the decision does not depend on which document a client happens to open. The
+anonymous path still costs no read: `portals/self` is fetched before sign-in and answers
+`user: null`.
+
+**Measured 2026-09-09** on a clean schema, three groups covering the mapping: `contributors`
+(`ownItems`, no title) published `capabilities: []` and `title: "contributors"`; `editors`
+(`allItems`, organisation-visible, self-join, members contribute, hidden members, protected, no
+leaving) published `updateitemcontrol`, `access: "org"`, `autoJoin: true`, `isViewOnly: false`,
+`hiddenMembers: true`, `protected: true`, `leavingDisallowed: true`; `planning` published
+`private` and `isInvitationOnly`. A second member saw two of the three — `member` in the one she
+had joined, `none` in the organisation-visible one, and the private one **not at all**.
+`q=owner:root` returned 3, `q=access:org` returned 1, `q=Planning` returned 1, and
+`q=type:"Feature Service"` returned **0** — a group is never mistaken for a service by the search
+the two share.
+
 ## 5. Consequences
 
 **Positive.** A Pro user gets the browse workflow the owner asked for. Every other ArcGIS client

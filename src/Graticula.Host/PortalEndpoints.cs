@@ -132,17 +132,20 @@ internal static class PortalEndpoints
         Discoverable(app, $"{Path}/content/users/{{username}}", UserContentAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
 
-        // <b>Three documents an organisation has and this one does not.</b> A
-        // subscription it is not sold under, a category schema nobody has defined,
-        // and a group list this surface does not publish yet. Each answers with an
-        // empty truth rather than a 404, because Pro asks four times and reads the
-        // absence as a broken portal.
+        // <b>Two documents an organisation has and this one does not.</b> A
+        // subscription it is not sold under and a category schema nobody has
+        // defined. Each answers with an empty truth rather than a 404, because Pro
+        // asks four times and reads the absence as a broken portal. There were
+        // three until 2026-09-09, and the third was not an absence — see
+        // <see cref="GroupsAsync"/>.
         Discoverable(app, $"{Path}/portals/{{id}}/subscriptionInfo", SubscriptionAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
 
         Discoverable(app, $"{Path}/portals/{{id}}/categorySchema", CategorySchemaAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
 
+        // POST as well as GET, because a portal search is a search: Pro sends `q`
+        // in a form body when it is long enough to be worth one.
         app.MapMethods($"{Path}/community/groups", ["GET", "HEAD", "POST"], GroupsAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
 
@@ -294,11 +297,24 @@ internal static class PortalEndpoints
     /// rather than generated — two requests to the same deployment must describe
     /// the same portal or a client concludes it has moved.
     /// </remarks>
-    private static IResult PortalSelfAsync(HttpContext context)
+    /// <param name="context">The request.</param>
+    /// <param name="directory">Where groups live, for the nested user document.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The portal document.</returns>
+    private static async Task<IResult> PortalSelfAsync(
+        HttpContext context,
+        IGroupDirectory directory,
+        CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         bool signedIn = current.Principal != Principal.Anonymous;
+
+        // <b>No read for an anonymous caller, which is the common case here.</b>
+        // Pro fetches this document before it signs in, and MineAsync answers an
+        // anonymous principal without touching the directory.
+        IReadOnlyList<object> groups =
+            await MineAsync(context, directory, cancellation).ConfigureAwait(false);
 
         return Results.Ok(new
         {
@@ -329,7 +345,7 @@ internal static class PortalEndpoints
             httpsPort = 443,
             currentVersion = PortalVersion,
             access = "public",
-            user = signedIn ? Self(current) : null,
+            user = signedIn ? Self(current, groups) : null,
 
             // <b>Pro asks where the geometry service is rather than assuming.</b>
             // We have one (ADR-022) and it is at the address every ArcGIS client
@@ -351,7 +367,16 @@ internal static class PortalEndpoints
     /// server has exactly one — so the id is checked and the answer is the same
     /// document, rather than a copy assembled beside it.
     /// </remarks>
-    private static IResult OrganizationAsync(HttpContext context, string id)
+    /// <param name="context">The request.</param>
+    /// <param name="id">The organisation asked for.</param>
+    /// <param name="directory">Where groups live, for the nested user document.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The portal document, or a refusal.</returns>
+    private static async Task<IResult> OrganizationAsync(
+        HttpContext context,
+        string id,
+        IGroupDirectory directory,
+        CancellationToken cancellation)
     {
         if (!string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase))
         {
@@ -368,10 +393,17 @@ internal static class PortalEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        return PortalSelfAsync(context);
+        return await PortalSelfAsync(context, directory, cancellation).ConfigureAwait(false);
     }
 
-    private static IResult CommunitySelfAsync(HttpContext context)
+    /// <param name="context">The request.</param>
+    /// <param name="directory">Where groups live.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The caller's own user document.</returns>
+    private static async Task<IResult> CommunitySelfAsync(
+        HttpContext context,
+        IGroupDirectory directory,
+        CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
@@ -384,7 +416,10 @@ internal static class PortalEndpoints
                 statusCode: StatusCodes.Status499ClientClosedRequest);
         }
 
-        return Results.Ok(Self(current));
+        IReadOnlyList<object> groups =
+            await MineAsync(context, directory, cancellation).ConfigureAwait(false);
+
+        return Results.Ok(Self(current, groups));
     }
 
     /// <summary>One user's profile.</summary>
@@ -395,7 +430,16 @@ internal static class PortalEndpoints
     /// reviewed. Asking about somebody else gets the same answer as asking about a
     /// name that does not exist, which is the rule every other surface follows.
     /// </remarks>
-    private static IResult UserAsync(HttpContext context, string username)
+    /// <param name="context">The request.</param>
+    /// <param name="username">Who is being asked about.</param>
+    /// <param name="directory">Where groups live.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The profile.</returns>
+    private static async Task<IResult> UserAsync(
+        HttpContext context,
+        string username,
+        IGroupDirectory directory,
+        CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
@@ -416,6 +460,9 @@ internal static class PortalEndpoints
         }
 
         bool administrator = current.Authorization.Allows(Privilege.AdminManageServer);
+
+        IReadOnlyList<object> groups =
+            await MineAsync(context, directory, cancellation).ConfigureAwait(false);
 
         return Results.Ok(new
         {
@@ -441,19 +488,35 @@ internal static class PortalEndpoints
             disabled = false,
             units = "metric",
 
-            // <b>Empty, and it is not a claim that this account has no groups.</b>
-            // ADR-036's groups exist and are not published through this surface
-            // yet; naming that here rather than in a register would hide it, so it
-            // is in both.
-            groups = Array.Empty<object>(),
+            // <b>The same groups <see cref="GroupsAsync"/> lists, from the same
+            // read.</b> This was an empty array until 2026-09-09 with a comment
+            // admitting it was not a claim that the account has no groups — which is
+            // precisely what a client reads an empty array as. A field that has to
+            // be explained in a comment is a field that is lying to somebody who
+            // cannot read the comment.
+            groups,
         });
     }
 
-    private static object Self(RequestPrincipal current) => new
+    /// <summary>The signed-in caller, as a portal describes one.</summary>
+    /// <remarks>
+    /// <b>The group list is here rather than on one document, and that is the point
+    /// of putting it here.</b> A portal client reads the caller's groups from
+    /// whichever of <c>portals/self</c>, <c>community/self</c> and
+    /// <c>community/users/{{name}}</c> it happens to use, and a decision that shows
+    /// up in one of the three is a decision that looks unimplemented from the other
+    /// two. This carried no group list at all until 2026-09-09 — absence rather than
+    /// a false claim, but absence is what a client reads as *none*.
+    /// </remarks>
+    /// <param name="current">Who is asking.</param>
+    /// <param name="groups">Their groups, from <see cref="MineAsync"/>.</param>
+    /// <returns>The user document.</returns>
+    private static object Self(RequestPrincipal current, IReadOnlyList<object> groups) => new
     {
         username = current.Principal.Name,
         fullName = current.Principal.Name,
         access = "private",
+        groups,
 
         // <b>Role is reported as what this caller can do, not as a stored value.</b>
         // ADR-035 made privileges editable, so a fixed role string would be a claim
@@ -492,25 +555,144 @@ internal static class PortalEndpoints
             : Unknown("Organization");
 
     /// <summary>
-    /// Groups, which this surface does not publish yet.
+    /// The caller's groups, which are [ADR-036](../../docs/adr/ADR-036-groups.md)'s
+    /// groups and not a second kind.
     /// </summary>
     /// <remarks>
-    /// <b>Empty is honest here and would not be for long.</b>
-    /// [ADR-036](../../docs/adr/ADR-036-groups.md)'s groups exist and are real; what
-    /// does not exist is a decision about how they map onto portal groups, which
-    /// carry their own membership and sharing semantics. Answering with an empty
-    /// list says *this portal has no groups*, which is wrong, and answering 404
-    /// says *this is not a portal*, which is worse. Recorded rather than resolved:
-    /// [Q-127](../../docs/open-questions.md).
+    /// <para>
+    /// <b>Owner decision, 2026-09-09: *gruplarımızı göster*.</b> This answered with
+    /// an empty list until then, and the emptiness was the problem —
+    /// [ADR-036](../../docs/adr/ADR-036-groups.md)'s groups are real, a service can
+    /// be shared with one, and *this portal has no groups* was therefore false. A
+    /// 404 was worse: it says *this is not a portal*. What was missing was never
+    /// code but a decision about whether ours **are** portal groups or merely
+    /// resemble them, and the decision is that they are, published read-only, with
+    /// the fields this server actually holds and none invented to fill a shape.
+    /// [ADR-040](../../docs/adr/ADR-040-the-portal-surface-is-how-arcgis-pro-connects.md)
+    /// §4a carries the mapping and the four places it is imperfect.
+    /// </para>
+    /// <para>
+    /// <b>Read-only, and that is the boundary rather than an omission.</b> A portal
+    /// creates, joins and shares through this surface; here a group is made on the
+    /// admin API, where the privilege model that governs it lives. Accepting a
+    /// create here would be a second write path to the same table with a different
+    /// authorization story, which is how two surfaces come to disagree.
+    /// </para>
+    /// <para>
+    /// <b>Anonymous gets an empty list, and that answer is now true.</b> No group is
+    /// visible to an anonymous caller — [Q-119](../../docs/open-questions.md)
+    /// removed the *anybody* visibility on 2026-08-25, so the widest a group gets is
+    /// the signed-in organisation. It is a fact about this deployment rather than a
+    /// shape, which is exactly what the whole answer used to be.
+    /// </para>
     /// </remarks>
-    private static IResult GroupsAsync() => Results.Ok(new
+    /// <param name="context">The request.</param>
+    /// <param name="directory">Where groups live.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The listing.</returns>
+    private static async Task<IResult> GroupsAsync(
+        HttpContext context,
+        IGroupDirectory directory,
+        CancellationToken cancellation)
     {
-        total = 0,
-        start = 1,
-        num = 0,
-        nextStart = -1,
-        results = Array.Empty<object>(),
-    });
+        IReadOnlyList<object> mine =
+            await MineAsync(context, directory, cancellation).ConfigureAwait(false);
+
+        string query = context.Request.Query["q"].ToString();
+
+        if (query.Length == 0 && context.Request.HasFormContentType)
+        {
+            IFormCollection form = await context.Request.ReadFormAsync(cancellation)
+                .ConfigureAwait(false);
+
+            query = form["q"].ToString();
+        }
+
+        // <b>The same reader the item search uses, unchanged.</b> It works by
+        // reflection over the object that will be serialised, so a group is filtered
+        // by the fields a group publishes — and a clause it cannot evaluate returns
+        // nothing rather than everything, which is the rule that keeps `type:Feature
+        // Service` from matching every group on the server.
+        List<object> results = [.. mine.Where(group => PortalQuery.Matches(group, query))];
+
+        return Results.Ok(new
+        {
+            query,
+            total = results.Count,
+            start = 1,
+            num = results.Count,
+
+            // -1 means there is no next page, which is true: this returns every
+            // group the caller may see. The item search says the same and for the
+            // same reason — paging arrives when a deployment has enough for it to
+            // matter, and a server whose scale target is 100-1,000 services has
+            // fewer groups than that (§82).
+            nextStart = -1,
+            results,
+        });
+    }
+
+    /// <summary>
+    /// The groups this caller may see, as portal groups.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Never widened for an administrator, and the admin API is.</b>
+    /// <c>ListAsync</c>'s second argument is *list every group on the server*, and
+    /// <c>/admin/groups</c> passes it when the caller holds
+    /// <c>admin:manageAllContent</c>. This face passes false whoever is asking,
+    /// because Pro files the result under *My Groups* — an administrator who saw
+    /// every group here would be shown other people's groups as their own.
+    /// </para>
+    /// <para>
+    /// <b>Groups the caller is outside are included, and they carry it.</b> The
+    /// directory already returns organisation-visible groups to a non-member with
+    /// <see cref="GroupStanding.Outside"/>, which is portal discoverability exactly.
+    /// ADR-036 §4g's line — seeing that a group exists is not reading what is in it
+    /// — is kept by what <see cref="Group"/> publishes: no member list, no item
+    /// list, and no counts of either.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="directory">Where groups live.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The groups, oldest listing order preserved.</returns>
+    private static async Task<IReadOnlyList<object>> MineAsync(
+        HttpContext context,
+        IGroupDirectory directory,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal.IsAnonymous)
+        {
+            return [];
+        }
+
+        IReadOnlyList<GroupSummary> mine = await directory
+            .ListAsync(current.Principal.Id, all: false, cancellation)
+            .ConfigureAwait(false);
+
+        return [.. mine.Select(group => Group(context, group))];
+    }
+
+    /// <summary>
+    /// One of our groups, in the shape a portal client reads.
+    /// </summary>
+    /// <remarks>
+    /// <b>The mapping is <see cref="PortalGroup"/>, and it is a type of its own for
+    /// <see cref="PortalQuery"/>'s reason.</b> It needs nothing from a request but
+    /// the caller's name and the portal's id, so keeping it here would make a web
+    /// host the only way to assert it — and it is the part with four documented
+    /// imperfections to hold still.
+    /// </remarks>
+    /// <param name="context">The request, for the caller and the portal id.</param>
+    /// <param name="group">The group.</param>
+    /// <returns>The portal group.</returns>
+    private static object Group(HttpContext context, GroupSummary group) => PortalGroup.Of(
+        group,
+        PortalId(context),
+        context.Features.Get<RequestPrincipal>()!.Principal.Name);
 
     /// <summary>One user's content, which is every item they may see.</summary>
     /// <remarks>
