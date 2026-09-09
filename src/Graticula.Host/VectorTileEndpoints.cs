@@ -586,6 +586,10 @@ internal static class VectorTileEndpoints
 
         TimeSpan shortest = TimeSpan.MaxValue;
 
+        // <b>The stalest cached part, for `Age`.</b> `MaxValue` means nothing came
+        // from the cache, which is the case where there is no age to report.
+        DateTimeOffset oldest = DateTimeOffset.MaxValue;
+
         foreach (PublishedLayer layer in service.Layers)
         {
             (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
@@ -643,6 +647,17 @@ internal static class VectorTileEndpoints
             if (cached.Answered)
             {
                 parts.Add(cached.Bytes);
+
+                // <b>The oldest part bounds the whole response's age.</b> One tile can be
+                // several layers' parts with different lifetimes and different write
+                // times, and `Age` means *how long ago this response was generated* — so
+                // the answer for a composite is the staleness of its stalest piece.
+                // Anything else would understate it. D-248.
+                if (cached.Written is { } when && when < oldest)
+                {
+                    oldest = when;
+                }
+
                 continue;
             }
 
@@ -702,6 +717,7 @@ internal static class VectorTileEndpoints
             Concatenate(parts),
             disposition,
             shortest == TimeSpan.MaxValue ? defaultLifetime : shortest,
+            oldest,
             cancellation)
             .ConfigureAwait(false);
     }
@@ -773,9 +789,32 @@ internal static class VectorTileEndpoints
         byte[] tile,
         string cacheState,
         TimeSpan lifetime,
+        DateTimeOffset oldest,
         CancellationToken cancellation)
     {
         context.Response.Headers["X-Tile-Cache"] = cacheState;
+
+        // <b>`Age`, because this server is the cache and said nothing about it —
+        // [D-248](../../docs/architecture-debt.md).</b> A stored tile came back with
+        // `Cache-Control: max-age` and a `HIT`, and no `Age`. RFC 9111 §5.1 has a proxy
+        // treat a missing `Age` as zero, so every cache in front of us restarted our
+        // whole lifetime from its own receipt: worst-case staleness was ours plus theirs,
+        // per layer, and the operator's own diagnostic agreed with the complaint while
+        // being useless about it — which is [ADR-017](../../docs/adr/ADR-017-admin-api.md)
+        // §3.1's scenario, *the map is showing old data*, partly caused here.
+        //
+        // <b>Sent only when something came from the store.</b> A freshly built tile has
+        // an age of zero and `Age: 0` is legal, but saying it on every miss would make
+        // the header noise rather than a signal — and the number this cache can stand
+        // behind is the one it stamped, not one inferred for a response it just made.
+        if (oldest != DateTimeOffset.MaxValue)
+        {
+            long seconds = (long)Math.Max(
+                0, (DateTimeOffset.UtcNow - oldest).TotalSeconds);
+
+            context.Response.Headers["Age"] =
+                seconds.ToString(CultureInfo.InvariantCulture);
+        }
 
         // <b>The same number the server caches by, told to everyone downstream.</b>
         // A browser and a CDN each keep their own copy, and until now we told

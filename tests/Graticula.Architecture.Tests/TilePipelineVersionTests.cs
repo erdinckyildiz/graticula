@@ -80,7 +80,17 @@ public sealed class TilePipelineVersionTests
         // <b>And it caught a real miss rather than a hypothetical one.</b> The comment shipped
         // in `e7b0d09` with this guard red: four suites were run after that edit and this was
         // not one of them, and it is the only one that watches the file that changed.
-        "0b4b750cb2808e6a1923ca6db4d25aab440aa716b68a3b6f63740ffafd34d0ca";
+        //
+        // <b>Moved again 2026-09-09, and again the version deliberately did not.</b>
+        // `VectorTileEndpoints` gained an `Age` response header on a tile answered from
+        // the store ([D-248](../../docs/architecture-debt.md)): the cache was already
+        // reading the entry's stamp on every hit to decide freshness and discarding it,
+        // so a proxy in front of this server restarted the whole `max-age` from its own
+        // receipt. **A header is not a byte of a tile** — the same bytes are served,
+        // encoded the same way, from the same key — so raising `TilePipeline.Version`
+        // would have thrown away every cached tile in every deployment to describe them
+        // more accurately, which is the wrong half of the choice this check forces.
+        "fc6f09149cf41098978d0e0ab7ffe5e4b1434caf7ab97a0b61cf4628e77fd903";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 1;

@@ -30,7 +30,22 @@ public enum TileCacheOutcome
 /// <summary>A cache lookup.</summary>
 /// <param name="Outcome">What was found.</param>
 /// <param name="Bytes">The tile, when <paramref name="Outcome"/> is a hit.</param>
-public readonly record struct CachedTile(TileCacheOutcome Outcome, byte[] Bytes)
+/// <param name="Written">
+/// When the entry was stored, for a hit, or <see langword="null"/> when the cache does
+/// not know.
+/// </param>
+/// <remarks>
+/// <b><paramref name="Written"/> was added 2026-09-09 because the number already
+/// existed and was being discarded — [D-248](../../../docs/architecture-debt.md).</b>
+/// A cache read compares the entry's stamp against the lifetime to decide whether it
+/// is still fresh, and then returned only the bytes; so a tile served from this
+/// server's own store carried <c>Cache-Control: max-age</c> and no <c>Age</c>, and a
+/// proxy in front of it restarted the whole lifetime from its own receipt. Worst-case
+/// staleness was ours plus theirs, per layer of cache, and nothing in the response
+/// said so.
+/// </remarks>
+public readonly record struct CachedTile(
+    TileCacheOutcome Outcome, byte[] Bytes, DateTimeOffset? Written = null)
 {
     /// <summary>Nothing held.</summary>
     public static CachedTile Miss => new(TileCacheOutcome.Miss, []);

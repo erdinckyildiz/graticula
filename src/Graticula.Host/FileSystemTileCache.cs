@@ -130,10 +130,20 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
 
             Touch(key, file.Length);
 
+            // <b>The stamp the line above already read, carried out instead of
+            // dropped.</b> It is this cache's own clock, set on write and never
+            // touched again — `Touch` is in-memory bookkeeping for the LRU and does
+            // not move it — so it is the moment the tile was generated, which is
+            // exactly what `Age` means. D-248.
+            DateTimeOffset written = new(file.LastWriteTimeUtc, TimeSpan.Zero);
+
             return file.Length == EmptyMarker
-                ? CachedTile.Empty
-                : new CachedTile(TileCacheOutcome.Hit,
-                    await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false));
+                ? CachedTile.Empty with { Written = written }
+                : new CachedTile(
+                    TileCacheOutcome.Hit,
+                    await File.ReadAllBytesAsync(path, cancellationToken)
+                        .ConfigureAwait(false),
+                    written);
         }
         catch (OperationCanceledException)
         {
