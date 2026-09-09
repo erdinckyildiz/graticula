@@ -367,7 +367,7 @@ that is a distinction the §37 identity model has not yet been designed around.
 
 | # | Question |
 |---|---|
-| Q-41 | Do we offer an optional companion schema in a registered database where granted rights, for bookkeeping? This is how ArcGIS gives referenced data advanced capability. It means being a resident in someone else's database. Lower priority now that editing is out. |
+| Q-41 | Do we offer an optional companion schema in a registered database where granted rights, for bookkeeping? This is how ArcGIS gives referenced data advanced capability. It means being a resident in someone else's database. ~~Lower priority now that editing is out.~~ **Corrected 2026-09-09: editing has been in v1 since 2026-08-13 ([v1-scope](v1-scope.md) §5), so this line had been backwards for four weeks — and the register's own copy of Q-41 has said *important again now that editing is in scope* the whole time.** Two copies of one question disagreeing is [D-130](architecture-debt.md)'s propagation shape, and this was the copy a reader consults for the data model. |
 | Q-39 | If a registered source is writable, is hosted-grade capability automatic or opt-in? |
 | Q-34 | Are generalised geometry tables datastore-only, or attempted wherever writable? §2 suggests the latter. |
 | Q-43 | What is the schema-drift polling interval, and what does it cost against a large registered database with many layers? |

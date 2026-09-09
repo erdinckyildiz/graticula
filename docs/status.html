@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>d7b2824</code> · 2026-09-09 12:35</p>
+<p class="stamp">Generated from commit <code>f10574a</code> · 2026-09-09 12:41</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">60</div><div class="kpi-l">ADRs</div><div class="kpi-n">11 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">172/228</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">56 live · 0 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">32</div><div class="kpi-l">open questions</div><div class="kpi-n">124 answered · 2 blocking</div></div>
+<div class="kpi "><div class="kpi-v">30</div><div class="kpi-l">open questions</div><div class="kpi-n">126 answered · 2 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">open debts</div><div class="kpi-n">211 repaid · 3 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">15/85</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
@@ -269,12 +269,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-147</span><span class="owner">Owner</span></div><p>Is there a one-press way back to each layer&#x27;s own?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-148</span><span class="owner">Council</span></div><p>Should the composition preview bound vertices rather than rows, and how?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-150</span><span class="owner">**[OWNER]**</span></div><p>Is auto-discovery owed as a publishing mode, or is the wizard the answer?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-30</span><span class="owner">Council</span></div><p>How is cross-node change notification done without LISTEN/NOTIFY?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-34</span><span class="owner">Council</span></div><p>Are pre-generalised geometry tables per zoom level a datastore-only feature, or attempted on registered sources where we happen to have write access?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-36</span><span class="owner">Council</span></div><p>Can the service definition describe fields the physical table does not have — computed, aliased, role-hidden?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-41</span><span class="owner">Council</span></div><p>Do we offer an optional companion schema in a registered database where granted rights, to hold versioning and editor-tracking bookkeeping?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-48</span><span class="owner">Council</span></div><p>How are the platform store and the datastore backed up and restored consistently?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-53</span><span class="owner">Council</span></div><p>Do we ever support data warehouses (Snowflake, Databricks, Redshift)?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-58c</span><span class="owner">Council</span></div><p>Domains, subtypes and editor tracking — the rest of the FeatureServer data model.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-61</span><span class="owner">Council</span></div><p>How are per-user datastore quotas enforced, and what happens at the limit?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-65</span><span class="owner">Council</span></div><p>What is the worker adoption protocol after a supervisor restart, and how is it made idempotent?</p></article>
@@ -413,6 +411,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.2%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>f10574a</code><time>2026-09-09</time><span>The OGC landing page told every client the surface was read-only, and it writes</span></li>
 <li><code>d7b2824</code><time>2026-09-09</time><span>Three GeometryServer operations were refused for a reason the specification denies</span></li>
 <li><code>4f4db71</code><time>2026-09-09</time><span>D-201&#x27;s failure was never in the console, and now it says so</span></li>
 <li><code>277cba6</code><time>2026-09-09</time><span>The Python worker was reversed on 2026-08-19 and four documents still describe it</span></li>
@@ -426,7 +425,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>94e20ce</code><time>2026-09-09</time><span>The class row&#x27;s two inputs say they are inputs before you point at them</span></li>
 <li><code>2a0ce12</code><time>2026-09-09</time><span>The primary button&#x27;s label was unreadable across half of it, and worst on hover</span></li>
 <li><code>d310b90</code><time>2026-09-09</time><span>A connection pool says which server opened it, so a per-server test can count one</span></li>
-<li><code>d35a110</code><time>2026-09-09</time><span>D-202 was wrong in all three of its premises, and it hid a real defect</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

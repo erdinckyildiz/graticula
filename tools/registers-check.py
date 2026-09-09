@@ -747,7 +747,7 @@ def a_question_an_adr_answers_but_the_register_still_calls_open():
     for line in lines[:answered]:
         cells = [c.strip() for c in COLUMN.split(line.strip().strip("|"))]
 
-        if cells and re.match(r"^Q-\d+$", cells[0]):
+        if cells and re.match(r"^Q-[\w-]+$", cells[0]):
             still_open.add(cells[0])
 
     problems = []
@@ -1954,11 +1954,12 @@ def an_answered_question_still_filed_as_open():
 
     problems = []
     rows = 0
+    withdrawn = 0
 
     for line in lines[:answered]:
         cells = [c.strip() for c in COLUMN.split(line.strip().strip("|"))]
 
-        if len(cells) < 2 or not re.match(r"^Q-\d+$", cells[0]):
+        if len(cells) < 2 or not re.match(r"^Q-[\w-]+$", cells[0]):
             continue
 
         # <b>A struck question with no verdict beside it is withdrawn, and its shape is
@@ -1967,6 +1968,7 @@ def an_answered_question_still_filed_as_open():
         # strikethrough says *this is no longer the question*; the verdict says *and here is
         # the answer*, which is what the Answered section is for.
         if cells[1].startswith("~~") and not inside.search(cells[1]):
+            withdrawn += 1
             continue
 
         rows += 1
@@ -1989,10 +1991,29 @@ def an_answered_question_still_filed_as_open():
                 "seven more when its strikethrough exemption was narrowed (D-189).")
             break
 
-    if rows < 30:
+    # <b>Counted against a dumber reading of the same lines rather than against a
+    # number — [D-181](../docs/architecture-debt.md), repaired here on 2026-09-09 in
+    # the second place it lived.</b> This was `rows < 30`, and it is the same defect
+    # D-181 closed in `an_open_question_that_asks_without_saying_why` on 2026-08-26: a
+    # floor on the *backlog* dressed as a floor on the parse. It fired today for the
+    # honest reason — questions were answered and moved out — which is the register
+    # working. The neighbour was repaired and this one was not, which is CLAUDE.md §2's
+    # *a fix is not finished until "what else carries this?" has an answer*, missed.
+    #
+    # <b>What the guard is actually for is the splitter above going wrong.</b> So the
+    # comparison is against how many rows a reader who only looks for `| Q-` can see:
+    # every visible row is either parsed or deliberately skipped as struck-and-
+    # unanswered, and no amount of answering questions can make that untrue.
+    visible = sum(
+        1 for line in lines[:answered]
+        if re.match(r"^\|\s*~*\s*Q-[\w-]+\s*~*\s*\|", line.strip()))
+
+    if rows + withdrawn != visible:
         problems.append(
-            f"only {rows} open questions were parsed, so this check is reading nothing. A check "
-            "that cannot fail is worse than no check.")
+            f"{visible} question rows are visible above ## Answered, and this check accounted for "
+            f"{rows + withdrawn} of them ({rows} parsed, {withdrawn} skipped as withdrawn). The "
+            "cell splitter is dropping rows, so this check is reading less than the register "
+            "holds. A check that cannot fail is worse than no check.")
 
     return problems
 
@@ -2859,7 +2880,7 @@ def an_adr_that_calls_an_answered_question_open():
     for index, line in enumerate(lines):
         cells = [c.strip() for c in COLUMN.split(line.strip().strip("|"))]
 
-        if len(cells) < 2 or not re.match(r"^Q-\d+$", cells[0]):
+        if len(cells) < 2 or not re.match(r"^Q-[\w-]+$", cells[0]):
             continue
 
         if index >= boundary or verdict.match(cells[1]):

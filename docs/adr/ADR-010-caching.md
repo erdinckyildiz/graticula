@@ -519,7 +519,7 @@ disk**, 4×, and every hit is one fewer query against the datastore that
 | §2 | Negative caching — empty as a marker | **built**, a zero-length file |
 | §3 | L3 mandatory, filesystem | **built** |
 | §3 | Total size budget, LRU eviction | **built**, 2 GB default |
-| §3 | Per-service quota | **built**, a quarter of the total |
+| §3 | Per-service quota | ~~**built**, a quarter of the total~~ **Overstated — corrected 2026-09-09 ([Q-61](../open-questions.md)).** `_perLayerBudget` is read in exactly one place: refusing to cache a *single tile* larger than a quarter of the total. There is no per-layer accounting and no per-layer eviction, so one busy layer can still hold the whole 2 GB. What is built is the **global** budget with LRU eviction; the per-service share is a ceiling on one object, not a quota |
 | §3 | Writes fail soft | **built**, and tested by blocking the directory |
 | §3 (N2) | Lookup needs no index | **built** — the path derives from the key |
 | §4 | Key is plan identity + schema fingerprint | **built, and the first half was not — corrected 2026-08-25.** The key was `(layer, fingerprint, z/x/y)` and the fingerprint's five inputs are all properties of the *data*, so nothing in it tracked the code that drew the tile: an upgrade kept every key it had ([D-155](../architecture-debt.md)). The path now carries `TilePipeline.Version`, and a test fails the build when the tiling source changes and that number does not — so raising it is a decision somebody takes, which is §8's requirement that a full rebuild be deliberate and visible |
