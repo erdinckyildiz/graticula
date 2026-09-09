@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>826088f</code> · 2026-09-09 13:32</p>
+<p class="stamp">Şu commit’ten üretildi: <code>c283d53</code> · 2026-09-09 15:05</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">60</div><div class="kpi-l">ADR</div><div class="kpi-n">11 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">182/228</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">46 canlı · 0 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">29</div><div class="kpi-l">açık soru</div><div class="kpi-n">127 yanıtlandı · 2 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">açık borç</div><div class="kpi-n">211 ödendi · 5 kısmen</div></div>
+<div class="kpi "><div class="kpi-v">27</div><div class="kpi-l">açık soru</div><div class="kpi-n">129 yanıtlandı · 2 engelleyici</div></div>
+<div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">açık borç</div><div class="kpi-n">211 ödendi · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">15/85</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">2473</div><div class="kpi-l">test</div><div class="kpi-n">272 kaynak dosya, 113,733 satır</div></div>
+<div class="kpi good"><div class="kpi-v">2478</div><div class="kpi-l">test</div><div class="kpi-n">272 kaynak dosya, 113,832 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">11 açık</span></div><p><b>Q-18</b> — What genuinely justifies a server over static cloud-native publishing and over a stateless thin server plus a capable database?</p><p><b>Q-146</b> — Does a new composition start in EPSG:3857, or in nothing?</p><p><b>Q-147</b> — Is there a one-press way back to each layer&#x27;s own?</p><p><b>Q-150</b> — Is auto-discovery owed as a publishing mode, or is the wizard the answer?</p><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">70 madde</span></div><p><b>46 ADR conditions</b> outstanding across 32 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">72 madde</span></div><p><b>46 ADR conditions</b> outstanding across 32 decisions — the largest commitment on this page.</p><p><b>22 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -252,7 +252,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-104</span><span class="owner">Council</span></div><p>Is the catalogue exportable as a manifest that can be diffed, reviewed and applied?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-106</span><span class="owner">**[OWNER]**</span></div><p>What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-111</span><span class="owner">Council</span></div><p>Can a local administrator still sign in when the configured external identity source is unreachable or misconfigured — and should changing that source require a local credential?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-114</span><span class="owner">Council</span></div><p>Should the generated default consider what a layer is, not only its geometry?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-12</span><span class="owner">Council</span></div><p>How is monitoring cardinality bounded at 1,000 services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-126</span><span class="owner">**[OWNER]**</span></div><p>Does add the server have to work in ArcGIS Pro, or is add the service enough?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-127</span><span class="owner">Council, and the group mapping **[OWNER]**</span></div><p>What does a portal group mean here, and whose item is a published service?</p></article>
@@ -270,7 +269,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-41</span><span class="owner">Council</span></div><p>Do we offer an optional companion schema in a registered database where granted rights, to hold versioning and editor-tracking bookkeeping?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-48</span><span class="owner">Council</span></div><p>How are the platform store and the datastore backed up and restored consistently?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-58c</span><span class="owner">Council</span></div><p>Domains, subtypes and editor tracking — the rest of the FeatureServer data model.</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-61</span><span class="owner">Council</span></div><p>How are per-user datastore quotas enforced, and what happens at the limit?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-65</span><span class="owner">Council</span></div><p>What is the worker adoption protocol after a supervisor restart, and how is it made idempotent?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-74</span><span class="owner">Council</span></div><p>What is the Python SDK, and how does data cross the boundary?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-91</span><span class="owner">Council</span></div><p>How does a streaming response report a failure that happens after bytes are on the wire?</p></article>
@@ -295,6 +293,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-201</td><td>A console test fails in two full runs out of four and passes on its own, and the cause is not known.</td><td class="muted-t">Run the console suite with -v n piped to a file until it fails, then read the message.</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-234</td><td>WMS advertises every legend as 20×20 and draws them at whatever size the labels need.</td><td class="muted-t">Already fired for any layer with a classified style, which is the ordinary case for a thematic map.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-235</td><td>No shipped image can import a geodatabase, and the serving image&#x27;s own claim that it carries no GDAL is what makes that true.</td><td class="muted-t">Already fired, and it is the release itself.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-236</td><td>Two engines answer simplify this to tolerance t, they are reachable through the product under the same name and the same units, and nothing outside a geometry test says so.</td><td class="muted-t">Whichever comes first.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-237</td><td>The server has no view of how large its own datastore is, and cannot answer who is filling the store.</td><td class="muted-t">The first of these, and the second is the one that changes the answer rather than the priority.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-231</td><td>A view publishes, and the two catalogues this server reads disagree about it — so a materialized view is served with no fields and advertised as editable.</td><td class="muted-t">Already fired for any estate that publishes from a view, which is the ordinary way a GIS shop exposes a join or an…</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-221</td><td>The symbology editor needs 1,180 pixels and nothing under that width has an answer.</td><td class="muted-t">The first report of styling a layer on a narrow screen — A-081&#x27;s own falsification.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-229</td><td>service.srid exists and nothing reads it.</td><td class="muted-t">The Publish screen, which offers the choice and cannot mean it until this is done</td><td><span class="pill cond">PARTLY</span></td></tr>
@@ -393,20 +393,22 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">530</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:87.0%"></div></div><div class="bar-n">461</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:84.9%"></div></div><div class="bar-n">450</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:69.2%"></div></div><div class="bar-n">367</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:30.0%"></div></div><div class="bar-n">159</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:27.9%"></div></div><div class="bar-n">148</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:26.8%"></div></div><div class="bar-n">142</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:21.3%"></div></div><div class="bar-n">113</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:6.8%"></div></div><div class="bar-n">36</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">534</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:86.3%"></div></div><div class="bar-n">461</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:84.3%"></div></div><div class="bar-n">450</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:68.9%"></div></div><div class="bar-n">368</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:29.8%"></div></div><div class="bar-n">159</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:27.7%"></div></div><div class="bar-n">148</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:26.6%"></div></div><div class="bar-n">142</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:21.2%"></div></div><div class="bar-n">113</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:6.7%"></div></div><div class="bar-n">36</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:4.9%"></div></div><div class="bar-n">26</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.2%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>c283d53</code><time>2026-09-09</time><span>A full datastore was answered as an unreachable one</span></li>
+<li><code>176e30b</code><time>2026-09-09</time><span>Editing is a derived capability, and this server met every clause and omitted it</span></li>
 <li><code>826088f</code><time>2026-09-09</time><span>The status page catches up with the commit before it</span></li>
 <li><code>8e5d36c</code><time>2026-09-09</time><span>The wrong word was asserted in two places, and I fixed one</span></li>
 <li><code>693c516</code><time>2026-09-09</time><span>Two conditions describe a repository that has moved</span></li>
@@ -419,8 +421,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>00672e7</code><time>2026-09-09</time><span>The front door advertised one protocol out of four</span></li>
 <li><code>579f0f2</code><time>2026-09-09</time><span>Answering questions broke the build again, in the second place D-181 lived</span></li>
 <li><code>f10574a</code><time>2026-09-09</time><span>The OGC landing page told every client the surface was read-only, and it writes</span></li>
-<li><code>d7b2824</code><time>2026-09-09</time><span>Three GeometryServer operations were refused for a reason the specification denies</span></li>
-<li><code>4f4db71</code><time>2026-09-09</time><span>D-201&#x27;s failure was never in the console, and now it says so</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
