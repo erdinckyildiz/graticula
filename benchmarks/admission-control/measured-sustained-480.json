@@ -1,0 +1,231 @@
+{
+ "label": "sustained-480",
+ "when": "2026-09-09T19:16:10.597Z",
+ "generator": "k6",
+ "mode": "vus",
+ "offered": {
+  "vus": 480
+ },
+ "target": {
+  "url": "https://127.0.0.1:8465",
+  "layer": "hosted/ci_many",
+  "rows": "200",
+  "query": "https://127.0.0.1:8465/rest/services/hosted/ci_many/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&resultRecordCount=200&f=json"
+ },
+ "warmSeconds": 15,
+ "measuredSeconds": 180,
+ "windowSeconds": 15,
+ "serverBound": {
+  "perSource": 24,
+  "queueDepth": 96,
+  "waitSeconds": 5,
+  "waitingForSource": 0,
+  "waitingForWorker": 0,
+  "worker": 64
+ },
+ "idle": {
+  "status": 200,
+  "millis": 7.4561,
+  "bytes": 82266
+ },
+ "totals": {
+  "requests": 164825,
+  "ok": 164825,
+  "refused": 0,
+  "otherStatus": 0,
+  "transportErrors": 0,
+  "refusedShare": 0,
+  "throughputPerSecond": 915.6944444444445,
+  "okPerSecond": 915.6944444444445,
+  "megabytesPerSecond": 71.84078137079875
+ },
+ "admittedLatencyMs": {
+  "median": 494.2553,
+  "p90": 608.1711000000001,
+  "p95": 674.7636999999999,
+  "max": 2776.9627
+ },
+ "refusalLatencyMs": {
+  "median": null,
+  "max": null
+ },
+ "connectionReuse": {
+  "tlsHandshakeMedianMs": 0,
+  "tlsHandshakeAvgMs": 0.0007297175792507205,
+  "connectMedianMs": 0,
+  "blockedMedianMs": 0
+ },
+ "queue": {
+  "samples": 1797,
+  "median": 0,
+  "p90": 0,
+  "max": 32,
+  "nonEmptyShare": 0.0022259321090706734,
+  "atDepthShare": 0,
+  "workerMedian": 0,
+  "workerMax": 1,
+  "healthMedianMs": 371.3159
+ },
+ "inFlight": {
+  "estimate": 480.2953762833388,
+  "offered": 480
+ },
+ "serverRuntime": {
+  "coresUsed": 3.6831839082247217,
+  "coresAvailable": 16,
+  "gcPausePercent": 1.8309257851559346,
+  "allocMegabytesPerSecond": 213.9574878720003
+ },
+ "controlPath": {
+  "path": "/rest/info",
+  "medianMs": 123.6235,
+  "p95Ms": 227.42618999999996,
+  "maxMs": 597.4747,
+  "failures": 0
+ },
+ "windows": [
+  {
+   "window": 0,
+   "fromSeconds": 0,
+   "ok": 14467,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 476.1806,
+   "p95OkMs": 570.67535,
+   "queueMedian": 0,
+   "queueMax": 18
+  },
+  {
+   "window": 1,
+   "fromSeconds": 15,
+   "ok": 13840,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 512.48675,
+   "p95OkMs": 614.896715,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 2,
+   "fromSeconds": 30,
+   "ok": 9644,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 638.2075500000001,
+   "p95OkMs": 1315.6605650000004,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 3,
+   "fromSeconds": 45,
+   "ok": 12062,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 561.9078,
+   "p95OkMs": 851.1290649999997,
+   "queueMedian": 0,
+   "queueMax": 10
+  },
+  {
+   "window": 4,
+   "fromSeconds": 60,
+   "ok": 13230,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 505.47955,
+   "p95OkMs": 920.2298549999999,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 5,
+   "fromSeconds": 75,
+   "ok": 15007,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 479.3166,
+   "p95OkMs": 513.90067,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 6,
+   "fromSeconds": 90,
+   "ok": 15378,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 468.31669999999997,
+   "p95OkMs": 502.271415,
+   "queueMedian": 0,
+   "queueMax": 32
+  },
+  {
+   "window": 7,
+   "fromSeconds": 105,
+   "ok": 14808,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 483.33894999999995,
+   "p95OkMs": 537.8961449999999,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 8,
+   "fromSeconds": 120,
+   "ok": 13070,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 497.49924999999996,
+   "p95OkMs": 970.6794149999998,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 9,
+   "fromSeconds": 135,
+   "ok": 14172,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 489.52395,
+   "p95OkMs": 704.7563499999998,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 10,
+   "fromSeconds": 150,
+   "ok": 14384,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 494.98245,
+   "p95OkMs": 566.6901149999999,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 11,
+   "fromSeconds": 165,
+   "ok": 14192,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 504.4667,
+   "p95OkMs": 577.779035,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 12,
+   "fromSeconds": 180,
+   "ok": 571,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 564.4327,
+   "p95OkMs": 604.6976999999999,
+   "queueMedian": 0,
+   "queueMax": 0
+  }
+ ]
+}

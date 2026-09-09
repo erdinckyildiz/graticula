@@ -1,0 +1,110 @@
+{
+ "label": "curve-32",
+ "when": "2026-09-09T19:33:23.990Z",
+ "generator": "k6",
+ "mode": "vus",
+ "offered": {
+  "vus": 32
+ },
+ "target": {
+  "url": "http://127.0.0.1:8465",
+  "layer": "hosted/ci_many",
+  "rows": "200",
+  "query": "http://127.0.0.1:8465/rest/info?f=json"
+ },
+ "warmSeconds": 5,
+ "measuredSeconds": 20,
+ "windowSeconds": 20,
+ "serverBound": {
+  "queueDepth": 96,
+  "waitSeconds": 5,
+  "waitingForSource": 0,
+  "waitingForWorker": 0,
+  "worker": 64,
+  "perSource": 24
+ },
+ "idle": {
+  "status": 200,
+  "millis": 1.4868,
+  "bytes": 181
+ },
+ "totals": {
+  "requests": 68234,
+  "ok": 68234,
+  "refused": 0,
+  "otherStatus": 0,
+  "transportErrors": 0,
+  "refusedShare": 0,
+  "throughputPerSecond": 3411.7,
+  "okPerSecond": 3411.7,
+  "megabytesPerSecond": 0.5889107704162597
+ },
+ "admittedLatencyMs": {
+  "median": 8.5141,
+  "p90": 13.710020000000004,
+  "p95": 15.833094999999997,
+  "max": 50.3349
+ },
+ "refusalLatencyMs": {
+  "median": null,
+  "max": null
+ },
+ "connectionReuse": {
+  "tlsHandshakeMedianMs": 0,
+  "tlsHandshakeAvgMs": 0,
+  "connectMedianMs": 0,
+  "blockedMedianMs": 0
+ },
+ "queue": {
+  "samples": 200,
+  "median": 0,
+  "p90": 0,
+  "max": 0,
+  "nonEmptyShare": 0,
+  "atDepthShare": 0,
+  "workerMedian": 0,
+  "workerMax": 0,
+  "healthMedianMs": 15.6395
+ },
+ "inFlight": {
+  "estimate": 31.472324234999753,
+  "offered": 32
+ },
+ "serverRuntime": {
+  "coresUsed": 2.4376108621963657,
+  "coresAvailable": 16,
+  "gcPausePercent": 1.9094705356493336,
+  "allocMegabytesPerSecond": 63.80747378704303
+ },
+ "controlPath": {
+  "path": "/rest/info",
+  "medianMs": 4.7279,
+  "p95Ms": 9.391,
+  "maxMs": 17.4007,
+  "failures": 0
+ },
+ "windows": [
+  {
+   "window": 0,
+   "fromSeconds": 0,
+   "ok": 67914,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 8.5085,
+   "p95OkMs": 15.818654999999998,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 1,
+   "fromSeconds": 20,
+   "ok": 320,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 9.942250000000001,
+   "p95OkMs": 17.774570000000004,
+   "queueMedian": 0,
+   "queueMax": 0
+  }
+ ]
+}

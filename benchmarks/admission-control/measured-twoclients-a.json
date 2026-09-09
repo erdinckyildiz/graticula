@@ -1,0 +1,121 @@
+{
+ "label": "twoclients-a",
+ "when": "2026-09-09T19:28:01.725Z",
+ "generator": "k6",
+ "mode": "vus",
+ "offered": {
+  "vus": 240
+ },
+ "target": {
+  "url": "https://127.0.0.1:8465",
+  "layer": "hosted/ci_many",
+  "rows": "200",
+  "query": "https://127.0.0.1:8465/rest/info?f=json"
+ },
+ "warmSeconds": 8,
+ "measuredSeconds": 30,
+ "windowSeconds": 15,
+ "serverBound": {
+  "perSource": 24,
+  "queueDepth": 96,
+  "waitSeconds": 5,
+  "waitingForSource": 0,
+  "waitingForWorker": 0,
+  "worker": 64
+ },
+ "idle": {
+  "status": 200,
+  "millis": 2.3144,
+  "bytes": 182
+ },
+ "totals": {
+  "requests": 48904,
+  "ok": 48904,
+  "refused": 0,
+  "otherStatus": 0,
+  "transportErrors": 0,
+  "refusedShare": 0,
+  "throughputPerSecond": 1630.1333333333334,
+  "okPerSecond": 1630.1333333333334,
+  "megabytesPerSecond": 0.2829401652018229
+ },
+ "admittedLatencyMs": {
+  "median": 145.68905,
+  "p90": 167.96006000000003,
+  "p95": 177.31933,
+  "max": 264.1244
+ },
+ "refusalLatencyMs": {
+  "median": null,
+  "max": null
+ },
+ "connectionReuse": {
+  "tlsHandshakeMedianMs": 0,
+  "tlsHandshakeAvgMs": 0.0010048953050875184,
+  "connectMedianMs": 0,
+  "blockedMedianMs": 0
+ },
+ "queue": {
+  "samples": 301,
+  "median": 0,
+  "p90": 0,
+  "max": 0,
+  "nonEmptyShare": 0,
+  "atDepthShare": 0,
+  "workerMedian": 0,
+  "workerMax": 0,
+  "healthMedianMs": 222.6486
+ },
+ "inFlight": {
+  "estimate": 240.22102425666574,
+  "offered": 240
+ },
+ "serverRuntime": {
+  "coresUsed": 2.5341240162565,
+  "coresAvailable": 16,
+  "gcPausePercent": 2.3467217625903167,
+  "allocMegabytesPerSecond": 61.96471113143336
+ },
+ "controlPath": {
+  "path": "/rest/info",
+  "medianMs": 72.91055,
+  "p95Ms": 90.30298499999999,
+  "maxMs": 146.1389,
+  "failures": 0
+ },
+ "windows": [
+  {
+   "window": 0,
+   "fromSeconds": 0,
+   "ok": 24296,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 144.75900000000001,
+   "p95OkMs": 170.61375,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 1,
+   "fromSeconds": 15,
+   "ok": 24176,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 146.31745,
+   "p95OkMs": 184.922625,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 2,
+   "fromSeconds": 30,
+   "ok": 432,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 162.42335,
+   "p95OkMs": 187.32573000000002,
+   "queueMedian": 0,
+   "queueMax": 0
+  }
+ ]
+}

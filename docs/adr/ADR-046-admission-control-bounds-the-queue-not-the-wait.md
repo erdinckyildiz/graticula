@@ -185,6 +185,54 @@ Kestrel, before any code that could shed it — in which case bounding this queu
 that latency and no setting here will. Distinguishing them needs a load generator that is not
 this machine, which is condition 1 and is not discharged.
 
+### Distinguished 2026-09-09, and it is the second
+
+[Q-140](../open-questions.md) chose a better generator over a second host, and
+[benchmarks/admission-control](../../benchmarks/admission-control/RESULTS.md) is the
+re-measurement. **The hypothesis above is wrong.** k6 keeps the requests in flight that
+the Python probe could not — Little's law gives **23.7 of 24, 59.7 of 60, 119.8 of 120,
+240.3 of 240 and 481.4 of 480** — at a TLS handshake cost of **0.000 ms median** over
+1,042,228 measured requests, and two independent client processes at 240 callers each
+reach the same total as one at 480. The client was never what kept the queue empty.
+
+| Load, warm, `PerSourceConcurrency` 24 | Refused | Admitted median | Queue non-empty | `/rest/info` |
+|---|---|---|---|---|
+| 24 callers | none | 24.2 ms | 0.2% of 601 samples | 4.2 ms |
+| 60 | none | 61.3 ms | 0.0% | 12.9 ms |
+| 120 | none | 127.9 ms | 0.2% | 30.7 ms |
+| 240 | **none of 55,358** | 251.1 ms | 0.5% | 60.9 ms |
+| 480 | 17 of 58,507 | 485.5 ms | 0.2% | 117.2 ms |
+| **480 for three minutes** | **none of 164,825** | 494.3 ms | 0.2% of 1,797 | 123.6 ms |
+
+**A sustained flood does not shed, and the reason is upstream of everything here.**
+`/rest/info` takes no permit, authenticates nobody and touches no database, and its
+latency grows in the same proportion across the same ramp. Flooded on its own it
+stops scaling **between 8 and 16 callers, at 2.1 of 16 cores** — 2,640 req/s at 8, 3,355
+at 16, 3,412 at 32 and 3,422 at 480, an effective concurrency of about **six** against an
+unloaded service time of 1.8 ms. **`PerSourceConcurrency` is 24.** That the permits are
+therefore never all taken is measured rather than inferred: with 480 callers outstanding
+the waiter counter was zero in **99.8% of samples**, and a full semaphore produces a
+waiter the moment the next caller arrives. Fewer than 24 requests were ever inside the
+gate, so the queue this decision bounds cannot fill. At 480 callers a request can hold a
+permit for **at most 24.6 ms of its 485.5 ms median** — at most, because 24 permits over
+975 admitted req/s assumes every permit busy all the time and the counter says they are
+not — so **at most 5.1% of the latency is inside the part of the server this decision
+governs**. That ceiling is [D-249](../architecture-debt.md).
+
+**The mechanism is not what is wrong, and narrowing the gate shows it working.** With
+`PerSourceConcurrency=2` — a bound of 2 permits and a queue depth of 8 — a two-minute
+flood at concurrency 240 refused **58,880 of 81,116 (72.6%)**, the queue sat at its
+bound in **96% of 1,181 samples**, and the shed share was 73.4% in the first fifteen
+seconds and 71.3% in the last. **And the admitted median still grew with concurrency
+while all of that was true** — 32.7, 78.5, 149.4, 275.0, 472.5 ms for 24 to 480
+callers — which is condition 1's second clause failing with the bound firing, and is
+why that clause is now marked breached rather than open.
+
+**One reporting defect, found by the same run.** The waiter count is incremented before
+the depth is compared, so `/admin/health` can read **10 against a bound of 8** for the
+instant a caller is being refused. The bound is enforced; the number an operator reads
+during a flood can sit above it.
+
 ## 5. Decision
 
 **Admission control refuses on arrival when the number of callers already waiting for a
@@ -206,8 +254,11 @@ so raising capacity raises the queue with it.
 
 **What is not claimed: a ceiling on latency.** The first draft of this section said the bound
 gives one, and the measurement does not support it — warm, at concurrency 480, nothing is
-refused and the median is still climbing. Either the load generator cannot sustain the depth
-or part of the queue is upstream of admission control; both are open in condition 1. **A bound
+refused and the median is still climbing. ~~Either the load generator cannot sustain the depth
+or part of the queue is upstream of admission control; both are open in condition 1.~~
+**Settled 2026-09-09: it is the second, and the first is refuted.** The queue is
+upstream — see §4's re-measurement — and no bound in `ConnectionBudget` can flatten a
+latency that is 94.9% outside it. **A bound
 that fires on a cold burst and not on a warm flood is worth having and is not the whole
 answer.**
 
@@ -231,7 +282,7 @@ to.
 | ID | Assumption | Status |
 |---|---|---|
 | — | Four waiters per permit is a useful default | **A judgement, not a measurement.** Condition 2 asks for it to be measured against the numbers in §1 rather than left as a guess |
-| — | The database is the saturating resource, not this server | Supported: throughput flat at 275 req/s while this server's CPU was not the bound |
+| — | The database is the saturating resource, not this server | **Its evidence is retired, 2026-09-09.** *Flat throughput while CPU is not the bound* does not establish this: the same flatness appears on `/rest/info`, which never reaches a database — 3,412 req/s at 32 callers and 3,422 at 480, at 2.1 of 16 cores. The assumption may still be true and is no longer supported by the measurement it cited ([D-249](../architecture-debt.md)) |
 
 ## 8. Dependencies
 
@@ -247,7 +298,8 @@ ADR-045 (the Logs screen, where condition 3's refusals become visible).
    admitted requests' median must stop growing with concurrency. A change that refuses
    without flattening latency has bounded the wrong thing.
 
-   **PARTLY DISCHARGED 2026-08-23, and the undischarged half is the interesting one.** The
+   **PARTLY DISCHARGED 2026-08-23 — superseded below, where the second clause is marked
+   BREACHED on a re-measurement rather than left open.** The
    first clause holds: 109 of 720 refused at concurrency 240 on a cold server, against zero
    before, and the queue counter holds at its configured depth. **The second clause does not.**
    Warm, at 480, nothing is refused and the median has grown from 90 ms to 1,179 ms.
@@ -259,6 +311,61 @@ ADR-045 (the Logs screen, where condition 3's refusals become visible).
    the first, and *favours* is not *shows*. **It needs a load generator that is not this
    machine**, and until then this condition names what is unproven rather than pretending
    otherwise.
+
+   ***RE-MEASURED 2026-09-09, and it settles both clauses — the first one further than
+   2026-08-23 could reach, the second one against this decision.*** k6 1.3.0 replaced
+   the Python probe by owner decision on [Q-140](../open-questions.md);
+   [benchmarks/admission-control](../../benchmarks/admission-control/RESULTS.md) holds
+   the runs and the raw JSON.
+
+   **The generator hypothesis is dead.** Little's law across the ramp says the client
+   held **23.7 of 24, 59.7 of 60, 119.8 of 120, 240.3 of 240 and 481.4 of 480**
+   requests in flight; TLS handshaking cost **0.000 ms median** over 1,042,228 measured
+   requests; and two independent client processes at 240 callers each reached the same
+   total as one at 480. *480 Python threads cannot keep the queue at depth* was a
+   reasonable guess and it was wrong.
+
+   **The first clause holds, and it holds sustained rather than cold.** With
+   `PerSourceConcurrency=2` — a source narrower than the pipeline that feeds it — a
+   two-minute flood at concurrency 240 refused **58,880 of 81,116, 72.6%**, and the
+   shed share was 73.4% in the first fifteen seconds and 71.3% in the last. The queue
+   sat at its bound in **96% of 1,181 samples**. That is the mechanism working, held,
+   for two minutes — the thing this clause asked for, which no amount of argument about
+   the old measurement could have supplied.
+
+   ***BREACHED in its second clause, and that is a fourth state rather than an open
+   condition.*** *The admitted requests' median must stop growing with concurrency* has
+   now been tested at both bounds and fails at both: **32.7, 78.5, 149.4, 275.0 and
+   472.5 ms** for 24 to 480 callers **while 73% is being refused and the queue is at
+   its bound**. The clause's own words are *a change that refuses without flattening
+   latency has bounded the wrong thing*, and that sentence has now been run rather than
+   awaited.
+
+   **What this decision bounded is not wrong; what the clause asked for is unreachable
+   from inside it.** `/rest/info` takes no permit, authenticates nobody and touches no
+   database, and it grows in the same proportion across the same ramp — 4.2, 12.9,
+   30.7, 60.9, 117.2 ms — because the request pipeline stops scaling **between 8 and 16
+   callers, at 2.1 of 16 cores**, an effective concurrency of about six against an
+   unloaded service time of 1.8 ms. At the shipped bound a request holds a
+   permit for **at most 24.6 ms of its 485.5 ms median** — at most, because 24 permits
+   over 975 admitted req/s assumes every permit busy all the time and the counter says
+   they are not — so **at most 5.1% of the latency is inside the part of the server this
+   decision governs** and no queue bound anywhere in `ConnectionBudget` can flatten the
+   rest. §6 conceded the substance of that on
+   the day this was written — *what is not claimed: a ceiling on latency* — and the
+   condition never absorbed it. The ceiling is [D-249](../architecture-debt.md).
+
+   **And the shipped default cannot fire on this hardware at all**, which is the part
+   an operator needs. `PerSourceConcurrency` is 24 and the pipeline serves about six at a
+   time, so the permits are never all taken — measured rather than inferred, because the
+   waiter counter would be non-zero the moment they were: **164,825 requests at concurrency 480 over three
+   minutes, none refused**, with the counter above zero in 4 of 1,797 samples and a
+   maximum of 32 against a bound of 96. The bound is not *reached in bursts*; it is
+   unreachable until either the pipeline gets faster or the permit count comes down
+   below it. **A cold server did not change that here** — flooded one second after
+   start-up at concurrency 240, 24,776 requests, none refused — though that ran against
+   a different fixture and layer from the 2026-08-23 cold run, so it neither reproduces
+   nor refutes the 15%.
 
 2. **The depth is chosen against the measurement rather than asserted.** Four per permit is a
    judgement; the condition is to run the probe at several depths and write the table down, so
@@ -283,6 +390,13 @@ ADR-045 (the Logs screen, where condition 3's refusals become visible).
    from an argument into a measurement**: it is how the queue was found holding at exactly 96,
    and how the warm flood was found not to reach it. Behind `admin:manageServer`, because how
    close a deployment is to its bound is a capacity fact about the server.
+
+   **One defect in the counter, found 2026-09-09 by the re-measurement and small enough to
+   state here rather than open a row for.** The count is incremented before the depth is
+   compared (`ConnectionBudget.EnterAsync`), so a caller who is about to be refused is
+   briefly counted as a waiter: `/admin/health` was observed reading **10 against a bound of
+   8**. The bound is enforced and nothing else about the counter is affected; the number an
+   operator reads during a flood can sit a little above the bound it is being compared to.
 
 4. **No response is ever truncated by this.** A refusal happens before the response begins;
    asserted from outside by a test that floods a source and checks that every non-503 answer
@@ -318,4 +432,7 @@ ADR-045 (the Logs screen, where condition 3's refusals become visible).
    reported to a client. [D-145](../architecture-debt.md) is the second, and it is the one that
    would otherwise have gone unwritten — **the load generator runs on the machine under test**,
    so what is unproven about condition 1 is recorded as a property of the measurement rather
-   than left as a gap in the ADR.
+   than left as a gap in the ADR. **D-145 was repaid 2026-09-09, and not by the repair it
+   named**: the generator still runs on the machine under test and a better one was enough
+   to show that the machine was never the reason. What it leaves behind is
+   [D-249](../architecture-debt.md), which is a bigger row than the one it closed.

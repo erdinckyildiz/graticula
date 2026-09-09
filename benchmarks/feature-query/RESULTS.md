@@ -241,6 +241,16 @@ generator. This harness cannot separate those three, and saying which would need
 a run against a second machine or a server with authentication disabled — neither
 of which exists here.
 
+**Separated 2026-09-09, and none of the three is the ceiling** — [benchmarks/admission-control](../admission-control/RESULTS.md) §6, which needed a
+better generator rather than the second machine this section asked for. Not the
+generator: two independent k6 processes at 240 callers each reach 3,256 req/s against
+3,293 for one process at 480, and Little's law confirms 481.4 of 480 requests in
+flight. Not the authentication: `/rest/info` is anonymous and hits the same ceiling in
+the same shape. Not TLS: the same flood over plain HTTP moves it **3.4%**. What is
+left is that the request pipeline scales 6.1× from 1 caller to 16 and then stops, at
+**2.1 of 16 cores**, and nothing measured so far says why —
+[D-249](../../docs/architecture-debt.md).
+
 **What can be said, and it is what F1 asked:** the feature query path scales
 **4.75× from concurrency 1 to 8** and is not what stops scaling after that. It is
 not allocation-bound, not GC-bound and not CPU-bound at any level measured.
