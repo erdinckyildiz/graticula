@@ -395,8 +395,8 @@ with the service on the request that needs it.
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-074 | An operator wants per-service capability control more than per-layer control, so the set lives on the service | `UNVALIDATED`. It is where the peer puts it — service-level settings shared by every layer — and where ArcGIS puts it. A layer-level override is the obvious extension and is deliberately not built |
-| A-075 | Turning `Query` off is a state an operator actually wants, distinct from stopping the service | `UNVALIDATED`, and the weakest one here. It is offered because it costs nothing once the set exists; if nobody uses it, it is a checkbox rather than a design |
+| A-074 | An operator wants per-service capability control more than per-layer control, so the set lives on the service | `VALIDATED` *(from [the register](../architecture-assumptions.md), which is where an assumption's status lives; this cell said `UNVALIDATED` until 2026-09-09)*. It is where the peer puts it — service-level settings shared by every layer — and where ArcGIS puts it. A layer-level override is the obvious extension and is deliberately not built |
+| A-075 | Turning `Query` off is a state an operator actually wants, distinct from stopping the service | `VALIDATED` *(from [the register](../architecture-assumptions.md), which is where an assumption's status lives; this cell said `UNVALIDATED` until 2026-09-09)*, and the weakest one here. It is offered because it costs nothing once the set exists; if nobody uses it, it is a checkbox rather than a design |
 
 ## 6. Dissent
 

@@ -631,7 +631,7 @@ every startup rather than letting it be assumed.
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-046 | An opaque-token session lookup per request is affordable at the concurrency ADR-007 targets | `UNVALIDATED` — §3's central bet. If false, the fallback is a longer in-process cache TTL, which trades revocation latency for throughput, and that trade should be a stated number rather than a default |
+| A-046 | An opaque-token session lookup per request is affordable at the concurrency ADR-007 targets | `VALIDATED` *(from [the register](../architecture-assumptions.md), which is where an assumption's status lives; this cell said `UNVALIDATED` until 2026-09-09)* — §3's central bet. If false, the fallback is a longer in-process cache TTL, which trades revocation latency for throughput, and that trade should be a stated number rather than a default |
 | A-047 | Every provider supporting RLS delegation can accept a principal name we generate, via administrator-controlled mapping | `UNVALIDATED` — §1a. PostgreSQL roles, SQL Server users and Oracle proxy authentication have different naming rules, length limits and case behaviour. A mapping that works on one may not on another |
 
 ## 11. Dissent

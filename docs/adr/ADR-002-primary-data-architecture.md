@@ -363,7 +363,7 @@ barrier in front of our primary migration target.
 | ID | Assumption | Status |
 |---|---|---|
 | A-009 | PostgreSQL/PostGIS is an acceptable hard dependency for the baseline | `INVALIDATED` 2026-08-12 — superseded by A-018 |
-| A-018 | A deliberately boring platform schema can be supported across SQLite and PostgreSQL at acceptable cost | `UNVALIDATED` — much weaker after Q-51 narrowed the set from four engines to two |
+| A-018 | A deliberately boring platform schema can be supported across SQLite and PostgreSQL at acceptable cost | `SUPERSEDED` *(from [the register](../architecture-assumptions.md), which is where an assumption's status lives; this cell said `UNVALIDATED` until 2026-09-09)* — much weaker after Q-51 narrowed the set from four engines to two |
 | A-017 | Data sources will frequently be foreign and possibly read-only, so the platform cannot rely on DDL rights in them | `VALIDATING` — follows from the confirmed migration goal; confirm with Q-08 |
 
 ## 8. Dependencies

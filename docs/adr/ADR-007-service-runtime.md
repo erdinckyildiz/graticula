@@ -707,13 +707,13 @@ Empty, deliberately. The structure is decided; the numbers are the conditions.
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-003 | Most services are idle most of the time | `UNVALIDATED` — **less load-bearing now** that idle services cost a table row rather than a process |
+| A-003 | Most services are idle most of the time | `DOWNGRADED` *(from [the register](../architecture-assumptions.md), which is where an assumption's status lives; this cell said `UNVALIDATED` until 2026-09-09)* — **less load-bearing now** that idle services cost a table row rather than a process |
 | A-007 | Crash containment is genuinely required | `CONTESTED`, weakening — resolved per-path: job workers isolated, request workers not |
 | A-008 | Administrators will not hand-tune per-service settings | `VALIDATING` — supported by prior art |
 | A-011 | A distinguished central manager is a liability | `VALIDATING` — supported by prior art |
 | A-012 | The real axis is state size, binding cost, neighbour tolerance | `VALIDATING` — supported by prior art |
-| A-014 | Affinity routing works and degrades safely | `UNVALIDATED` — **the weakest point in this ADR** |
-| A-015 | Warm per-service state is small | `UNVALIDATED` — **load-bearing** |
+| A-014 | Affinity routing works and degrades safely | `DOWNGRADED` *(from [the register](../architecture-assumptions.md), which is where an assumption's status lives; this cell said `UNVALIDATED` until 2026-09-09)* — **the weakest point in this ADR** |
+| A-015 | Warm per-service state is small | `VALIDATED` *(from [the register](../architecture-assumptions.md), which is where an assumption's status lives; this cell said `UNVALIDATED` until 2026-09-09)* — **load-bearing** |
 | A-023 | Schema fingerprint polling is cheap enough | `UNVALIDATED` |
 
 ## 9. Dependencies

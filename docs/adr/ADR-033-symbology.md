@@ -485,5 +485,5 @@ separately.
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-077 | The three simple ArcGIS renderer families cover the symbology of the overwhelming majority of published layers, so a derivation limited to them is a small loss in practice | `UNVALIDATED`. It is what both the reference and ArcGIS's own defaults bet on, and it is checkable against any real estate of services — including, eventually, the owner's 32 layers |
+| A-077 | The three simple ArcGIS renderer families cover the symbology of the overwhelming majority of published layers, so a derivation limited to them is a small loss in practice | `PARTLY VALIDATED` *(from [the register](../architecture-assumptions.md), which is where an assumption's status lives; this cell said `UNVALIDATED` until 2026-09-09)*. It is what both the reference and ArcGIS's own defaults bet on, and it is checkable against any real estate of services — including, eventually, the owner's 32 layers |
 | A-078 | An operator would rather write MapLibre than a format we invented, because tools exist for the first | `UNVALIDATED`, and it is the load-bearing assumption under choosing C over D. The counter-case is an operator who writes neither and only ever uses the suggestion, in which case the canonical vocabulary matters much less than §2C claims |

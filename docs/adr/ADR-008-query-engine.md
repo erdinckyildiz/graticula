@@ -758,8 +758,8 @@ including the datastore — which is a provider we own rather than a special cas
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-019 | In-process MVT encoding meets latency targets | `UNVALIDATED` — critical |
-| A-021 | Filter, clip and simplify push down usefully on all three dialects | `UNVALIDATED` |
+| A-019 | In-process MVT encoding meets latency targets | `VALIDATED` *(from [the register](../architecture-assumptions.md), which is where an assumption's status lives; this cell said `UNVALIDATED` until 2026-09-09)* — critical |
+| A-021 | Filter, clip and simplify push down usefully on all three dialects | `VALIDATED` *(from [the register](../architecture-assumptions.md), which is where an assumption's status lives; this cell said `UNVALIDATED` until 2026-09-09)* |
 | A-024 | A small residual executor plus explicit refusal is acceptable to real users, given a capability report | `UNVALIDATED` |
 
 ## 9. Dependencies

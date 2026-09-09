@@ -200,4 +200,4 @@ from configuration and from a connection string, and neither is something this s
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-076 | A real cartographic word costs less over a product's life than a short coinage, because it can be explained once and then means something precise | `UNVALIDATED`, and it is a judgement rather than a measurement. The counter-case is every successful product named after nothing at all |
+| A-076 | A real cartographic word costs less over a product's life than a short coinage, because it can be explained once and then means something precise | `VALIDATED` *(from [the register](../architecture-assumptions.md), which is where an assumption's status lives; this cell said `UNVALIDATED` until 2026-09-09)*, and it is a judgement rather than a measurement. The counter-case is every successful product named after nothing at all |

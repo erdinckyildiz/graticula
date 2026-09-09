@@ -1908,6 +1908,99 @@ def an_outbound_licence_claim_that_is_stale():
     return problems
 
 
+def an_adr_that_disagrees_with_the_assumption_register():
+    """An ADR's own assumptions table giving a status the register has moved on from.
+
+    **[CLAUDE.md](../CLAUDE.md) §2 puts an assumption's status in one place** --
+    `architecture-assumptions.md` -- and then the ADR template asks every decision
+    to restate it in its §7 table. That is a copy, and a copy of a moving number
+    goes stale: **measured 2026-09-09, seventeen rows across twelve ADRs
+    disagreed**, and every one of them leaned the same way. ADR-007 called A-015
+    `UNVALIDATED` and load-bearing three weeks after it was validated; ADR-003
+    called A-006 `CONTESTED` when the register says validated; A-018 was
+    `UNVALIDATED` in ADR-002 and `SUPERSEDED` in the register.
+
+    **The direction is the finding.** Sixteen of the seventeen understated -- the
+    per-decision documents made this project look less validated than the register
+    says it is, in exactly the file a reader consults to judge whether one decision
+    rests on anything. Nobody had ever compared the two.
+
+    **Why a check rather than deleting the copy.** A reader of an ADR wants to know
+    how solid its foundations are without leaving the document, which is why the
+    template asks. So the duplication stays and stops being able to drift, which is
+    the same answer this file already gives the licence, the tally and the canonical
+    symbology document. [D-239](../docs/architecture-debt.md), [D-130](../docs/architecture-debt.md).
+
+    **What it does not check.** The prose beside the status is not compared -- an
+    ADR saying *why* it believed something is its own record and is often worth
+    keeping after the status moves. Only the status word has to match. A row that
+    states no status at all is left alone; two do.
+    """
+    status = re.compile(
+        r"(SUPERSEDED|PARTLY VALIDATED|UNVALIDATED|VALIDATED|VALIDATING|CONTESTED|"
+        r"DOWNGRADED|WITHDRAWN|DEFERRED|INFORMATIONAL|REJECTED)")
+
+    row = re.compile(r"^\|\s*(A-\d+)\s*\|(.*)\|\s*$")
+
+    def stated(cell):
+        found = status.search(cell)
+        return found.group(1) if found else None
+
+    register = {}
+
+    path = os.path.join(conditions.ROOT, "docs", "architecture-assumptions.md")
+
+    for line in io.open(path, encoding="utf-8"):
+        found = row.match(line.rstrip("\n"))
+
+        if not found:
+            continue
+
+        cells = found.group(2).split("|")
+
+        if len(cells) >= 2:
+            # <b>First occurrence wins.</b> The file carries a second, narrower table
+            # of validated assumptions further down whose third column is a date, not
+            # a status, and reading that one would clear every entry it repeats.
+            register.setdefault(found.group(1), stated(cells[1]))
+
+    problems = []
+
+    adrs = os.path.join(conditions.ROOT, "docs", "adr")
+
+    for name in sorted(os.listdir(adrs)):
+        if not name.endswith(".md"):
+            continue
+
+        for number, line in enumerate(io.open(os.path.join(adrs, name), encoding="utf-8"), 1):
+            found = row.match(line.rstrip("\n"))
+
+            if not found:
+                continue
+
+            cells = [c.strip() for c in found.group(2).split("|") if c.strip()]
+
+            if not cells:
+                continue
+
+            said = stated(cells[-1])
+            truth = register.get(found.group(1))
+
+            if said is None or truth is None or said == truth:
+                continue
+
+            problems.append(
+                f"docs/adr/{name}:{number} says {found.group(1)} is `{said}` and "
+                f"architecture-assumptions.md says `{truth}`. The register is where an "
+                "assumption's status lives (CLAUDE.md §2); an ADR's §7 table is a copy of "
+                "it. Seventeen of these were found on 2026-09-09, sixteen of them "
+                "understating -- an ADR that says UNVALIDATED about something validated "
+                "three weeks earlier makes its own foundations look weaker than they are. "
+                "D-239, D-130.")
+
+    return problems
+
+
 def a_canonical_symbology_claim_that_is_stale():
     """A document or a docstring saying the canonical symbology document is MapLibre.
 
@@ -3142,6 +3235,7 @@ def main() -> int:
                 + an_answered_question_still_filed_as_open()
                 + an_outbound_licence_claim_that_is_stale()
                 + a_canonical_symbology_claim_that_is_stale()
+                + an_adr_that_disagrees_with_the_assumption_register()
                 + a_corpus_file_a_test_reads_but_a_clone_does_not_get()
                 + a_real_data_test_without_the_trait_ci_filters_on()
                 + a_test_project_ci_never_runs()

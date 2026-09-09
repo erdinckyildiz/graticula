@@ -229,7 +229,7 @@ mean two caches rather than a coherence problem.
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-057 | `ST_AsMVT` output is acceptable to the ArcGIS and MapLibre clients we care about | `UNVALIDATED` — condition 3 is the test, and it has never been run |
+| A-057 | `ST_AsMVT` output is acceptable to the ArcGIS and MapLibre clients we care about | `PARTLY VALIDATED` *(from [the register](../architecture-assumptions.md), which is where an assumption's status lives; this cell said `UNVALIDATED` until 2026-09-09)* — condition 3 is the test, and it has never been run |
 | A-058 | The datastore has spare capacity for tile encoding in a typical 100–1,000 service deployment | `UNVALIDATED`, and condition 1 is exactly this. The benchmark machine had headroom; nothing establishes that a real one does |
 
 ---

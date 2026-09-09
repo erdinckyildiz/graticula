@@ -509,8 +509,8 @@ an authorization decision that is.
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-076 | A CPU rasteriser meets the latency a WMS client expects at typical sizes on this runtime, without the allocation profile that ADR-007 §4.14's worker sizing cannot account for | `UNVALIDATED` — condition 1 |
-| A-077 | ADR-033's canonical document carries enough to draw a map that a cartographer would accept, rather than enough to describe one | `UNVALIDATED` — condition 3. It was designed to be *derived into* two protocol documents, never to be *executed* |
+| A-076 | A CPU rasteriser meets the latency a WMS client expects at typical sizes on this runtime, without the allocation profile that ADR-007 §4.14's worker sizing cannot account for | `VALIDATED` *(from [the register](../architecture-assumptions.md), which is where an assumption's status lives; this cell said `UNVALIDATED` until 2026-09-09)* — condition 1 |
+| A-077 | ADR-033's canonical document carries enough to draw a map that a cartographer would accept, rather than enough to describe one | `PARTLY VALIDATED` *(from [the register](../architecture-assumptions.md), which is where an assumption's status lives; this cell said `UNVALIDATED` until 2026-09-09)* — condition 3. It was designed to be *derived into* two protocol documents, never to be *executed* |
 
 ## 9. Revisit triggers
 
