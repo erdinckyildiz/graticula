@@ -147,9 +147,20 @@ the same fact.
 - `gis-server` survives in exactly one role: as the former working title, in documents
   whose subject is the project's own history. A grep for it should return history, not
   live text.
-- [Q-106](../open-questions.md) — the licence — is untouched by this and still open.
+- ~~[Q-106](../open-questions.md) — the licence — is untouched by this and still open.
   README currently says Apache-2.0 while CLAUDE.md §7 says copyleft is acceptable; that
-  contradiction is older than this ADR and is not resolved by it.
+  contradiction is older than this ADR and is not resolved by it.~~
+  **Both halves are closed, and neither by this ADR — corrected 2026-09-09.**
+  **Q-106 is answered** by owner decision: the reference is not used any more, so the licence
+  question has no subject and [ADR-030](ADR-030-reading-the-reference-implementation.md) is
+  `WITHDRAWN`. **And the contradiction this bullet names is about *our own* licence, which was
+  settled on 2026-08-25** by [ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md): the
+  outbound licence is the Elastic License 2.0 and this project is source-available, not open
+  source. `README` and `CLAUDE.md` §7 both carry that now; `product-context.md` and
+  `competitive-position.md` did not until 2026-09-09, which is the propagation shape
+  [D-130](../architecture-debt.md) records. *(This bullet conflated the two licences — the
+  reference's and ours — under one question number, which is part of why it outlived both
+  answers.)*
 
 **State.** None. A name is not state. The two places the former working title
 survives — the `GisServer:*` configuration keys and the default `gisserver` schema — are read

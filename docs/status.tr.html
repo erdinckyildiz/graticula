@@ -110,29 +110,28 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>0183e05</code> · 2026-09-09 20:44</p>
+<p class="stamp">Şu commit’ten üretildi: <code>0f37e11</code> · 2026-09-09 21:13</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">61</div><div class="kpi-l">ADR</div><div class="kpi-n">11 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">184/230</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">45 canlı · 1 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık soru</div><div class="kpi-n">148 yanıtlandı · 2 engelleyici</div></div>
+<div class="kpi good"><div class="kpi-v">186/230</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">42 canlı · 2 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">8</div><div class="kpi-l">açık soru</div><div class="kpi-n">149 yanıtlandı · 2 engelleyici</div></div>
 <div class="kpi warn"><div class="kpi-v">24</div><div class="kpi-l">açık borç</div><div class="kpi-n">220 ödendi · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">15/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">2519</div><div class="kpi-l">test</div><div class="kpi-n">273 kaynak dosya, 114,957 satır</div></div>
+<div class="kpi good"><div class="kpi-v">2519</div><div class="kpi-l">test</div><div class="kpi-n">273 kaynak dosya, 114,959 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">4 açık</span></div><p><b>Q-18</b> — What genuinely justifies a server over static cloud-native publishing and over a stateless thin server plus a capable database?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">3 açık</span></div><p><b>Q-18</b> — What genuinely justifies a server over static cloud-native publishing and over a stateless thin server plus a capable database?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">73 madde</span></div><p><b>45 ADR conditions</b> outstanding across 33 decisions — the largest commitment on this page.</p><p><b>24 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">70 madde</span></div><p><b>42 ADR conditions</b> outstanding across 32 decisions — the largest commitment on this page.</p><p><b>24 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-030 · Reading the reference implementati</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
@@ -211,7 +210,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">027</td><td>Glyphs and sprites: the tile service could not draw a label</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the coverage</td><td class="num">4/5</td></tr>
 <tr><td class="id">028</td><td>Style documents: the one thing about a map a server cannot guess</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">2/5</td></tr>
 <tr><td class="id">029</td><td>Affinity routing is not the default, and A-003 stops being load-bearing</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the reversal · MEDIUM for what replaces it at scale</td><td class="num">2/4</td></tr>
-<tr><td class="id">030</td><td>Reading the reference implementation, not only its documentation</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
+<tr><td class="id">030</td><td>Reading the reference implementation, not only its documentation</td><td><span class="pill cond">~~ACCEPTED WITH CONDITIONS~~ WITHDRAWN</span><div class="muted-t">the permission this ADR granted ended 2026-09-09 by owner decision.</div></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
 <tr><td class="id">031</td><td>A service&#x27;s capabilities are configured, and configuration only ever restricts</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">6/6</td></tr>
 <tr><td class="id">032</td><td>The product is named Graticula</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num">3/4</td></tr>
 <tr><td class="id">033</td><td>Symbology: one canonical document per layer, and both protocol faces derive from it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the canonical model · MEDIUM for the derivation&#x27;s fidelity</td><td class="num">5/5</td></tr>
@@ -250,7 +249,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card blocking"><div class="card-h"><span class="id">Q-18</span><span class="owner blocking-tag">ENGELLEYİCİ</span></div><p>What genuinely justifies a server over static cloud-native publishing and over a stateless thin server plus a capable database?</p></article>
 <article class="card blocking"><div class="card-h"><span class="id">Q-20</span><span class="owner blocking-tag">ENGELLEYİCİ</span></div><p>How many distinct geometry engines end up evaluating our predicates, and how do we prevent behavioural divergence?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-104</span><span class="owner">Council</span></div><p>Is the catalogue exportable as a manifest that can be diffed, reviewed and applied?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-106</span><span class="owner">**[OWNER]**</span></div><p>What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-127</span><span class="owner">Council, and the group mapping **[OWNER]**</span></div><p>What does a portal group mean here, and whose item is a published service?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-140</span><span class="owner">Owner</span></div><p>Where does load testing run, now that the machine under test is the only one there is?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-36</span><span class="owner">Council</span></div><p>Can the service definition describe fields the physical table does not have — computed, aliased, role-hidden?</p></article>
@@ -395,6 +393,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>0f37e11</code><time>2026-09-09</time><span>WMS and WFS publish in the map&#x27;s projection</span></li>
 <li><code>0183e05</code><time>2026-09-09</time><span>Three owner decisions, and one of them removes a state the screen offers</span></li>
 <li><code>81bc928</code><time>2026-09-09</time><span>Five questions were answered and still counted as open, four by the owner</span></li>
 <li><code>6e755d7</code><time>2026-09-09</time><span>Two conditions walked and measured, and neither was discharged</span></li>
@@ -408,7 +407,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>78e4727</code><time>2026-09-09</time><span>The pool that reads a layer was the one with no name</span></li>
 <li><code>69c7c89</code><time>2026-09-09</time><span>Every relative link in the repository resolves</span></li>
 <li><code>9dbf42b</code><time>2026-09-09</time><span>The file CLAUDE.md sends readers to had three wrong ADR statuses</span></li>
-<li><code>53f4026</code><time>2026-09-09</time><span>Q-09 was answered by a benchmark six days before the row was written</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

@@ -2,13 +2,36 @@
 
 | | |
 |---|---|
-| **Status** | `ACCEPTED WITH CONDITIONS` |
+| **Status** | ~~`ACCEPTED WITH CONDITIONS`~~ **`WITHDRAWN` — the permission this ADR granted ended 2026-09-09 by owner decision.** |
 | **Confidence** | `MEDIUM` |
-| **Decided** | 2026-08-16 |
+| **Decided** | 2026-08-16 · **ended 2026-09-09** |
 | **Supersedes** | — |
-| **Superseded by** | — |
+| **Superseded by** | — *(nothing replaces it: the practice stopped rather than changing)* |
 
 ---
+
+> **The reference is not used any more — owner decision, 2026-09-09.** Asked what its real
+> licence is ([Q-106](../open-questions.md)), the owner answered that the question no longer
+> arises: *"referans uygulamayı artık kullanmıyoruz. unut onu. sorusunu da."*
+>
+> **So this decision is withdrawn rather than superseded.** It gave one permission — that the
+> anonymised checkout under `REFERENCES/` could be read, not only its public documentation — and
+> that permission is now spent. Nothing replaces it: [CLAUDE.md](../../CLAUDE.md) §5's clean-room
+> rule is what governs from here, at full strength and without this ADR's relaxation. **The
+> checkout is already gone**: `REFERENCES/` is neither on disk nor tracked by git.
+>
+> **This document is not deleted, and that is deliberate.** Ten ADRs cite it, and every one of
+> those citations is a **disclosure** made under condition 1 — the record of which reasoning was
+> informed by a read, and when. Deleting the ADR would orphan ten disclosures and destroy the
+> only evidence that the exchange it describes was honoured. The conditions below are marked with
+> what became of each rather than removed.
+>
+> **What this closes, and what it does not.** It closes [Q-106](../open-questions.md), whose whole
+> weight was that the licence changed what reading was permitted — there is no more reading.
+> It does **not** retroactively change anything already derived: past derivations are disclosed
+> where they were taken, [ADR-032](ADR-032-the-product-is-named-graticula.md) §5's anonymisation
+> still holds, and the rule that the checkout's own name and `LICENSE` may never be cited is now
+> academic rather than relaxed.
 
 ## 1. Context
 
@@ -273,6 +296,8 @@ first revisit trigger is written the way it is.
    against. [Q-136](../open-questions.md) counted ADR-030's three among the thirteen
    conditions that are standing rules rather than tasks, and left how the register should
    hold them to the owner. That question is unfinished; this practice is not.
+
+   ***DISCHARGED 2026-09-09 by the practice ending, and it was audited before it ended.*** A same-day audit found every derivation disclosed where it was taken — ADR-033 §4 dated to its read, ADR-020 §5c naming this condition by number, ADR-041 §4 stating how deep the read went (*file names only; no rendering source was opened*), ADR-009 §2.1 over a public description — and, harder, the **negative** disclosures that show the question was asked before the text rather than after it: ADR-015 §5a's *no part of this decision was derived from reading its source* and ADR-058 §4's *nothing was read from the reference checkout*. It reached production, in `ColourSpace.cs` and `Graticula.Api.Wms.csproj`. **No further ADR can incur this condition**, because there is nothing left to read. The limit stands as it always did and is the reason this is *discharged* rather than *proved*: disclosures can be counted, an **un**disclosed derivation cannot be found from inside the repository.
 2. **Reading log.** Reads are recorded in
    [reference-reading-log.md](../research/reference-reading-log.md): what was
    read, what was taken, and where it was written down. A read with no
@@ -290,6 +315,8 @@ first revisit trigger is written the way it is.
    when the obligation moved. **The rule itself survives and is unchanged** — a read
    with no entry is still a process failure — and what is owed is one sentence in this
    condition saying *where* the log now lives, which is the owner's to give.
+
+   ***(Deferred 2026-09-09 with the decision it is a condition on.)*** It was already unmeetable — the 22 entries were removed from every commit on 2026-08-25 by owner decision (`816c26d`) and kept outside the repository, so the file has been a placeholder since. It is now also **moot**: no read has happened since the log left, verified against every dated read after that day, and none can happen again. Marked rather than discharged because nothing was met — the condition simply stopped having a subject, which is [CLAUDE.md](../../CLAUDE.md) §2's third state.
 3. **Standards before source.** Where a behaviour is specified publicly — the
    ArcGIS REST API documentation, an OGC specification — that specification is
    the citation. The reference may confirm a reading of a spec; it may not become
@@ -333,3 +360,6 @@ first revisit trigger is written the way it is.
    without the attribution until it was added on 2026-09-09, and until then a reader of
    ADR-031 alone could not tell which reference was meant. A disclosure a reader cannot
    resolve is not one, so that is a condition 1 defect found by auditing condition 3.
+
+
+   ***DISCHARGED 2026-09-09 by the practice ending, audited the same day.*** Nothing in the repository cites the reference where a public specification exists, checked where it would fail first: `FeatureServerMetadataWriter` cites Esri's published REST specification, `OgcNames` the `opengis.net` conformance URIs, `WfsEndpoints` RFC 7946, `ColourSpace` IEC 61966-2-1 and CIE 15 — and the argument is made out loud in four registers. Where the reference **is** cited it is for things no specification defines: a dependency choice, console design rules, a symbology model's shape, and one authorization rule cited *in order to decline it*. **No further citation can be made**, so the condition closes on a period that ended rather than on a promise.
