@@ -73,9 +73,17 @@ internal static class CompositionPreview
     /// bit — <c>X-Graticula-Sampled</c>, and the sentence over the map names the layers.
     /// </para>
     /// <para>
-    /// <b>The number itself is still a guess</b>, which is condition 6 and is not this one. It
+    /// ~~<b>The number itself is still a guess</b>, which is condition 6 and is not this one. It
     /// was picked for feel: nobody has measured where a preview stops being instant, or whether
-    /// the bound should be rows or vertices.
+    /// the bound should be rows or vertices.~~
+    /// <b>Measured 2026-09-08 and this comment was a day behind it — corrected 2026-09-09.</b>
+    /// [benchmarks/publish-scale](../../../benchmarks/publish-scale/RESULTS.md) discharged
+    /// ADR-057 condition 6: 4,000 simple polygons draw in 61 ms and 1,000 complex ones take
+    /// 291 ms, so the cost follows vertices rather than rows — and a 16,000-row table capped to
+    /// 4,000 drawn costs 1,113 ms against a 4,000-row table's 716 ms, because the `LIMIT` bounds
+    /// what is *returned* and not what PostGIS reads and simplifies. **So the answer to *rows or
+    /// vertices* is vertices, and the open part is that a `LIMIT` cannot express it** —
+    /// [Q-148](../../../docs/open-questions.md).
     /// </para>
     /// </remarks>
     private const int PreviewRecordCeiling = 4000;

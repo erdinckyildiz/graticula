@@ -44,10 +44,18 @@ public static class OgcDocuments
         return Write(json =>
         {
             json.WriteString("title", "Graticula");
+            // <b>Not "read-only" — this document said so until 2026-09-09 while four write
+            // verbs were mapped on the same surface.</b> ADR-042 §5b added writing by owner
+            // decision (Q-44) on 2026-08-25 and this sentence, which is served to every
+            // client that opens the landing page, went on denying it. What a given caller
+            // may actually do is decided per layer by sharing and capabilities, so the
+            // description says what the surface offers rather than promising either.
             json.WriteString(
                 "description",
-                "Features from this server's published layers, read-only. The same layers are "
-                + "served through WFS 2.0, WMS 1.3.0 and the ArcGIS REST API.");
+                "Features from this server's published layers. Reading is open to whoever the "
+                + "layer is shared with; writing is available where the layer and the caller's "
+                + "privileges both allow it. The same layers are served through WFS 2.0, "
+                + "WMS 1.3.0 and the ArcGIS REST API.");
 
             WriteLinks(json,
             [

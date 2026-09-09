@@ -67,8 +67,14 @@ public static class OgcNames
     /// <para>
     /// <b>What is absent and why:</b> Part 3's <c>filter</c> and CQL2 classes, which
     /// are a query language rather than a parameter, and Part 4's transaction
-    /// classes, which this read-only surface has nothing to say about.
+    /// classes ~~, which this read-only surface has nothing to say about~~.
     /// [ADR-042](../../../docs/adr/ADR-042-ogc-api-features.md) §5.
+    /// <b>The reason for the second was corrected 2026-09-09: the surface is not
+    /// read-only.</b> ADR-042 §5b added writing on 2026-08-25 and this remark kept the
+    /// old justification. Part 4 stays unadvertised for the reason v1-scope gives —
+    /// <i>no Part 4 conformance class is advertised until somebody checks the surface
+    /// against the specification</i> — which is a claim withheld deliberately rather
+    /// than a capability that is missing. The omission was right; the reason was not.
     /// </para>
     /// </remarks>
     public static readonly string[] ConformsTo =
