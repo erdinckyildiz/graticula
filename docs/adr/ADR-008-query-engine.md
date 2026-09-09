@@ -418,6 +418,19 @@ unsupported operation is honest. Quietly returning a *different answer* on a
 different provider is not, and no capability report catches it, because every
 engine claims to support `intersects`.
 
+**Answered for the two engines v1 has, and still owed by the four it does not —
+[Q-20](../open-questions.md), closed 2026-09-09.** The paragraph above is a cost of the
+six-provider product these decisions would create, and it stays here because that is
+what this section is about. What is no longer open is the part v1 can reach: PostGIS's
+GEOS and NetTopologySuite agree on **1,134 comparisons** — 27 cases, 14 comparisons,
+three orders of coordinate magnitude — and the agreement is held by a test that fails the
+build rather than by this paragraph's intention. The one metric predicate, `st_dwithin`,
+is bounded instead of exact at 1×10⁻⁷ relative, and the one topological divergence is a
+refusal on an empty geometry that a shared reader rejects before either engine sees it.
+**So the risk named here is real and is a property of the deferred providers**, not of
+what is shipped — and whichever decision brings the first of them in inherits this
+paragraph together with the oracle that would have to be extended.
+
 ### Amendment, 2026-08-12 — Q-67: tiles come only from hosted data
 
 **Owner decision, taken after run 3 rather than before it.** Vector tiles are
