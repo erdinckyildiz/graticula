@@ -130,8 +130,34 @@ internal sealed record HostSettings(
     // failure: the built-in list is the floor, and the mechanism is the durable part.
     IReadOnlySet<string> CommonPasswords,
     string? CommonPasswordFile = null,
-    IReadOnlyList<string>? LegacyKeys = null)
+    IReadOnlyList<string>? LegacyKeys = null,
+
+    // <b>How much geometry one layer of a composition preview may read, and it is a bound on
+    // the layer rather than on the picture.</b> [Q-148](../../docs/open-questions.md): the
+    // preview's ceiling counts rows, and rows are not what a drawing costs — holding the row
+    // count fixed and going from 5 vertices a feature to 500 multiplies the time by ten. The
+    // worst layer in the measured corpus, 16,000 rows of 501 vertices, drew in 1,287 ms with the
+    // 4,000-row ceiling doing nothing about it.
+    //
+    // <b>2 MB, and the number is where the dense case stops being slow rather than where it
+    // stops being visible.</b> At this budget that layer draws in 82 ms, every dense layer in
+    // the corpus lands in 67–82 ms whatever its row count, and no simple layer moves at all
+    // because the row ceiling still binds first — a 16,000-row 5-vertex layer draws in 24.1 ms
+    // either way. Raising it buys back features on dense layers linearly and costs time
+    // linearly, which is the trade to state rather than to bury.
+    //
+    // <b>What it does not do.</b> It bounds a layer. Fifty layers each held to 2 MB is still
+    // about 3.7 s of database time by arithmetic from the same measurements — against roughly
+    // 64 s ungated, which is the size of what it does buy.
+    //
+    // <b>Zero disables it</b>, which is the behaviour of every build before this one, so a
+    // deployment that would rather wait than see part of a layer can say so.
+    //
+    // <b>On the end and optional, because every caller predates it</b> — the convention this
+    // file's neighbours already follow when a parameter is added.
+    long PreviewGeometryBudgetBytes = CompositionPreview.DefaultGeometryBudgetBytes)
 {
+
     /// <summary>
     /// Where the map SDK comes from unless a deployment says otherwise.
     /// </summary>
@@ -486,7 +512,16 @@ internal sealed record HostSettings(
 
             // What this start read under the former name, for the warning that tells the
             // operator which keys to move. Empty on a deployment configured as Graticula.
-            keys.Legacy);
+            keys.Legacy,
+
+            // <b>In megabytes on the wire and bytes in the record, like the two budgets
+            // above.</b> An operator writes 2 and means two megabytes; nothing that reads
+            // this should have to multiply. Negative is clamped to zero, which is *off* —
+            // a mistyped minus sign must not become a budget of one byte, which would draw
+            // one feature of every layer and look like a broken preview.
+            Math.Max(0, keys.Value(
+                "PreviewGeometryBudgetMB",
+                CompositionPreview.DefaultGeometryBudgetBytes / (1024 * 1024))) * 1024 * 1024);
     }
 
     /// <summary>

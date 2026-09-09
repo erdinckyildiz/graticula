@@ -38,7 +38,7 @@ internal sealed class BudgetedFeatureSource(
     // <b>On the end and optional, because every caller predates it.</b> A source constructed
     // without one is never quiesced, which is what every path that does not go through
     // `LayerConnections` wants — ADR-059 is about the request path against a registered database.
-    SourceQuiesce? quiesce = null) : IFeatureSource, IFeatureVersions
+    SourceQuiesce? quiesce = null) : IFeatureSource, IFeatureVersions, IGeometryStatistics
 {
     /// <summary>
     /// Refuses at once when this source failed a moment ago, and reports what happens.
@@ -244,6 +244,30 @@ internal sealed class BudgetedFeatureSource(
                         await budget.EnterAsync(source, token).ConfigureAwait(false);
 
                     return await versions.VersionOfAsync(identity, token).ConfigureAwait(false);
+                },
+                cancellationToken).AsTask();
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Through the budget like every other read, for the reason <see cref="VersionOfAsync"/>
+    /// gives.</b> Asking the planner what it knows is a round trip to the same database, and a
+    /// round trip outside the bound is the shape [D-196](../../docs/architecture-debt.md)
+    /// records: work that takes a connection while nothing counts it. It is a cheap round trip —
+    /// 0.72 ms measured — which is an argument for it being unnoticed, not for it being exempt.
+    ///
+    /// <b>A source that keeps no statistics answers null rather than throwing</b>, which is what
+    /// its caller already has to handle: a table nobody has analysed answers null too.
+    /// </remarks>
+    public Task<GeometryWidth?> GeometryWidthAsync(CancellationToken cancellationToken) =>
+        inner is not IGeometryStatistics statistics
+            ? Task.FromResult<GeometryWidth?>(null)
+            : GuardedAsync(
+                async token =>
+                {
+                    using ConnectionBudget.Lease lease =
+                        await budget.EnterAsync(source, token).ConfigureAwait(false);
+
+                    return await statistics.GeometryWidthAsync(token).ConfigureAwait(false);
                 },
                 cancellationToken).AsTask();
 

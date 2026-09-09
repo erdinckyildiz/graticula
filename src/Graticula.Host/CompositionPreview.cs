@@ -79,11 +79,16 @@ internal static class CompositionPreview
     /// <b>Measured 2026-09-08 and this comment was a day behind it — corrected 2026-09-09.</b>
     /// [benchmarks/publish-scale](../../../benchmarks/publish-scale/RESULTS.md) discharged
     /// ADR-057 condition 6: 4,000 simple polygons draw in 61 ms and 1,000 complex ones take
-    /// 291 ms, so the cost follows vertices rather than rows — and a 16,000-row table capped to
-    /// 4,000 drawn costs 1,113 ms against a 4,000-row table's 716 ms, because the `LIMIT` bounds
-    /// what is *returned* and not what PostGIS reads and simplifies. **So the answer to *rows or
-    /// vertices* is vertices, and the open part is that a `LIMIT` cannot express it** —
-    /// [Q-148](../../../docs/open-questions.md).
+    /// 291 ms, so the cost follows vertices rather than rows.
+    /// </para>
+    /// <para>
+    /// <b>So this number is no longer the only bound, and by itself it never bounded the case
+    /// that is slow.</b> The row ceiling holds a simple layer's cost flat and does nothing for a
+    /// dense one: 16,000 rows of 500 vertices capped to 4,000 drawn still cost 1,113 ms against
+    /// a 4,000-row table's 716 ms. <see cref="RowLimit"/> is the other half —
+    /// [Q-148](../../../docs/open-questions.md) answered 2026-09-09 — and it lowers this number
+    /// per layer, from the width the database already knows its geometries to have. Where the two
+    /// disagree the smaller wins, so a simple layer is drawn exactly as it was.
     /// </para>
     /// </remarks>
     private const int PreviewRecordCeiling = 4000;
@@ -473,6 +478,186 @@ internal static class CompositionPreview
     /// <summary>How many features one preview layer draws.</summary>
     public static int RecordCeiling(int serverCeiling) =>
         Math.Min(PreviewRecordCeiling, Math.Max(1, serverCeiling));
+
+    /// <summary>How much geometry one preview layer may read when nothing says otherwise.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>2 MB, and the number is where the dense case stops being slow rather than where it
+    /// stops being visible.</b> Measured 2026-09-09 on PostgreSQL 16.4 / PostGIS 3.4.3: the worst
+    /// layer in the corpus — 16,000 rows of 501 vertices — falls from <b>1,287 ms to 82 ms</b>,
+    /// every dense layer lands in 67–82 ms whatever its row count, and no simple layer moves at
+    /// all because <see cref="PreviewRecordCeiling"/> still binds first.
+    /// </para>
+    /// <para>
+    /// <b>Written here and read by <see cref="HostSettings"/> rather than the other way
+    /// round</b>, because a record's own parameter list cannot see its own constants and two
+    /// copies of a default is how the configured default and the compiled one come to disagree.
+    /// </para>
+    /// </remarks>
+    public const long DefaultGeometryBudgetBytes = 2L * 1024 * 1024;
+
+    /// <summary>
+    /// How many features of one layer to draw, given how wide its geometries are.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[Q-148](../../docs/open-questions.md), answered by measurement on 2026-09-09.</b> The
+    /// preview's cost is in vertices and its only bound counted rows, so the layer that needed
+    /// bounding was the one the bound did nothing about: 16,000 rows of 501 vertices drew in
+    /// <b>1,287 ms</b> with the 4,000-row ceiling applied. The rule is
+    /// <c>min(ceiling, budget ÷ width)</c>, and at a 2 MB budget that layer draws in
+    /// <b>82 ms</b> — every dense layer in the corpus lands in 67–82 ms whatever its row count.
+    /// </para>
+    /// <para>
+    /// <b>Simple layers do not move, which is the property that makes this safe to apply
+    /// everywhere.</b> A 5-vertex polygon is 136 bytes, so 2 MB is fifteen thousand of them and
+    /// the row ceiling binds first: a 16,000-row 5-vertex layer draws in 24.1 ms with the budget
+    /// and 24.1 ms without it.
+    /// </para>
+    /// <para>
+    /// <b>No statistic means the ceiling, and it must never mean a refusal.</b> A table that has
+    /// had neither <c>CREATE INDEX</c> nor <c>ANALYZE</c> reports a row count of −1 and no width
+    /// at all — and that is exactly the freshly imported layer somebody is most likely to be
+    /// previewing. Guessing a width for it would bound the one layer nothing is known about by
+    /// a number nothing supports; drawing it as this server always did is the honest answer, and
+    /// the ceiling above is still a bound.
+    /// </para>
+    /// <para>
+    /// <b>What this gate cannot do, stated here rather than discovered later.</b> A table-level
+    /// average describes the table and not the draw. Two 16,000-row tables holding the same 160
+    /// giant polygons, with statistics identical to the byte, drew in <b>139.9 ms and 23.9 ms</b>
+    /// — because the query reads a particular 4,000 rows in identity order and one table happens
+    /// to keep its giants inside that window. On the clustered one a 2 MB budget withheld
+    /// <b>1,861 features that were free</b>. That is a false refusal and it is the price of the
+    /// gate rather than a defect in it, which is why the drawing says when the bound bit.
+    /// </para>
+    /// <para>
+    /// <b>At least one feature, never zero.</b> A layer whose average geometry is larger than the
+    /// whole budget would otherwise be drawn as nothing, which on screen is indistinguishable
+    /// from an empty table — and one feature plus the notice is a truthful picture where a blank
+    /// one is not.
+    /// </para>
+    /// </remarks>
+    /// <param name="ceiling">The row ceiling this preview would use.</param>
+    /// <param name="budgetBytes">How much geometry one layer may read. Zero or less is off.</param>
+    /// <param name="width">What the source knows about its geometries, or null for nothing.</param>
+    /// <returns>The most features to draw, between one and <paramref name="ceiling"/>.</returns>
+    public static int RowLimit(int ceiling, long budgetBytes, GeometryWidth? width)
+    {
+        int bound = Math.Max(1, ceiling);
+
+        if (budgetBytes <= 0 || width?.PerFeatureBytes is not { } bytes || bytes <= 0)
+        {
+            return bound;
+        }
+
+        long allowed = budgetBytes / bytes;
+
+        return allowed >= bound ? bound : (int)Math.Max(1, allowed);
+    }
+
+    /// <summary>
+    /// Draws the layers of a composition, each bounded by rows and by geometry.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Here rather than in the endpoint, because this is the class that owns what a preview
+    /// draws with.</b> The loop is <c>MapServerEndpoints.ExportAsync</c>'s loop with two bounds
+    /// instead of one, and the endpoint's remaining job is to read a request and write headers.
+    /// </para>
+    /// <para>
+    /// <b>One statistic lookup per layer per draw, and the arithmetic is on the record.</b> It is
+    /// 0.72 ms measured, against a preview it holds to tens of milliseconds — 1.8%. Remembering
+    /// it would save that and would go on bounding a layer by what it used to be after somebody
+    /// analysed it, which is the wrong way round for a screen whose whole purpose is to show what
+    /// is there now.
+    /// </para>
+    /// <para>
+    /// <b>A statistic that cannot be read is not a reason to refuse a picture.</b> The same
+    /// judgement <see cref="ExtentAsync"/> makes one method up: the preview's job is to show what
+    /// can be shown. If the database is genuinely unreachable the draw on the next line says so.
+    /// </para>
+    /// <para>
+    /// <b>At the limit, not over it.</b> A layer with exactly as many features as its limit is
+    /// reported as sampled too. That is a false positive of one and it is the safe direction —
+    /// the sentence the screen shows says <i>this may be part of it</i>, which is true either
+    /// way, rather than promising a completeness nothing here can check without a second count
+    /// query per layer.
+    /// </para>
+    /// </remarks>
+    /// <param name="contexts">The feature sources and their described shapes.</param>
+    /// <param name="renderer">What to draw into.</param>
+    /// <param name="transform">Map units to pixels.</param>
+    /// <param name="layers">The layers, bottom-first.</param>
+    /// <param name="srid">The reference the picture is drawn in.</param>
+    /// <param name="ceiling">The row ceiling every layer shares.</param>
+    /// <param name="budgetBytes">How much geometry one layer may read. Zero or less is off.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The names of the layers whose drawing reached the bound, in draw order.</returns>
+    public static async Task<List<string>> DrawAsync(
+        ServiceContexts contexts,
+        MapRenderer renderer,
+        PixelTransform transform,
+        IReadOnlyList<PublishedLayer> layers,
+        int srid,
+        int ceiling,
+        long budgetBytes,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(contexts);
+        ArgumentNullException.ThrowIfNull(renderer);
+        ArgumentNullException.ThrowIfNull(layers);
+
+        List<string> sampled = [];
+
+        foreach (PublishedLayer layer in layers)
+        {
+            int limit = RowLimit(
+                ceiling,
+                budgetBytes,
+                await WidthAsync(contexts, layer, cancellation).ConfigureAwait(false));
+
+            int drawn = await WmsEndpoints
+                .DrawLayerAsync(
+                    contexts, renderer, transform, layer, srid, null, limit, cancellation)
+                .ConfigureAwait(false);
+
+            if (drawn >= limit)
+            {
+                sampled.Add(layer.Definition.Name);
+            }
+        }
+
+        return sampled;
+    }
+
+    /// <summary>
+    /// What the layer's source knows about the size of its geometries, or nothing.
+    /// </summary>
+    /// <param name="contexts">Where the source comes from.</param>
+    /// <param name="layer">The layer.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The statistic, or null when there is none or it could not be read.</returns>
+    private static async Task<GeometryWidth?> WidthAsync(
+        ServiceContexts contexts, PublishedLayer layer, CancellationToken cancellation)
+    {
+        try
+        {
+            (IFeatureSource source, _) =
+                await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+            // <b>A source that keeps no statistics is not an error.</b> Only PostGIS answers
+            // this today, and a preview that demanded it would be deciding for providers that
+            // do not exist yet — the same reasoning `IFeatureVersions` is written with.
+            return source is IGeometryStatistics statistics
+                ? await statistics.GeometryWidthAsync(cancellation).ConfigureAwait(false)
+                : null;
+        }
+        catch (Exception failure) when (failure is not OperationCanceledException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>
     /// A little air around the data, so the outermost feature is not on the frame.

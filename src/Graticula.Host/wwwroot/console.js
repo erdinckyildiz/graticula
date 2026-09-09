@@ -10040,10 +10040,10 @@ function showLayer(name, page, pending = null) {
               <div class="dochead"><span class="tag">CIM</span>
                 <span id="symState">Reading…</span></div>
               <textarea id="symDoc" spellcheck="false"
-                placeholder="A MapLibre style, or an Esri drawingInfo pasted straight from ArcGIS. Both are accepted; a drawingInfo is converted on the way in and you are told what the conversion cost."></textarea>
-              <div class="docfoot"><span>Paste a MapLibre style or an Esri
-                <span class="mono">drawingInfo</span> here as well — both are converted on the way
-                in, and the conversion's cost is reported under ArcGIS.</span>
+                placeholder="A CIM renderer, a MapLibre style, or an Esri drawingInfo pasted straight from ArcGIS. All three are accepted; CIM is what is stored, the other two are converted on the way in and you are told what the conversion cost."></textarea>
+              <div class="docfoot"><span>Paste a CIM renderer, a MapLibre style or an Esri
+                <span class="mono">drawingInfo</span> here as well — the last two are converted on the
+                way in, and the conversion's cost is reported under ArcGIS.</span>
                 <button class="tiny" data-symbology="${h(name)}">Fetch current</button></div>
             </div>
           </div>
@@ -11322,9 +11322,15 @@ async function pubShoot(force) {
       <b>A drawing that is part of a layer says so — ADR-057 condition 7.</b> The preview reads
       at most a few thousand features of each layer, and where that bites the picture looks
       exactly like the whole thing: an operator judging a composition by eye would be judging a
-      sample and have no way to know it. The server names which layers reached the ceiling and
-      what the ceiling is, so this sentence carries both rather than hard-coding a number that
-      would go stale the first time the server's changed.
+      sample and have no way to know it. The server names which layers were cut short, and the
+      row ceiling, so this sentence carries both rather than hard-coding a number that would go
+      stale the first time the server's changed.
+
+      <b>The ceiling is not the number every layer got, and this sentence used to say it was.</b>
+      Since 2026-09-09 a layer whose geometries are large is held to a byte budget and is drawn
+      to *fewer* than the ceiling — so *reached the 4,000-feature ceiling* would have been a
+      false statement about exactly the layers most likely to be named here. The ceiling is
+      reported as what it is: the most any layer may draw.
 
       <b>Percent-decoded, because a layer's name is whatever somebody typed.</b> A header value
       is ASCII and `su hattı` is an ordinary name.
@@ -11337,9 +11343,11 @@ async function pubShoot(force) {
     note(sampled.length === 0
       ? ""
       : `${sampled.length === 1 ? "" : `${num(sampled.length)} layers — `}`
-        + `${sampled.join(", ")} reached the preview's `
-        + `${ceiling ? num(ceiling) + "-feature " : ""}ceiling, so what is drawn may be part of `
-        + `${sampled.length === 1 ? "it" : "them"}. The published service is not limited by it.`);
+        + `${sampled.join(", ")} reached the preview's bound, so what is drawn may be part of `
+        + `${sampled.length === 1 ? "it" : "them"}. A preview draws `
+        + `${ceiling ? "at most " + num(ceiling) + " features" : "a bounded number of features"}`
+        + ` of a layer, and fewer where the geometry is large. The published service is not `
+        + `limited by either.`);
 
     // <b>The first drawing decides where the map looks; after that the operator does.</b>
     // Fitting fires `moveend`, which redraws at the frame that was fitted — so the picture
@@ -16277,7 +16285,7 @@ async function handleClick(event) {
     const body = $("symDoc").value.trim();
 
     if (!body) {
-      toast("Paste a MapLibre style or an Esri drawingInfo first.");
+      toast("Paste a CIM renderer, a MapLibre style or an Esri drawingInfo first.");
       return;
     }
 

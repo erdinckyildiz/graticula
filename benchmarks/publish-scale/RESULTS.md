@@ -115,10 +115,29 @@ ceiling on the row count is a bound on the cheaper variable.
 **The ceiling does what it was built to do, and only that.** The 8,000- and
 16,000-row rows are where it bites, and at 5 and 50 vertices they cost the same
 as 4,000 — the bound holds. At 500 vertices it does not: 16,000 rows capped to
-4,000 drawn still takes **1,113 ms** against 4,000 rows' 716 ms, because the
-`LIMIT` bounds what is *returned* and not what the database *reads and
-simplifies*. The work the preview pays for happens in PostGIS before the ceiling
-applies.
+4,000 drawn still takes **1,113 ms** against 4,000 rows' 716 ms.
+
+> **Corrected 2026-09-09 — the observation above stands and the reason given for
+> it was wrong.** This paragraph said the gap was there *because the `LIMIT`
+> bounds what is returned and not what the database reads and simplifies*, and
+> that the work happens in PostGIS before the ceiling applies. The plans say
+> otherwise. `r16000_v500` at `limit 4000` is an `Index Scan using
+> r16000_v500_pkey` with `Buffers: shared hit=4012` — **4,012 buffers for 4,000
+> rows, so it read 4,000 and not 16,000.** The `LIMIT` does bound the read.
+>
+> **It is a plan flip.** `r4000_v500` at the same limit is a `Gather Merge →
+> Parallel Seq Scan → Sort` with two workers: under the ceiling the planner reads
+> the whole small table in parallel and *three cores* simplify. Over it, the
+> `LIMIT` looks selective on the identity index `PostGisFeatureSource.
+> AppendOrderAndPaging` is obliged to order by, so it takes a single-threaded
+> index scan and *one core* does the same 4,000 simplifications. With
+> `max_parallel_workers_per_gather = 0` the difference disappears — the three
+> v500 tables cost **1,102 / 1,151 / 1,175 ms** whatever their row count.
+>
+> **The correction matters rather than tidying.** *A `LIMIT` cannot express a
+> vertex bound* was the reason [Q-148](../../docs/open-questions.md) was a
+> question rather than a task. It can: a row limit divided out of a measured
+> per-feature width **is** a vertex bound, and that is what the preview now does.
 
 **Where the cost is spent, since the answer is not the wire.** The response is
 21–22 KB at 4,000 rows regardless of vertex count — simplification to one pixel

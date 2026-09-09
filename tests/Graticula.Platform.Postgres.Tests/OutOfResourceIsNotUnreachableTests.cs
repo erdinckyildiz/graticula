@@ -23,23 +23,35 @@ namespace Graticula.Platform.Postgres.Tests;
 /// <b>This test exists because the repair could have been dead code.</b> The four states are
 /// raised at different moments — <c>53100</c> while a statement runs, <c>53300</c> during
 /// connection startup, before any command exists — and a startup failure could plausibly
-/// reach this server as a transport error with no <c>SQLSTATE</c> at all, in which case an arm
-/// keyed on the state would never fire. So the reachable one is measured rather than assumed:
-/// <c>53300</c> is inducible without touching the server's configuration, because a database
-/// carries its own <c>CONNECTION LIMIT</c>.
+/// reach this server as a transport error with no <c>SQLSTATE</c> at all, in which case an
+/// arm keyed on the state would never fire. So the one that is inducible is measured rather
+/// than assumed.
 /// </para>
 /// <para>
-/// <b>Why a role and not the configured user.</b> A connection limit does not apply to a
-/// superuser, and the account these tests run as is one — the first attempt at this
-/// measurement connected straight through a limit of zero and proved nothing.
+/// <b>A role's connection limit, not a database's, and the first version of this test used
+/// the database.</b> Creating a database with <c>CONNECTION LIMIT 0</c> works and costs
+/// nineteen seconds — <c>CREATE DATABASE</c> copies a template, <c>DROP</c> waits for it —
+/// and it failed inside the full suite while passing alone, which is the shape
+/// <c>QuietDatabaseTests</c> exists to warn about. <c>ALTER ROLE … CONNECTION LIMIT 0</c>
+/// raises the same <c>53300</c> in under half a second, creates nothing, and touches no
+/// database any other test is using.
+/// </para>
+/// <para>
+/// <b>And it must be a role that is not a superuser.</b> A connection limit does not apply to
+/// one, and the first attempt at this measurement connected straight through a limit of zero
+/// and proved nothing — the account this suite runs as is a superuser.
 /// </para>
 /// </remarks>
+[Trait("Category", "Integration")]
 public sealed class OutOfResourceIsNotUnreachableTests
 {
     private const string ConnectionVariable = "GRATICULA_TEST_PG";
 
-    private const string Database = "graticula_out_of_resource_probe";
-    private const string Role = "graticula_out_of_resource_role";
+    /// <summary>
+    /// Named for the test rather than for a person, so nobody mistakes it for a real account.
+    /// </summary>
+    private const string Role = "graticula_out_of_resource_probe";
+
     private const string Password = "probe";
 
     /// <summary>
@@ -54,25 +66,21 @@ public sealed class OutOfResourceIsNotUnreachableTests
             string.IsNullOrWhiteSpace(configured),
             $"{ConnectionVariable} is not set, so this test FAILS rather than skips.");
 
-        NpgsqlConnectionStringBuilder admin = new(configured) { Database = "postgres" };
-
-        await using NpgsqlDataSource maintenance = NpgsqlDataSource.Create(admin.ConnectionString);
+        await using NpgsqlDataSource maintenance = NpgsqlDataSource.Create(configured!);
 
         await DropAsync(maintenance);
 
         try
         {
-            // A database of its own, so nothing else in the suite can be locked out by this.
-            await ExecuteAsync(maintenance, $"create database {Database}");
+            // <b>No grant, because `PUBLIC` already has `CONNECT`.</b> Granting it would mean
+            // revoking it before the role can be dropped, and a cleanup with a step in it is
+            // a cleanup that half-runs.
             await ExecuteAsync(
-                maintenance, $"create role {Role} login password '{Password}'");
-            await ExecuteAsync(
-                maintenance, $"grant connect on database {Database} to {Role}");
-            await ExecuteAsync(maintenance, $"alter database {Database} connection limit 0");
+                maintenance,
+                $"create role {Role} login password '{Password}' connection limit 0");
 
             NpgsqlConnectionStringBuilder limited = new(configured)
             {
-                Database = Database,
                 Username = Role,
                 Password = Password,
             };
@@ -92,11 +100,8 @@ public sealed class OutOfResourceIsNotUnreachableTests
         }
     }
 
-    private static async Task DropAsync(NpgsqlDataSource maintenance)
-    {
-        await ExecuteAsync(maintenance, $"drop database if exists {Database} with (force)");
-        await ExecuteAsync(maintenance, $"drop role if exists {Role}");
-    }
+    private static Task DropAsync(NpgsqlDataSource maintenance) =>
+        ExecuteAsync(maintenance, $"drop role if exists {Role}");
 
     private static async Task ExecuteAsync(NpgsqlDataSource source, string sql)
     {

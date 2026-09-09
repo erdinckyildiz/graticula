@@ -2180,33 +2180,26 @@ internal static class AdminEndpoints
         renderer.Clear(Rgba.Transparent);
 
         /*
-          <b>Which layers reached the ceiling — ADR-057 condition 7.</b> The preview draws at
-          most `RecordCeiling` features of each layer, and until 2026-09-08 nothing said when
-          that bit: the drawing is *part of* the layer and looks exactly like all of it, so an
-          operator judged a composition on a picture that was quietly a sample. The class's own
-          comment claimed "the screen says so" while no code anywhere did.
+          <b>Which layers were drawn in part — ADR-057 condition 7.</b> The preview bounds what
+          it draws of each layer, and until 2026-09-08 nothing said when that bit: the drawing is
+          *part of* the layer and looks exactly like all of it, so an operator judged a
+          composition on a picture that was quietly a sample. The class's own comment claimed
+          "the screen says so" while no code anywhere did.
 
-          <b>At the ceiling, not over it.</b> A layer with exactly as many features as the
-          ceiling is reported too. That is a false positive of one, and it is the safe
-          direction — the sentence says *reached the ceiling, so this may be part of it*, which
-          is true either way, rather than promising a completeness nothing here can check
-          without a second count query per layer.
+          <b>Two reasons, one observable fact, and one signal.</b> Since 2026-09-09 a layer can
+          also be cut short by the geometry budget rather than by the row ceiling
+          ([Q-148](../../docs/open-questions.md)), and both mean the same thing to whoever is
+          looking at the picture: *this may be part of it*. A second header for the second reason
+          would make the screen ask which bound bit, which is a question about this server's
+          implementation and not about their composition.
         */
         int ceiling = CompositionPreview.RecordCeiling(settings.MaximumRecordCount);
-        List<string> sampled = [];
 
-        foreach (PublishedLayer layer in layers)
-        {
-            int drawn = await WmsEndpoints
-                .DrawLayerAsync(
-                    contexts, renderer, transform, layer, srid, null, ceiling, cancellation)
-                .ConfigureAwait(false);
-
-            if (drawn >= ceiling)
-            {
-                sampled.Add(layer.Definition.Name);
-            }
-        }
+        List<string> sampled = await CompositionPreview
+            .DrawAsync(
+                contexts, renderer, transform, layers, srid, ceiling,
+                settings.PreviewGeometryBudgetBytes, cancellation)
+            .ConfigureAwait(false);
 
         renderer.FinishLabels();
 
@@ -2225,6 +2218,11 @@ internal static class AdminEndpoints
         // <b>The ceiling always, so a screen can name the number rather than hard-code it.</b>
         // A console with 4,000 written into it would go on saying 4,000 after the server's
         // limit changed, which is the class of drift this repository keeps finding.
+        //
+        // <b>It is the row ceiling and not the limit any one layer got.</b> Since the geometry
+        // budget arrived a dense layer is drawn to fewer than this, so the number here is *the
+        // most a layer may draw* rather than *what these layers drew* — and the sentence the
+        // console builds from it says exactly that much and no more.
         context.Response.Headers["X-Graticula-Ceiling"] =
             ceiling.ToString(CultureInfo.InvariantCulture);
 
@@ -3629,11 +3627,13 @@ internal static class AdminEndpoints
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>ADR-033 §5a: the body may be a MapLibre style or an Esri
-    /// <c>drawingInfo</c>.</b> The two are told apart by what they carry rather than
-    /// by a flag, so nobody has to declare which they pasted — and a
-    /// <c>drawingInfo</c> is converted on the way in, which is the whole of the
-    /// migration promise this endpoint exists to make.
+    /// <b>ADR-052 §3.1: the body may be a CIM renderer, a MapLibre style or an Esri
+    /// <c>drawingInfo</c>.</b> The three are told apart by disjoint root keys rather
+    /// than by a flag, so nobody has to declare which they pasted — and the two that
+    /// are not canonical are converted on the way in, which is the whole of the
+    /// migration promise this endpoint exists to make. <b>This said <i>the two</i>
+    /// until 2026-09-09</b>, six days after ADR-052 made CIM the stored vocabulary and
+    /// this endpoint started reading it first.
     /// </para>
     /// <para>
     /// <b>The losses are in the response, and that is §7's second condition.</b> A
@@ -3709,7 +3709,8 @@ internal static class AdminEndpoints
         {
             await Refuse(
                 context, 400,
-                "The body is empty. Send a MapLibre style or an Esri drawingInfo, or DELETE this "
+                "The body is empty. Send a CIM renderer, a MapLibre style or an Esri drawingInfo, "
+                    + "or DELETE this "
                 + "resource to go back to the generated appearance.").ConfigureAwait(false);
 
             return;
