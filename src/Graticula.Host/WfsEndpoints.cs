@@ -380,7 +380,13 @@ internal static class WfsEndpoints
             layer.GeometryType,
             layer.Definition.GeometryColumn,
             fields,
-            extent);
+            extent,
+
+            // <b>Set at every one of the three places this record is built, not only at the
+            // one that writes DefaultCRS.</b> A record half-filled on the paths nobody
+            // checked is D-179's shape, and it is the reason this face and WMS both had to
+            // be repaired on the same day.
+            Published: layer.PublishedSrid);
     }
 
     private static async Task CapabilitiesAsync(
@@ -446,7 +452,8 @@ internal static class WfsEndpoints
                 layer.GeometryType,
                 layer.Definition.GeometryColumn,
                 [],
-                null)),
+                null,
+                Published: layer.PublishedSrid)),
         ];
 
         context.Response.ContentType = "text/xml; charset=utf-8";
@@ -649,7 +656,8 @@ internal static class WfsEndpoints
             layer.GeometryType,
             layer.Definition.GeometryColumn,
             described.Fields,
-            described.Extent);
+            described.Extent,
+            Published: layer.PublishedSrid);
 
         if (!TryQuery(
                 request, layer, described, resourceIds, settings,
@@ -674,18 +682,35 @@ internal static class WfsEndpoints
         // `DefaultCRS` per feature type and no `OtherCRS`, while happily and usefully
         // serving any system PostGIS knows — so the question it asks is the weaker and
         // truer one: is this a system this deployment can project into at all.
-        if (request.Srid is { } asked
-            && asked != layer.Definition.Srid
+        //
+        // <b>Asked of the reference the response will be written in, not of the parameter</b>
+        // — 2026-09-09, and the widening is caused by the change above it. A `GetFeature`
+        // with no `srsName` now answers in the service's reference (ADR-057 §5c), so a
+        // service that named a code this deployment's PROJ does not carry would hit exactly
+        // the failure this guard exists for on **every** request, with nothing in the request
+        // to blame. `PUT /admin/services/{name}/srid` checks that a code is positive and not
+        // that it is real, so the unusable value is reachable.
+        if (outputSrid != layer.Definition.Srid
             && !await context.RequestServices.GetRequiredService<IProjector>()
-                .KnowsAsync(asked, cancellation).ConfigureAwait(false))
+                .KnowsAsync(outputSrid, cancellation).ConfigureAwait(false))
         {
+            // <b>Which of the two is named matters more than the code does.</b> A client that
+            // sent nothing cannot act on advice about `srsName`; the answer it needs names the
+            // service's setting and the person who can change it.
             await RefuseAsync(
                     context,
-                    WfsFault.Invalid(
-                        "srsName",
-                        $"EPSG:{asked} is not a coordinate reference system this deployment "
-                        + "can project into. It is spelled correctly and the projection "
-                        + "database does not have it."),
+                    request.Srid is not null
+                        ? WfsFault.Invalid(
+                            "srsName",
+                            $"EPSG:{outputSrid} is not a coordinate reference system this "
+                            + "deployment can project into. It is spelled correctly and the "
+                            + "projection database does not have it.")
+                        : WfsFault.Invalid(
+                            "typeNames",
+                            $"This service is published in EPSG:{outputSrid}, which is not a "
+                            + "coordinate reference system this deployment can project into. "
+                            + "Nothing in the request is wrong; an administrator has to change "
+                            + "the service's reference, or ask for one with srsName."),
                     cancellation)
                 .ConfigureAwait(false);
 
@@ -1037,7 +1062,19 @@ internal static class WfsEndpoints
     {
         query = null;
         fault = null;
-        outputSrid = request.Srid ?? layer.Definition.Srid;
+
+        // <b>The service's reference when it named one, and the table's otherwise</b> —
+        // ADR-057 §5c, the owner on 2026-09-09: *"wms ve wfs map'in projeksiyonunda
+        // yayınlanacak."* This is the same expression `wfs:DefaultCRS` is written from, which
+        // is the point: on this face the advertised reference *is* the default, so computing
+        // the two apart is a document and a response that agree only by accident. They did
+        // agree, by accident, until a service chose something — measured 2026-09-09 with
+        // `ci_buildings` served in 5253: the document said 3857 and a `GetFeature` with no
+        // `srsName` answered 3857.
+        //
+        // <b>Not the reprojection decision.</b> Whether the engine has to transform is asked
+        // against the table below, and stays asked against the table.
+        outputSrid = request.Srid ?? layer.PublishedSrid;
 
         if (request.Format == WfsOutputFormat.GeoJson)
         {
@@ -1062,8 +1099,15 @@ internal static class WfsEndpoints
             return false;
         }
 
+        // <b>An un-annotated `bbox` is read in the advertised reference, which is what
+        // `WfsBoundingBox`'s own remarks have always claimed it was.</b> WFS 2.0 makes the
+        // default the feature type's `DefaultCRS`, and that element now carries the service's
+        // choice — so a client that omits the fifth field gets the reference it read in the
+        // capabilities document. Left as the table's, a service published in a national grid
+        // would advertise the grid, take the client's grid numbers as Web Mercator metres and
+        // match nothing, with a 200 and an empty collection to show for it.
         if (!WfsBoundingBox.TryParse(
-                request.BoundingBox, layer.Definition.Srid,
+                request.BoundingBox, layer.PublishedSrid,
                 out SpatialFilter? box, out int boxSrid, out fault))
         {
             return false;

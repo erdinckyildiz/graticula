@@ -217,7 +217,9 @@ have had a cache, and a cache is state.
 
 4. **What is advertised and what is served are the same set.** WFS advertises **no** `OtherCRS`
    and serves any resolvable code; WMS advertises three and answers 200 for a fourth, where
-   WMS 1.3.0 §7.3.3.3 requires `InvalidCRS`. That is what turns a bounded defect into an
+   WMS 1.3.0 §7.3.3.3 requires `InvalidCRS`. (*Three became two later the same day —
+   [ADR-057](ADR-057-composing-and-publishing-a-service.md) §5c — and the sentence's point is
+   unchanged, because the fourth is still answered. See the measurement below.*) That is what turns a bounded defect into an
    unbounded one — this decision fixes the answer, and a reference nobody advertised is still a
    reference nobody agreed to serve.
 
@@ -231,8 +233,8 @@ have had a cache, and a cache is state.
    |---|---|---|---|
    | OGC API Features | `CRS84`, `EPSG/0/4326`, the storage reference and `EPSG/0/3857` — three on this fixture, where storage is one of the two | exactly those | **holds** |
    | VectorTileServer | `102100`/`3857` in `tileInfo` and in `fullExtent` | that, and there is no parameter to ask for another | **holds** |
-   | WFS | one `DefaultCRS` per feature type, **zero** `OtherCRS` | every code PROJ's register carries | **does not** |
-   | WMS 1.3.0 and 1.1.1 | `CRS:84`, `EPSG:4326`, `EPSG:3857`, plus each layer's own | every code PROJ's register carries | **does not** |
+   | WFS | one `DefaultCRS` per feature type, **zero** `OtherCRS` — ~~the table's code~~ **the service's, from later the same day** | every code PROJ's register carries | **does not** |
+   | WMS 1.3.0 and 1.1.1 | ~~`CRS:84`, `EPSG:4326`, `EPSG:3857`, plus each layer's own~~ **`CRS:84`, plus each layer's published reference — and its stored one where the layer's own `BoundingBox` is written in it, from later the same day** | every code PROJ's register carries | **does not** |
    | FeatureServer, MapServer | one `spatialReference` — its own | every code PROJ's register carries | **no set to compare** |
 
    **The two that hold, driven rather than read.** A collection served every reference it lists
@@ -277,6 +279,32 @@ have had a cache, and a cache is state.
    pointed at a code PROJ does not carry it fails both arms — *"WFS answered 400 … If that is a
    refusal, condition 4's WFS half is repaired"* — and pointed at an advertised reference the
    Features arm fails on all three paths.
+
+   **The two *advertises* cells are struck rather than rewritten, because the measurement above
+   is dated and the change came after it.**
+   [ADR-057](ADR-057-composing-and-publishing-a-service.md) §5c, by owner decision later on
+   2026-09-09, made both map faces advertise the reference the *service* names rather than the one
+   its table happens to hold: WFS's `DefaultCRS` now carries `ServedSrid ?? Definition.Srid`, and
+   WMS's root lost the fixed `EPSG:4326 · EPSG:3857 · CRS:84` in favour of `CRS:84` alone, with
+   each named layer stating what it is published in. The *serves* column is untouched, and that is
+   the point of reading the table this way round.
+
+   **Measured after the change, on the same fixture and the same layer as above.** The whole
+   1.3.0 document now carries two distinct codes — `CRS:84` and `EPSG:3857` — where it carried
+   four, and `ci_buildings` over its own extent still draws in **EPSG:5253 with 654 inked pixels
+   of 16,384** and in **EPSG:32636 with 582**, beside the advertised **EPSG:3857's 722**. WFS
+   still answers `srsName=urn:ogc:def:crs:EPSG::5253` with a document declaring exactly that
+   `srsName`.
+
+   **So this is emphatically *not* discharged, and the WMS half moved the wrong way.** The served
+   set did not lose a single code, and the advertised set on WMS got *smaller* — from four codes
+   to two — so the gap this condition names is wider on that face than it was this morning. What
+   the change bought is that the advertised set is now something somebody chose rather than a
+   constant, which is the precondition for *a chosen set, advertised and enforced on every face*
+   two paragraphs up: a deployment that names its reference is now naming the thing an
+   enforcement rule would enforce. It is a step towards the condition and not a payment of it.
+   `AdvertisedReferencesAreTheServedOnesTests` was re-measured rather than deleted, and
+   `TheMapFacesPublishWhatTheServiceChoseTests` is where the new behaviour is asserted.
 
 ## 7. Revisit triggers
 

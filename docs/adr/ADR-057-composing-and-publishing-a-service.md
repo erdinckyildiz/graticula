@@ -178,6 +178,43 @@ SRID, and WMS advertised a fixed `EPSG:4326 · EPSG:3857 · CRS:84` regardless o
 names. Both now take `ServedSrid`, which already travels beside the layer for
 [D-179](../architecture-debt.md)'s reason and needed no new plumbing.
 
+**Built 2026-09-09, and the before is worth keeping because it was invisible.** With
+`ci_buildings` set to EPSG:5253 through `PUT /admin/services/{name}/srid` and nothing else
+changed, both capabilities documents came back **byte-identical** to the ones the same server
+wrote with the service unset. After: `wfs:DefaultCRS` is `urn:ogc:def:crs:EPSG::5253` for that
+type, the WMS layer states `EPSG:5253`, and a `GetFeature` with no `srsName` answers
+`4443679.36 1000592.15` — northing first, 5253's own order, rather than metres relabelled. The
+rule is one expression, `PublishedLayer.PublishedSrid`, read by both faces rather than computed
+twice; a service whose reference is a **written definition** (§5m) falls back to the table's code
+on these two faces, because neither `wfs:DefaultCRS` nor a WMS `CRS` element has anywhere to put
+one.
+
+**WMS keeps exactly one reference nobody chose, and it is a judgement rather than a reading.**
+The root layer states `CRS:84` — `EPSG:4326` on 1.1.1, which has no `CRS:84` — and every named
+layer inherits it. Against keeping it: *published in the map's projection* is one claim, and any
+second entry is a second thing a client can pick. For keeping it: 1.3.0 §7.3.3.1 makes `CRS` a
+**required** `GetMap` parameter, so on this face there is no default at all and the advertised set
+*is* the publication — a document whose only reference is a national grid turns away every client
+that cannot look one up. This server also writes every layer's `EX_GeographicBoundingBox` in
+WGS 84 and the world box in `CRS:84`, so declining to list it would leave the document stating
+boxes in a reference it claims not to support. §7.2.4.6.7 requires *at least* one per layer and
+forbids no extra. One inherited entry is not the list the owner declined; three fixed ones were.
+
+**A layer stored somewhere else also states its stored code, and that is not a second offer.** The
+layer's own `BoundingBox` is written in the table's metres — a decision
+`EmptyLayerStillHasABoundingBoxTests` holds, on the grounds that replacing an extent with the
+world makes every document conformant and every extent useless — so the code has to be listed or
+the document states numbers in a reference it says a client may not ask for. It appears because
+the document already uses it; a service that has chosen nothing states exactly one.
+
+**One thing on the request path moved with the document, and it is the one that could have lost
+data quietly.** WFS 2.0 makes an un-annotated `bbox` mean the feature type's `DefaultCRS`, which
+`WfsBoundingBox`'s own remarks have always claimed it did. Left reading the table, a service
+published in a national grid would advertise the grid, take the client's grid numbers as Web
+Mercator metres and match nothing — a 200 with an empty collection. Measured after: the same
+un-annotated box matches **1** feature in 5253's numbers and **0** in 3857's, and reverses when
+the fifth field names 3857.
+
 **The tile face stays exempt and that is not an oversight** — a vector tile scheme is defined in
 Web Mercator, `VectorTileServerMetadataWriter` refuses any other extent, and a document whose
 `fullExtent` and `tileInfo` disagreed would make a client fetch the metadata and then no tiles
@@ -186,7 +223,17 @@ Web Mercator, `VectorTileServerMetadataWriter` refuses any other extent, and a d
 **What this does not do is close the capability.** A caller may still name another reference per
 request — `outSR` on ArcGIS, `srsName` on WFS, `crs` on WMS — and it is still honoured, which the
 owner asked about directly and which is measured: with no `srsName` a feature comes back in the
-service's reference, and `srsName=EPSG::5253` comes back in 5253. **Published in** and **capable
+service's reference, and `srsName=EPSG::5253` comes back in 5253.
+
+**That sentence was written before the code and was false for a few hours, which is worth leaving
+visible rather than tidying.** Measured on the running fixture before the change, with
+`ci_buildings` served in 5253: no `srsName` came back in **3857**, the table's. It is true as
+written from 2026-09-09; until then the *capable of* half held and the *published in* half did
+not, which is the opposite of what a reader would have taken from it. On WMS there is no default
+to be wrong about — `crs` is a required parameter — and `crs=EPSG:32636`, advertised nowhere,
+still draws: 582 inked pixels of 16,384 beside the advertised EPSG:3857's 722. That gap is
+[ADR-060](ADR-060-the-axis-order-comes-from-the-register.md) condition 4 and this decision does
+not close it. **Published in** and **capable
 of** are two different claims, and only the first is what a capabilities document is for.
 
 **Empty is still a real choice and not a missing answer** — the service then serves every layer

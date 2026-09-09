@@ -44,6 +44,16 @@ namespace Graticula.Api.Wfs;
 /// first is. Writing the layer's own numbers under a WGS 84 label is the defect
 /// this parameter exists to make impossible.
 /// </param>
+/// <param name="Published">
+/// The EPSG code its service publishes it in, or null for <paramref name="Srid"/>.
+/// <b>A third reference on a record that already carries two, and each answers a different
+/// question.</b> <paramref name="Srid"/> is where the rows are and is what a query is
+/// transformed *from*; <paramref name="Geographic"/> is WGS 84 because
+/// <c>ows:WGS84BoundingBox</c> is defined that way; this is what <c>wfs:DefaultCRS</c>
+/// claims and what a <c>GetFeature</c> with no <c>srsName</c> answers in — ADR-057 §5c, the
+/// owner on 2026-09-09: *"wms ve wfs map'in projeksiyonunda yayınlanacak."* Null is the
+/// ordinary answer and means it is the same as <paramref name="Srid"/>.
+/// </param>
 public sealed record WfsFeatureType(
     string Name,
     string Title,
@@ -53,8 +63,19 @@ public sealed record WfsFeatureType(
     string GeometryProperty,
     IReadOnlyList<FieldDescription> Fields,
     Envelope? Extent,
-    Envelope? Geographic = null)
+    Envelope? Geographic = null,
+    int? Published = null)
 {
+    /// <summary>The reference this feature type is published in.</summary>
+    /// <remarks>
+    /// <b>What the document advertises and what a query with no <c>srsName</c> answers in are
+    /// this one expression.</b> They were two — <c>DefaultCRS</c> read the table and the query
+    /// defaulted to the table, so they agreed by accident rather than by construction, and both
+    /// were wrong for a service that had named a reference. A face whose document and whose
+    /// default are computed apart is a face that drifts the first time either learns something.
+    /// </remarks>
+    public int PublishedSrid => Published ?? Srid;
+
     /// <summary>The prefix this server publishes every feature type under.</summary>
     public static string Prefix => WfsNames.Prefix;
 

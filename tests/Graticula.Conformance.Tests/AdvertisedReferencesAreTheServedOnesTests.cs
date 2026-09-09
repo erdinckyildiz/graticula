@@ -32,9 +32,19 @@ namespace Graticula.Conformance.Tests;
 /// <c>CollectionMetadata.CoordinateSystems</c> writes the document and <c>OgcRequest.TryCrs</c>
 /// refuses anything outside it — so that face cannot drift. On WFS the document writes one
 /// <c>DefaultCRS</c> per feature type and the request path asks the projector whether it knows
-/// the code at all; on WMS the document writes three and <c>WmsRequest.TrySrid</c> accepts any
-/// <c>EPSG:n</c>. Those two are not near-misses, they are unbounded: every code in PROJ's
-/// register is served by a document that named one or three.
+/// the code at all; on WMS the root states one and each named layer states what its service is
+/// published in, while <c>WmsRequest.TrySrid</c> accepts any <c>EPSG:n</c>. Those two are not
+/// near-misses, they are unbounded: every code in PROJ's register is served by a document that
+/// named one or two.
+/// </para>
+/// <para>
+/// <b>Which codes those are changed on 2026-09-09 and the gap did not</b> — ADR-057 §5c, the
+/// owner: *"wms ve wfs map'in projeksiyonunda yayınlanacak."* Both faces now advertise the
+/// reference the *service* chose rather than the one its table happens to hold, and WMS's root
+/// lost the fixed <c>EPSG:4326 · EPSG:3857 · CRS:84</c> it wrote for every deployment. That
+/// moves the advertised set and, on WMS, shrinks it; it does not narrow the served one by a
+/// single code, which is why this file was re-measured rather than deleted.
+/// <c>TheMapFacesPublishWhatTheServiceChoseTests</c> is where the new behaviour is asserted.
 /// </para>
 /// <para>
 /// <b>So this suite asserts two faces hold and pins the two that do not.</b> Asserting only the
@@ -256,6 +266,16 @@ public sealed class AdvertisedReferencesAreTheServedOnesTests : ArcGisClient
     /// <c>srsName</c>; WMS advertises <c>CRS:84</c>, <c>EPSG:4326</c> and <c>EPSG:3857</c> and
     /// draws the layer in EPSG:5253, on 1.3.0 and 1.1.1, on <c>GetMap</c> and
     /// <c>GetFeatureInfo</c> alike.
+    /// </para>
+    /// <para>
+    /// <b>Re-measured the same day, after ADR-057 §5c moved what the two documents say.</b> The
+    /// whole 1.3.0 document now carries <c>CRS:84</c> and <c>EPSG:3857</c> and nothing else —
+    /// one at the root and one per layer, because no fixture service has chosen a reference —
+    /// and <c>ci_buildings</c> over its own extent still draws in <b>EPSG:5253 with 654 inked
+    /// pixels of 16,384</b> and in <b>EPSG:32636 with 582</b>, beside the advertised
+    /// <b>EPSG:3857's 722</b>. So the advertised set went from three plus one to one plus one,
+    /// the served set is unchanged, and this arm still passes — which is the arm doing its job
+    /// rather than the gap having moved.
     /// </para>
     /// </remarks>
     [Fact]

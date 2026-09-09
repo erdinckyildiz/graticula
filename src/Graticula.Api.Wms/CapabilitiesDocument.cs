@@ -27,16 +27,39 @@ namespace Graticula.Api.Wms;
 /// </remarks>
 public static class CapabilitiesDocument
 {
-    /// <summary>Every CRS this server will draw in, whatever a layer is stored in.</summary>
+    /// <summary>
+    /// The one reference the root layer states, and so the one every layer inherits.
+    /// </summary>
     /// <remarks>
-    /// <b>Three, and the third is not a duplicate.</b> <c>CRS:84</c> is WGS 84 in
-    /// longitude/latitude order, and it exists because 1.3.0 made <c>EPSG:4326</c>
-    /// latitude first. Clients that would rather not think about axis order ask for
-    /// it by name, and a server that omits it forces them to think about it.
-    /// Reprojection is the database's (<c>ST_Transform</c>), so any code PostGIS
-    /// knows would work; these are the three worth advertising.
+    /// <para>
+    /// <b>It was a fixed three — <c>EPSG:4326</c>, <c>EPSG:3857</c>, <c>CRS:84</c> — written
+    /// on the root for every deployment, and that stopped being true on 2026-09-09.</b> The
+    /// owner: *"wms ve wfs map'in projeksiyonunda yayınlanacak"*, and separately, of a longer
+    /// list, *"listelensin istemiyorum"*. A service now names the reference it is published in
+    /// (ADR-057 §5c) and each named layer states that one; a fixed three at the root offered
+    /// two more references that had nothing to do with what any service chose.
+    /// </para>
+    /// <para>
+    /// <b>Why one survives rather than none, which is a judgement rather than a reading.</b>
+    /// 1.3.0 §7.3.3.1 makes <c>CRS</c> a required <c>GetMap</c> parameter, so on this face
+    /// there is no such thing as a default: the advertised set *is* the publication, and a
+    /// document whose only reference is a national grid turns away every client that cannot
+    /// look one up. This server also states every layer's <c>EX_GeographicBoundingBox</c> in
+    /// WGS 84 and states the world in <c>CRS:84</c> for a layer with no extent, so refusing to
+    /// list it would leave the document stating boxes in a reference it claims not to support.
+    /// §7.2.4.6.7 requires *at least* one per layer and forbids no extra, and one inherited
+    /// entry is not the list that was declined.
+    /// </para>
+    /// <para>
+    /// <b>1.1.1 gets <c>EPSG:4326</c> because it has no <c>CRS:84</c>.</b> The name arrived
+    /// with 1.3.0, to undo the axis rule 1.3.0 introduced; in 1.1.1 <c>EPSG:4326</c> is already
+    /// longitude first, so it is the same reference under the spelling that version has.
+    /// </para>
     /// </remarks>
-    public static readonly string[] CoordinateSystems = ["EPSG:4326", "EPSG:3857", "CRS:84"];
+    /// <param name="version">Which version is being written.</param>
+    /// <returns>The code.</returns>
+    public static string Universal(WmsVersion version) =>
+        version == WmsVersion.V130 ? "CRS:84" : "EPSG:4326";
 
     /// <summary>The formats <c>GetFeatureInfo</c> will answer in.</summary>
     public static readonly string[] InfoFormats =
@@ -114,10 +137,7 @@ public static class CapabilitiesDocument
         writer.WriteStartElement("Layer");
         writer.WriteElementString("Title", title);
 
-        foreach (string crs in CoordinateSystems)
-        {
-            writer.WriteElementString("CRS", crs);
-        }
+        writer.WriteElementString("CRS", Universal(WmsVersion.V130));
 
         WriteGeographicBox(writer, Whole(layers), WmsVersion.V130);
 
@@ -159,10 +179,7 @@ public static class CapabilitiesDocument
         writer.WriteStartElement("Layer");
         writer.WriteElementString("Title", title);
 
-        foreach (string crs in CoordinateSystems)
-        {
-            writer.WriteElementString("SRS", crs);
-        }
+        writer.WriteElementString("SRS", Universal(WmsVersion.V111));
 
         WriteGeographicBox(writer, Whole(layers), WmsVersion.V111);
 
@@ -404,8 +421,16 @@ public static class CapabilitiesDocument
             _ => "Features",
         };
 
+        // <b>Two clauses when the two references differ, one when they do not.</b> *Held in*
+        // and *published in* are different facts (ADR-057 §5c) and the sentence a person reads
+        // in a layer picker is the wrong place to collapse them — an operator looking at
+        // metres in a document that says degrees has nothing else on this face to explain it.
         string text =
-            $"{geometry} held in EPSG:{layer.Srid.ToString(CultureInfo.InvariantCulture)}, "
+            $"{geometry} held in EPSG:{layer.Srid.ToString(CultureInfo.InvariantCulture)}"
+            + (layer.IsReprojected
+                ? ", published in EPSG:"
+                    + layer.PublishedSrid.ToString(CultureInfo.InvariantCulture) + ", "
+                : ", ")
             + "drawn with this layer's own stored symbology.";
 
         if (layer.Time is { } time && time.ExtentText.Length > 0)
@@ -445,7 +470,7 @@ public static class CapabilitiesDocument
 
         WriteKeywords(writer, KeywordsOf(layer));
 
-        writer.WriteElementString("CRS", $"EPSG:{layer.Srid.ToString(CultureInfo.InvariantCulture)}");
+        WriteLayerReferences(writer, layer, WmsVersion.V130);
 
         WriteGeographicBox(writer, layer.Geographic, WmsVersion.V130, required: true);
         WriteBoundingBox(writer, layer, WmsVersion.V130);
@@ -481,7 +506,7 @@ public static class CapabilitiesDocument
 
         WriteKeywords(writer, KeywordsOf(layer));
 
-        writer.WriteElementString("SRS", $"EPSG:{layer.Srid.ToString(CultureInfo.InvariantCulture)}");
+        WriteLayerReferences(writer, layer, WmsVersion.V111);
 
         WriteGeographicBox(writer, layer.Geographic, WmsVersion.V111, required: true);
         WriteBoundingBox(writer, layer, WmsVersion.V111);
@@ -502,6 +527,46 @@ public static class CapabilitiesDocument
 
         WriteStyle(writer, layer, endpoint, WmsVersion.V111);
         writer.WriteEndElement();
+    }
+
+    /// <summary>
+    /// The references this layer states for itself, over the one it inherits.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The first is what the service publishes this layer in</b> — ADR-057 §5c, and it used
+    /// to be the table's own code because nothing on this face read the service. For every
+    /// service that has named nothing they are the same number, which is why the difference was
+    /// invisible until one did.
+    /// </para>
+    /// <para>
+    /// <b>The second is written only when the layer's own <c>BoundingBox</c> is in a different
+    /// reference, and it is not a second offer.</b> That box is stated in the table's metres —
+    /// <c>EmptyLayerStillHasABoundingBoxTests</c> holds that decision, and it is the right one:
+    /// replacing an extent with the world makes every document conformant and every extent
+    /// useless. A box stated in a reference the layer does not list is a box a client can read
+    /// and may not ask in, which is the document disagreeing with itself rather than with the
+    /// server. So the code appears because the document already uses it, and a service that has
+    /// chosen nothing still states exactly one.
+    /// </para>
+    /// <para>
+    /// <b>Neither of them is <c>CRS</c> in 1.1.1</b>, where the element is <c>SRS</c> and the
+    /// axis rule that makes 1.3.0 delicate does not exist.
+    /// </para>
+    /// </remarks>
+    private static void WriteLayerReferences(
+        XmlWriter writer, WmsLayer layer, WmsVersion version)
+    {
+        string element = version == WmsVersion.V130 ? "CRS" : "SRS";
+
+        writer.WriteElementString(
+            element, $"EPSG:{layer.PublishedSrid.ToString(CultureInfo.InvariantCulture)}");
+
+        if (layer.IsReprojected && layer.Extent is { IsEmpty: false })
+        {
+            writer.WriteElementString(
+                element, $"EPSG:{layer.Srid.ToString(CultureInfo.InvariantCulture)}");
+        }
     }
 
     /// <summary>

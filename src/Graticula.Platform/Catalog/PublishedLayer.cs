@@ -230,6 +230,39 @@ public sealed class PublishedLayer
     public int? ServedSrid { get; }
 
     /// <summary>
+    /// The reference this layer is published in: the service's when it named one by code,
+    /// and this layer's own otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The expression [ADR-057](../../../docs/adr/ADR-057-composing-and-publishing-a-service.md)
+    /// §5c names, written once.</b> The owner, 2026-09-09: *"wms ve wfs map'in projeksiyonunda
+    /// yayınlanacak."* Both map faces were computing it for themselves and both got it wrong the
+    /// same way — WFS wrote each feature type's <c>DefaultCRS</c> from the table, WMS wrote a
+    /// fixed three regardless of what the service names — which is
+    /// [D-179](../../../docs/architecture-debt.md) again from the other side: one fact, two
+    /// readers, and neither of them the row.
+    /// </para>
+    /// <para>
+    /// <b>It is not the reprojection decision and must not be used as one.</b> Whether a query
+    /// has to transform is a question about where the data *is*, so it is answered against
+    /// <see cref="LayerDefinition.Srid"/>; this answers what the server said it would publish
+    /// in. The two coincide for every service that has not chosen, which is why the difference
+    /// stayed invisible until one did.
+    /// </para>
+    /// <para>
+    /// <b>A written definition falls back to the table's code, deliberately.</b> A service may
+    /// name its reference as text rather than as a number (§5m, <see cref="ServedWkt"/>), and
+    /// neither <c>wfs:DefaultCRS</c> nor a WMS <c>CRS</c> element has anywhere to put one — both
+    /// are authority codes. A document that answered with some other code would be advertising a
+    /// reference the service does not serve in, so these two faces publish the one thing they can
+    /// still prove. The ArcGIS faces do carry the definition, because a
+    /// <c>spatialReference</c> object has a <c>wkt</c> member.
+    /// </para>
+    /// </remarks>
+    public int PublishedSrid => ServedSrid ?? Definition.Srid;
+
+    /// <summary>
     /// The written reference this layer's service is served in, when it named one.
     /// </summary>
     /// <remarks>

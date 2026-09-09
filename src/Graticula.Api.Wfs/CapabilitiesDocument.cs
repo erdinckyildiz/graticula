@@ -355,8 +355,19 @@ public static class CapabilitiesDocument
                     "wfs", "Abstract", WfsNames.Wfs, type.Abstract).ConfigureAwait(false);
             }
 
+            // <b>What the service publishes this type in, not what its table holds</b> —
+            // ADR-057 §5c. This element is the only place WFS has to say it: there is one
+            // DefaultCRS per feature type, it is what an omitted `srsName` means, and it is
+            // what an un-annotated `bbox` is read in. Until 2026-09-09 it was
+            // `layer.Definition.Srid`, so a service that had chosen a reference advertised
+            // the table's and answered in the table's.
+            //
+            // <b>No `OtherCRS` beside it, still.</b> The served set is PROJ's whole register
+            // and a document carrying 8,500 of them per type is not a document — ADR-060
+            // condition 4, which this does not close and does not pretend to.
             await xml.WriteElementStringAsync(
-                "wfs", "DefaultCRS", WfsNames.Wfs, WfsNames.CrsUrn(type.Srid)).ConfigureAwait(false);
+                "wfs", "DefaultCRS", WfsNames.Wfs, WfsNames.CrsUrn(type.PublishedSrid))
+                .ConfigureAwait(false);
 
             // <b>Written for every layer that has a geographic extent — Q-125,
             // 2026-08-25.</b> This element is longitude/latitude in WGS 84 by

@@ -425,7 +425,13 @@ internal static class WmsEndpoints
             Geographic: null,
             Queryable: true,
             await TimeOfAsync(source, layer, described, contexts, cancellation)
-                .ConfigureAwait(false));
+                .ConfigureAwait(false),
+
+            // <b>The reference the service publishes this layer in — ADR-057 §5c.</b> The
+            // storage code stays above it because the extent beside it is measured in that
+            // one, and because it is what every request is reprojected *from*. Both travel
+            // so the writer never has to guess which question it is answering.
+            Published: layer.PublishedSrid);
     }
 
     /// <summary>

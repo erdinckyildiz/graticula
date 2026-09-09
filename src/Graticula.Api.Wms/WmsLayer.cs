@@ -31,6 +31,15 @@ namespace Graticula.Api.Wms;
 /// <param name="Geographic">The same extent in WGS 84, or null when unknown.</param>
 /// <param name="Queryable">Whether <c>GetFeatureInfo</c> may ask about it.</param>
 /// <param name="Time">Its time dimension, or null when it has none.</param>
+/// <param name="Published">
+/// The EPSG code its service publishes it in, or null for <paramref name="Srid"/>.
+/// <b>Separate from <paramref name="Srid"/> because they are different questions.</b>
+/// <paramref name="Srid"/> is where the data is, which is what
+/// <paramref name="Extent"/> is measured in and what a request is reprojected *from*;
+/// this is what the service said it would draw in — ADR-057 §5c, the owner on
+/// 2026-09-09: *"wms ve wfs map'in projeksiyonunda yayınlanacak."* Null is the ordinary
+/// answer and means the two coincide.
+/// </param>
 public sealed record WmsLayer(
     string Name,
     string Title,
@@ -40,7 +49,20 @@ public sealed record WmsLayer(
     Envelope? Extent,
     Envelope? Geographic,
     bool Queryable,
-    TimeDimension? Time);
+    TimeDimension? Time,
+    int? Published = null)
+{
+    /// <summary>The reference this layer is published in.</summary>
+    /// <remarks>
+    /// <b>One expression, so the document and the abstract cannot disagree about it.</b>
+    /// Three places in the writer ask this question and the first version of this change
+    /// answered it twice.
+    /// </remarks>
+    public int PublishedSrid => Published ?? Srid;
+
+    /// <summary>Whether this layer is drawn somewhere other than where it is stored.</summary>
+    public bool IsReprojected => PublishedSrid != Srid;
+}
 
 /// <summary>
 /// A layer's time dimension: which column carries it, and what it spans.
