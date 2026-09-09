@@ -137,13 +137,22 @@ internal static class RestDirectory
     /// <param name="version">The REST version to report.</param>
     /// <param name="folders">Folder names.</param>
     /// <param name="services">Service name and type pairs.</param>
+    /// <param name="formats">
+    /// The other protocol faces this server offers, or null.
+    /// <b>[Q-102](../../docs/open-questions.md): the front door was the one page that did
+    /// not name them.</b> A service page and a layer page have carried WFS, WMS and OGC API
+    /// Features on their format line since 2026-08-20; this method took no such argument, and
+    /// `/` redirects here — so the first page an anonymous reader sees advertised one protocol
+    /// out of four. A stranger cannot ask a question whose vocabulary they have not been given.
+    /// </param>
     /// <returns>An HTML document.</returns>
     public static string Folder(
         string path,
         string? folder,
         double version,
         IEnumerable<string> folders,
-        IEnumerable<(string Name, string Type)> services)
+        IEnumerable<(string Name, string Type)> services,
+        IEnumerable<(string Label, string Href)>? formats = null)
     {
         StringBuilder body = new();
 
@@ -307,7 +316,7 @@ internal static class RestDirectory
             body.Append("</ul>");
         }
 
-        return Page(path, body.ToString());
+        return Page(path, body.ToString(), close: true, formats);
     }
 
     /// <summary>

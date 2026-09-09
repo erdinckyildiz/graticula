@@ -248,10 +248,21 @@ Specific problems:
 ## 11. Configuration corruption
 
 The export/import format ([ADR-002](adr/ADR-002-primary-data-architecture.md)
-§4.3) is the recovery path, which is one of the better-covered scenarios. Q-48's
+§4.3) is the recovery path, which is one of the better-covered scenarios. ~~Q-48's
 backup-consistency question is the remaining hole: a platform store restored
 against a mismatched datastore produces services pointing at tables that do not
-match their definitions.
+match their definitions.~~
+
+**Corrected 2026-09-09 with [Q-48](open-questions.md), and the remaining hole is a
+different and larger one.** The mismatched restore cannot arise in what this product
+ships: the deployment is one container and one database, with the platform store in
+schema `gisserver` and hosted data in `public`, so a single `pg_dump` is a consistent
+snapshot of both. It returns only for a deployment that points the datastore at a
+different server. **What is actually missing is the backup itself** —
+[deployment.md](deployment.md) is a stub, no backup agent or endpoint exists, and two
+shipped refusals already tell an operator that *recovery is restore-from-backup*
+without this product having ever told them how to take one. That is independent review
+3's finding O2, still open and severe.
 
 ## 12. Partial upgrade and rolling deployment failure
 

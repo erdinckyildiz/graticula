@@ -2041,7 +2041,21 @@ public static class Program
                     folder,
                     FeatureServerMetadataWriter.CurrentVersion,
                     folders,
-                    everything),
+                    everything,
+
+                    // <b>The front door names the other faces — Q-102.</b> A service page
+                    // and a layer page have carried these since 2026-08-20 and the root
+                    // listing did not, which is the page `/` redirects to: the first thing
+                    // an anonymous reader sees advertised one protocol out of four. On the
+                    // root only, because a face is a property of the server rather than of
+                    // a folder, and repeating them down the tree would say otherwise.
+                    folder is null
+                        ? [
+                            WfsEndpoints.DirectoryLink(null),
+                            WmsEndpoints.DirectoryLink(null, null, 0),
+                            OgcFeaturesEndpoints.DirectoryLink(null),
+                        ]
+                        : null),
                 "text/html; charset=utf-8");
         }
 
