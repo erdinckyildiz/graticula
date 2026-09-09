@@ -110,21 +110,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>6e755d7</code> · 2026-09-09 19:29</p>
+<p class="stamp">Generated from commit <code>81bc928</code> · 2026-09-09 20:11</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">61</div><div class="kpi-l">ADRs</div><div class="kpi-n">11 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">184/230</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">45 live · 1 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">11</div><div class="kpi-l">open questions</div><div class="kpi-n">146 answered · 2 blocking</div></div>
+<div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">open questions</div><div class="kpi-n">148 answered · 2 blocking</div></div>
 <div class="kpi warn"><div class="kpi-v">24</div><div class="kpi-l">open debts</div><div class="kpi-n">220 repaid · 5 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">15/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">2514</div><div class="kpi-l">tests</div><div class="kpi-n">273 source files, 114,749 lines</div></div>
+<div class="kpi good"><div class="kpi-v">2514</div><div class="kpi-l">tests</div><div class="kpi-n">273 source files, 114,757 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">6 open</span></div><p><b>Q-18</b> — What genuinely justifies a server over static cloud-native publishing and over a stateless thin server plus a capable database?</p><p><b>Q-147</b> — Is there a one-press way back to each layer&#x27;s own?</p><p><b>Q-150</b> — Is auto-discovery owed as a publishing mode, or is the wizard the answer?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">4 open</span></div><p><b>Q-18</b> — What genuinely justifies a server over static cloud-native publishing and over a stateless thin server plus a capable database?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">73 items</span></div><p><b>45 ADR conditions</b> outstanding across 33 decisions — the largest commitment on this page.</p><p><b>24 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -253,8 +253,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-106</span><span class="owner">**[OWNER]**</span></div><p>What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-127</span><span class="owner">Council, and the group mapping **[OWNER]**</span></div><p>What does a portal group mean here, and whose item is a published service?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-140</span><span class="owner">Owner</span></div><p>Where does load testing run, now that the machine under test is the only one there is?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-147</span><span class="owner">Owner</span></div><p>Is there a one-press way back to each layer&#x27;s own?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-150</span><span class="owner">**[OWNER]**</span></div><p>Is auto-discovery owed as a publishing mode, or is the wizard the answer?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-36</span><span class="owner">Council</span></div><p>Can the service definition describe fields the physical table does not have — computed, aliased, role-hidden?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-58c</span><span class="owner">Council</span></div><p>Domains, subtypes and editor tracking — the rest of the FeatureServer data model.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-65</span><span class="owner">Council</span></div><p>What is the worker adoption protocol after a supervisor restart, and how is it made idempotent?</p></article>
@@ -397,6 +395,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>81bc928</code><time>2026-09-09</time><span>Five questions were answered and still counted as open, four by the owner</span></li>
 <li><code>6e755d7</code><time>2026-09-09</time><span>Two conditions walked and measured, and neither was discharged</span></li>
 <li><code>8686a1e</code><time>2026-09-09</time><span>The cache read the tile&#x27;s age to decide freshness and then threw it away</span></li>
 <li><code>e225364</code><time>2026-09-09</time><span>The authoritative scope document contradicted itself about OGC API Features</span></li>
@@ -410,7 +409,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>9dbf42b</code><time>2026-09-09</time><span>The file CLAUDE.md sends readers to had three wrong ADR statuses</span></li>
 <li><code>53f4026</code><time>2026-09-09</time><span>Q-09 was answered by a benchmark six days before the row was written</span></li>
 <li><code>7498b2c</code><time>2026-09-09</time><span>The shipped image cannot import a shapefile or answer any overlay</span></li>
-<li><code>ed9c264</code><time>2026-09-09</time><span>D-229&#x27;s remainder is smaller than &quot;the other faces&quot;</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

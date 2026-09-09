@@ -6909,10 +6909,18 @@ internal static class AdminEndpoints
             // name in here means somebody registered the same database twice and both are now
             // refusing.
             alsoQuiesced = also,
+            // <b>And that a restart lifts it — owner decision, 2026-09-09, [Q-65](../../docs/open-questions.md).</b>
+            // `SourceQuiesce` is a dictionary in this process, so a restart drops every hold
+            // silently and reconnects to the database the DBA is altering — [D-08](../../docs/architecture-debt.md)
+            // measured that at a 30.30 s blocked read. Asked whether to persist the hold or
+            // to say so, the owner chose the sentence: no column, no migration, and no answer
+            // owed to *when does a persisted hold expire*. What it costs is named here rather
+            // than discovered, which is the whole of what the decision buys.
             note = "This worker has closed its connections to that database and refuses requests "
                  + "that would reach it until the time above. A request already in flight keeps "
                  + "its connection until it finishes. Another worker holds its own connections "
-                 + "and must be quiesced separately."
+                 + "and must be quiesced separately. This hold lives in memory: if this server "
+                 + "restarts before the time above, it is lifted and the connections come back."
                  + (also.Count > 0
                      ? " This connection is also registered as "
                        + string.Join(", ", also)

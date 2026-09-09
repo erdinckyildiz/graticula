@@ -569,6 +569,29 @@ whose §6 names quiesce as the thing it does not touch.
 
 ## 8. Revisit triggers
 
+
+**A restart lifts a hold, and that is now decided rather than accepted by default — owner
+decision 2026-09-09, [Q-65](../open-questions.md).** `SourceQuiesce` is a dictionary in one
+process, so a restart drops every hold silently and reconnects to the database a DBA is altering;
+[D-08](../architecture-debt.md) measured the cost of that reconnection at a 30.30 s blocked read.
+Asked whether to persist the hold or to say so, the owner chose the sentence: *"Ekranda yaz,
+başka bir şey yapma."*
+
+**So the repair is copy in two places and no mechanism** — the quiesce response's `note` and the
+Data sources row both now end on *this hold lives in memory; restarting the server lifts it* —
+and the questions the other answer would have opened stay unopened: no column, no migration, and
+no decision owed about when a persisted hold expires. [CLAUDE.md](../../CLAUDE.md) §82's default,
+taken deliberately rather than by omission.
+
+**What it costs is named rather than hidden.** A DBA whose window outlives a restart is
+unprotected. The operator now knows that before they rely on it, which is the difference between
+a limitation and a surprise. **And the durable record exists either way** — `AdminEndpoints`
+writes a `datasource.quiesce` audit event — so a deployment that later wants persistence is
+reading back something it already has rather than starting from nothing.
+
+**This section's triggers named only the multi-worker case** and missed the single-node restart
+entirely, which is how the question survived long enough to be asked.
+
 - **Anybody asks for the hold** rather than the refusal, with a case where a
   short change should be invisible to clients. §2's Alternative B is written to
   be picked up again.

@@ -154,6 +154,41 @@ grid, who drags them in and publishes, gets them all reprojected. It is defensib
 stored in something else carries a ⇄ mark against it (§5n). A default nobody can see would be a
 different decision.
 
+**And there is no *each layer's own* — owner decision, 2026-09-09.** Asked whether the Publish
+screen owed a one-press way back to that state ([Q-147](../open-questions.md)), the owner
+answered that the state should not exist: *"her katman kendi referansında olamaz. hepsi map'in
+referansını kullanacak. yani setlenmiş referansı."* **So the question dissolves rather than being
+answered** — a control that returns the screen to a state the product does not have is not owed,
+and the register row closes on the premise rather than on the design.
+
+**Three things in the code still model the state that was just removed**, and they are the work
+this decision creates rather than a detail of it: `PUB_REFERENCES` carries *Each layer's own* as
+`code: 0`, `pubSridSaid` starts at *each layer in its own*, and the properties dialog's hint says
+that leaving the box empty serves each layer in its own reference. `PublishedLayer.ServedSrid`
+carries the same meaning in its own remarks — *null is the meaning; it is this layer's own*.
+**None of that is wrong yet**: null is what every service published before migration 39 still
+holds, so the fallback stays until those services are migrated. What changes is that it stops
+being an *offer*.
+
+**And every face serves in it — owner decision, the same day.** *"wms ve wfs map'in
+projeksiyonunda yayınlanacak."* This closes the half of [D-229](../architecture-debt.md) that was
+left open: the feature face reads `service.srid` and agrees with itself, and the map faces did
+not read it at all — WFS wrote each feature type's `DefaultCRS` from the **layer's** storage
+SRID, and WMS advertised a fixed `EPSG:4326 · EPSG:3857 · CRS:84` regardless of what the service
+names. Both now take `ServedSrid`, which already travels beside the layer for
+[D-179](../architecture-debt.md)'s reason and needed no new plumbing.
+
+**The tile face stays exempt and that is not an oversight** — a vector tile scheme is defined in
+Web Mercator, `VectorTileServerMetadataWriter` refuses any other extent, and a document whose
+`fullExtent` and `tileInfo` disagreed would make a client fetch the metadata and then no tiles
+([D-49](../architecture-debt.md)).
+
+**What this does not do is close the capability.** A caller may still name another reference per
+request — `outSR` on ArcGIS, `srsName` on WFS, `crs` on WMS — and it is still honoured, which the
+owner asked about directly and which is measured: with no `srsName` a feature comes back in the
+service's reference, and `srsName=EPSG::5253` comes back in 5253. **Published in** and **capable
+of** are two different claims, and only the first is what a capabilities document is for.
+
 **Empty is still a real choice and not a missing answer** — the service then serves every layer
 in whatever its own table holds, and `service.srid` is null. Whether that choice is reachable by
 anything other than clearing the box is [Q-148](../open-questions.md), open.

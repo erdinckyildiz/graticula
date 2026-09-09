@@ -13332,7 +13332,8 @@ function sourceHeldSays(held, shares) {
 
   return `<div class="rowmeta bad-inline" role="alert">Out of service until ${h(clock)},
     taken out by ${h(held.by)}${held.why ? ` for ${h(held.why)}` : ""}.${also} This worker has
-    closed its connections; another worker holds its own.</div>`;
+    closed its connections; another worker holds its own.
+    This hold lives in memory: restarting the server lifts it.</div>`;
 }
 
 /**
