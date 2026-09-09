@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>b2fe989</code> · 2026-09-09 23:10</p>
+<p class="stamp">Şu commit’ten üretildi: <code>cdb2187</code> · 2026-09-09 23:42</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">63</div><div class="kpi-l">ADR</div><div class="kpi-n">12 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">186/235</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">47 canlı · 2 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">155 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">157 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">açık borç</div><div class="kpi-n">222 ödendi · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">2545</div><div class="kpi-l">test</div><div class="kpi-n">274 kaynak dosya, 115,382 satır</div></div>
+<div class="kpi good"><div class="kpi-v">2546</div><div class="kpi-l">test</div><div class="kpi-n">274 kaynak dosya, 115,405 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -249,8 +249,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
-<article class="card"><div class="card-h"><span class="id">Q-104</span><span class="owner">Council</span></div><p>Is the catalogue exportable as a manifest that can be diffed, reviewed and applied?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-127</span><span class="owner">Council</span></div><p>What does a portal group mean here, and whose item is a published service?</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -376,7 +374,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">578</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:82.5%"></div></div><div class="bar-n">477</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:82.7%"></div></div><div class="bar-n">478</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:77.9%"></div></div><div class="bar-n">450</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:64.7%"></div></div><div class="bar-n">374</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.5%"></div></div><div class="bar-n">159</div></div>
@@ -389,6 +387,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.9%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>cdb2187</code><time>2026-09-09</time><span>Four questions close, and one of them had been answered for four weeks</span></li>
 <li><code>b2fe989</code><time>2026-09-09</time><span>Q-20 has been answered for a while and was still counted as blocking</span></li>
 <li><code>689b656</code><time>2026-09-09</time><span>A sustained flood does not shed, and the queue it would fill cannot fill</span></li>
 <li><code>6fd3774</code><time>2026-09-09</time><span>The busiest face buffered twenty-one megabytes and called it streaming</span></li>
@@ -402,7 +401,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>8686a1e</code><time>2026-09-09</time><span>The cache read the tile&#x27;s age to decide freshness and then threw it away</span></li>
 <li><code>e225364</code><time>2026-09-09</time><span>The authoritative scope document contradicted itself about OGC API Features</span></li>
 <li><code>fecea7c</code><time>2026-09-09</time><span>The first condition deferred with its decision, and a WMS code that was missing</span></li>
-<li><code>0e8caf7</code><time>2026-09-09</time><span>The licence check missed a table cell, and there were five documents</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

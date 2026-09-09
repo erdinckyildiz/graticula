@@ -463,6 +463,51 @@ This ADR is `ACCEPTED WITH CONDITIONS`. The conditions:
    ciphertext bound to a key version, and a *human-readable, diff-friendly* file
    is then partly opaque and key-coupled.
 
+   ### Condition 3, amended 2026-09-09 — what is owed given an established schema
+
+   **The first of the two options is taken.** Discharging it with *we accept the
+   retrofit* would close the condition on nothing; amending it means saying what
+   the retrofit must not cost, which is the part that can still be protected.
+   [Q-104](../open-questions.md) closes on this, and what follows replaces the
+   condition's original text rather than sitting beside it.
+
+   **1. The manifest addresses everything by name, never by the schema's keys.**
+   Ten catalogue tables, every one `uuid` primary key *with a unique name* — that
+   second half is what makes the amendment possible. The uuids are the storage's
+   identity and they are exactly what would shape a format written from the
+   schema; a manifest that never mentions them is a manifest the schema did not
+   shape. It also makes the file diffable in the way §4.3 promised: two
+   deployments of the same catalogue produce byte-identical manifests, which is
+   not true of anything carrying generated keys.
+
+   **2. Credentials are named, not carried — and this is what settles the design
+   point above.** The choice was framed as *omit them and fail to reproduce a
+   deployment* or *carry ciphertext and stop being human-readable*. Both are
+   answers to the wrong question, because **a manifest is not a backup.** The
+   manifest carries a data source's name, its host, its database and its
+   `key_version` — never the secret and never its ciphertext — and an import
+   refuses until a credential is supplied for each named source. So the file is
+   fully readable, fully diffable, safe to put under review, and honest about
+   what it cannot do: reproducing a deployment *including its secrets* is a
+   restore of the platform store, which already works and is a different
+   operation with a different threat model.
+
+   **3. Two of §4.3's four purposes leave with the amendment.** *Migration
+   intake* is [Q-16](../open-questions.md)'s and this condition should never have
+   carried it. *Disaster recovery* is a backup's, by point 2. What is left is the
+   pair the audit log provably cannot serve — **review before apply** and
+   **reproduction of a configuration** — which is what
+   [Q-104](../open-questions.md) measured its way down to: `audit_event` already
+   answers *what changed after an incident*, 1,085 rows across 20 actions in a
+   fixture store, reachable through `/admin/logs` without a manifest at all.
+
+   **4. It is not discharged by this amendment, and the deadline stays breached.**
+   Nothing is specified in the repository yet and no verb exists; what changed is
+   that the condition now describes work that can be done rather than a moment
+   that has passed. Discharge needs the format written down and a round trip that
+   proves it: export, edit one value, import, and the catalogue differs in exactly
+   that value.
+
 ## 10. Revisit triggers
 
 - Q-22 answers that PostgreSQL-free is a goal.

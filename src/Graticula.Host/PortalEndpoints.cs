@@ -694,14 +694,21 @@ internal static class PortalEndpoints
         PortalId(context),
         context.Features.Get<RequestPrincipal>()!.Principal.Name);
 
-    /// <summary>One user's content, which is every item they may see.</summary>
+    /// <summary>One user's content, which is the items they own.</summary>
     /// <remarks>
-    /// <b>Not *items they own*, and the difference is recorded rather than
-    /// hidden.</b> A portal's content listing is per-owner and this server's items
-    /// are published services whose owner is the account that published them, not
-    /// the portal. Until ownership is carried through
-    /// ([Q-127](../../docs/open-questions.md)) this answers with what the caller may
-    /// see, which is a larger set than Pro's *My Content* implies.
+    /// <para>
+    /// <b>*Items they own*, since 2026-09-09 — it was every item they could see, and
+    /// that is what a portal calls something else.</b> A portal's content listing is
+    /// per-owner; this answered with everything visible, so Pro's *My Content* showed
+    /// a colleague's services beside the caller's own and the two sets coincided only
+    /// on a single-operator deployment. [Q-127](../../docs/open-questions.md).
+    /// </para>
+    /// <para>
+    /// <b>A service with no owner belongs to nobody rather than to everybody.</b>
+    /// `PublishedService.Owner` is null for anything published before ownership
+    /// existed, and those are excluded here — they appear in `search`, where the
+    /// question being asked is *what is there* rather than *what is mine*.
+    /// </para>
     /// </remarks>
     private static async Task<IResult> UserContentAsync(
         HttpContext context,
@@ -725,7 +732,15 @@ internal static class PortalEndpoints
             return Unavailable();
         }
 
-        List<object> items = [.. visible.Select(service => Item(context, service))];
+        // <b>Owned, not visible.</b> `VisibleAsync` has already applied sharing, so
+        // this narrows a set the caller may see to the subset they published — which
+        // is the whole difference between *My Content* and *the catalogue*.
+        List<object> items =
+        [
+            .. visible
+                .Where(service => service.Owner is { } owner && owner == current.Principal.Id)
+                .Select(service => Item(context, service)),
+        ];
 
         return Results.Ok(new
         {
@@ -941,12 +956,20 @@ internal static class PortalEndpoints
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
-        // <b>The caller's name when the caller owns it, and the product's when
-        // nobody does.</b> Pro's *My Content* asks for `owner:<username>`, so an
-        // item whose owner is a constant is an item that never appears there.
-        // A service owned by somebody else is still not attributed to them: this
-        // surface has no member directory, and inventing one to fill a field would
-        // publish the user list through a door nobody reviewed.
+        // <b>The caller's name when the caller owns it, and the product's when they
+        // do not.</b> Pro's *My Content* asks for `owner:<username>`, so an item
+        // whose owner is a constant is an item that never appears there.
+        //
+        // <b>A service owned by somebody else is still not attributed to them, and
+        // that is a decision rather than a gap — [Q-127](../../docs/open-questions.md),
+        // closed 2026-09-09.</b> This surface has no member directory and is reachable
+        // anonymously for public items, so naming an owner here would publish
+        // usernames to whoever can see the service. What it costs is named instead of
+        // hidden: a portal `owner:` search for another member finds nothing, and the
+        // product's name in that field means *not yours* rather than *nobody's*. The
+        // listing that has to be right is `/content/users/{name}`, and that one now is:
+        // it returns what the caller owns, so the field is the caller's own name on
+        // every item in it.
         string owner = service.Owner is { } id && id == current.Principal.Id
             ? current.Principal.Name
             : "graticula";

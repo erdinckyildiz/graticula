@@ -211,6 +211,36 @@ had joined, `none` in the organisation-visible one, and the private one **not at
 `q=type:"Feature Service"` returned **0** — a group is never mistaken for a service by the search
 the two share.
 
+### 4b. Amended 2026-09-09 — *My Content* is what the caller owns
+
+**`/sharing/rest/content/users/{name}` answered with every item the caller could see.** A
+portal's content listing is per-owner; this one was the catalogue with a sharing filter on
+it, so Pro's *My Content* showed a colleague's services beside the caller's own. The two
+sets coincide **only on a single-operator deployment**, which is why nothing had noticed:
+the defect and the repair are indistinguishable until a second person publishes something.
+[Q-127](../open-questions.md).
+
+**It now returns the services the caller owns.** A service with no owner — anything
+published before ownership existed — belongs to nobody rather than to everybody and is
+excluded; it still appears in `search`, where the question is *what is there* rather than
+*what is mine*.
+
+**And an item owned by somebody else still reports the product's name in `owner`, which is
+a decision rather than the same gap.** This surface has no member directory and answers
+anonymously for public items, so a real name in that field publishes usernames to whoever
+can see the service. **What it costs is named instead of hidden**: a portal `owner:` search
+for another member finds nothing, and the field means *not yours* rather than *nobody's*.
+The listing that has to be right is the per-owner one, and that one now is — every item in
+it carries the caller's own name.
+
+**Pinned by `MyContentIsWhatTheCallerOwnsTests`, which makes a second member rather than
+asserting against the fixture**, because on one operator every assertion about these two
+sets passes against the defect. Falsified: with the owner filter removed the second
+member's listing reports **4** items where they published **1**. Its cleanup is
+`DELETE /admin/members/{name}?deleteOwned=true` — the server's own refusal named it, after
+a first version deleted a `/admin/services/{name}` route that does not exist and left a
+member behind that made every later run fail before asserting anything.
+
 ## 5. Consequences
 
 **Positive.** A Pro user gets the browse workflow the owner asked for. Every other ArcGIS client

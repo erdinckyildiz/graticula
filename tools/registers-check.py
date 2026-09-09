@@ -2480,10 +2480,32 @@ def an_open_question_that_asks_without_saying_why():
             "the cell splitter is dropping rows and every check above it is reading less than "
             "it looks like. A check that cannot fail is worse than no check.")
 
-    if visible == 0:
+    # <b>An empty backlog is not a broken parser, and this guard learned that twice.</b>
+    # The comment above records the first time: `rows < 40` fired on 2026-08-26 because
+    # questions had been answered. This was the same mistake at a smaller threshold --
+    # `visible == 0` fired on 2026-09-09, when the last open question closed and the
+    # register reached the state it exists to reach. **A guard that fires on success
+    # teaches people to ignore it**, which is worse than the silence it was protecting
+    # against.
+    #
+    # <b>What it was actually for is still needed</b>: the naive `split(" | ")` above could
+    # start dropping every row and the checks would pass in silence. So the proof of the
+    # parse moves to a table that cannot legitimately be empty. Nothing ever un-answers a
+    # question, so **the Answered section only grows** -- if the same splitter reads rows
+    # there, it works, whatever the backlog holds.
+    below = 0
+
+    for line in lines[answered:]:
+        cells = [c.strip() for c in line.strip().strip("|").split(" | ")]
+
+        if len(cells) >= 2 and re.match(r"^Q-[\w-]+$", cells[0].strip("~").strip()):
+            below += 1
+
+    if visible == 0 and below == 0:
         problems.append(
-            "no question rows were found above ## Answered at all, so this check is reading "
-            "nothing.")
+            "no question rows were found anywhere in open-questions.md -- neither open nor "
+            "answered -- so this check is reading nothing. An empty backlog is a legitimate "
+            "state and an empty file is not.")
 
     return problems
 
