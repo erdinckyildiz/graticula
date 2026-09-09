@@ -1059,6 +1059,14 @@ button:hover .ico { opacity: 1; }
 .pill.p-unusable, .pill.p-delete { background: var(--alert-soft); border-color: var(--alert-line);
                                    color: var(--alert); }
 
+/* <b>Running and refusing, which is a state and not a status — D-232.</b> It sits *beside* the
+   started pill rather than replacing it, so it is deliberately the quieter of the two: amber
+   like `stopped`, because the consequence is the same to a client, and not red, because nothing
+   has failed and the end is already scheduled. `--warn` carries the tone; the row that draws it
+   says why in its title. */
+.pill.p-refusing { background: var(--warn-soft); border-color: var(--warn-line);
+                   color: var(--warn); margin-left: 6px; }
+
 .pill.p-public { background: var(--blue-soft); border-color: var(--blue-line); color: var(--blue); }
 .pill.p-organization { background: var(--violet-soft); border-color: #d9cdf3; color: var(--violet); }
 .pill.p-private { background: var(--surface-3); border-color: var(--rule-strong);

@@ -152,6 +152,41 @@ const icon = name => ICONS[name]
   : "";
 
 /**
+ * What a service says while a source under it is out of service.
+ *
+ * <b>[D-232](../../../docs/architecture-debt.md): the Services screen reported every service as
+ * `started` while every request against them answered 503.</b> With both fixture sources
+ * quiesced, all eight read *started* and the health panel read *100%*, on the screen captioned
+ * *Manage and monitor your GIS services*. The outage was legible only on Data sources — which is
+ * where the operator who caused it already is. The reader this hurts is the second one, or the
+ * same one an hour later.
+ *
+ * <b>Beside the status rather than instead of it, because they are two different facts.</b>
+ * `status` is stored and still says `started`; [ADR-031](../../../docs/adr/ADR-031-service-capability-configuration.md)
+ * §2a keeps *running and refusing* as a state distinct from *stopped*, and that is exactly what
+ * this is. Overwriting the pill would claim the service had been stopped, which nobody did, and
+ * would make the screen disagree with the column it is drawn from.
+ *
+ * <b>The clock is the content.</b> The outage ends by itself — that is ADR-059's whole design —
+ * so *when does this come back* is the only question the badge is asked.
+ *
+ * @param {?{until: string}} refusing what the server reports, or nothing
+ * @returns {string} the markup, empty when the service is answering normally
+ */
+function refusingSays(refusing) {
+  if (!refusing) return "";
+
+  const until = new Date(refusing.until);
+  const clock = Number.isNaN(until.valueOf())
+    ? ""
+    : ` until ${until.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+
+  return `<span class="pill p-refusing" title="A data source this service reads is out of `
+    + `service, so its requests are being refused. The service itself is still started and `
+    + `answers again when the window ends.">refusing${h(clock)}</span>`;
+}
+
+/**
  * A state badge, with a glyph where the state has one.
  *
  * <b>The glyph replaces the dot rather than joining it.</b> Owner 2026-08-17: *"sharing'deki icon
@@ -8551,6 +8586,11 @@ function drawHealthWidget(rows) {
   const started = real.filter(r => r.status !== "stopped").length;
   const stopped = real.length - started;
 
+  // <b>D-232: how many of the started ones are answering.</b> The panel read 100% with every
+  // service refusing, which is the half-truth the row is about — the donut is drawn from
+  // `status`, and `status` was right. This counts the same rows for a different fact.
+  const refusing = real.filter(r => r.refusing).length;
+
   $("hwTotal").textContent = num(real.length);
 
   // The arc is the real proportion: one custom property, and the conic-gradient does the geometry.
@@ -8569,9 +8609,32 @@ function drawHealthWidget(rows) {
   // check constraint: a service that cannot be started is a service that was never created, and a
   // request that fails is a request, not a service state. Showing it undimmed would imply a
   // detection this server does not do; dropping it would ignore a direct instruction twice given.
+  // <b>A fourth row, and only when it is true — D-232.</b> The other three are a fixed set
+  // because the states are fixed; this one is an event, and a *Refusing 0* on every ordinary day
+  // would train the eye to skip the line on the day it says something. The deadline goes here
+  // rather than on the row, because a quiesce is per database: several services usually share
+  // one, and repeating a clock down the table would suggest they had each been done separately.
+  const soonest = real
+    .filter(r => r.refusing)
+    .map(r => new Date(r.refusing.until))
+    .filter(d => !Number.isNaN(d.valueOf()))
+    .sort((a, b) => b - a)[0];
+
   $("hwRows").innerHTML =
     line("ok", "Started", started)
     + line("warn", "Stopped", stopped)
+    + (refusing > 0
+      // <b>Amber, the same tone the row's own pill wears, and not red.</b> Red is `Error`, two
+      // lines below and permanently zero; borrowing it would say something failed. Nothing has:
+      // an operator asked for this and it ends by itself. It shares `Stopped`'s tone because it
+      // shares its meaning to a client — not answering, on purpose.
+      ? line("warn", "Refusing", refusing,
+          "A data source these services read is out of service"
+          + (soonest
+            ? `, until ${soonest.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+            : "")
+          + ". They are still started, and answer again when the window ends.")
+      : "")
     + line("alert impossible", "Error", 0,
         "This server has no error state: a service is started or stopped by a check constraint on "
         + "the column. Shown at zero so the absence is visible rather than assumed.");
@@ -8807,6 +8870,10 @@ async function loadServices() {
       owner: s.owner,
       empty: s.empty,
       description: s.description,
+
+      // <b>Running and refusing — D-232.</b> The stored status stays what it is; this is what
+      // the process is doing with it while a source it depends on is out of service.
+      refusing: s.refusing,
       system: false,
 
       // <b>From the listing, rather than worked out here.</b> Both the preview and the status
@@ -8911,7 +8978,7 @@ async function loadServices() {
             : `<span class="sep">·</span><span class="count">${held || "empty"}</span>`}</span>
         </td>
 
-        <td>${pill(r.status)}</td>
+        <td>${pill(r.status)}${refusingSays(r.refusing)}</td>
         <td>${r.system
           ? `<select data-service-share="${h(r.name)}">${SCOPES.map(v =>
               `<option value="${v}"${v === r.sharing ? " selected" : ""}>${v}</option>`).join("")}</select>`

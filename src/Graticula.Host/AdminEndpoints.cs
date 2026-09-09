@@ -1577,7 +1577,11 @@ internal static class AdminEndpoints
     /// </para>
     /// </remarks>
     private static async Task ListServicesAsync(
-        HttpContext context, IAdminCatalog catalog, CancellationToken cancellation)
+        HttpContext context,
+        IAdminCatalog catalog,
+        PostgresLayerCatalog published,
+        SourceQuiesce quiesce,
+        CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
         {
@@ -1586,6 +1590,53 @@ internal static class AdminEndpoints
 
         IReadOnlyList<AdminService> services =
             await catalog.ListServicesAsync(cancellation).ConfigureAwait(false);
+
+        /*
+          <b>Which of these are refusing, and until when — [D-232](../../docs/architecture-debt.md).</b>
+          A service's `status` is stored ([ADR-020](../../docs/adr/ADR-020-admin-console-and-service-status.md))
+          and a quiesce is per-process and keyed by connection string
+          ([ADR-059](../../docs/adr/ADR-059-quiescing-a-data-source.md) §5d). Two states designed
+          separately, with no path between them: with both fixture sources quiesced, all eight
+          services read **started** and the health panel read **100%**, on the screen captioned
+          *Manage and monitor your GIS services*. That is not a wrong answer — the service is
+          started and will answer when the window ends — which is what makes it the kind of
+          half-truth worth an endpoint change.
+
+          <b>The vocabulary already exists.</b> [ADR-031](../../docs/adr/ADR-031-service-capability-configuration.md)
+          §2a keeps *running and refusing* as a state distinct from *stopped*, which is exactly
+          what these services are. So this does not touch `status`, which is the stored fact; it
+          says separately what the process is doing with it.
+
+          <b>Free when nothing is held, which is almost always.</b> The register is in memory, so
+          `Count` costs nothing, and a server with no quiesce does not read the layer table at
+          all. The listing is only paid for during a window somebody opened deliberately, which
+          is the only time the answer is anything but *no*.
+        */
+        Dictionary<string, DateTimeOffset> refusing = new(StringComparer.Ordinal);
+
+        if (quiesce.Count > 0)
+        {
+            foreach (PublishedLayer layer in
+                await published.ListAsync(cancellation).ConfigureAwait(false))
+            {
+                if (quiesce.Holding(layer.ConnectionString) is not { } held)
+                {
+                    continue;
+                }
+
+                string folder = layer.Folder is { Length: > 0 } named ? named + "/" : string.Empty;
+                string key = folder + layer.ServiceName;
+
+                // <b>The latest window, because the service is back when the last one lapses.</b>
+                // Two sources under one service can be quiesced separately and for different
+                // lengths; saying the earlier time would promise a recovery that has not
+                // happened yet.
+                if (!refusing.TryGetValue(key, out DateTimeOffset until) || held.Until > until)
+                {
+                    refusing[key] = held.Until;
+                }
+            }
+        }
 
         await Results.Json(new
         {
@@ -1605,6 +1656,14 @@ internal static class AdminEndpoints
                 // Said rather than left to be derived from two numbers, because it is
                 // the only question this listing is asked: may I remove this one?
                 empty = s.IsEmpty,
+
+                // <b>Running and refusing — D-232.</b> Null for the ordinary case, so a client
+                // that does not know about this reads the listing exactly as it did. `until` is
+                // the whole of what an operator needs: the outage is temporary by construction
+                // and the question they are actually asking is *when does this come back*.
+                refusing = refusing.TryGetValue(s.Qualified, out DateTimeOffset ends)
+                    ? new { until = ends }
+                    : null,
 
                 // One member, for a caller that has to draw the service or change its
                 // status — see AdminServiceCover. Null for an empty service, and a client
