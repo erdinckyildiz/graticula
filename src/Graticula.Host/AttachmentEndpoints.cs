@@ -404,15 +404,41 @@ internal static class AttachmentEndpoints
             return null;
         }
 
-        if (!layer.Definition.IsHosted)
+        // <b>Both halves of the question, because this endpoint runs DDL.</b>
+        // `PostGisAttachmentStore.EnsureTableAsync` issues `create table if not
+        // exists` in the *layer's own* schema, so the guard has to be the same one
+        // the field endpoints use rather than the weaker half of it.
+        //
+        // <b>`IsHosted` alone was the guard until 2026-09-09, and it is not enough
+        // — ADR-058 §5h, arriving here second.</b> `IsHosted` says the layer's
+        // *source* is the datastore and says nothing about the schema: a datastore
+        // source can serve any schema of that database, and the conformance fixture
+        // publishes one that does. §5h found exactly this in the field endpoints,
+        // fixed it there, wrote the paragraph — *hosted is not the same as we made
+        // this table* — and the correction did not carry to this file. That is
+        // CLAUDE.md §2's *what else carries this?* missing an instance, and the
+        // answer to *what else* was one grep for `AlterableSchema` away.
+        //
+        // <b>One condition, two sentences</b>, because the two states need
+        // different words: a registered layer is somebody else's database, and a
+        // datastore layer in a schema we did not create is our database and still
+        // not our table.
+        if (!HostedDataEndpoints.AlterableSchema(
+                layer.Definition.IsHosted, layer.Definition.SchemaName))
         {
             // ADR-013 §4c allows reading a migrated __ATTACH table on a
             // registered source and creating one where we hold DDL rights.
             // Neither is built, and saying so beats a table that fails to be
             // created halfway through an upload.
+            string because = layer.Definition.IsHosted
+                ? $"it is served from the '{layer.Definition.SchemaName}' schema, which this server "
+                    + "did not create. Attachments need a companion table beside the layer's own, and "
+                    + "this server creates tables only in the schema it made"
+                : "it is registered rather than hosted";
+        
             await Refuse(context, 501,
-                $"Attachments are not available on '{layer.Definition.Name}' because it is registered rather "
-                + "than hosted. Reading a migrated __ATTACH table and creating a companion table "
+                $"Attachments are not available on '{layer.Definition.Name}' because {because}. "
+                + "Reading a migrated __ATTACH table and creating a companion table "
                 + "where this server has DDL rights are both designed (ADR-013 §4c) and not "
                 + "built.").ConfigureAwait(false);
             return null;

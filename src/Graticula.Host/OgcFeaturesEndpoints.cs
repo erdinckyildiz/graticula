@@ -423,23 +423,11 @@ internal static partial class OgcFeaturesEndpoints
     /// announcing a thousand features and carrying none.
     /// </para>
     /// </remarks>
-    private static async Task StreamAsync(
-        HttpContext context, string name, Func<Task> write)
-    {
-        try
-        {
-            await write().ConfigureAwait(false);
-        }
-        catch (Exception e) when (context.Response.HasStarted)
-        {
-            ErrorResponse.LogTruncated(
-                context,
-                context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger(name),
-                e);
-
-            context.Abort();
-        }
-    }
+    // <b>One line, because the body moved to `ErrorResponse.StreamAsync`.</b> The same
+    // wrapper was written here and in `WfsEndpoints`, and two streaming paths had
+    // neither copy. Q-91, 2026-09-09.
+    private static Task StreamAsync(HttpContext context, string name, Func<Task> write) =>
+        ErrorResponse.StreamAsync(context, name, write);
 
     private static async Task ItemAsync(
         HttpContext context,

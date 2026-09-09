@@ -8,6 +8,7 @@ using Graticula.Platform.Identity;
 using Graticula.Platform.Secrets;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 
@@ -752,6 +753,57 @@ internal static class ErrorResponse
             + "repeated here because this endpoint is reachable without authentication.",
             null),
     };
+
+    /// <summary>
+    /// Runs a streaming write, and turns a failure after the first byte into a logged
+    /// truncation and an aborted transfer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Once bytes are on the wire there is no refusal left to send</b> — the status
+    /// line and the headers are gone, and neither ArcGIS REST, OGC API Features nor WFS
+    /// defines a shape for <em>this broke</em> partway through a document. What is left
+    /// is the framing: aborting leaves a chunked transfer without its terminating chunk
+    /// (RFC 9112 §8: a recipient <em>MUST</em> record such a message as incomplete) or an
+    /// HTTP/2 stream without <c>END_STREAM</c>. So the client learns <em>incomplete</em>
+    /// from the transfer and <em>unparseable</em> from its own parser, and never learns
+    /// why — which is the honest ceiling rather than a gap to fill.
+    /// </para>
+    /// <para>
+    /// <b>Here, because it existed twice and two paths had neither copy.</b> `WfsEndpoints`
+    /// and `OgcFeaturesEndpoints` each had a private version; WFS `GetPropertyValue` and
+    /// the ArcGIS `f=html` query page wrote straight to the response with no catch at all,
+    /// so a server-side failure on either was attributed to the caller leaving. Found
+    /// 2026-09-09 answering [Q-91](../../docs/open-questions.md). One rule stated once —
+    /// [CLAUDE.md](../../CLAUDE.md) §2, and a wrapper written twice is how two call sites
+    /// come to have neither.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="name">The logger's name, so the face is visible in the log.</param>
+    /// <param name="write">The write to run.</param>
+    /// <returns>A task.</returns>
+    internal static async Task StreamAsync(
+        HttpContext context, string name, Func<Task> write)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(write);
+
+        try
+        {
+            await write().ConfigureAwait(false);
+        }
+        catch (Exception e) when (context.Response.HasStarted)
+        {
+            LogTruncated(
+                context,
+                context.RequestServices.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger(name),
+                e);
+
+            context.Abort();
+        }
+    }
 
     /// <summary>
     /// What to do about a PostgreSQL <em>insufficient resources</em> code, in one clause.

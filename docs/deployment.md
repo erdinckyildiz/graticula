@@ -1,6 +1,6 @@
 # Deployment
 
-**Status:** STUB — not written, apart from §0 and §1. §1 exists because
+**Status:** STUB — not written, apart from §0, §1 and §2. §1 exists because
 [ADR-029](adr/ADR-029-affinity-routing-is-not-the-default.md) condition 3
 required it before anybody is told to run more than one node. **§0 exists
 because on 2026-08-15 CI installed this product against an empty database for
@@ -202,3 +202,93 @@ is present and wrong rather than missing — is likewise reasoned and untested.
 Before relying on any of it, run two and check at least: a sharing change on one
 node taking effect on the other, a session revoked on one being refused by the
 other, and the tile cache fan-out actually costing what §1.2 says it does.
+
+---
+
+## 2. Backup and restore
+
+**Written 2026-09-09 answering [Q-48](open-questions.md), and it is owed rather
+than new.** `SchemaCompatibility` and `SchemaMigrator` both tell an operator, in
+their own refusal text, that *recovery is restore-from-backup* — and this manual
+had never said how to take one. That is independent review 3's finding **O2**,
+and it is the half of it that a document can close.
+
+### 2.1 There is one database, and that is the whole reason this is short
+
+The catalogue and the hosted tables are **not two stores**. The datastore's
+connection is the platform store's own connection string with the search path
+cleared (`Program.DatastoreConnection`), it is upserted from
+`Graticula:PlatformStore` on every start, and the admin API **refuses** to change
+it — a change there would work, report success and be undone by the next restart.
+
+So a single `pg_dump` of that database is an atomic snapshot of the catalogue and
+of every hosted table **at the same instant**. There is no ordering rule to get
+right and no version stamp to keep in step, because there is nothing to keep in
+step with. [ADR-033](adr/ADR-033-symbology.md) already reasons from this — *one
+dump restores the catalogue and its cartography at the same instant* — so the
+property is being relied on and is worth stating where an operator reads.
+
+```bash
+# Back up. One database, one file, one instant.
+pg_dump --format=custom --file=graticula-$(date +%F).dump "$GRATICULA_DB"
+
+# Restore, into an empty database.
+pg_restore --dbname="$GRATICULA_DB" graticula-2026-09-09.dump
+```
+
+### 2.2 The one rule: back up the database, never a schema
+
+**Do not use `pg_dump -n` or `pg_restore -n` to take or restore a backup.** The
+catalogue lives in one schema (`gisserver` by default) and hosted tables live in
+another (`hosted`), so a schema-selective dump splits the two halves that have to
+move together. Restoring one without the other produces a catalogue describing
+tables that are not there, or tables no catalogue knows about.
+
+*(`tools/rollback-rehearsal.sh` does use `pg_dump -n`, correctly: it copies the
+platform schema to a second schema to rehearse a migration rollback. That is a
+schema-copy tool, not a backup, and it is named here so nobody reads it as the
+house pattern for one.)*
+
+### 2.3 What a mismatch looks like, so it is recognised
+
+**This is the part worth reading before it happens**, because the server does not
+announce it. With a catalogue row whose table is missing:
+
+| Surface | What it answers |
+|---|---|
+| `/healthz/ready` | **200 `ready`** — it lists layers and pings the datastore; neither touches a layer's own table |
+| `/admin/health` | **`ok`**, and the layer count includes the ghost |
+| `/rest/services` | lists the service normally |
+| `FeatureServer/0?f=json` | **200**, with `fields` empty and no extent — a missing relation returns *no rows* from `pg_class` rather than an error, and the extent probe catches and returns null |
+| `FeatureServer/0/query` | **503**, and this is the only place the truth appears |
+
+The 503 says it well — *the table behind this layer no longer exists. The
+registration and the database have diverged; this is a catalogue problem, not a
+transient one, and retrying will not help.* **But the first person to read it is a
+client, not the operator who did the restore**, and every surface an operator
+would check first says the server is healthy. If a layer document comes back with
+an empty `fields` array after a restore, that is this.
+
+### 2.4 What this does not cover
+
+**Divergence is reachable without any restore**, so §2.3 is not only a
+restore-gone-wrong story: a crashed import can leave a hosted table the catalogue
+never learned about, an unpublish whose `DROP` fails leaves the table behind
+(measured, with the datastore quiesced), and a DBA's own `DROP TABLE` reaches the
+same state trivially. Nothing sweeps for either direction.
+
+**No backup mechanism ships**, and that is a decision rather than an omission:
+what a backup verb would do is run `pg_dump`, which the operator's own tooling,
+schedule and retention policy already do better. It is worth revisiting on the day
+attachments ship — [ADR-013](adr/ADR-013-feature-service-data-model.md) §4e says
+the datastore *"is about to contain arbitrary user binaries, so its backup size
+stops being a function of feature count and grows without bound"* — because that
+is the day one dump stops being a comfortable answer.
+
+### 2.5 What has never been run
+
+**Nobody has restored this product from a backup.** Everything above is derived
+from where the state is written and from reading what each surface answers, in
+the same way §1.1 is. Before relying on it, take a dump, restore it into an empty
+database, and check that the service list, one layer document and one query all
+come back — and that the administrator you sign in as still exists.

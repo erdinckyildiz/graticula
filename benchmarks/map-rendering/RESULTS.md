@@ -79,7 +79,7 @@ every FeatureServer request before ADR-041 existed.
   symbology, which has no `symbol` layer. Label placement is measured nowhere here and
   is the one part of the pipeline whose cost grows with feature count in a way the
   rasteriser's does not.
-- **Nothing about a thousand services.** [ADR-007](../../docs/adr/ADR-007-worker-model.md)'s
+- **Nothing about a thousand services.** [ADR-007](../../docs/adr/ADR-007-service-runtime.md)'s
   worker model still has no allocation term, and this says a map is cheap rather than
   that a fleet of them is.
 

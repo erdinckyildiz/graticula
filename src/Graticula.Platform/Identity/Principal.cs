@@ -16,10 +16,19 @@ namespace Graticula.Platform.Identity;
 /// </para>
 /// <para>
 /// <b><see cref="Name"/> is the stable, mappable identifier</b> ADR-015 §1a
-/// requires: authorization delegates to database row-level security via
-/// <c>SET LOCAL ROLE</c>, so a principal has to survive into the database as a
-/// role name an administrator has mapped. That is why identity here is a name
-/// rather than an opaque handle or a bag of claims.
+/// requires, because authorization is <em>designed</em> to be able to delegate to
+/// database row-level security via <c>SET LOCAL ROLE</c> — so a principal has to be
+/// able to survive into the database as a role name an administrator has mapped.
+/// That is why identity here is a name rather than an opaque handle or a bag of
+/// claims.
+/// </para>
+/// <para>
+/// <b>Stated in the present tense until 2026-09-09, and it was not true.</b>
+/// <c>SET LOCAL ROLE</c> is issued nowhere: this sentence was the only occurrence of
+/// the phrase in the solution. `docs/security.md` §2.2 has it right — delegation is a
+/// provider <em>capability</em> that is not built — and this remark was the version
+/// that read as a fact. The design argument for a name survives the correction
+/// unchanged; what it does not do is describe something the server does today.
 /// </para>
 /// </remarks>
 public sealed class Principal

@@ -785,8 +785,13 @@ internal static class WfsEndpoints
 
             context.Response.ContentType = WfsNames.GmlMediaType + "; charset=utf-8";
 
-            await new ValueCollectionWriter(type, property, isGeometry, isIdentifier, outputSrid)
-                .WriteAsync(context.Response.Body, features, matched, returned, now, cancellation)
+            // <b>Wrapped 2026-09-09.</b> This writes to `Response.Body` a value at a time
+            // and had no catch, so a failure after the first byte was answered as the
+            // caller leaving — the one thing D-132 exists to stop the log saying.
+            await StreamAsync(context, "wfs", () =>
+                new ValueCollectionWriter(type, property, isGeometry, isIdentifier, outputSrid)
+                    .WriteAsync(
+                        context.Response.Body, features, matched, returned, now, cancellation))
                 .ConfigureAwait(false);
 
             return;
@@ -1005,23 +1010,11 @@ internal static class WfsEndpoints
     /// announcing a thousand features and carrying none.
     /// </para>
     /// </remarks>
-    private static async Task StreamAsync(
-        HttpContext context, string name, Func<Task> write)
-    {
-        try
-        {
-            await write().ConfigureAwait(false);
-        }
-        catch (Exception e) when (context.Response.HasStarted)
-        {
-            ErrorResponse.LogTruncated(
-                context,
-                context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger(name),
-                e);
-
-            context.Abort();
-        }
-    }
+    // <b>One line, because the body moved to `ErrorResponse.StreamAsync`.</b> This was
+    // written here and again in `OgcFeaturesEndpoints`, and two paths — this file's own
+    // `GetPropertyValue` and the ArcGIS `f=html` page — had neither copy. Q-91, 2026-09-09.
+    private static Task StreamAsync(HttpContext context, string name, Func<Task> write) =>
+        ErrorResponse.StreamAsync(context, name, write);
 
     /// <summary>
     /// Builds the query, which is where every part of the request meets the engine.

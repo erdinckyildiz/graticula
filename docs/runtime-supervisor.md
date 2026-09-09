@@ -1,12 +1,40 @@
 # Runtime Supervisor
 
-**Status:** FIRST DESIGN — closes the severe gap found by
-[failure-scenarios.md](failure-scenarios.md) N5.
-**Required by:** §21. **Depended on by:** [ADR-007](adr/ADR-007-service-runtime.md),
-which wrote recycling, draining, quiescing and observed escalation as if this
-existed.
-**May be promoted to an ADR** if the routing question in §9 turns out to be
-contentious. For now it is a design document feeding ADR-007.
+**Status:** ~~FIRST DESIGN~~ — **LARGELY SUPERSEDED, marked 2026-09-09.** It was
+still labelled `FIRST DESIGN` while four accepted decisions had overtaken it, and
+two of those decisions cite this file's §7 as *future work* — so a reader
+arriving here was told a supervisor is coming, and a reader arriving there was
+told to look here for it. That circle is why [Q-65](open-questions.md) survived
+as long as it did.
+
+> **There is no supervisor and there is not going to be one in the shape below.**
+>
+> - **§1 and §8 are reversed.** They say workers outlive their parent and a
+>   restarted supervisor re-adopts them.
+>   [ADR-037](adr/ADR-037-job-workers-come-in-two-kinds.md) §5, as amended
+>   2026-09-09, decides the opposite and states it as a ceiling: *one kind of
+>   worker, a .NET child process the server starts and kills.* Both out-of-process
+>   things that exist behave that way — the overlay worker exits on EOF when the
+>   host closes the pipe, and the geodatabase reader is per-request.
+> - **§2 and §3's two levels are one process.**
+>   [ADR-019](adr/ADR-019-portal-server-split.md) §3 fuses the deployable.
+> - **§7's cross-worker quiesce shipped node-local**, in
+>   [ADR-059](adr/ADR-059-quiescing-a-data-source.md) on 2026-09-08 — a
+>   `ConcurrentDictionary` in one process, which is the right size for one
+>   process and does not survive a restart.
+> - **The routing §9 leaves open was decided against** by
+>   [ADR-029](adr/ADR-029-affinity-routing-is-not-the-default.md).
+>
+> **What survives is the principle, not the mechanism.** §1's *a management-plane
+> failure must not become a data-plane failure* is still the rule this product
+> follows, and `ServingCertificate` still names *a runtime supervisor that does
+> not exist* as the reason one thing is done the way it is. **Left standing rather
+> than deleted**, because the design a project decided against is worth being able
+> to read, and because the day a deployment runs more than one host —
+> ADR-059 §8's own revisit trigger — most of §8 returns with the supervision
+> belonging to systemd or Kubernetes rather than to us. On that day the question
+> is not adoption but a **lease**, which ADR-011 §3.3 already specifies and
+> nothing has built.
 
 ---
 

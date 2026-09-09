@@ -291,9 +291,18 @@ internal sealed class GeodatabaseInspector : BackgroundService
         }
         catch (OperationCanceledException) when (stopping.IsCancellationRequested)
         {
-            // <b>Left running rather than failed.</b> The server is stopping; the job was claimed and
-            // not finished, which is the state a restart can pick up again. Calling it failed would be
-            // this process's opinion about work nobody has decided to abandon.
+            // <b>Left running rather than failed.</b> The server is stopping; the job was claimed
+            // and not finished. Calling it failed would be this process's opinion about work
+            // nobody has decided to abandon.
+            //
+            // <b>This used to say <i>which is the state a restart can pick up again</i>, and that
+            // was false.</b> `PostgresJobStore.ClaimAsync` selects `where status = 'queued'`, so a
+            // `running` row is unreachable to every claimant for ever — `IJobStore` says so in as
+            // many words, and there is no reclaim sweep. The log line this raises had it right all
+            // along: *a restart will find the job claimed with nothing to read — which is a state
+            // worth seeing rather than hiding*. Two sentences about one shutdown disagreed, and
+            // the wrong one was the one a maintainer reads first. The absent sweep is ADR-011
+            // §3.3's and is now a debt row rather than an implication of this comment.
             Log.InspectAbandoned(_log, job.Id);
         }
         catch (Exception failed)

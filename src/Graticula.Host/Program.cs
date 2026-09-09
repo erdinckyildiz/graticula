@@ -60,6 +60,14 @@ public static class Program
           graticula migrate [--apply]     Report the platform schema's migrations, and
                                           run them with --apply. Never automatic.
 
+          graticula tools symbology-migrate [--apply]
+                                         Rewrite every stored MapLibre symbology
+                                         document as CIM (ADR-052 §3.9). Reports
+                                         without --apply. Omitted from this list
+                                         until 2026-09-09, under a summary that
+                                         promises every behaviour this executable
+                                         has.
+
           graticula tools admincreator [--name <name>] [--password <password>]
                                           Give a store that has accounts and no
                                           administrator one. Refuses if it already has
@@ -4113,10 +4121,27 @@ public static class Program
 
         long bodyStarted = tracing ? Stopwatch.GetTimestamp() : 0;
 
-        // Written straight to the response body. Nothing is buffered, because
-        // A-037 measured allocation as the binding constraint and a serialised
-        // copy of a 50,000-feature result is exactly the kind of peak it warns
-        // about.
+        // <b>The writer streams into this and this does not stream out — measured
+        // 2026-09-09, and this comment said the opposite until then.</b> It read
+        // *written straight to the response body, nothing is buffered*. The
+        // `IBufferWriter<byte>` overload below means `Utf8JsonWriter.FlushAsync`
+        // only `Advance`s the pipe, and `BodyWriter.FlushAsync` is called nowhere
+        // in this product — so every byte sits in the pipe until the handler
+        // returns. Measured on 21,184,212 bytes: **0 on the wire at t=0.20 s**, and
+        // `ttfb` within 10% of `total`, against 0.022 s for WFS over the same data.
+        //
+        // <b>A-037's argument is still right and is still why the writer is shaped
+        // as it is</b> — allocation is the binding constraint, and buffering a
+        // result *to count it* would double the peak. `FeatureServerQueryWriter`
+        // does write a feature at a time and materialise nothing; what defeats it
+        // is the sink it is handed here, which is one line of this file.
+        //
+        // <b>Not repaired here, because the repair is a choice.</b> One periodic
+        // `context.Response.BodyWriter.FlushAsync()` restores the documented
+        // behaviour and makes a mid-write failure unreportable on this face; owning
+        // a buffer instead keeps failures reportable and keeps the peak. That is
+        // [D-245](../../docs/architecture-debt.md), and it is an ADR rather than an
+        // edit.
         await using Utf8JsonWriter json = new(context.Response.BodyWriter);
 
         try

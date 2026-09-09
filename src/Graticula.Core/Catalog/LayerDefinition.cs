@@ -37,7 +37,10 @@ public sealed partial class LayerDefinition
     /// has none — in which case a single feature cannot be named by a number and the faces
     /// that require one refuse it.
     /// </param>
-    /// <param name="isHosted">Whether we own the schema.</param>
+    /// <param name="isHosted">
+    /// Whether the layer's <em>source</em> is the datastore. <b>Not whether we made the
+    /// table</b> — see <see cref="IsHosted"/>, which says why the difference matters.
+    /// </param>
     public LayerDefinition(
         string name,
         string schemaName,
@@ -100,9 +103,28 @@ public sealed partial class LayerDefinition
     public string? IntegerIdentityColumn { get; }
 
     /// <summary>
-    /// <see langword="true"/> when we own the schema, so it can be changed;
-    /// <see langword="false"/> for a registered source, where we cannot.
+    /// <see langword="true"/> when the layer's <em>source</em> is the datastore.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This said <i>we own the schema, so it can be changed</i> until 2026-09-09, and
+    /// that is not what it means.</b> The value comes from the data source's
+    /// <c>is_datastore</c> flag, and a datastore source can serve <em>any</em> schema of
+    /// that database — the conformance fixture publishes one that does. So a layer can be
+    /// hosted and sit in a schema this server did not create.
+    /// </para>
+    /// <para>
+    /// <b>The distinction is load-bearing, and it has already been got wrong twice.</b>
+    /// [ADR-058](../../../docs/adr/ADR-058-the-datastore-schema-is-edited-from-the-screen.md)
+    /// §5h found the field endpoints letting such a layer through to an importer guard
+    /// that throws — a 500 for a state the endpoint should have refused in a sentence —
+    /// and the attachment path had the same hole until it was found the same way. <b>A
+    /// caller asking <i>may I run DDL here?</i> must ask
+    /// <c>HostedDataEndpoints.AlterableSchema</c>, which tests this <em>and</em> the
+    /// schema name.</b> This property alone is not that question's answer, and the
+    /// sentence that used to be here is why two call sites believed it was.
+    /// </para>
+    /// </remarks>
     public bool IsHosted { get; }
 
     /// <summary>

@@ -15,11 +15,25 @@ namespace Graticula.Api.ArcGis;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Streams.</b> The header is written from the layer definition and the query
-/// schema, both known before the first row arrives, and features are written as
-/// they come. Nothing is materialised — A-037 measured allocation as the binding
-/// constraint, and buffering a result to count it before writing would double the
-/// peak for a number the client does not need.
+/// <b>Streams into whatever it is given.</b> The header is written from the layer
+/// definition and the query schema, both known before the first row arrives, and
+/// features are written as they come. Nothing is materialised <em>here</em> — A-037
+/// measured allocation as the binding constraint, and buffering a result to count it
+/// before writing would double the peak for a number the client does not need.
+/// </para>
+/// <para>
+/// <b>Which is not the same as the response streaming, and this paragraph claimed it
+/// was until 2026-09-09.</b> `Program` hands this class a <c>Utf8JsonWriter</c> built
+/// over the response's <c>PipeWriter</c>, which is never flushed, so the bytes this
+/// class writes incrementally leave the process all at once when the handler returns.
+/// The behaviour of this class is exactly as described; the outcome is not, and the
+/// difference is one line in the caller. [D-245](../../docs/architecture-debt.md),
+/// [Q-91](../../docs/open-questions.md).
+/// </para>
+/// <para>
+/// <b>The tests could not have caught it.</b> They hand this class a
+/// <c>MemoryStream</c>, where <c>Utf8JsonWriter</c> flushes to the stream as
+/// documented. Production is the only place it meets a <c>PipeWriter</c>.
 /// </para>
 /// <para>
 /// That is why <see cref="IFeatureSource.SchemaFor"/> exists separately from

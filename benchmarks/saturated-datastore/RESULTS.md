@@ -1,6 +1,6 @@
 # Tile encoding against a datastore that is out of CPU
 
-**Run 2026-08-27.** **Settles:** [ADR-021](../../docs/adr/ADR-021-tiles-are-encoded-by-postgis.md)
+**Run 2026-08-27.** **Settles:** [ADR-021](../../docs/adr/ADR-021-tile-encoding.md)
 condition 1. **Runner:** [`run.sh`](run.sh) · **Harness:** [`../harness`](../harness), unchanged
 since 2026-08-12.
 

@@ -65,14 +65,28 @@ So delegating to RLS was never going to replace our authorization. It was only
 ever going to *supplement* it for row-level rules a customer had already
 defined.
 
-**The model:**
+**The model** — and the fourth column is here because this table did not have
+one until 2026-09-09, when it was read against the code for the first time and
+**two of its four rows turned out to describe controls that do not exist.** A
+design table in a security document is read as a statement of what is enforced,
+and *Always available: Yes* beside a control nothing implements is the worst
+sentence in this repository: it is a claimed control, and somebody could design a
+deployment around it.
 
-| Layer | Who enforces | Always available |
-|---|---|---|
-| Service and layer visibility | **Us** | Yes |
-| Field visibility | **Us** | Yes |
-| Row filtering — our rules | **Us**, compiled into the query plan | Yes |
-| Row filtering — the customer's existing RLS | **The database**, if delegation is available | **No — a capability** |
+| Layer | Who enforces | Always available | Built |
+|---|---|---|---|
+| Service and layer visibility | **Us** | Yes | **Yes.** Sharing and the privilege model, enforced on every route |
+| Field visibility | **Us** | Yes | **No.** `FieldDescription` is `(Name, Type, Nullable, MaxLength)` and carries no visibility; `outFields=*` expands to every column the *connection* may read. The one filter that exists is `has_column_privilege` in `PostGisFeatureSource.ReadFieldsAsync`, which is the stored credential's grant and hides a column from **everyone equally** — not per caller. [Q-36](open-questions.md) |
+| Row filtering — our rules | **Us**, compiled into the query plan | Yes | **No.** The caller's identity never reaches the query: no principal appears anywhere in `PostGisFeatureSource`, and `AttachmentEndpoints` says *"once row filtering exists"* in its own comment |
+| Row filtering — the customer's existing RLS | **The database**, if delegation is available | **No — a capability** | **No**, and correctly marked as a capability rather than a fact. `SET LOCAL ROLE` appears once in the whole solution, in a docstring |
+
+**The three unbuilt rows are a plan and are still the plan**; what changed is that
+this table now says which is which. Two other documents already knew —
+[ADR-010](adr/ADR-010-caching.md) says *"when row-level or field-level filtering
+arrives"*, and [contradiction sweep 2](reviews/contradiction-sweep-2.md) names
+both as not existing — so this file was the stale restatement, which is
+[D-130](architecture-debt.md)'s shape landing on the one document where it is a
+safety claim rather than an inaccuracy. [D-241](architecture-debt.md).
 
 Assessment §8's takeaway from the thin-server study — *defer to row-level
 security where the provider supports it, rather than layering a second model

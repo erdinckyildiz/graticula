@@ -147,6 +147,12 @@ internal static class QueryPage
         IAsyncEnumerator<Feature> features =
             source.ReadAsync(query, cancellation).GetAsyncEnumerator(cancellation);
 
+        // <b>Wrapped 2026-09-09.</b> This page writes a row at a time and had a
+        // `finally` for disposal and no `catch`, so a failure after the first byte
+        // was attributed to the caller leaving. It is the same route as `f=json` and
+        // was the one of the two that actually streams. Q-91.
+        await ErrorResponse.StreamAsync(context, "arcgis", async () =>
+        {
         try
         {
             bool more = await features.MoveNextAsync().ConfigureAwait(false);
@@ -182,6 +188,7 @@ internal static class QueryPage
         {
             await features.DisposeAsync().ConfigureAwait(false);
         }
+        }).ConfigureAwait(false);
     }
 
     /// <summary>Writes a count-only answer as a page.</summary>

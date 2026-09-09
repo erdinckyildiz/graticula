@@ -55,7 +55,7 @@ record of what happens when a screen is rebuilt without looking at the one next 
 
 **What a thumbnail looks like without symbology.** These numbers are cost, not appearance.
 The render uses the derived renderer — a colour generated from the layer's name
-([ADR-028](../../docs/adr/ADR-028-symbology.md)) when no style is stored — and whether forty
+([ADR-028](../../docs/adr/ADR-028-style-documents.md)) when no style is stored — and whether forty
 of those read better than forty sampled outlines is a question for eyes rather than for a
 stopwatch.
 
