@@ -531,7 +531,7 @@ disk**, 4×, and every hit is one fewer query against the datastore that
 | §4 | Grant fingerprint | **not built and not needed yet** — no row or field filtering exists, so authorization for a tile is uniform |
 | §5.1a | Stale-while-error | **not built.** The cache expires during a source outage exactly when it would be most useful |
 | §5.2 | Change detection, schema-drift polling | **not built.** TTL is the only mechanism, which §5.2 says is the floor |
-| §5.3 | Per-layer volatility | **not built**, and it is the largest gap — see below |
+| §5.3 | Per-layer volatility | ~~**not built**, and it is the largest gap — see below~~ **Built — corrected 2026-09-09.** [D-25](../architecture-debt.md) closed 2026-08-15, `PUT /admin/layers/{name}/cache` sets it, and the tile path reads it: `VectorTileEndpoints` resolves `layer.CacheLifetime ?? defaultLifetime`. This ADR's own condition 2 discharge already said *"60 minutes for a tile **or the layer's own setting**"*, so the document contradicted itself two sections apart for three weeks |
 | §6 | Seeding | **not built** |
 
 **§5.3 is the one that will be felt first.** TTL is a single global number,
