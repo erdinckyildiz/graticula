@@ -657,6 +657,43 @@ internal static class ErrorResponse
             "This layer is busy while something else finishes with it. The query was not run. "
             + "Retry in a few seconds."),
 
+        // <b>A full datastore is not an unreachable one, and it was answered as one — the
+        // sixth time this file has mistaken a specific fault for a connectivity failure,</b>
+        // after `XX000`, `23505`, `42883`, `42703` and `55P03`. Class 53 is PostgreSQL's
+        // *insufficient resources*: the database is up, connected, authenticated and
+        // answering, and it is refusing because it has run out of something. None of the four
+        // had an arm, so every one fell to the general branch below and was answered *a
+        // database this server depends on is unreachable. Check /healthz/ready* — which is
+        // green, because connectivity is exactly what did not fail.
+        //
+        // Found while answering [Q-61](../../docs/open-questions.md), which asks what happens
+        // when a datastore fills up. The answer was: every write path — `applyEdits`, OGC
+        // Features, hosted import, attachment upload — gives the same sentence, and it sends
+        // the operator to look at the network.
+        //
+        // <b>What else carries this, asked before the edit.</b> Two other places read
+        // `SqlState`, and neither has the defect: `CatalogFallback` already names `53300`
+        // beside the `57Pxx` shutdown states as a reason to fall back, which is the right
+        // reading of it there; and `PostgresDataSourceProbe`'s default names the state and
+        // PostgreSQL's own message text, so a registration refused for a resource says so.
+        // The mistranslation was only ever here.
+        //
+        // <b>503 rather than 507.</b> RFC 4918's *Insufficient Storage* describes `53100`
+        // exactly and the other three not at all, and splitting one resource class across two
+        // status codes buys a client nothing: no ArcGIS client distinguishes them, and the
+        // distinction an operator acts on is in the sentence either way.
+        //
+        // <b>And no `Retry-After`.</b> Same reasoning as `55P03` above — nobody here knows how
+        // long until somebody frees a disk, and an invented number synchronises every client
+        // that believes it.
+        PostgresException resource
+            when resource.SqlState.StartsWith("53", StringComparison.Ordinal) => new(
+            StatusCodes.Status503ServiceUnavailable,
+            "The database refused this request because it has run out of a resource. PostgreSQL "
+            + $"reports `{resource.SqlState}`{OutOfResource(resource.SqlState)} /healthz/ready "
+            + "will be green throughout, because connectivity is not what failed.",
+            "This service cannot complete the request at the moment. Retry later."),
+
         PostgresException { SqlState: "42501" } or PostgresException { SqlState: "28P01" } => new(
             StatusCodes.Status503ServiceUnavailable,
             "The server could not authenticate against the layer's database, or lacks permission "
@@ -714,6 +751,38 @@ internal static class ErrorResponse
             "The server failed to handle this request. The reason is in the server log; it is not "
             + "repeated here because this endpoint is reachable without authentication.",
             null),
+    };
+
+    /// <summary>
+    /// What to do about a PostgreSQL <em>insufficient resources</em> code, in one clause.
+    /// </summary>
+    /// <remarks>
+    /// <b>The code is named in the sentence because the repair is different for each one and
+    /// this server cannot tell which from anything else it holds.</b> <c>53100</c> wants disk
+    /// freed or a tablespace moved; <c>53300</c> wants <c>max_connections</c> raised or this
+    /// server's pools made smaller, and is the one an operator is most likely to have caused
+    /// from here; <c>53200</c> and <c>53400</c> are the database host's own configuration.
+    /// Naming the code is not jargon leaking — it is the search term that finds the fix, and
+    /// the alternative is one sentence vague enough to cover four different repairs and
+    /// therefore useful for none.
+    /// </remarks>
+    /// <param name="state">The <c>SQLSTATE</c>, known to begin <c>53</c>.</param>
+    /// <returns>A clause continuing the sentence, opening with a comma or a full stop.</returns>
+    private static string OutOfResource(string state) => state switch
+    {
+        "53100" => ", which is a full disk. The database is running and reachable; it has "
+            + "nowhere to put the write. Free space on the datastore's volume, or move the "
+            + "tablespace. Retrying will not help until somebody does.",
+
+        "53300" => ", which is too many connections. The database is running and reachable and "
+            + "will not open another. Raise `max_connections`, or lower this server's pool "
+            + "sizes — /admin/health reports what it is holding.",
+
+        "53200" => ", which is out of memory. The database is running and reachable, and this "
+            + "is the database host's own memory rather than this server's.",
+
+        _ => ". The database is running and reachable, and is past one of its own configured "
+            + "limits.",
     };
 
     /// <summary>What a caller who may not read the operator's sentence is told instead.</summary>

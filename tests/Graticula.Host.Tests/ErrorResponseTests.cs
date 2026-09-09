@@ -295,6 +295,10 @@ public sealed class ErrorResponseTests
         arms.Add("missing function", WithSqlState("42883"));
         arms.Add("missing column", WithSqlState("42703"));
         arms.Add("lock wait cut", WithSqlState("55P03"));
+        arms.Add("disk full", WithSqlState("53100"));
+        arms.Add("out of memory", WithSqlState("53200"));
+        arms.Add("too many connections", WithSqlState("53300"));
+        arms.Add("past a configured limit", WithSqlState("53400"));
         arms.Add("credential refused", WithSqlState("42501"));
         arms.Add("password refused", WithSqlState("28P01"));
         arms.Add("secret unopenable", new SecretProtectionException("sealed with another key"));
@@ -447,5 +451,65 @@ public sealed class ErrorResponseTests
         // <b>No Retry-After.</b> Nobody here knows how long a DBA holds a lock, and a number
         // invented for the header makes every client that believes it retry in lockstep.
         Assert.Null(ErrorResponse.RetryAfterFor(WithSqlState("55P03")));
+    }
+
+    /// <summary>
+    /// A database that has run out of something is not a database that cannot be reached.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The sixth time this file has mistaken a specific fault for a connectivity
+    /// failure</b> — after <c>XX000</c>, <c>23505</c>, <c>42883</c>, <c>42703</c> and
+    /// <c>55P03</c>. PostgreSQL's class <c>53</c> is <em>insufficient resources</em>, and none
+    /// of its four states had an arm, so all four fell to the general branch and were answered
+    /// <em>a database this server depends on is unreachable. Check /healthz/ready</em>. The
+    /// database is up, connected, authenticated and answering; the readiness probe is green;
+    /// the operator goes to look at the network.
+    /// </para>
+    /// <para>
+    /// <b>Found by asking [Q-61](../../docs/open-questions.md)'s own question</b> — what
+    /// happens when a datastore fills up — and following it to the refusal rather than to the
+    /// quota it was about. Every write path gives the same wrong sentence: <c>applyEdits</c>,
+    /// OGC Features, hosted import, attachment upload.
+    /// </para>
+    /// <para>
+    /// <b>The state is reachable rather than theoretical</b>, which was the risk: <c>53300</c>
+    /// arrives during connection startup, before any command exists, and could plausibly have
+    /// reached this server as a transport error carrying no <c>SQLSTATE</c> at all. Measured
+    /// against a live PostgreSQL in
+    /// <c>Graticula.Platform.Postgres.Tests.OutOfResourceIsNotUnreachableTests</c>: it arrives
+    /// as a <c>PostgresException</c> with <c>SqlState</c> <c>53300</c>.
+    /// </para>
+    /// </remarks>
+    /// <param name="state">The SQLSTATE.</param>
+    /// <param name="expected">A word the operator's sentence must carry.</param>
+    [Theory]
+    [InlineData("53100", "disk")]
+    [InlineData("53200", "memory")]
+    [InlineData("53300", "connections")]
+    [InlineData("53400", "limit")]
+    public void Out_of_a_resource_does_not_read_as_out_of_reach(string state, string expected)
+    {
+        (int status, string message) = ErrorResponse.Classify(WithSqlState(state));
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, status);
+
+        // <b>The code is in the sentence on purpose.</b> The repair differs for each one and
+        // this server cannot tell which from anything else it holds, so the state is the
+        // search term that finds the fix.
+        Assert.Contains(state, message, StringComparison.Ordinal);
+        Assert.Contains(expected, message, StringComparison.OrdinalIgnoreCase);
+
+        // The defect itself: this is the word that sent an operator to the network.
+        Assert.DoesNotContain("unreachable", message, StringComparison.OrdinalIgnoreCase);
+
+        // <b>And it must say the probe will be green</b>, because an operator who checks it
+        // next and finds it healthy otherwise concludes the message was wrong about
+        // everything.
+        Assert.Contains("green", message, StringComparison.OrdinalIgnoreCase);
+
+        // No Retry-After, for `55P03`'s reason: nobody here knows how long until somebody
+        // frees a disk.
+        Assert.Null(ErrorResponse.RetryAfterFor(WithSqlState(state)));
     }
 }
