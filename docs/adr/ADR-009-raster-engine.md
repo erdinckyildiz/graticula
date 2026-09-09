@@ -154,9 +154,29 @@ from S3/Azure"*; the properties of COG itself are cited from
 [its own specification](https://cogeo.org/) rather than from them, per condition 3.
 
 Conversion needs somewhere to write, which means a writable store
-([data-model.md](../data-model.md) §2). A registered read-only source containing
-a non-COG raster can be catalogued but not served. That is a real limitation and
-it should be documented rather than discovered.
+([data-model.md](../data-model.md) §2). ~~A registered read-only source containing
+a non-COG raster can be catalogued but not served.~~ **Corrected 2026-09-09, and
+the gap is narrower than this sentence — measured on a running server rather than
+re-reasoned.** A **non-COG GeoTIFF is catalogued *and* served**: registering
+`gray-byte-no-overviews.tif` — a plain GeoTIFF, `overviews: 0` — answered **201**,
+and `exportImage` over its own extent answered **200** with a real PNG. Nothing was
+converted and nothing was written, because [ADR-043](ADR-043-imageserver-and-the-raster-face.md)
+§3.3 registers in place and `TiffCoverageReader` reads a plain GeoTIFF directly. A
+cloud-optimised arrangement is *faster*, not required — which is what the reader's own
+refusal has been saying all along.
+
+**What survives is the real limitation**, and it is about **formats**, not about
+arrangement: a raster that is **not a GeoTIFF at all** — JPEG 2000, ECW, MrSID, HDF,
+NetCDF — needs GDAL to convert it, conversion needs somewhere to write, and a
+read-only registered source has nowhere. Such a file is refused at registration
+rather than accepted and discovered later: `POST /admin/coverages` answers **400**
+with *"… is not a TIFF this server can read. A coverage is registered as a GeoTIFF,
+and a cloud-optimised one is the arrangement it reads fastest."* — measured, same
+sitting.
+
+That is a real limitation and it is documented rather than discovered: in
+[raster.md](../raster.md), where somebody choosing this product would look, and in
+the refusal itself, at the moment it applies.
 
 ### 2.2 GDAL runs at registration, not per request — and not in the serving artefact
 
@@ -327,6 +347,19 @@ overviews), [ADR-010](ADR-010-caching.md) (proxied ranges are cacheable),
 2. **A-032 must be measured** before proxying is committed to at scale. If
    imagery traffic dwarfs tile traffic, the default flips.
 3. **The read-only non-COG gap is documented**, not left to be discovered.
+   ***(DISCHARGED 2026-09-09, and discharging it corrected the gap.)*** §2.1's sentence
+   — *a registered read-only source containing a non-COG raster can be catalogued but
+   not served* — was measured on a running server and is false. A plain GeoTIFF with
+   `overviews: 0` registered (**201**) and `exportImage` drew it (**200**, a real PNG),
+   with nothing converted and nothing written: [ADR-043](ADR-043-imageserver-and-the-raster-face.md)
+   §3.3 registers in place and `TiffCoverageReader` reads it directly. **The gap is
+   about formats rather than arrangement** — a raster that is not a GeoTIFF at all
+   needs GDAL, conversion needs a writable store, and a read-only source has none. That
+   is now written in [raster.md](../raster.md), which was a stub saying nothing, and it
+   is also said by the refusal itself at the moment it applies (**400**, quoted in
+   §2.1). A limitation stated only inside the ADR that created it is the definition of
+   *left to be discovered*, which is why this condition took a document and not just a
+   sentence.
 
 ## 9. Revisit triggers
 
