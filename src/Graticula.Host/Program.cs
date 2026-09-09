@@ -1139,6 +1139,42 @@ public static class Program
 
         MapEndpoints(app);
 
+        // <b>The two siblings, read once at boot — which is what
+        // `GeometryWorkerPool`'s own remarks have promised and nothing did.</b>
+        // Measured 2026-09-09: `dotnet publish` carries neither, so an image built
+        // from the published output has a GeometryServer that refuses every overlay
+        // operation and an import path that accepts only GeoJSON — and the first
+        // evidence was a 501 in front of whoever tried. D-235.
+        //
+        // Here rather than at first use, and a warning rather than a refusal to
+        // start: a deployment serving features from PostGIS is complete without
+        // either, and taking a working server off the air over an unused feature is
+        // the wrong trade. Staying silent is the one option that is not.
+        {
+            GeometryWorkerPool overlay = app.Services.GetRequiredService<GeometryWorkerPool>();
+
+            if (!overlay.Available)
+            {
+                Log.SiblingMissing(
+                    logger,
+                    "The geometry overlay worker",
+                    GeometryWorkerPool.ExecutableBesideThisOne(),
+                    "answer GeometryServer union, intersection, difference, cut, buffer, "
+                        + "offset, simplify, relate or distance");
+            }
+
+            GeodatabaseReader reader = app.Services.GetRequiredService<GeodatabaseReader>();
+
+            if (!reader.Available)
+            {
+                Log.SiblingMissing(
+                    logger,
+                    "The import reader",
+                    GeodatabaseReader.ExecutableBesideThisOne(),
+                    "import a File Geodatabase or a shapefile; GeoJSON is unaffected");
+            }
+        }
+
         Log.Listening(
             logger,
             settings.RequireHttps ? "https" : "http",

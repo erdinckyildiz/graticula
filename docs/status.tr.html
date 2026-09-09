@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>7904f9c</code> · 2026-09-09 17:29</p>
+<p class="stamp">Şu commit’ten üretildi: <code>ed9c264</code> · 2026-09-09 17:30</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">61</div><div class="kpi-l">ADR</div><div class="kpi-n">11 koşulsuz kabul</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi warn"><div class="kpi-v">24</div><div class="kpi-l">açık borç</div><div class="kpi-n">218 ödendi · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">15/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">2498</div><div class="kpi-l">test</div><div class="kpi-n">273 kaynak dosya, 114,493 satır</div></div>
+<div class="kpi good"><div class="kpi-v">2498</div><div class="kpi-l">test</div><div class="kpi-n">273 kaynak dosya, 114,563 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -286,7 +286,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-162</td><td>A provider that is not PostGIS would be handed PostGIS SQL.</td><td class="muted-t">When DuckDB is designed as the file-format query engine (Q-81), and not after.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-201</td><td>A console test fails in two full runs out of four and passes on its own, and the cause is not known.</td><td class="muted-t">Run the console suite with -v n piped to a file until it fails, then read the message.</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-234</td><td>WMS advertises every legend as 20×20 and draws them at whatever size the labels need.</td><td class="muted-t">Already fired for any layer with a classified style, which is the ordinary case for a thematic map.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-235</td><td>No shipped image can import a geodatabase, and the serving image&#x27;s own claim that it carries no GDAL is what makes that true.</td><td class="muted-t">Already fired, and it is the release itself.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-235</td><td>No shipped image can import a geodatabase — nor a shapefile, nor answer a single GeometryServer overlay operation — and the serving image&#x27;s own claim that it carries no GDAL is what makes the first of those true.</td><td class="muted-t">Already fired, and it is the release itself.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-236</td><td>Two engines answer simplify this to tolerance t, they are reachable through the product under the same name and the same units, and nothing outside a geometry test says so.</td><td class="muted-t">Whichever comes first.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-237</td><td>The server has no view of how large its own datastore is, and cannot answer who is filling the store.</td><td class="muted-t">The first of these, and the second is the one that changes the answer rather than the priority.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-243</td><td>A job claimed by a worker that dies stays running for ever, nothing reclaims it, and no operator surface can clear it.</td><td class="muted-t">The first job observed stuck in running, or the first deployment that runs two servers.</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -406,6 +406,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>ed9c264</code><time>2026-09-09</time><span>D-229&#x27;s remainder is smaller than &quot;the other faces&quot;</span></li>
 <li><code>7904f9c</code><time>2026-09-09</time><span>A view that will not take a write was answered as an outage</span></li>
 <li><code>302d9cb</code><time>2026-09-09</time><span>Three questions close on one rule that was never written down</span></li>
 <li><code>3cfe4e3</code><time>2026-09-09</time><span>The face that carries the most bytes does not stream, and said it did</span></li>
@@ -419,7 +420,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>f9e0b0e</code><time>2026-09-09</time><span>Two questions close on their own premises being false</span></li>
 <li><code>c283d53</code><time>2026-09-09</time><span>A full datastore was answered as an unreachable one</span></li>
 <li><code>176e30b</code><time>2026-09-09</time><span>Editing is a derived capability, and this server met every clause and omitted it</span></li>
-<li><code>826088f</code><time>2026-09-09</time><span>The status page catches up with the commit before it</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

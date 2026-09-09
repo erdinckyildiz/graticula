@@ -164,11 +164,18 @@ internal sealed class GeodatabaseReader
 
         if (!Available)
         {
+            // <b>Rewritten 2026-09-09, because it was wrong twice.</b> It said the reader *is
+            // built and copied beside the server by the solution, so a deployment missing it was
+            // assembled by hand* — and the solution's copy target is exactly what a published
+            // image does not get: `dotnet publish` carries neither sibling, measured, so the
+            // **official** image is the one that meets this and the sentence told its operator
+            // they had assembled it themselves. And it offered a zipped shapefile as unaffected,
+            // when D-113 routed shapefiles through this same class. D-235.
             throw new InvalidOperationException(
-                $"The geodatabase reader is not installed at '{_executable}'. Importing a File "
-                + "Geodatabase needs it; a zipped shapefile and a GeoJSON FeatureCollection do not, "
-                + "and are unaffected. It is built and copied beside the server by the solution, so a "
-                + "deployment missing it was assembled by hand.");
+                $"The import reader is not installed at '{_executable}'. A File Geodatabase and a "
+                + "zipped shapefile both need it; a GeoJSON FeatureCollection does not, and is "
+                + "unaffected. It is built beside the server but is not carried by `dotnet "
+                + "publish`, so an image built from the published output does not have it.");
         }
 
         ProcessStartInfo start = new(_executable)

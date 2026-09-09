@@ -370,6 +370,40 @@ internal static partial class Log
                 + "on.")]
     public static partial void ConfiguredUnderTheFormerName(ILogger logger, string keys);
 
+    /// <summary>
+    /// A sibling executable this build should have shipped and did not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>`GeometryWorkerPool` promised this line and nothing wrote it.</b> Its remarks
+    /// say <i>checked once at startup rather than on the first request, so a packaging
+    /// mistake is a line in the log at boot instead of a 503 the first time somebody uses
+    /// the feature</i> — and `Available` was read only inside `ComputeAsync`. Written
+    /// 2026-09-09, when a publish was measured and found to carry **neither** sibling:
+    /// 49 entries, no `overlay/` and no `importer/`.
+    /// </para>
+    /// <para>
+    /// <b>A warning rather than a refusal to start</b>, because a deployment that only
+    /// serves features from PostGIS is complete without either of them, and refusing to
+    /// boot would take a working server off the air over a feature nobody there uses.
+    /// What it must not do is stay silent until somebody meets the 501.
+    /// [D-235](../../docs/architecture-debt.md).
+    /// </para>
+    /// </remarks>
+    /// <param name="logger">The log.</param>
+    /// <param name="component">What is missing, in the operator's words.</param>
+    /// <param name="path">Where it was looked for.</param>
+    /// <param name="cost">What this deployment cannot do without it.</param>
+    [LoggerMessage(
+        EventId = 1060,
+        Level = LogLevel.Warning,
+        Message = "{Component} is not installed at {Path}, so this deployment cannot "
+                + "{Cost}. It is built beside the server but is not carried by "
+                + "`dotnet publish`, so an image built from the published output does "
+                + "not have it.")]
+    public static partial void SiblingMissing(
+        ILogger logger, string component, string path, string cost);
+
     [LoggerMessage(
         EventId = 1005,
         Level = LogLevel.Information,

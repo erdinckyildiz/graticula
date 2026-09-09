@@ -1538,11 +1538,17 @@ internal static class HostedDataEndpoints
     /// </remarks>
     private static string Refusal(ForeignArchive kind) => kind switch
     {
+        // <b>Rewritten 2026-09-09 for the reason in `GeodatabaseReader`</b>, which carried the
+        // same two errors: it blamed the operator for a packaging fault that hits the published
+        // image specifically, and it offered a zipped shapefile as the way round — which needs
+        // the same reader, so of the three intake formats only GeoJSON survives. D-235.
         ForeignArchive.Geodatabase =>
-            "This is a File Geodatabase. Reading one needs the geodatabase reader, which this "
-            + "deployment did not ship — it is built and copied beside the server by the solution, so "
-            + "a server without it was assembled by hand. What imports without it is a zipped "
-            + "shapefile, or a GeoJSON FeatureCollection.",
+            "This is a File Geodatabase. Reading one needs the import reader, which this "
+            + "deployment did not ship. The reader is built beside the server but is not carried "
+            + "by `dotnet publish`, so an image built from the published output does not have it "
+            + "— this is a packaging fault rather than something you did. A zipped shapefile "
+            + "needs the same reader and will refuse too; a GeoJSON FeatureCollection imports "
+            + "without it.",
 
         ForeignArchive.GeoPackage =>
             "This is a GeoPackage, and this server does not import one yet. ADR-024 condition 3 is "
