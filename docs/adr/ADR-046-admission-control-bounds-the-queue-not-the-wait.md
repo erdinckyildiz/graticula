@@ -113,7 +113,15 @@ case A is about.
 
 **Argument against.** It needs a capacity number nobody can derive from first principles —
 *how many may wait per permit* is a judgement, and a wrong one refuses work the server could
-have done. It also cannot bound a single slow holder, which is the case A exists for.
+have done. ~~It also cannot bound a single slow holder, which is the case A exists for.~~
+**Corrected 2026-09-09: a queue bound cannot bound a holder, but something else already
+does.** `RequestDeadline` shipped 2026-08-18 — five days before this decision was written —
+and puts every request under a wall-clock deadline installed before authentication,
+defaulting to 600 s, lowerable per service and never raisable. The permit is held in a
+`using` around the enumeration (`BudgetedFeatureSource`), so cancelling that token releases
+it. **What is true is the weaker sentence**: ten minutes is a bound and not a defence — the
+slow-reader measurement held permits for 289 s, well inside it. See
+[D-144](../architecture-debt.md).
 
 ## 3. Counterarguments to the preferred option
 
@@ -302,8 +310,11 @@ ADR-045 (the Logs screen, where condition 3's refusals become visible).
 
    **DISCHARGED 2026-08-23**, and it took two rows rather than one, because measuring this
    decision left two different things open. [D-144](../architecture-debt.md) is the one this
-   condition asked for: nothing bounds how long one request may hold a permit, it was created
-   deliberately here, and the reason it is acceptable is that the alternative cannot be
+   condition asked for: ~~nothing bounds how long one request may hold a permit~~ — **corrected
+   2026-09-09, and the correction is the same one §2 needed: a wall-clock bound arrived on
+   2026-08-18, five days before this ADR, and neither knew.** What was created deliberately
+   here is the absence of a *rate* floor; ten minutes of wall clock is a bound and not a
+   defence — and the reason a tighter one is not free is that the alternative cannot be
    reported to a client. [D-145](../architecture-debt.md) is the second, and it is the one that
    would otherwise have gone unwritten — **the load generator runs on the machine under test**,
    so what is unproven about condition 1 is recorded as a property of the measurement rather

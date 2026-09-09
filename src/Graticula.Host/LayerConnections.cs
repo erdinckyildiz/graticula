@@ -246,7 +246,18 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// <em>query</em>, which is real and is not the same promise.
     /// </para>
     /// <para>
-    /// The bound that would cover it is Kestrel's
+    /// <b>A wall-clock bound does cover it, and this paragraph used to imply
+    /// nothing did.</b> <c>RequestDeadline</c> has put every request under a
+    /// deadline since 2026-08-18 — installed before authentication, 600 s by
+    /// default, lowerable per service and never raisable — and
+    /// <c>BudgetedFeatureSource</c> holds its permit in a <c>using</c> around
+    /// the enumeration, so the permit goes back when the deadline unwinds it.
+    /// Ten minutes is a bound; against the 115.7 s and 289 s holds measured in
+    /// <c>benchmarks/slow-reader</c> it is not a defence, which is a different
+    /// complaint and the one worth carrying.
+    /// </para>
+    /// <para>
+    /// The bound that would charge *slowness itself* is Kestrel's
     /// <c>MinResponseDataRate</c>, which this server does not set — so it is at
     /// the framework default of 240 bytes a second. Choosing a floor is
     /// [D-144](../../../docs/architecture-debt.md) and

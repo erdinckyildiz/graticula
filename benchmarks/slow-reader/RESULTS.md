@@ -55,7 +55,12 @@ it multiplied the hold by 178×.
 past on every sample rather than ageing, so the backend is not running one
 115-second statement. The rows are pulled as the writer consumes them, and each
 network round trip restarts the clock the timeout measures. `statement_timeout`
-bounds *a statement*; nothing bounds *a request*.
+bounds *a statement*; ~~nothing bounds *a request*~~ — **corrected 2026-09-09:
+`RequestDeadline` does, and had done for six days when this was written.** Every request
+runs under a wall-clock deadline installed before authentication, 600 s by default and
+lowerable per service, and the connection permit is released when it unwinds the read. The
+115.7 s and 289 s holds measured here sat inside it, which is the finding this sentence was
+reaching for: **the bound is too generous to be a defence**, not absent.
 
 ## 2a. It is size-dependent, and a smaller layer does not show it — 2026-08-26
 
