@@ -3658,8 +3658,38 @@ public static class Program
     /// value rather than quietly falling back to <c>Query</c>, which would make the
     /// setting look applied while doing nothing.
     /// </remarks>
-    private static string Join(IReadOnlyList<string> capabilities) =>
-        string.Join(",", capabilities);
+    private static string Join(IReadOnlyList<string> capabilities)
+    {
+        /*
+          <b><c>Editing</c> is derived, not chosen — [Q-145](../../docs/open-questions.md),
+          answered 2026-09-09 from the published specification.</b> The ArcGIS REST reference
+          states the rule in one sentence: *the `Editing` capability is included if `Create`,
+          `Delete`, and `Update` is enabled and `allowGeometryUpdates` is `true`.* That is a
+          derivation, so emitting it is not a guess and not an unrequested capability (§82) —
+          it is a restatement of three tokens already advertised.
+
+          <b>No client needs it, and that is why this stayed open.</b> The granular three are
+          what an editing client acts on, nothing had been reported, and Q-145 recommended
+          waiting for a measurement rather than emitting a token on a hunch. The measurement
+          turned out to be unnecessary: the specification says when the token appears, and this
+          server met every part of that condition while omitting it.
+
+          <b>Derived here rather than in `PrivilegedCapabilities`, because here is the final
+          set.</b> A service's configured ceiling restricts before this point ([ADR-031](../../docs/adr/ADR-031-service-capability-configuration.md)),
+          so a deployment that turns `Delete` off stops advertising `Editing` in the same
+          breath — which is the whole reason configuration only ever restricts.
+
+          <b><c>allowGeometryUpdates</c> needs no separate test.</b> `FeatureServerMetadataWriter`
+          computes it as *the set contains `Update`*, so it is true whenever the three are, and
+          checking it again here would be one fact asked in two places.
+        */
+        bool editing =
+            capabilities.Contains("Create")
+            && capabilities.Contains("Update")
+            && capabilities.Contains("Delete");
+
+        return string.Join(",", editing ? [.. capabilities, "Editing"] : capabilities);
+    }
 
     /// <summary>How long a first-start setup token lasts.</summary>
     /// <remarks>
