@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>d310b90</code> · 2026-09-09 08:44</p>
+<p class="stamp">Şu commit’ten üretildi: <code>2a0ce12</code> · 2026-09-09 08:53</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">60</div><div class="kpi-l">ADR</div><div class="kpi-n">11 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">171/228</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">57 canlı · 0 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">38</div><div class="kpi-l">açık soru</div><div class="kpi-n">118 yanıtlandı · 2 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">açık borç</div><div class="kpi-n">209 ödendi · 3 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">açık borç</div><div class="kpi-n">210 ödendi · 3 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">14/85</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">2471</div><div class="kpi-l">test</div><div class="kpi-n">272 kaynak dosya, 113,565 satır</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">11 açık</span></div><p><b>Q-18</b> — What genuinely justifies a server over static cloud-native publishing and over a stateless thin server plus a capable database?</p><p><b>Q-146</b> — Does a new composition start in EPSG:3857, or in nothing?</p><p><b>Q-147</b> — Is there a one-press way back to each layer&#x27;s own?</p><p><b>Q-150</b> — Is auto-discovery owed as a publishing mode, or is the wizard the answer?</p><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">82 madde</span></div><p><b>57 ADR conditions</b> outstanding across 35 decisions — the largest commitment on this page.</p><p><b>21 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">81 madde</span></div><p><b>57 ADR conditions</b> outstanding across 35 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -309,10 +309,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-234</td><td>WMS advertises every legend as 20×20 and draws them at whatever size the labels need.</td><td class="muted-t">Already fired for any layer with a classified style, which is the ordinary case for a thematic map.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-231</td><td>A view publishes, and the two catalogues this server reads disagree about it — so a materialized view is served with no fields and advertised as editable.</td><td class="muted-t">Already fired for any estate that publishes from a view, which is the ordinary way a GIS shop exposes a join or an…</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-221</td><td>The symbology editor needs 1,180 pixels and nothing under that width has an answer.</td><td class="muted-t">The first report of styling a layer on a narrow screen — A-081&#x27;s own falsification.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-225</td><td>Two inputs on every class row have no border at rest, so nothing says they are inputs until somebody points at them.</td><td class="muted-t">WCAG 2.1 SC 1.4.11 is not satisfied by an outline that appears on hover: a pointer is how you find out, and a keyboard…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-229</td><td>service.srid exists and nothing reads it.</td><td class="muted-t">The Publish screen, which offers the choice and cannot mean it until this is done</td><td><span class="pill cond">PARTLY</span></td></tr>
 </tbody></table></div>
-<p class="sub">209 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">210 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -420,6 +419,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.2%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>2a0ce12</code><time>2026-09-09</time><span>The primary button&#x27;s label was unreadable across half of it, and worst on hover</span></li>
 <li><code>d310b90</code><time>2026-09-09</time><span>A connection pool says which server opened it, so a per-server test can count one</span></li>
 <li><code>d35a110</code><time>2026-09-09</time><span>D-202 was wrong in all three of its premises, and it hid a real defect</span></li>
 <li><code>e8b2d42</code><time>2026-09-09</time><span>The axis order comes from the authority&#x27;s register, not from a number range</span></li>
@@ -433,7 +433,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>a8593e6</code><time>2026-09-09</time><span>The status page catches up with the commit before it</span></li>
 <li><code>ffb6881</code><time>2026-09-09</time><span>Two guards written yesterday were missing their second copy, and Q-18 gets its evidence</span></li>
 <li><code>9760277</code><time>2026-09-08</time><span>Q-20: two of its three open items close, and one of them found the engines differ</span></li>
-<li><code>b27a9bf</code><time>2026-09-08</time><span>Measuring quiesce answered its condition in the most awkward available way</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

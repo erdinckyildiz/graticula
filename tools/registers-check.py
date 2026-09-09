@@ -703,6 +703,68 @@ def a_control_edge_nobody_can_see():
     return problems
 
 
+def a_class_row_input_with_no_affordance_at_rest():
+    """The class list's two inputs, and whether they say so before being touched.
+
+    **[D-225](../docs/architecture-debt.md).** `.symlabel` and `.symvalue` were
+    `1px solid transparent` with no background: the border arrived on hover and focus,
+    so at rest nothing said they were inputs. SC 1.4.11 is not satisfied by an outline
+    that appears on hover -- a pointer is how you find out, and a keyboard user tabbing
+    through, or anyone scanning, never hovers.
+
+    **The repair was a design decision rather than a contrast one**, which is what the
+    row asked for: a baseline rule rather than a full border, so the reason the border
+    was dropped -- ten rows of rectangles on a screen whose subject is colour -- still
+    holds. This checks that *something* permanent is there, not which shape it is: a
+    fill or a full border would pass too, and both were on the row's own list.
+
+    **It exists because this row's neighbour was reported repaired and was not.** The
+    class list's scroll edge was moved one step under a comment citing this very rule
+    and written up as arrival ([D-215](../docs/architecture-debt.md)). An affordance
+    nobody re-checks is an affordance that drifts back to nothing.
+    """
+    path = os.path.join(
+        conditions.ROOT, "src", "Graticula.Host", "wwwroot", "console.css")
+
+    try:
+        css = io.open(path, encoding="utf-8").read()
+    except OSError as problem:
+        return [f"console.css could not be read: {problem}"]
+
+    rule = re.search(
+        r"\.setting\.symclass \.symlabel,\s*\.setting\.symclass \.symvalue\s*\{(.*?)\}",
+        css, re.S)
+
+    if not rule:
+        return [
+            "console.css no longer has the shared `.setting.symclass .symlabel, "
+            "`.symvalue` rule. D-225 is the row that says those two inputs have to "
+            "carry an affordance at rest; teach this check where they are now."
+        ]
+
+    body = rule.group(1)
+
+    # <b>Any of the three shapes the row named counts.</b> A baseline rule, a full
+    # border, or a fill a shade off the row -- what must not be true is that all of
+    # them are absent and the only signal is `:hover`.
+    resting = (
+        re.search(r"border(?:-bottom)?-color:\s*var\(--[\w-]+\)", body)
+        or re.search(r"border(?:-bottom)?:\s*[\d.]+px\s+solid\s+(?!transparent)", body)
+        or re.search(r"background(?:-color)?:\s*var\(--[\w-]+\)", body)
+    )
+
+    if resting:
+        return []
+
+    return [
+        "`.setting.symclass .symlabel` and `.symvalue` have no border and no fill at "
+        "rest, so nothing says they are inputs until somebody points at them. WCAG 2.1 "
+        "SC 1.4.11 is not satisfied by an outline that appears on hover: a keyboard "
+        "user tabbing through never hovers. See D-225 — a baseline rule, a full border "
+        "or a fill a shade off the row all satisfy this."
+    ]
+
+
 def white_text_on_the_primary_action():
     """The primary button's label against every stop of its own gradient.
 
@@ -2877,6 +2939,7 @@ def main() -> int:
                 + a_debt_status_nobody_counts()
                 + a_control_edge_nobody_can_see()
                 + white_text_on_the_primary_action()
+                + a_class_row_input_with_no_affordance_at_rest()
                 + a_demoted_assumption_still_called_load_bearing()
                 + a_register_tally_that_disagrees_with_the_register()
                 + a_debt_row_with_an_empty_cell()

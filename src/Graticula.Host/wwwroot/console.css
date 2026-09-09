@@ -2867,13 +2867,31 @@ html[data-session="held"] #app { display: block !important; }
 .setting.symclass .symtexts { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 
 /* <b>Boxes that do not look like boxes until they are used.</b> Two bordered inputs a row,
-   ten rows deep, is a wall of rectangles; the border arrives on hover and focus, which is
+   ten rows deep, is a wall of rectangles; the full border arrives on hover and focus, which is
    when it is telling somebody something. The text is still selectable and the control is
-   still an input — this is a border, not a disguise. */
+   still an input — this is a border, not a disguise.
+
+   <b>But *no* affordance at rest was a different thing, and it was
+   [D-225](../../../docs/architecture-debt.md).</b> SC 1.4.11 asks 3:1 of the visual information
+   that identifies a control, and an outline that appears on hover satisfies it for nobody: a
+   pointer is how you find out, and a keyboard user tabbing through, or anyone scanning the
+   screen, never hovers. The row's own trigger asked for this to be decided as a design question
+   rather than a contrast one — *raising a contrast that is not there is not a repair* — and
+   named the two quiet shapes: a baseline rule, or a fill a shade off the row.
+
+   <b>The baseline rule, because it is one line instead of four.</b> It keeps the reason the
+   border was dropped — ten rows of rectangles would be the loudest thing on a screen whose
+   subject is colour — while saying *you can type here* without being asked. It is the filled
+   text field's affordance, and it is `--control-edge`, so it carries D-215's measured 3.57:1 on
+   `--surface`, 3.24 on `--surface-2` and 3.01 on `--surface-3` rather than a value chosen here
+   by eye. The transparent border on the other three sides is what keeps hover from moving
+   anything. */
 .setting.symclass .symlabel,
 .setting.symclass .symvalue {
   width: 100%; min-width: 0; flex: none;
-  padding: 2px 5px; border: 1px solid transparent; background: none;
+  padding: 2px 5px; background: none;
+  border: 1px solid transparent;
+  border-bottom-color: var(--control-edge);
   border-radius: 3px;
 }
 .setting.symclass .symlabel { font-size: var(--t-small); color: var(--ink); }
