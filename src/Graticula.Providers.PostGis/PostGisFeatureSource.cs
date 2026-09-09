@@ -1346,11 +1346,30 @@ public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions, IGe
             // numbers are worth; ::text makes the contract explicit.
             return value is string text ? ParseBox(text) : null;
         }
-        catch (PostgresException)
+        catch (PostgresException failure) when (failure.SqlState != "42P01")
         {
             // A view, a missing statistic, or no privilege on the statistics.
             // Unknown is a legitimate answer here — LayerDescription says so —
             // and it must not take down a metadata request.
+            //
+            // <b>Except `42P01`, which is not *unknown* but *gone* —
+            // [D-244](../../docs/architecture-debt.md), 2026-09-10.</b> A catalogue row
+            // whose table has been dropped was invisible on every surface an operator
+            // checks: `/healthz/ready` answered 200, `/admin/health` counted the ghost as
+            // `ok`, `/rest/services` listed the service, and the layer document answered
+            // **200 with `fields: []` and no extent** — because the field reader's
+            // `pg_class` join returns zero rows rather than an error, and this catch turned
+            // the one query that *does* raise into a null. Only a client running a query
+            // ever found out.
+            //
+            // <b>The information was reaching us and being discarded, which is why the
+            // repair is a `when` rather than a probe.</b> Both extent queries raise `42P01`
+            // for a missing relation — measured 2026-09-10, including
+            // `st_estimatedextent`, whose failure had to be checked rather than assumed —
+            // and `ErrorResponse` already has an arm for it that says the registration and
+            // the database have diverged and that retrying will not help. So the layer
+            // document now fails with the sentence the query path was already giving,
+            // instead of describing a table that is not there.
             return null;
         }
     }

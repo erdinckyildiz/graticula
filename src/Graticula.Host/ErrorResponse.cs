@@ -520,8 +520,21 @@ internal static class ErrorResponse
             "Something with that name or location is already registered here. Pick another name, "
             + "or look at what is already published at that address."),
 
+        // <b>500, not 503, since 2026-09-10 — the code and the sentence disagreed.</b> A
+        // 503 means *try again later* to every client, proxy and retry policy that reads it,
+        // and this arm's own text ends *retrying will not help*. The test that pinned it was
+        // called `A_dropped_table_says_retrying_will_not_help` and asserted 503, which is the
+        // contradiction written down twice and noticed neither time. It is a server-side
+        // fault a caller cannot act on and time does not fix: the registration and the
+        // database have diverged and somebody has to reconcile them.
+        //
+        // <b>Reached from the metadata surface as well since
+        // [D-244](../../docs/architecture-debt.md).</b> The layer document used to answer 200
+        // with `fields: []` for a layer whose table was gone, so this arm was only ever seen
+        // by a client running a query — which is exactly what made the divergence invisible
+        // to the operator who caused it.
         PostgresException { SqlState: "42P01" } => new(
-            StatusCodes.Status503ServiceUnavailable,
+            StatusCodes.Status500InternalServerError,
             "The table behind this layer no longer exists. The registration and the database have "
             + "diverged — this is a catalogue problem, not a transient one, and retrying will not "
             + "help.",

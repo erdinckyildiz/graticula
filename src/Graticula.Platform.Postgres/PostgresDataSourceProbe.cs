@@ -286,7 +286,24 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
                   group by ai.attname, ai.attnum
                 ) x
               ) as identity_candidates,
-              pg_catalog.has_table_privilege(c.oid, 'INSERT, UPDATE, DELETE') as writable
+              -- <b>Both halves, and it asked only one until 2026-09-10 —
+              -- [D-231](../../docs/architecture-debt.md).</b> `has_table_privilege` answers
+              -- about the **grant**: whether this credential would be allowed to write if the
+              -- relation accepted writes. It says nothing about whether the relation does, so
+              -- a materialized view and a join view both came back writable and the layer
+              -- document advertised `Query,Create,Update,Delete` on relations PostgreSQL
+              -- refuses every write to. Measured 2026-09-10 across four kinds: by grant alone,
+              -- all four are writable; `pg_column_is_updatable` gets all four right — table
+              -- yes, auto-updatable view yes, join view no, materialized view no.
+              --
+              -- <b>The geometry column is the one asked about, and the error runs the safe
+              -- way.</b> A view whose geometry is a computed expression is not updatable in
+              -- that column even if others are, so this can report *not writable* for a
+              -- relation that accepts some writes. Understating a capability produces a
+              -- refusal somebody can ask about; overstating one produces an edit that fails
+              -- after the client believed it, which is what this row is.
+              pg_catalog.has_table_privilege(c.oid, 'INSERT, UPDATE, DELETE')
+                and pg_catalog.pg_column_is_updatable(c.oid, a.attnum, true) as writable
             from pg_class c
             join pg_namespace n on n.oid = c.relnamespace
             join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped

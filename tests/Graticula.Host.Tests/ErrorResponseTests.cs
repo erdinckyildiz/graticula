@@ -149,12 +149,21 @@ public sealed class ErrorResponseTests
         Assert.Contains("unreachable", message, StringComparison.Ordinal);
     }
 
+    /// <summary>A dropped table is permanent, and the status has to agree with the sentence.</summary>
+    /// <remarks>
+    /// <b>This asserted 503 until 2026-09-10, under this name.</b> A 503 means *try again
+    /// later* to every client, proxy and retry policy that reads it, and the message it was
+    /// checking ends *retrying will not help* — so the contradiction was written down twice,
+    /// in the arm and in the test that guarded it, and noticed neither time. The status is
+    /// asserted here beside the sentence for that reason: checking only the words is what let
+    /// them drift apart.
+    /// </remarks>
     [Fact]
     public void A_dropped_table_says_retrying_will_not_help()
     {
         (int status, string message) = ErrorResponse.Classify(WithSqlState("42P01"));
 
-        Assert.Equal(503, status);
+        Assert.Equal(500, status);
         Assert.Contains("will not", message, StringComparison.Ordinal);
     }
 
