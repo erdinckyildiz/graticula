@@ -24,8 +24,14 @@ folded into the sections below yet.
 | | GeoServer | GeoNode | Honua | ArcGIS Enterprise | Us |
 |---|---|---|---|---|---|
 | Age / maturity | ~20 years, large base | Mature, OSGeo | **8 months**, 4,894 commits, 4 stars, no release (verified 2026-08-15) | Decades, dominant | Nothing built |
-| Licence | GPL | GPL | Elastic 2.0, open core | Commercial | Copyleft, TBD |
+| Licence | GPL | GPL | ~~Elastic 2.0, open core~~ **console Apache-2.0; server unknown** | Commercial | ~~Copyleft, TBD~~ **Elastic License 2.0 — source-available** |
 | Governance | OSGeo, multi-vendor | OSGeo | Single vendor | Esri | — |
+
+> **Two cells in the licence row were corrected 2026-09-09, for different reasons.**
+>
+> **Ours** read *Copyleft, TBD*, which was the position until [ADR-047](adr/ADR-047-the-outbound-licence-is-elastic-2.md) reversed it on 2026-08-25. That makes this the **fifth** document found carrying the old licence — after `product-context.md`, `open-questions.md` and the two [CLAUDE.md](../CLAUDE.md) §7 already names — and the one the widened check in `tools/registers-check.py` still does **not** catch, because *Copyleft, TBD* matches neither *Apache-2.0* nor *open source*. Found by reading the row while fixing the cell beside it.
+>
+> **Theirs** read *Elastic 2.0, open core*, stated as fact. [Q-106](open-questions.md) says the opposite is known: the console is Apache-2.0 from its own public repository, and **the server's licence is unknown**. [ADR-030](adr/ADR-030-reading-the-reference-implementation.md) §1 is explicit that neither the name the anonymised checkout carries nor the licence it declares may be cited from it — and the struck string matches that scrubbed file exactly. Whether this row predates the anonymisation or came from public desk research could not be established, **which is itself the reason to withdraw it**: a claim whose provenance nobody can name is not evidence, and this one is about somebody else's licence.
 | Self-service publishing | **No** | **Yes** | No | **Yes** | Planned |
 | Item ownership and sharing | No | **Yes** — groups, fine-grained | No | **Yes** | Planned |
 | Managed data store | No | Partly — ingests to its own DB | **No** — bring your own PostGIS | **Yes** — Data Store | Planned |

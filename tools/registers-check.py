@@ -1865,9 +1865,31 @@ def an_outbound_licence_claim_that_is_stale():
         r"|Graticula\s*(?:·|\||-|—)\s*(Apache[- ]2\.0|Apache License)",
         re.I)
 
+    # <b>And the shape a table uses, which is the third one this check has missed.</b>
+    # It expected a sentence; then a footer got through (`Graticula * Apache-2.0`); and
+    # on 2026-09-09 a *table cell* got through too. `docs/product-context.md`'s own
+    # licence row read `| **Licence** | **Apache-2.0** (Q-73) ...` for fifteen days after
+    # ADR-047 -- in the file CLAUDE.md section 7 sends a reader to for the decisions
+    # already taken -- and it reasoned *from* the old licence, disqualifying GPL
+    # dependencies "since we cannot sublicense them under Apache-2.0". A row whose label
+    # is the licence is a claim about the licence, with no verb anywhere in it.
+    ours = re.compile(
+        ours.pattern
+        + r"|\|\s*\**Licen[cs]e\**\s*\|\s*\**(Apache[- ]2\.0|Apache License)",
+        re.I)
+
     promise = re.compile(
         r"(?:licensing|licence|license)[^.]{0,60}\bis\s+open[- ]source\b"
-        r"|\bopen[- ]source\b[^.]{0,20},\s*permanently", re.I)
+        r"|\bopen[- ]source\b[^.]{0,20},\s*permanently"
+
+        # <b>And the bare phrase used as a description of this product.</b>
+        # `product-context.md` said *"I will give this to the world." Open source,
+        # public, unrestricted* -- no verb, no "licence", and it survived every pattern
+        # above. That form is how a description gets written when somebody is not
+        # writing a sentence about licensing at all, which is exactly when this check is
+        # most needed.
+        r"|\bopen[- ]source\b\s*,\s*(?:public|free|unrestricted|and\s+unrestricted)",
+        re.I)
 
     problems = []
 
