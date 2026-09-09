@@ -198,7 +198,14 @@ would be right until the next upgrade.
 **So the honest sentence is not *GDAL is MIT*.** It is: an MIT-style core, with BSD-2 and
 BSD-3 components, a public-domain one, Info-ZIP, Qhull, and **two Apache-2.0 components, one
 of them Esri's** — all of them permissive, none of them copyleft, and all compatible with
-redistribution under Apache-2.0. The conclusion is the same as the short sentence would have
+redistribution under ~~Apache-2.0~~ **the Elastic License 2.0 — corrected 2026-09-09.** This
+paragraph was written on 2026-08-24, one day before
+[ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md) made the outbound licence
+ELv2, and it named the licence this project no longer uses — in the file whose own header
+says ELv2, five lines from the top. **The finding survives the change and that is the point
+of having measured it**: permissive inbound components impose no copyleft obligation on any
+outbound licence, so what was true for Apache-2.0 is true for ELv2. What was wrong is the
+sentence, not the analysis. The conclusion is the same as the short sentence would have
 given; the difference is that it is now checkable, and the Esri attribution is visible rather
 than buried under a summary.
 

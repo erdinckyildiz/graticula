@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>974a0aa</code> · 2026-09-09 13:13</p>
+<p class="stamp">Şu commit’ten üretildi: <code>0f4bb1b</code> · 2026-09-09 13:15</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">60</div><div class="kpi-l">ADR</div><div class="kpi-n">11 koşulsuz kabul</div></div>
@@ -281,7 +281,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="scroll"><table><thead><tr><th>No</th><th>Borç</th><th>Ne zaman ödenir</th><th>Durum</th></tr></thead><tbody>
 <tr class=""><td class="id">D-04</td><td>Multi-tenant resource isolation is not designed.</td><td class="muted-t">Before multi-tenant deployments are supported</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-07</td><td>A streaming response that fails after its first byte cannot report the failure.</td><td class="muted-t">Before a client is expected to distinguish a truncated page from a short one</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-10</td><td>ADR-015 is implemented for local passwords only.</td><td class="muted-t">OIDC before the first deployment with an IdP; /generateToken before any unmodified ArcGIS client is pointed at us</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-10</td><td>ADR-015 is implemented for local passwords only.</td><td class="muted-t">OIDC before the first deployment with an IdP; /generateToken before any unmodified ArcGIS client is pointed at us The…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-18</td><td>/admin/health is anonymous and therefore redacted, which is the wrong trade and the only one available.</td><td class="muted-t">When ADR-017 §6&#x27;s break-glass path is designed (A-051)</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-20</td><td>features:edit is stricter here than in ArcGIS Portal, because editor tracking does not exist.</td><td class="muted-t">When Q-58c lands — domains, subtypes and editor tracking.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-23</td><td>Nothing checks a password against known-breached lists.</td><td class="muted-t">Before this is recommended for anything internet-facing</td><td><span class="pill cond">PARTLY</span></td></tr>
@@ -408,6 +408,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.2%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>0f4bb1b</code><time>2026-09-09</time><span>Two triggers fired days ago and the rows they belong to never heard</span></li>
 <li><code>974a0aa</code><time>2026-09-09</time><span>The first release happened a week ago and four documents still say it did not</span></li>
 <li><code>3fde59e</code><time>2026-09-09</time><span>Nine ADR conditions were satisfied and nobody marked them</span></li>
 <li><code>d782054</code><time>2026-09-09</time><span>Three open questions get what the code says about them</span></li>
@@ -421,7 +422,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>3c8c387</code><time>2026-09-09</time><span>Four questions the code had already answered, and two registers that never learned</span></li>
 <li><code>1b57158</code><time>2026-09-09</time><span>The status page catches up with the commit before it</span></li>
 <li><code>f7b088f</code><time>2026-09-09</time><span>A non-COG GeoTIFF serves, so ADR-009&#x27;s documented gap was the wrong gap</span></li>
-<li><code>22c554e</code><time>2026-09-09</time><span>Readiness stays ready through a quiesce, because the question&#x27;s premise was false</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
