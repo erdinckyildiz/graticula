@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Graticula.Platform.Jobs;
 using Npgsql;
@@ -43,8 +45,16 @@ public sealed class PollerPoolTests
 {
     private const string ConnectionVariable = "GRATICULA_TEST_PG";
 
-    /// <summary>What the pollers' pool calls itself, from `Program.cs`.</summary>
-    private const string PollerPool = "graticula-jobs";
+    /// <summary>
+    /// What the pollers' pool calls itself, from <see cref="PoolNames"/>.
+    /// </summary>
+    /// <remarks>
+    /// <b>A pattern rather than a name — [D-208](../../docs/architecture-debt.md).</b> The pool
+    /// is `graticula-jobs:{machine}/{pid}` so that two servers on one database can be told
+    /// apart; matching by prefix keeps this class working against a server built before that
+    /// existed, which still names itself `graticula-jobs` exactly.
+    /// </remarks>
+    private const string PollerPool = PoolNames.JobsPattern;
 
     private static string Connection =>
         Environment.GetEnvironmentVariable(ConnectionVariable)
@@ -64,6 +74,59 @@ public sealed class PollerPoolTests
     }
 
     /// <summary>
+    /// The pollers' sessions, counted per server rather than in one heap.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is [D-208](../../docs/architecture-debt.md)'s repair.</b> The ceiling this class
+    /// asserts is per server, and the question the database was being asked was not: a second
+    /// server — a development one left running, another suite's host — put its sessions in the
+    /// same count, and the failure said *the pool was sized from something else* about a pool
+    /// that was sized correctly. Grouping restores the subject.
+    /// </remarks>
+    /// <returns>One row per server, largest first.</returns>
+    private static async Task<IReadOnlyList<(string Name, long Held)>> PerServerAsync()
+    {
+        await using NpgsqlDataSource source = NpgsqlDataSource.Create(Connection);
+
+        await using NpgsqlCommand command = source.CreateCommand(
+            "select application_name, count(*) from pg_stat_activity "
+            + "where datname = current_database() and pid <> pg_backend_pid() "
+            + "and application_name like @pattern "
+            + "group by application_name order by count(*) desc");
+
+        command.Parameters.AddWithValue("pattern", PollerPool);
+
+        List<(string, long)> found = [];
+
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
+
+        while (await reader.ReadAsync())
+        {
+            found.Add((reader.GetString(0), reader.GetInt64(1)));
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// A sentence naming the company this database is keeping, or nothing.
+    /// </summary>
+    /// <param name="servers">What <see cref="PerServerAsync"/> found.</param>
+    /// <returns>The sentence, empty when this server is alone.</returns>
+    /// <remarks>
+    /// <b>The half of [D-208](../../docs/architecture-debt.md) that is not arithmetic.</b> Its
+    /// complaint was that *the message reads like a product defect*, and grouping alone fixes
+    /// the count without fixing the reading. Every failure here now says how many servers were
+    /// on the database when it was taken.
+    /// </remarks>
+    private static string Company(IReadOnlyList<(string Name, long Held)> servers) =>
+        servers.Count <= 1
+            ? string.Empty
+            : $" Note that {servers.Count} servers hold this database — "
+              + string.Join(", ", servers.Select(s => $"{s.Name} ({s.Held})"))
+              + " — so read this as a statement about them and not only about yours.";
+
+    /// <summary>
     /// The pollers are on a pool of their own, and the database can say so.
     /// </summary>
     /// <remarks>
@@ -74,7 +137,7 @@ public sealed class PollerPoolTests
     [Fact]
     public async Task The_pollers_hold_a_pool_that_names_itself()
     {
-        long named = await CountAsync($"application_name = '{PollerPool}'");
+        long named = await CountAsync($"application_name like '{PollerPool}'");
 
         Assert.True(
             named > 0,
@@ -88,24 +151,37 @@ public sealed class PollerPoolTests
     /// One connection per job kind, and the ceiling is the enumeration rather than a constant.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>Why the enumeration and not a number.</b> The row's complaint is that the floor *grows
     /// with the number of job kinds*, each background service polling independently. Sizing the
     /// pool from `JobKind` makes a third kind cost exactly one more connection, which is the
     /// arithmetic §4.8 asks for; a constant here would drift from the enumeration on the day
     /// somebody adds one.
+    /// </para>
+    /// <para>
+    /// <b>Per server, and that is [D-208](../../docs/architecture-debt.md).</b> The ceiling is a
+    /// property of one server's pool. Counting every session named `graticula-jobs` on the
+    /// database summed two servers into one and failed with a message about `MaxPoolSize` — a
+    /// product defect's words for somebody else's development server. It cost two diagnoses in
+    /// one afternoon. **The assertion is now the largest single server**: two servers each
+    /// holding their kind's worth is the correct state, and it passes.
+    /// </para>
     /// </remarks>
     [Fact]
     public async Task The_pollers_pool_never_holds_more_than_one_connection_per_job_kind()
     {
         int kinds = Enum.GetValues<JobKind>().Length;
 
-        long held = await CountAsync($"application_name = '{PollerPool}'");
+        IReadOnlyList<(string Name, long Held)> servers = await PerServerAsync();
+
+        (string Name, long Held) worst = servers.Count == 0 ? ("none", 0L) : servers[0];
 
         Assert.True(
-            held <= kinds,
-            $"The pollers' pool is holding {held} connections for {kinds} job kind(s). MaxPoolSize "
-            + "is set from the enumeration, so this means either the pool was sized from something "
-            + "else or a second process is running against this database.");
+            worst.Held <= kinds,
+            $"`{worst.Name}` is holding {worst.Held} connections for {kinds} job kind(s). "
+            + "MaxPoolSize is set from the enumeration, so a single server over it means the pool "
+            + "was sized from something else."
+            + Company(servers));
     }
 
     /// <summary>
@@ -122,7 +198,7 @@ public sealed class PollerPoolTests
     public async Task No_session_on_the_shared_pool_last_ran_the_job_claim()
     {
         long knocking = await CountAsync(
-            "coalesce(application_name, '') <> '" + PollerPool + "' "
+            "coalesce(application_name, '') not like '" + PollerPool + "' "
             + "and query ilike '%for update skip locked%'");
 
         Assert.True(

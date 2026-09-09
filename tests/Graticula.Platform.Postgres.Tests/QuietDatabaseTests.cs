@@ -48,12 +48,19 @@ public sealed class QuietDatabaseTests : PostgresFixture
         // untrustworthy is a *server* — its request pool and its job pollers — which names
         // itself and can be told apart. An unnamed connection is another test host, and
         // OneSuiteAtATime already handles those.
+        //
+        // <b>Matched by prefix since [D-208](../../docs/architecture-debt.md).</b> A pool now
+        // names the instance that opened it — `graticula-jobs:{machine}/{pid}` — so that a
+        // per-server property can be asserted per server. The pattern deliberately also matches
+        // the bare names this test was written against: a development server built last week
+        // still calls itself `graticula`, and a check that stopped seeing it would go green in
+        // exactly the state it exists to refuse.
         const string Sql = """
             select count(*)
               from pg_stat_activity
              where datname = current_database()
                and pid <> pg_backend_pid()
-               and application_name in ('graticula-jobs', 'graticula')
+               and application_name like 'graticula%'
             """;
 
         await using NpgsqlCommand command = DataSource.CreateCommand(Sql);

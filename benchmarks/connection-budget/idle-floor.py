@@ -21,6 +21,12 @@ file is a password in the history the moment the file is committed.
 measurement had to recognise the claim statement to say whose sessions those were;
 the pollers' pool names itself `graticula-jobs`, so the same question is a `where`
 clause and stays true when the statement is rewritten.
+
+**Since D-208 that name carries the instance** — `graticula-jobs:{machine}/{pid}` — so
+the grouping below yields one key per *server* rather than one per pool. Against a
+single server, which is what this benchmark is written for, that is the same numbers
+under a longer key. Against two it is the improvement: the floor is now attributable
+to the server that holds it, which is the whole reason the suffix exists.
 """
 
 import json

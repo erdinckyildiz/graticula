@@ -180,7 +180,7 @@ public static class Program
             new NpgsqlDataSourceBuilder(
                 new NpgsqlConnectionStringBuilder(settings.PlatformStore)
                 {
-                    ApplicationName = "graticula",
+                    ApplicationName = PoolNames.Of(PoolNames.Request),
 
                     /*
                       <b>Bounded, and [D-196](../../docs/architecture-debt.md) is why.</b>
@@ -390,6 +390,12 @@ public static class Program
           original measurement had to read `pg_stat_activity.query` and recognise the claim
           statement to say which sessions were the pollers'; naming the pool makes the same
           question a `where` clause. `benchmarks/connection-budget` is where it is asked.
+
+          <b>And the name carries the instance — [D-208](../../docs/architecture-debt.md).</b>
+          One connection per job kind is a property of *a* server, and a name every server
+          shares makes two servers' sessions indistinguishable from one server's holding twice
+          its ceiling. `PollerPoolTests` reported that sum as a product defect twice in one
+          afternoon. `PoolNames` says why the instance goes here and nowhere else.
         */
         builder.Services.AddKeyedSingleton(
             JobPool,
@@ -397,7 +403,7 @@ public static class Program
                 new NpgsqlConnectionStringBuilder(settings.PlatformStore)
                 {
                     MaxPoolSize = Enum.GetValues<Graticula.Platform.Jobs.JobKind>().Length,
-                    ApplicationName = "graticula-jobs",
+                    ApplicationName = PoolNames.Of(PoolNames.Jobs),
                 }.ConnectionString).Build());
 
         builder.Services.AddKeyedSingleton<Graticula.Platform.Jobs.IJobStore>(
