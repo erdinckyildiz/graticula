@@ -166,9 +166,20 @@ is the bullet above being given up on purpose, not overlooked.
 
 ### 3d. The rest of the protocol surface
 
-**OGC API Features, Tiles, Styles, Records, Processes, EDR · WFS · WMTS · WPS ·
+~~**OGC API Features**~~ **Tiles, Styles, Records, Processes, EDR · WFS · WMTS · WPS ·
 SensorThings · OData · gRPC · MCP · STAC · PMTiles · 3D Tiles · Terrain-RGB ·
 geocoding.**
+
+> **OGC API Features struck 2026-09-09: it is in v1, and this file said so in §2 and
+> the opposite here.** §2's own row records the read surface as *already in* and the
+> owner adding the write half on 2026-08-25 (Q-44), and the server serves
+> `/ogc/features/v1` with [ADR-042](adr/ADR-042-ogc-api-features.md)'s five conditions
+> all discharged. **This document is the authority** — [CLAUDE.md](../CLAUDE.md) §1 says
+> *where any other document disagrees, v1-scope wins* — so a contradiction **inside** it
+> is worse than a stale sentence in a document that loses: it could be quoted to support
+> either answer, and the rule that settles disagreements has nothing to settle them
+> against. *Corrected rather than deleted, so the change of mind stays visible.*
+> [D-130](architecture-debt.md).
 
 > **Amended 2026-08-19, and v1 does not change.** Owner decision: **WFS is the first surface built after v1** ([ADR-039](adr/ADR-039-wfs-is-the-first-surface-after-v1.md)), ahead of OGC API Features, which [Q-94](open-questions.md) had recommended for that place. **It is not moved into v1 and this section is not amended to include it.** The list above stands exactly as written; what is now known is the order things leave it in, and the first one is leaving while v1's own carried debts are open. That ordering is the owner's and is recorded in ADR-039 §1 rather than by editing the cut — because this document is the only one in the repository that ever subtracted anything, and *working outside v1* must not become *widening v1* by the same edit.
 
@@ -226,7 +237,16 @@ the loss counted rather than carried (D-107).
 
 [ADR-005](adr/ADR-005-api-architecture.md) decided **OGC API Features 1+2+3 as
 the native surface, with legacy protocols in a compatibility layer outside the
-core domain.** v1 ships **ArcGIS only**, with OGC API Features in v2.
+core domain.** ~~v1 ships **ArcGIS only**, with OGC API Features in v2.~~
+
+**Amended 2026-09-09, and the inversion is smaller than this section said.** v1 ships
+ArcGIS **and OGC API Features, read and write** — §2 carries both, the second added by
+owner decision on 2026-08-25. What v1 does not ship is **Part 3**, the filtering half,
+which is [ADR-005](adr/ADR-005-api-architecture.md) condition 1's subject and still
+live. So the inversion is of *primacy* rather than of presence: ADR-005 made OGC API
+Features the native surface and ArcGIS the compatibility layer, and v1 builds both with
+ArcGIS first. **ADR-005 stays `REOPENED`** — that has not changed and is not this
+correction's to change.
 
 **That is an inversion, not an amendment.** ADR-005 is `REOPENED`.
 
