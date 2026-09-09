@@ -703,6 +703,122 @@ def a_control_edge_nobody_can_see():
     return problems
 
 
+def white_text_on_the_primary_action():
+    """The primary button's label against every stop of its own gradient.
+
+    **[D-233](../docs/architecture-debt.md).** White on the first stop measured
+    **2.57:1** and the label is 15px at weight 600 -- ordinary text by WCAG's measure,
+    not large -- so 1.4.3 asks 4.5:1 and the gradient did not reach it until 53% of its
+    own width. This is the shared primary style, so it was *Sign in*, *Add a
+    connection...*, *Go* and *Resume*, on every screen.
+
+    **The row asked for exactly this**: *the ratio at each stop is arithmetic, and a
+    style that fails it should fail a build rather than the next review.* A gradient is
+    the one place an eye is worst placed to judge, because the failing part is the end
+    nobody looks at.
+
+    **Hover is measured too, and it is where the original defect was worst.** `filter`
+    applies to the label as well as the ground, and `brightness` above 1 lightens the
+    ground while white stays clipped at white -- so a brightening hover strictly lowers
+    the ratio, and the state that says *you are about to press this* was the least
+    readable one.
+    """
+    path = os.path.join(
+        conditions.ROOT, "src", "Graticula.Host", "wwwroot", "console.css")
+
+    try:
+        css = io.open(path, encoding="utf-8").read()
+    except OSError as problem:
+        return [f"console.css could not be read: {problem}"]
+
+    def channel(value):
+        value /= 255
+
+        return value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
+
+    def luminance(rgb):
+        return sum(w * channel(v) for w, v in zip((0.2126, 0.7152, 0.0722), rgb))
+
+    def contrast(one, other):
+        a, b = luminance(one), luminance(other)
+
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+
+    def pixels(colour):
+        return [int(colour[1 + i * 2:3 + i * 2], 16) for i in range(3)]
+
+    def brighter(rgb, factor):
+        return [min(255, round(v * factor)) for v in rgb]
+
+    rule = re.search(r"button\.primary\s*\{(.*?)\}", css, re.S)
+
+    if not rule:
+        return [
+            "console.css no longer has a `button.primary` rule. D-233 is the row that "
+            "says its gradient has to be measurable against its own label."
+        ]
+
+    gradient = re.search(r"linear-gradient\(([^;]*)\)", rule.group(1))
+
+    if not gradient:
+        return [
+            "`button.primary` no longer paints a gradient. If it is a flat colour now "
+            "that is one of the shapes D-233 named -- teach this check to measure it."
+        ]
+
+    stops = []
+
+    for token in re.findall(r"var\(\s*(--[\w-]+)\s*\)|(#[0-9a-fA-F]{6})", gradient.group(1)):
+        name, literal = token
+
+        if literal:
+            stops.append((literal, literal))
+            continue
+
+        found = re.search(rf"{name}:\s*(#[0-9a-fA-F]{{6}})", css)
+
+        if not found:
+            return [f"`button.primary`'s gradient names {name}, which console.css never defines."]
+
+        stops.append((name, found.group(1)))
+
+    if not stops:
+        return ["`button.primary`'s gradient names no colour this check can read."]
+
+    # <b>The label's own filter, because it lands on the text as well as the ground.</b>
+    hover = re.search(
+        r"button\.primary:hover\s*\{(.*?)\}", css, re.S)
+    factor = 1.0
+
+    if hover:
+        found = re.search(r"filter:\s*brightness\(\s*([\d.]+)\s*\)", hover.group(1))
+
+        if found:
+            factor = float(found.group(1))
+
+    label = brighter(pixels("#ffffff"), factor)
+
+    problems = []
+
+    for state, text, weight in (("at rest", pixels("#ffffff"), 1.0), ("on hover", label, factor)):
+        for name, value in stops:
+            ratio = contrast(text, brighter(pixels(value), weight))
+
+            if ratio < 4.5:
+                problems.append(
+                    f"The primary button's label is {ratio:.2f}:1 {state} against its "
+                    f"gradient stop {name} ({value}). WCAG 2.1 SC 1.4.3 asks 4.5:1, and the "
+                    "label is 15px at weight 600, which is not large text. See D-233."
+                    + (
+                        " `filter: brightness()` above 1 lowers this rather than raising it: "
+                        "the ground lightens and white stays clipped at white."
+                        if state == "on hover" and factor > 1 else ""
+                    )
+                )
+
+    return problems
+
+
 def a_debt_status_nobody_counts():
     """A debt whose status opens with a word no tool recognises.
 
@@ -2760,6 +2876,7 @@ def main() -> int:
                 + a_debt_row_that_disagrees_with_itself()
                 + a_debt_status_nobody_counts()
                 + a_control_edge_nobody_can_see()
+                + white_text_on_the_primary_action()
                 + a_demoted_assumption_still_called_load_bearing()
                 + a_register_tally_that_disagrees_with_the_register()
                 + a_debt_row_with_an_empty_cell()

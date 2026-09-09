@@ -141,6 +141,16 @@
   */
   --cyan: #2ad3c4;
   --cyan-deep: #0fb3ba;
+
+  /*
+    <b>The primary action's first stop, and it is not `--cyan-deep` — D-233.</b> White on
+    `--cyan-deep` is 2.57:1 and the button's label is ordinary text by WCAG's measure, so the
+    gradient did not reach 4.5:1 until 53% of its own width. This is the least ink on the same
+    hue and saturation that clears it: the ramp walked at 1% steps, where 29% lightness gives
+    4.49 and 28% gives 4.79. `--cyan-deep` keeps its own uses, which are decoration and a
+    logotype rather than a ground for text.
+  */
+  --primary-from: #0b7f84;
   --indigo: #2a3f7a;
   --indigo-glow: #3b52a8;
 
@@ -827,17 +837,40 @@ button:disabled:hover { background: var(--surface); }
   workspace.</b> Owner refinement pass: *"visually give it the stronger cyan → blue/violet treatment
   from the approved design."* One element having it is what makes it read as *the* action; two would
   make it a theme, which is on the list of things to avoid.
+
+  <b>Its first stop is `--primary-from` and not `--cyan-deep` — [D-233](../../../docs/architecture-debt.md).</b>
+  White on `--cyan-deep` is **2.57:1**, and the label is 15px at weight 600, which is ordinary text
+  by WCAG's measure and not large. The gradient only reached 4.5:1 at **53% of its own width**, so
+  *Sign in*, *Add a connection…*, *Go* and *Resume* all failed 1.4.3 across their leading half on
+  every screen. `--primary-from` is the least ink on this same hue and saturation that clears it —
+  the ramp walked at 1% steps, 29% lightness gives 4.49 and 28% gives 4.79 — which is how
+  `--control-edge` was chosen for [D-215](../../../docs/architecture-debt.md) and for the same
+  reason: a colour picked by eye is a colour that drifts back.
+
+  <b>A darker stop rather than a text shadow</b>, which is what the web usually reaches for and is
+  the worst of the three options the row named: it trades a ratio anybody can compute for one
+  nobody can.
 */
 button.primary {
-  background: linear-gradient(96deg, var(--cyan-deep), #2f6fd0 62%, #5a49c4);
+  background: linear-gradient(96deg, var(--primary-from), #2f6fd0 62%, #5a49c4);
   border-color: transparent; color: #fff; font-weight: 600;
   padding: 11px 21px; font-size: var(--t-body); letter-spacing: -.005em;
   box-shadow: 0 1px 2px rgba(16, 24, 38, .12), 0 6px 16px -10px rgba(47, 111, 208, .7);
   transition: filter .12s, box-shadow .12s;
 }
 button.primary:hover {
-  background: linear-gradient(96deg, var(--cyan-deep), #2f6fd0 62%, #5a49c4);
-  filter: brightness(1.06);
+  background: linear-gradient(96deg, var(--primary-from), #2f6fd0 62%, #5a49c4);
+
+  /*
+    <b>Hover darkens rather than brightens — D-233's second half, which nothing had named.</b>
+    `brightness(1.06)` lightened the ground and left the text at white, because white is already
+    clipped: the middle stop went 4.88 → 4.41 and the whole button failed AA *on hover* even
+    before its first stop was corrected. So the state that says *you are about to press this* was
+    the least readable one. Darkening filters the label too — white becomes #f0f0f0 — and the
+    worst stop still measures 4.67:1. A filled button that deepens under the pointer is also the
+    ordinary affordance; brightening one was never more than a habit.
+  */
+  filter: brightness(.94);
   box-shadow: 0 1px 2px rgba(16, 24, 38, .14), 0 10px 22px -12px rgba(47, 111, 208, .8);
 }
 button.primary .plus { font-weight: 400; margin-right: 7px; opacity: .9; }
