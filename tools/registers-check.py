@@ -1908,6 +1908,99 @@ def an_outbound_licence_claim_that_is_stale():
     return problems
 
 
+def a_completeness_row_that_disagrees_with_the_adr_it_names():
+    """A row of the completeness table restating an ADR status the ADR itself has moved on from.
+
+    **`architecture-completeness.md` is the file [CLAUDE.md](../CLAUDE.md) §1 sends
+    readers to** -- *"which is which is maintained in one place, the §66 table in
+    architecture-completeness.md, and is read there rather than restated here"* -- and
+    it restates ADR statuses by hand beside a status page that reads them from the
+    ADRs. **Measured 2026-09-09: the plugin-model row said `REOPENED` in two columns
+    for 25 days after ADR-006 re-closed**, while the generated page had printed
+    `ACCEPTED WITH CONDITIONS` correctly the whole time.
+    [D-247](../docs/architecture-debt.md).
+
+    **It checks only rows that name their ADR, and that is the honest limit.** Of 47
+    rows, 24 carry a bare status token -- `ACCEPTED WITH CONDITIONS`, `REOPENED` --
+    with no ADR named anywhere in the row. Those are unverifiable by a check *and by a
+    reader*: you have to already know which ADR *Plugin model* means. Guessing the
+    mapping from the area's wording would be a second description of which ADR governs
+    what, which is the defect this file keeps producing rather than a cure for it.
+    **Naming the ADR is what makes a row checkable**, and the two rows repaired on
+    2026-09-09 now do.
+
+    **So a row that names no ADR is passed, deliberately.** Making that an error would
+    fail the build on 24 rows today and force somebody to fill them in under time
+    pressure, which is how a mapping gets guessed wrong. The trigger for tightening it
+    is in D-247: the next stale cell found in a row that names no ADR.
+    """
+    # <b>Nine fields, because this file holds two tables.</b> The main one is
+    # (Area, Decision, ADR, Prototype, Benchmark, Security, Ops, Failure, Status);
+    # the §66 gates table below it is (Gate, Run, Result), whose third field is
+    # narrative that quotes statuses -- including the ones a cell has corrected
+    # itself about. Matching on shape rather than position is what keeps this from
+    # reading a sentence as a claim.
+    row = re.compile(
+        r"^\|\s*[^|]+\|[^|]*\|([^|]*)\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|\s*$")
+    cite = re.compile(r"ADR-(\d+)")
+    token = re.compile(
+        r"`?\*{0,2}(ACCEPTED WITH CONDITIONS|ACCEPTED|REOPENED|DEFERRED|REJECTED|"
+        r"DRAFT|REQUIRES PROTOTYPE|REQUIRES BENCHMARK)\*{0,2}`?")
+
+    path = os.path.join(conditions.ROOT, "docs", "architecture-completeness.md")
+
+    problems = []
+
+    for number, line in enumerate(io.open(path, encoding="utf-8"), 1):
+        found = row.match(line.rstrip("\n"))
+
+        if not found:
+            continue
+
+        cell = found.group(1)
+
+        named = {m.group(1) for m in cite.finditer(cell)}
+        said = token.search(cell)
+
+        # A cell that names no ADR, or names more than one, or states no status, is
+        # outside what this can check. See the docstring: that is the limit, not a hole
+        # somebody forgot.
+        if len(named) != 1 or said is None:
+            continue
+
+        number_of = sorted(named)[0]
+
+        matches = [
+            name for name in os.listdir(os.path.join(conditions.ROOT, "docs", "adr"))
+            if name.startswith("ADR-" + number_of + "-")]
+
+        if len(matches) != 1:
+            continue
+
+        header = io.open(
+            os.path.join(conditions.ROOT, "docs", "adr", matches[0]), encoding="utf-8")
+
+        truth = None
+
+        for header_line in header:
+            if header_line.startswith("| **Status**"):
+                stated = token.search(header_line)
+                truth = stated.group(1) if stated else None
+                break
+
+        if truth is None or truth == said.group(1):
+            continue
+
+        problems.append(
+            f"docs/architecture-completeness.md:{number} says ADR-{number_of} is "
+            f"`{said.group(1)}` and docs/adr/{matches[0]}'s own header says `{truth}`. "
+            "CLAUDE.md §1 sends readers to this table, and it restates by hand what the "
+            "status page reads from the ADR -- the plugin-model row said REOPENED for 25 "
+            "days after ADR-006 re-closed. The ADR header is the authority. D-247, D-130.")
+
+    return problems
+
+
 def an_adr_that_names_an_assumption_the_register_does_not_carry():
     """An ADR resting on an `A-nnn` that `architecture-assumptions.md` has never heard of.
 
@@ -3301,6 +3394,7 @@ def main() -> int:
                 + a_canonical_symbology_claim_that_is_stale()
                 + an_adr_that_disagrees_with_the_assumption_register()
                 + an_adr_that_names_an_assumption_the_register_does_not_carry()
+                + a_completeness_row_that_disagrees_with_the_adr_it_names()
                 + a_corpus_file_a_test_reads_but_a_clone_does_not_get()
                 + a_real_data_test_without_the_trait_ci_filters_on()
                 + a_test_project_ci_never_runs()
