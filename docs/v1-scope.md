@@ -130,11 +130,24 @@ narrowed to PostGIS estates, and it is the price of shipping.
 
 **Amended 2026-08-18 by owner decision, and only this last bullet moves.** Asked
 whether File Geodatabase import was worth the cost, the owner said *"gdb import
-önemli. o yüzden yığın büyüyecekse büyüyebilir."* So **the Python runtime returns
+önemli. o yüzden yığın büyüyecekse büyüyebilir."* ~~So **the Python runtime returns
 to the job-worker image — for our own code**, because
 [ADR-037](adr/ADR-037-job-workers-come-in-two-kinds.md) puts `pyogrio` there and
 [Q-108](open-questions.md) established there is nothing GDAL-free to adopt for
-.NET and that writing our own reader is the wrong project.
+.NET and that writing our own reader is the wrong project.~~
+
+**Corrected 2026-09-09, and the scope decision is untouched — only how it is built.**
+The owner's *gdb import is important* stands and is what this bullet records.
+[ADR-037](adr/ADR-037-job-workers-come-in-two-kinds.md) §5a **reversed the Python
+worker within a day of this amendment being written**: there is **one kind of worker,
+a .NET child process**, and GDAL is linked into it through `MaxRev.Gdal.Core` rather
+than reached through Python — *"the Python runtime returns to being what v1-scope §3c
+cut it as"*, in that ADR's own words about this very sentence. So the bullet above is
+**not** struck after all: the runtime did not come back. Q-108's finding still holds —
+nothing GDAL-free exists to adopt for .NET — and it was answered by linking GDAL
+rather than by shipping an interpreter. **This document is the authoritative scope
+(CLAUDE.md §1) and it described a reversed decision for twenty-two days**, which is
+[D-130](architecture-debt.md)'s propagation shape in the worst possible file.
 
 **Everything else in this section stays cut, and the line is one sentence wide.**
 GPServer, the Python SDK, the sandbox and the *user* wheel set remain out;

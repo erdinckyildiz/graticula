@@ -218,12 +218,21 @@ the serving process is whether its input is chosen by somebody else. Adversarial
 ([ADR-022](ADR-022-geometry-server.md) §9) and an uploaded archive are both that; a catalogue read is
 not. Both now go to the same kind of process, and one of them already existed.
 
-**The boundary between the Python worker and our runtime is a file, and the format is GeoParquet** —
-executing [Q-74](../open-questions.md)'s choice rather than making a new one. **The worker never touches
-the datastore**: it reads `.gdb`, writes GeoParquet, and our importer reads that and writes the features.
-Q-74 rejected a datastore connection for user tools on authorization grounds — a tool that can read the
-spatial store bypasses our sharing model and our capability checks — and that boundary is built now
-rather than when user tools arrive.
+~~**The boundary between the Python worker and our runtime is a file, and the format is GeoParquet**~~
+**— struck 2026-09-09. §5a below reverses this, and this paragraph went on describing the reversed
+design inside the ADR that reversed it.** There is no Python worker and no file boundary: the reader
+is a .NET child process with GDAL linked in, and `Graticula.Import.Reader` writes to the importer
+directly. GeoParquet was chosen for a Python endpoint that no longer exists, which the reader's own
+source says in as many words. Read the rest of this paragraph as the record of what was decided
+first:
+
+~~executing [Q-74](../open-questions.md)'s choice rather than making a new one. **The worker never touches
+the datastore**: it reads `.gdb`, writes GeoParquet, and our importer reads that and writes the features.~~
+**What survives the reversal is the last sentence, and it survives for its own reason.** Q-74 rejected a
+datastore connection for user tools on authorization grounds — a tool that can read the spatial store
+bypasses our sharing model and our capability checks — and that boundary is built now rather than when
+user tools arrive. It holds whatever language the reader is written in: `Graticula.Import.Reader` still
+never opens the datastore.
 
 > **Corrected 2026-08-18, hours after this was written, and the first version contradicted
 > [ADR-011](ADR-011-job-system.md).** It said *"the worker never holds a database connection"*, full
@@ -242,7 +251,13 @@ rather than when user tools arrive.
 > to agree leaves no trace of what was believed — and the contradiction sweep exists because that trace
 > is what nobody has.
 
-**Two kinds is the answer, and it is a ceiling rather than a floor.** A third kind needs its own ADR.
+~~**Two kinds is the answer, and it is a ceiling rather than a floor.** A third kind needs its own ADR.~~
+**Struck 2026-09-09: §5a reversed it to one kind, and this conclusion — the ADR's own title — went on
+standing unmarked below the reversal.** The rule that survives is the useful half and it is stronger
+as a ceiling of one: **one kind of worker, a .NET child process the server starts and kills**, and a
+second kind needs its own ADR. The title stays as written because [ADR-032](ADR-032-the-product-is-named-graticula.md)'s
+convention is that a document records its own history rather than being rewritten into agreement with
+its conclusion.
 
 ## 6. Consequences
 

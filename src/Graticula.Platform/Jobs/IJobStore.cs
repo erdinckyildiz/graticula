@@ -221,8 +221,10 @@ public interface IJobStore
     /// first one's lock and the pool serialises itself while looking like it is running in parallel.
     /// </para>
     /// <para>
-    /// <b>Filtered by kind, because a worker can only do what it carries.</b> The Python image reads
-    /// geodatabases; handing it something else would be a job that fails for a reason nobody chose.
+    /// <b>Filtered by kind, because a worker can only do what it carries.</b> The reader process
+    /// reads geodatabases; handing it something else would be a job that fails for a reason nobody
+    /// chose. <b>It is a .NET child process with GDAL linked in, not a Python image</b> — ADR-037
+    /// §5a reversed that on 2026-08-19 and this sentence said otherwise until 2026-09-09.
     /// </para>
     /// <para>
     /// <b>What is deliberately absent is a lease.</b> A job claimed by a worker that then dies stays
