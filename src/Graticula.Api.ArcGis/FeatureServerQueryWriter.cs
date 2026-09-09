@@ -22,18 +22,22 @@ namespace Graticula.Api.ArcGis;
 /// before writing would double the peak for a number the client does not need.
 /// </para>
 /// <para>
-/// <b>Which is not the same as the response streaming, and this paragraph claimed it
-/// was until 2026-09-09.</b> `Program` hands this class a <c>Utf8JsonWriter</c> built
-/// over the response's <c>PipeWriter</c>, which is never flushed, so the bytes this
-/// class writes incrementally leave the process all at once when the handler returns.
-/// The behaviour of this class is exactly as described; the outcome is not, and the
-/// difference is one line in the caller. [D-245](../../docs/architecture-debt.md),
+/// <b>Which was not the same as the response streaming, until 2026-09-09.</b> <c>Program</c> handed this class a <c>Utf8JsonWriter</c> built over
+/// the response's <c>PipeWriter</c>, which nothing flushed, so the bytes this class
+/// wrote incrementally left the process all at once when the handler returned. The
+/// behaviour of this class was exactly as described; the outcome was not, and the
+/// difference was one line in the caller — now the <c>Stream</c> overload, with the
+/// 32 KB flush below. [D-245](../../docs/architecture-debt.md),
+/// [ADR-062](../../docs/adr/ADR-062-the-query-face-streams.md),
 /// [Q-91](../../docs/open-questions.md).
 /// </para>
 /// <para>
-/// <b>The tests could not have caught it.</b> They hand this class a
+/// <b>The tests could not have caught it, and that is why the repair is asserted
+/// against a socket rather than here.</b> They hand this class a
 /// <c>MemoryStream</c>, where <c>Utf8JsonWriter</c> flushes to the stream as
-/// documented. Production is the only place it meets a <c>PipeWriter</c>.
+/// documented — so they passed against the defect and pass against the fix, and a
+/// test written here would go on doing that. What can only be seen on the wire is
+/// asserted on the wire.
 /// </para>
 /// <para>
 /// That is why <see cref="IFeatureSource.SchemaFor"/> exists separately from
@@ -257,6 +261,20 @@ public sealed class FeatureServerQueryWriter
             {
                 truncatedBySize = true;
                 break;
+            }
+
+            // <b>Flushed as it goes, on the threshold `OgcFeatureWriter` uses.</b>
+            // Without this the writer's incremental work reaches the client all at
+            // once when the handler returns — which is what it did until 2026-09-09,
+            // because the caller handed it a `PipeWriter` nothing flushed
+            // ([D-245](../../docs/architecture-debt.md),
+            // [ADR-062](../../docs/adr/ADR-062-the-query-face-streams.md)). The
+            // ceiling above still reads correctly across a flush: `BytesCommitted`
+            // grows by what `BytesPending` gives up, so their sum is the response's
+            // size either way.
+            if (writer.BytesPending > 32 * 1024)
+            {
+                await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
         }
 

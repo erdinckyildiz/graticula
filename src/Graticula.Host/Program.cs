@@ -4157,28 +4157,29 @@ public static class Program
 
         long bodyStarted = tracing ? Stopwatch.GetTimestamp() : 0;
 
-        // <b>The writer streams into this and this does not stream out — measured
-        // 2026-09-09, and this comment said the opposite until then.</b> It read
-        // *written straight to the response body, nothing is buffered*. The
-        // `IBufferWriter<byte>` overload below means `Utf8JsonWriter.FlushAsync`
-        // only `Advance`s the pipe, and `BodyWriter.FlushAsync` is called nowhere
-        // in this product — so every byte sits in the pipe until the handler
-        // returns. Measured on 21,184,212 bytes: **0 on the wire at t=0.20 s**, and
-        // `ttfb` within 10% of `total`, against 0.022 s for WFS over the same data.
+        // <b>The stream, not the pipe — [ADR-062](../../docs/adr/ADR-062-the-query-face-streams.md).</b>
+        // This line read `context.Response.BodyWriter` until 2026-09-09, and it was
+        // the only place in `/src` that did. `Utf8JsonWriter`'s `IBufferWriter<byte>`
+        // overload flushes by `Advance`-ing the pipe and nothing flushed the pipe, so
+        // every byte of a 21 MB answer sat in memory until the handler returned:
+        // **0 bytes on the wire at t=0.20 s**, `ttfb` within 3% of `total`, against
+        // 0.022 s for WFS over the same data. The `Stream` overload is what
+        // `OgcFeatureWriter` and every other streaming face here uses, and
+        // `FeatureServerQueryWriter` flushes on the same 32 KB threshold they do.
         //
-        // <b>A-037's argument is still right and is still why the writer is shaped
-        // as it is</b> — allocation is the binding constraint, and buffering a
-        // result *to count it* would double the peak. `FeatureServerQueryWriter`
-        // does write a feature at a time and materialise nothing; what defeats it
-        // is the sink it is handed here, which is one line of this file.
+        // <b>A-037's argument is why the writer is shaped as it is, and it was never
+        // the thing that was broken</b> — allocation is the binding constraint, and
+        // buffering a result *to count it* would double the peak. The writer did
+        // write a feature at a time and materialise nothing; the sink defeated it.
         //
-        // <b>Not repaired here, because the repair is a choice.</b> One periodic
-        // `context.Response.BodyWriter.FlushAsync()` restores the documented
-        // behaviour and makes a mid-write failure unreportable on this face; owning
-        // a buffer instead keeps failures reportable and keeps the peak. That is
-        // [D-245](../../docs/architecture-debt.md), and it is an ADR rather than an
-        // edit.
-        await using Utf8JsonWriter json = new(context.Response.BodyWriter);
+        // <b>What it costs is [Q-91](../../docs/open-questions.md), and this face now
+        // pays what the others already paid.</b> A failure after the first byte
+        // cannot be answered in the ArcGIS envelope, so it aborts — which is what
+        // OGC API Features and WFS do, and what `ResponseOutcome.Truncated` exists to
+        // record. Before this, the drain happened after the handler returned and
+        // outside every `try`, so a client that received 5,374,799 of 21,184,212
+        // bytes was logged as a clean 200.
+        await using Utf8JsonWriter json = new(context.Response.Body);
 
         try
         {
