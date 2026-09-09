@@ -27,8 +27,11 @@ are not evidence: neither the name it carries nor the licence it declares may be
 cited from it.
 
 That is narrower than it sounds, and the difference is worth stating, because
-this repository names the product it is a copy of — **Honua** — 48 times across
-19 documents, including four register answers whose reasoning is explicitly
+this repository names the product it is a copy of — **Honua** — ~~48 times across
+19 documents~~ **44 times across 15, counted 2026-09-09; the figure in this
+sentence was 48 across 19 when it was written on 2026-08-16 and stayed there
+while the two research documents that carried most of them left the repository on
+2026-08-25** — including four register answers whose reasoning is explicitly
 sourced to it (Q-16, Q-28, Q-78, Q-81) and [ADR-029](ADR-029-affinity-routing-is-not-the-default.md).
 Those citations predate the anonymised checkout and are not affected by it. What
 this ADR forbids is treating *this checkout's* scrubbed strings as fact. Whether
@@ -301,7 +304,7 @@ first revisit trigger is written the way it is.
    published REST specification* and adds *"Values are ours; nothing here is copied"*;
    `src/Graticula.Api.OgcFeatures/OgcNames.cs:82`–`87` carries the conformance classes as
    their `opengis.net` URIs; `src/Graticula.Host/WfsEndpoints.cs:1023` cites RFC 7946 for
-   GeoJSON's axis rule; and `src/Graticula.Core/Cartography/ColourSpace.cs:18` names this
+   GeoJSON's axis rule; and `src/Graticula.Core/Cartography/ColourSpace.cs:17` names this
    condition and cites IEC 61966-2-1 and CIE 15 rather than any implementation. In the
    registers the same discipline is explicit and, in four places, argued out loud:
    [ADR-033](ADR-033-symbology.md) §4 sends the format citations to the MapLibre Style
@@ -312,18 +315,20 @@ first revisit trigger is written the way it is.
    COG's own properties; and [D-16](../architecture-debt.md) closed against Esri's
    published privilege list *"cited rather than the reference checkout"*.
    [ADR-058](ADR-058-the-datastore-schema-is-edited-from-the-screen.md) §4 and
-   [ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md) §2 cite
+   [ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md) §3.2 cite
    `developers.arcgis.com` and `github.com/Esri/cim-spec` directly.
    **Where the reference *is* cited it is for things no specification defines** — a
    dependency choice (ADR-041 §4), console design rules (ADR-020 §5c), the shape of a
    symbology model (ADR-033 §4), and an authorization composition rule
-   [ADR-018](ADR-018-authorization-and-roles.md) §4 names in order to *decline* it. That
-   is the line this condition draws, holding.
+   [ADR-018](ADR-018-authorization-and-roles.md) §3b-iii names in order to *decline* it —
+   *"This is not the deny-wins rule the reference uses"*. That is the line this condition
+   draws, holding.
    **One ambiguity found, and it is about reading rather than about citing.** *The
    reference* means three things in this repository — this checkout, an Esri product the
    owner named in a screenshot, and a coordinate reference system — and only the first is
-   this ADR's subject. [ADR-022](ADR-022-geometry-server.md) §5 names its source
-   (*"a screenshot of ArcGIS Server Manager's Pooling page"*);
+   this ADR's subject. [ADR-022](ADR-022-geometry-server.md)'s *The other three controls
+   on the reference's pooling page* names its source in its first line — *"a screenshot of
+   ArcGIS Server Manager's Pooling page"* — so no read of this checkout is behind it;
    [ADR-031](ADR-031-service-capability-configuration.md) §3b restated that evidence
    without the attribution until it was added on 2026-09-09, and until then a reader of
    ADR-031 alone could not tell which reference was meant. A disclosure a reader cannot

@@ -184,7 +184,12 @@ ADR-008 §2's never-degrade-silently is the same rule from the other end.
 ### 3b. The request deadline, added 2026-08-18
 
 **Owner requirement, and it had been asked twice.** With the reference's *Pooling* page
-open and an arrow on *The maximum time a client can use a service: 600 seconds*:
+open — **ArcGIS Server Manager's**, from the owner's screenshot, which
+[ADR-022](ADR-022-geometry-server.md) names and this section restated without the
+attribution until 2026-09-09; nothing here comes from the anonymised checkout
+([ADR-030](ADR-030-reading-the-reference-implementation.md) condition 1, and *the
+reference* means two different products in this repository) — and an arrow on *The
+maximum time a client can use a service: 600 seconds*:
 *"sadece geometri değil, tüm servislerde timeout olmalı"* — every service needs a
 timeout, not only the geometry service. The first delivery of that requirement had been
 narrowed to the geometry service, where a settable deadline already lives (ADR-022), and

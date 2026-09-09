@@ -221,6 +221,63 @@ have had a cache, and a cache is state.
    unbounded one — this decision fixes the answer, and a reference nobody advertised is still a
    reference nobody agreed to serve.
 
+   **Not discharged, and narrowed rather than left as written — measured face by face on the
+   running fixture, 2026-09-09.** What this text did not say is that it is a property of *faces*
+   rather than of the server, and the faces do not agree: **two of the five already hold, two do
+   not, and one has nowhere to hold.** Nothing here was repaired; what changed is that the shape
+   of the remaining work is now a measurement instead of a sentence.
+
+   | face | advertises | serves | |
+   |---|---|---|---|
+   | OGC API Features | `CRS84`, `EPSG/0/4326`, the storage reference and `EPSG/0/3857` — three on this fixture, where storage is one of the two | exactly those | **holds** |
+   | VectorTileServer | `102100`/`3857` in `tileInfo` and in `fullExtent` | that, and there is no parameter to ask for another | **holds** |
+   | WFS | one `DefaultCRS` per feature type, **zero** `OtherCRS` | every code PROJ's register carries | **does not** |
+   | WMS 1.3.0 and 1.1.1 | `CRS:84`, `EPSG:4326`, `EPSG:3857`, plus each layer's own | every code PROJ's register carries | **does not** |
+   | FeatureServer, MapServer | one `spatialReference` — its own | every code PROJ's register carries | **no set to compare** |
+
+   **The two that hold, driven rather than read.** A collection served every reference it lists
+   and refused `EPSG/0/5253`, `EPSG/0/32636`, an unresolvable code and even the `urn:` form
+   of a reference it *does* list — on `crs`, on `bbox-crs` and on the single-feature path, which
+   are two separate implementations of the same rule. The tile face returned a **byte-identical**
+   tile for `?outSR=5253&crs=EPSG:5253&bboxSR=5253`.
+
+   **The two that do not, and it is not a blank 200.** WFS answered
+   `srsName=urn:ogc:def:crs:EPSG::5253` with a document declaring exactly that `srsName`, against
+   a capabilities document carrying no `OtherCRS` anywhere; 5252, 32636 and 2039 the same. WMS
+   drew `ci_buildings` over its own extent in EPSG:5253 with **741 inked pixels of 16,384** where
+   the advertised EPSG:3857 draws **722**, and in EPSG:32636 with 722 — the layer, drawn, in a
+   reference no document on this server offers. `GetFeatureInfo` answers in it too.
+
+   **Confirmed from outside, by a tool that has no opinion about this repository.** The CITE WFS
+   2.0 run of 2026-08-26 records `BasicGetFeatureTests#getFeatureInOtherCRS` (OGC 09-025r2
+   §7.9.2.4.4) as *untested*, skipped with **"No alternative (non-default) CRS supported for any
+   feature type with data."** The suite read the capabilities document, concluded this server
+   supports no alternative reference, and did not run the test — while the server was serving
+   thousands. That is the defect stated by an independent reader
+   ([cite-wfs20-2026-08-26.rdf](../reviews/cite-wfs20-2026-08-26.rdf)).
+
+   **A second, smaller finding that is cheap and separable.** `crs=NOTACRS` is refused with
+   `code="InvalidCRS"`, correctly. `crs=EPSG:999999` — well-formed, and PROJ does not have it —
+   is refused with a `ServiceException` carrying **no `code` attribute at all**, because that
+   refusal comes from `ErrorResponse`'s projector branch rather than from the CRS validator. So
+   the one case §7.3.3.3 is named for is the one case the code is missing from. This does not
+   need the set question answered first.
+
+   **Why the rest is a decision rather than a repair, which is why it stays open.** The two
+   directions are not symmetric. *Serve only what is advertised* removes capability people use —
+   a client asking a national grid of a layer stored in Web Mercator is the case this ADR exists
+   for. *Advertise what is served* is not available in full: the served set is PROJ's whole
+   register, and a WFS document carrying 8,500 `OtherCRS` elements per feature type, nine feature
+   types here, is not a document. What is left is **a chosen set, advertised and enforced on
+   every face** — and *which* set is a scope decision, not a defect fix.
+
+   **Pinned meanwhile.** `AdvertisedReferencesAreTheServedOnesTests` asserts the two faces that
+   hold and asserts the gap on the two that do not, so the day either starts refusing an
+   unadvertised reference the build fails naming that face and this condition. **Falsified**:
+   pointed at a code PROJ does not carry it fails both arms — *"WFS answered 400 … If that is a
+   refusal, condition 4's WFS half is repaired"* — and pointed at an advertised reference the
+   Features arm fails on all three paths.
+
 ## 7. Revisit triggers
 
 - **A deployment needs a code PROJ's register does not carry** — a custom or a very new EPSG

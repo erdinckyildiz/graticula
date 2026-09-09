@@ -53,9 +53,9 @@ the document is what did not follow.
 | Step | Endpoint | Answers | Walked |
 |---|---|---|---|
 | 1 | ~~`GET /admin/layers/{id}`~~ | Is this layer hosted or registered? Which data source? | **405.** There is no GET for one layer — `/admin/layers/{name}` is `DELETE` only. The listing at `GET /admin/layers` carries both facts for every layer, so the answer exists at a different address and a walk that goes to this one gets a method refusal |
-| 2 | ~~`GET /admin/layers/{id}/cache`~~ | When was each zoom level last generated? What is the invalidation policy? | **405.** `/admin/layers/{name}/cache` is `PUT` only — it *sets* a lifetime. Nothing reports generation time per level. `GET /admin/health`'s `tileCache` block answers for the whole cache — entries, megabytes, what is building — and not per layer |
+| 2 | ~~`GET /admin/layers/{id}/cache`~~ | When was each zoom level last generated? What is the invalidation policy? | **405.** `/admin/layers/{name}/cache` is `PUT` only — it *sets* a lifetime. Nothing reports generation time per level. `GET /admin/health`'s `tileCache` block answers for the whole cache — entries, megabytes, what is building — and not per layer. **Re-walked 2026-09-09, and the generation time is in hand at the moment of the answer**: `FileSystemTileCache.ReadAsync` reads `LastWriteTimeUtc` on every hit to decide freshness and then drops it, because `CachedTile` is an outcome and bytes. So the tile itself cannot say either — `200`, `x-tile-cache: HIT`, `cache-control: public, max-age=60`, a strong `etag`, and no `Age` and no `Last-Modified` ([D-248](../architecture-debt.md)) |
 | 3 | `GET /admin/datasources/{id}/drift` | Has the source schema or content changed since we last looked? (A-023's fingerprint) | **Not built.** A-023's fingerprint does not exist |
-| 4 | `POST /admin/layers/{id}/cache/invalidate` | Fix it, scoped to a bbox or zoom range | **Not built.** The cache is TTL-only ([ADR-010](ADR-010-caching.md) §5.2), so *fix it* today is waiting or restarting |
+| 4 | `POST /admin/layers/{id}/cache/invalidate` | Fix it, scoped to a bbox or zoom range | **404 — and what is missing is the *scope*, not the act. Corrected 2026-09-09.** This row said the cache was TTL-only and that *fix it* meant waiting or restarting, which [ADR-010](ADR-010-caching.md) §11a had contradicted from its own side since it was written: `POST /admin/layers/{name}/refresh` purges a layer's tiles and says how many. Walked — `tilesPurged: 38`, `/admin/health`'s `tileCache.entries` 451 → 415, the next tile `MISS` and then `HIT` again. It is all-or-nothing for one layer, and [ADR-010](ADR-010-caching.md) §6b asks for a bbox or a zoom range because a full invalidation of a seeded pyramid is itself an outage |
 
 **What this forces into existence:** the cache index must record *generation
 time per tile set*, not merely hold bytes, and ADR-010's coherence policy must be
@@ -74,7 +74,7 @@ hits six 404s and concludes the server cannot say.
 | Step | Endpoint | Answers | Walked |
 |---|---|---|---|
 | 1 | ~~`GET /admin/layers/{id}/health`~~ | Recent latency distribution, error rate, request rate | **404, and answered elsewhere.** `GET /admin/logs/requests` ([ADR-045](ADR-045-the-server-keeps-a-log-you-can-ask-questions-of.md)) carries `durationMs`, `status` and the path per request. Not distribution — rows |
-| 2 | ~~`GET /admin/layers/{id}/capability`~~ | Is a filter being **refused** and the client retrying? | **404, and answered in two places.** `GET /admin/services/{name}/capabilities` says what is configured off; the request log shows the refusals as they happen |
+| 2 | ~~`GET /admin/layers/{id}/capability`~~ | Is a filter being **refused** and the client retrying? | **404, and answered in two places.** `GET /admin/services/{name}/capabilities` says what is configured off — **and takes `?folder=`, which this row left out until 2026-09-09.** A service in a folder answers *No service 'ci_parcels' at the root* without it, so a reader following this row meets a 404 at the one §3.2 address that does exist. The request log shows the refusals as they happen, as 400s carrying the query string that was refused |
 | 3 | `GET /admin/workers` | Which worker holds this service's context? Is it warm or being evicted? | **404, and the question dissolved.** [ADR-029](ADR-029-affinity-routing-is-not-the-default.md) removed the router: there is no *which worker*, and a context is bound in whichever one serves the request. `GET /admin/health`'s `describedShapes` says how many are warm and for how long |
 | 4 | ~~`GET /admin/workers/{id}`~~ | **Allocation rate and GC pause share** | **404, and answered at `/admin/health`.** Its `runtime` block carries `allocatedBytes`, `gcPauseMilliseconds`, `gen0/1/2`, `heapBytes`, `cpuMilliseconds` and `serverGc` — which is this ADR's *single most important consequence*, built, at another address. Process-wide rather than per worker, and there is one worker process |
 | 5 | ~~`GET /admin/datasources/{id}/pool`~~ | Pool saturation, wait time | **404, and answered at `/admin/health`.** Its `admissionControl` block carries `perSource`, `worker`, `queueDepth`, `waitSeconds`, `waitingForSource` and `waitingForWorker` ([ADR-046](ADR-046-admission-control-bounds-the-queue-not-the-wait.md)). Per source rather than per source *id* |
@@ -340,9 +340,55 @@ administrator has left.
    conditions are all discharged. The list should not still be counting it. **What is
    genuinely missing is the one that reads like bookkeeping and is not**: there is no
    `GET /admin/layers/{name}` among the eighty-five mapped routes — measured, zero matches —
-   so a scenario step that says *read this layer back* has no address to read it from. That
-   is the remaining half of this condition, and it is smaller than the sixteen rows make it
-   look.
+   so a scenario step that says *read this layer back* has no address to read it from.
+   ~~That is the remaining half of this condition, and it is smaller than the sixteen rows
+   make it look.~~ **Corrected by the walk below on the same day: that sentence was reading
+   §3.2, where it is true, and was wrong about §3.1, where two of the four questions have no
+   answer at any address.**
+
+   **Re-walked whole, 2026-09-09, against the fixture on `:8459` — by hand, reading every
+   body rather than every status code.** Sixteen steps, plus the 2026-08-19 amendment,
+   request and response recorded for each. Three of the findings went back into the script,
+   which had been reporting two of them wrongly: it sends `POST /admin/datasources/test` a
+   body now, because without one the probe answered `400` and the walk filed a working
+   endpoint beside the routes that do not exist; it asks the capabilities route with its
+   folder; and it reads a stored tile's headers, which is where the finding below is.
+
+   **§3.3 walks end to end, and it is the only one that does.** A registration for an
+   unreachable host is refused `400` carrying the probe's own sentence — *No host by that
+   name. Check the spelling and, if it is a container name, that this server is on the same
+   network as the database.* — and the listing afterwards is byte-identical, so the *probed
+   before written* claim is a measurement rather than a comment; a name already taken is
+   `409` naming it; `POST /admin/datasources/test` answers `Usable` with the PostGIS version
+   and 186 publishable tables, or `CannotConnect` with the same sentence, and creates
+   nothing; `/capability` and `/jobs/{id}` answer. The amendment holds too: `PUT` refuses
+   `400` with the reason and, when it succeeds, says what the source now points at and what
+   happens to the pool; `DELETE` refuses the datastore, and refuses a source with layers on
+   it while naming the count. **Nothing in that scenario needs a second window.**
+
+   **§3.4 walks at step 1 and its other two rows are decisions**, which they say. **§3.1 and
+   §3.2 do not walk**: not one of their ten addresses answers. The difference between the two
+   is what this condition turns on — §3.2's questions have answers at other addresses and
+   §3.1's largely do not.
+
+   **Two rows of the gap list moved, in opposite directions.** *Scoped cache invalidation*:
+   the **act** exists and this ADR was the last document still saying it did not —
+   `POST /admin/layers/{name}/refresh` purges a layer's tiles and reports the count
+   (`tilesPurged: 38`, `tileCache.entries` 451 → 415), and
+   [ADR-010](ADR-010-caching.md) §11a has said so all along. What is missing is the
+   **scope**.
+   *Per-level generation times* got worse rather than smaller: the number is read on **every**
+   cache hit — `FileSystemTileCache.ReadAsync` compares `LastWriteTimeUtc` against the
+   lifetime — and then discarded, so it is absent from the admin API **and** from the tile,
+   which goes out `public, max-age=60` with no `Age` and no `Last-Modified`. That is
+   [D-248](../architecture-debt.md), and it is a correctness fault rather than an
+   observability one: a cache in front restarts the sixty seconds from its own receipt, so
+   §3.1's complaint — *the map is showing old data* — is a thing this server causes.
+
+   **So: one scenario of four walks, one walks as far as it was decided to build, and two do
+   not.** What remains, and it is the whole of what remains: `GET /admin/layers/{name}`,
+   drift detection (A-023's fingerprint), a **scope** for the invalidation that exists, and a
+   generation time that is already being read.
 3. **The break-glass path in §6 cannot be used while the platform store is
    reachable**, tested — otherwise it is an authentication bypass.
    **NOT YET APPLICABLE: the break-glass path is not built** (A-051), so there
