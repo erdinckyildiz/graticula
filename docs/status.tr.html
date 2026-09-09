@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>68eac7a</code> · 2026-09-09 09:12</p>
+<p class="stamp">Şu commit’ten üretildi: <code>4a7a4b1</code> · 2026-09-09 09:18</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">60</div><div class="kpi-l">ADR</div><div class="kpi-n">11 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">171/228</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">57 canlı · 0 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">37</div><div class="kpi-l">açık soru</div><div class="kpi-n">119 yanıtlandı · 2 engelleyici</div></div>
+<div class="kpi "><div class="kpi-v">36</div><div class="kpi-l">açık soru</div><div class="kpi-n">120 yanıtlandı · 2 engelleyici</div></div>
 <div class="kpi warn"><div class="kpi-v">19</div><div class="kpi-l">açık borç</div><div class="kpi-n">211 ödendi · 3 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">14/85</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
@@ -269,7 +269,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-146</span><span class="owner">Owner</span></div><p>Does a new composition start in EPSG:3857, or in nothing?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-147</span><span class="owner">Owner</span></div><p>Is there a one-press way back to each layer&#x27;s own?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-148</span><span class="owner">Council</span></div><p>Should the composition preview bound vertices rather than rows, and how?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-149</span><span class="owner">Council</span></div><p>Should /healthz/ready say not ready while a data source is quiesced?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-150</span><span class="owner">**[OWNER]**</span></div><p>Is auto-discovery owed as a publishing mode, or is the wizard the answer?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-30</span><span class="owner">Council</span></div><p>How is cross-node change notification done without LISTEN/NOTIFY?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-34</span><span class="owner">Council</span></div><p>Are pre-generalised geometry tables per zoom level a datastore-only feature, or attempted on registered sources where we happen to have write access?</p></article>
@@ -417,6 +416,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.2%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>4a7a4b1</code><time>2026-09-09</time><span>Q-123 was answered by an ADR that shipped while the register still called it open</span></li>
 <li><code>68eac7a</code><time>2026-09-09</time><span>The Services screen says which services are refusing, and until when</span></li>
 <li><code>94e20ce</code><time>2026-09-09</time><span>The class row&#x27;s two inputs say they are inputs before you point at them</span></li>
 <li><code>2a0ce12</code><time>2026-09-09</time><span>The primary button&#x27;s label was unreadable across half of it, and worst on hover</span></li>
@@ -430,7 +430,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>e7b0d09</code><time>2026-09-09</time><span>The quiesce control goes through the ux-designer, and D-231&#x27;s reading half closes</span></li>
 <li><code>f87b083</code><time>2026-09-09</time><span>ADR-058 condition 2 closes, and closing it found the guard reading the picture</span></li>
 <li><code>b3ad88e</code><time>2026-09-09</time><span>Two claims in the Q-18 ledger were stronger than the code</span></li>
-<li><code>a8593e6</code><time>2026-09-09</time><span>The status page catches up with the commit before it</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

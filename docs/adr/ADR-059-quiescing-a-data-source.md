@@ -5,6 +5,7 @@
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `HIGH` for the refusal and the deadline · `MEDIUM` for the window's length · **`LOW` for the premise** — see §1, measured 2026-09-08 |
 | **Decided** | 2026-09-08 |
+| **Answers** | [Q-149](../open-questions.md) — §5g, 2026-09-09 |
 | **Supersedes** | — |
 | **Superseded by** | — |
 
@@ -337,6 +338,41 @@ because the honest version would be longer than it is worth.
 reachable, and it is. Whether a load balancer should keep sending traffic to a
 worker that will 503 every layer request is a real question and a different one —
 [Q-149](../open-questions.md).
+
+**Answered 2026-09-09: it stays `ready`, and the question's own premise is the
+thing that turned out to be false.** *A worker that will 503 every layer request*
+is not what a quiesce produces. The refusal is keyed by connection string (§5d),
+so it is **per data source by construction, not per worker** — and this section
+has already recorded two surfaces that keep answering through one:
+`GeometryServer/project` and every capabilities document. Measured on the
+`gisname` fixture while [D-232](../architecture-debt.md) was being repaired —
+eight services over two sources, one source held: **six services refuse and two
+do not**, and `/healthz/ready` answered `200 ready` throughout while a layer on
+the held source answered 503.
+
+So *not ready* would **over-report**. It is a whole-worker statement about a
+scoped refusal, and making it would take a worker out of rotation for layers and
+surfaces that are demonstrably still correct — converting a partial outage into a
+total one, on the worker an operator is least able to spare.
+
+**And the case the question worries about does not improve under the other
+answer.** A worker refusing *everything* is reached only when every source it
+serves is quiesced; under §4's node-local rule the operator doing that is doing
+it to each worker in turn, so every worker reaches that state together. Taking
+them all out of rotation gains nothing — there is nowhere healthy left to send
+traffic — and loses the surfaces that still answer.
+
+**What the question was really about is visibility, and that is repaired
+elsewhere.** The complaint underneath it is that a quiesce is invisible to
+anybody not looking at Data sources. [D-232](../architecture-debt.md) is where
+that was fixed: the Services screen names every refusing service and its
+deadline, and the health panel counts them.
+
+**Revisit trigger.** If [Q-65](../open-questions.md) is ever built — quiesce
+coordinated across workers — a *deployment-wide* quiesce becomes expressible,
+and a worker could then know it is one of many being taken out together rather
+than one going quiet alone. That is the state in which `not ready` starts to
+mean something, and Q-149 said so itself.
 
 ## 4. Consequences
 
