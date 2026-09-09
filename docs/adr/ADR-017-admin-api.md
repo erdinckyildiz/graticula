@@ -334,6 +334,15 @@ administrator has left.
    **This discharges when those exist.** It is not discharged by the walk being written
    down; what the walk bought is that the gap is now sixteen rows with a verdict each rather
    than a sentence nobody had checked.
+   **One row of that gap list is stale — checked 2026-09-09.** *Certificate rotation without
+   a restart* is **built**: `CertificateReload` exists and is wired in `Program.cs`, which
+   §3.4's own step 3 already records, and [ADR-014](ADR-014-tls-and-certificates.md)'s
+   conditions are all discharged. The list should not still be counting it. **What is
+   genuinely missing is the one that reads like bookkeeping and is not**: there is no
+   `GET /admin/layers/{name}` among the eighty-five mapped routes — measured, zero matches —
+   so a scenario step that says *read this layer back* has no address to read it from. That
+   is the remaining half of this condition, and it is smaller than the sixteen rows make it
+   look.
 3. **The break-glass path in §6 cannot be used while the platform store is
    reachable**, tested — otherwise it is an authentication bypass.
    **NOT YET APPLICABLE: the break-glass path is not built** (A-051), so there

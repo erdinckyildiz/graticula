@@ -248,6 +248,17 @@ first revisit trigger is written the way it is.
    corresponding entry is a process failure, not a private matter. The log's
    value is the last column — an entry that took nothing is worth recording as
    such.
+   **NOT DISCHARGEABLE AS WRITTEN — noted 2026-09-09, and this needs amending rather
+   than satisfying.** The file this condition names is a **placeholder**: its own first
+   lines say *"this file is a placeholder, and the thing it replaces was removed from
+   every commit of this history on 2026-08-25, before the repository was made public."*
+   The twenty-two entries were kept and moved out of the repository by owner decision,
+   which is a decision this condition predates. So *reads are recorded in
+   `reference-reading-log.md`* cannot be complied with here, and a standing condition
+   that cannot be met is worse than one that is open: it reads as an unpaid obligation
+   when the obligation moved. **The rule itself survives and is unchanged** — a read
+   with no entry is still a process failure — and what is owed is one sentence in this
+   condition saying *where* the log now lives, which is the owner's to give.
 3. **Standards before source.** Where a behaviour is specified publicly — the
    ArcGIS REST API documentation, an OGC specification — that specification is
    the citation. The reference may confirm a reading of a spec; it may not become
