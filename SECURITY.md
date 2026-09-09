@@ -2,12 +2,18 @@
 
 ## What this project is, before you rely on it
 
-**Graticula has never been released and has never been deployed by anybody but
-its author.** There is no published image, no versioned release, and no
-deployment in production anywhere (`docs/architecture-debt.md`, D-19). If you are
-reading this because you are evaluating whether to run it, the answer today is
-that it is not ready, and the honest security posture of an unreleased product
-is that its unknown flaws have not been found yet rather than that it has few.
+**Graticula has been released once and has never been deployed by anybody but its
+author.** ~~There is no published image, no versioned release, and no deployment in
+production anywhere.~~ **Corrected 2026-09-09**, and the old sentence had been false
+for a week: `v0.1.0` was tagged on 2026-09-02, its release workflow succeeded, and it
+published two images to GHCR — `graticula` and `graticula-datastore`, both also tagged
+`latest` (`docs/architecture-debt.md`, D-19, closed on that release). This repository
+is public.
+
+What has **not** changed is the part that matters to a reader deciding whether to run
+it: **nobody has deployed this in production**, and one tag is not a track record. The
+honest security posture of a product on its first release is that its unknown flaws
+have not been found yet rather than that it has few.
 
 That said, the code is real, it holds credentials and it answers network
 requests. So this policy exists now rather than at the first release, because a
@@ -89,8 +95,21 @@ no analysis of whether the finding is reachable.
 advisory affects a deployment of this project, tell us anyway and we will treat
 it as an update to ship rather than a flaw of ours.
 
-## What is not supported
+## Supported versions
 
-There are no supported versions, because there are no versions. Until the first
-release, `main` is the only thing that exists and a fix lands there. This table
-gets a real answer at that point.
+~~There are no supported versions, because there are no versions.~~ **There is one, as
+of 2026-09-02.**
+
+| Version | Supported | What that means |
+|---|---|---|
+| `0.1.x` | **Yes** | The current release line. A security fix lands on `main` and is published as a new `0.1.z` tag, which rebuilds both images. |
+| `main` | **Yes** | Where a fix lands first. If you are running from source, update and rebuild. |
+| Anything older | — | There is nothing older. `v0.1.0` is the first tag this project has ever had. |
+
+**One release line is not a support policy, and saying so is the point of this table.**
+There is no long-term-support branch, no backport commitment and no published end-of-life
+date, because a single-author project that has been released once cannot honour one. What
+is promised is narrow and keepable: a reported flaw is fixed on `main` and tagged, and
+this table says which versions that fix reaches. When a second release line exists, this
+table gains a row and the promise gets harder — that is the point at which it needs
+rewriting rather than extending.

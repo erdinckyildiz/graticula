@@ -130,7 +130,7 @@ and what this one has already decided.
 | Claim | Evidence |
 |---|---|
 | ~~The relicensing option a CLA preserves is already declined~~ **Falsified 2026-08-25** | ~~`CLAUDE.md` §7: open source, copyleft acceptable, no commercial closed-source distribution constraint~~ **[ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md) took that option ten days later. The row is kept because a piece of evidence that turned out to be wrong is worth more here than a tidy table** |
-| Nothing is exposed today, so the trigger is publication rather than a date | `gh repo view`: `"isPrivate": true`, Apache-2.0. [D-19](../architecture-debt.md): no published image, no release |
+| ~~Nothing is exposed today, so the trigger is publication rather than a date~~ **Fired — corrected 2026-09-09** | ~~`gh repo view`: `"isPrivate": true`, Apache-2.0. [D-19](../architecture-debt.md): no published image, no release~~ **Measured today: `"isPrivate": false, "visibility": "PUBLIC"`; the outbound licence is ELv2 ([ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md)), not Apache-2.0; and `v0.1.0` was tagged 2026-09-02 with two images published to GHCR, which is how [D-19](../architecture-debt.md) closed. Every one of these three facts was stale, and the row's own trigger — *publication* — is what happened** |
 | The DCO is sufficient for a permissively licensed project not seeking assignment | The Linux kernel, Git and Docker all use it in place of a CLA; it is a public, versionless statement a contributor makes rather than an agreement they sign |
 | 90 days is the disclosure norm rather than a number chosen here | Standard coordinated-disclosure practice across the industry; adopted rather than invented so that a reporter already knows the shape of it |
 
@@ -237,6 +237,20 @@ release must fill in the supported-versions table these documents leave empty.
    incident. Still the owner's four settings; still not discharged.)*
 2. **The supported-versions table is filled in at the first release**, not left
    saying "there are no versions" in a repository that has some.
+   ***(DISCHARGED 2026-09-09, and it was overdue by a week.)*** The first release
+   happened on **2026-09-02**: `v0.1.0` is tagged and pushed to `origin`, its release
+   workflow completed successfully, and it published `graticula` and
+   `graticula-datastore` to GHCR under `0.1.0` and `latest` —
+   [D-19](../architecture-debt.md) closed on that run. `SECURITY.md` went on saying
+   *"there are no supported versions, because there are no versions"* for seven days,
+   which is the sentence this condition names verbatim. **It has a table now**, and the
+   table's own point is that one release line is not a support policy: `0.1.x` and
+   `main` are supported, there is no LTS branch, no backport commitment and no
+   end-of-life date, because a project released once cannot honour one. **The same
+   correction reached the paragraph above it** — `SECURITY.md` opened by telling a
+   reader there was no published image and no versioned release, which was the first
+   thing anybody evaluating the project would read. What survives unchanged is the part
+   that is still true: nobody has deployed this in production.
 3. **The security contact is confirmed by the owner.** The address in
    SECURITY.md is the one configured in git, chosen as the obvious default and
    flagged here rather than assumed. A personal address on a public repository
