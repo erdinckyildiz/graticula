@@ -703,6 +703,82 @@ def a_control_edge_nobody_can_see():
     return problems
 
 
+def a_question_an_adr_answers_but_the_register_still_calls_open():
+    """An ADR whose front matter says *Answers Q-n*, where Q-n is still filed as open.
+
+    **[Q-123](../docs/open-questions.md), found 2026-09-09 by reading rather than by a
+    tool.** [ADR-060](../docs/adr/ADR-060-the-axis-order-comes-from-the-register.md)
+    was written, accepted, implemented and committed with `**Answers** | Q-123` in its
+    own header, and the question sat under *Open, not blocking* for the whole of it. The
+    status page takes resolution from the section heading, so it counted a decided
+    question as live uncertainty on the page the owner reads first.
+
+    **`an_answered_question_still_filed_as_open` could not see it**, and the difference
+    is worth stating: that check reads the question's own row for a verdict word, so it
+    catches a row that answers itself in place. This one is the other direction --
+    the answer is in a *different document*, and the row says nothing at all. Neither
+    check subsumes the other.
+
+    **This is [D-126](../docs/architecture-debt.md) and [D-130](../docs/architecture-debt.md)
+    exactly**: a decision taken in one file and left standing in every document that
+    restated it. The register cannot notice on its own, because nothing in it changed.
+
+    **Cheap because the convention is already kept.** Every one of the eighteen
+    (ADR, question) pairs in `docs/adr` names a settled question, so this fails only
+    when somebody forgets -- which is what happened.
+    """
+    directory = os.path.join(conditions.ROOT, "docs", "adr")
+    path = os.path.join(conditions.ROOT, "docs", "open-questions.md")
+
+    try:
+        lines = io.open(path, encoding="utf-8").read().splitlines()
+        names = sorted(os.listdir(directory))
+    except OSError as problem:
+        return [f"the ADRs or open-questions.md could not be read: {problem}"]
+
+    # <b>Resolution from the heading, the same rule status-page.py uses.</b> Reading the
+    # rows for a verdict instead reported 93 of 95 open once, which is the kind of
+    # confidently wrong number a check like this must not reintroduce.
+    answered = next(
+        (i for i, line in enumerate(lines) if line.startswith("## Answered")), len(lines))
+
+    still_open = set()
+
+    for line in lines[:answered]:
+        cells = [c.strip() for c in COLUMN.split(line.strip().strip("|"))]
+
+        if cells and re.match(r"^Q-\d+$", cells[0]):
+            still_open.add(cells[0])
+
+    problems = []
+
+    for name in names:
+        if not name.startswith("ADR-") or not name.endswith(".md"):
+            continue
+
+        try:
+            text = io.open(os.path.join(directory, name), encoding="utf-8").read()
+        except OSError:
+            continue
+
+        header = re.search(r"^\|\s*\*\*Answers\*\*\s*\|(.+)$", text, re.M)
+
+        if not header:
+            continue
+
+        for question in sorted(set(re.findall(r"\bQ-\d+\b", header.group(1)))):
+            if question in still_open:
+                problems.append(
+                    f"{name} says it answers {question}, and open-questions.md still files "
+                    f"{question} under an Open heading. One of the two is wrong: either move the "
+                    "row to Answered with the answer and the date, or take the claim out of the "
+                    "ADR's header. The status page reads the heading, so until then it counts a "
+                    "decided question as live uncertainty."
+                )
+
+    return problems
+
+
 def a_class_row_input_with_no_affordance_at_rest():
     """The class list's two inputs, and whether they say so before being touched.
 
@@ -2940,6 +3016,7 @@ def main() -> int:
                 + a_control_edge_nobody_can_see()
                 + white_text_on_the_primary_action()
                 + a_class_row_input_with_no_affordance_at_rest()
+                + a_question_an_adr_answers_but_the_register_still_calls_open()
                 + a_demoted_assumption_still_called_load_bearing()
                 + a_register_tally_that_disagrees_with_the_register()
                 + a_debt_row_with_an_empty_cell()
