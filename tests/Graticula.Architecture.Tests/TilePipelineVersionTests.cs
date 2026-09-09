@@ -68,7 +68,19 @@ public sealed class TilePipelineVersionTests
     /// its own question.
     /// </remarks>
     private const string RecordedHash =
-        "a02814428b7ffbf5543b31a350a19c863d8bf5de0373654e063593c53777a5c2";
+        // <b>Moved 2026-09-09 for a comment, and the version deliberately did not move with
+        // it.</b> `VectorTileEndpoints` is in the list above and its doc comment named
+        // `information_schema` as where a field's type comes from; the field list moved to
+        // `pg_attribute` that day ([D-231](../../docs/architecture-debt.md)) and the sentence
+        // was corrected. Not one byte of a tile is decided differently, so raising
+        // `TilePipeline.Version` would have made every cached tile in every deployment
+        // unreachable to fix a sentence — which is the wrong half of the choice this check
+        // exists to force somebody to make.
+        //
+        // <b>And it caught a real miss rather than a hypothetical one.</b> The comment shipped
+        // in `e7b0d09` with this guard red: four suites were run after that edit and this was
+        // not one of them, and it is the only one that watches the file that changed.
+        "0b4b750cb2808e6a1923ca6db4d25aab440aa716b68a3b6f63740ffafd34d0ca";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 1;
