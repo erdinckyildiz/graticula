@@ -385,6 +385,27 @@ overviews), [ADR-010](ADR-010-caching.md) (proxied ranges are cacheable),
    somebody else; **so is this one.**
 2. **A-032 must be measured** before proxying is committed to at scale. If
    imagery traffic dwarfs tile traffic, the default flips.
+   ***(Deferred 2026-09-09 with the decision it is a condition on.)***
+   [v1-scope](../v1-scope.md) §3b cuts ImageServer and says so about this ADR in as many
+   words — *ADR-009 can re-close. ImageServer was what reopened it; the near-free
+   operations go with the rest and **return when the raster engine does**.* This
+   condition is about **serving imagery at scale**, and v1 serves none: there is no
+   traffic to weigh against tile traffic and no default to flip. Measuring it now would
+   produce a number about a workload nobody has.
+
+   **Marked rather than left open, because [CLAUDE.md](../../CLAUDE.md) §2 says the two
+   are different states** — *counting it beside live work makes the pile look larger than
+   it is and makes the two indistinguishable to whoever is choosing what to do next*.
+   This is the first condition in the repository to carry the marker; the count read
+   **0 deferred** until now, which meant every condition on a cut decision was standing
+   in the queue as though somebody could do it.
+
+   **Condition 1 above is deliberately *not* deferred with it**, and the distinction is
+   the point: the raster *face* is cut but `POST /admin/coverages` ships and is reachable,
+   so a registration that opens a stranger's file in the serving process is a v1 exposure
+   whatever happens to ImageServer.
+
+   **It wakes with the decision** — the first tag that ships a raster face.
 3. **The read-only non-COG gap is documented**, not left to be discovered.
    ***(DISCHARGED 2026-09-09, and discharging it corrected the gap.)*** §2.1's sentence
    — *a registered read-only source containing a non-COG raster can be catalogued but

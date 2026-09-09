@@ -239,8 +239,29 @@ internal static class ErrorResponse
             context.Response.StatusCode = StatusCodes.Status200OK;
             context.Response.ContentType = WmsFault.MediaType(WmsVersion.V130);
 
+            // <b>An unknown reference system gets its own code, because WMS defines one and
+            // this is the case it defines it for.</b> Measured 2026-09-09: `crs=NOTACRS`
+            // answered `code="InvalidCRS" locator="CRS"` from `WmsRequest`, and
+            // `crs=EPSG:999999` — a well-formed code the projection database does not know —
+            // answered a bare `<ServiceException>` with **no code at all**, because it is not
+            // refused at parse time. It reaches the projector, PostGIS raises `XX000`, and
+            // this bridge wrapped the sentence without one. §7.3.3.3 names exactly that case.
+            //
+            // <b>Told apart by the sentence `Classify` already wrote</b>, rather than by
+            // re-deciding it here: that arm is the only one that produces this phrasing, and
+            // matching on it keeps the two from drifting into disagreement about the same
+            // fault. A codeless exception stays right for a genuine internal failure — which
+            // is what the null below is for, and it is not this.
+            bool crs = message.StartsWith(
+                "A coordinate reference system in this request is not one",
+                StringComparison.Ordinal);
+
             await context.Response
-                .WriteAsync(new WmsFault(null, message).ToXml(WmsVersion.V130))
+                .WriteAsync(
+                    new WmsFault(
+                        crs ? WmsFault.InvalidCrs : null,
+                        message,
+                        crs ? "CRS" : null).ToXml(WmsVersion.V130))
                 .ConfigureAwait(false);
 
             return true;

@@ -621,6 +621,15 @@ public sealed class WmsConformanceTests : ArcGisClient
     [InlineData("styles=something", "StyleNotDefined")]
     [InlineData("width=99999", "InvalidParameterValue")]
     [InlineData("crs=NOTACRS", "InvalidCRS")]
+
+    // <b>A well-formed code the projection database does not know, which is a different
+    // path from `NOTACRS` and was answered differently until 2026-09-09.</b> `NOTACRS`
+    // fails the syntax check in `WmsRequest` and has always carried `InvalidCRS`.
+    // `EPSG:999999` parses, reaches the projector, and PostGIS raises `XX000` — so it
+    // came back through `ErrorResponse`'s protocol bridge as a bare
+    // `<ServiceException>` with **no code at all**, which is the one case WMS 1.3.0
+    // §7.3.3.3 defines `InvalidCRS` for. Found while measuring ADR-060 condition 4.
+    [InlineData("crs=EPSG:999999", "InvalidCRS")]
     [InlineData("bbox=1,2,3", "InvalidParameterValue")]
     [InlineData("time=notatime", "InvalidDimensionValue")]
 
