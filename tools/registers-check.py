@@ -1908,6 +1908,70 @@ def an_outbound_licence_claim_that_is_stale():
     return problems
 
 
+def an_adr_that_names_an_assumption_the_register_does_not_carry():
+    """An ADR resting on an `A-nnn` that `architecture-assumptions.md` has never heard of.
+
+    **[CLAUDE.md](../CLAUDE.md) §2 puts assumptions in the register with a status, and
+    §11 makes invalidating one trigger a review of every ADR that depends on it.** That
+    trigger is a lookup in one file, so an assumption the register does not carry has no
+    trigger at all: it can be shown false without anything being reviewed. That is the
+    mechanism failing silently rather than a document being untidy.
+
+    **Measured 2026-09-09, the first time every `A-nnn` cited anywhere had been compared
+    with the register's own rows.** `ADR-060` §5 declared `A-082` and `A-083` in prose
+    and neither was registered -- and both are load-bearing, A-082 being the whole case
+    for baking the axis table into the assembly rather than reading `proj.db` at runtime.
+    [D-240](../docs/architecture-debt.md).
+
+    **It reads the ADRs only, deliberately.** An assumption identifier in a code comment
+    or a review is a citation; one in a decision document is a *dependency*, and §11 is
+    about dependencies. Widening this to the whole repository would turn a rule about
+    what decisions rest on into a spell-checker for prose.
+
+    **Struck rows still count as carried.** A withdrawn or superseded assumption is
+    recorded rather than deleted here, so `~~A-018~~` is an answer -- the register knows
+    about it, which is the whole question this asks.
+    """
+    row = re.compile(r"^\|\s*~{0,2}(A-\d+)~{0,2}\s*\|")
+    cited = re.compile(r"\b(A-\d+)\b")
+
+    carried = set()
+
+    path = os.path.join(conditions.ROOT, "docs", "architecture-assumptions.md")
+
+    for line in io.open(path, encoding="utf-8"):
+        found = row.match(line)
+
+        if found:
+            carried.add(found.group(1))
+
+    problems = []
+
+    adrs = os.path.join(conditions.ROOT, "docs", "adr")
+
+    for name in sorted(os.listdir(adrs)):
+        if not name.endswith(".md"):
+            continue
+
+        missing = set()
+
+        for number, line in enumerate(io.open(os.path.join(adrs, name), encoding="utf-8"), 1):
+            for found in cited.finditer(line):
+                if found.group(1) not in carried:
+                    missing.add((found.group(1), number))
+
+        for identifier, number in sorted(missing):
+            problems.append(
+                f"docs/adr/{name}:{number} rests on {identifier} and "
+                "architecture-assumptions.md does not carry it. CLAUDE.md §2 puts an "
+                "assumption in the register with a status, and §11 makes invalidating one "
+                "trigger a review of every ADR that depends on it -- a trigger that is a "
+                "lookup in that file, so an unregistered assumption has none. Add the row "
+                "with its status, how it gets validated, and what depends on it. D-240.")
+
+    return problems
+
+
 def an_adr_that_disagrees_with_the_assumption_register():
     """An ADR's own assumptions table giving a status the register has moved on from.
 
@@ -3236,6 +3300,7 @@ def main() -> int:
                 + an_outbound_licence_claim_that_is_stale()
                 + a_canonical_symbology_claim_that_is_stale()
                 + an_adr_that_disagrees_with_the_assumption_register()
+                + an_adr_that_names_an_assumption_the_register_does_not_carry()
                 + a_corpus_file_a_test_reads_but_a_clone_does_not_get()
                 + a_real_data_test_without_the_trait_ci_filters_on()
                 + a_test_project_ci_never_runs()
