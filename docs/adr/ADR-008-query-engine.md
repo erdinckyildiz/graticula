@@ -782,6 +782,26 @@ identity), ADR-011 (long queries become jobs), tile pipeline, feature services
    dialects. An abstraction with one implementation is a wrapper, and this ADR
    says so itself — the condition makes that statement testable rather than
    aspirational.
+   ***(DISCHARGED 2026-09-09 for condition 1 itself; see below for 1a.)*** The report ships
+   per layer, the refusals ship by name, and a test binds the two in **both** directions.
+   `FeatureServerMetadataWriter` writes `advancedQueryCapabilities` under a comment stating
+   the tie — *every `true` names a parameter `FeatureServerQueryParameters` honours today,
+   and every `false` names one it refuses by name with a reason* — and
+   `FeatureServerQueryParameters` refuses rather than ignores, because *answering a
+   different question than the one asked would be worse than saying so*.
+   `AdvertisedCapabilityTests` reads each published flag off a live layer and drives the
+   request it names, failing on an **over-claim** (`claimed && status != 200`) and on an
+   **under-claim** (`!claimed && status == 200`); a second test fails if a published key is
+   in neither the driven nor the excused list, and if a covered key stops being published.
+   §4b already wrote the finding — *generated is the right shape and checked is what this
+   earns today* — and never came back to mark the condition.
+
+   **1a is NOT discharged with it, and would vanish silently otherwise.** `conditions.py`
+   parses top-level `n.` items, so *a second dialect compiler exists from Phase 1* sits
+   inside this body and inherits any marker put here. It is **switched off, not met**:
+   [v1-scope](../v1-scope.md) §3a's 2026-08-18 amendment says the forcing function *was
+   switched off while the thing it guards against carries on happening*. One implementation
+   is still one implementation.
 2. **The residual boundary is written down** — an explicit list of what executes
    in-process — and changes to it are ADR amendments, not implementation
    choices.
@@ -802,6 +822,14 @@ identity), ADR-011 (long queries become jobs), tile pipeline, feature services
 3. **A-021 must be verified** before the tile path is implemented. If the three
    dialects' `simplify` differ enough to produce visibly different tiles, §4.8
    needs rethinking.
+   ***(DISCHARGED 2026-09-09 — the premise was removed rather than met, by this ADR.)***
+   §4.8's Q-67 amendment records it: *"the three-dialect tile path is gone. A-039 is
+   `SUPERSEDED`; the tile half of A-021 is closed."* Only PostGIS serves tiles, so there
+   are no three dialects whose `simplify` could differ, and
+   [A-021](../architecture-assumptions.md) is `VALIDATED` on PostGIS with
+   `benchmarks/mvt-generation` behind it. A-021 stays live for the **feature** path, which
+   is [D-05](../architecture-debt.md)'s territory and not this condition's: this one is
+   about `simplify` and tiles, and both halves of that are settled.
 
 ## 11. Revisit triggers
 

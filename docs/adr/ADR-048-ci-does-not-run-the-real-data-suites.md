@@ -248,7 +248,17 @@ this server can see.
 ## 7. Conditions
 
 1. **A second exclusion reopens this.** One is a decision; two is a pattern, and a
-   pattern needs a rule rather than another ADR.
+   pattern needs a rule rather than another ADR.   ***(DISCHARGED 2026-09-09, and it was discharged by this ADR itself without the
+   condition being marked.)*** §5 says it in its own words — *"this is the second
+   exclusion, and §7 condition 1 said that reopens the decision"* — and then
+   *"three is a pattern, and §7 condition 1 said a pattern needs a rule rather than
+   another ADR."* The rule exists and is one axis rather than three ad-hoc traits: **a
+   test that needs something CI cannot provide carries `[Trait("Needs", "…")]` naming
+   what it needs, and CI filters on `Needs`.** It is implemented rather than written:
+   thirteen classes carry the trait with exactly three values — `RealCorpus`,
+   `QuietMachine`, `RunningHost` — `.github/workflows/ci.yml` filters on it, and an
+   announcement step prints each value and whether it runs elsewhere in CI or nowhere,
+   which is what keeps a gap in what CI proves from reading like a job boundary.
 2. **If a real extract ever becomes cheap to load in CI** — a cached artefact, a
    prebuilt image — Alternative C should be re-costed, because it is the only one
    that makes the check travel.

@@ -162,6 +162,16 @@ id, its type and its URL are derived, not stored — which is exactly what condi
 2. **The item list is the catalogue's, filtered by the same sharing evaluation as everything
    else** — asserted by a test that compares an anonymous caller's items against an authenticated
    one's, the way `/admin/routes` is asserted rather than assumed.
+   ***(DISCHARGED 2026-09-09.)*** `PortalConformanceTests.The_items_are_the_catalogue_filtered_by_who_is_asking`
+   names this condition in its first comment and does exactly what it asks: it fetches
+   `/sharing/rest/search` anonymously and again with a token and compares the two sets,
+   rather than reading the filter. It **fails rather than skips** without credentials —
+   *a sharing test that runs as one caller asserts nothing about filtering* — and its
+   sibling takes the set difference and asserts the hidden item answers *does not exist
+   or is inaccessible*. Non-vacuous on the CI fixture, which publishes a private layer,
+   and the implementation goes through `LayerAccess.Evaluate` — the same evaluator WMS,
+   WFS, OGC and admin use, which is the *same sharing evaluation as everything else*
+   half of the condition.
 3. **The third token endpoint shares the second's implementation**, not its shape. A test signs in
    through all three and asserts the same session store answers.
    *(Discharged 2026-08-27 — `PortalConformanceTests.All_three_token_endpoints_answer_from_one_session_store`
@@ -172,6 +182,13 @@ id, its type and its URL are derived, not stored — which is exactly what condi
    ADR's conditions against the tests.)*
 4. **If Pro still does not connect, the finding is written into [Q-126](../open-questions.md) with
    the log**, and Alternative A is reconsidered as a decision rather than resumed as a reflex.
+   ***(DISCHARGED 2026-09-09 — the antecedent is false, which this ADR already
+   proved.)*** Condition 1 above reads **DISCHARGED 2026-08-20: ArcGIS Pro connects,
+   browses and adds**, A-075 was validated the same day with *nothing Esri-only was
+   required*, and [Q-126](../open-questions.md) has been **ANSWERED** since 2026-08-20.
+   *If Pro still does not connect* never happened, so nothing is owed to Q-126 and
+   Alternative A stays unreconsidered. Recorded rather than deleted, because a condition
+   whose antecedent is false is discharged by evidence and not by inattention.
 
 ## 7. Assumptions
 

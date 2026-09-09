@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>00672e7</code> · 2026-09-09 12:52</p>
+<p class="stamp">Şu commit’ten üretildi: <code>d782054</code> · 2026-09-09 12:54</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">60</div><div class="kpi-l">ADR</div><div class="kpi-n">11 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">172/228</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">56 canlı · 0 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">181/228</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">47 canlı · 0 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">30</div><div class="kpi-l">açık soru</div><div class="kpi-n">126 yanıtlandı · 2 engelleyici</div></div>
-<div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">açık borç</div><div class="kpi-n">211 ödendi · 3 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">açık borç</div><div class="kpi-n">211 ödendi · 4 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">15/85</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">2471</div><div class="kpi-l">test</div><div class="kpi-n">272 kaynak dosya, 113,703 satır</div></div>
@@ -126,26 +126,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">11 açık</span></div><p><b>Q-18</b> — What genuinely justifies a server over static cloud-native publishing and over a stateless thin server plus a capable database?</p><p><b>Q-146</b> — Does a new composition start in EPSG:3857, or in nothing?</p><p><b>Q-147</b> — Is there a one-press way back to each layer&#x27;s own?</p><p><b>Q-150</b> — Is auto-discovery owed as a publishing mode, or is the wizard the answer?</p><p><b>Q-144</b> — How do WFS and WMS say that a capability is configured off, when neither has a word for it?</p><p><b>Q-126</b> — Does add the server have to work in ArcGIS Pro, or is add the service enough?</p><p><b>Q-127</b> — What does a portal group mean here, and whose item is a published service?</p><p><b>Q-136</b> — Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p><p><b>Q-138</b> — Which geodatabase does the import path get tested against, and on whose licence?</p><p><b>Q-140</b> — Where does load testing run, now that the machine under test is the only one there is?</p><p><b>Q-106</b> — What is the reference implementation&#x27;s real licence?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">80 madde</span></div><p><b>56 ADR conditions</b> outstanding across 35 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">71 madde</span></div><p><b>47 ADR conditions</b> outstanding across 32 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-025 · Governance: what a gift owes, and </div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-030 · Reading the reference implementati</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-005 · API Architecture</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-008 · Query Engine</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-009 · Raster Engine</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-017 · Admin API Shape</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-024 · Shapefile import, and the exceptio</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-029 · Affinity routing is not the defaul</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-038 · How a geodatabase becomes one serv</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-040 · The portal surface is how ArcGIS P</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-048 · CI does not run the real-data suit</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-052 · The canonical symbology document i</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-002 · Primary Data Architecture</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -154,13 +149,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-015 · Authentication</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-021 · Tiles are encoded by PostGIS, and </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-024 · Shapefile import, and the exceptio</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-026 · Serving through a platform-store o</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-027 · Glyphs and sprites: the tile servi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-037 · Job workers come in two kinds</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-038 · How a geodatabase becomes one serv</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-039 · WFS 2.0, read-only, is the first s</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-046 · Admission control bounds the queue</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-047 · The outbound licence is Elastic Li</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-048 · CI does not run the real-data suit</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-054 · The symbology document is not boun</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-056 · An item is its own thing, and a se</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-057 · Composing and publishing a service</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -191,9 +188,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">005</td><td>API Architecture</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS</span><div class="muted-t">re-closed 2026-08-20.</div></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">2/4</td></tr>
 <tr><td class="id">006</td><td>Plugin Model</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS</span><div class="muted-t">re-closed 2026-08-15, see §0.</div></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">1/2</td></tr>
 <tr><td class="id">007</td><td>Service Runtime</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — structure well supported, routing unproven</td><td class="num">2/4</td></tr>
-<tr><td class="id">008</td><td>Query Engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
+<tr><td class="id">008</td><td>Query Engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 <tr><td class="id">009</td><td>Raster Engine</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS</span><div class="muted-t">re-closed 2026-08-15, see §0.</div></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
-<tr><td class="id">010</td><td>Caching</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/4</td></tr>
+<tr><td class="id">010</td><td>Caching</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
 <tr><td class="id">011</td><td>Job System</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">3/4</td></tr>
 <tr><td class="id">012</td><td>Clustering</td><td><span class="pill muted">DEFERRED</span></td><td class="muted-t">—</td><td class="num"></td></tr>
 <tr><td class="id">013</td><td>Feature Service Data Model: Identity, Relationships and Attachments</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
@@ -207,7 +204,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">021</td><td>Tiles are encoded by PostGIS, and we do not write an encoder</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the condition in §7</td><td class="num">2/3</td></tr>
 <tr><td class="id">022</td><td>GeometryServer ships in halves, and the projection engine is the datastore&#x27;s</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS · §2 SUPERSEDED by…</span><div class="muted-t">ACCEPTED WITH CONDITIONS · §2 SUPERSEDED by §2b, 2026-08-15</div></td><td class="muted-t">HIGH for the split · HIGH for the engine · MEDIUM for the vertex cap</td><td class="num">4/4</td></tr>
 <tr><td class="id">023</td><td>The REST Services Directory: an HTML face for the API</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">6/7</td></tr>
-<tr><td class="id">024</td><td>Shapefile import, and the exception it costs</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/5</td></tr>
+<tr><td class="id">024</td><td>Shapefile import, and the exception it costs</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">4/5</td></tr>
 <tr><td class="id">025</td><td>Governance: what a gift owes, and what it does not</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/4</td></tr>
 <tr><td class="id">026</td><td>Serving through a platform-store outage: public-only, while blind</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the policy · MEDIUM for the window</td><td class="num">4/5</td></tr>
 <tr><td class="id">027</td><td>Glyphs and sprites: the tile service could not draw a label</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the coverage</td><td class="num">4/5</td></tr>
@@ -220,10 +217,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">034</td><td>Two surfaces over one API: Server for the operator, Studio for the publisher</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the split · MEDIUM for where each screen lands</td><td class="num">5/5</td></tr>
 <tr><td class="id">035</td><td>Role privileges are editable, except the administrator&#x27;s</td><td><span class="pill good">UNKNOWN</span></td><td class="muted-t">—</td><td class="num">7/7</td></tr>
 <tr><td class="id">036</td><td>Groups, and the two axes an authorization answer now has</td><td><span class="pill good">UNKNOWN</span></td><td class="muted-t">—</td><td class="num">5/5</td></tr>
-<tr><td class="id">037</td><td>Job workers come in two kinds</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/6</td></tr>
-<tr><td class="id">038</td><td>How a geodatabase becomes one service with many layers</td><td><span class="pill good">UNKNOWN</span></td><td class="muted-t">—</td><td class="num">4/6</td></tr>
+<tr><td class="id">037</td><td>Job workers come in two kinds</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">6/6</td></tr>
+<tr><td class="id">038</td><td>How a geodatabase becomes one service with many layers</td><td><span class="pill good">UNKNOWN</span></td><td class="muted-t">—</td><td class="num">5/6</td></tr>
 <tr><td class="id">039</td><td>WFS 2.0, read-only, is the first surface after v1</td><td><span class="pill good">UNKNOWN</span></td><td class="muted-t">—</td><td class="num">5/6</td></tr>
-<tr><td class="id">040</td><td>The portal surface is how ArcGIS Pro connects</td><td><span class="pill good">UNKNOWN</span></td><td class="muted-t">—</td><td class="num">2/4</td></tr>
+<tr><td class="id">040</td><td>The portal surface is how ArcGIS Pro connects</td><td><span class="pill good">UNKNOWN</span></td><td class="muted-t">—</td><td class="num">4/4</td></tr>
 <tr><td class="id">041</td><td>The map renderer, and the two faces that hang off it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the placement and the library · MEDIUM for labels · HIGH for throughput,…</td><td class="num">6/6</td></tr>
 <tr><td class="id">042</td><td>OGC API Features, and the inversion it unwinds</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision, which was already taken · MEDIUM for the conformance claim until…</td><td class="num">5/5</td></tr>
 <tr><td class="id">043</td><td>ImageServer, and where the raster Tier 1 line falls</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the decomposition and the Tier 1 line · LOW for the first cut&#x27;s completeness,…</td><td class="num">6/6</td></tr>
@@ -231,7 +228,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">045</td><td>The server keeps a log you can ask questions of</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">6/6</td></tr>
 <tr><td class="id">046</td><td>Admission control bounds the queue, not the wait</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/5</td></tr>
 <tr><td class="id">047</td><td>The outbound licence is Elastic License 2.0</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the decision · MEDIUM for what it will cost in adoption</td><td class="num">2/3</td></tr>
-<tr><td class="id">048</td><td>CI does not run the real-data suites, and says so on every run</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the exclusion · MEDIUM for whether announcing it is enough</td><td class="num">0/2</td></tr>
+<tr><td class="id">048</td><td>CI does not run the real-data suites, and says so on every run</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the exclusion · MEDIUM for whether announcing it is enough</td><td class="num">1/2</td></tr>
 <tr><td class="id">049</td><td>A face refuses in its own vocabulary, even when that vocabulary has no word for it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for refusing at all · MEDIUM for which exception code</td><td class="num"></td></tr>
 <tr><td class="id">050</td><td>A release is a tag, and what it publishes is two images</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the registry and the trigger · MEDIUM for the tag scheme</td><td class="num"></td></tr>
 <tr><td class="id">051</td><td>An appearance is chosen by looking at it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
@@ -296,7 +293,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-144</td><td>~~Nothing bounds how long one request may hold a database permit.~~ The headline is struck 2026-09-09 rather than reworded, because it was false and the correction had already been written into this row&#x27;s status cell without reaching its first sentence — half…</td><td class="muted-t">A way to refuse before the first byte, or a way to end a response that says why.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-145</td><td>The load generator cannot prove the queue bound works under sustained load, because it runs on the machine under test.</td><td class="muted-t">A load generator that is not this machine.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-162</td><td>A provider that is not PostGIS would be handed PostGIS SQL.</td><td class="muted-t">When DuckDB is designed as the file-format query engine (Q-81), and not after.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-201</td><td>A console test fails in two full runs out of four and passes on its own, and the cause is not known.</td><td class="muted-t">Run the console suite with -v n piped to a file until it fails, then read the message.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-201</td><td>A console test fails in two full runs out of four and passes on its own, and the cause is not known.</td><td class="muted-t">Run the console suite with -v n piped to a file until it fails, then read the message.</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-234</td><td>WMS advertises every legend as 20×20 and draws them at whatever size the labels need.</td><td class="muted-t">Already fired for any layer with a classified style, which is the ordinary case for a thematic map.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-235</td><td>No shipped image can import a geodatabase, and the serving image&#x27;s own claim that it carries no GDAL is what makes that true.</td><td class="muted-t">Already fired, and it is the release itself.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-231</td><td>A view publishes, and the two catalogues this server reads disagree about it — so a materialized view is served with no fields and advertised as editable.</td><td class="muted-t">Already fired for any estate that publishes from a view, which is the ordinary way a GIS shop exposes a join or an…</td><td><span class="pill cond">PARTLY</span></td></tr>
@@ -411,6 +408,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.2%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>d782054</code><time>2026-09-09</time><span>Three open questions get what the code says about them</span></li>
 <li><code>00672e7</code><time>2026-09-09</time><span>The front door advertised one protocol out of four</span></li>
 <li><code>579f0f2</code><time>2026-09-09</time><span>Answering questions broke the build again, in the second place D-181 lived</span></li>
 <li><code>f10574a</code><time>2026-09-09</time><span>The OGC landing page told every client the surface was read-only, and it writes</span></li>
@@ -424,7 +422,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>22c554e</code><time>2026-09-09</time><span>Readiness stays ready through a quiesce, because the question&#x27;s premise was false</span></li>
 <li><code>4a7a4b1</code><time>2026-09-09</time><span>Q-123 was answered by an ADR that shipped while the register still called it open</span></li>
 <li><code>68eac7a</code><time>2026-09-09</time><span>The Services screen says which services are refusing, and until when</span></li>
-<li><code>94e20ce</code><time>2026-09-09</time><span>The class row&#x27;s two inputs say they are inputs before you point at them</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

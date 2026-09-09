@@ -164,6 +164,21 @@ Nothing in it outlives the job, which is why it is not under `StatePath`.
    ADR.** FileGDB, GeoPackage-in-a-zip and KMZ will each point at this decision;
    each needs its own bounds and its own argument, because "we already
    decompress" is not one.
+   ***(DISCHARGED 2026-09-09 for FileGDB, which is the format that arrived; dormant for the
+   other two.)*** FileGDB did **not** reuse this exception. The upload dispatches before
+   `BoundedArchive` is reached and `ArchiveLimits.ForShapefile` is never applied to it, and
+   the argument is written where somebody changing it would meet it — `ImportScratch`:
+   *"ADR-024's exception is not silently widened. That decision opened an archive under
+   stated bounds and its condition 3 is explicit that a second format does not inherit
+   them — 'we already decompress' is not an argument. Nothing here decompresses: GDAL reads
+   inside the ZIP through `/vsizip/`."* **Its own bounds are separate and numbered**: a
+   64 MB upload, a 2 GB scratch ceiling, 512 MB managed heap and a 2 GB working set on the
+   child process, and 512 entry names scanned by the recogniser. **And its own argument is
+   in an ADR with the numbers derived from the format** —
+   [ADR-037](ADR-037-job-workers-come-in-two-kinds.md) §5b: the owner's archives run to 338
+   members with one compressing **430×**, against this decision's 32 and 100×, *so the
+   shapefile numbers were never going to serve both formats.* **GeoPackage-in-a-zip and KMZ
+   are still refused by name**, citing this condition, so the dormant half stays armed.
 4. **The largest real shapefile anybody imports is measured against the 256 MB
    ceiling**, before the first deployment that matters. A-062 is a guess.
 5. **Dropping Z and M is stated in the import response**, not only in this

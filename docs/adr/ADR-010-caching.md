@@ -561,6 +561,19 @@ grant fingerprint is the fix — not a purge.
    case, and it is in scope.)* The read-only Oracle
    case is the test: if the design only works with change detection, it does not
    work.
+   ***(DISCHARGED 2026-09-09 — the condition asked for a property the product has by
+   construction.)*** There is no other mechanism: `ChangeDetection` does not appear
+   anywhere in `src/`, and this ADR's own build table says so — *change detection,
+   schema-drift polling: **not built.** TTL is the only mechanism, which §5.2 says is the
+   floor.* So every cache in this server already runs in the state the condition asks it
+   to survive. **Expiry consults nothing but a clock and a lifetime**
+   (`FileSystemTileCache`, an mtime against a lifetime), and it is tested on a
+   `FakeTimeProvider` with no invalidation signal available:
+   `An_entry_past_its_lifetime_is_a_miss`, `An_adopted_entry_still_expires_on_its_own_age`,
+   `Each_read_expires_by_the_lifetime_it_was_given`, `A_zero_lifetime_means_never_serve_from_cache`.
+   **The in-scope half of the parenthetical is tested on a registered layer**, which is the
+   case the Oracle example stood in for: `ServiceContextsTests.A_described_shape_is_forgotten_once_its_lifetime_has_passed`
+   ages out a shape read from a source this server cannot put a trigger on.
 2. **The invalidation delay must be documented as a number**, not described as
    "eventual". An operator needs to know the window.
    *(Discharged 2026-08-27 — §5.2 now carries the four windows as a table: 60

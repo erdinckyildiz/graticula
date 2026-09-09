@@ -334,6 +334,20 @@ in the store, so a node that dies does not take the job with it.
    survives the reversal because the obligation is about what we distribute, not about how it was
    packaged.** What is known so far is only what has been asked for: `OpenFileGDB` and `Parquet` are
    present, asserted by `GeodatabaseReaderTests`. Nothing has listed the rest.
+   ***(DISCHARGED 2026-09-09 — the rest was listed on 2026-08-24 and this sentence never
+   learned.)*** [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md) carries *GDAL — what
+   this build carries, enumerated 2026-08-24*: **GDAL 3.13.1, 83 vector drivers and 213
+   raster drivers**, with a twelve-row table mapping every component of GDAL's own
+   `LICENSE.TXT` to present or absent — including `frmts/mrf`, which is **Esri's, Apache-2.0,
+   and present**. The conclusion is that the build is an MIT-style core with BSD-2, BSD-3,
+   public-domain, Info-ZIP, Qhull and two Apache-2.0 components: permissive throughout, none
+   copyleft. [D-88](../architecture-debt.md) is already closed on this same obligation, and
+   the reader can enumerate itself at runtime through its `drivers` operation.
+   **Two things this discharge does not claim.** Nothing re-runs the enumeration when
+   `MaxRev.Gdal.Core` is upgraded, so the table is a measurement with a date rather than a
+   guard; and that file still concludes the result is *compatible with redistribution under
+   Apache-2.0*, written one day before [ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md)
+   made the outbound licence ELv2 — the finding survives the change, the sentence does not.
 3. **PARTLY DISCHARGED 2026-08-19, and restated because its subject is gone.** It read *a test fails
    the build if the **Python worker** acquires a path to user-supplied code* — and there is no Python
    worker. The reason it existed is untouched: the distinction between *our script* and *their tool* is

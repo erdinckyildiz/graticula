@@ -240,6 +240,20 @@ repository.
 6. **The console's two new screens go through the ux-designer before they ship**, which is the owner's
    standing instruction and the one this repository has broken twice. *"ekranlar tasarlanırken ui-ux
    designer tarafından yapılmasını şart koşmuştum diye hatırlıyorum."*
+   ***(DISCHARGED 2026-09-09, and the discharge is worth two caveats.)*** The two screens —
+   *choose what to publish* and *what happened* — went through a design review on
+   2026-08-19, and its findings are in the suite as the checks that would have caught them:
+   `GeodatabaseScreenTests` opens *four findings from the review of 2026-08-19, each as the
+   check that would have caught it*, with `The_service_name_and_its_address_are_not_shouted`,
+   `The_selection_table_is_even_and_says_why_a_row_cannot_be_ticked` and
+   `A_refusal_fits_its_cell`. The worst finding is quoted there: `.val` inherited
+   `text-transform`, so a service address rendered in capitals.
+   **Caveat one: the review is not in `docs/reviews/`.** It lives in a commit message and in
+   test documentation, while every screen review since has a file. **Caveat two: *before
+   they ship* is strained** — the screens landed at 13:19 and the review commit is 13:51 the
+   same day, so it was before any deployment rather than before the code. Both are recorded
+   rather than smoothed over, because the instruction this condition carries is the owner's
+   and has already been broken twice.
 
 ## 8. Assumptions this decision rests on
 
