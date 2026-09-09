@@ -367,6 +367,48 @@ a quota system and a security surface. The
 [phase 0 exit plan](../phase-0-exit-plan.md) sequences features first; this
 enlarges that slice rather than following it.
 
+### 5a. The other three are in v1 too — owner decision, 2026-09-09
+
+§1 says *domains, subtypes and editor tracking stay in Q-58 and are not decided here*.
+They are decided now. Asked which of the three should enter v1, the owner chose **all
+three**, and [Q-58c](../open-questions.md) closes on it.
+
+**What was actually missing was not the same in the three cases, and the inventory of
+2026-08-27 is why that is known rather than assumed.** `domain` is *present and always
+null* on every field of every layer document — the key is there, so a client is told
+there is no domain rather than left to infer it. `subtypeField`, `subtypes`, `types`,
+`templates` and `editFieldsInfo` are **absent from the document entirely**, checked by
+reading its keys. So domains need a source of values; subtypes need five document keys
+that do not exist; editor tracking needs both, and a write path that fills them.
+
+**Each of the three earns its place differently, and saying so is what stops this being
+*three more things*.**
+
+- **Editor tracking is the one that removes a defect rather than adding a feature.**
+  [D-20](../architecture-debt.md) exists only because it is missing: `features:edit` is
+  narrower here than in ArcGIS Portal, because *change your own* is unenforceable when
+  the server cannot tell whose feature is whose. The narrower privilege is a consequence
+  of this gap and not a design — so building this is what lets that privilege mean what
+  it means everywhere else.
+- **Domains are what a client uses to refuse a bad value before it is sent.** The field
+  already carries the slot, and a coded-value domain is the difference between a drop-down
+  and a free-text box in every ArcGIS editing client.
+- **Subtypes bring templates with them**, and their absence is what an editing client
+  reads as *this layer offers no feature templates* — which is not a missing refinement
+  but a visible statement that editing here is worse than editing somewhere else.
+
+**It is a scope addition and it is recorded as one**, in the same words §5 used for
+relationships and attachments: this enlarges the first release rather than following it,
+and [v1-scope](../v1-scope.md) §2 is amended with it because that document is
+authoritative where any other disagrees.
+
+**What is not decided here is where the values live.** A domain is a claim about a
+column, and this repository has already been through the question of whether a service
+definition may describe something the table does not — [Q-36](../open-questions.md),
+answered the same day, allows a field list to carry an alias and a hidden flag. Domains
+and subtypes are the same shape of claim and belong with that machinery rather than
+beside it; the conditions below are what stop the two being built twice.
+
 ---
 
 ## 6. Consequences
@@ -420,6 +462,24 @@ by argument; nobody has pointed a slow reader at it.
 ---
 
 ## 7. Conditions
+
+*(Conditions 5 and 6 are §5a's, added 2026-09-09 with the decision they belong to.)*
+
+5. **A domain or a subtype the server reports is a domain or a subtype the server
+   enforces on write.** A coded-value domain that a client draws as a drop-down and the
+   server accepts any value against is [D-67](../architecture-debt.md)'s shape — a
+   setting stored and not honoured — and this repository has now hit that three times:
+   the group `item_update` written and consulted by nothing, the group visibility stored
+   and unread, and the `public` group scope offered and enforced as something narrower.
+   The test is not that the document contains the key; it is that a write of a value
+   outside the domain is refused, and that the refusal names the domain.
+
+6. **Editor tracking closes [D-20](../architecture-debt.md) or it has not been built.**
+   The reason to build it is that `features:edit` cannot mean *change your own* while the
+   server cannot tell whose feature is whose. Shipping the four `editFieldsInfo` columns
+   and leaving the privilege narrowed would add a data model and keep the defect, which
+   is the worst of both. The condition is discharged by the privilege regaining its
+   Portal meaning and that row closing, not by the columns existing.
 
 1. ~~**Streaming is verified, not assumed.**~~ **DISCHARGED 2026-08-15.** A 40 MB round trip moves the process working set by 4 MB on upload and not at all on download, bytes identical. And the test that would have caught the original design hands over a stream reporting no length, refusing to seek, and yielding its bytes once — which is what a request body is, and what a `MemoryStream` is not. Original: A test that uploads and downloads a
    large attachment while watching allocation must show flat memory. If any
