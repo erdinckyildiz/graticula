@@ -51,4 +51,40 @@
           SkipUnchangedFiles="true" />
   </Target>
 
+  <!--
+    <b>And the same for `publish`, which was the whole of [D-235](docs/architecture-debt.md)'s
+    overlay half.</b> Both targets above run `AfterTargets="Build"` and copy into `$(OutDir)`.
+    A published output is assembled from known content items into `$(PublishDir)`, so files
+    dropped into `$(OutDir)` after the build are not in it — measured 2026-09-09: a publish of
+    the host produced 49 entries and neither `overlay/` nor `importer/`.
+
+    <b>The gap appeared exclusively in the artefact nobody runs locally</b>, which is why it
+    survived a release. `dotnet build` puts both siblings in place, so every developer machine
+    and every test run has them; only the image does not, and only the image ships.
+
+    <b>Only the overlay worker is carried here, and the asymmetry is the point.</b> It is
+    NetTopologySuite and nothing else — no native payload, no GDAL — so putting it in the
+    serving image costs nothing that [ADR-016](docs/adr/ADR-016-packaging-deployment-upgrade.md)
+    §2's *No GDAL, no Python* row claims as an attack-surface argument. The import reader
+    carries GDAL's native runtimes for two platforms, so carrying it is exactly the trade that
+    row is about, and that is ADR-016's decision rather than a line to add here. Doing the free
+    half now is not deferring the other one: it restores every GeometryServer overlay operation
+    to every shipped image, which is a v1 capability that no published artefact could perform.
+  -->
+  <Target Name="PublishOverlayWorker"
+          AfterTargets="Publish"
+          Condition="'$(CopyOverlayWorker)' == 'true'">
+    <ItemGroup>
+      <PublishedOverlayWorkerFiles
+        Include="$(MSBuildThisFileDirectory)src\Graticula.Overlay.Worker\bin\$(Configuration)\$(TargetFramework)\**\*" />
+    </ItemGroup>
+
+    <Error Condition="'@(PublishedOverlayWorkerFiles)' == ''"
+           Text="The overlay worker's build output is empty, so this publish would produce an image whose GeometryServer cannot answer a single overlay operation. That is D-235 and it is not something to warn about." />
+
+    <Copy SourceFiles="@(PublishedOverlayWorkerFiles)"
+          DestinationFolder="$(PublishDir)overlay\%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>

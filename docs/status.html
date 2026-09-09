@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>cdb2187</code> · 2026-09-09 23:42</p>
+<p class="stamp">Generated from commit <code>f65011b</code> · 2026-09-10 00:02</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">63</div><div class="kpi-l">ADRs</div><div class="kpi-n">12 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">186/235</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">47 live · 2 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">157 answered</div></div>
-<div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">open debts</div><div class="kpi-n">222 repaid · 5 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">open debts</div><div class="kpi-n">222 repaid · 6 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">2546</div><div class="kpi-l">tests</div><div class="kpi-n">274 source files, 115,405 lines</div></div>
+<div class="kpi good"><div class="kpi-v">2549</div><div class="kpi-l">tests</div><div class="kpi-n">274 source files, 115,405 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -267,7 +267,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-162</td><td>A provider that is not PostGIS would be handed PostGIS SQL.</td><td class="muted-t">When DuckDB is designed as the file-format query engine (Q-81), and not after.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-201</td><td>A console test fails in two full runs out of four and passes on its own, and the cause is not known.</td><td class="muted-t">Run the console suite with -v n piped to a file until it fails, then read the message.</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-234</td><td>WMS advertises every legend as 20×20 and draws them at whatever size the labels need.</td><td class="muted-t">Already fired for any layer with a classified style, which is the ordinary case for a thematic map.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-235</td><td>No shipped image can import a geodatabase — nor a shapefile, nor answer a single GeometryServer overlay operation — and the serving image&#x27;s own claim that it carries no GDAL is what makes the first of those true.</td><td class="muted-t">Already fired, and it is the release itself.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-235</td><td>No shipped image can import a geodatabase — nor a shapefile, nor answer a single GeometryServer overlay operation — and the serving image&#x27;s own claim that it carries no GDAL is what makes the first of those true.</td><td class="muted-t">Already fired, and it is the release itself.</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-236</td><td>Two engines answer simplify this to tolerance t, they are reachable through the product under the same name and the same units, and nothing outside a geometry test says so.</td><td class="muted-t">Whichever comes first.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-237</td><td>The server has no view of how large its own datastore is, and cannot answer who is filling the store.</td><td class="muted-t">The first of these, and the second is the one that changes the answer rather than the priority.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-243</td><td>A job claimed by a worker that dies stays running for ever, nothing reclaims it, and no operator surface can clear it.</td><td class="muted-t">The first job observed stuck in running, or the first deployment that runs two servers.</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -381,12 +381,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.6%"></div></div><div class="bar-n">148</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:24.6%"></div></div><div class="bar-n">142</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:19.6%"></div></div><div class="bar-n">113</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:6.4%"></div></div><div class="bar-n">37</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:6.9%"></div></div><div class="bar-n">40</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">26</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:4.2%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.9%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>f65011b</code><time>2026-09-10</time><span>The last two questions close, and the open register is empty</span></li>
 <li><code>cdb2187</code><time>2026-09-09</time><span>Four questions close, and one of them had been answered for four weeks</span></li>
 <li><code>b2fe989</code><time>2026-09-09</time><span>Q-20 has been answered for a while and was still counted as blocking</span></li>
 <li><code>689b656</code><time>2026-09-09</time><span>A sustained flood does not shed, and the queue it would fill cannot fill</span></li>
@@ -400,7 +401,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>6e755d7</code><time>2026-09-09</time><span>Two conditions walked and measured, and neither was discharged</span></li>
 <li><code>8686a1e</code><time>2026-09-09</time><span>The cache read the tile&#x27;s age to decide freshness and then threw it away</span></li>
 <li><code>e225364</code><time>2026-09-09</time><span>The authoritative scope document contradicted itself about OGC API Features</span></li>
-<li><code>fecea7c</code><time>2026-09-09</time><span>The first condition deferred with its decision, and a WMS code that was missing</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

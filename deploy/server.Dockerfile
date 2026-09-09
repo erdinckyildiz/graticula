@@ -11,7 +11,17 @@ WORKDIR /src
 
 # Manifests first, so a source change does not re-download the world. There is
 # no lock file to copy: central package management lives in Directory.Packages.
-COPY Directory.Build.props Directory.Packages.props graticula.sln ./
+#
+# <b>`Directory.Build.targets` was not in this list until 2026-09-10, and its absence
+# is the second independent reason no shipped image could do overlay or import —
+# [D-235](../docs/architecture-debt.md).</b> That file is where the sibling
+# executables are copied beside the host, so a build context without it produces a
+# host with no `overlay/` and no `importer/` and no error of any kind: MSBuild does
+# not miss a targets file it was never told about. The first reason is that the
+# targets ran `AfterTargets="Build"` into `$(OutDir)` and a publish assembles
+# `$(PublishDir)`; both had to be repaired, and repairing either alone would have
+# left the image exactly as broken with one fewer thing to look at.
+COPY Directory.Build.props Directory.Build.targets Directory.Packages.props graticula.sln ./
 COPY src/ src/
 COPY tests/ tests/
 
