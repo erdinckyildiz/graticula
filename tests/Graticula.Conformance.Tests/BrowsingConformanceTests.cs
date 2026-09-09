@@ -303,11 +303,24 @@ public sealed class BrowsingConformanceTests : ArcGisClient
 
         Assert.Equal(HttpStatusCode.NotImplemented, response.StatusCode);
         Assert.Contains("not implemented", html, StringComparison.Ordinal);
-        // <b>The reason is reshape's own.</b> It used to be the overlay
-        // sentence, pasted onto all twelve refusals; buffer used to be here and
-        // is now implemented. What is left is refused as an editing operation,
-        // not as an expensive one.
-        Assert.Contains("editing", html, StringComparison.OrdinalIgnoreCase);
+        /*
+          <b>The reason is reshape's own.</b> It used to be the overlay sentence, pasted onto
+          all twelve refusals; buffer used to be here and is now implemented.
+
+          <b>~~What is left is refused as an editing operation~~ — corrected 2026-09-09 with
+          [Q-99](../../docs/open-questions.md), and this was the *second* copy of the wrong
+          assertion.</b> `reshape` edits nothing: the specification takes `target` and
+          `reshaper` in the request and returns geometry, naming no layer. The word was
+          required here and in `GeometryServerConformanceTests`, so correcting the server's
+          sentence failed two green tests rather than one — and fixing only the first is
+          precisely the half-repair CLAUDE.md §2 is about. Both now refuse the word.
+
+          <b>What this asserts instead is the thing that was actually being protected</b>: a
+          reason of `reshape`'s own rather than a pasted one, which is what `reshaper` — a
+          word appearing in no other refusal — checks.
+        */
+        Assert.DoesNotContain("editing", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("reshaper", html, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
