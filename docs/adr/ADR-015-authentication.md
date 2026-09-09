@@ -235,6 +235,73 @@ reading its source.
 
 ---
 
+## 5b. Decision — an identity change may not incidentally remove the last way in
+
+*Added 2026-09-09 answering [Q-111](../open-questions.md), and the whole of it is
+decided before the code exists, on purpose. Nothing external is implemented — no
+OIDC, SAML or LDAP anywhere in `/src`, no identity field in `HostSettings`, and no
+admin route that writes authentication configuration — so there is nothing today
+to misconfigure and nothing to guard. That is precisely why the rule is cheap to
+take now and expensive to take later: the first implementation is the moment the
+failure becomes reachable, and a rule that arrives with the pull request arrives
+after somebody has already chosen the natural shape §5a warns about.*
+
+**The rule.** An operation that changes how people sign in is **refused when it
+would leave no administrator able to authenticate** — and it is refused by
+default rather than confirmed by a password prompt.
+
+**Re-authentication is the wrong instrument, and that is the substance of this
+decision rather than a detail.** A prompt proves *who is asking*. It does not
+prove *anybody can get back in afterwards*: an operator who re-types their own
+password correctly and then points the server at a dead issuer has satisfied the
+prompt and locked the deployment out anyway. The invariant is on the **outcome**,
+not on the actor. Esri's own rule, which §5a already reads as a scar, is the same
+shape — it refuses the identity-store change while the break-glass account is
+disabled, rather than asking the operator to prove themselves.
+
+**This is the sixth instance of a rule this project has already taken**, not a new
+mechanism. [ADR-035](ADR-035-role-privileges-are-editable.md) §4b already refuses
+to demote, remove or disable the last administrator, and refuses to edit or drop
+the `administrator` role. Those guards exist because a deployment that cannot be
+administered is not recoverable in band. An identity-source change is the same
+loss by a different door.
+
+**Refused by default, and overridable by a request that names the consequence.**
+The invariant is *not* that a local administrator must exist for ever — an
+organisation adopting central identity is often adopting it precisely to have no
+local passwords left to rotate, audit and offboard, and a product that forbids
+that fails the review that motivated the move. So the shape is §6c's: the server
+refuses to choose, and a caller who means it says so explicitly. What is being
+removed is the **accident**, which is the only part worth removing.
+
+**Three predicates in today's code are correct now and become wrong on the day a
+principal can authenticate without a local credential.** They are named here so
+that the change which makes them wrong is the change that reads them:
+
+1. `PostgresMemberDirectory` counts surviving administrators as *`administrator`
+   and not disabled*, while its own comment and its refusal text say
+   **"administrators who can still sign in"**. Those are the same sentence today
+   and two different sentences the moment authentication has two sources: an
+   IdP-only administrator would count as a survivor.
+2. `PostgresIdentityStore.AnyPrincipalHoldingAsync` asks only whether a
+   `principal_role` row exists — no disabled filter, no credential filter.
+3. `Tools/AdminCreator` refuses to create a recovery administrator when that
+   returns true. **This is the line at which a lockout becomes permanent**: on a
+   store whose only administrator authenticates through a dead IdP, the guard
+   reads *healthy* and tells the operator to sign in as the administrator they
+   cannot use.
+
+**And the implementation shape may make the rule redundant, which is the honest
+caveat.** `local_credential` is already a separate table keyed to `principal`, so
+an IdP that is *authentication only* — every principal keeps its row and its
+credential — enforces this in the schema and needs no guard. The alternative, an
+IdP that becomes the store, is the one that needs all of the above. **That choice
+is taken here rather than discovered in a pull request: the identity source is a
+source of authentication and never the store.** `principal` and
+`local_credential` remain the store.
+
+---
+
 ## 6. Decision — first-start bootstrap
 
 On first start with no accounts, the server generates a **one-time setup token**,
@@ -602,7 +669,14 @@ access to the platform store.
    `..._Two_concurrent_redemptions_produce_exactly_one_administrator`.
 5. **A local administrator can still sign in when the configured external
    identity source is unreachable or misconfigured**, and it is tested by
-   breaking one rather than by reading §5.
+   breaking one rather than by reading §5. **And §5b's invariant is enforced and
+   tested**: an operation that changes the identity configuration is refused when
+   it would leave no administrator able to authenticate, overridable only by a
+   request that names the consequence. The test is the three predicates §5b names
+   — the surviving-administrator count, `AnyPrincipalHoldingAsync`, and
+   `AdminCreator`'s refusal — each read against a principal who has a role and no
+   local credential, which is a state that cannot exist today and will exist on
+   the first day this condition is due.
    **NOT YET APPLICABLE, and for the same reason as condition 2.** §9a records
    that OIDC, SAML and SCIM are not built (D-10), so there is no external source
    to break and no lockout to have: today every account is local. The condition

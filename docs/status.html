@@ -110,15 +110,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>99e3400</code> · 2026-09-09 16:19</p>
+<p class="stamp">Generated from commit <code>ab69149</code> · 2026-09-09 16:49</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">61</div><div class="kpi-l">ADRs</div><div class="kpi-n">11 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">183/230</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">47 live · 0 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">25</div><div class="kpi-l">open questions</div><div class="kpi-n">131 answered · 2 blocking</div></div>
-<div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">open debts</div><div class="kpi-n">213 repaid · 5 partly</div></div>
+<div class="kpi "><div class="kpi-v">24</div><div class="kpi-l">open questions</div><div class="kpi-n">132 answered · 2 blocking</div></div>
+<div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">open debts</div><div class="kpi-n">214 repaid · 5 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
-<div class="kpi warn"><div class="kpi-v">15/85</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
+<div class="kpi warn"><div class="kpi-v">15/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">2495</div><div class="kpi-l">tests</div><div class="kpi-n">273 source files, 114,309 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
@@ -253,7 +253,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-102</span><span class="owner">Council</span></div><p>Is there a deployment-level capability manifest, distinct from the per-layer capability report?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-104</span><span class="owner">Council</span></div><p>Is the catalogue exportable as a manifest that can be diffed, reviewed and applied?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-106</span><span class="owner">**[OWNER]**</span></div><p>What is the reference implementation&#x27;s real licence?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-111</span><span class="owner">Council</span></div><p>Can a local administrator still sign in when the configured external identity source is unreachable or misconfigured — and should changing that source require a local credential?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-126</span><span class="owner">**[OWNER]**</span></div><p>Does add the server have to work in ArcGIS Pro, or is add the service enough?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-127</span><span class="owner">Council, and the group mapping **[OWNER]**</span></div><p>What does a portal group mean here, and whose item is a published service?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-136</span><span class="owner">Owner</span></div><p>Does a standing practice belong in the debt register, or does it need somewhere it can be read before the work rather than after it?</p></article>
@@ -299,7 +298,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-221</td><td>The symbology editor needs 1,180 pixels and nothing under that width has an answer.</td><td class="muted-t">The first report of styling a layer on a narrow screen — A-081&#x27;s own falsification.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-229</td><td>service.srid exists and nothing reads it.</td><td class="muted-t">The Publish screen, which offers the choice and cannot mean it until this is done</td><td><span class="pill cond">PARTLY</span></td></tr>
 </tbody></table></div>
-<p class="sub">213 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
+<p class="sub">214 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -384,6 +383,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">A-079</td><td>The publisher and the operator are different people often enough for two surfaces to be worth their cost</td><td><span class="pill warn">UNVALIDATED,</span></td></tr>
 <tr><td class="id">A-080</td><td>admin:manageServer is the right single gate for Server, so no reader is left without a tool they need</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 <tr><td class="id">A-081</td><td>The operator console is read on a screen at least 1,180 CSS pixels wide</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-082</td><td>The EPSG register&#x27;s axis definitions change rarely enough that regenerating from whatever proj.db the PostGIS image ships is soon enough</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-083</td><td>No deployment needs an axis answer for a CRS code PROJ&#x27;s own register does not carry</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 <tr><td class="id">A-019</td><td>In-process MVT encoding meets latency targets — on PostGIS only, which v1 made the whole of it: D-05 closed 2026-08-24 with the scope cut</td><td><span class="pill warn">2026-08-12</span></td></tr>
 <tr><td class="id">A-004</td><td>Hot-path geometry overhead justifies our own primitives</td><td><span class="pill warn">2026-08-12</span></td></tr>
 <tr><td class="id">A-001</td><td>The tile path is CPU-bound enough that language performance materially affects capacity</td><td><span class="pill warn">2026-08-12</span></td></tr>
@@ -407,6 +408,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>ab69149</code><time>2026-09-09</time><span>Seventeen ADRs were resting on assumptions they described wrongly</span></li>
 <li><code>99e3400</code><time>2026-09-09</time><span>The registers catch up with four answers and three debts</span></li>
 <li><code>afe8844</code><time>2026-09-09</time><span>A preview is bounded by bytes, not by rows</span></li>
 <li><code>4f94597</code><time>2026-09-09</time><span>Eleven sentences still said the canonical document is MapLibre</span></li>
@@ -420,7 +422,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>22a6ed2</code><time>2026-09-09</time><span>ADR-052&#x27;s property table is three renderer types behind its own prose</span></li>
 <li><code>b866709</code><time>2026-09-09</time><span>Two debt triggers name the repair, so neither can ever fire</span></li>
 <li><code>0f4bb1b</code><time>2026-09-09</time><span>Two triggers fired days ago and the rows they belong to never heard</span></li>
-<li><code>974a0aa</code><time>2026-09-09</time><span>The first release happened a week ago and four documents still say it did not</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
