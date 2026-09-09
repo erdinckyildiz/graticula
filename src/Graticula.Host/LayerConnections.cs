@@ -436,11 +436,22 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// </remarks>
     private static NpgsqlDataSource BuildAttachmentPool(string connectionString)
     {
+        // <b>Named, and named differently from the feature pool.</b> Telling the two
+        // apart is the whole reason this pool is separate: §4b splits it so slow
+        // readers stop attachments rather than the layer, and an operator meeting
+        // that needs `pg_stat_activity` to say which one is stuck. An operator who
+        // named the registered connection themselves keeps their name, for
+        // `WithApplicationName`'s reason.
         NpgsqlConnectionStringBuilder builder = new(connectionString)
         {
             MaxPoolSize = 8,
             MinPoolSize = 0,
         };
+
+        if (string.IsNullOrWhiteSpace(builder.ApplicationName))
+        {
+            builder.ApplicationName = PoolNames.Of(PoolNames.Attachments);
+        }
 
         return new NpgsqlDataSourceBuilder(builder.ConnectionString).Build();
     }

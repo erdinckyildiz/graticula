@@ -427,6 +427,38 @@ by argument; nobody has pointed a slow reader at it.
 2. **The separate pool is sized by measurement**, not by guess, and the slow
    client case is tested deliberately — including whether a size threshold plus
    buffer-and-release is needed on top of pool isolation.
+
+   **STILL LIVE 2026-09-09, and deliberately not discharged — but narrowed, and the
+   instrument it was missing now exists.** Both halves are unmet and the code says so
+   about the first: `BuildAttachmentPool`'s own remarks read *eight is a bound, not a
+   capacity figure. Nobody has measured what a real attachment workload needs.* There
+   is no slow-client test anywhere, for attachments or otherwise.
+
+   **What changed is that §4b's premise stopped being an assumption.** The split was
+   argued on the claim that *streaming an attachment out of the database holds a pooled
+   connection for as long as the client takes to read it*, and that claim was reasoned
+   rather than measured. [Q-139](../open-questions.md) measured the mechanism on an
+   analogous path 2026-09-09: a face that flushes to `Response.Body` holds its
+   connection for the client's whole read — **33,739 ms at 600 kB/s and 67,198 ms at
+   300 kB/s** on a 21 MB body — while a face that writes to an unflushed `PipeWriter`
+   releases in 288–534 ms regardless. Attachment download is the first kind: it writes
+   to `Response.Body` and sets `Content-Length`. **So the reasoning behind the separate
+   pool is now evidenced on a path that behaves the same way, and what is owed is the
+   number rather than the argument.**
+
+   **And exhaustion is now attributable, which it was not.** The attachment pool had no
+   `application_name`, so eight stuck downloads and eight stuck queries looked identical
+   in `pg_stat_activity` — the one question the split exists to make answerable. It is
+   `graticula-attachments:{machine}/{pid}` from 2026-09-09, distinct from the feature
+   pool's, with an operator's own name on a registered connection kept rather than
+   overwritten. *(Missed when the feature pool was named one commit earlier: the second
+   `Build…Pool` was twenty lines below the first, and asking* what else carries this? *was
+   one grep away. [CLAUDE.md](../../CLAUDE.md) §2.)*
+
+   **What discharging it still needs**: eight concurrent throttled reads against a layer
+   with attachments, showing the ninth waits and the *feature* path keeps serving — which
+   is the whole claim §4b makes — and a size chosen against that rather than against
+   comfort.
 3. ~~**Declared relationships are validated on publish**~~ **DISCHARGED 2026-08-15.** A declaration is refused unless both columns exist and can be compared, and the refusal lists the columns that do exist. What is *not* checked, and is said in the response rather than implied, is whether the values mean the same thing. Original:, at minimum that the join
    columns exist and are type-compatible. An unvalidated declaration fails at
    query time in front of a user.

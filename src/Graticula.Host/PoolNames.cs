@@ -66,6 +66,21 @@ public static class PoolNames
     /// </remarks>
     public const string Layers = "graticula-layers";
 
+    /// <summary>What the attachment pool calls itself.</summary>
+    /// <remarks>
+    /// <b>Distinct from <see cref="Layers"/> because telling the two apart is the entire
+    /// reason the pool is separate.</b> [ADR-013](../../docs/adr/ADR-013-feature-service-data-model.md)
+    /// §4b splits it so that a client reading one byte per second stops attachments rather
+    /// than the whole layer — <i>a bad afternoon rather than an outage</i>. An operator
+    /// meeting that afternoon needs to see <em>which</em> pool is stuck, and two pools
+    /// sharing a name would answer the question the split exists to make answerable.
+    ///
+    /// <b>Added 2026-09-09, one commit after <see cref="Layers"/> and for the same reason
+    /// it was missed:</b> naming the feature pool was asked *what else carries this?* and
+    /// the answer — a second `Build…Pool` twenty lines below — was one grep away.
+    /// </remarks>
+    public const string Attachments = "graticula-attachments";
+
     /// <summary>
     /// A <c>like</c> pattern matching every pool of every Graticula server on a database.
     /// </summary>

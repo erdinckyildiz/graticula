@@ -242,6 +242,34 @@ first revisit trigger is written the way it is.
    was informed by reading the reference says so in its own text. An undisclosed
    derivation is the failure this ADR exists to make visible, and it is the only
    one no reviewer can catch from the outside.
+   **Audited 2026-09-09. The practice is being followed, and it is not marked as met
+   — this is a standing rule with no last instance.** Every derivation found says so
+   where it was taken: [ADR-033](ADR-033-symbology.md) §4 is a whole section headed
+   *how the reference holds this, and what was taken*, dated to the read and separating
+   what was taken from what deliberately was not; [ADR-020](ADR-020-admin-console-and-service-status.md)
+   §5c opens *"Recorded per ADR-030 condition 1 as derived from reading the reference"*
+   over the four console rules it took; [ADR-041](ADR-041-the-map-renderer.md) §4 puts
+   *The anonymised reference checkout* in the `Source` column of three evidence rows and
+   states how deep the read went — *"file names only; no rendering source was opened"*;
+   and [ADR-009](ADR-009-raster-engine.md) §2.1 names this condition over a derivation
+   from the reference's **public** description. **The harder half is being done too, and
+   it is the one that shows the question is asked before the text rather than after it:
+   the negative disclosure.** [ADR-015](ADR-015-authentication.md) §5a states that
+   *"no part of this decision was derived from reading its source"*, and
+   [ADR-058](ADR-058-the-datastore-schema-is-edited-from-the-screen.md) §4 that
+   *"nothing was read from the reference checkout"*. It reaches production, which is the
+   third thing this condition names: `src/Graticula.Core/Cartography/ColourSpace.cs` and
+   `src/Graticula.Api.Wms/Graticula.Api.Wms.csproj` both carry it in their own text.
+   **What this audit cannot say, and the limit is the point.** Disclosures can be counted;
+   an *un*disclosed derivation cannot be found from inside the repository, and the log that
+   would have let a reader check the two against each other left on 2026-08-25 — which
+   [the placeholder](../research/reference-reading-log.md) says in its own words. So the
+   measurement is *every disclosure found is explicit*, never *every derivation is
+   disclosed*. **And §8 is why it stays open rather than being ticked:** any future ADR
+   citing the reference inherits this condition, so there is no final instance to close
+   against. [Q-136](../open-questions.md) counted ADR-030's three among the thirteen
+   conditions that are standing rules rather than tasks, and left how the register should
+   hold them to the owner. That question is unfinished; this practice is not.
 2. **Reading log.** Reads are recorded in
    [reference-reading-log.md](../research/reference-reading-log.md): what was
    read, what was taken, and where it was written down. A read with no
@@ -265,3 +293,38 @@ first revisit trigger is written the way it is.
    the source for one. Black-box measurement (Alternative B) is the preferred
    route wherever it can answer the question, because it produces evidence
    instead of provenance.
+   **Audited 2026-09-09 and no citation in this repository was found pointing at the
+   reference where a public specification exists. Not marked as met, for the same reason
+   as condition 1: it binds the next protocol face as much as the last one.** The check
+   was run where it would fail first, on the surfaces that describe somebody else's
+   protocol. `src/Graticula.Api.ArcGis/FeatureServerMetadataWriter.cs:30` cites *Esri's
+   published REST specification* and adds *"Values are ours; nothing here is copied"*;
+   `src/Graticula.Api.OgcFeatures/OgcNames.cs:82`–`87` carries the conformance classes as
+   their `opengis.net` URIs; `src/Graticula.Host/WfsEndpoints.cs:1023` cites RFC 7946 for
+   GeoJSON's axis rule; and `src/Graticula.Core/Cartography/ColourSpace.cs:18` names this
+   condition and cites IEC 61966-2-1 and CIE 15 rather than any implementation. In the
+   registers the same discipline is explicit and, in four places, argued out loud:
+   [ADR-033](ADR-033-symbology.md) §4 sends the format citations to the MapLibre Style
+   Specification, the ArcGIS REST API and OGC Symbology Encoding *"not to the reference"*;
+   [ADR-035](ADR-035-role-privileges-are-editable.md) §4e cites Esri's *Privileges for
+   roles* page as *"the public specification and therefore the citation"*;
+   [ADR-009](ADR-009-raster-engine.md) §2.1 cites [cogeo.org](https://cogeo.org/) for
+   COG's own properties; and [D-16](../architecture-debt.md) closed against Esri's
+   published privilege list *"cited rather than the reference checkout"*.
+   [ADR-058](ADR-058-the-datastore-schema-is-edited-from-the-screen.md) §4 and
+   [ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md) §2 cite
+   `developers.arcgis.com` and `github.com/Esri/cim-spec` directly.
+   **Where the reference *is* cited it is for things no specification defines** — a
+   dependency choice (ADR-041 §4), console design rules (ADR-020 §5c), the shape of a
+   symbology model (ADR-033 §4), and an authorization composition rule
+   [ADR-018](ADR-018-authorization-and-roles.md) §4 names in order to *decline* it. That
+   is the line this condition draws, holding.
+   **One ambiguity found, and it is about reading rather than about citing.** *The
+   reference* means three things in this repository — this checkout, an Esri product the
+   owner named in a screenshot, and a coordinate reference system — and only the first is
+   this ADR's subject. [ADR-022](ADR-022-geometry-server.md) §5 names its source
+   (*"a screenshot of ArcGIS Server Manager's Pooling page"*);
+   [ADR-031](ADR-031-service-capability-configuration.md) §3b restated that evidence
+   without the attribution until it was added on 2026-09-09, and until then a reader of
+   ADR-031 alone could not tell which reference was meant. A disclosure a reader cannot
+   resolve is not one, so that is a condition 1 defect found by auditing condition 3.

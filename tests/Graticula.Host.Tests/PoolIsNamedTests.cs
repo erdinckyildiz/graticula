@@ -51,6 +51,58 @@ public sealed class PoolIsNamedTests
             $"'{read.ApplicationName}' is longer than PostgreSQL will keep.");
     }
 
+    /// <summary>
+    /// Four pool names, and no pattern matches a pool it was not meant to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><see cref="PoolNames"/>'s own remarks say the colon is load-bearing</b>, because
+    /// <c>graticula</c> is a prefix of every other name here. There were two pools when that
+    /// was written and there are four now — the request pool, the job pollers,
+    /// <c>graticula-layers</c> and <c>graticula-attachments</c> — so the property is worth
+    /// asserting rather than remembering.
+    /// </para>
+    /// <para>
+    /// <b>The attachment pool has a name of its own because telling it from the feature pool
+    /// is the entire reason it is separate.</b>
+    /// [ADR-013](../../docs/adr/ADR-013-feature-service-data-model.md) §4b splits it so a
+    /// client reading one byte per second stops attachments rather than the whole layer — <i>a
+    /// bad afternoon rather than an outage</i>. An operator meeting that afternoon has to see
+    /// which pool is stuck, and two pools sharing a name would answer the question the split
+    /// exists to make answerable.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Every_pool_name_is_distinct_and_the_patterns_stay_unambiguous()
+    {
+        string[] names =
+        [
+            PoolNames.Request, PoolNames.Jobs, PoolNames.Layers, PoolNames.Attachments,
+        ];
+
+        Assert.Equal(names.Length, new System.Collections.Generic.HashSet<string>(
+            names, System.StringComparer.Ordinal).Count);
+
+        // <b>The pattern that would go wrong first.</b> `graticula-jobs%` must match the
+        // pollers and nothing else; adding a fourth pool is exactly when a prefix rule
+        // quietly starts matching two things.
+        foreach (string name in names)
+        {
+            string instance = PoolNames.Of(name);
+
+            bool matchesJobs = instance.StartsWith(PoolNames.Jobs, System.StringComparison.Ordinal);
+
+            Assert.Equal(name == PoolNames.Jobs, matchesJobs);
+
+            // Every pool is still visible to the suite-wide `graticula%`, which is what
+            // QuietDatabaseTests uses to notice a running server holding the database.
+            Assert.StartsWith(PoolNames.Request, instance, System.StringComparison.Ordinal);
+
+            Assert.True(
+                System.Text.Encoding.UTF8.GetByteCount(instance) <= 63,
+                $"'{instance}' is longer than PostgreSQL keeps.");
+        }
+    }
     /// <summary>An operator who named their own connection keeps their name.</summary>
     /// <param name="theirs">What they called it.</param>
     [Theory]
