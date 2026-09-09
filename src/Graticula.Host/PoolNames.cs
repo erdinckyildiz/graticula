@@ -44,6 +44,28 @@ public static class PoolNames
     /// </remarks>
     public const string Jobs = "graticula-jobs";
 
+    /// <summary>What the pool serving a layer's own data calls itself.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Added 2026-09-09, and its absence is why this class's own summary was an
+    /// over-claim.</b> It says <i>this server's connection pools</i>, plural, while
+    /// <c>LayerConnections.BuildPool</c> named none of its own — so every connection that
+    /// actually reads a layer was anonymous in <c>pg_stat_activity</c>, which is the pool an
+    /// operator most needs to attribute. Found while measuring [Q-139](../../docs/open-questions.md),
+    /// where it cost a whole round: a sampler filtering <c>application_name like
+    /// 'graticula%'</c> was watching the platform store while the layer pool it meant to
+    /// watch had no name at all.
+    /// </para>
+    /// <para>
+    /// <b>This is the one that leaves the building.</b> A layer pool connects to a
+    /// <em>registered</em> database as often as to ours, so this name is read by somebody
+    /// else's DBA looking at their own server and asking what is connected to it. That makes
+    /// it worth more here than on the platform store, and it is why an operator who has set
+    /// <c>Application Name</c> in a registered connection string keeps theirs.
+    /// </para>
+    /// </remarks>
+    public const string Layers = "graticula-layers";
+
     /// <summary>
     /// A <c>like</c> pattern matching every pool of every Graticula server on a database.
     /// </summary>

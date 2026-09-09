@@ -309,8 +309,48 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         return builder.ConnectionString;
     }
 
+    /// <summary>
+    /// Names this pool in <c>pg_stat_activity</c>, unless the connection string already
+    /// names it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Every connection that reads a layer was anonymous until 2026-09-09</b>, while
+    /// <see cref="PoolNames"/>'s own summary said <i>this server's connection pools</i>.
+    /// <c>PoolNames.Of</c> was applied to the platform store and to the job pollers and to
+    /// nothing else, so the pool an operator most needs to attribute — the one holding their
+    /// database while a query runs — was the one with no name. Found while measuring
+    /// [Q-139](../../docs/open-questions.md).
+    /// </para>
+    /// <para>
+    /// <b>The operator's name wins, which is not the rule the statement timeout uses.</b>
+    /// A timeout is a bound this server owes its own reliability, so it is imposed where
+    /// unset; a name is a label on <em>somebody else's</em> server, and an operator who
+    /// wrote one into a registered connection string wrote it for their own monitoring.
+    /// Overwriting it would take away the answer to give them ours.
+    /// </para>
+    /// <para>
+    /// Extracted rather than inlined for <c>WithStatementTimeout</c>'s reason: the old
+    /// form could only be checked by reading it, which is how it stayed wrong.
+    /// </para>
+    /// </remarks>
+    /// <param name="connectionString">The connection string.</param>
+    /// <returns>The connection string, named.</returns>
+    internal static string WithApplicationName(string connectionString)
+    {
+        NpgsqlConnectionStringBuilder builder = new(connectionString);
+
+        if (string.IsNullOrWhiteSpace(builder.ApplicationName))
+        {
+            builder.ApplicationName = PoolNames.Of(PoolNames.Layers);
+        }
+
+        return builder.ConnectionString;
+    }
+
     private static NpgsqlDataSource BuildPool(string connectionString) =>
-        new NpgsqlDataSourceBuilder(WithStatementTimeout(connectionString)).Build();
+        new NpgsqlDataSourceBuilder(
+            WithApplicationName(WithStatementTimeout(connectionString))).Build();
 
     /// <summary>A writer for one layer, over the same shared pool.</summary>
     /// <param name="layer">The layer.</param>
