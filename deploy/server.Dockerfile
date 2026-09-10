@@ -50,18 +50,35 @@ COPY tools/fonts/ tools/fonts/
 # Only the host, and only what it references. Building the solution here would
 # pull the test projects and their packages into the image layer cache for no
 # benefit.
-# <b>`InformationalVersion` as well as `Version`, because they take different shapes.</b>
-# `Version` is four numbers and refuses anything else; `InformationalVersion` is a string and
-# survives `dev` or a pre-release suffix. The health endpoint reads the assembly version, so
-# the numeric one is what it needs, and `dev` is filtered out rather than passed to a property
-# that would reject it and fail the build.
-RUN VERSION_NUMERIC="$(printf '%s' "$VERSION" | grep -E '^[0-9]+(\.[0-9]+){1,3}$' || true)" \
-    && dotnet publish src/Graticula.Host/Graticula.Host.csproj \
+# <b>Both version properties, or neither.</b> A release passes a number and the assembly
+# carries it; anything else — a local `docker compose build`, where `VERSION` is `dev` — passes
+# nothing and the assembly keeps .NET's default, which is what a build nobody released should
+# say.
+#
+# <b>The first version of this said `InformationalVersion` is a free string that survives
+# `dev`, and that was asserted rather than measured.</b> It is not free: NuGet validates it
+# too, and the release failed with *'dev' is not a valid version string* from
+# `NuGet.targets(178,5)`. **The gate caught it before anything was published** — `release.yml`
+# runs the quickstart rehearsal against a built-from-source stack first, and the rehearsal
+# builds with no build-arg, which is exactly the `dev` path the claim was wrong about.
+# <b>And `VERSION` is unset before `dotnet` runs, which is the whole of the second failure.</b>
+# A Docker `ARG` becomes an environment variable inside `RUN`; MSBuild reads environment
+# variables as properties; and MSBuild property names are **case-insensitive**. So `VERSION=dev`
+# arrived as the property `Version=dev` with nobody passing it, NuGet refused it, and passing
+# no properties at all did not help — the second attempt failed exactly like the first, for a
+# reason the first attempt had hidden.
+RUN set -eu; \
+    v="$VERSION"; unset VERSION; \
+    if printf '%s' "$v" | grep -Eq '^[0-9]+(\.[0-9]+){1,3}$'; then \
+      set -- /p:Version="$v" /p:InformationalVersion="$v"; \
+    else \
+      set --; \
+    fi; \
+    dotnet publish src/Graticula.Host/Graticula.Host.csproj \
       --configuration Release \
       --output /app \
       /p:UseAppHost=false \
-      ${VERSION_NUMERIC:+/p:Version=$VERSION_NUMERIC} \
-      /p:InformationalVersion="$VERSION"
+      "$@"
 
 # ---------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS runtime

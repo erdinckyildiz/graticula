@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED` |
 | **Confidence** | `HIGH` for the registry and the trigger · `MEDIUM` for the tag scheme |
-| **Decided** | 2026-09-02 |
+| **Decided** | 2026-09-02 · **amended 2026-09-10** (§5a: the 1.0 trigger fired) |
 | **Answers** | the release half of [Q-72](../open-questions.md), and closes [D-19](../architecture-debt.md) |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -110,11 +110,44 @@ failure it can have is the one that matters.
 which first runs the quickstart rehearsal, then builds both images and pushes them to
 **GHCR** — `ghcr.io/<owner>/graticula` and `ghcr.io/<owner>/graticula-datastore` — under the
 version **and** under `latest`, with `org.opencontainers.image.version` and `.revision` baked in
-as labels, and then creates a GitHub release. **Every `v0.*` is marked a pre-release**, and the
+as labels, and then creates a GitHub release. ~~**Every `v0.*` is marked a pre-release**~~ **— see §5a, which is what that became** — and the
 notes point at the debt register rather than around it. `compose.yaml` names the published
 images, so `docker compose up` pulls a release when there is one and builds from source when
 there is not; `--build` forces the source path, which is what the rehearsal uses so that CI
 tests the tree rather than the last release.
+
+## 5a. Amendment, 2026-09-10 — the trigger in §9 fired
+
+**The project reached 1.0, which §9 said would mean *every `v0.*` is a pre-release* stops
+applying and needs restating rather than inheriting.** It is restated here rather than in a new
+ADR, because what changed is a parameter of this decision and not a different decision: a
+release is still a tag and still publishes two images.
+
+**The version is `1.0.0` from 2026-09-10, and the patch advances on every commit** — owner
+decision, recorded in [product-context.md](../product-context.md). Three things follow, and they
+are consequences rather than restatements:
+
+1. **The `v0.*` arm in `release.yml` no longer fires.** It is kept, because it is still correct
+   for the tag shape it names, and because the day this project stopped marking its own work
+   unfinished is worth being able to see. Nothing marks a `v1.*` a pre-release.
+
+2. **§3's *publishing at 0.x invites somebody to run it* is answered, not repealed.** The
+   objection was that a version number invites a reader who will never open the register. At
+   1.0 the invitation is stronger, so the mitigation stays and is the only part of it that ever
+   did any work: the release notes point at [architecture-debt.md](../architecture-debt.md) and
+   [status.html](../status.html), which are **part of** the release. **1.0.0 means the v1 scope
+   is met, not that nothing is owed**, and the register is how a reader tells those apart.
+
+3. **A pinned patch is a pinned commit.** Under a release-per-commit cadence there is no
+   maintained older line and no backport: the fix is always in the newest patch. That is said
+   in [SECURITY.md](../../SECURITY.md) rather than left for somebody to discover from a
+   supported-versions table that quietly means something else.
+
+**What this amendment does not change**: the rehearsal still runs before either image is
+pushed, and it is the one gate that has already refused a release — `v1.0.0` was tagged, the
+rehearsal failed, and **nothing was published**. The tag is left standing rather than deleted,
+because the record is accurate: it was tagged, the gate refused, and the repair is in the next
+patch.
 
 ## 6. Consequences
 
@@ -156,8 +189,11 @@ labels).
   away and pin the README.
 - A release is cut whose quickstart fails anyway, which would mean the rehearsal is not
   checking what a reader does.
-- The project reaches 1.0, at which point *every v0.\* is a pre-release* stops applying and the
-  rule needs restating rather than inheriting.
+- ~~The project reaches 1.0, at which point *every v0.\* is a pre-release* stops applying and
+  the rule needs restating rather than inheriting.~~ **Fired 2026-09-10 — restated in §5a.**
+- A patch is pinned by somebody who then needs a fix that landed in a later one, which would
+  mean release-per-commit has produced the maintained-line expectation §5a says it does not
+  create.
 
 ## 10. Dissent
 

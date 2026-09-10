@@ -84,10 +84,17 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/graticula-datastore:${{ steps.what.outputs.version }}
             ghcr.io/${{ github.repository_owner }}/graticula-datastore:latest
 
-      # <b>Marked a pre-release below 1.0, and that is a statement rather than a formality.</b>
-      # This project is in Phase 1 with its v1 scope unfinished and a debt register that says
-      # so in public. A release that presented itself as finished would be the one claim this
-      # repository has spent its whole life not making.
+      # <b>The `v0.*` arm no longer fires, and it is kept rather than deleted.</b> Until
+      # 2026-09-10 every release here was a pre-release, and the reason was a statement rather
+      # than a formality: v1 scope was unfinished and the debt register said so in public. The
+      # owner closed that on 2026-09-10 -- v1 is adequate as it stands -- so the version is
+      # 1.0.x and a release presents itself as a release. The old arm stays because it is still
+      # correct for the tag shape it names, and because a project that spent its whole life
+      # refusing to claim finished should be able to see the day it stopped refusing.
+      #
+      # <b>What has not changed is what a release is allowed to claim.</b> The notes point at
+      # the debt register and the status page, and they are part of the release rather than
+      # beside it -- 1.0.0 means the scope is met, not that nothing is owed.
       - name: the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
