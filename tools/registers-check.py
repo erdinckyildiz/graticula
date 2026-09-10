@@ -3468,6 +3468,7 @@ def main() -> int:
                 + a_question_the_status_page_cannot_see()
                 + a_test_a_register_cites_that_is_not_there()
                 + an_adr_that_does_not_say_where_its_state_lives()
+                + a_live_condition_resting_on_a_closed_debt_row()
                 + a_port_documented_as_a_contract()
                 + a_developers_own_path_in_a_committed_file()
                 + a_secret_committed_to_a_public_repository()
@@ -3513,6 +3514,107 @@ def main() -> int:
     )
 
     return 0
+
+
+def a_live_condition_resting_on_a_closed_debt_row():
+    """A condition still counted as work, whose only cited debt row is closed.
+
+    <b>Written 2026-09-10 for a failure that had already happened twice in one
+    morning.</b> ADR-025 condition 1 asks that two documents exist and that GitHub
+    private vulnerability reporting is on. The owner turned it on on 2026-09-02,
+    D-183 was closed that day with the measurement, and the condition went on
+    carrying the 2026-08-27 reading that says the switches are off -- for eight
+    days, in a register whose whole job is to say what is outstanding. ADR-060
+    condition 4's separable half was the same shape: repaired, pinned by a test
+    whose own comment says it was found while measuring that condition, and the
+    condition never re-read.
+
+    <b>The rule this mechanises is D-130's</b> -- a decision taken in one file and
+    left standing in every document that restated it. The narrow, checkable case is
+    a condition that names exactly one debt row: when that row closes, the condition
+    is the only thing left claiming the work is outstanding, and nobody is looking
+    at it.
+
+    <b>Deliberately narrow.</b> A condition citing several rows may still be open on
+    the others, so only a single citation counts; a condition whose text already
+    reacts -- DISCHARGED, BREACHED, NOT MET, NOT YET APPLICABLE -- has been read
+    since its row moved and is left alone. What is left is the case where nothing in
+    the condition knows that its subject moved.
+
+    <b>`conditions` decides what counts as discharged</b>, imported rather than
+    restated: CLAUDE.md §2 records the count being wrong for a day because two
+    pieces of code answered that question differently.
+
+    @return: one complaint per condition, or an empty list.
+    """
+    closed = {}
+
+    try:
+        debt = io.open(
+            os.path.join(conditions.ROOT, "docs", "architecture-debt.md"),
+            encoding="utf-8").read()
+    except OSError:
+        return []
+
+    for line in debt.splitlines():
+        if not line.startswith("| D-"):
+            continue
+
+        cells = line.split("|")
+
+        if len(cells) < 9:
+            continue
+
+        closed[cells[1].strip()] = cells[7].strip().upper().lstrip(
+            "*~ ").startswith(("CLOSED", "REPAIRED"))
+
+    problems = []
+
+    for name in sorted(os.listdir(conditions.ADRS)):
+        if not name.startswith("ADR-") or not name.endswith(".md"):
+            continue
+
+        try:
+            text = io.open(
+                os.path.join(conditions.ADRS, name), encoding="utf-8").read()
+        except OSError:
+            continue
+
+        section = re.search(
+            r"^##\s*\d*\.?\s*Conditions\b(.*?)(^##\s|\Z)", text, re.M | re.S)
+
+        if not section:
+            continue
+
+        for item in re.finditer(
+                r"^(\d+)\.\s+(.*?)(?=^\d+\.\s|\Z)", section.group(1), re.M | re.S):
+            body = item.group(2).strip()
+
+            if conditions.discharged(body) or conditions.deferred(body):
+                continue
+
+            # <b>Saying so is the way out.</b> A condition that already reports its row as
+            # closed -- or that reacts in the register's own vocabulary -- has been read
+            # since the row moved, which is all this check asks for. Anything else is a
+            # condition whose subject changed under it.
+            if re.search(
+                    r"DISCHARGED|BREACHED|NOT MET|NOT YET APPL|CLOSED|REPAIRED",
+                    body, re.I):
+                continue
+
+            cited = {d for d in re.findall(r"D-\d+", body) if closed.get(d)}
+
+            if len(cited) != 1:
+                continue
+
+            problems.append(
+                name + " condition " + item.group(1) + " is counted as outstanding and the "
+                "only debt row it names, " + cited.pop() + ", is closed. Either the condition "
+                "is met and nobody discharged it -- which is what happened to ADR-025 "
+                "condition 1 for eight days -- or it outlived its row and should say what is "
+                "still owed. D-130.")
+
+    return problems
 
 
 if __name__ == "__main__":

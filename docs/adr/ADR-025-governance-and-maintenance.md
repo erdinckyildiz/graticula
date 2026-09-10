@@ -273,6 +273,16 @@ release must fill in the supported-versions table these documents leave empty.
    one — the primary is GitHub private vulnerability reporting, which
    [D-183](../architecture-debt.md) measured as **disabled** — so today both routes named in
    the policy are uncertain.)*
+   *(**Narrowed 2026-09-10: the primary route works, so only this one is uncertain.**
+   [D-183](../architecture-debt.md) was **closed** on 2026-09-02 — private vulnerability
+   reporting is on, measured again today — and condition 1 above is discharged on the same
+   measurement. The sentence *both routes named in the policy are uncertain* was true when it
+   was written and stopped being true eight days ago. **What is still owed is unchanged and is
+   the owner's**: which inbox is watched. It is now a fallback behind a route that works rather
+   than the second of two doubtful ones, which is a smaller thing to be uncertain about.
+   **Found by `registers-check`**, which since today fails a live condition whose only cited
+   debt row has closed — written because this ADR supplied two examples of the failure in one
+   morning.)*
 4. **The claims SECURITY.md makes about scope stay true.** It names four
    deliberate trade-offs by ADR — the archive bounds, the read-only cookie,
    credentials in URLs, the overlay deadline. If any is changed or removed, that
