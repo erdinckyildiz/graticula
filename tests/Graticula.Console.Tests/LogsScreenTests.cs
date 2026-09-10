@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -312,4 +313,134 @@ public sealed class LogsScreenTests : ConsoleTest
     /// </remarks>
     private static string Quote(string value) =>
         System.Text.Json.JsonSerializer.Serialize(value);
+    /// <summary>
+    /// The Action filter offers what the window holds, and re-counts when the window moves.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-250](../../docs/architecture-debt.md).</b> The list was a group-by over the whole
+    /// audit table while the table beside it showed one day, so the first and most numerous
+    /// option was also the one most likely to have nothing behind it — measured on this fixture
+    /// at <c>service.delete</c> offering <b>7,177</b> with <b>0</b> in the last twenty-four
+    /// hours. The count exists precisely to stop that: <c>PostgresLogReader</c> says <i>a filter
+    /// that offers a value with nothing behind it wastes a click</i>.
+    /// </para>
+    /// <para>
+    /// <b>Asserted as an inequality, not as numbers.</b> Any figure written here would be a
+    /// statement about today's development data and would be edited to whatever the server said
+    /// the first time somebody ran the suite twice. What is true regardless is that a day cannot
+    /// hold more of an action than all of time, and that at least one action differs — the
+    /// fixture is years of audit rows and the suite adds a handful per run.
+    /// </para>
+    /// <para>
+    /// <b>And the control re-reads.</b> The list used to be cached on
+    /// <c>logActions.length === 0</c>, which is once for the life of the screen — so changing
+    /// <i>Since</i> left it counting a window nobody was looking at. That is the half a
+    /// server-side repair alone would have left behind.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_action_list_counts_the_window_the_table_shows()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/logs", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#logRows tr.logrow').length > 0",
+            "The audit trail drew no rows.");
+
+        await WaitForAsync(
+            "(document.getElementById('logOwnValue')?.options?.length || 0) > 1",
+            "The action filter offers nothing.");
+
+        // <b>What the default window offers.</b> The screen opens on a window, so this is the
+        // list a reader is actually given.
+        string windowed = await Browser.EvaluateAsync<string>(
+            "JSON.stringify([...document.getElementById('logOwnValue').options]"
+            + ".filter(o => o.value).map(o => o.text))") ?? "[]";
+
+        // <b>Now widen it to all of time and let the control re-read.</b>
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const since = document.getElementById('logSince');
+          since.value = '';
+          since.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        })()
+        """);
+
+        await WaitForAsync(
+            "JSON.stringify([...document.getElementById('logOwnValue').options]"
+            + ".filter(o => o.value).map(o => o.text)) !== "
+            + JsonSerializer.Serialize(windowed),
+            "Widening the window left the action list exactly as it was. It is counted once "
+            + "per window since D-250; a list that never re-reads is the same defect one step "
+            + "later, describing a window nobody is looking at.");
+
+        string everything = await Browser.EvaluateAsync<string>(
+            "JSON.stringify([...document.getElementById('logOwnValue').options]"
+            + ".filter(o => o.value).map(o => o.text))") ?? "[]";
+
+        Assert.True(
+            Count(everything) >= Count(windowed),
+            "All of time offers fewer actions than one day of it, which cannot be true: "
+            + $"the window offered {Count(windowed)} and everything offered {Count(everything)}.");
+
+        Assert.NotEqual(windowed, everything);
+
+        // <b>And every action the window offers can be chosen and shown.</b> This is the
+        // reader's own moment: pick the first thing on the list and see rows.
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const since = document.getElementById('logSince');
+          since.value = '24';
+          since.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        })()
+        """);
+
+        await WaitForAsync(
+            "(document.getElementById('logOwnValue')?.options?.length || 0) > 1",
+            "The action filter lost its options when the window narrowed again.");
+
+        string first = await Browser.EvaluateAsync<string>("""
+        (() => {
+          const select = document.getElementById('logOwnValue');
+          for (const option of select.options) { if (option.value) return option.value; }
+          return '';
+        })()
+        """) ?? string.Empty;
+
+        Assert.False(first.Length is 0, "The narrowed window offers no action at all.");
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const select = document.getElementById('logOwnValue');
+          select.value = __ACTION__;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        })()
+        """.Replace("__ACTION__", Quote(first), StringComparison.Ordinal));
+
+        await WaitForAsync(
+            """
+            (() => {
+              const rows = [...document.querySelectorAll('#logRows tr.logrow')];
+              return rows.length > 0;
+            })()
+            """,
+            $"The first action the window offers — '{first}' — shows no rows. The count beside "
+            + "it is counted in this window, so an option with nothing behind it means the "
+            + "count and the table are answering different questions again.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>How many options a JSON array of option texts holds.</summary>
+    /// <param name="json">The array.</param>
+    /// <returns>Its length.</returns>
+    private static int Count(string json) =>
+        JsonDocument.Parse(json).RootElement.GetArrayLength();
+
 }

@@ -192,16 +192,33 @@ public sealed class PostgresLogReader : ILogReader
 
     /// <inheritdoc/>
     public async Task<IReadOnlyList<(string Action, long Count)>> ActionsAsync(
-        CancellationToken cancellationToken)
+        LogQuery query, CancellationToken cancellationToken)
     {
         // <b>Counted, because a filter that offers a value with nothing behind it wastes a
         // click.</b> The count is also the only cheap answer to *what does this server
         // actually do*, which is a question a new operator asks before any other.
-        const string Sql = """
-            select action, count(*) from audit_event group by action order by count(*) desc
-            """;
+        //
+        // <b>In the reader's own window — D-250.</b> Until 2026-09-10 this counted the whole
+        // table while the screen beside it showed a day, so the option it put first was the one
+        // with nothing behind it. `Window` is the same builder the row queries use, so the two
+        // cannot drift again: the list and the table are narrowed by one piece of code.
+        StringBuilder sql = new("""
+            select action, count(*) from audit_event where true
+            """);
 
-        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        List<NpgsqlParameter> parameters = [];
+
+        Window(sql, parameters, query);
+
+        sql.Append(" group by action order by count(*) desc");
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(sql.ToString());
+
+        foreach (NpgsqlParameter parameter in parameters)
+        {
+            command.Parameters.Add(parameter);
+        }
+
         await using NpgsqlDataReader reader =
             await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 

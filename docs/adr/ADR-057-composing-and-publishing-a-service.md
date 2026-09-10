@@ -236,9 +236,21 @@ still draws: 582 inked pixels of 16,384 beside the advertised EPSG:3857's 722. T
 not close it. **Published in** and **capable
 of** are two different claims, and only the first is what a capabilities document is for.
 
-**Empty is still a real choice and not a missing answer** — the service then serves every layer
+~~**Empty is still a real choice and not a missing answer** — the service then serves every layer
 in whatever its own table holds, and `service.srid` is null. Whether that choice is reachable by
-anything other than clearing the box is [Q-148](../open-questions.md), open.
+anything other than clearing the box is [Q-148](../open-questions.md), open.~~
+
+**Struck 2026-09-10, and it had been contradicting the paragraph thirty lines above it for a
+day.** That paragraph records the owner's decision of 2026-09-09 that *each layer in its own* is
+not a state a service may be in; this one, written on 2026-09-07, called it a real choice and
+pointed at an open question. Both stood in the same section. **It also cited the wrong
+question** — the reference question is [Q-147](../open-questions.md); Q-148 is about bounding
+the preview by vertices.
+
+**This is the propagation shape [D-130](../architecture-debt.md) records**, at its smallest and
+most embarrassing: the decision was rewritten in place and the sentence it replaced was left
+below it, in the same section, for the next reader to choose between. Found while re-reading
+§5c to write a debt row that turned out to be already written.
 
 ### 5d. A folder is chosen or created by naming it
 

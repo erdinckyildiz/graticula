@@ -142,8 +142,16 @@ internal static class LogEndpoints
             return;
         }
 
+        // <b>The window the screen is about to read in — D-250.</b> The index and the rows are
+        // two answers about one set of entries, and this address used to answer for all time
+        // while the address beside it answered for a day.
+        LogQuery window = new(
+            Time(context, "from"),
+            Time(context, "to"),
+            null, null, null, null, null, false, null, 0);
+
         IReadOnlyList<(string Action, long Count)> actions =
-            await logs.ActionsAsync(cancellation).ConfigureAwait(false);
+            await logs.ActionsAsync(window, cancellation).ConfigureAwait(false);
 
         await Results.Ok(new
         {

@@ -1460,13 +1460,42 @@ public sealed class PublishScreenTests : ConsoleTest
             "Pressing Enter on a database did not open it. This pane was unreachable by keyboard "
             + "entirely until 2026-09-08, and this is what keeps it reachable.");
 
-        await FocusAsync("#pubDbTree [data-pubschema]");
-        await PressAsync("Enter");
+        // <b>The schema that holds two, not the first one.</b> This opened whichever schema the
+        // database listed first and required two publishable tables in it — a statement about
+        // the fixture rather than about the keyboard. It passed locally, where the first schema
+        // is full, and failed in CI, where it is not; the pane is what is under test, so the
+        // walk opens schemas from the keyboard until one of them has enough.
+        int schemas = await Browser.EvaluateAsync<int>(
+            "document.querySelectorAll('#pubDbTree [data-pubschema]').length");
 
-        await WaitForAsync(
-            Publishable + ".length > 1",
-            "Opening a schema from the keyboard listed fewer than two publishable tables, so "
-            + "there is nothing to select two of.");
+        bool enough = false;
+
+        for (int at = 0; at < schemas && !enough; at++)
+        {
+            await Browser.EvaluateAsync<bool>(
+                $"(document.querySelectorAll('#pubDbTree [data-pubschema]')[{at}].focus(), true)");
+
+            await PressAsync("Enter");
+
+            // <b>Waited for, not read.</b> Opening a schema probes the database, so the tables
+            // arrive after the press — and a schema that is genuinely empty never resolves,
+            // which is why this is a short wait rather than the ten-second one below.
+            for (int spin = 0; spin < 20 && !enough; spin++)
+            {
+                enough = await Browser.EvaluateAsync<bool>(Publishable + ".length > 1");
+
+                if (!enough)
+                {
+                    await Task.Delay(250);
+                }
+            }
+        }
+
+        Assert.True(
+            enough,
+            $"None of this database's {schemas} schemas listed two publishable tables when "
+            + "opened from the keyboard, so there is nothing to select two of. Every schema was "
+            + "tried, so this is the pane and not the fixture.");
 
         // <b>One at a time, re-queried between.</b> The pane is rewritten by each press, so an
         // element held across one is detached — which is how the focus defect was found.

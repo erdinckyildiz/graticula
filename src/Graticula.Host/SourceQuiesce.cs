@@ -40,6 +40,106 @@ namespace Graticula.Host;
 internal sealed class SourceQuiesce
 {
     /// <summary>
+    /// The database a connection string reaches, as the key a hold is kept under.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-059](../../docs/adr/ADR-059-quiescing-a-data-source.md) §5d says the unit is the
+    /// database; until 2026-09-10 the unit was the connection string
+    /// ([D-251](../../docs/architecture-debt.md)).</b> Those agree only when two registrations
+    /// were typed identically. **Measured on the console fixture**, where `datastore` is
+    /// `Host=localhost` and `ci_second_source` is `Host=127.0.0.1` against the same PostgreSQL:
+    /// quiescing the datastore answered <c>alsoQuiesced: []</c>, refused its own layer with 503,
+    /// and served the other source's layer out of the same database, 60 rows. §5d's own words
+    /// for that outcome are *taking one source out and leaving the other holding connections
+    /// would have been the bug*.
+    /// </para>
+    /// <para>
+    /// <b>Host, port and database — not the credential.</b> The listing that computed sharing
+    /// carried the opposite argument: that two sources differing only in their credential *would
+    /// look shared and would not be*. That reasons from the pool, and a pool is not what is
+    /// being taken out of service. The DBA's lock is on the database, and two connections to one
+    /// database block one another whoever they signed in as.
+    /// </para>
+    /// <para>
+    /// <b>Loopback spellings are folded; other names are not.</b> <c>localhost</c>,
+    /// <c>127.0.0.1</c> and <c>::1</c> are one host on every machine this runs on, and folding
+    /// them costs a comparison. Two DNS names for one remote host are still two keys — telling
+    /// them apart means resolving names inside a request, which costs a lookup per pair and is
+    /// wrong for a host with several addresses or a name that resolves differently from inside
+    /// the container. That half is left undone deliberately and is recorded in D-251 rather than
+    /// guessed at here.
+    /// </para>
+    /// <para>
+    /// <b>Normalised here rather than by each caller.</b> Five call sites hand this class a
+    /// connection string and one of them also computes sharing; a rule applied by each of them
+    /// is a rule that four of them will eventually apply differently — which is what happened
+    /// between this register and <c>sharesWith</c>.
+    /// </para>
+    /// </remarks>
+    /// <param name="connectionString">Whatever the register holds for a source.</param>
+    /// <returns>A stable key for the database it reaches.</returns>
+    public static string DatabaseKey(string connectionString)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return string.Empty;
+        }
+
+        string host = string.Empty;
+        string port = "5432";
+        string database = string.Empty;
+
+        foreach (string part in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            int at = part.IndexOf('=', StringComparison.Ordinal);
+
+            if (at <= 0)
+            {
+                continue;
+            }
+
+            string name = part[..at].Trim();
+            string value = part[(at + 1)..].Trim();
+
+            if (name.Equals("Host", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("Server", StringComparison.OrdinalIgnoreCase))
+            {
+                host = value;
+            }
+            else if (name.Equals("Port", StringComparison.OrdinalIgnoreCase))
+            {
+                port = value;
+            }
+            else if (name.Equals("Database", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("Initial Catalog", StringComparison.OrdinalIgnoreCase))
+            {
+                database = value;
+            }
+        }
+
+        // <b>Unparseable is its own key, and it is the whole string.</b> A connection string this
+        // cannot read is one nobody here understands, and collapsing every such source onto one
+        // empty key would quiesce all of them together — a worse answer than the one being fixed.
+        if (host.Length is 0 && database.Length is 0)
+        {
+            return connectionString;
+        }
+
+        return $"{Loopback(host)}:{port}/{database.ToLowerInvariant()}";
+    }
+
+    /// <summary>The same host under every spelling of *this machine*.</summary>
+    /// <param name="host">As it was written in the connection string.</param>
+    /// <returns>A folded host name.</returns>
+    private static string Loopback(string host)
+    {
+        string lower = host.ToLowerInvariant();
+
+        return lower is "localhost" or "127.0.0.1" or "::1" or "[::1]" ? "localhost" : lower;
+    }
+
+    /// <summary>
     /// How long a quiesce lasts when the caller does not say.
     /// </summary>
     /// <remarks>
@@ -102,7 +202,7 @@ internal sealed class SourceQuiesce
 
         Held held = new(who, began, began + wanted, why);
 
-        _quiesced[source] = held;
+        _quiesced[DatabaseKey(source)] = held;
 
         return held;
     }
@@ -110,7 +210,7 @@ internal sealed class SourceQuiesce
     /// <summary>Puts a source back in service before its deadline.</summary>
     /// <param name="source">The source key.</param>
     /// <returns>Whether it was quiesced.</returns>
-    public bool Resume(string source) => _quiesced.TryRemove(source, out _);
+    public bool Resume(string source) => _quiesced.TryRemove(DatabaseKey(source), out _);
 
     /// <summary>
     /// Whether this source is out of service, and what to say about it.
@@ -124,7 +224,9 @@ internal sealed class SourceQuiesce
     /// </remarks>
     public Held? Holding(string source)
     {
-        if (!_quiesced.TryGetValue(source, out Held held))
+        string key = DatabaseKey(source);
+
+        if (!_quiesced.TryGetValue(key, out Held held))
         {
             return null;
         }
@@ -136,7 +238,7 @@ internal sealed class SourceQuiesce
 
         // Ended by itself. Removed on the way past, so the register does not grow with every
         // quiesce a deployment has ever made.
-        _quiesced.TryRemove(source, out _);
+        _quiesced.TryRemove(key, out _);
 
         return null;
     }
@@ -152,6 +254,10 @@ internal sealed class SourceQuiesce
     {
         Dictionary<string, Held> live = [];
 
+        // <b>The keys here are already database keys, and asking again is safe on purpose.</b>
+        // {@link DatabaseKey} returns anything it cannot parse unchanged, and a key it produced
+        // has no `=` in it — so normalising a normalised key is the identity. Asserted by
+        // `QuiesceDatabaseKeyTests`, because "it happens to work" is how it stops working.
         foreach (KeyValuePair<string, Held> one in _quiesced)
         {
             if (Holding(one.Key) is { } still)

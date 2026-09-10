@@ -6874,9 +6874,17 @@ internal static class AdminEndpoints
                 continue;
             }
 
+            // <b>The third place this comparison was written, and the third spelling of it —
+            // D-251.</b> The register held by the raw string, the listing compared the raw
+            // string, and so did this; all three agreed only when two registrations of one
+            // database had been typed identically. `SourceQuiesce.DatabaseKey` is the one
+            // answer now, and it is the one the hold is actually kept under.
             if (await catalog.ConnectionStringOfAsync(other.Id, cancellation).ConfigureAwait(false)
                 is { Length: > 0 } theirs
-                && string.Equals(theirs, connection, StringComparison.Ordinal))
+                && string.Equals(
+                    SourceQuiesce.DatabaseKey(theirs),
+                    SourceQuiesce.DatabaseKey(connection),
+                    StringComparison.Ordinal))
             {
                 also.Add(other.Name);
             }
@@ -7722,9 +7730,17 @@ internal static class AdminEndpoints
                 sharesWith = connection is null
                     ? Array.Empty<string>()
                     : sources
+                        // <b>The same key the register holds by — D-251.</b> This compared the
+                        // whole connection string, so two registrations of one database that
+                        // were typed differently shared nothing here and were not taken out
+                        // together there. One function decides it now, and it is the one that
+                        // enforces it.
                         .Where(other => other.Id != source.Id
                             && reachable.TryGetValue(other.Id, out string? key)
-                            && string.Equals(key, connection, StringComparison.Ordinal))
+                            && string.Equals(
+                                SourceQuiesce.DatabaseKey(key),
+                                SourceQuiesce.DatabaseKey(connection),
+                                StringComparison.Ordinal))
                         .Select(other => other.Name)
                         .ToArray(),
             });

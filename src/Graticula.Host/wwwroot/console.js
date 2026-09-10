@@ -18415,6 +18415,31 @@ let logSource = "audit";
 let logCursor = null;
 let logActions = [];
 
+/** Which window {@link logActions} was counted in, so a changed *Since* re-reads it. */
+let logActionsFor = null;
+
+/**
+ * The time window the table is about to read in, as query text.
+ *
+ * <b>One builder for the list and the rows — D-250.</b> The action counts and the rows they
+ * describe are two answers about one set of entries, and they were narrowed by two different
+ * pieces of code: the rows by `logQuery`, the counts by nothing at all. Sharing this is what
+ * stops them drifting apart a second time.
+ *
+ * @returns {string} `from=…`, or an empty string for all of time
+ */
+function logWindow() {
+  const hours = ($("logSince") || {}).value;
+
+  if (!hours) return "";
+
+  const parts = new URLSearchParams();
+
+  parts.set("from", new Date(Date.now() - Number(hours) * 3600000).toISOString());
+
+  return parts.toString();
+}
+
 /**
  * The source-specific filter's value, kept here rather than read off the element.
  *
@@ -18513,7 +18538,6 @@ function logQuery() {
   const parts = new URLSearchParams();
   const text = ($("logText") || {}).value;
   const who = ($("logWho") || {}).value;
-  const hours = ($("logSince") || {}).value;
   // Read from module state, not from the element: the element is rebuilt when the source
   // changes and would be empty at exactly the wrong moment.
   const own = logOwn;
@@ -18523,8 +18547,11 @@ function logQuery() {
 
   // <b>Computed here rather than sent as a number of hours.</b> The server takes an instant,
   // so a page left open overnight and then paged does not silently shift its own window.
-  if (hours) {
-    parts.set("from", new Date(Date.now() - Number(hours) * 3600000).toISOString());
+  //
+  // <b>Through the same builder the action counts use</b>, so the list and the table cannot
+  // describe different windows again — D-250.
+  for (const [key, value] of new URLSearchParams(logWindow())) {
+    parts.set(key, value);
   }
 
   if (own) parts.set(LOG_SOURCES.find(([key]) => key === logSource)[2], own);
@@ -18586,15 +18613,30 @@ async function loadLogs(more = false) {
   if (!more) {
     logCursor = null;
 
-    // <b>Read once, and only for the source that needs it.</b> The action list is a group-by
-    // over the whole audit table; fetching it on every page of every source would make the
-    // cheapest control on the screen the most expensive request.
-    if (logSource === "audit" && logActions.length === 0) {
-      const index = await api("/admin/logs");
+    // <b>Read once per window, and only for the source that needs it.</b> Fetching it on
+    // every page of every source would make the cheapest control on the screen the most
+    // expensive request; fetching it once for all time made it answer a different question
+    // from the table beside it — D-250.
+    //
+    // <b>Keyed on the window rather than on emptiness.</b> `logActions.length === 0` cached
+    // the first answer for the life of the screen, so changing *Since* left the list counting
+    // a window nobody was looking at any more.
+    const wanted = logSource === "audit" ? logWindow() : "";
+
+    if (logSource === "audit" && logActionsFor !== wanted) {
+      const index = await api(`/admin/logs${wanted ? `?${wanted}` : ""}`);
       if (mine !== logRead) return;
 
       logActions = index.actions || [];
       logWriterHealth = index.writer || null;
+      logActionsFor = wanted;
+
+      // <b>An action that the new window cannot show is not kept selected.</b> Leaving it
+      // there is the defect this repair is about, one step later: a control naming a filter
+      // whose every row is outside the window the table is drawing.
+      if (logOwn && !logActions.some(a => a.action === logOwn)) {
+        logOwn = "";
+      }
     }
 
     drawLogControls();
@@ -18676,6 +18718,14 @@ function logEmpty() {
     return `Nothing reported. The viewer sends a row only when something fails in a
       browser — a script error, or a layer that would not draw — so an empty list here is
       the good outcome.`;
+  }
+
+  // <b>Naming the filter that is most likely to be the reason.</b> Four filters and one
+  // sentence leaves the reader guessing which of them emptied the table; the action is the one
+  // they chose from a list, so it is the one they will trust longest.
+  if (logSource === "audit" && logOwn) {
+    return `No <code>${h(logOwn)}</code> in this window. Widen <b>Since</b>, or clear the
+      filters.`;
   }
 
   return `Nothing in this window matches. Widen <b>Since</b>, or clear the filters.`;

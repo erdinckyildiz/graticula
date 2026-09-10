@@ -36,6 +36,18 @@ public sealed class EmptiedServiceTests : ArcGisClient
     /// <summary>A table the fixture leaves unpublished — the same pair D-157 came from.</summary>
     private const string FreeTable = "zz_free_one";
 
+    /// <summary>
+    /// Where the free tables live, which is deliberately not the schema the server owns.
+    /// </summary>
+    /// <remarks>
+    /// <b>Moved out of `hosted` on 2026-09-10.</b> `AlterableSchema` reads *datastore source and
+    /// schema `hosted`* as *this server created it* — ADR-058's own sentence — so a fixture
+    /// table inside `hosted` is one the server will alter on request. That made
+    /// `HostedFieldConformanceTests.A_table_this_server_did_not_create_is_refused` answer 201 in
+    /// CI and nowhere else.
+    /// </remarks>
+    private const string FreeSchema = "cifree";
+
     [Fact]
     public async Task Unpublishing_the_last_layer_says_the_service_is_empty_and_names_the_way_out()
     {
@@ -54,7 +66,7 @@ public sealed class EmptiedServiceTests : ArcGisClient
             HttpMethod.Post,
             "/admin/layers",
             $$"""
-            {"name":"{{layer}}","dataSourceId":"{{datastore}}","schemaName":"hosted",
+            {"name":"{{layer}}","dataSourceId":"{{datastore}}","schemaName":"{{FreeSchema}}",
              "tableName":"{{FreeTable}}","geometryColumn":"shape","geometryType":"Polygon",
              "identityColumn":"objectid","srid":3857,"serviceName":"{{service}}",
              "folder":"hosted"}
@@ -62,7 +74,7 @@ public sealed class EmptiedServiceTests : ArcGisClient
 
         Assert.True(
             published is 200 or 201,
-            $"Could not publish over hosted.{FreeTable}: {published}. This test needs the free "
+            $"Could not publish over {FreeSchema}.{FreeTable}: {published}. This test needs the free "
             + "table tools/ci-free-tables.sql creates.");
 
         try

@@ -190,10 +190,36 @@ public interface ILogReader
     Task<IReadOnlyList<LogRow>> ClientAsync(LogQuery query, CancellationToken cancellationToken);
 
     /// <summary>The distinct actions the audit trail holds, for a filter to offer.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Counted over the same window the rows are read in — [D-250](../../../docs/architecture-debt.md).</b>
+    /// This used to count the whole table while the screen beside it showed one day, so the
+    /// filter's first and most numerous option was also the one most likely to have nothing to
+    /// show: on the console fixture, <c>service.delete</c> offered 7,177 and had **0** in the
+    /// last twenty-four hours. Choosing it painted an empty table with nothing saying why —
+    /// which is the exact failure this count exists to prevent, since *a filter that offers a
+    /// value with nothing behind it wastes a click*.
+    /// </para>
+    /// <para>
+    /// <b>The window makes it cheaper, not dearer, and that was measured before it was
+    /// written.</b> The unwindowed group-by took **5.8 ms** over 25,273 rows and the windowed
+    /// one **0.5 ms**, because the time index narrows it first. The objection this call was
+    /// written with — that a group-by over the whole table is too dear to repeat — is answered
+    /// by scoping it.
+    /// </para>
+    /// <para>
+    /// <b>Only <see cref="LogQuery.From"/> and <see cref="LogQuery.To"/> are read.</b> Making
+    /// the counts follow every filter — the text, the principal, the failures — would be more
+    /// exact and would make the cheapest control on the screen re-read on every keystroke. The
+    /// window is the one filter the reader did not choose, so it is the one whose disagreement
+    /// with the list is a surprise rather than a consequence.
+    /// </para>
+    /// </remarks>
+    /// <param name="query">The window to count in; every other field is ignored.</param>
     /// <param name="cancellationToken">Cancellation.</param>
-    /// <returns>Each action and how many times it appears.</returns>
+    /// <returns>Each action and how many times it appears in that window.</returns>
     Task<IReadOnlyList<(string Action, long Count)>> ActionsAsync(
-        CancellationToken cancellationToken);
+        LogQuery query, CancellationToken cancellationToken);
 
     /// <summary>Deletes entries older than the retention window.</summary>
     /// <param name="keep">How long to keep.</param>

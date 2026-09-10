@@ -212,11 +212,41 @@ service and not per layer: a hundred services can share one registered database
 and the DBA is altering a table in *that*, so quiescing a service would leave the
 other ninety-nine holding the connections that block them. That much was right.
 
-**What was wrong is the unit.** The register is keyed by connection string,
+**What was wrong is the unit.** ~~The register is keyed by connection string,
 because that is what a *pool* is keyed by (ADR-007 §4.8) — and two registered
 data sources may point at one database. Quiescing either takes both out. Measured
 on a fixture where a source was registered against the same PostgreSQL the
-datastore uses: quiescing the datastore left both rows refusing.
+datastore uses: quiescing the datastore left both rows refusing.~~
+
+**Corrected 2026-09-10 by measuring it again on a different fixture —
+[D-251](../architecture-debt.md).** The sentence above is two claims and only the
+first was true. *The unit is the database* was the decision and it stands. *The
+register is keyed by connection string, and quiescing either takes both out* was
+the implementation, and those two cannot both hold: a connection string is not a
+database. The measurement that seemed to confirm it was made where the two
+registrations had been typed **identically**, so the raw-string key and the
+database happened to coincide.
+
+**On a fixture where they do not, it fails.** `datastore` is `Host=localhost` and
+`ci_second_source` is `Host=127.0.0.1`, one PostgreSQL. Quiescing the datastore
+answered `alsoQuiesced: []`, refused its own layer with 503, and served the other
+source's layer — **60 rows out of a database a DBA had been told was out of
+service**. That is precisely the outcome the next paragraph calls the bug.
+
+**The key is now the database.** `SourceQuiesce.DatabaseKey` folds a connection
+string to `host:port/database`, lower-cased, with `localhost`, `127.0.0.1` and
+`::1` as one host, and the register holds, resumes and answers under it. The
+credential is not part of it, which reverses an argument the listing carried —
+that two sources differing only in a credential *would look shared and would not
+be*. That reasons from the pool; a pool is not what is taken out of service, and
+two connections to one database block one another whoever they signed in as.
+Measured after the repair: `alsoQuiesced: ["ci_second_source"]`, both layers 503,
+both back on resume.
+
+**A remote host under two DNS names is still two keys**, and that is left undone
+rather than guessed: telling them apart means resolving names inside a request,
+which costs a lookup per pair and is wrong for a host with several addresses.
+D-251 carries it.
 
 **That behaviour is correct and the wording was not.** The DBA's lock is on the
 database, so taking one source out and leaving the other holding connections

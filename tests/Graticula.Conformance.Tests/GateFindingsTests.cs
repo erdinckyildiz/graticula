@@ -596,4 +596,82 @@ public sealed class GateFindingsTests : ArcGisClient
 
         return null;
     }
+    /// <summary>
+    /// A reference the projection database rejects is refused before the answer begins.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-252](../../docs/architecture-debt.md), and it is the *timing* half of the finding
+    /// above.</b> That one is about the classification: PostGIS raises <c>XX000</c> for
+    /// <c>Invalid reserved SRID</c>, <c>ErrorResponse.Explain</c> turns it into a 400, and the
+    /// sentence it writes is good. What nothing checked is <b>when</b> the exception arrives.
+    /// </para>
+    /// <para>
+    /// <b>It arrives inside the stream.</b> <c>outSR</c> reaches <c>st_transform</c> in the
+    /// reading query, which is an async iterator — so the status line and the headers are
+    /// already written when it throws, and the middleware has nowhere to put the 400. Measured
+    /// on the fixture: <b>HTTP 200 with a zero-byte body</b> and a torn connection, which a
+    /// client reports as *the response ended prematurely* rather than as a bad parameter.
+    /// </para>
+    /// <para>
+    /// <b>Both parameters, because both reach the same call.</b> <c>outSR</c> decides what comes
+    /// back and <c>inSR</c> decides what the filter geometry is read in; an unknown code in
+    /// either tore the response the same way, and guarding one would have left half of it.
+    /// </para>
+    /// <para>
+    /// <b>Asserted on the body as well as the status.</b> A 200 with nothing in it and a 400
+    /// with a sentence are both *not a crash*; only the body tells them apart, and the body is
+    /// what the caller has to act on.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task An_unusable_reference_is_refused_before_the_body_begins()
+    {
+        foreach (string service in await EveryServiceNameAsync())
+        {
+            (HttpStatusCode outward, string outBody) = await FetchAsync(
+                $"/rest/services/{service}/FeatureServer/0/query"
+                + "?where=1%3D1&outFields=*&outSR=999999&resultRecordCount=1&f=json");
+
+            if (outward == HttpStatusCode.NotFound)
+            {
+                continue;
+            }
+
+            Assert.True(
+                outward == HttpStatusCode.BadRequest,
+                $"{service} answered {(int)outward} to an outSR no projection database has, with "
+                + $"a body of {outBody.Length} bytes. A 200 with nothing in it is the shape this "
+                + "defect takes: the refusal was decided after the response had begun.");
+
+            Assert.False(
+                outBody.Length is 0,
+                "The refusal carried no body, so a client has a status and no reason.");
+
+            // <b>And the reference the filter is read in, which is the same call one parameter
+            // along.</b>
+            (HttpStatusCode inward, string inBody) = await FetchAsync(
+                $"/rest/services/{service}/FeatureServer/0/query"
+                + "?where=1%3D1&geometry=1,1,2,2&geometryType=esriGeometryEnvelope"
+                + "&inSR=999999&f=json");
+
+            Assert.True(
+                inward == HttpStatusCode.BadRequest,
+                $"{service} answered {(int)inward} to an inSR no projection database has, with a "
+                + $"body of {inBody.Length} bytes.");
+
+            // <b>And a reference it does know still answers</b>, so a guard that refused
+            // everything would fail here rather than look like a repair.
+            (HttpStatusCode good, _) = await FetchAsync(
+                $"/rest/services/{service}/FeatureServer/0/query"
+                + "?where=1%3D1&outFields=*&outSR=4326&resultRecordCount=1&f=json");
+
+            Assert.Equal(HttpStatusCode.OK, good);
+
+            return;
+        }
+
+        Assert.Fail("No service answered, so this asserted nothing.");
+    }
+
 }

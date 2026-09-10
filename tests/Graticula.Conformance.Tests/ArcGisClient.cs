@@ -705,7 +705,7 @@ public abstract class ArcGisClient : IDisposable
     /// </para>
     /// <para>
     /// <b>CI has exactly two of these and they are shared.</b> <c>tools/ci-free-tables.sql</c>
-    /// makes <c>hosted.zz_free_one</c> and <c>zz_free_two</c>; a developer machine has dozens.
+    /// makes <c>cifree.zz_free_one</c> and <c>zz_free_two</c>; a developer machine has dozens.
     /// Nothing here reserves one, and nothing needs to: every class that touches the catalogue
     /// is in the <c>catalogue walk</c> collection, which xUnit runs one at a time — the
     /// architecture suite has a test that keeps it that way. What each caller owes is cleanup,

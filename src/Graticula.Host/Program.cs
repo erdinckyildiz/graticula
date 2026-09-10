@@ -4277,6 +4277,57 @@ public static class Program
           background task would need its own cancellation and its own failure route to buy
           back a cost that is not there.
         */
+        /*
+          <b>Asked before anything is written, because afterwards there is nowhere to put the
+          answer — [D-252](../../docs/architecture-debt.md).</b> `outSR=999999` reaches
+          `st_transform` inside the streaming read, PostGIS raises `XX000: Invalid reserved
+          SRID`, and `ErrorResponse.Explain` classifies that as a 400 — correctly, and far too
+          late. The status line and headers have already gone, so the middleware cannot change
+          them: the caller gets **200 with an empty body and a torn connection**, measured on
+          the fixture at `HTTP 200, size 0`.
+
+          <b>The classification is right and the moment was wrong.</b> This is not a second
+          copy of that rule — a bad SRID that arrives some other way still meets it. This is
+          the one parameter the server can check before it commits to an answer, and checking
+          it is what keeps the good sentence reachable.
+
+          <b>`KnowsAsync` is the same question the Publish screen asks</b> and is cached per
+          code, so the first sighting costs one round trip to `spatial_ref_sys` and every one
+          after it costs a dictionary lookup — less than the catalogue read this handler has
+          already paid.
+        */
+        // <b>Both references the caller can name, because both reach `st_transform`.</b>
+        // `outSR` decides what comes back and `inSR`/`bboxSR` decides what the filter geometry
+        // is read in; measured on the fixture, an unknown code in either tore the response the
+        // same way — `HTTP 200, size 0`. Guarding one and not the other would have left half
+        // the defect behind, which is what *what else carries this* is for.
+        int? unusable = query!.OutSrid is { } asked
+            && !await projector.KnowsAsync(asked, cancellation).ConfigureAwait(false)
+                ? asked
+                : query.FilterSrid is { } filtered
+                    && !await projector.KnowsAsync(filtered, cancellation).ConfigureAwait(false)
+                        ? filtered
+                        : null;
+
+        if (unusable is not null)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message = "A coordinate reference system in this request is not one "
+                            + "this server can use. The server is healthy; check the outSR, "
+                            + "inSR or bboxSR you sent.",
+                    },
+                },
+                statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context)
+                .ConfigureAwait(false);
+
+            return;
+        }
+
         if (query!.OutSrid is { } servedAs)
         {
             await datumShifts

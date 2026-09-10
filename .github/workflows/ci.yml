@@ -76,7 +76,22 @@ jobs:
       # line rather than run as a solution-wide `dotnet test`, because the other
       # three FAIL without their subject and a wildcard would turn that
       # deliberate design into a permanently red build.
+      # <b>PROJ's own register, out of the container whose transformations we compare
+      # against.</b> `TheAxisRegisterIsNotStaleTests` FAILS rather than skips without it —
+      # deliberately, because nothing else checks whether the baked axis order has fallen
+      # behind EPSG (ADR-060) — and CI never gave it one, so the unit job was red on that
+      # single test for weeks while every other suite passed. Copied from the service
+      # container rather than installed from apt, so it is the register this deployment
+      # actually uses.
+      - name: proj register
+        run: |
+          docker cp "${{ job.services.postgis.id }}:/usr/share/proj/proj.db" \
+            "${{ github.workspace }}/proj.db"
+          ls -l "${{ github.workspace }}/proj.db"
+
       - name: architecture
+        env:
+          GRATICULA_TEST_PROJ_DB: "${{ github.workspace }}/proj.db"
         run: dotnet test tests/Graticula.Architecture.Tests -c Release --no-build
 
       - name: core
@@ -260,6 +275,18 @@ jobs:
       # not where the server writes it, and the suite refused with the file name it
       # had been given. The server starts from the workspace root.
       GRATICULA_TEST_LOG: "${{ github.workspace }}/server.log"
+
+      # <b>A table a second member can publish, for `MyContentIsWhatTheCallerOwnsTests`.</b>
+      # It FAILS rather than skips without one — it needs a second owner and cannot invent
+      # one — so CI reported it as a failure on every build rather than as a gap in its own
+      # environment. `tools/ci-free-tables.sql` makes this table and nothing claims it.
+      #
+      # <b>The geometry column is named because these tables call it `shape`</b>, and the
+      # test's default is `geom`; the defaults are right for a table this server imported and
+      # these are deliberately not that.
+      GRATICULA_TEST_SCHEMA: "cifree"
+      GRATICULA_TEST_TABLE: "zz_free_three"
+      GRATICULA_TEST_GEOMETRY: "shape"
       # <b>The browser's own account of the wire — [D-173](../../docs/architecture-debt.md).</b>
       # That row has narrowed *one console test fails per run, never the same one* to a shape
       # nothing in this repository can see the cause of: a same-origin asset fires `error`, the
