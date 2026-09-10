@@ -595,9 +595,26 @@ internal static class AuthEndpoints
             await Refuse(
                 context,
                 403,
-                "That setup token is not usable. It is single-use and time-limited, and one of "
-                + "those has already happened to it. Restart the server to issue another; a "
-                + "server that already has an administrator will not issue one at all.")
+                // <b>It names what it knows, which is three possibilities rather than two —
+                // [D-257](../../docs/architecture-debt.md).</b> This said the token had been
+                // used or had expired, and *one of those has already happened to it*. Neither
+                // is true of a token that was mistyped, and the sentence then sent the reader
+                // to restart the server — which issues a fresh token and never tells them they
+                // had a copy error. Measured on 2026-09-10 by walking the quickstart: a token
+                // carrying the log's `server-1  |` prefix was refused with this sentence, and
+                // the same token pasted cleanly a moment later worked.
+                //
+                // <b>The three cannot be told apart from here, and saying so is the repair.</b>
+                // The register holds live tokens only, so an unknown one and a spent one are
+                // both *not found*; keeping spent tokens would be state kept for a message.
+                // What costs nothing is checking the token before restarting, and this is the
+                // only place that can say so — this is the fourth command of the quickstart and
+                // the first whose input is not literal.
+                "That setup token is not one this server is holding. It was mistyped, or it "
+                + "has already been used, or it has expired — this server cannot tell which. "
+                + "Check the token first: it is the last line of the SETUP REQUIRED block and "
+                + "nothing else on that line. Restarting issues a fresh one, and a server that "
+                + "already has an administrator will not issue one at all.")
                 .ConfigureAwait(false);
             return;
         }

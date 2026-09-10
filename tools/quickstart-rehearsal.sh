@@ -129,6 +129,32 @@ fi
 
 printf '   a setup token was printed\n'
 
+# <b>The mistake before the success -- D-257.</b> A reader copying a token out of a log is the
+# first step of this quickstart whose input is not literal, and it is the step nothing tested:
+# `grep -rn 'rest/setup' tests/` found nothing at all on 2026-09-10. The refusal used to say the
+# token had been used or had expired and to restart the server, which is wrong advice for a
+# typo and sends the reader away from their own error.
+#
+# <b>Asserted on the sentence, not only on the status.</b> A 403 is right either way; what was
+# wrong was what it said. And the good token is used immediately afterwards, which proves the
+# bad attempt spent nothing -- the thing that made the old sentence provably false.
+refusal=$(curl -sk \
+  -X POST "https://127.0.0.1:$PORT/rest/setup" \
+  -H 'Content-Type: application/json' \
+  -d "{\"token\":\"not-a-token\",\"name\":\"root\",\"password\":\"a properly long quickstart password\"}")
+
+case "$refusal" in
+  *"not one this server is holding"*) : ;;
+  *)
+    printf 'A token this server never issued was refused with:\n  %s\n' "$refusal"
+    printf 'It should say it is not one this server is holding, and that the token is worth\n'
+    printf 'checking before restarting -- D-257.\n'
+    exit 1
+    ;;
+esac
+
+printf '   an unknown token is refused in its own words\n'
+
 answer=$(curl -sk -o /dev/null -w '%{http_code}' \
   -X POST "https://127.0.0.1:$PORT/rest/setup" \
   -H 'Content-Type: application/json' \

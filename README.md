@@ -104,6 +104,38 @@ volume. It survives a container replacement; install a real one when you have on
 `docker compose down` and `up` keeps the platform database, your registrations, accounts,
 sessions and the serving certificate. Only `down -v` destroys it.
 
+### Something to look at, with no database of your own
+
+The four commands leave a server with nothing in it. If you have a PostGIS full of tables,
+skip to the next section. If you are here to look at the thing, this is the shortest path from
+*it started* to *a client can open it* — the compose file already registers its own datastore,
+and an import puts a layer in it.
+
+```bash
+TOKEN=$(curl -sk -X POST https://localhost:8443/rest/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"name":"root","password":"a properly long password"}' | jq -r .token)
+
+cat > places.geojson <<'EOF'
+{"type":"FeatureCollection","features":[
+ {"type":"Feature","properties":{"name":"Kadikoy"},
+  "geometry":{"type":"Point","coordinates":[29.0257,40.9903]}},
+ {"type":"Feature","properties":{"name":"Besiktas"},
+  "geometry":{"type":"Point","coordinates":[29.0060,41.0430]}},
+ {"type":"Feature","properties":{"name":"Uskudar"},
+  "geometry":{"type":"Point","coordinates":[29.0150,41.0226]}}]}
+EOF
+
+curl -sk -X POST https://localhost:8443/admin/hosted/import \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "name=places" -F "file=@places.geojson"
+```
+
+It is a FeatureServer at
+`https://localhost:8443/rest/services/hosted/places/FeatureServer/0`, and the console at
+`https://localhost:8443/server/` will now show you a server with something in it. A zipped
+shapefile or a File Geodatabase goes in through the same address.
+
 ### Publishing something
 
 Sign in, test a database before registering it, register it, then publish a table.
