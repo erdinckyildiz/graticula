@@ -86,6 +86,13 @@ Verified against the published specification at
 `docs/v3/CIMSymbols.md`, `docs/v3/CIMColor.md`, `docs/v3/Example-Symbols.md`)
 on 2026-09-03. **The specification is the citation, not any product.**
 
+**Re-read by hand 2026-09-10**, which is what condition 2's fallback asks for whenever a type
+is added. Three renderers were added to the reader on 2026-09-04 — `CIMHeatMapRenderer`,
+`CIMDotDensityRenderer` and `CIMChartRenderer` — and this table went on listing the six it had
+before, so a reader checking *what does this product read* was told less than the code does.
+The three rows below are taken from the projections themselves (`Cim.ProjectHeatMap`,
+`ProjectDots`, `ProjectChart`), which is the only honest source for a table about this reader.
+
 | Type | Properties read |
 |---|---|
 | `CIMSimpleRenderer` | `symbol`, `label`, `description` |
@@ -94,6 +101,9 @@ on 2026-09-03. **The specification is the citation, not any product.**
 | `CIMClassBreaksRenderer` | `field`, `valueExpressionInfo`, `breaks[]`, `minimumBreak`, `classBreakType`, `defaultSymbol` |
 | `CIMClassBreak` | `upperBound`, `label`, `symbol` |
 | `CIMProportionalRenderer` | `field`, `valueExpressionInfo`, `minSymbol`, `minDataValue`, `maxDataValue`, `flanneryCompensation`, `heading` — §3.10 |
+| `CIMHeatMapRenderer` | `field`, `radius`, `colorScheme`, `referenceScale` — §3.14 |
+| `CIMDotDensityRenderer` | `fieldNames`, `dotValue`, `maintainDensity`, `useMasking` — §3.15 |
+| `CIMChartRenderer` | `chartSymbol`, `fieldNames`, `preventChartOverlap` — §3.16 |
 | `CIMSymbolReference` | `symbol` |
 | `CIMPolygonSymbol`, `CIMLineSymbol`, `CIMPointSymbol` | `symbolLayers`, `effects` |
 | `CIMSolidFill` | `color`, `enable` |
@@ -940,6 +950,15 @@ what does not vary.
    claim about the published specification into the one table that exists to be checked
    against it. What is owed is three rows written by somebody reading the projections,
    and a date beside them.
+
+   ***The by-hand half is caught up 2026-09-10, and the schema half is untouched.*** §3.2's
+   table now carries `CIMHeatMapRenderer`, `CIMDotDensityRenderer` and `CIMChartRenderer` with
+   the properties each projection actually reads, and it records the date it was re-read — which
+   is the whole of what this condition's fallback asks. **It is not discharged**: the fallback is
+   a way of staying honest between schema checks, not a substitute for one, and the schema half
+   is still unstartable because no CIM schema file exists in this repository. What has changed is
+   that the table no longer says less than the code, and the next type added has a dated
+   precedent to fall behind.
 3. **A document stored under ADR-033 still serves after this lands**, asserted by
    a test that writes a MapLibre style directly into the column and then asks for
    a rendered tile, a `drawingInfo` and a style.
