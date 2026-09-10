@@ -39,6 +39,17 @@ namespace Graticula.Conformance.Tests;
 /// is — but it is a visible change to a layer document and the table below says so.
 /// </para>
 /// </remarks>
+/*
+  <b>In the catalogue-walk collection, because this class publishes — [D-75](../../docs/architecture-debt.md).</b>
+  It imports each corpus archive and publishes what it made, which is a catalogue change per
+  archive, and it was running beside every class that walks the catalogue.
+
+  <b>It is not the defect it was colliding with.</b> Serialising it removes a collision;
+  [D-254](../../docs/architecture-debt.md) records what the collision exposed, which is that the
+  connection budget can refuse a request after its answer has begun. That row carries the
+  reproduction, and this attribute does not close it.
+*/
+[Collection("catalogue walk")]
 public sealed class ShapefileCorpusTests : ArcGisClient
 {
     /// <summary>

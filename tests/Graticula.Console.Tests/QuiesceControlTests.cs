@@ -327,14 +327,27 @@ public sealed class QuiesceControlTests : ConsoleTest
         // next lines make it the Resume one rather than pretending the server said anything.
         await Browser.EvaluateAsync<bool>("(window.__writes = [], true)");
 
-        await Browser.EvaluateAsync<bool>("""
-        (() => {
-          const row = document.querySelector('#sources [data-source-quiesce]');
-          row.setAttribute('data-source-resume', row.getAttribute('data-source-quiesce'));
-          row.removeAttribute('data-source-quiesce');
-          return true;
-        })();
-        """);
+        // <b>Found and rewritten in one expression, and it has to be.</b> Pressing Quiesce makes
+        // the pane re-read its listing, so the row this needs is replaced somewhere between the
+        // press and here — a bare `querySelector` finds null on a slow machine and the click that
+        // follows reports *nothing matched*, which is what CI saw and a developer machine never
+        // did. `ClickAsync` carries the same lesson in its own remarks: poll one atomic
+        // expression rather than narrowing the gap.
+        await WaitForAsync(
+            """
+            (() => {
+              const row = document.querySelector('#sources [data-source-resume]');
+              if (row) return true;
+              const quiesce = document.querySelector('#sources [data-source-quiesce]');
+              if (!quiesce) return false;
+              quiesce.setAttribute(
+                'data-source-resume', quiesce.getAttribute('data-source-quiesce'));
+              quiesce.removeAttribute('data-source-quiesce');
+              return true;
+            })()
+            """,
+            "No row on the Data sources screen offered a control to rewrite, so the pane never "
+            + "settled after the quiesce was sent.");
 
         await ClickAsync("#sources [data-source-resume]");
 
