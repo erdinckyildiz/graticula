@@ -14,7 +14,9 @@ namespace GisBench;
 /// decomposition in <c>benchmarks/feature-query</c> answered where a query
 /// spends its time at concurrency 1. It could not answer why throughput stops
 /// scaling, because the load generator was a Python thread pool doing TLS and it
-/// failed its own control run: <c>/rest/info</c>, which reads nothing, managed
+/// failed its own control run: <c>/rest/info</c>, which takes no data-source permit
+/// (it does authenticate, and that reads the platform store -- corrected 2026-09-10 by
+/// <c>benchmarks/pipeline-ceiling</c>), managed
 /// one request per second at concurrency 4. Nothing measured beside that is
 /// evidence.
 /// </para>
@@ -70,12 +72,15 @@ internal static class QueryLoad
 
         string token = await SignInAsync(http, baseUrl, user, password);
 
-        // <b>The control, before anything else.</b> /rest/info reads nothing and
-        // touches no database. If this does not scale, the generator is the
+        // <b>The control, before anything else.</b> /rest/info takes no data-source
+        // permit -- but it does authenticate, and authenticating reads the platform
+        // store on every request, anonymous included (benchmarks/pipeline-ceiling,
+        // 2026-09-10). It is a control for the data path and not for the pipeline.
+        // If this does not scale, the generator is the
         // ceiling and every other row would be a measurement of Python's
         // successor rather than of the server.
         Console.WriteLine();
-        Console.WriteLine("=== control: /rest/info, which reads nothing");
+        Console.WriteLine("=== control: /rest/info, which takes no data-source permit");
         Console.WriteLine();
 
         double controlBase = 0;

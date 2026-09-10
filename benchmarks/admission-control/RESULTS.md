@@ -168,7 +168,7 @@ growth as §3, and §6 says where it is.
 
 ## 6. Where the latency actually is
 
-`/rest/info` takes no permit, authenticates nobody, and touches no database. Flooded on
+~~`/rest/info` takes no permit, authenticates nobody, and touches no database.~~ **Corrected 2026-09-10 — [benchmarks/pipeline-ceiling](../pipeline-ceiling/RESULTS.md): `/rest/info` authenticates and reads the platform store.** The authentication middleware returns early for one path only, `/healthz/live`; every other request runs `ResolveAsync`, which calls `GrantsOfAsync` unconditionally — a `left join` over `principal` with two correlated subqueries, paid in full by an anonymous caller for no rows. Measured against the one path that skips it, that step is worth **2.6x to 3.9x**. What the sentence was reaching for is still true and is now narrower: this path takes no **data-source** permit, so the latency is upstream of admission control — and the thing upstream has a name. **The control this section relied on was therefore measuring the thing it was chosen to exclude**, which is why §6 could name four things the ceiling was not and nothing it was. Flooded on
 its own, over plain HTTP, with the request log off — every one of those three tested
 separately:
 

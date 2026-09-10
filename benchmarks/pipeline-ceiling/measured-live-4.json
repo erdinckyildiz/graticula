@@ -1,0 +1,14 @@
+{
+ "label": "live-4",
+ "url": "https://127.0.0.1:8443/healthz/live",
+ "vus": 4,
+ "seconds": 20,
+ "ok": 260150,
+ "bad": 0,
+ "reqPerSecond": 13007.5,
+ "medianMs": 0,
+ "p95Ms": 0.6339,
+ "waitMedianMs": 0,
+ "tlsMedianMs": 0,
+ "connectMedianMs": 0
+}

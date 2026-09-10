@@ -230,9 +230,11 @@ the server stops going faster.
 
 ### 3b.3 What the ceiling is, and the honest limit of this run
 
-**The control saturates in the same place.** `/rest/info` reads nothing, touches
-no database, and goes through the same TLS, the same middleware and the same
-authentication. It peaks around 800 requests per second — and beyond concurrency
+**The control saturates in the same place.** ~~`/rest/info` reads nothing, touches
+no database, and~~ goes through the same TLS, the same middleware and the same
+authentication — **and that last clause was the true one**: it authenticates, and
+authenticating reads the platform store. **Corrected 2026-09-10 — [benchmarks/pipeline-ceiling](../pipeline-ceiling/RESULTS.md): `/rest/info` authenticates and reads the platform store.** The authentication middleware returns early for one path only, `/healthz/live`; every other request runs `ResolveAsync`, which calls `GrantsOfAsync` unconditionally — a `left join` over `principal` with two correlated subqueries, paid in full by an anonymous caller for no rows. Measured against the one path that skips it, that step is worth **2.6x to 3.9x**. What the sentence was reaching for is still true and is now narrower: this path takes no **data-source** permit, so the latency is upstream of admission control — and the thing upstream has a name. **This paragraph contradicted itself in one sentence for four weeks**, and the half
+that was right is the half nobody read. It peaks around 800 requests per second — and beyond concurrency
 4 the feature query is at 83%, then 108–124%, of it.
 
 So the query path is **not** the ceiling. Something shared by both is: the TLS

@@ -1,0 +1,14 @@
+{
+ "label": "bare-16",
+ "url": "https://127.0.0.1:8555/rest/info",
+ "vus": 16,
+ "seconds": 20,
+ "ok": 1004074,
+ "bad": 0,
+ "reqPerSecond": 50203.7,
+ "medianMs": 0,
+ "p95Ms": 0.9851,
+ "waitMedianMs": 0,
+ "tlsMedianMs": 0,
+ "connectMedianMs": 0
+}

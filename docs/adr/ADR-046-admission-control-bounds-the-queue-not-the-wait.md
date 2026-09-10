@@ -205,8 +205,8 @@ reach the same total as one at 480. The client was never what kept the queue emp
 | **480 for three minutes** | **none of 164,825** | 494.3 ms | 0.2% of 1,797 | 123.6 ms |
 
 **A sustained flood does not shed, and the reason is upstream of everything here.**
-`/rest/info` takes no permit, authenticates nobody and touches no database, and its
-latency grows in the same proportion across the same ramp. Flooded on its own it
+~~`/rest/info` takes no permit, authenticates nobody and touches no database~~, and its
+latency grows in the same proportion across the same ramp. **Corrected 2026-09-10 — [benchmarks/pipeline-ceiling](../../benchmarks/pipeline-ceiling/RESULTS.md): `/rest/info` authenticates and reads the platform store.** The authentication middleware returns early for one path only, `/healthz/live`; every other request runs `ResolveAsync`, which calls `GrantsOfAsync` unconditionally — a `left join` over `principal` with two correlated subqueries, paid in full by an anonymous caller for no rows. Measured against the one path that skips it, that step is worth **2.6x to 3.9x**. What the sentence was reaching for is still true and is now narrower: this path takes no **data-source** permit, so the latency is upstream of admission control — and the thing upstream has a name. Flooded on its own it
 stops scaling **between 8 and 16 callers, at 2.1 of 16 cores** — 2,640 req/s at 8, 3,355
 at 16, 3,412 at 32 and 3,422 at 480, an effective concurrency of about **six** against an
 unloaded service time of 1.8 ms. **`PerSourceConcurrency` is 24.** That the permits are
@@ -342,8 +342,8 @@ ADR-045 (the Logs screen, where condition 3's refusals become visible).
    awaited.
 
    **What this decision bounded is not wrong; what the clause asked for is unreachable
-   from inside it.** `/rest/info` takes no permit, authenticates nobody and touches no
-   database, and it grows in the same proportion across the same ramp — 4.2, 12.9,
+   from inside it.** ~~`/rest/info` takes no permit, authenticates nobody and touches no
+   database~~ (see §4's correction of 2026-09-10), and it grows in the same proportion across the same ramp — 4.2, 12.9,
    30.7, 60.9, 117.2 ms — because the request pipeline stops scaling **between 8 and 16
    callers, at 2.1 of 16 cores**, an effective concurrency of about six against an
    unloaded service time of 1.8 ms. At the shipped bound a request holds a
