@@ -4448,6 +4448,41 @@ public static class Program
                     json.BytesCommitted + json.BytesPending);
             }
         }
+        /*
+          <b>Answered here rather than by the exception handler — [D-254](../../docs/architecture-debt.md).</b>
+          A refusal decided before the first byte — a full connection budget, a quiesced source,
+          a reference the projection database rejects — is a clean status with a sentence, and
+          `ErrorResponse.Explain` already writes it. It was arriving as **200 with an empty body
+          and a torn connection** instead.
+
+          <b>The writer's disposal is what did it, and only a probe found that.</b> Measured with
+          the budget cut to one permit: at this point `HasStarted` is **false** and the writer
+          holds **zero** bytes committed and pending — so a clean answer is still possible here.
+          By the time `UseExceptionHandler` runs it is not, because `await using` has disposed
+          the writer on the way out and `Utf8JsonWriter.DisposeAsync` flushes: **a flush of
+          nothing still starts the response**, and a started response is one the handler can only
+          rethrow past. Kestrel then logs *unhandled* and aborts.
+
+          <b>So the answer is written while the writer is still alive.</b> The empty flush that
+          follows appends nothing to a response that already carries its refusal. This is not a
+          second copy of `Explain` — it is the same call the exception handler makes, made at the
+          only moment it can still succeed.
+
+          <b>Ordered before the truncation arm deliberately.</b> That one is for a failure after
+          bytes are on the wire, which cannot be answered and is aborted; this one is for a
+          failure before any, which can. The two filters are exclusive and the order says which
+          case is which.
+        */
+        catch (Exception e)
+            when (json.BytesCommitted is 0 && json.BytesPending is 0
+                && !context.Response.HasStarted)
+        {
+            await ErrorResponse
+                .WriteAsync(context, e, loggerFactory.CreateLogger("query"))
+                .ConfigureAwait(false);
+
+            return;
+        }
         catch (Exception e) when (json.BytesCommitted > 0 || json.BytesPending > 0)
         {
             // Asked of the writer, not of HttpResponse.HasStarted. The response
