@@ -76,17 +76,29 @@ jobs:
       # line rather than run as a solution-wide `dotnet test`, because the other
       # three FAIL without their subject and a wildcard would turn that
       # deliberate design into a permanently red build.
-      # <b>PROJ's own register, out of the container whose transformations we compare
+      # <b>PROJ's own register, out of the image whose transformations we compare
       # against.</b> `TheAxisRegisterIsNotStaleTests` FAILS rather than skips without it —
       # deliberately, because nothing else checks whether the baked axis order has fallen
-      # behind EPSG (ADR-060) — and CI never gave it one, so the unit job was red on that
-      # single test for weeks while every other suite passed. Copied from the service
-      # container rather than installed from apt, so it is the register this deployment
-      # actually uses.
+      # behind EPSG (ADR-060) — and CI never gave it one, so this job was red on that single
+      # test for weeks while every other suite passed.
+      #
+      # <b>`docker create`, not `docker cp` from a service.</b> The first attempt read
+      # `job.services.postgis.id`, which is empty here: **this job has no services** — the
+      # postgis containers belong to `datastore` and `conformance`. It expanded to
+      # `docker cp ":/usr/share/proj/proj.db"` and the step failed with *must specify at
+      # least one container source*. A container that is created and never started gives the
+      # file without a database nothing in this job would use.
+      #
+      # <b>From the pinned image, and that bounds what the check is worth.</b> The register
+      # comes from `postgis/postgis:16-3.4`, so this compares our baked axis order against
+      # the EPSG database that image ships rather than against today's EPSG. It catches our
+      # table drifting from the one our own transformations use, which is what ADR-060 asks
+      # for; it cannot catch EPSG itself moving until the pin does.
       - name: proj register
         run: |
-          docker cp "${{ job.services.postgis.id }}:/usr/share/proj/proj.db" \
-            "${{ github.workspace }}/proj.db"
+          docker create --name projsrc postgis/postgis:16-3.4
+          docker cp projsrc:/usr/share/proj/proj.db "${{ github.workspace }}/proj.db"
+          docker rm projsrc
           ls -l "${{ github.workspace }}/proj.db"
 
       - name: architecture

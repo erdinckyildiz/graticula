@@ -36,6 +36,19 @@ namespace Graticula.Conformance.Tests;
 /// </para>
 /// </remarks>
 [Trait("Needs", "RunningHost")]
+/*
+  <b>In the catalogue-walk collection, because this class publishes and deletes services —
+  [D-75](../../docs/architecture-debt.md).</b> It was in no collection at all, and nobody
+  noticed for as long as CI never ran it: without `GRATICULA_TEST_TABLE` it failed at its
+  first publish in under a second, so it never overlapped with anything.
+
+  <b>Giving it a table is what exposed this.</b> On the first green run it published, deleted
+  and republished while `AdmissionControlConformanceTests` was flooding the server, and the
+  flood test — which *is* in the collection — reported a torn response. That is the shape D-75
+  records: a class outside the collection changes the catalogue under one inside it, and the
+  defect is reported against whatever was reading at the time.
+*/
+[Collection("catalogue walk")]
 public sealed class MyContentIsWhatTheCallerOwnsTests : ArcGisClient
 {
     /// <summary>The second owner, made and removed by this test.</summary>

@@ -320,23 +320,25 @@ public sealed class LogsScreenTests : ConsoleTest
     /// <para>
     /// <b>[D-250](../../docs/architecture-debt.md).</b> The list was a group-by over the whole
     /// audit table while the table beside it showed one day, so the first and most numerous
-    /// option was also the one most likely to have nothing behind it — measured on this fixture
-    /// at <c>service.delete</c> offering <b>7,177</b> with <b>0</b> in the last twenty-four
-    /// hours. The count exists precisely to stop that: <c>PostgresLogReader</c> says <i>a filter
-    /// that offers a value with nothing behind it wastes a click</i>.
+    /// option was also the one most likely to have nothing behind it — measured on the
+    /// development fixture at <c>service.delete</c> offering <b>7,211</b> with <b>0</b> in the
+    /// last twenty-four hours. The count exists precisely to stop that: <c>PostgresLogReader</c>
+    /// says <i>a filter that offers a value with nothing behind it wastes a click</i>.
     /// </para>
     /// <para>
-    /// <b>Asserted as an inequality, not as numbers.</b> Any figure written here would be a
-    /// statement about today's development data and would be edited to whatever the server said
-    /// the first time somebody ran the suite twice. What is true regardless is that a day cannot
-    /// hold more of an action than all of time, and that at least one action differs — the
-    /// fixture is years of audit rows and the suite adds a handful per run.
+    /// <b>Asserted on the mechanism, and the first version of this test was not.</b> It
+    /// compared the list before and after widening the window and required them to differ —
+    /// which is a statement about how old the fixture's rows are. It passed on a development
+    /// database with weeks of history and <b>failed in CI</b>, where the audit trail is minutes
+    /// old and every row is inside the window either way. That is the same fault this session
+    /// had just repaired in the Publish screen's keyboard test, made again one file later.
     /// </para>
     /// <para>
-    /// <b>And the control re-reads.</b> The list used to be cached on
-    /// <c>logActions.length === 0</c>, which is once for the life of the screen — so changing
-    /// <i>Since</i> left it counting a window nobody was looking at. That is the half a
-    /// server-side repair alone would have left behind.
+    /// <b>Two things are true whatever the data.</b> The screen asks for the list <em>with the
+    /// window it is about to read in</em>, and it asks again when the window changes — which is
+    /// the whole repair, server side and screen side. And every action it offers can be chosen
+    /// and shows rows, which is the property a reader actually has: an option with nothing
+    /// behind it is the defect, whether the fixture is old or new.
     /// </para>
     /// </remarks>
     [Fact]
@@ -354,56 +356,76 @@ public sealed class LogsScreenTests : ConsoleTest
             "(document.getElementById('logOwnValue')?.options?.length || 0) > 1",
             "The action filter offers nothing.");
 
-        // <b>What the default window offers.</b> The screen opens on a window, so this is the
-        // list a reader is actually given.
-        string windowed = await Browser.EvaluateAsync<string>(
-            "JSON.stringify([...document.getElementById('logOwnValue').options]"
-            + ".filter(o => o.value).map(o => o.text))") ?? "[]";
-
-        // <b>Now widen it to all of time and let the control re-read.</b>
+        // <b>Every address this screen asks for, from here on.</b> The list and the rows are
+        // two answers about one set of entries, and what is being asserted is that they are
+        // asked the same question.
         await Browser.EvaluateAsync<bool>("""
         (() => {
-          const since = document.getElementById('logSince');
-          since.value = '';
-          since.dispatchEvent(new Event('change', { bubbles: true }));
+          window.__asked = [];
+          const real = window.fetch;
+          window.fetch = (input, init) => {
+            const where = typeof input === "string" ? input : (input && input.url) || "";
+            if (where.includes("/admin/logs")) window.__asked.push(where);
+            return real(input, init);
+          };
           return true;
-        })()
+        })();
         """);
 
-        await WaitForAsync(
-            "JSON.stringify([...document.getElementById('logOwnValue').options]"
-            + ".filter(o => o.value).map(o => o.text)) !== "
-            + JsonSerializer.Serialize(windowed),
-            "Widening the window left the action list exactly as it was. It is counted once "
-            + "per window since D-250; a list that never re-reads is the same defect one step "
-            + "later, describing a window nobody is looking at.");
+        // <b>Moved twice, and counted rather than cleared between.</b> The first version reset
+        // the recording after each move and waited again, which is three moving parts where one
+        // will do: what is being asserted is that a changed window asks again, so counting the
+        // asks is the assertion. The default is *Last day*, so the walk starts elsewhere — a
+        // select set to the value it already holds fires no change the screen can act on.
+        foreach (string hours in new[] { "", "24", "168" })
+        {
+            await Browser.EvaluateAsync<bool>($$"""
+            (() => {
+              const since = document.getElementById('logSince');
+              since.value = {{System.Text.Json.JsonSerializer.Serialize(hours)}};
+              since.dispatchEvent(new Event('change', { bubbles: true }));
+              return true;
+            })()
+            """);
 
-        string everything = await Browser.EvaluateAsync<string>(
-            "JSON.stringify([...document.getElementById('logOwnValue').options]"
-            + ".filter(o => o.value).map(o => o.text))") ?? "[]";
-
-        Assert.True(
-            Count(everything) >= Count(windowed),
-            "All of time offers fewer actions than one day of it, which cannot be true: "
-            + $"the window offered {Count(windowed)} and everything offered {Count(everything)}.");
-
-        Assert.NotEqual(windowed, everything);
-
-        // <b>And every action the window offers can be chosen and shown.</b> This is the
-        // reader's own moment: pick the first thing on the list and see rows.
-        await Browser.EvaluateAsync<bool>("""
-        (() => {
-          const since = document.getElementById('logSince');
-          since.value = '24';
-          since.dispatchEvent(new Event('change', { bubbles: true }));
-          return true;
-        })()
-        """);
+            await Task.Delay(600);
+        }
 
         await WaitForAsync(
-            "(document.getElementById('logOwnValue')?.options?.length || 0) > 1",
-            "The action filter lost its options when the window narrowed again.");
+            """
+            (() => {
+              const index = (window.__asked || [])
+                .filter(u => u === '/admin/logs' || u.startsWith('/admin/logs?'));
+              return index.length >= 3;
+            })()
+            """,
+            "Three changes of window asked for the action list fewer than three times, so it is "
+            + "not counted per window. It is cached on the window since D-250; a list cached for "
+            + "the life of the screen describes a window nobody is looking at, which is the "
+            + "defect one step later.");
 
+        // <b>And the ask carries the window, which is the fact that changed.</b> Before D-250
+        // the index was fetched as a bare `/admin/logs` — no window at all — while the rows
+        // beside it were narrowed to a day. Every index request recorded above is checked, so
+        // this cannot pass on one lucky call.
+        await WaitForAsync(
+            """
+            (() => {
+              const index = (window.__asked || [])
+                .filter(u => u === '/admin/logs' || u.startsWith('/admin/logs?'));
+              if (index.length < 3) return false;
+              const windowed = index.filter(u =>
+                new URLSearchParams(u.split('?')[1] || '').get('from'));
+              return windowed.length >= 2;
+            })()
+            """,
+            "The action list was asked for without a window. Before D-250 it was fetched as a "
+            + "bare /admin/logs while the rows beside it were narrowed to a day, which is how a "
+            + "count of 7,211 came to sit beside an empty table. Two of the three windows the "
+            + "walk above set were bounded, so two of the asks must carry `from`.");
+
+        // <b>And the property a reader has: what is offered can be chosen.</b> True whatever
+        // the fixture's age, which is what the first version of this test forgot.
         string first = await Browser.EvaluateAsync<string>("""
         (() => {
           const select = document.getElementById('logOwnValue');
@@ -412,7 +434,7 @@ public sealed class LogsScreenTests : ConsoleTest
         })()
         """) ?? string.Empty;
 
-        Assert.False(first.Length is 0, "The narrowed window offers no action at all.");
+        Assert.False(first.Length is 0, "The window offers no action at all.");
 
         await Browser.EvaluateAsync<bool>("""
         (() => {
@@ -424,23 +446,12 @@ public sealed class LogsScreenTests : ConsoleTest
         """.Replace("__ACTION__", Quote(first), StringComparison.Ordinal));
 
         await WaitForAsync(
-            """
-            (() => {
-              const rows = [...document.querySelectorAll('#logRows tr.logrow')];
-              return rows.length > 0;
-            })()
-            """,
+            "document.querySelectorAll('#logRows tr.logrow').length > 0",
             $"The first action the window offers — '{first}' — shows no rows. The count beside "
-            + "it is counted in this window, so an option with nothing behind it means the "
-            + "count and the table are answering different questions again.");
+            + "it is counted in this window, so an option with nothing behind it means the count "
+            + "and the table are answering different questions again.");
 
         NothingWentWrong(await PageErrorsAsync());
     }
-
-    /// <summary>How many options a JSON array of option texts holds.</summary>
-    /// <param name="json">The array.</param>
-    /// <returns>Its length.</returns>
-    private static int Count(string json) =>
-        JsonDocument.Parse(json).RootElement.GetArrayLength();
 
 }

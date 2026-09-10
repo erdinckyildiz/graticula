@@ -18621,10 +18621,21 @@ async function loadLogs(more = false) {
     // <b>Keyed on the window rather than on emptiness.</b> `logActions.length === 0` cached
     // the first answer for the life of the screen, so changing *Since* left the list counting
     // a window nobody was looking at any more.
-    const wanted = logSource === "audit" ? logWindow() : "";
+    // <b>Keyed on the *hours*, not on the instant they compute to.</b> `logWindow` embeds
+    // `Date.now()`, so comparing its output would differ on every call and the list would be
+    // re-read on every keystroke — the cheapest control on the screen made the most expensive
+    // request, which is the cost the original comment refused. Caught by the test written for
+    // D-250 rather than by reading this, which is what a test on the mechanism is for.
+    const wanted = logSource === "audit" ? String(($("logSince") || {}).value || "") : "";
 
     if (logSource === "audit" && logActionsFor !== wanted) {
-      const index = await api(`/admin/logs${wanted ? `?${wanted}` : ""}`);
+      // <b>The key is the hours; the address is the window.</b> Keying on `logWindow()` would
+      // never match, because it embeds `Date.now()`; addressing with the key sent
+      // `/admin/logs?24`, which carries no window at all and is the defect this repair is
+      // about, wearing the repair's clothes. Two different things, and they were briefly one.
+      const bounds = logWindow();
+
+      const index = await api(`/admin/logs${bounds ? `?${bounds}` : ""}`);
       if (mine !== logRead) return;
 
       logActions = index.actions || [];
