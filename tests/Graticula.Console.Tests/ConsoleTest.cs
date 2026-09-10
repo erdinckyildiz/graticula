@@ -978,6 +978,23 @@ public abstract class ConsoleTest : IAsyncLifetime
           window.__writes = [];
           window.__confirmed = [];
 
+          // <b>What the page asked the server for, and what came back — D-259.</b> Two CI
+          // runs in a row lost a different console test, each waiting ten seconds for a
+          // data-source list that never filled, and neither the page's own error record nor
+          // the subresource report could say which of three things happened: the answer was
+          // empty, the answer was late, or the answer arrived whole and the screen did not
+          // redraw. All three look identical from a timed-out wait.
+          //
+          // <b>Headers only — no body is read and nothing is cloned.</b> Reading a response
+          // to describe it would make every passing run pay for a diagnosis only a failing
+          // run wants, and cloning a large listing twice is worse. Status, milliseconds and
+          // `content-length` separate the three cases on their own: an empty list and a full
+          // one differ by thousands of bytes, and a late answer differs by its own clock.
+          //
+          // A ring of sixty, because a screen makes a handful of calls and what matters is
+          // the last few before the wait ran out.
+          window.__calls = [];
+
           // <b>Every way a page can fail without saying so.</b> The four defects this
           // suite was built for were all visible on screen; a thrown exception is not —
           // it stops one section and leaves the rest looking finished, which is exactly
@@ -1115,7 +1132,35 @@ public abstract class ConsoleTest : IAsyncLifetime
               });
             }
 
-            const response = await real(input, init);
+            const started = (performance && performance.now) ? performance.now() : 0;
+            let response;
+
+            try {
+              response = await real(input, init);
+            } catch (failed) {
+              // <b>A request that never returned is the one worth recording.</b> It leaves
+              // no timing entry and no page error, so without this line it is invisible to
+              // every other part of the diagnosis.
+              window.__calls.push({
+                u: url,
+                s: "threw " + String(failed).slice(0, 60),
+                ms: Math.round(
+                  ((performance && performance.now) ? performance.now() : 0) - started),
+              });
+
+              if (window.__calls.length > 60) { window.__calls.shift(); }
+
+              throw failed;
+            }
+
+            window.__calls.push({
+              u: url,
+              s: response.status,
+              ms: Math.round(
+                ((performance && performance.now) ? performance.now() : 0) - started),
+            });
+
+            if (window.__calls.length > 60) { window.__calls.shift(); }
 
             if (!without.length || !url.includes("/rest/whoami") || !response.ok) {
               return response;
@@ -1453,11 +1498,44 @@ public abstract class ConsoleTest : IAsyncLifetime
                       }
                     }
 
+                    // <b>The last calls the page made, newest last — D-259.</b> The three
+                    // accounts above are all about subresources, which is what D-173 was
+                    // about; a screen that waited for a list it never got is a different
+                    // failure and none of them can see it. Eight is enough to hold a
+                    // screen's own load and the redraw after it.
+                    //
+                    // <b>The size comes from the browser's own resource timing, not from
+                    // `content-length`.</b> The first version of this read the header and
+                    // printed `?B` for every call, because this server streams and does not
+                    // send one — measured against the fixture before it was committed, which
+                    // is the only reason it is not in the repository saying nothing. The
+                    // browser records `decodedBodySize` for a `fetch` as it does for a
+                    // script, so the number is already here and costs no second read of a
+                    // body somebody else is going to consume.
+                    //
+                    // A URL fetched more than once keeps its **last** size, which is what a
+                    // screen that redrew wants anyway.
+                    const sized = {};
+
+                    for (const r of (performance.getEntriesByType('resource') || [])) {
+                      sized[r.name] = (r.decodedBodySize || 0);
+                    }
+
+                    const calls = (window.__calls || []).slice(-8).map(c => {
+                      const absolute = new URL(c.u, location.href).href;
+                      const bytes = sized[absolute];
+
+                      return absolute.replace(location.origin, '')
+                        + ' ' + c.s + ' ' + c.ms + 'ms '
+                        + (bytes === undefined ? 'size unrecorded' : bytes + 'B');
+                    }).join(' | ') || 'the page made no request through the harness';
+
                     return 'readyState=' + document.readyState
                       + ' at=' + location.pathname
                       + ' assets=[' + listed.join(', ') + ']'
                       + ' documents=' + documents
-                      + (refetched ? ' refetched:' + refetched : '');
+                      + (refetched ? ' refetched:' + refetched : '')
+                      + '\nlast calls: ' + calls;
                   } catch (e) { return 'the report itself threw: ' + e; }
                 })()
                 """) ?? "no load report";
