@@ -149,13 +149,50 @@ public static class LegendGraphic
         return canvas;
     }
 
-    private static IMapCanvas Classified(
-        IMapCanvasFactory canvases,
-        SymbologyPlan plan,
-        GeometryKind geometry,
-        (int Width, int Height) swatch,
-        Rgba background,
-        StyleExpression.Classification axis)
+    /// <summary>
+    /// How large the legend for this style will be, without drawing it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The same arithmetic <see cref="Draw"/> uses, in one place —
+    /// [D-234](../../docs/architecture-debt.md).</b> The capabilities document wrote
+    /// <c>&lt;LegendURL width="20" height="20"&gt;</c> unconditionally while this class
+    /// computed a size from the labels, so a classified layer advertised 20×20 and served
+    /// something else. Measured on the fixture: <c>ci_many</c> advertised 20×20 and the PNG
+    /// was 105×68. **A client that reserves the advertised box lays out a broken legend**, and
+    /// a desktop client composing a print layout from it is worse off than a browser, which
+    /// measures what it received.
+    /// </para>
+    /// <para>
+    /// <b>Why the constant was ever right.</b> A single-swatch style *is* the requested swatch
+    /// size, and 20×20 is what <c>WmsRequest.TryLegend</c> defaults <c>WIDTH</c> and
+    /// <c>HEIGHT</c> to — so the document was true for every style that existed when it was
+    /// written, and became false when classified legends arrived. Two numbers decided in two
+    /// places, which is what this repository keeps finding.
+    /// </para>
+    /// <para>
+    /// <b>It costs a throwaway canvas and one text measurement per class</b>, and only for a
+    /// classified style; an unclassified one returns the swatch it was handed without touching
+    /// a canvas at all.
+    /// </para>
+    /// </remarks>
+    /// <param name="canvases">Where canvases come from, for measuring text.</param>
+    /// <param name="plan">The layer's compiled style.</param>
+    /// <param name="swatch">The swatch size a request would ask for.</param>
+    /// <returns>The size the drawn legend will have.</returns>
+    public static (int Width, int Height) Measure(
+        IMapCanvasFactory canvases, SymbologyPlan plan, (int Width, int Height) swatch)
+    {
+        ArgumentNullException.ThrowIfNull(canvases);
+        ArgumentNullException.ThrowIfNull(plan);
+
+        return plan.LegendClasses() is not { } axis
+            ? swatch
+            : SizeOf(canvases, RowsOf(axis), swatch);
+    }
+
+    /// <summary>The rows a classified legend draws, including the *+n more* row.</summary>
+    private static List<(string Label, object? Value)> RowsOf(StyleExpression.Classification axis)
     {
         List<(string Label, object? Value)> rows = [];
 
@@ -176,6 +213,19 @@ public static class LegendGraphic
             }
         }
 
+        return rows;
+    }
+
+    /// <summary>One row's height, which is the swatch or the text, whichever is taller.</summary>
+    private static int RowHeight((int Width, int Height) swatch) =>
+        Math.Max(swatch.Height, (int)Math.Ceiling(LabelSize * 1.4));
+
+    /// <summary>How large a classified legend with these rows will be.</summary>
+    private static (int Width, int Height) SizeOf(
+        IMapCanvasFactory canvases,
+        List<(string Label, object? Value)> rows,
+        (int Width, int Height) swatch)
+    {
         MapSymbol.Label ink = new(Rgba.Black, LabelSize, Rgba.Transparent, 0);
 
         // <b>Measured on a canvas that is thrown away.</b> Text width is a property of
@@ -193,10 +243,25 @@ public static class LegendGraphic
             }
         }
 
-        int rowHeight = Math.Max(swatch.Height, (int)Math.Ceiling(LabelSize * 1.4));
-        int width = Math.Min(
-            MaximumWidth, (Pad * 2) + swatch.Width + Gap + (int)Math.Ceiling(widest));
-        int height = (Pad * 2) + (rowHeight * rows.Count);
+        return (
+            Math.Min(MaximumWidth, (Pad * 2) + swatch.Width + Gap + (int)Math.Ceiling(widest)),
+            (Pad * 2) + (RowHeight(swatch) * rows.Count));
+    }
+
+    private static IMapCanvas Classified(
+        IMapCanvasFactory canvases,
+        SymbologyPlan plan,
+        GeometryKind geometry,
+        (int Width, int Height) swatch,
+        Rgba background,
+        StyleExpression.Classification axis)
+    {
+        List<(string Label, object? Value)> rows = RowsOf(axis);
+
+        MapSymbol.Label ink = new(Rgba.Black, LabelSize, Rgba.Transparent, 0);
+
+        int rowHeight = RowHeight(swatch);
+        (int width, int height) = SizeOf(canvases, rows, swatch);
 
         IMapCanvas canvas = canvases.Create(width, height);
 

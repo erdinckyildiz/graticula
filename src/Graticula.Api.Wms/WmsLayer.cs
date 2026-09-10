@@ -40,6 +40,13 @@ namespace Graticula.Api.Wms;
 /// 2026-09-09: *"wms ve wfs map'in projeksiyonunda yayınlanacak."* Null is the ordinary
 /// answer and means the two coincide.
 /// </param>
+/// <param name="Legend">
+/// The size this layer's legend will actually be drawn at, or null to fall back to the
+/// WMS default swatch. <b>Measured by the edge from the compiled style, because that is
+/// where the style is</b> — the document assembly has neither symbology nor a canvas, and
+/// giving it either so it could guess is exactly how this came to be a constant that was
+/// true when it was written and false afterwards. See <see cref="LegendSize"/>.
+/// </param>
 public sealed record WmsLayer(
     string Name,
     string Title,
@@ -50,8 +57,22 @@ public sealed record WmsLayer(
     Envelope? Geographic,
     bool Queryable,
     TimeDimension? Time,
-    int? Published = null)
+    int? Published = null,
+    (int Width, int Height)? Legend = null)
 {
+    /// <summary>What a client should reserve for this layer's legend.</summary>
+    /// <remarks>
+    /// <b>Measured from the style rather than assumed — [D-234](../../docs/architecture-debt.md).</b>
+    /// The capabilities document wrote <c>&lt;LegendURL width="20" height="20"&gt;</c>
+    /// unconditionally, and a classified layer's legend is as wide as its widest label:
+    /// <c>ci_many</c> advertised 20×20 and served 105×68. **The number now comes from
+    /// <see cref="LegendGraphic.Measure"/>, which is the same arithmetic that draws it**, so the
+    /// two cannot disagree — the failure here was two numbers decided in two places, not a wrong
+    /// constant.
+    /// </remarks>
+    /// <value>The size, or the WMS default swatch when the edge did not measure one.</value>
+    public (int Width, int Height) LegendSize => Legend ?? (20, 20);
+
     /// <summary>The reference this layer is published in.</summary>
     /// <remarks>
     /// <b>One expression, so the document and the abstract cannot disagree about it.</b>

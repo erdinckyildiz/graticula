@@ -144,8 +144,8 @@ internal static class WmsEndpoints
             {
                 case WmsOperation.GetCapabilities:
                     await CapabilitiesAsync(
-                        context, catalog, contexts, projector, request, limits, settings,
-                        cancellation)
+                        context, catalog, contexts, canvases, projector, request, limits,
+                        settings, cancellation)
                         .ConfigureAwait(false);
                     return;
 
@@ -362,6 +362,7 @@ internal static class WmsEndpoints
         HttpContext context,
         CatalogFallback catalog,
         ServiceContexts contexts,
+        IMapCanvasFactory canvases,
         IProjector projector,
         WmsRequest request,
         WmsLimits limits,
@@ -382,7 +383,8 @@ internal static class WmsEndpoints
         foreach (PublishedLayer layer in visible)
         {
             published.Add(
-                await DescribeAsync(contexts, layer, cancellation).ConfigureAwait(false));
+                await DescribeAsync(contexts, canvases, layer, cancellation)
+                    .ConfigureAwait(false));
         }
 
         await GeographicallyAsync(projector, published, cancellation).ConfigureAwait(false);
@@ -410,7 +412,10 @@ internal static class WmsEndpoints
     /// a query and is cached.</b> See <see cref="TimeExtentLifetime"/>.
     /// </remarks>
     private static async Task<WmsLayer> DescribeAsync(
-        ServiceContexts contexts, PublishedLayer layer, CancellationToken cancellation)
+        ServiceContexts contexts,
+        IMapCanvasFactory canvases,
+        PublishedLayer layer,
+        CancellationToken cancellation)
     {
         (IFeatureSource source, LayerDescription described) =
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
@@ -431,7 +436,20 @@ internal static class WmsEndpoints
             // storage code stays above it because the extent beside it is measured in that
             // one, and because it is what every request is reprojected *from*. Both travel
             // so the writer never has to guess which question it is answering.
-            Published: layer.PublishedSrid);
+            Published: layer.PublishedSrid,
+
+            // <b>And how large its legend actually is — [D-234](../../docs/architecture-debt.md).</b>
+            // Measured here rather than in the writer, because this is where the style is: the
+            // document assembly has no symbology and no canvas, and giving it either so it could
+            // guess is how the two numbers came to be decided in two places. `LegendGraphic.Measure`
+            // is the arithmetic that draws, so the advertised box is the picture's own size. An
+            // unclassified style returns the swatch untouched and costs nothing.
+            Legend: LegendGraphic.Measure(
+                canvases,
+                layer.Symbology is { Length: > 0 } stored
+                    ? SymbologyPlan.Compile(stored)
+                    : SymbologyPlan.Default(layer.Definition.Name, layer.GeometryType),
+                (20, 20)));
     }
 
     /// <summary>

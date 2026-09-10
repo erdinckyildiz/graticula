@@ -586,8 +586,12 @@ public static class CapabilitiesDocument
         writer.WriteElementString("Title", "Default");
 
         writer.WriteStartElement("LegendURL");
-        writer.WriteAttributeString("width", "20");
-        writer.WriteAttributeString("height", "20");
+        writer.WriteAttributeString(
+            "width",
+            layer.LegendSize.Width.ToString(CultureInfo.InvariantCulture));
+        writer.WriteAttributeString(
+            "height",
+            layer.LegendSize.Height.ToString(CultureInfo.InvariantCulture));
         writer.WriteElementString("Format", "image/png");
 
         WriteOnlineResource(
