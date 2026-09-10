@@ -1,6 +1,6 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/banner-dark.png">
-  <img alt="Graticula — a GIS server and its portal, from one container and one Postgres. v0.1.0, PostGIS, Elastic License 2.0." src="docs/banner-light.png">
+  <img alt="Graticula — a GIS server and its portal, from one container and one Postgres. v1, PostGIS, Elastic License 2.0." src="docs/banner-light.png">
 </picture>
 
 **A GIS server and its portal, in one process.** `Server` does what a GIS Server site
@@ -18,8 +18,15 @@ is yours.
 with room to breathe. A *graticule* is the net of meridians and parallels drawn on a map;
 `Graticula` is the Medieval Latin word English borrowed it from.
 
-> **v0.1.0 — not 1.0.** It runs and it is tested; it has not yet been operated in
-> production by anybody but its author.
+> **v1, and every commit is a release.** Owner decision, 2026-09-10: the version moves to
+> `1.0.0` and the patch advances on every commit, so `latest` is never behind the page you are
+> reading. What that buys is the thing it was bought for — before it, `latest` was 247 commits
+> and four schema migrations behind this README, and the publish endpoint documented below
+> answered **404** to anybody who followed it.
+>
+> **It runs and it is tested; it has not yet been operated in production by anybody but its
+> author.** That sentence outlived the version number it used to sit beside, and it is the
+> half of it that was ever load-bearing.
 
 ---
 
@@ -74,7 +81,7 @@ is checked rather than remembered.
 ```bash
 # Optional: pin a release rather than following `latest`. Both images are on GHCR and
 # compose.yaml pulls them; with no network it builds from this repository instead.
-export GIS_TAG=0.1.0
+export GIS_TAG=1.0.0
 
 # 1. A key to seal registered data source credentials. There is no default, deliberately:
 #    a published default key would make every credential in every deployment that forgot

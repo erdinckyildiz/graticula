@@ -97,19 +97,26 @@ it as an update to ship rather than a flaw of ours.
 
 ## Supported versions
 
-~~There are no supported versions, because there are no versions.~~ **There is one, as
-of 2026-09-02.**
+~~There are no supported versions, because there are no versions.~~ ~~**There is one, as
+of 2026-09-02.**~~ **There is one line, `1.0.x`, and it moves on every commit — 2026-09-10.**
 
 | Version | Supported | What that means |
 |---|---|---|
-| `0.1.x` | **Yes** | The current release line. A security fix lands on `main` and is published as a new `0.1.z` tag, which rebuilds both images. |
-| `main` | **Yes** | Where a fix lands first. If you are running from source, update and rebuild. |
-| Anything older | — | There is nothing older. `v0.1.0` is the first tag this project has ever had. |
+| `1.0.x` | **Yes**, the newest | The current release line, and it advances on **every commit** — owner decision, 2026-09-10. A security fix lands on `main` and is published within minutes as the next `1.0.z`, which rebuilds both images. |
+| Older `1.0.z` | — | Superseded rather than supported. With a release per commit there are many of them and none is a maintained line; the fix is always in the newest. |
+| `main` | **Yes** | Where a fix lands first, and with a release per commit it is never more than one commit ahead of the newest tag. |
+| `0.1.0` | — | The first tag this project ever had, 2026-09-02. Not maintained. |
 
-**One release line is not a support policy, and saying so is the point of this table.**
-There is no long-term-support branch, no backport commitment and no published end-of-life
-date, because a single-author project that has been released once cannot honour one. What
-is promised is narrow and keepable: a reported flaw is fixed on `main` and tagged, and
-this table says which versions that fix reaches. When a second release line exists, this
-table gains a row and the promise gets harder — that is the point at which it needs
-rewriting rather than extending.
+**A release per commit is not a support policy either, and it is a different way of not
+being one.** There is no long-term-support branch, no backport commitment and no published
+end-of-life date. What replaces them is narrower and easier to keep: **there is only ever
+one version worth running, and it is the newest**, because a fix reaches a published image
+within minutes of landing rather than waiting for somebody to decide a release is due.
+
+**What that costs, said plainly.** An operator pinning `1.0.7` is pinning a commit, not a
+tested milestone — every tag runs the same gate the quickstart runs, and none of them is a
+milestone anybody paused over. If you need a version somebody stood behind, there is not one
+yet; there is `main`, published continuously, and this document telling you so. When a
+second line exists — a `1.1.x` while `1.0.x` still gets fixes — this table gains a row and
+the promise gets harder, which is the point at which it needs rewriting rather than
+extending.

@@ -5995,8 +5995,16 @@ internal static class AdminEndpoints
         /*
           <b>Which console this server is serving, so a reader can tell what they are running —
           owner, 2026-09-06:</b> *"şuraya bir versiyon numarası yazalım, neyle karşı karşıya
-          olduğumuza bakayım."* The assembly version is `1.0.0.0` and has been all year; it
-          answers *which product*, never *which build*.
+          olduğumuza bakayım."* ~~The assembly version is `1.0.0.0` and has been all year; it
+          answers *which product*, never *which build*.~~ **Corrected 2026-09-10: it answers
+          which build now.** The owner made every commit a release, so `deploy/server.Dockerfile`
+          passes the release's number into `dotnet publish` and the assembly carries it. A
+          locally built image still says `dev`, which is true of a locally built image.
+
+          <b>The console stamp below is not made redundant by that</b>, and this is the part
+          worth keeping straight: the version says which *server* is running, and the stamp says
+          which *console* the browser is holding. They disagree exactly when the browser has
+          cached a stale page, which is the case it was added for.
 
           <b>The console's own file, because that is the thing that goes stale.</b> These pages
           are build-free static files with no cache-busting name: a browser holding yesterday's

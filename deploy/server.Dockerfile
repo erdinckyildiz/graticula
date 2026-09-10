@@ -9,6 +9,19 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0-noble AS build
 WORKDIR /src
 
+# <b>The release's number, into the binary and not only onto the image.</b> It reached
+# `org.opencontainers.image.version` on the runtime stage and stopped there, so
+# `/admin/health` answered `1.0.0.0` — .NET's default — for every build this project has ever
+# made. `AdminEndpoints` says so in its own remark: *the assembly version is 1.0.0.0 and has
+# been all year; it answers which product, never which build.*
+#
+# <b>It became worth wiring on 2026-09-10</b>, when the owner decided that every commit is a
+# release: with forty versions a month, *which one is this* is a question an operator asks of
+# the server rather than of `docker inspect`, and the answer has to be in the process.
+#
+# `dev` when nobody says, which is what a local `docker compose build` is.
+ARG VERSION=dev
+
 # Manifests first, so a source change does not re-download the world. There is
 # no lock file to copy: central package management lives in Directory.Packages.
 #
@@ -37,10 +50,18 @@ COPY tools/fonts/ tools/fonts/
 # Only the host, and only what it references. Building the solution here would
 # pull the test projects and their packages into the image layer cache for no
 # benefit.
-RUN dotnet publish src/Graticula.Host/Graticula.Host.csproj \
+# <b>`InformationalVersion` as well as `Version`, because they take different shapes.</b>
+# `Version` is four numbers and refuses anything else; `InformationalVersion` is a string and
+# survives `dev` or a pre-release suffix. The health endpoint reads the assembly version, so
+# the numeric one is what it needs, and `dev` is filtered out rather than passed to a property
+# that would reject it and fail the build.
+RUN VERSION_NUMERIC="$(printf '%s' "$VERSION" | grep -E '^[0-9]+(\.[0-9]+){1,3}$' || true)" \
+    && dotnet publish src/Graticula.Host/Graticula.Host.csproj \
       --configuration Release \
       --output /app \
-      /p:UseAppHost=false
+      /p:UseAppHost=false \
+      ${VERSION_NUMERIC:+/p:Version=$VERSION_NUMERIC} \
+      /p:InformationalVersion="$VERSION"
 
 # ---------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS runtime
