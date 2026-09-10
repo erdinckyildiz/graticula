@@ -265,6 +265,21 @@ have had a cache, and a cache is state.
    the one case §7.3.3.3 is named for is the one case the code is missing from. This does not
    need the set question answered first.
 
+   ***That half is repaired, and was already repaired when this paragraph was last read —
+   confirmed by measurement 2026-09-10.*** `crs=EPSG:999999` now answers
+   `<ServiceException code="InvalidCRS" locator="CRS">`, as `crs=NOTACRS` always did, and
+   `crs=EPSG:3857` still returns a PNG. `ErrorResponse` bridges it by the sentence `Classify`
+   already writes rather than by deciding the fault twice, and `WmsConformanceTests` pins both
+   codes with an `InlineData` whose own comment says it was *found while measuring ADR-060
+   condition 4*. **The finding was fixed on 2026-09-09 and the paragraph describing it as
+   outstanding was left standing** — which is worth a sentence rather than a silent edit,
+   because the next reader would have spent the same measurement finding out.
+
+   **The condition is still open, and for the reason two paragraphs down**: the set question is
+   a scope decision. What is closed is the smaller finding this text called *cheap and
+   separable*, and it turned out to be separable in the other direction too — separately
+   repaired, and separately forgotten.
+
    **Why the rest is a decision rather than a repair, which is why it stays open.** The two
    directions are not symmetric. *Serve only what is advertised* removes capability people use —
    a client asking a national grid of a layer stored in Web Mercator is the case this ADR exists

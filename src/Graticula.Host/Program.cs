@@ -912,7 +912,10 @@ public static class Program
                     : null,
                 CallerAddress.Of(context)?.ToString(),
                 RequestFacts.Face(context.Request.Path),
-                RequestFacts.Service(context.Request.Path),
+                // <b>The query too, since 2026-09-10 — D-255.</b> WMS and WFS name the layer
+                // there rather than in the path, and reading only the path filed every one of
+                // their requests under no service at all.
+                RequestFacts.Service(context.Request.Path, context.Request.QueryString),
                 context.Response.ContentLength));
         }
 

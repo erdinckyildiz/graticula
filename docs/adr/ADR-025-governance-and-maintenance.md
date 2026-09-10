@@ -235,6 +235,16 @@ release must fill in the supported-versions table these documents leave empty.
    `dependabot_security_updates`. The policy's fallback email keeps it from being a
    dead end, which is why this is [D-183](../architecture-debt.md) and not an
    incident. Still the owner's four settings; still not discharged.)*
+   ***(DISCHARGED 2026-09-10, and the fact had been true for eight days.)*** Measured
+   through the API: `private-vulnerability-reporting` is `{"enabled": true}`, and
+   `secret_scanning`, `secret_scanning_push_protection` and
+   `dependabot_security_updates` all read `enabled`. Both documents exist and the
+   repository is public, so every clause of this condition holds. **The owner turned
+   them on on 2026-09-02 and [D-183](../architecture-debt.md) was closed that day with
+   the same measurement** — this condition, which rests on the same four settings, was
+   left carrying the 2026-08-27 reading that says they are off. A row and a condition
+   about one fact, and only the row travelled: [D-130](../architecture-debt.md)'s shape,
+   found by re-measuring rather than by reading, which is the only way it is ever found.
 2. **The supported-versions table is filled in at the first release**, not left
    saying "there are no versions" in a repository that has some.
    ***(DISCHARGED 2026-09-09, and it was overdue by a week.)*** The first release

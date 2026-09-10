@@ -276,6 +276,51 @@ fired.
    *This service is slow*, end to end, using only what §5 leaves available: the
    aggregate metrics that do not yet exist, the request log that does, and
    `/admin/health`. The scenario either names the service or it does not, and if
-   it does not, §5 narrows to Alternative D. **OPEN** — this is the condition that
+   it does not, §5 narrows to Alternative D. ~~**OPEN** — this is the condition that
    would change the decision rather than confirm it, and it is not discharged by
-   this document being written.
+   this document being written.~~
+
+   ***DISCHARGED 2026-09-10 by walking it, and it changed the decision — but not to
+   Alternative D.*** The walk, against the running fixture, in the order §5 leaves:
+
+   **`/admin/health` names nothing, and that is the decision working.** Every number it
+   carries is aggregate — `admissionControl.waitingForSource: 0`, `unopenableSources: []`,
+   `platformStore.reachable: true`, a runtime block and a certificate block. An operator
+   reads *the server is well* and cannot read *which service is slow*, which is exactly
+   what §1 chose.
+
+   **The request log carries the duration on every row.** `durationMs` is in the detail
+   of each entry, so *how slow* is answerable without leaving the admin API.
+
+   **And the store can name the service — with one query.** `request_log` has a
+   `service` column, populated on **141,029 of 996,155** rows across **422 distinct
+   services**, and a single group-by answers the question the scenario asks:
+   `Utilities/Geometry` 4,156 requests averaging **386 ms** with a worst of 14,809;
+   `hosted/ci_many` 20,423 averaging **303 ms**. That is *this service is slow*, named,
+   from the log §5 already leaves available.
+
+   **So the scenario does name the service, and §5 does not narrow to Alternative D.**
+   What the walk found instead is that three faces were not filling the column:
+
+   | face | rows | named |
+   |---|---|---|
+   | ArcGIS | 219,461 | **64.3%** |
+   | OGC API Features | 30,678 | **0%** |
+   | WMS | 9,848 | **0%** |
+   | WFS | 5,674 | **0%** |
+
+   `RequestFacts.Service` read the path and returned null unless it began `/rest`, so the
+   three faces that serve the same layers filed every request under nothing.
+   [D-255](../architecture-debt.md) is that defect and it is repaired: each face is read
+   where that face puts the name — the collection segment for OGC, `layers` for WMS,
+   `typeNames` for WFS — pinned by `EveryFaceNamesItsServiceTests`, which was falsified
+   against the old rule and fails eight of its nineteen cases there.
+
+   **What the walk did not do**, and it is worth saying rather than leaving to be
+   assumed: nothing here made a service slow on purpose. The durations are what today's
+   suites left behind, and they were enough because the question was whether the *route*
+   exists, not whether a particular number is alarming. **What is still missing is the
+   step after naming**: nothing sorts or filters the log by duration, so the operator's
+   own path is a group-by in SQL rather than a screen. That is a smaller and more
+   concrete want than Alternative D, and it is [D-255](../architecture-debt.md)'s
+   remainder rather than a reason to reopen §5.
