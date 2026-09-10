@@ -95,3 +95,13 @@ grp_service.html
 # D-173: Chrome's net logs, written only when GRATICULA_NET_LOG names a directory.
 net-logs/
 net-logs-kept/
+
+# A scratch directory for throwaway probes and fixture scripts.
+#
+# <b>It was never ignored, and it is one `git add -A` from being published.</b> The
+# repository is public; the scripts that live here read `.env` and carry fixture
+# addresses, and one of them held a fixture's secret key in a previous session.
+# Ignored 2026-09-10 after a `git status` in a public repo listed it as untracked
+# beside real work. Session scripts belong outside the tree entirely; this is the
+# second line of defence, not the first.
+scratchpad/

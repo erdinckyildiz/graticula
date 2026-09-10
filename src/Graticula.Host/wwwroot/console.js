@@ -15581,6 +15581,15 @@ function drawPublish() {
   const rows = report?.layers || [];
   const landed = rows.filter(row => row.published);
 
+  // <b>Counted here because the job already counts it and nobody could see it —
+  // [D-107](../../../docs/architecture-debt.md).</b> `flattened` has been in the per-layer
+  // report since the importer was written, with a comment explaining that zero is reported
+  // too because *kept its elevation* and *did not look* are different answers. It was read by
+  // nothing: the word appeared nowhere in this file. Six of the eight layers in the owner's
+  // smallest archive are 25D, so on that archive this column is the common case rather than
+  // an edge.
+  const flattened = landed.reduce((total, row) => total + (row.flattened || 0), 0);
+
   // <b>Done and failed share this screen, because a partly failed publish is both.</b> Nineteen layers
   // in a service and four refused is not two outcomes to choose between; the table is the answer and
   // the heading only says which way it leaned.
@@ -15601,7 +15610,7 @@ function drawPublish() {
 
     ${rows.length > 0 ? `<div class="widetable">
       <table class="gdbreport">
-        <thead><tr><th>Feature class</th><th>Features</th><th>Outcome</th></tr></thead>
+        <thead><tr><th>Feature class</th><th>Features</th><th>Elevation</th><th>Outcome</th></tr></thead>
         <tbody>${rows.map(row => `<tr>
           <td>${h(row.layer || "")}</td>
           <td>${row.published
@@ -15609,12 +15618,24 @@ function drawPublish() {
                 ? `<span class="val">schema only</span>`
                 : num(row.rows ?? 0))
             : "—"}</td>
+          <td>${!row.published
+            ? "—"
+            : row.flattened > 0
+              ? `<span class="warn-inline">${num(row.flattened)} flattened</span>`
+              : `<span class="val">2D at the source</span>`}</td>
           <td${row.published ? ' class="val"' : ' class="bad-inline"'}>${row.published
             ? "published"
             : h(row.why || "refused")}</td>
         </tr>`).join("")}</tbody>
       </table>
     </div>` : ""}
+
+    ${flattened > 0 ? `<p class="hint"><b>${num(flattened)} feature${flattened === 1 ? "" : "s"}
+        carried an elevation and ${flattened === 1 ? "it was" : "they were"} dropped.</b> The tables
+        this made are two-dimensional: the Z was read, counted and discarded, and nothing was written
+        back to the archive, so the source still has it. Owner decision 2026-09-10 — storing elevation
+        is a change to the storage model and every face above it, and until that is taken the loss is
+        stated rather than hidden. Re-importing after that decision would carry it.</p>` : ""}
 
     ${state.status !== "done" && landed.length > 0
       ? `<p class="hint"><b>What was refused is not retried by this screen.</b> The service exists with

@@ -715,6 +715,13 @@ code { font-family: var(--mono); font-size: .92em; background: var(--surface-2);
 
 .bad-inline { color: var(--alert); font-size: var(--t-small); }
 
+/*
+  A fact worth noticing that is not a failure -- the geodatabase report's flattened
+  elevation (D-107). `.bad-inline` would read as *this layer went wrong* and it did not:
+  it published, and something about it was lost on the way in.
+*/
+.warn-inline { color: var(--warn); font-size: var(--t-small); }
+
 .row { display: flex; gap: var(--gap-2); flex-wrap: wrap; align-items: flex-end;
        margin-bottom: var(--gap-3); }
 

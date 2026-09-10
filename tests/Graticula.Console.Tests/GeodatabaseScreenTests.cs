@@ -370,4 +370,120 @@ public sealed class GeodatabaseScreenTests : ConsoleTest
             await Browser.CallAsync("Emulation.clearDeviceMetricsOverride");
         }
     }
+    /// <summary>
+    /// The report says which layers lost their elevation, and how much was lost altogether.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-107](../../docs/architecture-debt.md), the half of it that is reporting.</b>
+    /// <c>flattened</c> has been in the importer's per-layer report since the importer was
+    /// written — with its own comment explaining that zero is sent too, because <i>kept its
+    /// elevation</i> and <i>did not look</i> are different answers — and <b>the word appeared
+    /// nowhere in <c>console.js</c></b>. The number was computed, sent, and read by nothing.
+    /// </para>
+    /// <para>
+    /// <b>It is the common case rather than an edge.</b> Six of the eight layers in the owner's
+    /// smallest archive are <c>25D</c>, so on that archive every row of this column has
+    /// something to say.
+    /// </para>
+    /// <para>
+    /// <b>Both answers are asserted, because a column that only ever says one is not a
+    /// column.</b> The fixture publishes one layer that lost 3,659 elevations and one that had
+    /// none to lose, and telling those apart is the whole reason the importer sends a zero. The
+    /// summary is asserted separately: a per-row figure nobody adds up leaves the operator to
+    /// add it up.
+    /// </para>
+    /// <para>
+    /// <b>Written 2026-09-10, after the column had shipped untested.</b> Every other fact on
+    /// this class asserts on layout or on the refusal cell, and a table with a missing column
+    /// lays out perfectly — which is why none of them noticed.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_report_says_what_lost_its_elevation()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/studio/#/content", token);
+
+        await Browser.EvaluateAsync<bool>(
+            $$"""
+              (() => {
+                openAddItem();
+                publishing = {
+                  opened: { job: "33333333-3333-3333-3333-333333333333",
+                            watch: "/admin/jobs/3333" },
+                  service: "Project_Information",
+                  since: Date.now() - 41000, status: "failed", error: null,
+                  job: { status: "failed", failure: "2 of 4 layers were published.",
+                         detail: {{JsonSerializer.Serialize(Published)}} },
+                };
+                itemStep = "publish";
+                drawAddItem();
+                return true;
+              })()
+              """);
+
+        await WaitForAsync(
+            "document.querySelector('.gdbreport tbody tr') !== null",
+            "The report screen never drew.");
+
+        // <b>The column exists.</b> Asserted on the heading rather than on a cell, so a report
+        // that happens to draw the figure somewhere else still fails.
+        await WaitForAsync(
+            "[...document.querySelectorAll('.gdbreport th')]"
+            + ".some(h => (h.textContent || '').trim() === 'Elevation')",
+            "The report has no Elevation column. `flattened` is in every per-layer report the "
+            + "importer sends and was read by nothing at all until 2026-09-10 — the Z was "
+            + "counted on the way in and the count was thrown away on the way out.");
+
+        string row = await Browser.EvaluateAsync<string>(
+            """
+            (() => {
+              const at = [...document.querySelectorAll('.gdbreport th')]
+                .findIndex(h => (h.textContent || '').trim() === 'Elevation');
+              if (at < 0) return "";
+              const wanted = [...document.querySelectorAll('.gdbreport tbody tr')]
+                .find(r => r.textContent.includes('OHN_Watercourse'));
+              return wanted ? (wanted.cells[at]?.textContent || '').trim() : "";
+            })()
+            """) ?? string.Empty;
+
+        Assert.Contains("3,659", row, StringComparison.Ordinal);
+
+        Assert.Contains("flattened", row, StringComparison.OrdinalIgnoreCase);
+
+        // <b>And the layer that had nothing to lose says so rather than saying nothing.</b> A
+        // blank here reads as *not measured*, which is the one thing the importer's zero exists
+        // to rule out.
+        string kept = await Browser.EvaluateAsync<string>(
+            """
+            (() => {
+              const at = [...document.querySelectorAll('.gdbreport th')]
+                .findIndex(h => (h.textContent || '').trim() === 'Elevation');
+              if (at < 0) return "";
+              const wanted = [...document.querySelectorAll('.gdbreport tbody tr')]
+                .find(r => r.textContent.includes('Environmental_Land_Classifications'));
+              return wanted ? (wanted.cells[at]?.textContent || '').trim() : "";
+            })()
+            """) ?? string.Empty;
+
+        Assert.False(
+            kept.Length is 0,
+            "A layer that carried no elevation leaves its Elevation cell empty, which reads as "
+            + "*this was not measured*. The importer sends a zero precisely so that the two can "
+            + "be told apart.");
+
+        Assert.DoesNotContain("flattened", kept, StringComparison.OrdinalIgnoreCase);
+
+        // <b>The total, once.</b> Four rows are countable by eye; the owner's archive is not.
+        await WaitForAsync(
+            "(document.getElementById('addItemBody')?.innerText || '')"
+            + ".includes('3,659 features carried an elevation')",
+            "The report gives no total, so an operator with an archive of eighty layers has to "
+            + "add the column up themselves to learn what the import cost them.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
 }

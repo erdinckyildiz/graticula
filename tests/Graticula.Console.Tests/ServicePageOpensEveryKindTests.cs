@@ -121,6 +121,18 @@ public sealed class ServicePageOpensEveryKindTests : ConsoleTest
 
         // <b>The coverage panel is what this kind's page actually is</b>, and it was working
         // before this repair — asserted so that fixing the column above cannot quietly cost it.
+        //
+        // <b>Waited for rather than read.</b> The panel draws *Reading it…* and fills when the
+        // raster answers, so reading it the instant the page settles is a race the test loses
+        // on a server that has just started and wins on a warm one — which is the worst kind,
+        // because it passes in the run you are watching. The assertion below is unchanged; only
+        // the moment it is made is.
+        await WaitForAsync(
+            "!((document.getElementById('coverageFacts') || {}).textContent || '')"
+            + ".includes('Reading it')",
+            "The coverage panel never finished reading the raster, so what it holds is unknown "
+            + "rather than wrong.");
+
         string coverage = await Browser.EvaluateAsync<string>(
             "(document.getElementById('coverageFacts') || {}).textContent || ''") ?? string.Empty;
 
