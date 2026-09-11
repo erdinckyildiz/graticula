@@ -109,9 +109,11 @@ internal static class GeometryPage
                  + "Must be greater than zero.", Default: "1000")]),
 
         new("generalize",
-            "Removes vertices that sit within a tolerance of the line replacing them "
-            + "(Douglas–Peucker). This is not ArcGIS 'simplify', which repairs topology and "
-            + "is not offered here.",
+            "Removes vertices that sit within a tolerance of the line replacing them, and never "
+            + "makes a geometry invalid doing it — Douglas–Peucker with a topology guard, the "
+            + "same algorithm a query's maxAllowableOffset uses. Runs in a worker process with a "
+            + "deadline. Not ArcGIS 'simplify', which repairs a geometry that is already "
+            + "invalid; that is below.",
             [Sr, Geometries,
              new("maxDeviation", "Maximum deviation",
                  "How far a dropped vertex may be from the line replacing it, in the units of "

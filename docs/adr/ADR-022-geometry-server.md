@@ -555,6 +555,19 @@ flat arrays (ADR-003 §6a tier 2): **`convexHull`** (Andrew's monotone chain),
 they were refused on an argument about asymptotics, which this ADR already
 called the kind of reasoning measurement overturns.
 
+**`generalize` left this set on 2026-09-11, by owner decision — [D-236](../architecture-debt.md).**
+It ran plain Douglas–Peucker here while a query's `maxAllowableOffset` ran PostGIS's
+`ST_SimplifyPreserveTopology`, and the *47 of 50 shapes* below was the first sign of a
+difference that, measured properly over 2,000 real polygons, was 48.1% of shapes at 100 m —
+with the in-process algorithm producing 23 self-intersecting polygons and deleting 348
+features. The owner decided that neither face may return an invalid polygon and that both
+give the same answer. **So `generalize` now runs in the overlay worker as NetTopologySuite's
+`TopologyPreservingSimplifier`**, one output per input, under the worker's deadline and heap
+ceiling — which replace the comparison budget Q-115 gave the in-process loop — and
+`WorkerAgainstPostgisTests.Generalize_answers_what_ST_SimplifyPreserveTopology_answers`
+asserts vertex-for-vertex agreement with PostGIS on 1,002 comparisons. `convexHull` and
+`densify` stay here; the paragraph below is their record and, for `generalize`, its history.
+
 **PostGIS is the oracle, not the runtime.** They are verified against
 `ST_ConvexHull`, `ST_Segmentize` and `ST_SimplifyPreserveTopology` on real
 polygons from the datastore — hull vertices match exactly, and generalize agrees

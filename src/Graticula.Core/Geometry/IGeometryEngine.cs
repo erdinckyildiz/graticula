@@ -35,8 +35,7 @@ public enum EngineOperation
 
     /// <summary>The input made valid — self-intersections repaired.</summary>
     /// <remarks>
-    /// <b>Not vertex reduction.</b> That is
-    /// <c>GeometryOperations.Generalize</c>, computed in process, and the two
+    /// <b>Not vertex reduction.</b> That is <see cref="Generalize"/>, and the two
     /// share a name in no vocabulary but ArcGIS's — where this one is
     /// <c>simplify</c> and the other is <c>generalize</c>.
     /// </remarks>
@@ -47,6 +46,29 @@ public enum EngineOperation
 
     /// <summary>The shortest distance between two geometries.</summary>
     Distance,
+
+    /// <summary>
+    /// Each input with the vertices within a tolerance removed, never made invalid by it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Topology-preserving, by owner decision 2026-09-11 —
+    /// [D-236](../../docs/architecture-debt.md).</b> This was plain Douglas–Peucker in
+    /// process, <c>GeometryOperations.Generalize</c>, while a query's
+    /// <c>maxAllowableOffset</c> ran PostGIS's <c>ST_SimplifyPreserveTopology</c>. Two
+    /// engines answered *simplify this to tolerance t* under one name and one unit, and
+    /// over 2,000 real polygons they disagreed on 48.1% at 100 m — the unguarded one
+    /// producing 23 self-intersecting polygons and deleting 348 features outright. The
+    /// owner chose that neither face may return an invalid polygon and that both give the
+    /// same answer, which is this.
+    /// </para>
+    /// <para>
+    /// <b>One output per input, in order</b>, which is what ArcGIS's <c>generalize</c>
+    /// returns and what the worker's other operations do not: they combine their inputs
+    /// and flatten the result. A multipolygon going in comes back as one multipolygon.
+    /// </para>
+    /// </remarks>
+    Generalize,
 }
 
 /// <summary>Why a computation did not happen.</summary>

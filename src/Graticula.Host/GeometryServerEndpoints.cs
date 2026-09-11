@@ -102,7 +102,7 @@ internal static class GeometryServerEndpoints
     /// <summary>What this surface offers, all of it linear in the input.</summary>
     private static readonly string[] Supported =
         ["project", "areasAndLengths", "lengths", "labelPoints",
-         "convexHull", "densify", "generalize",
+         "convexHull", "densify",
          "toGeoCoordinateString", "fromGeoCoordinateString"];
 
     /// <summary>
@@ -127,7 +127,7 @@ internal static class GeometryServerEndpoints
     /// </remarks>
     private static readonly string[] Engine =
         ["intersect", "difference", "union",
-         "cut", "buffer", "offset", "simplify", "relation", "distance"];
+         "cut", "buffer", "offset", "simplify", "relation", "distance", "generalize"];
 
     /// <summary>
     /// Operations not implemented, each with the reason it is not.
@@ -250,7 +250,13 @@ internal static class GeometryServerEndpoints
         // GeometryOperations.
         geometry.MapMethods("/convexHull", GetOrPost, ConvexHull);
         geometry.MapMethods("/densify", GetOrPost, Densify);
-        geometry.MapMethods("/generalize", GetOrPost, Generalize);
+
+        // <b>`generalize` is not here since 2026-09-11: it runs in the worker, with the
+        // operations below — [D-236](../../docs/architecture-debt.md).</b> It was plain
+        // Douglas–Peucker in this process, a different engine from the one a query's
+        // `maxAllowableOffset` uses, and the owner decided both faces must preserve topology
+        // and give the same answer. Moving it also puts it under the worker's deadline and
+        // heap ceiling, which replace the comparison budget Q-115 gave the in-process loop.
 
         // <b>These two were not on any list until 2026-08-15</b> — neither
         // supported nor refused, so a caller asking for them got 404, which says
@@ -1226,6 +1232,21 @@ internal static class GeometryServerEndpoints
             return;
         }
 
+        if (operation == "generalize")
+        {
+            await Respond(context, operation, new
+            {
+                geometries = result.Geometries.Select(g => ToJson(g, srid)).ToArray(),
+                cost,
+                note = "Douglas-Peucker with a topology guard: no output ring crosses itself and "
+                     + "no polygon is deleted, which plain Douglas-Peucker does at larger "
+                     + "tolerances. The same algorithm a query's maxAllowableOffset uses, so the "
+                     + "two agree. Every surviving vertex is an original one. This is not "
+                     + "ArcGIS 'simplify', which repairs a geometry that is already invalid.",
+            }).ConfigureAwait(false);
+            return;
+        }
+
         await Respond(context, operation, new
         {
             geometries = result.Geometries.Select(g => ToJson(g, srid)).ToArray(),
@@ -1301,6 +1322,22 @@ internal static class GeometryServerEndpoints
 
                 break;
 
+            case "generalize":
+                if (!TryGeometries(form, srid, out left, out _, out error)
+                    || !TryDistance(form, "maxDeviation", out distance, out error))
+                {
+                    return false;
+                }
+
+                if (distance < 0)
+                {
+                    error = "'maxDeviation' cannot be negative. Zero removes only vertices that "
+                          + "are exactly collinear.";
+                    return false;
+                }
+
+                break;
+
             case "buffer":
             case "offset":
             case "simplify":
@@ -1344,6 +1381,7 @@ internal static class GeometryServerEndpoints
             "simplify" => EngineOperation.Simplify,
             "relation" => EngineOperation.Relate,
             "distance" => EngineOperation.Distance,
+            "generalize" => EngineOperation.Generalize,
             _ => EngineOperation.Union,
         };
 
@@ -1798,57 +1836,6 @@ internal static class GeometryServerEndpoints
             note = "Every original coordinate survives at its original value; densifying only "
                  + "adds. Planar: the length is in the units of the spatial reference, and this "
                  + "is not the geodesic densify ArcGIS also offers.",
-        }).ConfigureAwait(false);
-    }
-
-    /// <summary>Removes vertices within a tolerance of the line they sit on.</summary>
-    private static async Task Generalize(HttpContext context)
-    {
-        if (!TryMeasurable(context, out List<Geometry> geometries, out string? error))
-        {
-            await Fail(context, error!).ConfigureAwait(false);
-            return;
-        }
-
-        if (!TrySrid(context, out int srid, out string? sridError))
-        {
-            await Fail(context, sridError!).ConfigureAwait(false);
-            return;
-        }
-
-        if (!TryPositive(context, "maxDeviation", out double tolerance, out string? tolError,
-                allowZero: true))
-        {
-            await Fail(context, tolError!).ConfigureAwait(false);
-            return;
-        }
-
-        object[] simplified;
-
-        // <b>[Q-115](../../docs/open-questions.md): the work is bounded and the refusal
-        // is the caller's to read.</b> Douglas-Peucker is quadratic on a shape where no
-        // vertex may be dropped — measured at three hours of CPU for one request at the
-        // vertex cap — so `GeometryOperations` counts its comparisons and stops. The
-        // message names the tolerance rather than the algorithm, because that is the
-        // parameter the caller can change.
-        try
-        {
-            simplified = [.. geometries
-                .Select(g => ToJson(GeometryOperations.Generalize(g, tolerance), srid))];
-        }
-        catch (GeometryWorkException e)
-        {
-            await Fail(context, e.Message).ConfigureAwait(false);
-            return;
-        }
-
-        await Respond(context, "generalize", new
-        {
-            geometries = simplified,
-            note = "Douglas-Peucker. Every surviving vertex is an original one, and a ring keeps "
-                 + "enough coordinates to still enclose something. This does NOT repair topology "
-                 + "\u2014 that is ArcGIS 'simplify', which this server does not offer rather than "
-                 + "offering this in its place.",
         }).ConfigureAwait(false);
     }
 

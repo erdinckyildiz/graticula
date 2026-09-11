@@ -11,6 +11,7 @@ using NetTopologySuite.Index.Strtree;
 using NetTopologySuite.IO;
 using NetTopologySuite.Operation.Overlay;
 using NetTopologySuite.Operation.OverlayNG;
+using NetTopologySuite.Simplify;
 using NetTopologySuite.Operation.Buffer;
 using NetTopologySuite.Operation.Distance;
 using NetTopologySuite.Operation.Polygonize;
@@ -263,6 +264,43 @@ internal static class Program
             {
                 Matrix = matrix,
                 Pairs = pairs,
+                CandidatePairs = candidates,
+                Milliseconds = clock.ElapsedMilliseconds,
+            };
+        }
+
+        // <b>Generalize answers per input, before the combining switch below —
+        // [D-236](../../docs/architecture-debt.md).</b> Every operation after this point
+        // combines its inputs into one geometry and flattens what comes out, which is right
+        // for an overlay and wrong here: ArcGIS's `generalize` returns one geometry per input,
+        // in order, and a multipolygon that went in as one must come back as one.
+        //
+        // <b>TopologyPreservingSimplifier, not DouglasPeuckerSimplifier, and that is the
+        // decision rather than a detail.</b> Plain Douglas–Peucker is what this operation was
+        // until 2026-09-11, computed in the host, and over 2,000 real polygons at 100 m it
+        // produced 23 self-intersecting rings and deleted 348 features, while the query path's
+        // PostGIS `ST_SimplifyPreserveTopology` produced neither. GEOS's simplifier is a port
+        // of this one, so the Geometry Service and a query's `maxAllowableOffset` now run the
+        // same algorithm — asserted against PostGIS rather than assumed from the lineage.
+        if (request.Operation == "Generalize")
+        {
+            if (request.Distance < 0 || double.IsNaN(request.Distance))
+            {
+                return Refuse("A generalize tolerance cannot be negative.");
+            }
+
+            WKBWriter each = new();
+            List<string> generalized = new(left.Count);
+
+            foreach (NetTopologySuite.Geometries.Geometry input in left)
+            {
+                generalized.Add(Convert.ToBase64String(
+                    each.Write(TopologyPreservingSimplifier.Simplify(input, request.Distance))));
+            }
+
+            return new OverlayResponse
+            {
+                Geometries = generalized,
                 CandidatePairs = candidates,
                 Milliseconds = clock.ElapsedMilliseconds,
             };

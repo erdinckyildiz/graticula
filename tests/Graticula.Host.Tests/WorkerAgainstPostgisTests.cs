@@ -248,6 +248,17 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
             CultureInfo.InvariantCulture);
     }
 
+    /// <summary>A geometry built by PostGIS from its text, so a fixture shape is one line.</summary>
+    private async Task<Geometry> FromWktAsync(string wkt)
+    {
+        await using NpgsqlCommand command = _source!.CreateCommand(
+            "select ST_AsBinary(ST_GeomFromText(@w, 3857))");
+
+        command.Parameters.AddWithValue("w", wkt);
+
+        return WkbReader.Read((byte[])(await command.ExecuteScalarAsync(CancellationToken.None))!);
+    }
+
     private async Task<EngineResult> RunAsync(
         EngineOperation operation,
         IReadOnlyList<Geometry> left,
@@ -1006,5 +1017,190 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
 
             _ => throw new ArgumentOutOfRangeException(nameof(which), which, "No such case."),
         };
+    }
+
+    // ---------- generalize ----------
+
+    /// <summary>
+    /// generalize and a query's maxAllowableOffset give the same answer, and it is never invalid.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-236](../../docs/architecture-debt.md), and the owner's words were that the two faces
+    /// give the same answer.</b> <c>/generalize</c> ran plain Douglas–Peucker in the host while a
+    /// query's <c>maxAllowableOffset</c> ran PostGIS's <c>ST_SimplifyPreserveTopology</c>; over
+    /// 2,000 real polygons they disagreed on 48.1% at 100 m, and the unguarded one produced 23
+    /// self-intersecting polygons and deleted 348. On 2026-09-11 the owner chose that neither
+    /// face may return an invalid polygon and that both agree, and <c>/generalize</c> moved into
+    /// the worker as NetTopologySuite's <c>TopologyPreservingSimplifier</c>.
+    /// </para>
+    /// <para>
+    /// <b>The agreement is asserted, not inferred from the lineage.</b> GEOS's simplifier is a
+    /// port of JTS's, and that is a reason to expect agreement rather than evidence of it — the
+    /// distance comparison above found a third of real pairs differing in the last bits between
+    /// the same two engines. So this compares vertex for vertex, in order, with
+    /// <c>ST_OrderingEquals</c>: the algorithm only ever drops original vertices, so two
+    /// implementations of it either keep the same ones in the same order or they are not the
+    /// same algorithm.
+    /// </para>
+    /// <para>
+    /// <b>Tolerances are fractions of each shape's own extent</b>, for the reason the class
+    /// gives: the corpus arrives in whatever units its table holds. The large ones are where the
+    /// topology guard does its work — plain Douglas–Peucker at a tenth of a shape's width is
+    /// exactly what produced the self-intersections — so a tolerance set that stopped short of
+    /// them would pass against the algorithm this replaced.
+    /// </para>
+    /// </remarks>
+    /// <returns>The task.</returns>
+    [Fact]
+    public async Task Generalize_answers_what_ST_SimplifyPreserveTopology_answers()
+    {
+        Require();
+
+        IReadOnlyList<Geometry> corpus = await CorpusAsync(200);
+
+        double[] fractions = [0.001, 0.01, 0.05, 0.1, 0.25];
+
+        int compared = 0;
+        List<string> differ = [];
+        List<string> invalid = [];
+
+        foreach (Geometry shape in corpus)
+        {
+            Envelope box = shape.Envelope;
+            double width = Math.Max(box.MaxX - box.MinX, box.MaxY - box.MinY);
+
+            foreach (double fraction in fractions)
+            {
+                double tolerance = width * fraction;
+                string t = tolerance.ToString("R", CultureInfo.InvariantCulture);
+
+                EngineResult ours = await RunAsync(
+                    EngineOperation.Generalize, [shape], [], distance: tolerance);
+
+                Assert.True(
+                    ours.Geometries.Count == 1,
+                    $"One shape went in and {ours.Geometries.Count} came out. generalize answers "
+                    + "per input, and a caller matching outputs to inputs by position would be "
+                    + "reading the wrong shape.");
+
+                Geometry mine = ours.Geometries[0];
+
+                double same = await ScalarAsync(
+                    "select case when ST_OrderingEquals(ST_GeomFromWKB(@g0), "
+                    + "ST_SimplifyPreserveTopology(ST_GeomFromWKB(@g1), " + t + ")) "
+                    + "then 1 else 0 end",
+                    mine, shape);
+
+                double valid = await ScalarAsync(
+                    "select case when ST_IsValid(ST_GeomFromWKB(@g0)) then 1 else 0 end", mine);
+
+                compared++;
+
+                if (same < 0.5)
+                {
+                    differ.Add($"shape {compared / fractions.Length} at {fraction:P1} of its width");
+                }
+
+                if (valid < 0.5)
+                {
+                    invalid.Add($"shape {compared / fractions.Length} at {fraction:P1} of its width");
+                }
+            }
+        }
+
+        // <b>The two shapes the corpus never supplies, and why the test needs them.</b> The
+        // first version of this test ran the corpus alone and **passed with plain
+        // Douglas–Peucker swapped into the worker** — falsified 2026-09-11 and it did not fall.
+        // The corpus's leading tables are regular synthetic polygons, and on a shape where no
+        // simplification can cross anything the two algorithms keep exactly the same vertices,
+        // so a comparison over them says nothing about the guard the decision is for. These two
+        // are the cases the guard exists for, and each is checked to still separate the
+        // algorithms before it is used, so a PostGIS release that changed that could not leave
+        // this test passing vacuously.
+        //
+        // * **A hole inside an outward bump.** Plain Douglas–Peucker at 5 straightens the bump,
+        //   the hole is left outside the shell, and PostGIS's `ST_Simplify` answers with a bare
+        //   square — the bump and the hole deleted. The guarded algorithm keeps all eleven
+        //   vertices and the hole.
+        // * **A small polygon at a large tolerance.** Plain Douglas–Peucker collapses it and
+        //   `ST_Simplify` answers **NULL** — the feature is gone, which is D-236's *348 of 2,000
+        //   deleted outright*. The guarded one keeps a valid ring of unit area.
+        string[] separating =
+        [
+            "POLYGON((0 0,10 0,10 10,5 14,0 10,0 0),(4 10.5,6 10.5,6 11.5,4 11.5,4 10.5))",
+            "POLYGON((0 0,1 0,1.2 0.6,1 1,0 1,0 0))",
+        ];
+
+        foreach (string wkt in separating)
+        {
+            Geometry shape = await FromWktAsync(wkt);
+
+            double plainDiffers = await ScalarAsync(
+                "select case when ST_Simplify(ST_GeomFromWKB(@g0), 5) is null "
+                + "or not ST_OrderingEquals(ST_Simplify(ST_GeomFromWKB(@g0), 5), "
+                + "ST_SimplifyPreserveTopology(ST_GeomFromWKB(@g0), 5)) then 1 else 0 end",
+                shape);
+
+            Assert.True(
+                plainDiffers > 0.5,
+                $"{wkt} no longer separates plain Douglas–Peucker from the guarded one in this "
+                + "PostGIS, so it cannot tell the two apart here and the assertion below would pass "
+                + "against either. Replace it with a shape that does.");
+
+            EngineResult ours = await RunAsync(EngineOperation.Generalize, [shape], [], distance: 5);
+
+            Assert.True(ours.Geometries.Count == 1, $"{wkt}: {ours.Geometries.Count} outputs for one input.");
+
+            Geometry mine = ours.Geometries[0];
+
+            double same;
+            double valid;
+
+            // <b>A ring PostGIS refuses to read is the invalid output this test is for</b>, so it
+            // is counted as such rather than escaping as an exception. Plain Douglas–Peucker
+            // collapsing the small polygon produced exactly that — *Polygon must have at least four
+            // points in each ring* — on the falsification run, which is the failure D-236 records
+            // and the one a caller downstream would meet first.
+            try
+            {
+                same = await ScalarAsync(
+                    "select case when ST_OrderingEquals(ST_GeomFromWKB(@g0), "
+                    + "ST_SimplifyPreserveTopology(ST_GeomFromWKB(@g1), 5)) then 1 else 0 end",
+                    mine, shape);
+
+                valid = await ScalarAsync(
+                    "select case when ST_IsValid(ST_GeomFromWKB(@g0)) then 1 else 0 end", mine);
+            }
+            catch (PostgresException refused) when (refused.SqlState == "XX000")
+            {
+                same = 0;
+                valid = 0;
+            }
+
+            compared++;
+
+            if (same < 0.5)
+            {
+                differ.Add("the separating shape " + wkt);
+            }
+
+            if (valid < 0.5)
+            {
+                invalid.Add("the separating shape " + wkt);
+            }
+        }
+
+        Assert.True(
+            invalid.Count == 0,
+            $"{invalid.Count} of {compared} generalized shapes are invalid — the thing the owner "
+            + "decided neither face may return. First: " + string.Join("; ", invalid.GetRange(0,
+                Math.Min(5, invalid.Count))));
+
+        Assert.True(
+            differ.Count == 0,
+            $"{differ.Count} of {compared} differ from ST_SimplifyPreserveTopology vertex for "
+            + "vertex. The two faces were decided to give the same answer; this says they do "
+            + "not. First: " + string.Join("; ", differ.GetRange(0, Math.Min(5, differ.Count))));
     }
 }
