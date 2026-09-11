@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>030f74a</code> · 2026-09-10 22:31</p>
+<p class="stamp">Şu commit’ten üretildi: <code>540ce56</code> · 2026-09-10 22:55</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">63</div><div class="kpi-l">ADR</div><div class="kpi-n">12 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">188/235</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">45 canlı · 2 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">157 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">açık borç</div><div class="kpi-n">233 ödendi · 4 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">açık borç</div><div class="kpi-n">234 ödendi · 4 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">2599</div><div class="kpi-l">test</div><div class="kpi-n">274 kaynak dosya, 116,288 satır</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">70 madde</span></div><p><b>45 ADR conditions</b> outstanding across 32 decisions — the largest commitment on this page.</p><p><b>21 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">69 madde</span></div><p><b>45 ADR conditions</b> outstanding across 32 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -269,12 +269,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-237</td><td>The server has no view of how large its own datastore is, and cannot answer who is filling the store.</td><td class="muted-t">The first of these, and the second is the one that changes the answer rather than the priority.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-243</td><td>A job claimed by a worker that dies stays running for ever, nothing reclaims it, and no operator surface can clear it.</td><td class="muted-t">The first job observed stuck in running, or the first deployment that runs two servers.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-249</td><td>This server&#x27;s request pipeline stops scaling at sixteen concurrent callers and serves about six requests at a time, on a path that does no work, with fourteen of sixteen cores idle — and nothing this repository has measured explains it.</td><td class="muted-t">Now, and because it blocks other work rather than because a deployment is suffering.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-258</td><td>The quickstart leaves a reader with a running server and nothing to look at.</td><td class="muted-t">Every evaluator without a spatial database to hand.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-259</td><td>Two CI runs in a row lost a different console test, each waiting ten seconds for a data-source list that never filled — and it is neither of the two rows that already describe console flakiness.</td><td class="muted-t">Now.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-221</td><td>The symbology editor needs 1,180 pixels and nothing under that width has an answer.</td><td class="muted-t">The first report of styling a layer on a narrow screen — A-081&#x27;s own falsification.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-229</td><td>service.srid exists and nothing reads it.</td><td class="muted-t">The Publish screen, which offers the choice and cannot mean it until this is done</td><td><span class="pill cond">PARTLY</span></td></tr>
 </tbody></table></div>
-<p class="sub">233 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">234 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -384,6 +383,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.8%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>540ce56</code><time>2026-09-10</time><span>The third occurrence repeats the first, so this is not &quot;never the same test&quot;</span></li>
+<li><code>76be2eb</code><time>2026-09-10</time><span>A timed-out console wait now says what the page asked for and what came back</span></li>
+<li><code>01d37e0</code><time>2026-09-10</time><span>The status page catches up, and the open count moves to 21</span></li>
 <li><code>030f74a</code><time>2026-09-10</time><span>A red gate on two documentation commits is neither of the rows that explain red gates</span></li>
 <li><code>ddca2a1</code><time>2026-09-10</time><span>The control that excluded four candidates was measuring one of them</span></li>
 <li><code>aaac809</code><time>2026-09-10</time><span>The status page catches up with three commits</span></li>
@@ -395,9 +397,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>1aba2c1</code><time>2026-09-10</time><span>registers-check catches the failure this ADR supplied twice in one morning</span></li>
 <li><code>73fcc6e</code><time>2026-09-10</time><span>D-254: a refusal decided before the first byte reaches the caller as one</span></li>
 <li><code>b986480</code><time>2026-09-10</time><span>D-254 diagnosed twice from the wrong log, and CI had the right one all along</span></li>
-<li><code>fc02858</code><time>2026-09-10</time><span>ADR-052 §3.2&#x27;s table catches up with its own reader</span></li>
-<li><code>e652d59</code><time>2026-09-10</time><span>Two conditions close, and walking one of them found a defect in three faces</span></li>
-<li><code>024baf2</code><time>2026-09-10</time><span>D-254: the connection budget can refuse after the answer has begun</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

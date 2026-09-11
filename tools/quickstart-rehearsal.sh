@@ -27,6 +27,12 @@
 set -eu
 
 PORT=${1:-8543}
+
+# The repository, wherever this is run from. Read by the D-258 step for README.md, and
+# written because the first version of that step used $ROOT without defining it -- under
+# `set -u` the rehearsal would have aborted there, and the release gate would have gone red
+# on a quickstart that works.
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PROJECT=graticula-quickstart-rehearsal
 COMPOSE="docker compose -p $PROJECT"
 
@@ -180,5 +186,78 @@ for path in "/rest/info?f=json" "/rest/services?f=json"; do
 
   printf '   %s answers 200\n' "$path"
 done
+
+# <b>Something to look at -- D-258.</b> The four commands leave a server with nothing in it,
+# and until 2026-09-10 the README's next section asked for a PostGIS of the reader's own.
+# That was repaired by a section that imports a three-feature GeoJSON, walked once before it
+# was written -- and then nothing walked it again. This gate ran every step above it and
+# stopped short of the one step whose whole purpose is to put something in front of the
+# reader, so the section could rot on the first commit that changed the import.
+#
+# <b>The GeoJSON is read out of README.md rather than copied here</b>, for this file's own
+# reason: a rehearsal that brings its own data proves that some data can be imported, and
+# what is worth proving is that the data the reader is told to paste goes in. An edit that
+# made the README's collection invalid fails this step; a copy here would go on passing.
+# <b>Under the README's own file name</b>, in a directory of its own. The import looks
+# inside archives by extension, and a plain upload is sent as `places.geojson` in the
+# README; a temp name without the extension would be the one difference between this step
+# and the command it claims to be running.
+SCRATCH="$(mktemp -d)"
+PLACES="$SCRATCH/places.geojson"
+
+sed -n "/^cat > places.geojson <<'EOF'\$/,/^EOF\$/p" "$ROOT/README.md" \
+  | sed '1d;$d' > "$PLACES"
+
+if [ ! -s "$PLACES" ]; then
+  printf 'README.md has no places.geojson heredoc, so the section this step walks is gone.\n'
+  exit 1
+fi
+
+# The password is the one this script set, which is the reader's own choice in the README.
+# The token is read without jq: the README uses it, and a runner that lacks it would fail
+# here for a reason that has nothing to do with the product.
+SIGNED=$(curl -sk -X POST "https://127.0.0.1:$PORT/rest/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"root","password":"a properly long quickstart password"}' \
+  | sed -n 's/.*"token":"\([^"]*\)".*/\1/p' || true)
+
+if [ -z "$SIGNED" ]; then
+  printf 'Signing in as the administrator setup just created returned no token.\n'
+  exit 1
+fi
+
+imported=$(curl -sk -o /dev/null -w '%{http_code}' \
+  -X POST "https://127.0.0.1:$PORT/admin/hosted/import" \
+  -H "Authorization: Bearer $SIGNED" \
+  -F "name=places" -F "file=@$PLACES" || true)
+
+rm -rf "$SCRATCH"
+
+case "$imported" in
+  2??) : ;;
+  *)
+    printf 'The README'"'"'s import answered %s, so a reader with no database of their own\n' "$imported"
+    printf 'still ends the quickstart with nothing to look at -- D-258.\n'
+    exit 1
+    ;;
+esac
+
+printf '   the README'"'"'s GeoJSON was imported\n'
+
+# <b>And a client can open it</b>, which is the sentence the section ends on. Counted rather
+# than fetched, so the assertion is about the three features the reader pasted and not about
+# whatever shape the document happens to take.
+counted=$(curl -sk \
+  "https://127.0.0.1:$PORT/rest/services/hosted/places/FeatureServer/0/query?where=1%3D1&returnCountOnly=true&f=json" || true)
+
+case "$counted" in
+  *'"count":3'*) : ;;
+  *)
+    printf 'hosted/places/FeatureServer/0 answered %s, not a count of 3.\n' "$counted"
+    exit 1
+    ;;
+esac
+
+printf '   hosted/places/FeatureServer/0 serves the three features\n'
 
 printf '\nThe quickstart works, in the order the README gives it.\n'
