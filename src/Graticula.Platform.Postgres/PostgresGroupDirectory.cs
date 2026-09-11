@@ -251,7 +251,7 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
             return GroupChange.NotYours;
         }
 
-        Guid? who = await PrincipalAsync(member, cancellationToken).ConfigureAwait(false);
+        Guid? who = await PrincipalAsync(member, usersOnly: true, cancellationToken).ConfigureAwait(false);
 
         if (who is null)
         {
@@ -382,7 +382,7 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
             return GroupChange.NotYours;
         }
 
-        Guid? who = await PrincipalAsync(member, cancellationToken).ConfigureAwait(false);
+        Guid? who = await PrincipalAsync(member, usersOnly: false, cancellationToken).ConfigureAwait(false);
 
         if (who is null)
         {
@@ -736,10 +736,24 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         });
     }
 
-    private async Task<Guid?> PrincipalAsync(string name, CancellationToken cancellationToken)
+    /// <summary>A principal's id by name, or null when there is none that may be named here.</summary>
+    /// <param name="name">The name.</param>
+    /// <param name="usersOnly">
+    /// <b>True when adding, false when removing</b> — the guard the candidates list has always
+    /// had, and the add path did not. The list above excludes `anonymous` because a group holding it
+    /// would make every unauthenticated caller a member; `PUT …/members/anonymous` still answered
+    /// 200 and the group listed *Anonymous* among its members until 2026-09-11. It opened nothing,
+    /// because <c>LayerAccess</c> never lets a group reach an anonymous caller — so the page said
+    /// something the server would not do. Removal keeps the wider lookup so a store that already
+    /// holds such a row can be cleared through the API rather than by hand.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the lookup.</param>
+    private async Task<Guid?> PrincipalAsync(
+        string name, bool usersOnly, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "select id from principal where lower(name) = lower(@name) and disabled_at is null");
+            "select id from principal where lower(name) = lower(@name) and disabled_at is null"
+            + (usersOnly ? " and kind = 'user'" : string.Empty));
 
         command.Parameters.AddWithValue("name", name);
 

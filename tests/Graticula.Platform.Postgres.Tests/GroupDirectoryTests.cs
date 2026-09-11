@@ -259,6 +259,68 @@ public sealed class GroupDirectoryTests : PostgresFixture
         }
     }
 
+    /// <summary>
+    /// The anonymous principal cannot be added to a group, and one already there can be removed.
+    /// </summary>
+    /// <remarks>
+    /// <b>The candidates list refused it and the add path did not.</b> Found 2026-09-11 against a
+    /// running server: <c>PUT /admin/groups/g1/members/anonymous</c> answered 200 and the group
+    /// listed *Anonymous* as a member. Nothing opened — <c>LayerAccess</c> never lets a group reach
+    /// an anonymous caller — so the defect was a page saying what the server would not do. Removal
+    /// is asserted too, because the first repair that comes to mind filters the shared lookup, and
+    /// that would leave a store already holding the row with no way to clear it but SQL.
+    /// </remarks>
+    [Fact]
+    public async Task Anonymous_is_not_something_a_group_can_hold()
+    {
+        await MigrateAsync();
+
+        PostgresGroupDirectory groups = new(DataSource);
+
+        (Guid owner, _) = await MemberAsync("zz_ga_owner");
+
+        await groups.CreateAsync(
+            owner, "zz_g_anon", null, null, GroupItemUpdate.None, CancellationToken.None);
+
+        try
+        {
+            Assert.Equal(
+                GroupChange.NoSuchTarget,
+                await groups.SetMemberAsync(
+                    owner, true, "zz_g_anon", "anonymous", false, CancellationToken.None));
+
+            Assert.DoesNotContain(
+                "anonymous",
+                (await groups.MembersAsync("zz_g_anon", CancellationToken.None))
+                    .Select(m => m.Name));
+
+            // A row an earlier build let in, written the way it wrote it.
+            await using (Npgsql.NpgsqlCommand earlier = DataSource.CreateCommand(
+                "insert into sharing_group_member (group_id, principal_id, membership, added_by) "
+                + "select g.id, @anonymous, 'member', @owner from sharing_group g "
+                + "where g.name = 'zz_g_anon'"))
+            {
+                earlier.Parameters.AddWithValue("anonymous", Principal.AnonymousId);
+                earlier.Parameters.AddWithValue("owner", owner);
+                Assert.Equal(1, await earlier.ExecuteNonQueryAsync(CancellationToken.None));
+            }
+
+            Assert.Equal(
+                GroupChange.Done,
+                await groups.RemoveMemberAsync(
+                    owner, true, "zz_g_anon", "anonymous", CancellationToken.None));
+
+            Assert.DoesNotContain(
+                "anonymous",
+                (await groups.MembersAsync("zz_g_anon", CancellationToken.None))
+                    .Select(m => m.Name));
+        }
+        finally
+        {
+            await groups.RemoveAsync(owner, true, "zz_g_anon", CancellationToken.None);
+        }
+    }
+
     /// <summary>A member for a test to act as.</summary>
     /// <summary>
     /// The settings write replaces every field, including the three that are text.
