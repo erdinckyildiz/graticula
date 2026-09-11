@@ -110,30 +110,29 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>540ce56</code> · 2026-09-10 22:55</p>
+<p class="stamp">Şu commit’ten üretildi: <code>5d66df9</code> · 2026-09-11 12:58</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">63</div><div class="kpi-l">ADR</div><div class="kpi-n">12 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">188/235</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">45 canlı · 2 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">191/235</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">42 canlı · 2 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">157 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">açık borç</div><div class="kpi-n">234 ödendi · 4 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">2599</div><div class="kpi-l">test</div><div class="kpi-n">274 kaynak dosya, 116,288 satır</div></div>
+<div class="kpi good"><div class="kpi-v">2612</div><div class="kpi-l">test</div><div class="kpi-n">278 kaynak dosya, 117,133 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">69 madde</span></div><p><b>45 ADR conditions</b> outstanding across 32 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">66 madde</span></div><p><b>42 ADR conditions</b> outstanding across 31 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-063 · A field list may differ from the t</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-017 · Admin API Shape</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
@@ -243,7 +242,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">060</td><td>The axis order comes from the authority&#x27;s register, carried as data</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the answer, which is the authority&#x27;s own · HIGH for the defect, measured on a…</td><td class="num">3/4</td></tr>
 <tr><td class="id">061</td><td>Metrics are aggregate; per-entity numbers live in the admin API</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/2</td></tr>
 <tr><td class="id">062</td><td>The query face streams, like every other face</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — the choice is between two behaviours that were both measured on the same route…</td><td class="num"></td></tr>
-<tr><td class="id">063</td><td>A field list may differ from the table, in two ways and no more</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the decision is the owner&#x27;s and the shape is forced by what already exists, but…</td><td class="num">0/3</td></tr>
+<tr><td class="id">063</td><td>A field list may differ from the table, in two ways and no more</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">~~MEDIUM — the decision is the owner&#x27;s and the shape is forced by what already exists,…</td><td class="num">3/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -370,10 +369,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">613</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:78.3%"></div></div><div class="bar-n">480</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:73.4%"></div></div><div class="bar-n">450</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:79.0%"></div></div><div class="bar-n">484</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:74.7%"></div></div><div class="bar-n">458</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:62.0%"></div></div><div class="bar-n">380</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:26.3%"></div></div><div class="bar-n">161</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:26.4%"></div></div><div class="bar-n">162</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:24.1%"></div></div><div class="bar-n">148</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:23.2%"></div></div><div class="bar-n">142</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:18.4%"></div></div><div class="bar-n">113</div></div>
@@ -383,6 +382,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.8%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>5d66df9</code><time>2026-09-11</time><span>A layer&#x27;s Fields page: a label per column, and the one screen that shows a hidden column</span></li>
+<li><code>839a227</code><time>2026-09-11</time><span>A layer may label a column and may hide one, and a hidden column is refused like an absent one</span></li>
+<li><code>41118c3</code><time>2026-09-11</time><span>The quickstart&#x27;s import section is now rehearsed by the release gate</span></li>
 <li><code>540ce56</code><time>2026-09-10</time><span>The third occurrence repeats the first, so this is not &quot;never the same test&quot;</span></li>
 <li><code>76be2eb</code><time>2026-09-10</time><span>A timed-out console wait now says what the page asked for and what came back</span></li>
 <li><code>01d37e0</code><time>2026-09-10</time><span>The status page catches up, and the open count moves to 21</span></li>
@@ -394,9 +396,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>b05ca5c</code><time>2026-09-10</time><span>v1.0.0, and every commit after this one is the next patch</span></li>
 <li><code>8064831</code><time>2026-09-10</time><span>Walking the quickstart as a stranger, and the first thing it says returns 404</span></li>
 <li><code>552ef8a</code><time>2026-09-10</time><span>Four owner decisions, and they reorder the open work rather than adding to it</span></li>
-<li><code>1aba2c1</code><time>2026-09-10</time><span>registers-check catches the failure this ADR supplied twice in one morning</span></li>
-<li><code>73fcc6e</code><time>2026-09-10</time><span>D-254: a refusal decided before the first byte reaches the caller as one</span></li>
-<li><code>b986480</code><time>2026-09-10</time><span>D-254 diagnosed twice from the wrong log, and CI had the right one all along</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

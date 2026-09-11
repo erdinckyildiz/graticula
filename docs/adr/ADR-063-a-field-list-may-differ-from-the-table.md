@@ -3,8 +3,9 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `MEDIUM` — the decision is the owner's and the shape is forced by what already exists, but nothing is built yet and the drift story is argued rather than measured. |
+| **Confidence** | ~~`MEDIUM` — the decision is the owner's and the shape is forced by what already exists, but nothing is built yet and the drift story is argued rather than measured.~~ **`HIGH` for the mechanism, measured 2026-09-11** — a hidden column's refusal is byte-identical to an absent column's at every door tested, and drift is tested rather than argued · `MEDIUM` for how hiding will be read (§6) |
 | **Decided** | 2026-09-09 |
+| **Built** | 2026-09-11 — `839a227` (storage, mechanism, admin API, tests) and `5d66df9` (the console's Fields page). §5a says what was and was not |
 | **Supersedes** | — |
 | **Superseded by** | — |
 
@@ -110,6 +111,8 @@ expensive thing is the retrofit you did not scope, not the one you did not start
 | The importer reads real aliases and drops them | `alias = Nothing(field.GetAlternativeName())`, with a comment saying our schema has no alias column; nothing in `/src/Graticula.Host` or `/src/Graticula.Platform` consumes it | `Graticula.Import.Reader/Program.cs` |
 | A definition already diverges from its table for one property | `srid` on `POST /admin/layers`, guarded by `DeclaredReference` and `overrideDeclaredSrid` | ADR-036-era work, D-156 |
 | Drift is survivable and its behaviour is known | 400 on a cold read, 500 for up to thirty seconds on a warm one, then self-repair; an in-flight response finishes on the old shape | Q-43, Q-37 |
+| A hidden column cannot be told from an absent one | Five query doors (`outFields`, `where`, `orderByFields`, `outStatistics`, `groupByFieldsForStatistics`) and `updateFeatures` asked about a hidden column and a never-existing one of the same length: status and body identical after substituting the name; `outFields=*`, the layer document and the OGC items carry no value | `FieldOverrideConformanceTests`, measured 2026-09-11, 4 of 4 locally and in CI |
+| The test would catch the leak it exists for | With the overrides not applied, the hidden column appears in the document and the condition-1 test fails; with the identity guard removed, hiding `objectid` answers 200 and the condition-2 test fails | Deliberate mutation, 2026-09-11, reverted |
 
 ## 5. Decision
 
@@ -134,6 +137,47 @@ hidden column from an absent one.
 protocol requires them and a layer without them is not a layer. That is refused at the
 point the override is set, not at query time.
 
+## 5a. What was built, 2026-09-11
+
+**The overrides are applied in one place — `ServiceContexts.GetAsync` — and that answers §6's
+worst consequence rather than living with it.** Every face already takes its column names from
+the `LayerDescription` that method returns: the three document writers, the query path, the
+write path, the filter readers, the tile attributes. A hidden column is *removed* from that
+description rather than flagged in it, so each of them refuses it with the code and the
+sentence it already uses for a column that does not exist, and none of them had to change.
+
+**After the shape cache and never inside it, and that is forced.** The cache is keyed by the
+table, not the layer, so two layers over one table share an entry — and since migration 40 two
+services may publish one table with different labels. The catalogue entry, which carries the
+overrides, is read on every request, so a changed override is seen on the next one. A layer with
+none gets the same description instance back and allocates nothing (A-037).
+
+**Storage is a column, `layer.field_overrides jsonb` (migration 42), not a table.** §6 allowed
+either. A table would add an aggregate subquery to the catalogue's hottest query, and
+[D-249](../architecture-debt.md) measured the platform store as this server's ceiling the day
+before. The database enforces only that the value is an array; everything else is refused where
+the override is set, which is condition 2's point.
+
+**The admin surface is the one reader that sees a hidden column** — `ServiceContexts.TableAsync`,
+named for what it returns so that a serving face reaching for it has to read why it must not.
+`GET` and `PUT /admin/layers/{name}/fields`, privilege `content:publishFeatures` like the time
+field. The console's page is Studio's, beside Symbology, and went through the design review
+the owner requires for every screen: four findings fixed, and one declined — the page's label
+box has `maxlength=255`, so the server's 255-character refusal is unreachable from it. That is
+two guards for two readers, the box for the page and the server for anyone calling the API.
+
+**One consequence decided while building it, and recorded rather than implied:** a relationship
+whose key column is later hidden keeps working. The join is the server's, not a caller's
+predicate — what leaks is that two rows are related, which the relationship exists to say — and
+a relationship cannot be *created* on a hidden key, because that check reads the same
+description.
+
+**Not built.** Carrying a geodatabase's own field aliases through the importer (§6's first
+positive consequence): the reader still reports them and nothing consumes them. The write it
+needs exists — `IAdminCatalog.SetFieldOverridesAsync` — and the files it belongs in are in
+another piece of work's hands at the time of writing, so it is left open here rather than
+claimed.
+
 ## 6. Consequences
 
 **Positive.** An operator can label a column, which is the first thing anyone does in
@@ -152,8 +196,9 @@ this ADR does not make it per-role.
 
 **Ports created.** None.
 
-**State.** *Catalogue*: one new table or column carrying the overrides, keyed by layer and
-column name — shared, in the platform store, expand-only. *Runtime*: none of its own; the
+**State.** *Catalogue*: ~~one new table or column carrying the overrides, keyed by layer and
+column name~~ `layer.field_overrides`, a `jsonb` array (migration 42, §5a) — shared, in the
+platform store, expand-only. *Runtime*: none of its own; the
 overrides travel with the layer definition that `ServiceContexts` already caches, and
 expire with it.
 
@@ -165,14 +210,30 @@ expire with it.
    a value is recovered without ever being displayed. Discharged by a test that names a
    hidden column in `outFields`, in `where`, in `orderByFields` and in an edit, and gets
    the same refusal an unknown column gets in all four.
+   **DISCHARGED 2026-09-11** — `FieldOverrideConformanceTests` asks those four and two more
+   (`outStatistics`, `groupByFieldsForStatistics`), and the answers are compared as bytes
+   after substituting the name, not as status codes; `outFields=*`, the layer document and
+   the OGC items are checked to carry no value. Falsified by not applying the overrides, which
+   fails it.
 
 2. **The identity and geometry columns cannot be hidden, and it is refused at write.** A
    check at query time is a check somebody can reach a state without passing.
+   **DISCHARGED 2026-09-11** — `PUT /admin/layers/{name}/fields` refuses hiding the object
+   id, the identity column or the geometry column with a 400 that says why, and nothing is
+   stored; tested for `objectid` and `geom`, and falsified by removing the guard, which lets
+   `objectid` through with a 200. **What the test does not reach**: on a hosted layer the
+   identity and the object id are the same column, so a registered layer where they differ
+   is covered by reading `Unhideable`, not by a request. Editor-tracking columns belong on
+   the same list and are not on it because ADR-013 §5a has not built them.
 
 3. **An override that names a column the table does not have is inert and visible.** Inert
    is the design; visible is the condition — an operator who renames a column in the
    database and loses a label must be able to find out why, so the admin surface reports
    overrides that match nothing rather than silently dropping them.
+   **DISCHARGED 2026-09-11** — the override is kept in storage, changes nothing in the layer
+   document, and is reported as `inert` with a sentence on both the read and the write; the
+   console's Fields page lists it under *Not matching any column* with a Remove that takes
+   effect on Save, so a save does not drop it behind anyone's back.
 
 ## 8. Assumptions this decision rests on
 
