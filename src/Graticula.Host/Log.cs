@@ -103,8 +103,9 @@ internal static partial class Log
                 + "{Seconds:0.#} s: {Source}. ADR-007 §4.8's N3 — without this, an outage "
                 + "becomes a connection storm at exactly the moment recovery is being "
                 + "attempted, and every refusal holds a connection for the whole of a "
-                + "blackholed connect (D-131).")]
-    public static partial void SourceTripped(ILogger logger, double seconds, string source);
+                + "blackholed connect (D-131). What it said: {Reason}")]
+    public static partial void SourceTripped(
+        ILogger logger, double seconds, string source, string reason);
 
     [LoggerMessage(
         EventId = 1026,

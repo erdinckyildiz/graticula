@@ -173,9 +173,18 @@ internal sealed class SourceBreaker : Graticula.Platform.Catalog.IStoreHealth
 
         // Once per trip, not once per failure: the second is the log-flooding D-133 is
         // about, arriving through a different door.
+        //
+        // <b>With what the failure said — D-18, 2026-09-11.</b> `/admin/health` withholds
+        // the platform store's error from an anonymous caller, and during an outage every
+        // caller is anonymous, because sessions live in the store. The owner chose to keep
+        // it that way rather than build a break-glass sign-in, on the ground that the detail
+        // is in the server's own log — and until this line it was not: the log said *the
+        // platform store* and nothing about whether the connection was refused, timed out
+        // or failed its password. This log is the operator's, so the reason goes here and
+        // stays off the anonymous page.
         if (announce && _log is { } log)
         {
-            Log.SourceTripped(log, Cooling.TotalSeconds, Name(source));
+            Log.SourceTripped(log, Cooling.TotalSeconds, Name(source), Reason(failure));
         }
 
         return true;
@@ -240,6 +249,31 @@ internal sealed class SourceBreaker : Graticula.Platform.Catalog.IStoreHealth
 
     /// <inheritdoc/>
     void Graticula.Platform.Catalog.IStoreHealth.Succeeded() => Succeeded(PlatformStore);
+
+    /// <summary>What a failure said, outermost first and its root cause after it.</summary>
+    /// <param name="failure">The exception.</param>
+    /// <returns>One line for the operator's log.</returns>
+    /// <remarks>
+    /// <b>Both ends, because Npgsql's outer message is the address and its inner one is the
+    /// reason</b> — *Failed to connect to 127.0.0.1:55432* over *the target machine actively
+    /// refused it* — and an operator needs the pair to tell a stopped database from a firewall.
+    /// </remarks>
+    internal static string Reason(Exception failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+
+        Exception root = failure;
+
+        while (root.InnerException is { } inner)
+        {
+            root = inner;
+        }
+
+        return ReferenceEquals(root, failure)
+            || string.Equals(root.Message, failure.Message, StringComparison.Ordinal)
+            ? failure.Message
+            : $"{failure.Message} — {root.Message}";
+    }
 
     /// <summary>Whether an exception means the source could not be reached at all.</summary>
     /// <param name="failure">The exception.</param>

@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>d8a3b09</code> · 2026-09-11 15:46</p>
+<p class="stamp">Generated from commit <code>f72877e</code> · 2026-09-11 16:02</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">63</div><div class="kpi-l">ADRs</div><div class="kpi-n">12 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">191/235</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">42 live · 2 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">157 answered</div></div>
-<div class="kpi warn"><div class="kpi-v">13</div><div class="kpi-l">open debts</div><div class="kpi-n">242 repaid · 2 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">open debts</div><div class="kpi-n">244 repaid · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">2637</div><div class="kpi-l">tests</div><div class="kpi-n">281 source files, 117,929 lines</div></div>
+<div class="kpi good"><div class="kpi-v">2638</div><div class="kpi-l">tests</div><div class="kpi-n">281 source files, 117,966 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">59 items</span></div><p><b>42 ADR conditions</b> outstanding across 31 decisions — the largest commitment on this page.</p><p><b>13 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">57 items</span></div><p><b>42 ADR conditions</b> outstanding across 31 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -253,19 +253,17 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="scroll"><table><thead><tr><th>ID</th><th>Debt</th><th>Repay when</th><th>State</th></tr></thead><tbody>
 <tr class=""><td class="id">D-04</td><td>Multi-tenant resource isolation is not designed.</td><td class="muted-t">Before multi-tenant deployments are supported</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-10</td><td>ADR-015 is implemented for local passwords only.</td><td class="muted-t">OIDC before the first deployment with an IdP; /generateToken before any unmodified ArcGIS client is pointed at us The…</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-18</td><td>/admin/health is anonymous and therefore redacted, which is the wrong trade and the only one available.</td><td class="muted-t">When ADR-017 §6&#x27;s break-glass path is designed (A-051)</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-20</td><td>features:edit is stricter here than in ArcGIS Portal, because editor tracking does not exist.</td><td class="muted-t">When Q-58c lands — domains, subtypes and editor tracking.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-107</td><td>Elevation in the source is dropped and only counted.</td><td class="muted-t">Whenever 3D storage is decided, or the first user who notices their contours flattened</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-108</td><td>The pipe streams and the importer does not, so the million-feature ceiling has not moved — it has changed owner.</td><td class="muted-t">The first archive with a layer past a million features, which is an ordinary size for a national road network</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-115</td><td>The Server/Studio surface split is the single cause of four recorded console defects.</td><td class="muted-t">The next defect whose cause is the split</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-144</td><td>~~Nothing bounds how long one request may hold a database permit.~~ The headline is struck 2026-09-09 rather than reworded, because it was false and the correction had already been written into this row&#x27;s status cell without reaching its first sentence — half…</td><td class="muted-t">A way to refuse before the first byte, or a way to end a response that says why.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-162</td><td>A provider that is not PostGIS would be handed PostGIS SQL.</td><td class="muted-t">When DuckDB is designed as the file-format query engine (Q-81), and not after.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-201</td><td>A console test fails in two full runs out of four and passes on its own, and the cause is not known.</td><td class="muted-t">Run the console suite with -v n piped to a file until it fails, then read the message.</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-237</td><td>The server has no view of how large its own datastore is, and cannot answer who is filling the store.</td><td class="muted-t">The first of these, and the second is the one that changes the answer rather than the priority.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-243</td><td>A job claimed by a worker that dies stays running for ever, nothing reclaims it, and no operator surface can clear it.</td><td class="muted-t">The first job observed stuck in running, or the first deployment that runs two servers.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-259</td><td>Two CI runs in a row lost a different console test, each waiting ten seconds for a data-source list that never filled — and it is neither of the two rows that already describe console flakiness.</td><td class="muted-t">Now.</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">242 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
+<p class="sub">244 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -361,20 +359,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is verified</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">626</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:77.3%"></div></div><div class="bar-n">484</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:73.2%"></div></div><div class="bar-n">458</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:61.2%"></div></div><div class="bar-n">383</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">627</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:77.2%"></div></div><div class="bar-n">484</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:73.0%"></div></div><div class="bar-n">458</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:61.1%"></div></div><div class="bar-n">383</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.3%"></div></div><div class="bar-n">171</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:23.6%"></div></div><div class="bar-n">148</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:22.7%"></div></div><div class="bar-n">142</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:18.1%"></div></div><div class="bar-n">113</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:22.6%"></div></div><div class="bar-n">142</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:18.0%"></div></div><div class="bar-n">113</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:7.2%"></div></div><div class="bar-n">45</div></div>
-<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:4.2%"></div></div><div class="bar-n">26</div></div>
+<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:4.1%"></div></div><div class="bar-n">26</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:3.8%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.7%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>f72877e</code><time>2026-09-11</time><span>ASP.NET Core writes nothing per request unless somebody asks it to</span></li>
 <li><code>d8a3b09</code><time>2026-09-11</time><span>An anonymous request no longer asks the platform store who it is</span></li>
 <li><code>d87a1d0</code><time>2026-09-11</time><span>A group no longer takes the anonymous principal as a member</span></li>
 <li><code>f77bd0d</code><time>2026-09-11</time><span>Below its floor the symbology editor re-arranges instead of being cut off</span></li>
@@ -388,7 +387,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>5d66df9</code><time>2026-09-11</time><span>A layer&#x27;s Fields page: a label per column, and the one screen that shows a hidden column</span></li>
 <li><code>839a227</code><time>2026-09-11</time><span>A layer may label a column and may hide one, and a hidden column is refused like an absent one</span></li>
 <li><code>41118c3</code><time>2026-09-11</time><span>The quickstart&#x27;s import section is now rehearsed by the release gate</span></li>
-<li><code>540ce56</code><time>2026-09-10</time><span>The third occurrence repeats the first, so this is not &quot;never the same test&quot;</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

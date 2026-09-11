@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Net.Sockets;
+using Microsoft.Extensions.Logging;
 using Graticula.Host;
 using Npgsql;
 using Xunit;
@@ -252,5 +255,58 @@ public sealed class SourceBreakerTests
         health.Succeeded();
 
         Assert.False(health.IsOpen);
+    }
+
+    /// <summary>
+    /// A trip writes what the failure said, once, to the operator's log.
+    /// </summary>
+    /// <remarks>
+    /// <b>[D-18](../../docs/architecture-debt.md), closed 2026-09-11 on the ground that the detail
+    /// `/admin/health` withholds from an anonymous caller is in the server's own log.</b> It was
+    /// not: the line said *the platform store* and nothing else. This pins both ends of Npgsql's
+    /// pair — the address outside, the reason inside — and that a second failure in the same trip
+    /// writes nothing, which is the flood D-133 is about.
+    /// </remarks>
+    [Fact]
+    public void A_trip_says_what_the_failure_said_and_says_it_once()
+    {
+        Lines lines = new();
+        using ILoggerFactory factory = LoggerFactory.Create(logging => logging.AddProvider(lines));
+        SourceBreaker breaker = new(factory, () => Start);
+
+        NpgsqlException failure = new(
+            "Failed to connect to 127.0.0.1:55432",
+            new SocketException((int)SocketError.ConnectionRefused));
+
+        breaker.Failed(SourceBreaker.PlatformStore, failure);
+        breaker.Failed(SourceBreaker.PlatformStore, failure);
+
+        string line = Assert.Single(lines.Written);
+
+        Assert.Contains("the platform store", line, StringComparison.Ordinal);
+        Assert.Contains("Failed to connect to 127.0.0.1:55432", line, StringComparison.Ordinal);
+        Assert.Contains(
+            new SocketException((int)SocketError.ConnectionRefused).Message, line,
+            StringComparison.Ordinal);
+    }
+
+    private sealed class Lines : ILoggerProvider, ILogger
+    {
+        public List<string> Written { get; } = [];
+
+        public ILogger CreateLogger(string categoryName) => this;
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Written.Add(formatter(state, exception));
+
+        public void Dispose()
+        {
+        }
     }
 }

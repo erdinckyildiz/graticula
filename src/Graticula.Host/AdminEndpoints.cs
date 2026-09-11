@@ -5951,8 +5951,10 @@ internal static partial class AdminEndpoints
         // makes the raw error a disclosure to anyone who can reach the port —
         // it named the store's host and port until this was noticed — so the
         // detail is shown only to a caller who has proved they operate the
-        // server, and during an outage that is nobody. D-03's rule, and the
-        // reason ADR-017 §6's break-glass path is still owed (A-051).
+        // server, and during an outage that is nobody. D-03's rule. <b>The break-glass
+        // path that would have answered it is not being built</b> — owner decision
+        // 2026-09-11, D-18 — because the operator reads the same detail in the server's
+        // own log, where `SourceBreaker` writes it once per outage.
         //
         // <b>The redaction covered the error and nothing else, until the §66
         // security gate on 2026-08-15.</b> An anonymous caller was told there

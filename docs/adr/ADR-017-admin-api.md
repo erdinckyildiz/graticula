@@ -400,6 +400,11 @@ administrator has left.
    caller holding `admin:manageServer`, which during an outage is nobody.
    **That is a real reduction in the endpoint's usefulness, and it is what the
    break-glass path is for.**
+   *(2026-09-11, by owner decision — [D-18](../architecture-debt.md): the reduction is kept
+   and the break-glass path is not built for it. The detail an operator loses on the
+   anonymous page is written to the server's own log instead, once per outage, by the
+   source breaker — which it was not until the same day. This condition stays NOT YET
+   APPLICABLE for the reason it always was: there is still nothing to bypass.)*
 
 ## 10. Assumptions
 
