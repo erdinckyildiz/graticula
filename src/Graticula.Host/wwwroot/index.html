@@ -771,8 +771,16 @@
       <div class="panel pad opscard">
         <h4>Datastore</h4>
         <dl class="metrics" id="datastoreMetrics"></dl>
-        <p class="hint">Hosted layers and their attachments, read from PostgreSQL rather than
-          counted here. This server sets no quota; the figure is what the disk is holding.</p>
+        <!--
+          <b>A line before the owners, because without it they read as more totals</b> — design
+          review 2026-09-11: `ci 608 KB 8 tables` sat in the same list as Hosted data and
+          Database on disk, styled the same, and nothing said a list of people had begun. Two
+          lists rather than a paragraph inside one, since a <p> is not allowed in a <dl>.
+        -->
+        <p class="hint" id="datastoreOwnersHead" hidden>By owner, largest first</p>
+        <dl class="metrics" id="datastoreOwners"></dl>
+        <p class="hint">Sizes as PostgreSQL reports them. No quota is set: this is what is on
+          disk, not a limit.</p>
         <p class="hint" id="datastoreNote"></p>
       </div>
     </div>

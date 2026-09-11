@@ -3319,8 +3319,11 @@ tr.rowbad > td { background: var(--alert-soft); }
    Three cards across rather than three sections down, then the two short blocks side by side.
    The route table stays full width below both: its patterns do not wrap and it needed 1,407
    pixels the last time anybody measured it. */
+/* Four cards since D-237 added Datastore, and the basis came down from 300px so the fourth
+   fits beside the others at 1440 rather than sitting alone under the first with the rest of
+   its row empty — design review 2026-09-11. 1100 and 400 still give two and one. */
 .opscards {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: var(--gap-4); margin-bottom: var(--gap-5);
   align-items: start;
 }

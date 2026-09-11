@@ -14345,7 +14345,8 @@ async function loadOperations() {
   const datastore = health.datastore;
 
   if ($("datastoreMetrics")) {
-    const owners = datastore?.owners || [];
+    const readable = datastore && !datastore.error;
+    const owners = readable ? datastore.owners || [] : [];
     const shown = owners.slice(0, 5);
 
     $("datastoreMetrics").innerHTML = !datastore
@@ -14354,19 +14355,26 @@ async function loadOperations() {
         ? metric("Hosted data", "unreadable", datastore.error)
         : metric("Hosted data", bytes(datastore.hostedBytes))
           + metric("Database on disk", bytes(datastore.databaseBytes),
-                   "the whole database, platform store included")
-          + shown.map(o => metric(
-              o.owner || "nobody",
-              bytes(o.featureBytes + o.attachmentBytes),
-              `${num(o.tables)} ${o.tables === 1 ? "table" : "tables"}`
-                + (o.attachmentBytes ? ` · ${bytesPlain(o.attachmentBytes)} of attachments` : "")))
-            .join("");
+                   "the whole database, platform store included");
 
-    const unshown = owners.length - shown.length + (datastore?.ownersNotListed || 0);
+    // <b>The owners in a list of their own, under a line saying what it is</b> — design review
+    // 2026-09-11: in the same list as the totals they read as a third and fourth total.
+    $("datastoreOwners").innerHTML = shown.map(o => metric(
+      o.owner || "nobody",
+      bytes(o.featureBytes + o.attachmentBytes),
+      `${num(o.tables)} ${o.tables === 1 ? "table" : "tables"}`
+        + (o.attachmentBytes ? ` · ${bytesPlain(o.attachmentBytes)} of attachments` : ""))).join("");
+    $("datastoreOwnersHead").hidden = shown.length === 0;
 
-    $("datastoreNote").textContent = datastore && !datastore.error
-      ? `Measured at ${new Date(datastore.measuredAt).toLocaleTimeString()} and held for `
-        + `${datastore.holdSeconds} s.`
+    const unshown = owners.length - shown.length + (readable ? datastore.ownersNotListed || 0 : 0);
+
+    // <b>Says that Read again may show the same time, and why</b> — design review 2026-09-11:
+    // "held for 60 s" beside an unchanged timestamp read as a button that did nothing.
+    const every = datastore?.holdSeconds === 60 ? "once a minute" : `every ${datastore?.holdSeconds} s`;
+
+    $("datastoreNote").textContent = readable
+      ? `Measured at ${new Date(datastore.measuredAt).toLocaleTimeString()}. Rechecked at most `
+        + `${every}, so Read again may repeat this.`
         + (unshown > 0 ? ` ${num(unshown)} smaller ${unshown === 1 ? "owner is" : "owners are"} not shown.` : "")
       : "";
   }
