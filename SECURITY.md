@@ -77,6 +77,15 @@ not news — a report of a way *past* them very much is:
 - Overlay runs in a worker process with a deadline and a heap ceiling
   (`docs/adr/ADR-022-geometry-server.md`). A way to survive the deadline, or to
   take the parent down with the child, is a vulnerability.
+- Passwords are refused against a built-in list of a few hundred of the most
+  common ones and their obvious substitutions, and against any list a deployment
+  names in `Graticula:CommonPasswordFile` — **not against a breach corpus**
+  (`docs/adr/ADR-015-authentication.md` §6a). That is the permanent posture, by
+  owner decision on 2026-09-11: a full corpus is about 10 GB and does not fit one
+  server against one PostgreSQL, and the online k-anonymity check sends part of a
+  password's hash to a third party. A deployment that wants a corpus points the
+  setting at one. So a report that an uncommon breached password is accepted is
+  not news; a way past the list the deployment configured is.
 - The geometry service accepts a request of up to 500,000 vertices and up to
   Kestrel's body ceiling, and **a request large enough to be refused costs about
   four seconds of CPU to refuse** — measured, `docs/architecture-debt.md` D-188. That

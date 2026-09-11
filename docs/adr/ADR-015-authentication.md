@@ -370,6 +370,18 @@ Argon2id and `LoginService`'s rate limit remain what carry the weight against
 guessing; this is aimed at the one thing neither touches — a password that is
 already known.
 
+**And that is the posture rather than a stage on the way to one — owner decision,
+2026-09-11, closing [D-23](../architecture-debt.md).** Asked whether the built-in list
+and an optional file should stay as they are, gain an opt-in online check, or wait for
+somebody to recommend this for the internet, the owner chose the first. The two things
+a breach check needs are still what they were when D-23 was opened: a corpus of about
+10 GB, which does not fit *one server against one PostgreSQL*, or a k-anonymity call
+that sends the first characters of a password's hash to a third party on every change
+— an outbound dependency and a disclosure, on a server that makes no other call out.
+**`Graticula:CommonPasswordFile` is the whole of the answer for a deployment that wants
+more**, and `SECURITY.md` now says so where a reporter reads it, so an accepted breached
+password is a known limit rather than a finding.
+
 **The rule is stated in exactly one place** — `AuthEndpoints.MinimumPasswordLength`
 — and every message that quotes a number reads it from there. The setup log
 message stated 12 for as long as it took to notice, which is the drift that
