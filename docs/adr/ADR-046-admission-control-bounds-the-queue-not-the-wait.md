@@ -350,6 +350,33 @@ ADR-045 (the Logs screen, where condition 3's refusals become visible).
    is owed a re-measurement rather than standing BREACHED on a cause that is gone** — and it is
    not marked met here, because nobody has run the flood again.)*
 
+   ***RE-MEASURED 2026-09-11, after D-249 — the cause above is gone and the clause is still
+   breached, on a different and measured cause.***
+   [benchmarks/admission-control/2026-09-11](../../benchmarks/admission-control/2026-09-11/RESULTS.md),
+   the same ramp against the same layer with the same generator. **The control path is flat
+   now**: `/rest/info` answers in **0.5 ms median at every level from 24 callers to 480**,
+   where it grew from 4.2 to 117 ms on 2026-09-09. **The query path is not**: 848 to 872 req/s
+   throughout, and an admitted median of **25.1, 69.2, 133.9, 277.5 and 559.9 ms** — in
+   proportion to concurrency, as before. The shipped default still does not fire: 112 refused
+   of 50,874 at 480 callers, and 72 of 154,080 over three sustained minutes, every one of them
+   in the first fifteen seconds. **The first clause holds again**: with `PerSourceConcurrency=2`
+   the source refused **58 to 76%** with the queue at its bound. **The second fails there too**:
+   the admitted median grows from 34.4 to 394.0 ms while three requests in four are refused.
+
+   **The control that removes authentication** — the same flood with the query sent
+   anonymously, the same server, the same minute — reaches **1,237 to 1,268 req/s against 943**
+   for the authenticated control: a quarter of the path's capacity is the session and grants
+   lookups an authenticated request pays on every call, which D-249 held for the anonymous
+   caller only. It flattens nothing — **17.5, 186.8 and 379.6 ms** at 24, 240 and 480 callers —
+   though with the pipeline faster the bound does begin to fire: the queue reached **96 of 96**
+   and refused 253 at 480 anonymous callers. That is the mechanism this decision built, and it
+   refuses too little too late to hold a median whose growth is outside the gate. **The ceiling
+   is now on the query path itself** — [D-261](../architecture-debt.md) — with the server at 3.6
+   to 5.0 of 16 cores and the database container at 3.1 to 4.0 of the 6 Docker is given. So the
+   second clause stands BREACHED on a cause that is measured rather than guessed, and §6's
+   concession — *what is not claimed: a ceiling on latency* — is the part of this decision
+   that has held every time it was run.
+
    **What this decision bounded is not wrong; what the clause asked for is unreachable
    from inside it.** ~~`/rest/info` takes no permit, authenticates nobody and touches no
    database~~ (see §4's correction of 2026-09-10), and it grows in the same proportion across the same ramp — 4.2, 12.9,

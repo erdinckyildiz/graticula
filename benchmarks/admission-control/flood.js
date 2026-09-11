@@ -74,6 +74,10 @@ import { Counter, Rate, Trend } from 'k6/metrics';
 
 const URL = (__ENV.URL || 'https://127.0.0.1:8459').replace(/\/+$/, '');
 const USER = __ENV.USER || 'ci';
+// ANONYMOUS=1 sends the flooded query without the token — 2026-09-11, the control for the
+// session and grants lookups an authenticated request pays. Login and the /admin/health
+// samples keep the token, because the queue counter is an administrator's to read.
+const ANONYMOUS = __ENV.ANONYMOUS === '1';
 const PASSWORD = __ENV.PASSWORD || '';
 const LAYER = __ENV.LAYER || 'hosted/ci_many';
 const ROWS = __ENV.ROWS || '200';
@@ -254,8 +258,9 @@ export function setup() {
 
   // One unloaded request, so the summary has a floor to compare the loaded medians to.
   // Without it "the median grew" has no denominator.
-  http.get(QUERY, auth);
-  const idle = http.get(QUERY, auth);
+  const asked = ANONYMOUS ? { timeout: '120s' } : auth;
+  http.get(QUERY, asked);
+  const idle = http.get(QUERY, asked);
 
   return {
     token,
@@ -270,8 +275,12 @@ function authOf(data) {
   return { headers: { Authorization: `Bearer ${data.token}` }, timeout: '120s' };
 }
 
+function queryOf(data) {
+  return ANONYMOUS ? { timeout: '120s' } : authOf(data);
+}
+
 export function warm(data) {
-  http.get(QUERY, authOf(data));
+  http.get(QUERY, queryOf(data));
 }
 
 function windowOf() {
@@ -281,7 +290,7 @@ function windowOf() {
 }
 
 export function measure(data) {
-  const answer = http.get(QUERY, authOf(data));
+  const answer = http.get(QUERY, queryOf(data));
   const w = windowOf();
 
   latAll.add(answer.timings.duration);
@@ -430,7 +439,7 @@ export function handleSummary(data) {
     generator: 'k6',
     mode: MODE,
     offered: MODE === 'rate' ? { ratePerSecond: RATE } : { vus: VUS },
-    target: { url: URL, layer: LAYER, rows: ROWS, query: QUERY },
+    target: { url: URL, layer: LAYER, rows: ROWS, query: QUERY, anonymous: ANONYMOUS },
     warmSeconds: WARM_S,
     measuredSeconds: wall,
     windowSeconds: WINDOW,

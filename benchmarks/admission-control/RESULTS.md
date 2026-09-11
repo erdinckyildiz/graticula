@@ -1,5 +1,9 @@
 # Admission control under a sustained flood — ADR-046 condition 1, re-measured
 
+> **Re-measured 2026-09-11, after D-249 — [2026-09-11/RESULTS.md](2026-09-11/RESULTS.md).** The
+> pipeline ceiling §6 describes is repaired and `/rest/info` is flat at 0.5 ms; the query path
+> is not, and has a ceiling of its own that is neither admission control nor authentication.
+
 **Run 2026-09-09.** **Settles:** [Q-140](../../docs/open-questions.md),
 [D-145](../../docs/architecture-debt.md), and the half of
 [ADR-046](../../docs/adr/ADR-046-admission-control-bounds-the-queue-not-the-wait.md)
