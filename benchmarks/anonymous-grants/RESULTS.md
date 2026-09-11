@@ -109,3 +109,22 @@ Per request at the default level it writes five lines: Graticula's own request l
 replaces the framework's because the framework's logs the raw query string (ADR-015 §4.1), and
 **four from ASP.NET Core** — `Routing.EndpointMiddleware` twice and `Http.Result.OkObjectResult`
 twice — none of which says anything the first line does not.
+
+## 7. After both repairs, with nothing configured
+
+The framework now speaks at `Warning` unless the configuration names a level for it
+(`Program.QuietTheFramework`, pinned by `TheFrameworkSpeaksAtWarningTests`). Measured on a
+server started the way a deployment starts one — **no logging setting at all**, stdout
+redirected by bash, setup done, the anonymous cache subscribed:
+
+| callers | `/rest/info` | `/healthz/live` |
+|---:|---:|---:|
+| 1 | 3,419.5 | 3,632.2 |
+| 16 | 35,427.2 | 37,148.7 |
+| 32 | 38,532.0 | 42,946.4 |
+| 128 | **43,091.9** | 45,113.0 |
+
+**The path D-249 was written about goes from 6,394 to 43,092 req/s at 128 callers, and it no
+longer stops at sixteen.** What is left between this and the `Warning` column of §6 is this
+server's own redacted request line — one per request, deliberate, and the operator's access
+log. It still costs: the run wrote 465 MB of it.

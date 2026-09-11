@@ -580,15 +580,7 @@ public static class Program
             settings.SessionLifetime,
             services.GetRequiredService<TimeProvider>()));
 
-        // <b>The framework's own request logging is silenced, and this server writes
-        // its own line instead.</b> `Microsoft.AspNetCore.Hosting.Diagnostics` logs
-        // the full URL — query string included — before any middleware runs, so a
-        // token sent as `?token=` was written down in full on every request. ADR-015
-        // §4's first mitigation says redaction is *the code path*, not a
-        // configuration, which is why the line is replaced rather than the level
-        // lowered: a filter leaves the raw query one setting away from returning.
-        builder.Logging.AddFilter(
-            "Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
+        QuietTheFramework(builder.Logging, builder.Configuration);
 
         WebApplication app = builder.Build();
         ILogger logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("startup");
@@ -1362,6 +1354,54 @@ public static class Program
         const int listener = 1;
 
         return PlatformStorePool + budget + jobs + listener;
+    }
+
+    /// <summary>What the framework may write per request, and what it may not.</summary>
+    /// <param name="logging">The host's logging.</param>
+    /// <param name="configuration">The host's configuration.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>The framework's own request logging is silenced, and this server writes
+    /// its own line instead.</b> `Microsoft.AspNetCore.Hosting.Diagnostics` logs
+    /// the full URL — query string included — before any middleware runs, so a
+    /// token sent as `?token=` was written down in full on every request. ADR-015
+    /// §4's first mitigation says redaction is *the code path*, not a
+    /// configuration, which is why the line is replaced rather than the level
+    /// lowered: a filter leaves the raw query one setting away from returning. That
+    /// one is not overridable, because a rule registered here after the configuration's
+    /// wins over the configuration's for the same category.
+    /// </para>
+    /// <para>
+    /// <b>And the rest of the framework speaks at <c>Warning</c> unless somebody says
+    /// otherwise — [D-249](../../docs/architecture-debt.md), 2026-09-11.</b> At the default
+    /// level every request also wrote four lines from ASP.NET Core — `EndpointMiddleware`
+    /// twice, the result type twice — none of which says anything the redacted line does
+    /// not. Measured the same day against a server with no middleware at all: at the default
+    /// level `/healthz/live` reached **17,619 req/s** at 128 callers, at `Warning`
+    /// **49,592**, the bare control **55,574** — so those four lines were most of the
+    /// pipeline's remaining ceiling, and three minutes of load wrote a gigabyte of log.
+    /// This is the level every ASP.NET template ships in its `appsettings.json`; this server
+    /// ships none, so it had the framework's own default.
+    /// </para>
+    /// <para>
+    /// <b>A default, not a ceiling.</b> Registered only when the configuration names no
+    /// level for `Microsoft.AspNetCore`, so an operator who sets
+    /// `Logging__LogLevel__Microsoft.AspNetCore=Information` to diagnose something gets it —
+    /// a code rule for the same category would otherwise quietly win. A more specific
+    /// setting, such as CI's `…Server.Kestrel=Debug`, wins either way.
+    /// </para>
+    /// </remarks>
+    internal static void QuietTheFramework(ILoggingBuilder logging, IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(logging);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
+
+        if (configuration["Logging:LogLevel:Microsoft.AspNetCore"] is null)
+        {
+            logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+        }
     }
 
     private static async Task<bool> HandshakeAsync(IServiceProvider services, ILogger logger)

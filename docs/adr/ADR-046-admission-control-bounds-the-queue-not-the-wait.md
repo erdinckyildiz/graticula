@@ -341,6 +341,15 @@ ADR-045 (the Logs screen, where condition 3's refusals become visible).
    latency has bounded the wrong thing*, and that sentence has now been run rather than
    awaited.
 
+   *(**The ceiling this clause ran into is repaired, 2026-09-11 — [D-249](../architecture-debt.md).**
+   The pipeline's stop at eight to sixteen callers was two things: the anonymous grants lookup,
+   now held while the store's announcements are heard (ADR-015 §3a), and four ASP.NET Core log
+   lines per request at the default level, now `Warning` by default. `/rest/info` at 128 callers
+   went from 6,394 to 43,092 req/s with nothing configured
+   ([benchmarks/anonymous-grants](../../benchmarks/anonymous-grants/RESULTS.md)). **So the clause
+   is owed a re-measurement rather than standing BREACHED on a cause that is gone** — and it is
+   not marked met here, because nobody has run the flood again.)*
+
    **What this decision bounded is not wrong; what the clause asked for is unreachable
    from inside it.** ~~`/rest/info` takes no permit, authenticates nobody and touches no
    database~~ (see §4's correction of 2026-09-10), and it grows in the same proportion across the same ramp — 4.2, 12.9,
