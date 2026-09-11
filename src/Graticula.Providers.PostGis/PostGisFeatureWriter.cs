@@ -49,6 +49,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
     private readonly NpgsqlDataSource _dataSource;
     private readonly LayerDefinition _layer;
     private readonly IReadOnlyList<FieldDescription> _fields;
+    private readonly EditorTracking _tracking;
 
     /// <summary>Creates the writer.</summary>
     /// <param name="dataSource">The pool for the layer's database.</param>
@@ -58,8 +59,15 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
     /// This is the whitelist §4.6 requires, and it comes from the database
     /// rather than from the request.
     /// </param>
+    /// <param name="tracking">
+    /// Which columns record edits — ADR-064 — or null for a layer that records none. Last and
+    /// optional, so a writer built before editor tracking existed writes as it did.
+    /// </param>
     public PostGisFeatureWriter(
-        NpgsqlDataSource dataSource, LayerDefinition layer, IReadOnlyList<FieldDescription> fields)
+        NpgsqlDataSource dataSource,
+        LayerDefinition layer,
+        IReadOnlyList<FieldDescription> fields,
+        EditorTracking? tracking = null)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(layer);
@@ -79,6 +87,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         _dataSource = dataSource;
         _layer = layer;
         _fields = fields;
+        _tracking = tracking ?? EditorTracking.None;
     }
 
     /// <inheritdoc/>
@@ -109,7 +118,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         {
             adds.Add(await IsolatedAsync(
                 transaction, savepoint++,
-                () => AddAsync(connection, transaction, add, cancellationToken),
+                () => AddAsync(connection, transaction, add, batch, cancellationToken),
                 cancellationToken).ConfigureAwait(false));
         }
 
@@ -119,7 +128,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
                 transaction, savepoint++,
                 () => UpdateAsync(
                     connection, transaction, update, zmFlags,
-                    Expected(batch, update.Identity), cancellationToken),
+                    Expected(batch, update.Identity), batch, cancellationToken),
                 cancellationToken).ConfigureAwait(false));
         }
 
@@ -129,7 +138,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
                 transaction, savepoint++,
                 () => DeleteAsync(
                     connection, transaction, objectId,
-                    Expected(batch, objectId), cancellationToken),
+                    Expected(batch, objectId), batch, cancellationToken),
                 cancellationToken).ConfigureAwait(false));
         }
 
@@ -199,6 +208,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         FeatureAdd add,
+        EditBatch batch,
         CancellationToken cancellationToken)
     {
         if (!TryBindColumns(add.Attributes, out List<(string Column, object? Value)> bound, out string? error))
@@ -215,10 +225,35 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             values.Add($"st_geomfromwkb(@geom, {_layer.Srid})");
         }
 
+        // Asked before signing, so a feature that carries nothing but what this server would
+        // write for it is still refused as empty.
         if (columns.Count == 0)
         {
             return EditResult.Failed(
                 -1, "The feature has neither attributes nor geometry, so there is nothing to add.");
+        }
+
+        // <b>ADR-064: the tracked columns are this server's to write</b> — the account's name and
+        // the database's clock. Whatever the client sent for them was dropped by
+        // `TryBindColumns`, so these are the only values the row can get.
+        bool named = false;
+
+        foreach ((string? column, string value, bool isName) in (ReadOnlySpan<(string?, string, bool)>)
+        [
+            (_tracking.Creator, "@editor", true),
+            (_tracking.Editor, "@editor", true),
+            (_tracking.Created, "now()", false),
+            (_tracking.Edited, "now()", false),
+        ])
+        {
+            if (column is null || (isName && batch.Editor is null))
+            {
+                continue;
+            }
+
+            columns.Add(LayerDefinition.Quote(column));
+            values.Add(value);
+            named |= isName;
         }
 
         string sql =
@@ -228,6 +263,11 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
         Bind(command, bound, add.Geometry);
+
+        if (named)
+        {
+            command.Parameters.AddWithValue("editor", batch.Editor!);
+        }
 
         try
         {
@@ -322,6 +362,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         FeatureUpdate update,
         IReadOnlyDictionary<long, int> zmFlags,
         string[]? expected,
+        EditBatch batch,
         CancellationToken cancellationToken)
     {
         if (!zmFlags.TryGetValue(update.Identity, out int zmFlag))
@@ -356,6 +397,8 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
                 $"{LayerDefinition.Quote(_layer.GeometryColumn)} = st_geomfromwkb(@geom, {_layer.Srid})");
         }
 
+        string? owner = OwnerFilter(batch);
+
         if (assignments.Count == 0)
         {
             // Nothing to do is a success. A client that sends an update with no
@@ -366,6 +409,17 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             // `where` to hide it in on this path, so it is asked directly. Skipping it
             // because the write is empty would let a stale client learn that its version
             // is current by sending an edit that changes nothing.
+            //
+            // <b>And so is ownership — ADR-064.</b> An empty edit to somebody else's feature
+            // changes nothing, and answering it with success would still tell a caller that
+            // the feature is one they may edit.
+            if (owner is not null
+                && await WhoseAsync(connection, transaction, update.Identity, owner, cancellationToken)
+                    .ConfigureAwait(false) is { } refused)
+            {
+                return refused;
+            }
+
             if (expected is null)
             {
                 return EditResult.Ok(update.Identity);
@@ -381,14 +435,33 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             };
         }
 
+        // <b>ADR-064: who changed it and when, written by this server</b> — only on a write that
+        // changes something, which is why this comes after the empty case above.
+        bool named = false;
+
+        if (_tracking.Editor is not null && batch.Editor is not null)
+        {
+            assignments.Add($"{LayerDefinition.Quote(_tracking.Editor)} = @editor");
+            named = true;
+        }
+
+        if (_tracking.Edited is not null)
+        {
+            assignments.Add($"{LayerDefinition.Quote(_tracking.Edited)} = now()");
+        }
+
         // <b>The precondition rides in the `where`, which is what makes it atomic -- D-186.</b>
         // Reading the version first and comparing it here would be check-then-act: two
         // clients could both read the same version, both find it current, and both write.
         // The database compares and writes in one statement or does neither.
+        //
+        // <b>Ownership rides beside it, for the same reason — ADR-064.</b> Asking whose a row
+        // is and then writing it would let the answer change between the two.
         string sql =
             $"update {_layer.QuotedTable} set {string.Join(", ", assignments)} "
             + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id"
-            + (expected is null ? string.Empty : " and xmin::text = any(@expected)");
+            + (expected is null ? string.Empty : " and xmin::text = any(@expected)")
+            + OwnerClause(owner);
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
         command.Parameters.AddWithValue("id", update.Identity);
@@ -396,6 +469,16 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         if (expected is not null)
         {
             command.Parameters.AddWithValue("expected", expected);
+        }
+
+        if (owner is not null)
+        {
+            command.Parameters.AddWithValue("owner", owner);
+        }
+
+        if (named)
+        {
+            command.Parameters.AddWithValue("editor", batch.Editor!);
         }
 
         Bind(command, bound, update.Geometry);
@@ -409,15 +492,11 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
                 return EditResult.Ok(update.Identity);
             }
 
-            // Nothing changed. Without a precondition that can only be a missing row; with
-            // one it is either that or a version that moved, and the caller needs to know
-            // which, because one is 404 and the other is 412.
-            return expected is not null
-                && await MatchAsync(
-                        connection, transaction, update.Identity, expected, cancellationToken)
-                        .ConfigureAwait(false) is not Match.Gone
-                ? EditResult.Stale(update.Identity)
-                : EditResult.Missing(update.Identity);
+            // Nothing changed. That is a missing row, somebody else's row, or a version that
+            // moved — three different answers, and the caller needs to know which.
+            return await WhyNotAsync(
+                    connection, transaction, update.Identity, expected, owner, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (PostgresException e)
         {
@@ -430,12 +509,16 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         NpgsqlTransaction transaction,
         long objectId,
         string[]? expected,
+        EditBatch batch,
         CancellationToken cancellationToken)
     {
+        string? owner = OwnerFilter(batch);
+
         string sql =
             $"delete from {_layer.QuotedTable} "
             + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id"
-            + (expected is null ? string.Empty : " and xmin::text = any(@expected)");
+            + (expected is null ? string.Empty : " and xmin::text = any(@expected)")
+            + OwnerClause(owner);
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
         command.Parameters.AddWithValue("id", objectId);
@@ -443,6 +526,11 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         if (expected is not null)
         {
             command.Parameters.AddWithValue("expected", expected);
+        }
+
+        if (owner is not null)
+        {
+            command.Parameters.AddWithValue("owner", owner);
         }
 
         try
@@ -457,19 +545,116 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
                 return EditResult.Ok(objectId);
             }
 
-            // A versioned delete that removed nothing may have found the row and
-            // refused it -- D-186. Which one it was decides 404 against 412.
-            return expected is not null
-                && await MatchAsync(
-                        connection, transaction, objectId, expected, cancellationToken)
-                        .ConfigureAwait(false) is not Match.Gone
-                ? EditResult.Stale(objectId)
-                : EditResult.Missing(objectId);
+            // A delete that removed nothing may have found the row and refused it -- D-186 for
+            // a version, ADR-064 for an owner. Which one it was decides what the caller is told.
+            return await WhyNotAsync(
+                    connection, transaction, objectId, expected, owner, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (PostgresException e)
         {
             return EditResult.Failed(objectId, Explain(e));
         }
+    }
+
+    /// <summary>
+    /// The name a row's creator must equal for this batch to change it, or null for any row — ADR-064.
+    /// </summary>
+    private static string? OwnerFilter(EditBatch batch) =>
+        batch.OwnOnly ? batch.Editor ?? string.Empty : null;
+
+    /// <summary>The ownership predicate for a write's <c>where</c>, or nothing.</summary>
+    /// <remarks>
+    /// <b>A layer that records no creator has no row anybody owns</b>, so own-only matches none
+    /// of it — <c>false</c> rather than a predicate on a column that is not there.
+    /// </remarks>
+    private string OwnerClause(string? owner) =>
+        owner is null ? string.Empty
+        : _tracking.Creator is null ? " and false"
+        : $" and {LayerDefinition.Quote(_tracking.Creator)} = @owner";
+
+    /// <summary>Why a write that changed nothing changed nothing.</summary>
+    private async Task<EditResult> WhyNotAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        long identity,
+        string[]? expected,
+        string? owner,
+        CancellationToken cancellationToken)
+    {
+        if (owner is not null
+            && await WhoseAsync(connection, transaction, identity, owner, cancellationToken)
+                .ConfigureAwait(false) is { } refused)
+        {
+            return refused;
+        }
+
+        return expected is not null
+            && await MatchAsync(connection, transaction, identity, expected, cancellationToken)
+                .ConfigureAwait(false) is not Match.Gone
+            ? EditResult.Stale(identity)
+            : EditResult.Missing(identity);
+    }
+
+    /// <summary>
+    /// The refusal for a row this caller does not own, or null when it is theirs — ADR-064.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A row that is not there is still <see cref="EditResult.Missing"/></b>, so a caller who
+    /// may change only their own features cannot use the difference to learn which ids exist
+    /// beyond what reading already tells them.
+    /// </para>
+    /// <para>
+    /// <b>Asked only on the path that refuses</b>, inside the transaction the write ran in —
+    /// the shape <see cref="MatchAsync"/> has for a version, for the same reason.
+    /// </para>
+    /// </remarks>
+    private async Task<EditResult?> WhoseAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        long identity,
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        if (_tracking.Creator is null)
+        {
+            return EditResult.NotOwned(
+                identity,
+                "This layer does not record who created its features, so none of them is yours to "
+                + "change. Changing them needs features:fullEdit.");
+        }
+
+        await using NpgsqlCommand command = new(
+            $"select {LayerDefinition.Quote(_tracking.Creator)}::text from {_layer.QuotedTable} "
+            + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id",
+            connection,
+            transaction);
+
+        command.Parameters.AddWithValue("id", identity);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return EditResult.Missing(identity);
+        }
+
+        if (reader.IsDBNull(0))
+        {
+            return EditResult.NotOwned(
+                identity,
+                $"Feature {identity} has no creator recorded, so it is nobody's own. Changing it "
+                + "needs features:fullEdit.");
+        }
+
+        return string.Equals(reader.GetString(0), owner, StringComparison.Ordinal)
+            ? null
+            : EditResult.NotOwned(
+                identity,
+                $"Feature {identity} was created by somebody else. Changing another account's "
+                + "feature needs features:fullEdit.");
     }
 
     /// <summary>Reads the dimensionality of every row the updates target.</summary>
@@ -564,6 +749,15 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
                     + "database rather than the request, so a name that is not there cannot be "
                     + "written.";
                 return false;
+            }
+
+            // <b>A tracked column is dropped, not refused — ADR-064.</b> The document says it is
+            // not editable, and an ArcGIS web client echoes every attribute back on an update
+            // anyway; refusing would fail an ordinary edit over a value the client never meant
+            // to change. This server writes the column itself, after this.
+            if (field.Value.Maintained)
+            {
+                continue;
             }
 
             bound.Add((attribute.Key, attribute.Value));

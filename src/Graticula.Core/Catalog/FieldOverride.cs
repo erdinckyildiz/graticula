@@ -53,19 +53,24 @@ namespace Graticula.Catalog;
 /// being displayed.
 /// </para>
 /// </remarks>
-public readonly record struct FieldOverride(string Column, string? Alias, bool Hidden)
+/// <param name="Tracks">
+/// What it records about edits — ADR-064. <b>Last and defaulted</b>, so every override written
+/// before editor tracking existed means what it meant.
+/// </param>
+public readonly record struct FieldOverride(
+    string Column, string? Alias, bool Hidden, EditRole Tracks = EditRole.None)
 {
     /// <summary>
     /// Whether this override says anything at all.
     /// </summary>
     /// <remarks>
-    /// <b>An override that neither renames nor hides is a row with no effect</b>, and
+    /// <b>An override that neither renames, hides nor tracks is a row with no effect</b>, and
     /// keeping one lets a surface show a column as *overridden* when nothing about it
     /// differs from the table. The admin surface drops these on write rather than storing
     /// them, so what is stored is what is claimed.
     /// </remarks>
     public bool SaysSomething =>
-        Hidden || !string.IsNullOrWhiteSpace(Alias);
+        Hidden || !string.IsNullOrWhiteSpace(Alias) || Tracks != EditRole.None;
 
     /// <summary>
     /// Whether <paramref name="column"/> is the column this override is about.

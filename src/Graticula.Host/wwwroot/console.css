@@ -3840,9 +3840,14 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
    ~980px instead of being squeezed by a long column name — design review 2026-09-11. A long
    name wraps inside its cell rather than widening the table. */
 #page-fields .fieldsgrid { table-layout: fixed; width: 100%; }
-#page-fields .fieldsgrid col.c-name  { width: 28%; }
-#page-fields .fieldsgrid col.c-type  { width: 15%; }
-#page-fields .fieldsgrid col.c-hide  { width: 21%; }
+#page-fields .fieldsgrid col.c-name  { width: 22%; }
+#page-fields .fieldsgrid col.c-type  { width: 12%; }
+/* ADR-064: what a column records about edits. A native select cuts its value with no ellipsis,
+   so this is sized for the longest option, "Created on", at ~1100px — design review 2026-09-11,
+   which found the first labels cut at 1440. Label keeps 24%. */
+#page-fields .fieldsgrid col.c-records { width: 24%; }
+#page-fields .fieldsgrid col.c-hide  { width: 18%; }
+#page-fields .fieldsgrid select { width: 100%; }
 /* Only a long column name may break; a type name broken mid-word ("Stri ng") reads as two. */
 #page-fields .fieldsgrid td code { overflow-wrap: anywhere; }
 #page-fields .fieldsgrid td:nth-child(2) { white-space: nowrap; }

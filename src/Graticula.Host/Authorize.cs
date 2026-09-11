@@ -79,6 +79,69 @@ internal static class Authorize
         return await RequireAsync(context, privilege).ConfigureAwait(false);
     }
 
+    /// <summary>Which features a caller may update and delete on one layer — ADR-064.</summary>
+    public enum ChangeScope
+    {
+        /// <summary>Every feature: <c>features:fullEdit</c>, or editing a group confers.</summary>
+        Every,
+
+        /// <summary>The features whose creator is the caller: <c>features:edit</c> on a tracked layer.</summary>
+        Own,
+    }
+
+    /// <summary>
+    /// Whether the request may update and delete features on this layer, and which ones; writes
+    /// the refusal if it may change none — ADR-064, and what closes D-20.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layer">The layer.</param>
+    /// <param name="tracking">Which of its columns record edits, from its description.</param>
+    /// <returns>The scope, or null when the refusal has been written.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>One answer for both writing faces</b>, because the rule is about the layer and the
+    /// caller and not about which protocol asked. ArcGIS <c>applyEdits</c> and OGC API Features
+    /// used to each ask for <c>features:fullEdit</c> with a comment citing D-20; they ask this now.
+    /// </para>
+    /// <para>
+    /// <b>Group editing and <c>features:fullEdit</c> reach every feature, as before.</b> What is
+    /// new is the middle: on a layer that records who created each feature,
+    /// <c>features:edit</c> reaches the caller's own — Portal's meaning. On a layer that does
+    /// not, the server still cannot tell whose a feature is, and the refusal is the one this
+    /// returned before: it names <c>features:fullEdit</c>.
+    /// </para>
+    /// </remarks>
+    public static async Task<ChangeScope?> RequireChangeAsync(
+        HttpContext context,
+        Graticula.Platform.Catalog.PublishedLayer layer,
+        Graticula.Catalog.EditorTracking tracking)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(layer);
+        ArgumentNullException.ThrowIfNull(tracking);
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()
+            ?? throw new InvalidOperationException(
+                "No principal was resolved for this request. The authentication middleware must "
+                + "run before any endpoint, including for anonymous callers — 'no principal' is a "
+                + "wiring bug, not an unauthenticated request.");
+
+        if (LayerAccess.GroupConfersEditing(layer.Sharing, current.Authorization, layer.SharedWith)
+            || current.Authorization.Allows(Privilege.FeaturesFullEdit))
+        {
+            return ChangeScope.Every;
+        }
+
+        if (tracking.IsOn && current.Authorization.Allows(Privilege.FeaturesEdit))
+        {
+            return ChangeScope.Own;
+        }
+
+        return await RequireAsync(context, Privilege.FeaturesFullEdit).ConfigureAwait(false)
+            ? ChangeScope.Every
+            : null;
+    }
+
     /// <summary>
     /// Whether the request may proceed; writes the refusal if not.
     /// </summary>

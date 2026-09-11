@@ -110,6 +110,17 @@ public readonly record struct FieldDescription(
 {
     /// <summary>What a client should show for this column.</summary>
     public string Label => string.IsNullOrWhiteSpace(Alias) ? Name : Alias;
+
+    /// <summary>
+    /// Whether this server writes the column and a client does not — ADR-064's edit roles.
+    /// </summary>
+    /// <remarks>
+    /// <b>Set in one place, <see cref="FieldOverrides.Apply"/>, and read by every face</b>: the
+    /// ArcGIS document reports such a field not editable, and the writer replaces whatever a
+    /// client sent for it. Not positional, so every description built before this existed still
+    /// means a column the client may write.
+    /// </remarks>
+    public bool Maintained { get; init; }
 }
 
 /// <summary>
@@ -166,6 +177,17 @@ public readonly record struct FieldDescription(
 public sealed record LayerDescription(
     IReadOnlyList<FieldDescription> Fields, Envelope? Extent, bool? Writable = null)
 {
+    /// <summary>
+    /// Which of these columns record edits, and whether the layer is tracked — ADR-064.
+    /// </summary>
+    /// <remarks>
+    /// <b>Set by <see cref="FieldOverrides.Apply"/> from the columns the table actually has</b>,
+    /// so a role naming a column somebody dropped tracks nothing — ADR-063's drift answer, which
+    /// is inert rather than broken. None for every description built before this existed.
+    /// </remarks>
+    public Graticula.Catalog.EditorTracking Tracking { get; init; } =
+        Graticula.Catalog.EditorTracking.None;
+
     /// <summary>Finds a field by name, or null.</summary>
     public FieldDescription? Find(string name)
     {

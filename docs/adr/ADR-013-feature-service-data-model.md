@@ -481,6 +481,16 @@ by argument; nobody has pointed a slow reader at it.
    is the worst of both. The condition is discharged by the privilege regaining its
    Portal meaning and that row closing, not by the columns existing.
 
+   **DISCHARGED 2026-09-11 — [ADR-064](ADR-064-editor-tracking-and-what-features-edit-means.md),
+   and on the terms written here: the privilege, not the columns.** A column is given a role —
+   creator, created, editor, edited — through the field overrides, and a layer with a creator
+   column is tracked. On such a layer `features:edit` updates and deletes the caller's own
+   features and is refused on anybody else's, through ArcGIS `applyEdits` and OGC API Features
+   alike; `features:fullEdit` and a group's editing reach every feature. Measured end to end by
+   `EditorTrackingConformanceTests` with two real accounts, an administrator and an `editor`
+   user type whose ceiling is `features:edit`. [D-20](../architecture-debt.md) closes with it.
+   **Domains and subtypes — condition 5 — are not built**, and this does not claim them.
+
 1. ~~**Streaming is verified, not assumed.**~~ **DISCHARGED 2026-08-15.** A 40 MB round trip moves the process working set by 4 MB on upload and not at all on download, bytes identical. And the test that would have caught the original design hands over a stream reporting no length, refusing to seek, and yielding its bytes once — which is what a request body is, and what a `MemoryStream` is not. Original: A test that uploads and downloads a
    large attachment while watching allocation must show flat memory. If any
    layer materialises the payload, §4a has failed silently.

@@ -79,6 +79,12 @@ because editor tracking is deferred ([Q-58](../open-questions.md)) and the serve
 whose feature is whose, so *change your own* is unenforceable and updates ask for the wider
 grant. A group with `allItems` is exactly the case where that distinction has no work to do:
 every member may change everything shared with the group, by the group's own setting.
+*(2026-09-11: editor tracking is built —
+[ADR-064](ADR-064-editor-tracking-and-what-features-edit-means.md) — and on a layer that records
+its creators `features:edit` now reaches the caller's own features. The narrow/wide split above
+still describes an untracked layer. On a tracked one a group's editing still reaches every
+feature, not only the member's own: `Authorize.RequireChangeAsync` answers *every* for it, as
+this section decided.)*
 
 **Both faces decide it in one place.** ArcGIS `applyEdits` and OGC API Features Part 4 write
 through one `IFeatureWriter` (Q-44); they now authorise through one

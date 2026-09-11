@@ -103,6 +103,9 @@ internal static class HostedDataEndpoints
         app.MapPost("/admin/hosted/{layer}/fields", AddFieldAsync);
         app.MapDelete("/admin/hosted/{layer}/fields/{field}", DropFieldAsync);
 
+        // ADR-064: Portal's four editor-tracking columns, added and given their roles at once.
+        app.MapPost("/admin/hosted/{layer}/editor-tracking", TrackEditsAsync);
+
         // The original path, kept working. It was only ever the import, and
         // moving it silently would break the one thing already built against it.
         app.MapPost("/admin/hosted", ImportAsync).DisableAntiforgery();
@@ -2098,4 +2101,148 @@ internal static class HostedDataEndpoints
     private static Task Fail(HttpContext context, int code, string message) =>
         Results.Json(new { error = new { code, message } }, statusCode: code)
             .ExecuteAsync(context);
+
+    /// <summary>
+    /// Adds Portal's four editor-tracking columns to a hosted layer and gives them their roles —
+    /// ADR-064.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One action, because the four only mean something together.</b> On a registered layer
+    /// the table is the customer's and this server issues no DDL, so the roles are given to
+    /// columns that already exist on the Fields page. On a hosted layer the table is ours, and
+    /// asking an operator to add four columns and then find them again to give each a role is
+    /// four chances to give <c>created_date</c> the creator's role.
+    /// </para>
+    /// <para>
+    /// <b>Portal's names</b>, so an operator arriving from Portal recognises them and a layer
+    /// exported from here to there needs nothing renamed. A column of one of those names that
+    /// is already there and of the right type is used as it is; one of the wrong type is a
+    /// refusal naming it, because writing an account name into somebody's integer column is
+    /// the kind of guess this server does not make.
+    /// </para>
+    /// <para>
+    /// <b>Rows that were there before have no creator</b>, and ADR-064 makes such a row
+    /// nobody's own: only <c>features:fullEdit</c> changes it. That is said in the answer, since
+    /// it is the one thing about turning this on that an operator might not expect.
+    /// </para>
+    /// </remarks>
+    private static async Task TrackEditsAsync(
+        HttpContext context,
+        string layer,
+        PostgresLayerCatalog layers,
+        PostGisImporter importer,
+        ServiceContexts contexts,
+        ITileCache tiles,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (await HostedLayerAsync(context, layers, layer, "track the edits of", cancellation)
+            .ConfigureAwait(false) is not { } found)
+        {
+            return;
+        }
+
+        (_, LayerDescription table) = await contexts.TableAsync(found, cancellation)
+            .ConfigureAwait(false);
+
+        (string Name, FieldType Type, Graticula.Catalog.EditRole Role)[] portal =
+        [
+            ("created_user", FieldType.Text, Graticula.Catalog.EditRole.Creator),
+            ("created_date", FieldType.Date, Graticula.Catalog.EditRole.Created),
+            ("last_edited_user", FieldType.Text, Graticula.Catalog.EditRole.Editor),
+            ("last_edited_date", FieldType.Date, Graticula.Catalog.EditRole.Edited),
+        ];
+
+        foreach ((string name, FieldType type, _) in portal)
+        {
+            if (table.Find(name) is { } existing && existing.Type != type)
+            {
+                await Fail(
+                    context, 409,
+                    $"'{found.Definition.Name}' already has a column called '{name}', and it is not "
+                    + $"a {(type == FieldType.Text ? "text" : "date")} column, so it cannot record "
+                    + "what that name means. Rename it, or give the roles to other columns on the "
+                    + "Fields page.")
+                    .ConfigureAwait(false);
+
+                return;
+            }
+        }
+
+        List<string> added = [];
+
+        foreach ((string name, FieldType type, _) in portal)
+        {
+            if (table.Find(name) is not null)
+            {
+                continue;
+            }
+
+            try
+            {
+                await importer.AddFieldAsync(
+                    found.Definition.SchemaName,
+                    found.Definition.TableName,
+                    new FieldDescription(name, type, Nullable: true, MaxLength: null),
+                    cancellation).ConfigureAwait(false);
+
+                added.Add(name);
+            }
+            catch (Npgsql.PostgresException blocked) when (blocked.SqlState == "55P03")
+            {
+                // ADR-058 §5g, as for adding one field: refused quickly rather than queueing
+                // every request behind a waiting ALTER. What was added so far stays, and a
+                // second press adds the rest.
+                await Fail(
+                    context, 409,
+                    $"'{found.Definition.Name}' is being read right now, so its table could not be "
+                    + $"altered{(added.Count == 0 ? string.Empty : $" after adding {string.Join(", ", added)}")}. "
+                    + "Try again: what is already there is kept.")
+                    .ConfigureAwait(false);
+
+                return;
+            }
+        }
+
+        // <b>The roles go to these four and leave every other column</b>, which keeps its label
+        // and its hidden flag but gives up any role — one role, one column.
+        List<Graticula.Catalog.FieldOverride> overrides = [];
+
+        foreach (Graticula.Catalog.FieldOverride said in found.FieldOverrides)
+        {
+            if (!portal.Any(p => said.Matches(p.Name)))
+            {
+                overrides.Add(said with { Tracks = Graticula.Catalog.EditRole.None });
+            }
+        }
+
+        foreach ((string name, _, Graticula.Catalog.EditRole role) in portal)
+        {
+            string? alias = found.FieldOverrides.FirstOrDefault(o => o.Matches(name)).Alias;
+
+            overrides.Add(new Graticula.Catalog.FieldOverride(name, alias, Hidden: false, role));
+        }
+
+        await catalog.SetFieldOverridesAsync(
+            found.Id, [.. overrides.Where(o => o.SaysSomething)], cancellation).ConfigureAwait(false);
+
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation)
+            .ConfigureAwait(false);
+
+        await RecordAsync(
+            context, audit, "layer.editorTracking", found.Definition.Name,
+            new { added }, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            layer = found.Definition.Name,
+            added,
+            tracks = portal.Select(p => new { column = p.Name, role = p.Role.ToString().ToLowerInvariant() }),
+            note = "Features added or changed from now on record who did it and when. Features that "
+                 + "were already there have no creator, so they are nobody's own: changing them "
+                 + "needs features:fullEdit.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
 }

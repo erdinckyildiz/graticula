@@ -9562,14 +9562,19 @@ function showLayer(name, page, pending = null) {
         all. The column itself is untouched: a label is shown to people and never used to ask
         for anything, and a hidden column is refused everywhere — in a query, a filter, a
         sort or an edit — exactly as if the table had no such column.</p>
+      <p class="hint">A column can also record who created or last changed each feature, and
+        when. This server writes those columns and a client never does. Once one records who
+        created each feature, an account with <b>features:edit</b> may change its own features
+        and nobody else's. Only text and date columns can record these; the others show —.</p>
       <table class="fieldsgrid">
-        <colgroup><col class="c-name"><col class="c-type"><col class="c-label"><col class="c-hide"></colgroup>
-        <thead><tr><th>Column</th><th>Type</th><th>Label</th><th>Hidden</th></tr></thead>
-        <tbody id="fieldsRows"><tr><td colspan="4" class="empty">Reading the columns…</td></tr></tbody>
+        <colgroup><col class="c-name"><col class="c-type"><col class="c-label"><col class="c-records"><col class="c-hide"></colgroup>
+        <thead><tr><th>Column</th><th>Type</th><th>Label</th><th>Records</th><th>Hidden</th></tr></thead>
+        <tbody id="fieldsRows"><tr><td colspan="5" class="empty">Reading the columns…</td></tr></tbody>
       </table>
       <div id="fieldsInert"></div>
       <div class="row" style="margin-top:10px">
         <button type="button" id="fieldsSave">Save</button>
+        ${l.hosted ? `<button type="button" class="ghost" id="fieldsTrack">Track who edits</button>` : ""}
       </div>
       <p class="hint" id="fieldsSays" role="status" aria-live="polite"></p>
     </section>
@@ -10265,22 +10270,48 @@ function firstSentence(text) {
   return at > 0 ? text.slice(0, at + 1) : String(text || "");
 }
 
+/**
+ * What a column of this type can record about edits — ADR-064.
+ *
+ * <b>Offered by type, because the server refuses the rest</b>: an account's name goes in a text
+ * column and a time in a date column. A choice the server would refuse is a choice not offered.
+ */
+function editRolesFor(type) {
+  // Short, because a native select has no ellipsis and cuts its value mid-word — design review
+  // 2026-09-11 found "When it was creat" at 1440px. The hint above says *last* changed.
+  if (type === "String") return [["creator", "Created by"], ["editor", "Edited by"]];
+  if (type === "Date") return [["created", "Created on"], ["edited", "Edited on"]];
+  return [];
+}
+
 function drawFields(said, tone) {
   if (!fieldsState) return;
 
   $("fieldsRows").innerHTML = fieldsState.columns.length
-    ? fieldsState.columns.map((c, i) => `<tr>
-        <td><code>${h(c.name)}</code></td>
+    ? fieldsState.columns.map((c, i) => {
+      const roles = editRolesFor(c.type);
+
+      // A long name may break after an underscore rather than mid-word ("created_use / r").
+      return `<tr>
+        <td><code>${h(c.name).replace(/_/g, "_<wbr>")}</code></td>
         <td>${h(c.type)}</td>
         <td><input type="text" data-field-alias="${i}" maxlength="255"
           aria-label="Label for ${h(c.name)}" placeholder="${h(c.name)}"
           value="${h(c.alias || "")}"></td>
+        <td>${roles.length
+          ? `<select data-field-tracks="${i}" aria-label="What ${h(c.name)} records">
+              <option value="">Nothing</option>
+              ${roles.map(([value, text]) =>
+                `<option value="${value}" ${c.tracks === value ? "selected" : ""}>${text}</option>`).join("")}
+            </select>`
+          : `<span class="val" title="Only text and date columns can record edits">—</span>`}</td>
         <td><label><input type="checkbox" data-field-hidden="${i}" ${c.hidden ? "checked" : ""}
           ${c.locked ? `disabled aria-describedby="fieldLock${i}"` : ""} aria-label="Hide ${h(c.name)}"
           title="${h(c.locked ? "Can't be hidden: " + c.locked : "Hide this column from every client")}">
           ${c.locked ? `<span class="lockwhy" id="fieldLock${i}">can't be hidden: ${h(firstSentence(c.locked))}</span>` : ""}</label></td>
-      </tr>`).join("")
-    : `<tr><td colspan="4" class="empty">This layer's table reports no attribute columns.</td></tr>`;
+      </tr>`;
+    }).join("")
+    : `<tr><td colspan="5" class="empty">This layer's table reports no attribute columns.</td></tr>`;
 
   // <b>Shown with a way out, never dropped.</b> Each names a column the table does not have
   // today, so it changes nothing — and it is still what somebody wrote, so removing it is
@@ -10291,7 +10322,7 @@ function drawFields(said, tone) {
          That is what renaming or dropping a column in the database leaves behind: the label
          stays with the old name. Remove them, or give the label to the column's new name above.</p>
        <ul>${fieldsState.inert.map((o, i) => `<li><code>${h(o.column)}</code>
-         ${o.alias ? `labelled “${h(o.alias)}”` : ""}${o.hidden ? " (hidden)" : ""}
+         ${o.alias ? `labelled “${h(o.alias)}”` : ""}${o.hidden ? " (hidden)" : ""}${o.tracks ? ` (recorded ${h(o.tracks)})` : ""}
          <button type="button" class="ghost" data-field-inert-remove="${i}">Remove</button></li>`).join("")}</ul>`
     : "";
 
@@ -10308,9 +10339,14 @@ async function saveFields() {
     column: c.name,
     alias: (document.querySelector(`[data-field-alias="${i}"]`)?.value || "").trim() || null,
     hidden: !!document.querySelector(`[data-field-hidden="${i}"]`)?.checked,
-  })).filter(o => o.alias || o.hidden)
-    // The orphans travel back unchanged unless somebody pressed Remove on one.
-    .concat(fieldsState.inert.map(o => ({ column: o.column, alias: o.alias, hidden: !!o.hidden })));
+    // ADR-064: what the column records about edits, or nothing.
+    tracks: document.querySelector(`[data-field-tracks="${i}"]`)?.value || null,
+  })).filter(o => o.alias || o.hidden || o.tracks)
+    // The orphans travel back unchanged unless somebody pressed Remove on one — role included,
+    // so a save does not quietly take a role away from a column somebody renamed.
+    .concat(fieldsState.inert.map(o => ({
+      column: o.column, alias: o.alias, hidden: !!o.hidden, tracks: o.tracks || null,
+    })));
 
   const button = $("fieldsSave");
   button.disabled = true;
@@ -10344,12 +10380,55 @@ async function saveFields() {
   }
 }
 
+/**
+ * Adds Portal's four editor-tracking columns to a hosted layer and gives them their roles —
+ * ADR-064.
+ *
+ * <b>One press rather than four columns and four choices</b>, because the four only mean
+ * something together and choosing the wrong one for a role is easy to do four times. The
+ * server's own note is what is said afterwards: it names what was added and the one thing an
+ * operator might not expect — that features already there belong to nobody.
+ */
+async function trackEdits() {
+  if (!fieldsState) return;
+
+  const button = $("fieldsTrack");
+  if (button) button.disabled = true;
+
+  try {
+    const answer = await api(
+      `/admin/hosted/${encodeURIComponent(fieldsState.name)}/editor-tracking`, { method: "POST" });
+
+    await loadFields(fieldsState.name);
+
+    const added = answer.added || [];
+
+    drawFields(
+      (added.length ? `Added ${added.join(", ")}. ` : "The columns were already there. ")
+      + (answer.note || ""));
+  } catch (e) {
+    $("fieldsSays").textContent = e.message;
+    $("fieldsSays").classList.add("bad-inline");
+  } finally {
+    // The button is outside the table the redraw replaces, so focus can go back to it.
+    if (button) {
+      button.disabled = false;
+      button.focus();
+    }
+  }
+}
+
 document.addEventListener("click", e => {
   const t = e.target;
   if (!(t instanceof Element)) return;
 
   if (t.id === "fieldsSave") {
     saveFields();
+    return;
+  }
+
+  if (t.id === "fieldsTrack") {
+    trackEdits();
     return;
   }
 

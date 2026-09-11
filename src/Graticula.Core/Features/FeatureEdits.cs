@@ -47,12 +47,19 @@ public sealed record FeatureUpdate(
 /// is that it is merely out of date.
 /// </para>
 /// </param>
+/// <param name="NotYours">
+/// Whether the write was refused because the row is not the caller's to change — ADR-064: a
+/// <c>features:edit</c> holder on a tracked layer changes only the features they created. <b>A
+/// third kind, because it is a third answer</b>: the request was well formed and the feature is
+/// there, so an OGC API Features verb answers <c>403</c> rather than 400 or 404.
+/// </param>
 public readonly record struct EditResult(
     long Identity,
     bool Succeeded,
     string? Error,
     bool NoSuchFeature = false,
-    bool VersionMoved = false)
+    bool VersionMoved = false,
+    bool NotYours = false)
 {
     /// <summary>A success.</summary>
     public static EditResult Ok(long objectId) => new(objectId, true, null);
@@ -111,6 +118,13 @@ public readonly record struct EditResult(
             + "Re-read it and apply your edit to the current version.",
             false,
             true);
+
+    /// <summary>The row is there and is not the caller's to change — ADR-064.</summary>
+    /// <param name="objectId">Which row was asked for.</param>
+    /// <param name="error">Why, naming the privilege that would reach it.</param>
+    /// <returns>The result.</returns>
+    public static EditResult NotOwned(long objectId, string error) =>
+        new(objectId, false, error, NotYours: true);
 }
 
 /// <summary>One <c>applyEdits</c> call.</summary>
@@ -166,13 +180,26 @@ public readonly record struct EditResult(
 /// per-feature results has silently lost data it believes it saved. Defaulting
 /// to all-or-nothing makes the dangerous mode a deliberate request.
 /// </remarks>
+/// <param name="Editor">
+/// The account making the edits — ADR-064. Written into a tracked layer's creator and editor
+/// columns, and compared with the creator when <paramref name="OwnOnly"/> is set. Null for a
+/// caller that is not an account, which leaves those columns unwritten.
+/// </param>
+/// <param name="OwnOnly">
+/// Whether updates and deletes may reach only rows whose creator is <paramref name="Editor"/> —
+/// the <c>features:edit</c> caller on a tracked layer. <b>False by default</b>, so every caller
+/// written before this means what it meant: the authorisation decided who may change what, and
+/// the writer changes it.
+/// </param>
 public sealed record EditBatch(
     IReadOnlyList<FeatureAdd> Adds,
     IReadOnlyList<FeatureUpdate> Updates,
     IReadOnlyList<long> Deletes,
     bool RollbackOnFailure = true,
     int AlreadyFailed = 0,
-    IReadOnlyDictionary<long, IReadOnlyList<string>>? Expects = null)
+    IReadOnlyDictionary<long, IReadOnlyList<string>>? Expects = null,
+    string? Editor = null,
+    bool OwnOnly = false)
 {
     /// <summary>How many features this batch touches.</summary>
     public int Count => Adds.Count + Updates.Count + Deletes.Count;

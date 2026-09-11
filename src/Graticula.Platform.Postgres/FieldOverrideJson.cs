@@ -65,7 +65,18 @@ internal static class FieldOverrideJson
             bool hidden = entry.TryGetProperty("hidden", out JsonElement h)
                 && h.ValueKind == JsonValueKind.True;
 
-            read.Add(new FieldOverride(column.GetString()!, alias, hidden));
+            // <b>An edit role, ADR-064, and an unknown one reads as none.</b> A role a newer
+            // build wrote and this one does not know is a column this build does not maintain —
+            // which leaves the layer untracked here and its updates needing features:fullEdit,
+            // the safe direction for a downgrade.
+            EditRole tracks = entry.TryGetProperty("tracks", out JsonElement t)
+                && t.ValueKind == JsonValueKind.String
+                && Enum.TryParse(t.GetString(), ignoreCase: true, out EditRole role)
+                && Enum.IsDefined(role)
+                    ? role
+                    : EditRole.None;
+
+            read.Add(new FieldOverride(column.GetString()!, alias, hidden, tracks));
         }
 
         return read.ToImmutable();
@@ -89,12 +100,22 @@ internal static class FieldOverrideJson
                 continue;
             }
 
-            stored.Add(new Dictionary<string, object?>
+            Dictionary<string, object?> entry = new()
             {
                 ["column"] = says.Column,
                 ["alias"] = string.IsNullOrWhiteSpace(says.Alias) ? null : says.Alias,
                 ["hidden"] = says.Hidden,
-            });
+            };
+
+            // <b>Only when it says something</b>, so a layer that tracks nothing stores exactly
+            // what it stored before ADR-064 — and an older build reading it finds no key it
+            // has to ignore.
+            if (says.Tracks != EditRole.None)
+            {
+                entry["tracks"] = says.Tracks.ToString().ToLowerInvariant();
+            }
+
+            stored.Add(entry);
         }
 
         return JsonSerializer.Serialize(stored);

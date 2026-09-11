@@ -166,7 +166,8 @@ internal static partial class OgcFeaturesEndpoints
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
         return new WriteTarget(
-            layer, collection, described, connections.WriterFor(layer, described.Fields));
+            layer, collection, described,
+            connections.WriterFor(layer, described.Fields, described.Tracking));
     }
 
     /// <summary>
@@ -414,7 +415,9 @@ internal static partial class OgcFeaturesEndpoints
 
         EditOutcome outcome = await target.Writer
             .ApplyAsync(
-                new EditBatch([new FeatureAdd(read.Attributes, read.Geometry)], [], []),
+                new EditBatch(
+                    [new FeatureAdd(read.Attributes, read.Geometry)], [], [],
+                    Editor: Editor(context)),
                 cancellation)
             .ConfigureAwait(false);
 
@@ -589,13 +592,12 @@ internal static partial class OgcFeaturesEndpoints
           so a caller who could not previously discover a collection still cannot. What
           changed is only which of two identical-looking refusals arrives first.
         */
-        // <b>The wider privilege, as on the ArcGIS face.</b> D-20 records that this
-        // server maps every update and delete to `features:fullEdit` because editor
-        // tracking does not exist, so *your own features* cannot be distinguished from
-        // everybody's.
-        if (!await Authorize
-                .RequireEditAsync(context, Privilege.FeaturesFullEdit, target.Layer)
-                .ConfigureAwait(false))
+        // <b>Every feature, or only the caller's own — ADR-064, as on the ArcGIS face.</b> This
+        // asked for `features:fullEdit` outright while D-20 was open, because without editor
+        // tracking *your own features* could not be told from everybody's.
+        if (await Authorize
+                .RequireChangeAsync(context, target.Layer, target.Described.Tracking)
+                .ConfigureAwait(false) is not { } scope)
         {
             return;
         }
@@ -646,7 +648,9 @@ internal static partial class OgcFeaturesEndpoints
                     [],
                     [new FeatureUpdate(objectId, read.Attributes, read.Geometry)],
                     [],
-                    Expects: expects),
+                    Expects: expects,
+                    Editor: Editor(context),
+                    OwnOnly: scope == Authorize.ChangeScope.Own),
                 cancellation)
             .ConfigureAwait(false);
 
@@ -688,9 +692,10 @@ internal static partial class OgcFeaturesEndpoints
           so a caller who could not previously discover a collection still cannot. What
           changed is only which of two identical-looking refusals arrives first.
         */
-        if (!await Authorize
-                .RequireEditAsync(context, Privilege.FeaturesFullEdit, target.Layer)
-                .ConfigureAwait(false))
+        // ADR-064: every feature, or only the caller's own — as for an update.
+        if (await Authorize
+                .RequireChangeAsync(context, target.Layer, target.Described.Tracking)
+                .ConfigureAwait(false) is not { } scope)
         {
             return;
         }
@@ -722,7 +727,13 @@ internal static partial class OgcFeaturesEndpoints
         }
 
         EditOutcome outcome = await target.Writer
-            .ApplyAsync(new EditBatch([], [], [objectId], Expects: expects), cancellation)
+            .ApplyAsync(
+                new EditBatch(
+                    [], [], [objectId],
+                    Expects: expects,
+                    Editor: Editor(context),
+                    OwnOnly: scope == Authorize.ChangeScope.Own),
+                cancellation)
             .ConfigureAwait(false);
 
         await AuditWriteAsync(context, audit, target, "delete", outcome, cancellation)
@@ -733,8 +744,14 @@ internal static partial class OgcFeaturesEndpoints
     }
 
     /// <summary>
+    /// The account making an edit, which a tracked layer's rows are signed with — ADR-064.
+    /// </summary>
+    private static string Editor(HttpContext context) =>
+        context.Features.Get<RequestPrincipal>()!.Principal.Name;
+
+    /// <summary>
     /// 204 when the one edit worked, 404 when the row was not there, 412 when a stated
-    /// precondition did not hold, 400 otherwise.
+    /// precondition did not hold, 403 when the row is not the caller's to change, 400 otherwise.
     /// </summary>
     /// <remarks>
     /// <b>A missing row is 404 and not a failed edit.</b> The writer reports *no such
@@ -766,6 +783,19 @@ internal static partial class OgcFeaturesEndpoints
                 OgcProblem.PreconditionFailed(
                     results[0].Error
                     ?? $"`{featureId}` has changed since the version you asked to edit."))
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        // <b>403, because the request was well formed and the feature is there</b> — ADR-064. It
+        // is somebody else's, or nobody's, and `features:fullEdit` is what reaches it; 400 would
+        // send the client looking for a mistake in its body.
+        if (results.Count > 0 && results[0].NotYours)
+        {
+            await RefuseAsync(
+                context,
+                OgcProblem.Forbidden(results[0].Error ?? $"`{featureId}` is not yours to change."))
                 .ConfigureAwait(false);
 
             return;

@@ -267,7 +267,10 @@ goes through `IFeatureWriter` — the path ArcGIS `applyEdits` takes, with the s
 rollback rule, the same per-service request and edit ceilings (Q-113), the same
 privileges (`features:edit` to create, `features:fullEdit` to change or delete, which is
 [D-20](../architecture-debt.md)'s mapping) and the same audit shape. Two faces, one
-transaction story.
+transaction story. *(2026-09-11: the mapping changed on both faces at once —
+[ADR-064](ADR-064-editor-tracking-and-what-features-edit-means.md). On a layer that records its
+creators `features:edit` changes and deletes the caller's own features, and this face answers
+`403` for somebody else's; an untracked layer keeps the mapping written here. D-20 is closed.)*
 
 **GeoJSON is longitude/latitude in WGS 84 and the layer usually is not.** RFC 7946 fixes
 the reference, and the writer stamps the layer's SRID onto the bytes it is given without

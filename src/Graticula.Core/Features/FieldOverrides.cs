@@ -54,6 +54,7 @@ public static class FieldOverrides
         }
 
         List<FieldDescription> kept = new(described.Fields.Count);
+        List<FieldOverride> tracked = [];
         bool changed = false;
 
         foreach (FieldDescription field in described.Fields)
@@ -77,21 +78,44 @@ public static class FieldOverrides
             }
 
             string? alias = string.IsNullOrWhiteSpace(says.Alias) ? null : says.Alias;
+            FieldDescription next = field;
 
             if (!string.Equals(alias, field.Alias, StringComparison.Ordinal))
             {
-                changed = true;
-                kept.Add(field with { Alias = alias });
-                continue;
+                next = next with { Alias = alias };
             }
 
-            kept.Add(field);
+            // <b>ADR-064: a column with an edit role is this server's to write.</b> Marked here,
+            // once, so the document that reports it not editable and the writer that replaces
+            // what a client sent read the same fact.
+            if (says.Tracks != EditRole.None && !field.Maintained)
+            {
+                next = next with { Maintained = true };
+            }
+
+            if (next != field)
+            {
+                changed = true;
+            }
+
+            kept.Add(next);
+
+            if (says.Tracks != EditRole.None)
+            {
+                tracked.Add(says);
+            }
         }
+
+        // <b>Tracking from the columns that are there</b>, so a role left on a dropped column
+        // tracks nothing rather than naming a column every write would then fail on.
+        EditorTracking tracking = tracked.Count == 0 ? EditorTracking.None : EditorTracking.From(tracked);
 
         // <b>An override that matched nothing is not a change.</b> A layer whose only
         // overrides name dropped columns describes exactly what the table describes, and
         // rebuilding the list to say so would allocate for a difference nobody can observe.
-        return changed ? described with { Fields = kept } : described;
+        return changed || tracking.Any
+            ? described with { Fields = changed ? kept : described.Fields, Tracking = tracking }
+            : described;
     }
 
     /// <summary>

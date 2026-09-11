@@ -102,6 +102,13 @@ internal static partial class AdminEndpoints
         List<FieldOverride> wanted = [];
         HashSet<string> seen = new(StringComparer.Ordinal);
 
+        // ADR-064: each role in one column, and a role only on a column that can hold it — which
+        // needs the table's own shape, hidden columns included, since that is what is written to.
+        HashSet<EditRole> roles = [];
+
+        (_, LayerDescription table) = await contexts.TableAsync(layer, cancellation)
+            .ConfigureAwait(false);
+
         foreach (FieldOverrideEntry entry in request.Overrides ?? [])
         {
             string column = (entry.Column ?? string.Empty).Trim();
@@ -167,7 +174,71 @@ internal static partial class AdminEndpoints
                 return;
             }
 
-            wanted.Add(new FieldOverride(column, alias, entry.Hidden));
+            // <b>ADR-064 condition 3: a role is refused here, on a column that cannot hold it,
+            // rather than discovered at the first edit.</b> A write that fails on a bad role
+            // fails for whoever edits next, for a reason nobody wrote down when it was set.
+            EditRole tracks = EditRole.None;
+
+            if (!string.IsNullOrWhiteSpace(entry.Tracks))
+            {
+                if (!Enum.TryParse(entry.Tracks.Trim(), ignoreCase: true, out tracks)
+                    || !Enum.IsDefined(tracks)
+                    || tracks == EditRole.None)
+                {
+                    await Refuse(
+                        context, 400,
+                        $"'{entry.Tracks}' is not something a column can record. A column records "
+                        + "one of: creator, created, editor, edited.")
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                if (!roles.Add(tracks))
+                {
+                    await Refuse(
+                        context, 400,
+                        $"Two columns are given the role '{entry.Tracks.Trim().ToLowerInvariant()}'. "
+                        + "Each role is recorded in one column, or the server would not know "
+                        + "which to write.")
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                if (entry.Hidden)
+                {
+                    await Refuse(
+                        context, 400,
+                        $"'{column}' records {Recorded(tracks)}, so it cannot be hidden: clients read "
+                        + "who changed a feature from it, and editing on this layer depends on it.")
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                if (table.Find(column) is not { } field)
+                {
+                    await Refuse(
+                        context, 400,
+                        $"'{column}' is not a column of this layer's table, so it cannot record "
+                        + $"{Recorded(tracks)}.")
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                bool holdsName = tracks is EditRole.Creator or EditRole.Editor;
+
+                if (field.Type != (holdsName ? FieldType.Text : FieldType.Date))
+                {
+                    await Refuse(
+                        context, 400,
+                        holdsName
+                            ? $"'{column}' is not a text column, so it cannot hold an account's name."
+                            : $"'{column}' is not a date column, so it cannot hold {Recorded(tracks)}.")
+                        .ConfigureAwait(false);
+                    return;
+                }
+            }
+
+            wanted.Add(new FieldOverride(column, alias, entry.Hidden, tracks));
         }
 
         if (!await catalog.SetFieldOverridesAsync(layer.Id, wanted, cancellation)
@@ -198,9 +269,10 @@ internal static partial class AdminEndpoints
     /// <remarks>
     /// <b>The identity columns, because the protocol requires them and a layer without them is
     /// not a layer.</b> ArcGIS addresses a feature by its object id and OGC API Features by its
-    /// id; a document without either offers features nobody can ask for again. Editor-tracking
-    /// columns belong on this list too and are not here because they do not exist yet — ADR-013
-    /// §5a is unbuilt — so the first commit that adds them adds them here.
+    /// id; a document without either offers features nobody can ask for again. <b>Editor-tracking
+    /// columns are locked too, since ADR-064</b> — not here, because a role is a property of the
+    /// overrides rather than of the definition: the write refuses a hidden tracked column where
+    /// it reads the role, and the answer marks one locked beside its hide box.
     /// </remarks>
     private static string? Unhideable(PublishedLayer layer, string column)
     {
@@ -256,14 +328,30 @@ internal static partial class AdminEndpoints
                     nullable = f.Nullable,
                     alias = said?.Alias,
                     hidden = said?.Hidden ?? false,
-                    locked = Unhideable(layer, f.Name),
+
+                    // ADR-064: what the column records about edits, or null.
+                    tracks = Role(said?.Tracks ?? EditRole.None),
+
+                    // <b>A tracked column is locked like an identity column</b>, and the Fields
+                    // page draws its hide box disabled with this sentence beside it.
+                    locked = Unhideable(layer, f.Name)
+                        ?? (said?.Tracks is { } role && role != EditRole.None
+                            // Two sentences, because the page shows the first under the box and
+                            // keeps the whole for its tooltip — a design review found one long
+                            // sentence running to nine lines in a narrow column.
+                            ? $"it records {Recorded(role)}. Clients read it, and editing on this "
+                              + "layer depends on it."
+                            : null),
                 };
             }),
 
             // <b>ADR-063 condition 3: inert is the design, visible is the condition.</b> An
             // override that names a column this table does not have changes nothing — and an
             // operator who renamed a column and lost its label has to be able to see why.
-            inert = inert.Select(o => new { column = o.Column, alias = o.Alias, hidden = o.Hidden }),
+            inert = inert.Select(o => new
+            {
+                column = o.Column, alias = o.Alias, hidden = o.Hidden, tracks = Role(o.Tracks),
+            }),
 
             note = inert.Count == 0
                 ? "Every override names a column this table has."
@@ -280,8 +368,33 @@ internal static partial class AdminEndpoints
         [property: JsonPropertyName("overrides")] IReadOnlyList<FieldOverrideEntry>? Overrides);
 
     /// <summary>One entry of <see cref="FieldOverridesRequest"/>.</summary>
+    /// <param name="Column">The column it is about.</param>
+    /// <param name="Alias">Its label, or null.</param>
+    /// <param name="Hidden">Whether every face refuses it.</param>
+    /// <param name="Tracks">
+    /// What it records about edits — <c>creator</c>, <c>created</c>, <c>editor</c> or
+    /// <c>edited</c> — or null. ADR-064. Last and optional, so a body written before editor
+    /// tracking existed means what it meant.
+    /// </param>
     internal sealed record FieldOverrideEntry(
         [property: JsonPropertyName("column")] string? Column,
         [property: JsonPropertyName("alias")] string? Alias,
-        [property: JsonPropertyName("hidden")] bool Hidden);
+        [property: JsonPropertyName("hidden")] bool Hidden,
+        [property: JsonPropertyName("tracks")] string? Tracks = null);
+
+    /// <summary>A role's wire name, or null for none — the word the request takes back.</summary>
+    private static string? Role(EditRole role) =>
+        role == EditRole.None ? null : role.ToString().ToLowerInvariant();
+
+    /// <summary>What a role records, in the words a refusal uses.</summary>
+    private static string Recorded(EditRole role) => role switch
+    {
+        EditRole.Creator => "who created each feature",
+        EditRole.Created => "when each feature was created",
+        EditRole.Editor => "who last changed each feature",
+        EditRole.Edited => "when each feature was last changed",
+
+        // enum-default-is-deliberate: None records nothing, and no caller asks for it.
+        _ => "nothing",
+    };
 }

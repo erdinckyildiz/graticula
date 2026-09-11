@@ -3188,15 +3188,14 @@ public static class Program
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>The privilege mapping is stricter than ArcGIS Portal's, deliberately.</b>
-    /// Portal separates <em>edit</em> — add, and change your own features — from
-    /// <em>full edit</em>, which reaches everybody's. That distinction rests on
-    /// editor tracking, which records who created each row, and editor tracking
-    /// is deferred (Q-58). Without it we cannot tell whose feature is whose, so
-    /// treating an update as "probably yours" would be a guess with somebody
-    /// else's data. Adds need <c>features:edit</c>; updates and deletes need
-    /// <c>features:fullEdit</c>, and that is narrower than Portal until Q-58
-    /// lands.
+    /// <b>The privilege mapping is Portal's on a layer that records who created each row —
+    /// ADR-064.</b> Portal separates <em>edit</em> — add, and change your own features — from
+    /// <em>full edit</em>, which reaches everybody's. Adds need <c>features:edit</c>. Updates
+    /// and deletes need <c>features:fullEdit</c>, or <c>features:edit</c> for the caller's own
+    /// features on an editor-tracked layer. On a layer that records no creator the server
+    /// cannot tell whose a feature is, and treating an update as "probably yours" would be a
+    /// guess with somebody else's data, so there it stays <c>features:fullEdit</c> — which is
+    /// where D-20's narrowing used to apply to every layer.
     /// </para>
     /// <para>
     /// <b>Editing requires being able to read.</b> The sharing scope is checked
@@ -3383,7 +3382,9 @@ public static class Program
           feature is whose — so *change your own* is unenforceable and updates ask for the
           wider grant. A group with `allItems` is the case where that distinction has no work
           to do: every member may change everything shared with the group, by the group's own
-          setting, so there is nothing for editor tracking to decide.
+          setting, so there is nothing for editor tracking to decide. Editor tracking exists
+          since ADR-064 and this still holds on a tracked layer: `RequireChangeAsync` below
+          answers *every feature* for a group's editing, not *the member's own*.
 
           <b>Read access was settled long before this line.</b> `ServiceLookup` answered 404
           for a layer this caller cannot see, so nothing here can widen reading — and
@@ -3412,15 +3413,27 @@ public static class Program
             return;
         }
 
-        if ((updates is not null || deletes is not null)
-            && !await Authorize.RequireEditAsync(context, Privilege.FeaturesFullEdit, layer)
-                .ConfigureAwait(false))
-        {
-            return;
-        }
-
         (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
             .ConfigureAwait(false);
+
+        // <b>Updates and deletes reach every feature or only the caller's own — ADR-064.</b>
+        // This asked for features:fullEdit outright until 2026-09-11, because without editor
+        // tracking the server could not tell whose a feature was (D-20). On a layer that records
+        // its creators, features:edit now reaches the caller's own, which is what it means in
+        // Portal; on one that does not, the refusal is the one this always gave. The description
+        // is read first because the answer depends on which of its columns record edits.
+        bool ownOnly = false;
+
+        if (updates is not null || deletes is not null)
+        {
+            if (await Authorize.RequireChangeAsync(context, layer, description.Tracking)
+                    .ConfigureAwait(false) is not { } scope)
+            {
+                return;
+            }
+
+            ownOnly = scope == Authorize.ChangeScope.Own;
+        }
 
         ApplyEditsRequest.Parsed? parsed = ApplyEditsRequest.TryParse(
             adds, updates, deletes,
@@ -3471,9 +3484,18 @@ public static class Program
             return;
         }
 
+        // <b>The account signs what it writes, and own-only rides on the batch — ADR-064.</b> The
+        // writer fills a tracked layer's creator and editor columns with this name and, for a
+        // features:edit caller, changes only rows whose creator it is.
+        EditBatch batch = parsed.Batch with
+        {
+            Editor = context.Features.Get<RequestPrincipal>()!.Principal.Name,
+            OwnOnly = ownOnly,
+        };
+
         EditOutcome outcome = await connections
-            .WriterFor(layer, description.Fields)
-            .ApplyAsync(parsed.Batch, cancellation)
+            .WriterFor(layer, description.Fields, description.Tracking)
+            .ApplyAsync(batch, cancellation)
             .ConfigureAwait(false);
 
         await AuditEditsAsync(
@@ -3794,7 +3816,9 @@ public static class Program
             return Join(limits.Restrict(["Query"]));
         }
 
-        return Join(limits.Restrict(PrivilegedCapabilities(context)));
+        // ADR-064: on a layer that records its creators, features:edit may change its own.
+        return Join(limits.Restrict(PrivilegedCapabilities(
+            context, Graticula.Catalog.EditorTracking.From(layer.FieldOverrides).IsOn)));
     }
 
     /// <summary>
@@ -3914,7 +3938,13 @@ public static class Program
     }
 
     /// <summary>What the caller's privileges alone would allow.</summary>
-    private static List<string> PrivilegedCapabilities(HttpContext context)
+    /// <param name="context">The request.</param>
+    /// <param name="tracked">
+    /// Whether the layer records who created each feature — ADR-064. On such a layer
+    /// <c>features:edit</c> may update and delete the caller's own features, so the document
+    /// offers it <c>Update</c> and <c>Delete</c>, and ownership decides feature by feature.
+    /// </param>
+    private static List<string> PrivilegedCapabilities(HttpContext context, bool tracked = false)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
@@ -3925,7 +3955,8 @@ public static class Program
             capabilities.Add("Create");
         }
 
-        if (current.Authorization.Allows(Privilege.FeaturesFullEdit))
+        if (current.Authorization.Allows(Privilege.FeaturesFullEdit)
+            || (tracked && current.Authorization.Allows(Privilege.FeaturesEdit)))
         {
             capabilities.Add("Update");
             capabilities.Add("Delete");

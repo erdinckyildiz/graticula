@@ -358,13 +358,21 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// Its real columns, which the writer uses as the identifier whitelist
     /// ADR-008 §4.6 requires.
     /// </param>
-    public IFeatureWriter WriterFor(PublishedLayer layer, IReadOnlyList<FieldDescription> fields)
+    /// <param name="tracking">
+    /// Which columns record edits — ADR-064, from the layer's description. Last and optional, so
+    /// a caller that has none means an untracked layer.
+    /// </param>
+    public IFeatureWriter WriterFor(
+        PublishedLayer layer,
+        IReadOnlyList<FieldDescription> fields,
+        Graticula.Catalog.EditorTracking? tracking = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
 
         return new PostGisFeatureWriter(
-            PoolFor(layer.ConnectionString), layer.Definition, fields);
+            PoolFor(layer.ConnectionString), layer.Definition, fields,
+            tracking ?? Graticula.Catalog.EditorTracking.None);
     }
 
     /// <summary>A tile source for one layer, over the same shared pool.</summary>

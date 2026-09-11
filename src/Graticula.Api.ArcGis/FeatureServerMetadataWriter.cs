@@ -760,6 +760,32 @@ public static class FeatureServerMetadataWriter
 
             capabilities,
 
+            // <b>Editor tracking, as the ArcGIS REST reference names it — ADR-064.</b> Which
+            // columns record who created and last changed a feature and when, and — once a
+            // creator is recorded — that an account may change only its own. Null on a layer
+            // that records none, so a client is told there is no tracking rather than left to
+            // guess from an absent key.
+            editFieldsInfo = description.Tracking.Any
+                ? (object?)new
+                {
+                    creationDateField = description.Tracking.Created,
+                    creatorField = description.Tracking.Creator,
+                    editDateField = description.Tracking.Edited,
+                    editorField = description.Tracking.Editor,
+
+                    // The dates are the database's clock, written as timestamps with a zone.
+                    dateFieldsTimeReference = new { timeZone = "UTC", respectsDaylightSaving = false },
+                }
+                : null,
+            ownershipBasedAccessControlForFeatures = description.Tracking.IsOn
+                ? (object?)new
+                {
+                    allowOthersToQuery = true,
+                    allowOthersToUpdate = false,
+                    allowOthersToDelete = false,
+                }
+                : null,
+
             // <b>What this layer looks like, which this document said nothing about until
             // 2026-08-17 (ADR-033).</b> An ArcGIS client with no `drawingInfo` invents a
             // default, so the same layer arrived grey in one client and blue in another
@@ -959,7 +985,12 @@ public static class FeatureServerMetadataWriter
             // assigned by the database, and a client offering to change it would
             // be offering to break every reference to the feature.
             editable = capabilities.Contains("Update", StringComparison.Ordinal)
-                && !string.Equals(field.Name, layer.IntegerIdentityColumn, StringComparison.Ordinal),
+                && !string.Equals(field.Name, layer.IntegerIdentityColumn, StringComparison.Ordinal)
+
+                // <b>ADR-064: who created or changed a row, and when, is this server's to
+                // write.</b> The writer replaces whatever a client sends for these, and the
+                // document says so here rather than letting a client find out.
+                && !field.Maintained,
             domain = (object?)null,
         })];
 
