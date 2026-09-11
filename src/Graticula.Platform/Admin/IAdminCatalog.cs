@@ -952,4 +952,49 @@ public interface IAdminCatalog
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>Whether a layer was removed.</returns>
     Task<bool> UnpublishLayerAsync(Guid layerId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// How large the datastore is, and whose hosted layers fill it — D-237.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The database's size and each owner's share of the hosted tables.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Read from PostgreSQL rather than counted here, so it cannot drift.</b> A number this
+    /// server accumulated as uploads arrived would be wrong the first time somebody dropped a
+    /// table by hand or a vacuum returned space; `pg_total_relation_size` is the table's own
+    /// answer, indexes and TOAST included.
+    /// </para>
+    /// <para>
+    /// <b>Hosted layers only.</b> A registered source is somebody else's database, and the
+    /// connection this server was given there may not be granted the read. Attachments are
+    /// counted with the layer they belong to — the companion table and its chunks — because that
+    /// is where ADR-013's uploads land and they are the likelier of the two to fill a disk.
+    /// </para>
+    /// <para>
+    /// <b>A table two services share is charged to both owners</b>, and to the store once. That
+    /// is rare for hosted data — the Publish screen does not offer the datastore's tables — and
+    /// charging it to neither would hide it.
+    /// </para>
+    /// </remarks>
+    Task<DatastoreUsage> DatastoreUsageAsync(CancellationToken cancellationToken);
 }
+
+/// <summary>What one owner's hosted layers occupy in the datastore — D-237.</summary>
+/// <param name="Owner">The owning principal, or null for services nobody owns.</param>
+/// <param name="OwnerName">Their name, or null.</param>
+/// <param name="Tables">How many distinct tables their hosted layers read.</param>
+/// <param name="FeatureBytes">Those tables, with their indexes and TOAST.</param>
+/// <param name="AttachmentBytes">Their attachment tables and chunks.</param>
+public sealed record DatastoreOwnerUsage(
+    Guid? Owner, string? OwnerName, int Tables, long FeatureBytes, long AttachmentBytes);
+
+/// <summary>The datastore's size, and who is filling it — D-237.</summary>
+/// <param name="DatabaseBytes">
+/// The whole database the datastore lives in — which also holds the platform store, and any
+/// other schema somebody put there. It is the figure the disk sees.
+/// </param>
+/// <param name="HostedBytes">Every distinct hosted table and its attachments, counted once.</param>
+/// <param name="Owners">Each owner's share, largest first.</param>
+public sealed record DatastoreUsage(
+    long DatabaseBytes, long HostedBytes, IReadOnlyList<DatastoreOwnerUsage> Owners);

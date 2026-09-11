@@ -311,6 +311,10 @@ public static class Program
         // read back by `/admin/health`.
         builder.Services.AddSingleton<DatumShiftNotices>();
 
+        // D-237: the datastore's size, held for a minute because Operations samples every five
+        // seconds and the answer moves when somebody uploads.
+        builder.Services.AddSingleton<DatastoreUsageHold>();
+
         // <b>ADR-007 §4.8's connection cap, which the ADR has required since 2026-08-12.</b>
         // Registered before `LayerConnections` because that is what consumes it: every read path
         // gets its source from there, so one wrapper bounds them all. Q-04 has the numbers.

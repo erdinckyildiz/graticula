@@ -5931,6 +5931,7 @@ internal static partial class AdminEndpoints
         TileSingleFlight flight,
         ConnectionBudget budget,
         DatumShiftNotices datumShifts,
+        DatastoreUsageHold datastoreUsage,
         CancellationToken cancellation)
     {
         string? storeError = null;
@@ -6176,6 +6177,50 @@ internal static partial class AdminEndpoints
                  + "number that says how much of the tile traffic the datastore is actually "
                  + "seeing. X-Tile-Cache on a tile response says HIT or MISS.",
         };
+
+        /*
+          <b>How large the datastore is, and whose layers fill it — D-237.</b> Q-61 asked for
+          per-user quotas and got a *no*; the accounting stayed owed although the enforcement did
+          not, because without it a publisher uploading through the night is found by PostgreSQL
+          rather than by anybody reading this page. Held for a minute, since Operations samples
+          every five seconds and the statement grows with the number of hosted tables. Skipped
+          while the store is unreachable: it would only wait for the same failure again.
+        */
+        if (storeError is null)
+        {
+            try
+            {
+                DatastoreUsageHold.Reading reading = await datastoreUsage
+                    .ReadAsync(catalog.DatastoreUsageAsync, cancellation)
+                    .ConfigureAwait(false);
+
+                const int Listed = 20;
+
+                health["datastore"] = new
+                {
+                    databaseBytes = reading.Usage.DatabaseBytes,
+                    hostedBytes = reading.Usage.HostedBytes,
+                    owners = reading.Usage.Owners.Take(Listed).Select(o => new
+                    {
+                        owner = o.OwnerName,
+                        tables = o.Tables,
+                        featureBytes = o.FeatureBytes,
+                        attachmentBytes = o.AttachmentBytes,
+                    }),
+                    ownersNotListed = Math.Max(0, reading.Usage.Owners.Count - Listed),
+                    measuredAt = reading.At,
+                    holdSeconds = (int)DatastoreUsageHold.Hold.TotalSeconds,
+                    note = "Hosted layers and their attachments as PostgreSQL sizes them, by the "
+                         + "owner of the service that serves them. databaseBytes is the whole "
+                         + "database the datastore lives in, which also holds the platform store. "
+                         + "No quota is enforced on either.",
+                };
+            }
+            catch (NpgsqlException measuring)
+            {
+                health["datastore"] = new { error = measuring.Message };
+            }
+        }
 
         health["describedShapes"] = new
         {

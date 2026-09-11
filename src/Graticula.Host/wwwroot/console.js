@@ -14340,6 +14340,37 @@ async function loadOperations() {
     metric("Shape lifetime", `${num(shapes.lifetimeSeconds)}<small>s</small>`);
   $("cacheNotes").textContent = [tiles.note, shapes.note].filter(Boolean).join(" ");
 
+  // <b>How large the store is, and whose layers fill it — D-237.</b> The server holds this for a
+  // minute, so when it was measured is said beside it rather than implied by this page's clock.
+  const datastore = health.datastore;
+
+  if ($("datastoreMetrics")) {
+    const owners = datastore?.owners || [];
+    const shown = owners.slice(0, 5);
+
+    $("datastoreMetrics").innerHTML = !datastore
+      ? metric("Hosted data", "—", "not measured while the platform store is unreachable")
+      : datastore.error
+        ? metric("Hosted data", "unreadable", datastore.error)
+        : metric("Hosted data", bytes(datastore.hostedBytes))
+          + metric("Database on disk", bytes(datastore.databaseBytes),
+                   "the whole database, platform store included")
+          + shown.map(o => metric(
+              o.owner || "nobody",
+              bytes(o.featureBytes + o.attachmentBytes),
+              `${num(o.tables)} ${o.tables === 1 ? "table" : "tables"}`
+                + (o.attachmentBytes ? ` · ${bytesPlain(o.attachmentBytes)} of attachments` : "")))
+            .join("");
+
+    const unshown = owners.length - shown.length + (datastore?.ownersNotListed || 0);
+
+    $("datastoreNote").textContent = datastore && !datastore.error
+      ? `Measured at ${new Date(datastore.measuredAt).toLocaleTimeString()} and held for `
+        + `${datastore.holdSeconds} s.`
+        + (unshown > 0 ? ` ${num(unshown)} smaller ${unshown === 1 ? "owner is" : "owners are"} not shown.` : "")
+      : "";
+  }
+
   const { routes, ungoverned } = await api("/admin/routes");
 
   // ADR-018 condition 5 is a number that is zero or is not, which is exactly what a dot can say.

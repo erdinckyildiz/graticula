@@ -762,6 +762,19 @@
           Sharing and started/stopped are deliberately never cached.</p>
         <p class="hint" id="cacheNotes"></p>
       </div>
+
+      <!--
+        <b>D-237: how large the store is, and whose layers fill it.</b> The failure this answers
+        is the one nobody watches — a publisher uploading through the night — and until this card
+        there was no number anywhere in the product that would have shown it coming.
+      -->
+      <div class="panel pad opscard">
+        <h4>Datastore</h4>
+        <dl class="metrics" id="datastoreMetrics"></dl>
+        <p class="hint">Hosted layers and their attachments, read from PostgreSQL rather than
+          counted here. This server sets no quota; the figure is what the disk is holding.</p>
+        <p class="hint" id="datastoreNote"></p>
+      </div>
     </div>
 
     <!--

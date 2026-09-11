@@ -1809,6 +1809,101 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         return previous is string text ? ParseStatus(text) : null;
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>One statement against the platform store's own connection</b>, which works because
+    /// the datastore is the same database by construction — `Program.DatastoreConnection` is the
+    /// platform store's connection string with the search path cleared. So `layer` and the
+    /// tables it names are both visible here, and `pg_total_relation_size` is PostgreSQL
+    /// answering for the files rather than this server remembering what it wrote.
+    /// </para>
+    /// <para>
+    /// <b>`to_regclass`, so a table somebody dropped by hand is zero rather than an error.</b>
+    /// A layer whose table is gone is already a broken layer and says so elsewhere; failing the
+    /// whole report over it would hide every other owner's figure behind one missing file.
+    /// </para>
+    /// <para>
+    /// <b>Measured 2026-09-11</b>: 37 ms over eight hosted tables and 81 ms over thirteen, plus
+    /// 35–45 ms for `pg_database_size` — which is why the host holds the answer for a minute
+    /// rather than asking on every five-second sample the Operations screen takes.
+    /// </para>
+    /// </remarks>
+    public async Task<DatastoreUsage> DatastoreUsageAsync(CancellationToken cancellationToken)
+    {
+        // <b>Distinct by owner and table, then summed</b>, so a layer published twice from one
+        // table is one table — and the store-wide figure is a second sum over distinct tables,
+        // so a table two owners share is counted once for the disk.
+        const string Sql = """
+            with hosted as (
+                select distinct s.owner_principal_id as owner, l.schema_name, l.table_name
+                  from layer l
+                  join data_source d on d.id = l.data_source_id
+                  join service s on s.id = l.service_id
+                 where d.is_datastore
+            ),
+            sized as (
+                select h.owner, h.schema_name, h.table_name,
+                       coalesce(pg_total_relation_size(
+                           to_regclass(format('%I.%I', h.schema_name, h.table_name))), 0)
+                           as features,
+                       coalesce(pg_total_relation_size(
+                           to_regclass(format('%I.%I', h.schema_name, h.table_name || '__attach'))), 0)
+                     + coalesce(pg_total_relation_size(
+                           to_regclass(format('%I.%I', h.schema_name, h.table_name || '__attach_chunk'))), 0)
+                           as attachments
+                  from hosted h
+            )
+            select z.owner, p.name, count(*)::int,
+                   sum(z.features)::bigint, sum(z.attachments)::bigint,
+                   (select coalesce(sum(t.features + t.attachments), 0)::bigint
+                      from (select distinct schema_name, table_name, features, attachments
+                              from sized) t) as hosted,
+                   pg_database_size(current_database()) as database
+              from sized z
+              left join principal p on p.id = z.owner
+             group by z.owner, p.name
+             order by sum(z.features + z.attachments) desc, p.name
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        List<DatastoreOwnerUsage> owners = [];
+        long hosted = 0;
+        long database = -1;
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            owners.Add(new DatastoreOwnerUsage(
+                reader.IsDBNull(0) ? null : reader.GetGuid(0),
+                reader.IsDBNull(1) ? null : reader.GetString(1),
+                reader.GetInt32(2),
+                reader.GetInt64(3),
+                reader.GetInt64(4)));
+
+            hosted = reader.GetInt64(5);
+            database = reader.GetInt64(6);
+        }
+
+        await reader.DisposeAsync().ConfigureAwait(false);
+
+        // <b>No hosted layer at all is an answer, not an absence.</b> The grouped statement
+        // returns no row then, so the database's size is asked for on its own — a new
+        // deployment's store is still on a disk.
+        if (database < 0)
+        {
+            await using NpgsqlCommand size = _dataSource.CreateCommand(
+                "select pg_database_size(current_database())");
+
+            database = (long)(await size.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
+                ?? 0L);
+        }
+
+        return new DatastoreUsage(database, hosted, owners);
+    }
+
     /// <summary>The wire form of a service status.</summary>
     public static string Wire(ServiceStatus status) =>
         status == ServiceStatus.Started ? "started" : "stopped";
