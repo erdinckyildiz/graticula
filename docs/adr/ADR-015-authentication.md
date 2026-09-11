@@ -112,6 +112,54 @@ are willing to accept. If measurement contradicts this, §9's condition covers i
 **JWTs still appear at the edges** — an OIDC provider issues them and we validate
 one during login. We do not mint them as our own session tokens.
 
+## 3a. Amended 2026-09-11 — the anonymous caller's grants are held, and the store announces changes
+
+**By owner decision** ([D-249](../architecture-debt.md)): offered a thirty-second hold, no hold,
+or a hold that hears about changes at once, the owner chose the third — *"tutsun ama anında
+haber alsın."*
+
+**What made it a question.** §2a made anonymous a principal so that a public portal is a row
+rather than a branch, and the price was that every anonymous request read that row:
+`GrantsOfAsync`, a join from `principal` to `principal_role` with two subqueries over group
+membership, for a caller with no session. Condition 1 below measured the *session* lookup and
+found it immaterial at 24 callers. It never measured this one, and
+[pipeline-ceiling](../../benchmarks/pipeline-ceiling/RESULTS.md) found it was the ceiling: the
+path that skips it ran 2.6× to 3.9× faster than the one that pays it.
+
+**The shape, and why it has no clock.**
+
+- `AnonymousGrants` holds the anonymous principal's answer. It serves it **only while a
+  subscription is up**; before the listener connects, after it drops, or on a server where it
+  never connects, every anonymous request reads the store exactly as before. The cache can be
+  absent; it cannot be stale.
+- **Migration 44** puts a trigger on `principal_role`, on `principal.user_type` and on
+  `sharing_group_member` — the three tables `GrantsOfAsync` reads — that calls
+  `pg_notify('graticula_grants', schema:principal)`. `TG_TABLE_SCHEMA`, not the writing
+  session's search path, so an operator's hand-written statement against a qualified table is
+  heard.
+- `PostgresGrantsListener` holds **one connection outside every pool** with `LISTEN` on that
+  channel, clears the held answer on an announcement for its own store's anonymous principal
+  and ignores the rest, proves a quiet connection is alive every thirty seconds, and turns the
+  cache off whenever it is not subscribed. It is counted in the connection ceiling.
+- **A generation**, because a read and an announcement can cross: an answer read before a
+  change and offered after its announcement is dropped rather than kept for ever.
+
+**What that leaves.** The window between a change committing and a listening server clearing
+its answer is the notification's own delivery, which is milliseconds; a request already in
+flight at that instant finishes on the old answer, as it would have with a store read taken a
+moment earlier. **Nothing in the API edits the anonymous principal** — role and user-type edits
+take users only, and D-260 closed the group door the same day — so the change this carries in
+practice is an operator's SQL, which is exactly the change a timed cache would have missed for
+its whole lifetime.
+
+**A signed-in caller is unchanged.** Their session and their grants are read on every request,
+so revocation stays immediate; that is §3's reason for opaque tokens, and this amendment does not
+touch it.
+
+**Measured** in [benchmarks/anonymous-grants](../../benchmarks/anonymous-grants/RESULTS.md): the
+same store, a build with and without the cache side by side — `/rest/info` anonymously at 128
+callers **6,394 → 46,775 req/s**, within 8% of the path that skips authentication.
+
 ---
 
 ## 4. Decision — the ArcGIS token surface, and how its damage is bounded

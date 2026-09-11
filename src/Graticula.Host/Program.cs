@@ -207,7 +207,8 @@ public static class Program
                       what has ever been needed, and it leaves the arithmetic inside a
                       database nobody has configured: 24 here + 64 for
                       [ADR-046](../../docs/adr/ADR-046-admission-control-bounds-the-queue-not-the-wait.md)'s
-                      worker budget + 2 for the job pool = **90 of 97**.
+                      worker budget + 2 for the job pool = **90 of 97** — 91 since
+                      2026-09-11, with the grant listener's one held connection (D-249).
 
                       <b>A ceiling converts the wrong failure into the right one.</b> Without
                       it, a burst takes the database out for every caller including the ones
@@ -550,11 +551,27 @@ public static class Program
         builder.Services.AddSingleton<ISetupStore>(services =>
             new PostgresSetupStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // <b>The anonymous caller's grants, held while the store's announcements are heard —
+        // D-249, owner decision 2026-09-11.</b> The listener is the only thing that turns the cache
+        // on; if it cannot connect, every anonymous request reads the store as it always did.
+        builder.Services.AddSingleton<AnonymousGrants>();
+
+        builder.Services.AddHostedService(services => new GrantsListening(
+            new PostgresGrantsListener(
+                new NpgsqlConnectionStringBuilder(settings.PlatformStore)
+                {
+                    ApplicationName = PoolNames.Of(PoolNames.Grants),
+                }.ConnectionString,
+                services.GetRequiredService<AnonymousGrants>(),
+                services.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger<PostgresGrantsListener>())));
+
         builder.Services.AddSingleton(services => new Authentication(
             services.GetRequiredService<IIdentityStore>(),
             services.GetRequiredService<TimeProvider>(),
             services.GetRequiredService<IRoleGrants>(),
-            services.GetRequiredService<SourceBreaker>()));
+            services.GetRequiredService<SourceBreaker>(),
+            services.GetRequiredService<AnonymousGrants>()));
 
         builder.Services.AddSingleton(services => new LoginService(
             services.GetRequiredService<IIdentityStore>(),
@@ -1341,7 +1358,10 @@ public static class Program
 
         int jobs = Enum.GetValues<Graticula.Platform.Jobs.JobKind>().Length;
 
-        return PlatformStorePool + budget + jobs;
+        // <b>And the one held open on purpose</b> — the grant-announcement subscription, D-249.
+        const int listener = 1;
+
+        return PlatformStorePool + budget + jobs + listener;
     }
 
     private static async Task<bool> HandshakeAsync(IServiceProvider services, ILogger logger)

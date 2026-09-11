@@ -81,6 +81,13 @@ public static class PoolNames
     /// </remarks>
     public const string Attachments = "graticula-attachments";
 
+    /// <summary>What the grant-announcement subscription calls itself.</summary>
+    /// <remarks>
+    /// <b>One connection outside every pool, held for the server's life</b> — D-249's listener.
+    /// Named so that the one session that is idle on purpose can be told from a leak.
+    /// </remarks>
+    public const string Grants = "graticula-grants";
+
     /// <summary>
     /// A <c>like</c> pattern matching every pool of every Graticula server on a database.
     /// </summary>

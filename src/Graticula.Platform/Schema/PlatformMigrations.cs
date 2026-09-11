@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(43);
+    public static SchemaVersion ComponentSchemaVersion => new(44);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -78,6 +78,7 @@ public static class PlatformMigrations
         AReferenceMayBeWrittenOutV41,
         AFieldListMayCarryOverridesV42,
         TheLayersDeadColumnsGoV43,
+        GrantChangesAreAnnouncedV44,
     ]);
 
 
@@ -2611,6 +2612,84 @@ public static class PlatformMigrations
         """
         alter table layer add constraint layer_field_overrides_is_a_list
             check (jsonb_typeof(field_overrides) = 'array')
+        """);
+
+    /// <summary>
+    /// A change to what a principal is granted is announced, so a server can hold the answer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-249](../../../docs/architecture-debt.md), by owner decision 2026-09-11:</b> the
+    /// anonymous caller's grants are held in memory, and the server hears at once when they
+    /// change — offered a thirty-second hold, no hold, or a hold with a notification, the owner
+    /// chose the third. Every anonymous request read them from this store, and that one round trip
+    /// was measured at 2.6× to 3.9× of the pipeline's ceiling.
+    /// </para>
+    /// <para>
+    /// <b>What can change them is three tables, and each announces itself.</b> A principal's roles
+    /// (<c>principal_role</c>), its user type (<c>principal.user_type</c>) and its groups
+    /// (<c>sharing_group_member</c>, which <c>GrantsOfAsync</c> reads). None of the three is
+    /// reachable for the anonymous principal through the API — role and user-type edits take users
+    /// only, and D-260 closed the group door the same day — so what this carries in practice is
+    /// an operator's hand-written SQL, which is exactly the change a cache would otherwise miss.
+    /// </para>
+    /// <para>
+    /// <b>The payload names the schema and the principal</b>, because a notification channel is
+    /// database-wide and several stores can share one database: a server ignores what is not its
+    /// own. <c>TG_TABLE_SCHEMA</c> rather than <c>current_schema()</c>, because an operator's
+    /// session editing <c>gisserver.principal_role</c> by its qualified name has some other search
+    /// path, and the announcement has to name the table that changed rather than the session that
+    /// changed it.
+    /// </para>
+    /// <para>
+    /// <b>An expand</b>: a build that does not listen is not affected by a notification nobody
+    /// hears, and a trigger adds one call to writes that happen a few times a day.
+    /// </para>
+    /// </remarks>
+    private static Migration GrantChangesAreAnnouncedV44 => Migration.Expand(
+        new SchemaVersion(44),
+        "A change to a principal's roles, user type or groups is announced to listening servers.",
+
+        """
+        create or replace function graticula_grants_changed() returns trigger
+        language plpgsql as $$
+        declare
+            who uuid;
+        begin
+            if TG_OP = 'DELETE' then
+                if TG_TABLE_NAME = 'principal' then who := old.id; else who := old.principal_id; end if;
+            else
+                if TG_TABLE_NAME = 'principal' then who := new.id; else who := new.principal_id; end if;
+            end if;
+
+            perform pg_notify('graticula_grants', TG_TABLE_SCHEMA || ':' || who::text);
+            return null;
+        end
+        $$
+        """,
+
+        "drop trigger if exists principal_role_announces on principal_role",
+
+        """
+        create trigger principal_role_announces
+            after insert or update or delete on principal_role
+            for each row execute function graticula_grants_changed()
+        """,
+
+        "drop trigger if exists principal_user_type_announces on principal",
+
+        """
+        create trigger principal_user_type_announces
+            after update of user_type on principal
+            for each row execute function graticula_grants_changed()
+        """,
+
+        "drop trigger if exists group_member_announces on sharing_group_member",
+
+        """
+        create trigger group_member_announces
+            after insert or update or delete on sharing_group_member
+            for each row execute function graticula_grants_changed()
         """);
 
     /// <summary>

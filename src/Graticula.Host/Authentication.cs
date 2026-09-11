@@ -74,11 +74,17 @@ internal sealed class Authentication
     /// principal, and a test that has to build one to check a token is paying for
     /// something it is not about.
     /// </param>
+    /// <param name="anonymous">
+    /// The anonymous caller's grants, held while the store's announcements are heard —
+    /// [D-249](../../docs/architecture-debt.md). Optional for the breaker's reason: without it
+    /// every anonymous request reads the store, which is what every one did before it existed.
+    /// </param>
     public Authentication(
         IIdentityStore store,
         TimeProvider time,
         IRoleGrants? grants = null,
-        SourceBreaker? breaker = null)
+        SourceBreaker? breaker = null,
+        AnonymousGrants? anonymous = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(time);
@@ -87,9 +93,11 @@ internal sealed class Authentication
         _grants = grants ?? CompiledRoleGrants.Instance;
         _time = time;
         _breaker = breaker;
+        _anonymous = anonymous;
     }
 
     private readonly SourceBreaker? _breaker;
+    private readonly AnonymousGrants? _anonymous;
 
     /// <summary>
     /// Resolves the principal and what it may do, defaulting to anonymous.
@@ -98,6 +106,9 @@ internal sealed class Authentication
     /// <b>Anonymous gets its grants looked up too.</b> ADR-015 §2a made it a real
     /// principal precisely so this path has no special case: whether a portal is
     /// public is then a row in <c>principal_role</c> rather than a branch here.
+    /// <b>Still a row, and since 2026-09-11 a held one</b> — ADR-015 §3a, D-249: the answer
+    /// is kept in <see cref="AnonymousGrants"/> while the store's announcements are heard,
+    /// so the row is read when it changes rather than on every request.
     /// </remarks>
     public async Task<RequestPrincipal> ResolveAsync(
         HttpContext context, CancellationToken cancellationToken)
@@ -151,11 +162,42 @@ internal sealed class Authentication
 
             Principal principal = session?.Principal ?? Principal.Anonymous;
 
+            // <b>An anonymous caller's grants come from memory while the store's announcements
+            // are heard — D-249, owner decision 2026-09-11.</b> That lookup was the whole of the
+            // store traffic an anonymous request paid, measured at 2.6x to 3.9x of the pipeline's
+            // ceiling. `AnonymousGrants` serves an answer only while a subscription is up, so a
+            // server that cannot listen reads the store exactly as it always did. <b>A hit leaves
+            // the breaker alone</b>: it is not evidence that the store answered, and telling the
+            // breaker it was would close it on a request that never asked.
+            AnonymousGrants.Snapshot? held = null;
+
+            if (session is null && _anonymous is { } cache && cache.TryGet(out held))
+            {
+                if (_grants is PostgresRoleGrants heldLive)
+                {
+                    await heldLive.EnsureFreshAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                return new RequestPrincipal(
+                    principal,
+                    null,
+                    Authorization.Resolve(
+                        held!.UserType, held.Roles, _grants, held.Groups, held.EditableGroups));
+            }
+
+            long readUnder = _anonymous?.Generation ?? 0;
+
             (string userType,
              IReadOnlyList<string> roles,
              IReadOnlyList<Guid> groups,
              IReadOnlyList<Guid> editableGroups) =
                 await _store.GrantsOfAsync(principal.Id, cancellationToken).ConfigureAwait(false);
+
+            if (session is null)
+            {
+                _anonymous?.Offer(
+                    readUnder, new AnonymousGrants.Snapshot(userType, roles, groups, editableGroups));
+            }
 
             // <b>What each role grants is read from the store now, not from a compiled table.</b>
             // ADR-035: a deployment edits its roles. The common case here is a clock comparison —
