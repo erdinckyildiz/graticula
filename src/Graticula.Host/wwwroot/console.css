@@ -3696,3 +3696,23 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
 @media (max-width: 1180px) {
   .composer { grid-template-columns: 1fr; }
 }
+
+/* ADR-063 — the layer's Fields page. The label box fills its cell so a long label is readable
+   while it is typed; the orphaned overrides are a plain list with their Remove beside them. */
+#page-fields td input[type=text] { width: 100%; min-width: 8ch; text-overflow: ellipsis; }
+
+/* Fixed widths for the three columns whose content is short, so Label keeps its share down to
+   ~980px instead of being squeezed by a long column name — design review 2026-09-11. A long
+   name wraps inside its cell rather than widening the table. */
+#page-fields .fieldsgrid { table-layout: fixed; width: 100%; }
+#page-fields .fieldsgrid col.c-name  { width: 28%; }
+#page-fields .fieldsgrid col.c-type  { width: 15%; }
+#page-fields .fieldsgrid col.c-hide  { width: 21%; }
+/* Only a long column name may break; a type name broken mid-word ("Stri ng") reads as two. */
+#page-fields .fieldsgrid td code { overflow-wrap: anywhere; }
+#page-fields .fieldsgrid td:nth-child(2) { white-space: nowrap; }
+/* The reason under a locked box: the page's own muted prose, not the monospace of a value. */
+#page-fields .lockwhy { display: block; color: var(--muted); font-size: var(--t-small);
+  line-height: 1.3; margin-top: 2px; }
+#fieldsInert ul { list-style: none; padding: 0; margin: 6px 0 0; }
+#fieldsInert li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; }

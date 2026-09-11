@@ -244,7 +244,15 @@ internal static partial class AdminEndpoints
                 return new
                 {
                     name = f.Name,
-                    type = f.Type.ToString(),
+                    // <b>The ArcGIS name, which is what the Endpoints tab beside this one
+                    // shows and what a publisher sees in every client</b> — design review
+                    // 2026-09-11 found the two tabs calling one column `OID` and `Integer`.
+                    // The internal enum is this server's vocabulary, not the reader's.
+                    type = string.Equals(
+                            f.Name, layer.Definition.IntegerIdentityColumn, StringComparison.Ordinal)
+                        ? "OID"
+                        : Graticula.Api.ArcGis.FeatureServerMetadataWriter.TypeName(f.Type)
+                            .Replace("esriFieldType", string.Empty, StringComparison.Ordinal),
                     nullable = f.Nullable,
                     alias = said?.Alias,
                     hidden = said?.Hidden ?? false,

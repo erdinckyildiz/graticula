@@ -9335,6 +9335,12 @@ const LAYER_PAGES = {
   // filters across layers and stays on the service (§5d); this is one layer's symbol.
   symbology: "studio",
 
+  // <b>Fields is the publisher's for the reason symbology is</b> (ADR-063): what a column is
+  // called and whether a client sees it at all are decisions about how this layer presents
+  // its data, and the endpoint behind the page asks for `content:publishFeatures` — the same
+  // privilege as the time field and the symbol.
+  fields: "studio",
+
   caching: "studio",
 };
 
@@ -9548,6 +9554,24 @@ function showLayer(name, page, pending = null) {
         <dt>Owner</dt><dd>${h(l.owner || "—")}</dd>
         <dt>Layer id</dt><dd>${h(l.id || "—")}</dd>
       </dl>
+    </section>
+
+    <section class="page" id="page-fields">
+      <h4>Fields</h4>
+      <p class="hint">What each column is called in a client, and whether a client sees it at
+        all. The column itself is untouched: a label is shown to people and never used to ask
+        for anything, and a hidden column is refused everywhere — in a query, a filter, a
+        sort or an edit — exactly as if the table had no such column.</p>
+      <table class="fieldsgrid">
+        <colgroup><col class="c-name"><col class="c-type"><col class="c-label"><col class="c-hide"></colgroup>
+        <thead><tr><th>Column</th><th>Type</th><th>Label</th><th>Hidden</th></tr></thead>
+        <tbody id="fieldsRows"><tr><td colspan="4" class="empty">Reading the columns…</td></tr></tbody>
+      </table>
+      <div id="fieldsInert"></div>
+      <div class="row" style="margin-top:10px">
+        <button type="button" id="fieldsSave">Save</button>
+      </div>
+      <p class="hint" id="fieldsSays" role="status" aria-live="polite"></p>
     </section>
 
     <section class="page" id="page-caching">
@@ -10205,7 +10229,143 @@ function showEditPage(page) {
   if (page === "symbology" && editing) {
     section("the symbology", () => loadSymbology(editing.name), "symState");
   }
+
+  // Read on arrival for the reason symbology is: its whole value is knowing what is there now.
+  if (page === "fields" && editing) {
+    section("the fields", () => loadFields(editing.name), "fieldsRows");
+  }
 }
+
+/**
+ * The Fields page: what the table has, and what this layer says about it — ADR-063.
+ *
+ * <b>The admin read shows hidden columns and nothing else does.</b> An operator has to see a
+ * column to unhide it; every serving face refuses it. So this page is the one place a hidden
+ * column is listed, and it says so beside the box.
+ *
+ * <b>Overrides that name a column the table no longer has are kept, shown and removable</b>
+ * (condition 3). Saving does not drop them quietly: a label lost because somebody renamed a
+ * column in the database is exactly what an operator needs to be able to find.
+ */
+let fieldsState = null;
+
+async function loadFields(name) {
+  const answer = await api(`/admin/layers/${encodeURIComponent(name)}/fields`);
+  fieldsState = { name, columns: answer.columns || [], inert: answer.inert || [] };
+  drawFields();
+}
+
+// <b>A locked column says why beside its box, and the box is described by it</b> — design
+// review 2026-09-11. It was a bare "required", which reads as NOT NULL, with the real sentence
+// only in a title that a keyboard or screen-reader user never reaches. The first sentence of
+// the server's own reason is shown; the whole of it stays in the title.
+/** The first sentence of a sentence-shaped reason, for a cell that has room for one. */
+function firstSentence(text) {
+  const at = String(text || "").search(/\.\s/);
+  return at > 0 ? text.slice(0, at + 1) : String(text || "");
+}
+
+function drawFields(said, tone) {
+  if (!fieldsState) return;
+
+  $("fieldsRows").innerHTML = fieldsState.columns.length
+    ? fieldsState.columns.map((c, i) => `<tr>
+        <td><code>${h(c.name)}</code></td>
+        <td>${h(c.type)}</td>
+        <td><input type="text" data-field-alias="${i}" maxlength="255"
+          aria-label="Label for ${h(c.name)}" placeholder="${h(c.name)}"
+          value="${h(c.alias || "")}"></td>
+        <td><label><input type="checkbox" data-field-hidden="${i}" ${c.hidden ? "checked" : ""}
+          ${c.locked ? `disabled aria-describedby="fieldLock${i}"` : ""} aria-label="Hide ${h(c.name)}"
+          title="${h(c.locked ? "Can't be hidden: " + c.locked : "Hide this column from every client")}">
+          ${c.locked ? `<span class="lockwhy" id="fieldLock${i}">can't be hidden: ${h(firstSentence(c.locked))}</span>` : ""}</label></td>
+      </tr>`).join("")
+    : `<tr><td colspan="4" class="empty">This layer's table reports no attribute columns.</td></tr>`;
+
+  // <b>Shown with a way out, never dropped.</b> Each names a column the table does not have
+  // today, so it changes nothing — and it is still what somebody wrote, so removing it is
+  // a thing they do rather than a thing a save does to them.
+  $("fieldsInert").innerHTML = fieldsState.inert.length
+    ? `<h4>Not matching any column</h4>
+       <p class="hint">These name a column this table does not have, so they change nothing.
+         That is what renaming or dropping a column in the database leaves behind: the label
+         stays with the old name. Remove them, or give the label to the column's new name above.</p>
+       <ul>${fieldsState.inert.map((o, i) => `<li><code>${h(o.column)}</code>
+         ${o.alias ? `labelled “${h(o.alias)}”` : ""}${o.hidden ? " (hidden)" : ""}
+         <button type="button" class="ghost" data-field-inert-remove="${i}">Remove</button></li>`).join("")}</ul>`
+    : "";
+
+  if (said !== undefined) {
+    $("fieldsSays").textContent = said;
+    $("fieldsSays").classList.toggle("bad-inline", tone === "bad");
+  }
+}
+
+async function saveFields() {
+  if (!fieldsState) return;
+
+  const overrides = fieldsState.columns.map((c, i) => ({
+    column: c.name,
+    alias: (document.querySelector(`[data-field-alias="${i}"]`)?.value || "").trim() || null,
+    hidden: !!document.querySelector(`[data-field-hidden="${i}"]`)?.checked,
+  })).filter(o => o.alias || o.hidden)
+    // The orphans travel back unchanged unless somebody pressed Remove on one.
+    .concat(fieldsState.inert.map(o => ({ column: o.column, alias: o.alias, hidden: !!o.hidden })));
+
+  const button = $("fieldsSave");
+  button.disabled = true;
+
+  try {
+    const answer = await api(`/admin/layers/${encodeURIComponent(fieldsState.name)}/fields`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ overrides }),
+    });
+
+    // Only what the server actually returned replaces what is held: an answer without the lists
+    // is not a statement that the table has no columns.
+    if (Array.isArray(answer.columns)) fieldsState.columns = answer.columns;
+    if (Array.isArray(answer.inert)) fieldsState.inert = answer.inert;
+
+    const hidden = fieldsState.columns.filter(c => c.hidden).length;
+    const labelled = fieldsState.columns.filter(c => c.alias).length;
+
+    drawFields(`Saved. ${labelled} labelled, ${hidden} hidden. ${answer.note || ""}`.trim());
+  } catch (e) {
+    // Drawn again from what is held, so the boxes keep what was typed and the refusal
+    // names the column — the server's sentence, which says why.
+    $("fieldsSays").textContent = e.message;
+    $("fieldsSays").classList.add("bad-inline");
+  } finally {
+    button.disabled = false;
+    // Focus goes back to the control that was pressed; a redraw that dropped it would leave a
+    // keyboard user at the top of the page.
+    $("fieldsSave").focus();
+  }
+}
+
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (!(t instanceof Element)) return;
+
+  if (t.id === "fieldsSave") {
+    saveFields();
+    return;
+  }
+
+  const remove = t.closest("[data-field-inert-remove]");
+  if (remove && fieldsState) {
+    const at = Number(remove.getAttribute("data-field-inert-remove"));
+    const gone = fieldsState.inert.splice(at, 1)[0];
+    drawFields(gone ? `“${gone.column}” will be removed when you save.` : undefined);
+
+    // To the Remove that took this one's place, so a keyboard user clearing several orphans
+    // is not sent past all of them to Save each time — design review 2026-09-11.
+    const next = document.querySelector(
+      `[data-field-inert-remove="${Math.min(at, fieldsState.inert.length - 1)}"]`);
+    (next || $("fieldsSave")).focus();
+  }
+});
 
 /**
  * Reads what the service is configured to offer, into the pages.
