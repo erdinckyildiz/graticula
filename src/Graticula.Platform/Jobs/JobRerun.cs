@@ -79,10 +79,15 @@ public static class JobKinds
         // no table is touched. Two inspections of one archive produce two identical answers.
         JobKind.GeodatabaseInspect => JobRerun.Harmless,
 
-        // <b>Creates a layer over a table it also creates.</b> Running it twice cannot produce
-        // two copies: `layer_table_unique` covers (data source, schema, table, geometry column)
-        // and `layer_name_unique_in_service` covers the name within its service, so the second
-        // attempt is refused by the store rather than duplicating the data.
+        // <b>Creates a layer over a table it also creates.</b> Running it twice cannot publish
+        // two copies: `layer_name_unique_in_service` refuses the same name in the same service,
+        // so the second attempt is refused by the store rather than duplicating the layer.
+        //
+        // <b>This also named `layer_table_unique` until 2026-09-11, and that was never the
+        // reason.</b> Migration 40 scoped it to one service, and it could not have refused a
+        // rerun even before: every import creates its table under a new random suffix. So what
+        // a second run leaves behind is a table — created, filled, then refused its layer —
+        // which is why a reclaimed import is failed rather than run again (D-243).
         //
         // <b>Which is why it is not `Harmless`.</b> The distinction is what an operator sees: a
         // second inspection succeeds and a second import fails, and a register that called both

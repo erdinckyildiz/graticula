@@ -165,6 +165,22 @@ and by then another worker may have started the same job.
 Two workers writing the same tile is benign. Two workers running the same import
 is not.
 
+**The numbers, and what a reclaim does — built 2026-09-11 for
+[D-243](../architecture-debt.md), migration 45.** Until then this section described a lease
+that did not exist: a claim set no expiry, and a job whose worker died stayed `running` for
+ever. Now a claim takes a lease of **60 seconds**, the worker renews it **every 15 seconds on
+its own clock** beside the work — so a slow layer is not a lost lease and a dead process is —
+and a worker that idles sweeps at most **every 30 seconds** for leases that have lapsed. What a
+reclaim does is the kind's declared re-run behaviour (condition 2), not a choice made in the
+sweep: a **harmless** kind is queued again, **once**, and the second loss fails it; any other
+kind is **failed** with a sentence naming the worker that lost it. An import is the second
+kind, because its second run is refused its layer only *after* creating and filling a table.
+A row with **no lease at all** was claimed by a build older than migration 45, which may still
+be working; it is given **an hour** from its start and then failed rather than retried. A
+worker finishes a job only while it still holds it, so one whose lease lapsed cannot write its
+late answer over the next claimant's. The figures live in `JobLease`, and a renewal that
+answers *not yours* is how a partitioned worker learns to stop (§3.9, A-030).
+
 **Rule: any job with external side effects writes to a staging location and
 commits atomically.** An import writes to a staging table or temporary path and
 swaps on completion. That is the difference between a duplicated dataset and a
@@ -322,8 +338,12 @@ run as jobs), admin API (§39), geoprocessing (§36).
    `GeodatabaseInspect` is **`Harmless`**: it reads headers, writes no table, and two
    inspections of one archive give two identical answers. `GeodatabaseImport` is
    **`RefusedByTheStore`** — *not* harmless: running it twice cannot duplicate, because
-   `layer_table_unique` and `layer_name_unique_in_service` refuse the second attempt, so
-   what makes it safe is a constraint stopping it rather than the work being idempotent.
+   `layer_name_unique_in_service` refuses the second attempt, so what makes it safe is a
+   constraint stopping it rather than the work being idempotent. *(Corrected 2026-09-11: this
+   also named `layer_table_unique`, which migration 40 scoped to one service and which could
+   never have refused a rerun — every import creates its table under a new random suffix. So a
+   second run is refused its layer **after** creating and filling a table, and that leftover is
+   why [D-243](../architecture-debt.md)'s reclaim fails an import rather than running it again.)*
    An operator sees the difference: a second inspection succeeds and a second import
    fails, and a register that called both *safe* would have them expect one answer from
    two.

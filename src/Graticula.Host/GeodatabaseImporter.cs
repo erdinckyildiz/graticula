@@ -190,6 +190,9 @@ internal sealed class GeodatabaseImporter : BackgroundService
 
             if (job is null)
             {
+                // <b>D-243: take back what dead workers left, while there is nothing else to do.</b>
+                await _sweep.SweepAsync(_jobs, _log, stopping).ConfigureAwait(false);
+
                 await Wait(JobKind.GeodatabaseImport, stopping).ConfigureAwait(false);
                 continue;
             }
@@ -200,8 +203,17 @@ internal sealed class GeodatabaseImporter : BackgroundService
         }
     }
 
+    private readonly LeaseSweep _sweep = new();
+
     private async Task RunAsync(JobRecord job, CancellationToken stopping)
     {
+        // <b>The lease is renewed beside the work for as long as it runs — D-243.</b> `working`
+        // is cancelled when the server stops or when a renewal says the job is no longer this
+        // worker's; either way the layer loop stops at its next checkpoint and the answer is left
+        // to the sweep, which fails an import rather than running it again.
+        await using JobLeaseKeeper lease = JobLeaseKeeper.Hold(_jobs, job.Id, Who, _log, stopping);
+        CancellationToken working = lease.Working;
+
         Request asked;
 
         try
@@ -227,7 +239,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
         {
             await _jobs.FinishAsync(
                 job.Id, JobStatus.Failed, null,
-                $"This job's own request could not be read: {malformed.Message}", stopping)
+                $"This job's own request could not be read: {malformed.Message}", stopping, Who)
                 .ConfigureAwait(false);
 
             return;
@@ -241,14 +253,14 @@ internal sealed class GeodatabaseImporter : BackgroundService
         {
             foreach (string layer in asked.Layers ?? [])
             {
-                if (stopping.IsCancellationRequested)
+                if (working.IsCancellationRequested)
                 {
                     break;
                 }
 
                 try
                 {
-                    Landed made = await PublishAsync(asked, archive, layer, stopping)
+                    Landed made = await PublishAsync(asked, archive, layer, working)
                         .ConfigureAwait(false);
 
                     landed++;
@@ -272,6 +284,12 @@ internal sealed class GeodatabaseImporter : BackgroundService
                         labelled = made.Labelled,
                     });
                 }
+                catch (OperationCanceledException) when (working.IsCancellationRequested)
+                {
+                    // Stopped or taken away mid-layer: not this layer's failure, so not recorded
+                    // as one. The check below decides what happens to the job.
+                    break;
+                }
                 catch (Exception refused)
                 {
                     // <b>Named, and the rest continues.</b> One feature class with a geometry PostGIS
@@ -285,7 +303,16 @@ internal sealed class GeodatabaseImporter : BackgroundService
                 await _jobs.ProgressAsync(
                     job.Id,
                     (int)Math.Round(100.0 * done.Count / Math.Max(1, (asked.Layers ?? []).Count)),
-                    stopping).ConfigureAwait(false);
+                    working).ConfigureAwait(false);
+            }
+
+            // <b>Stopped, or taken away — either way the answer is not this worker's to write.</b>
+            // A finish now would report fewer layers than were asked as if that were the result, and
+            // for a lost lease it would land on somebody else's claim. The sweep fails the job with
+            // a sentence of its own once the lease lapses, and an import is never run twice (D-243).
+            if (working.IsCancellationRequested)
+            {
+                return;
             }
 
             bool all = done.Count > 0 && landed == done.Count;
@@ -305,13 +332,20 @@ internal sealed class GeodatabaseImporter : BackgroundService
                     ? null
                     : $"{landed} of {done.Count} layers were published. The rest are named in the "
                       + "detail with the reason each was refused.",
-                stopping).ConfigureAwait(false);
+                stopping,
+                Who).ConfigureAwait(false);
 
             Log.ImportFinished(_log, job.Id, landed, done.Count);
         }
+        catch (OperationCanceledException) when (working.IsCancellationRequested)
+        {
+            // The same as the check above, reached from the bookkeeping between layers rather
+            // than from a layer: left for the sweep.
+            return;
+        }
         catch (Exception failed)
         {
-            await _jobs.FinishAsync(job.Id, JobStatus.Failed, null, failed.Message, stopping)
+            await _jobs.FinishAsync(job.Id, JobStatus.Failed, null, failed.Message, stopping, Who)
                 .ConfigureAwait(false);
         }
         finally

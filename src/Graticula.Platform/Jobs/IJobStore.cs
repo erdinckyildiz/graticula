@@ -143,8 +143,9 @@ public sealed record JobRecord(
 /// either answer because the next reader would have believed it.
 /// </para>
 /// <para>
-/// <b>What is still not here is the rest of ADR-011:</b> no lease reclaim, no fair-shared scheduling,
-/// no job classes, no OGC API Processes surface. `SKIP LOCKED` is the one mechanism a second worker
+/// <b>What is still not here is the rest of ADR-011:</b> no fair-shared scheduling, no job classes,
+/// no OGC API Processes surface. The lease and its reclaim sweep are here since migration 45
+/// ([D-243](../../../docs/architecture-debt.md)); this sentence listed them as absent until then. `SKIP LOCKED` is the one mechanism a second worker
 /// needs in order not to take the same row, and it is here because the deployment has the worker in a
 /// **separate container** ([ADR-016](../../../docs/adr/ADR-016-packaging-deployment-upgrade.md) §2) —
 /// so *one process creates a job and the same process runs it*, which the old comment assumed, was
@@ -227,10 +228,13 @@ public interface IJobStore
     /// §5a reversed that on 2026-08-19 and this sentence said otherwise until 2026-09-09.
     /// </para>
     /// <para>
-    /// <b>What is deliberately absent is a lease.</b> A job claimed by a worker that then dies stays
-    /// `running` for ever, and nothing reclaims it — ADR-011 §3.3 names the reclaim sweep and this is
-    /// not it. Recorded rather than hidden: the first stuck job is the evidence that sweep needs, and
-    /// building it now would be guessing at a timeout with nothing measured behind it.
+    /// <b>And it takes a lease — D-243, migration 45.</b> This paragraph said until 2026-09-11 that the
+    /// lease was *deliberately absent*, and that building one would be *guessing at a timeout with
+    /// nothing measured behind it*. The guess turned out not to be the hard part: the lease is renewed
+    /// on its own clock beside the work (<see cref="JobLease"/>), so its length is a statement about
+    /// how long a dead worker may hold a job rather than about how long work takes — and that is a
+    /// number to choose and write down, which ADR-011 §3.4 now does. See
+    /// <see cref="RenewAsync"/> and <see cref="ReclaimAsync"/>.
     /// </para>
     /// </remarks>
     /// <param name="worker">
@@ -274,10 +278,49 @@ public interface IJobStore
     /// <b>A failure must carry a reason.</b> A job that says only *failed* is a job nobody can act on,
     /// and the store refuses one rather than trusting every caller to remember.
     /// </remarks>
+    /// <param name="worker">
+    /// The claimant finishing it, or null for a caller that is not a worker. <b>When given, the
+    /// finish lands only while that worker still holds the job</b> — D-243: a worker whose lease
+    /// lapsed and whose job was reclaimed and claimed again elsewhere must not overwrite the new
+    /// claimant's answer with its own late one.
+    /// </param>
     Task FinishAsync(
         Guid id,
         JobStatus status,
         string? detail,
         string? failure,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? worker = null);
+
+    /// <summary>Extends the lease a worker holds on a running job — D-243.</summary>
+    /// <param name="id">Which job.</param>
+    /// <param name="worker">The claimant, as it named itself when it claimed.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>
+    /// True while the worker still holds the job. <b>False means it has been reclaimed</b>, and
+    /// the worker should stop at its next checkpoint rather than keep writing — ADR-011 §3.9 and
+    /// A-030: a partitioned worker must find out, and this is how.
+    /// </returns>
+    Task<bool> RenewAsync(Guid id, string worker, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Takes back every running job whose lease has lapsed, and says what became of each — D-243.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The jobs reclaimed, and whether each was queued again or failed.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>What happens is the kind's declared re-run behaviour, ADR-011 §3.4.</b> A
+    /// <see cref="JobRerun.Harmless"/> kind is queued again, once; the second loss fails it. Any
+    /// other kind is failed with a sentence naming the worker that lost it, because running it
+    /// again is either refused or unsafe — an import re-run leaves a filled table behind the
+    /// refusal.
+    /// </para>
+    /// <para>
+    /// <b>A row claimed by a build that sets no lease</b> is treated as lost an hour after it
+    /// started — <see cref="JobLease.UnleasedGrace"/> — and is failed rather than queued, since
+    /// nothing can say whether its worker is still at it.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<JobReclaim>> ReclaimAsync(CancellationToken cancellationToken);
 }

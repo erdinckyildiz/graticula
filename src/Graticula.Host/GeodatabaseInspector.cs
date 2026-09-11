@@ -238,6 +238,10 @@ internal sealed class GeodatabaseInspector : BackgroundService
                 // timer means the sweep stops when the worker does.
                 Sweep();
 
+                // <b>And the jobs dead workers left — D-243.</b> The same tick, for the same reason:
+                // it stops when the worker does, and it never runs while this worker is busy.
+                await _leases.SweepAsync(_jobs, _log, stopping).ConfigureAwait(false);
+
                 await Wait(JobKind.GeodatabaseInspect, stopping).ConfigureAwait(false);
                 continue;
             }
@@ -248,9 +252,15 @@ internal sealed class GeodatabaseInspector : BackgroundService
         }
     }
 
+    private readonly LeaseSweep _leases = new();
+
     private async Task RunAsync(JobRecord job, CancellationToken stopping)
     {
         Interlocked.Increment(ref _ran);
+
+        // <b>Renewed beside the work for as long as it runs — D-243.</b> The reader is asked under
+        // `lease.Working`, which the server stopping or a lost lease cancels.
+        await using JobLeaseKeeper lease = JobLeaseKeeper.Hold(_jobs, job.Id, Who, _log, stopping);
 
         string archive = _scratch.PathFor(job.Id);
         bool kept = false;
@@ -260,7 +270,7 @@ internal sealed class GeodatabaseInspector : BackgroundService
             using JsonDocument answer = await _reader.AskAsync(
                 new { op = "layers", archive },
                 Deadline,
-                stopping).ConfigureAwait(false);
+                lease.Working).ConfigureAwait(false);
 
             JsonElement root = answer.RootElement;
 
@@ -272,7 +282,7 @@ internal sealed class GeodatabaseInspector : BackgroundService
                     ? error.GetString() ?? "The reader refused the archive without saying why."
                     : "The reader refused the archive without saying why.";
 
-                await _jobs.FinishAsync(job.Id, JobStatus.Failed, null, why, stopping)
+                await _jobs.FinishAsync(job.Id, JobStatus.Failed, null, why, stopping, Who)
                     .ConfigureAwait(false);
 
                 Log.InspectRefused(_log, job.Id, why, null);
@@ -283,27 +293,30 @@ internal sealed class GeodatabaseInspector : BackgroundService
             // description of a geodatabase's layers, and the one the reader wrote is the one that came
             // from the driver. The endpoint passes `detail` through as a string for the same reason.
             await _jobs.FinishAsync(
-                job.Id, JobStatus.Done, root.GetRawText(), null, stopping).ConfigureAwait(false);
+                job.Id, JobStatus.Done, root.GetRawText(), null, stopping, Who).ConfigureAwait(false);
 
             kept = true;
 
             Log.InspectFinished(_log, job.Id);
         }
-        catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+        catch (OperationCanceledException) when (lease.Working.IsCancellationRequested)
         {
-            // <b>Left running rather than failed.</b> The server is stopping; the job was claimed
-            // and not finished. Calling it failed would be this process's opinion about work
-            // nobody has decided to abandon.
+            // <b>Left running rather than failed, and since D-243 that is a state something picks
+            // up.</b> The server is stopping, or the lease was taken back; either way this process
+            // stops renewing, and the sweep takes the job back once the lease lapses. An inspection
+            // is harmless to repeat, so the sweep queues it again — **which is why the archive is
+            // kept here** rather than deleted with the rest: deleting it would turn that retry into a
+            // failure about a missing file. `ImportScratch.Sweep` removes it by age if nobody reads it.
             //
-            // <b>This used to say <i>which is the state a restart can pick up again</i>, and that
-            // was false.</b> `PostgresJobStore.ClaimAsync` selects `where status = 'queued'`, so a
-            // `running` row is unreachable to every claimant for ever — `IJobStore` says so in as
-            // many words, and there is no reclaim sweep. The log line this raises had it right all
-            // along: *a restart will find the job claimed with nothing to read — which is a state
-            // worth seeing rather than hiding*. Two sentences about one shutdown disagreed, and
-            // the wrong one was the one a maintainer reads first. The absent sweep is ADR-011
-            // §3.3's and is now a debt row rather than an implication of this comment.
-            Log.InspectAbandoned(_log, job.Id);
+            // <b>Until 2026-09-11 this said there was no reclaim sweep</b>, which was true: a
+            // `running` row was unreachable to every claimant for ever. The paragraph that recorded
+            // that is the reason D-243 was found.
+            kept = true;
+
+            if (!lease.Lost)
+            {
+                Log.InspectAbandoned(_log, job.Id);
+            }
         }
         catch (Exception failed)
         {
@@ -332,7 +345,7 @@ internal sealed class GeodatabaseInspector : BackgroundService
         try
         {
             await _jobs.FinishAsync(
-                job.Id, JobStatus.Failed, null, failed.Message, stopping).ConfigureAwait(false);
+                job.Id, JobStatus.Failed, null, failed.Message, stopping, Who).ConfigureAwait(false);
         }
         catch (Exception unwritable)
         {

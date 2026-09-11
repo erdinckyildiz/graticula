@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Jobs;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace Graticula.Platform.Postgres;
 
@@ -13,8 +15,8 @@ namespace Graticula.Platform.Postgres;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Migration 28's table, and nothing more.</b> No queue, no lease, no claim protocol — see
-/// <see cref="IJobStore"/> for why the absence is load-bearing rather than unfinished.
+/// <b>Migration 28's table, a claim, and since migration 45 a lease.</b> No scheduler and no job
+/// classes — see <see cref="IJobStore"/> for what of ADR-011 is still not here and why.
 /// </para>
 /// <para>
 /// <b>Every state change is one conditional statement.</b> `StartAsync` moves queued to running and
@@ -25,6 +27,19 @@ namespace Graticula.Platform.Postgres;
 /// </remarks>
 public sealed class PostgresJobStore : IJobStore
 {
+    /// <summary>
+    /// The kinds a lost lease sends back to the queue: those whose work is harmless to repeat.
+    /// </summary>
+    /// <remarks>
+    /// <b>Read from <see cref="JobKinds.RerunOf"/> rather than written here</b>, so ADR-011
+    /// condition 2's declaration is the one place the answer lives — a kind declared harmless is
+    /// retried, and a kind added without a declaration throws at start rather than being guessed at.
+    /// </remarks>
+    private static readonly string[] Harmless = Enum.GetValues<JobKind>()
+        .Where(kind => JobKinds.RerunOf(kind) == JobRerun.Harmless)
+        .Select(Wire)
+        .ToArray();
+
     private readonly NpgsqlDataSource _dataSource;
 
     /// <summary>Creates the store over a data source.</summary>
@@ -170,6 +185,9 @@ public sealed class PostgresJobStore : IJobStore
         // itself while every metric says it is running in parallel — the failure that looks like
         // success. The select and the update are one statement, so a crash between them is not a
         // state: either the row is taken and running, or it is untouched and still queued.
+        //
+        // <b>And the lease is taken in the same breath — D-243.</b> A claim that did not set one
+        // would be a window in which the row is running and belongs to nobody the sweep can see.
         const string Sql = """
             with taken as (
                 select id from job
@@ -179,7 +197,8 @@ public sealed class PostgresJobStore : IJobStore
                  for update skip locked
             )
             update job
-               set status = 'running', started_at = now(), claimed_by = @worker
+               set status = 'running', started_at = now(), claimed_by = @worker,
+                   lease_until = now() + @lease, attempts = attempts + 1
              where id in (select id from taken)
             returning id, kind, status, progress, owner_principal_id, subject, detail, failure,
                       created_at, started_at, finished_at, claimed_by, protocol
@@ -189,6 +208,7 @@ public sealed class PostgresJobStore : IJobStore
         command.Parameters.AddWithValue("kind", Wire(kind));
         command.Parameters.AddWithValue("worker", worker);
         command.Parameters.AddWithValue("speaks", speaks);
+        command.Parameters.AddWithValue("lease", JobLease.Duration);
 
         await using NpgsqlDataReader reader = await command
             .ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -196,6 +216,104 @@ public sealed class PostgresJobStore : IJobStore
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
             ? Read(reader)
             : null;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> RenewAsync(Guid id, string worker, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(worker);
+
+        // <b>By the claimant, and only while it is still running.</b> A worker whose job was
+        // reclaimed, or finished by somebody else, is told so by getting nothing back — which is
+        // the only way a partitioned worker can find out it should stop.
+        const string Sql = """
+            update job set lease_until = now() + @lease
+             where id = @id and status = 'running' and claimed_by = @worker
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("worker", worker);
+        command.Parameters.AddWithValue("lease", JobLease.Duration);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<JobReclaim>> ReclaimAsync(CancellationToken cancellationToken)
+    {
+        // <b>One statement, two outcomes, and the outcome is the kind's own declaration.</b> A
+        // harmless kind that lost a real lease and has not used its attempts goes back to the queue
+        // with nobody's name on it; everything else is failed, keeps the name of the worker that lost
+        // it, and says in the failure what happened and what to do. `skip locked`, so two workers
+        // sweeping together take different rows rather than waiting on each other.
+        //
+        // <b>A row with no lease at all was claimed by an older build</b>, which may still be
+        // working on it; it is given `@grace` from its start and then failed rather than retried,
+        // because nothing can say whether that worker is gone.
+        const string Sql = """
+            with lost as (
+                select id, kind, claimed_by, lease_until, attempts
+                  from job
+                 where status = 'running'
+                   and coalesce(lease_until, started_at + @grace, created_at + @grace) < now()
+                 for update skip locked
+            ),
+            decided as (
+                select l.*,
+                       (l.lease_until is not null
+                        and l.kind = any(@harmless)
+                        and l.attempts < @attempts) as again
+                  from lost l
+            )
+            update job j
+               set status      = case when d.again then 'queued' else 'failed' end,
+                   started_at  = case when d.again then null else j.started_at end,
+                   claimed_by  = case when d.again then null else j.claimed_by end,
+                   progress    = case when d.again then 0 else j.progress end,
+                   finished_at = case when d.again then null else now() end,
+                   lease_until = null,
+                   failure     = case when d.again then j.failure else
+                       'The worker that took this job (' || coalesce(d.claimed_by, 'unnamed')
+                       || ') stopped renewing its claim'
+                       || case when d.lease_until is null
+                               then ', and it was a build that does not renew one' else '' end
+                       || ', so it was taken back at '
+                       || to_char(now() at time zone 'utc', 'YYYY-MM-DD HH24:MI:SS') || ' UTC. '
+                       || case when d.kind = any(@harmless)
+                               then 'It had been tried ' || d.attempts || ' times, so it is not '
+                                    || 'queued again.'
+                               else 'Work of this kind is not run twice on its own, because a '
+                                    || 'second run is refused only after it has written: ask for '
+                                    || 'it again. A table it had begun may be left in the '
+                                    || 'datastore without a layer.'
+                          end
+                   end
+              from decided d
+             where j.id = d.id
+            returning j.id, j.kind, j.status, d.claimed_by
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("grace", JobLease.UnleasedGrace);
+        command.Parameters.AddWithValue("harmless", Harmless);
+        command.Parameters.AddWithValue("attempts", JobLease.Attempts);
+
+        List<JobReclaim> taken = [];
+
+        await using NpgsqlDataReader reader = await command
+            .ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            taken.Add(new JobReclaim(
+                reader.GetGuid(0),
+                ReadKind(reader.GetString(1)),
+                ReadStatus(reader.GetString(2)),
+                reader.IsDBNull(3) ? null : reader.GetString(3)));
+        }
+
+        return taken;
     }
 
     /// <inheritdoc/>
@@ -229,7 +347,8 @@ public sealed class PostgresJobStore : IJobStore
         JobStatus status,
         string? detail,
         string? failure,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? worker = null)
     {
         if (status is not (JobStatus.Done or JobStatus.Failed))
         {
@@ -250,14 +369,20 @@ public sealed class PostgresJobStore : IJobStore
         // <b>`progress` is set to 100 on success and left alone on failure.</b> A job that finished has
         // no more to do, and a failed one's last honest figure is where it stopped — overwriting that
         // with 100 would say it completed and with 0 would lose how far it got.
+        //
+        // <b>And a worker finishes only what it still holds — D-243.</b> Without the `claimed_by`
+        // test, a worker whose lease lapsed would write its late answer over the one the next
+        // claimant is producing.
         const string Sql = """
             update job
                set status      = @status,
                    finished_at = now(),
                    progress    = case when @status = 'done' then 100 else progress end,
                    detail      = coalesce(@detail, detail),
-                   failure     = @failure
+                   failure     = @failure,
+                   lease_until = null
              where id = @id and status in ('queued', 'running')
+               and (@worker is null or claimed_by = @worker)
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
@@ -265,6 +390,10 @@ public sealed class PostgresJobStore : IJobStore
         command.Parameters.AddWithValue("status", Wire(status));
         command.Parameters.AddWithValue("detail", (object?)detail ?? DBNull.Value);
         command.Parameters.AddWithValue("failure", (object?)failure ?? DBNull.Value);
+        command.Parameters.Add(new NpgsqlParameter("worker", NpgsqlDbType.Text)
+        {
+            Value = (object?)worker ?? DBNull.Value,
+        });
 
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }

@@ -127,18 +127,41 @@ internal static partial class Log
         EventId = 1028,
         Level = LogLevel.Information,
         Message = "Job {Job} was claimed and the server is stopping, so it is left unfinished rather "
-                + "than failed. Its archive is deleted with the rest, so a restart will find the job "
-                + "claimed with nothing to read — which is a state worth seeing rather than hiding.")]
+                + "than failed. Its lease stops being renewed, and whichever worker next idles once "
+                + "it has lapsed will reclaim it — run again if the archive is still there, failed "
+                + "with the reason if not (D-243).")]
     public static partial void InspectAbandoned(ILogger logger, System.Guid job);
 
     [LoggerMessage(
         EventId = 1029,
         Level = LogLevel.Error,
         Message = "Job {Job} failed with '{Why}' and the failure could not be written to the job "
-                + "store either. It stays claimed and unfinished, which nothing will retry. Both "
-                + "exceptions are here because the second one hides the first.")]
+                + "store either. It stays claimed until its lease lapses, and is then taken back "
+                + "with a reason of its own (D-243). Both exceptions are here because the second "
+                + "one hides the first.")]
     public static partial void InspectUnrecorded(
         ILogger logger, System.Guid job, string why, System.Exception? exception);
+
+    [LoggerMessage(
+        EventId = 1061,
+        Level = LogLevel.Warning,
+        Message = "Job {Job} ({Kind}) was taken back from {Worker}, which stopped renewing its "
+                + "lease; it is now {Became}. A worker stops renewing when its process dies or "
+                + "cannot reach the platform store for a minute (D-243).")]
+    public static partial void JobReclaimed(
+        ILogger logger,
+        System.Guid job,
+        Graticula.Platform.Jobs.JobKind kind,
+        string worker,
+        Graticula.Platform.Jobs.JobStatus became);
+
+    [LoggerMessage(
+        EventId = 1062,
+        Level = LogLevel.Warning,
+        Message = "Job {Job}'s lease was taken back while this worker held it, so it stops rather "
+                + "than write over whoever holds the job now. Either the platform store was out of "
+                + "reach for longer than the lease or another server swept it (D-243, ADR-011 §3.9).")]
+    public static partial void JobLeaseLost(ILogger logger, System.Guid job);
 
     [LoggerMessage(
         EventId = 1022,
@@ -214,13 +237,19 @@ internal static partial class Log
                 + "implemented. Do not expose this server to a network you do not control.")]
     public static partial void AuthenticationNotImplemented(ILogger logger);
 
+    // <b>Information, and two clauses shorter — 2026-09-11.</b> This said *groups are not
+    // implemented, so an item is private, organisation-wide, or public* for three weeks after
+    // ADR-036 implemented them, and *each layer's sharing scope* for longer than that, since
+    // migration 11 put the scope on the service. It was a warning only because of the missing
+    // groups; with them it is a statement of the model, which is what Information is for.
+    // Program's own comment at the call site describes exactly this failure in the message it
+    // replaced, which is the reason to keep the sentence short enough to stay true.
     [LoggerMessage(
         EventId = 1008,
-        Level = LogLevel.Warning,
+        Level = LogLevel.Information,
         Message = "Authorization follows the ArcGIS Portal model: roles grant privileges, a user "
-                + "type caps them, and reading is governed by each layer's sharing scope rather "
-                + "than by any privilege. Groups are not implemented, so an item is private, "
-                + "organisation-wide, or public.")]
+                + "type caps them, and reading is governed by each service's sharing scope — "
+                + "private, the organisation, groups, or public — rather than by any privilege.")]
     public static partial void AuthorizationIsPortalShaped(ILogger logger);
 
     [LoggerMessage(

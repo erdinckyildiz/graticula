@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(44);
+    public static SchemaVersion ComponentSchemaVersion => new(45);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -79,6 +79,7 @@ public static class PlatformMigrations
         AFieldListMayCarryOverridesV42,
         TheLayersDeadColumnsGoV43,
         GrantChangesAreAnnouncedV44,
+        AClaimedJobHoldsALeaseV45,
     ]);
 
 
@@ -2691,6 +2692,39 @@ public static class PlatformMigrations
             after insert or update or delete on sharing_group_member
             for each row execute function graticula_grants_changed()
         """);
+
+    /// <summary>
+    /// A claimed job holds a lease, so a worker that dies does not hold its job for ever.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-243](../../../docs/architecture-debt.md), and ADR-011 §3.4's lease, written in 2026-08
+    /// and unbuilt.</b> A job claimed by a worker that then died stayed <c>running</c> for ever:
+    /// the claim selects <c>queued</c> rows only, the claimant is named by machine and process id
+    /// so a restarted host cannot recognise its predecessor's rows, and no screen could clear one.
+    /// <c>lease_until</c> is renewed by the worker while it works; a row whose lease has lapsed is
+    /// reclaimed by whichever worker next idles.
+    /// </para>
+    /// <para>
+    /// <b><c>attempts</c>, because a reclaim that re-queues can loop.</b> A job whose work kills
+    /// its process would be claimed, lost and re-queued for as long as anybody restarts the
+    /// server. A harmless kind is re-queued once; the second loss fails it with the reason.
+    /// </para>
+    /// <para>
+    /// <b>An expand.</b> A build that does not know the columns claims without setting a lease,
+    /// and the sweep gives such a row an hour from its start before treating it as lost — long
+    /// enough for an older build's live import, which takes seconds, to finish unharmed.
+    /// </para>
+    /// </remarks>
+    private static Migration AClaimedJobHoldsALeaseV45 => Migration.Expand(
+        new SchemaVersion(45),
+        "A claimed job holds a lease, so a worker that dies does not hold its job for ever (D-243).",
+
+        "alter table job add column if not exists lease_until timestamptz",
+        "alter table job add column if not exists attempts int not null default 0",
+
+        // The sweep reads running rows by lease, and there should be few of them at any time.
+        "create index if not exists job_running_lease on job (lease_until) where status = 'running'");
 
     /// <summary>
     /// The layer's four dead columns are dropped — the first contract in this history.
