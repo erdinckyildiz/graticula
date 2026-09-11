@@ -200,6 +200,29 @@ N9 called this standard discipline, unstated, and **impossible to retrofit after
 the first migration that breaks it.** That is the reason it is here rather than
 in Phase 1: the constraint costs nothing today and cannot be added later.
 
+### 5a. The first contract — migration 43, 2026-09-11
+
+Forty-two expands ran before anything was removed, so `minimum_reader_version` stood at
+**1** for the whole history and §4a's second number had never moved outside a test.
+**Migration 43 drops the layer's four dead columns** — `sharing`, `status` and
+`owner_principal_id`, whose meaning migration 11 moved onto the service, and `is_hosted`,
+which the data source replaced — by owner decision ([D-33](../architecture-debt.md)).
+
+**It raises the reader to 34, not 43**, and the number is derived rather than chosen: 34
+is the first build that names none of the four — the one that gave `is_hosted` a default
+so the insert could stop mentioning it. A build older than that fails its first publish
+against the contracted store, so it is refused at startup instead. Raising the reader to
+43 would refuse builds that work, which is the error `Migration.RaisesMinimumReaderTo`'s
+own remarks warn against. **No tagged release is refused**: the oldest, `v0.1.0`, was
+built for 37.
+
+**Rehearsed on a copy of the development store** before anything else ran it — 19
+layers, where the dead copies disagreed with the service on one status and five owners.
+The plan printed the caution and this section's warning; after `--apply` the store read
+*schema 43, minimum reader 34*, the four columns were gone, the server started, and every
+layer answered anonymously as its **service's** sharing says — 13 public at 200, 6
+private at 404, no mismatch — with a query and a vector tile answering beside them.
+
 ## 6. Decision — rollback has a precise limit, and saying so is the point
 
 > **Rollback is supported to exactly one prior version, and only before that

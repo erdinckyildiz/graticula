@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(42);
+    public static SchemaVersion ComponentSchemaVersion => new(43);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -77,6 +77,7 @@ public static class PlatformMigrations
         OneTableMayBeInManyServicesV40,
         AReferenceMayBeWrittenOutV41,
         AFieldListMayCarryOverridesV42,
+        TheLayersDeadColumnsGoV43,
     ]);
 
 
@@ -206,7 +207,7 @@ public static class PlatformMigrations
     /// are still there, which is what the rollback window requires; what changes is that
     /// nothing in the serving or publishing path writes any of them. Dropping them is
     /// [D-33](../../../docs/architecture-debt.md) and waits for the release after the one that
-    /// ships migration 11.
+    /// ships migration 11. <i>(It came on 2026-09-11, as migration 43.)</i>
     /// </para>
     /// </remarks>
     private static Migration DeadLayerColumnDefaultsV34 => Migration.Expand(
@@ -2611,6 +2612,52 @@ public static class PlatformMigrations
         alter table layer add constraint layer_field_overrides_is_a_list
             check (jsonb_typeof(field_overrides) = 'array')
         """);
+
+    /// <summary>
+    /// The layer's four dead columns are dropped — the first contract in this history.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-33](../../../docs/architecture-debt.md), by owner decision 2026-09-11:</b>
+    /// <i>"Silinsin."</i> Migration 11 moved sharing, status and ownership onto the service and
+    /// left <c>layer.sharing</c>, <c>layer.status</c> and <c>layer.owner_principal_id</c>
+    /// carrying whatever they held that day. <c>layer.is_hosted</c> is the fourth and the
+    /// oldest: written <c>false</c> by every insert, read by nothing since the data source took
+    /// over the question, and the column whose drift once disabled every vector tile service
+    /// without an error. Keeping them was a defence of one SQL string and a test; dropping them
+    /// makes a stale read a failure instead of a wrong answer.
+    /// </para>
+    /// <para>
+    /// <b>A contract, so it closes the rollback window, and it closes it at 34 rather than
+    /// 43.</b> The oldest build that reads or writes none of the four is the one that shipped
+    /// migration 34 — <c>b450e2c</c>, 2026-08-24, which stopped the last writer by giving
+    /// <c>is_hosted</c> a default; reads had been <c>l.</c>-qualified and checked since the same
+    /// day. A build older than that still names <c>is_hosted</c> in its insert and would fail
+    /// after this, so it is refused at startup rather than at its first publish. Raising the
+    /// reader to 43 would refuse builds that work, which is the mistake
+    /// <see cref="Migration.RaisesMinimumReaderTo"/> is documented against. Every tagged
+    /// release is newer than 34 — <c>v0.1.0</c> was built for 37 — so no release is refused.
+    /// </para>
+    /// <para>
+    /// <b>The index goes first, by name</b>, although dropping its column would take it: a
+    /// statement that says what it removes is easier to audit than a cascade that implies it.
+    /// </para>
+    /// </remarks>
+    private static Migration TheLayersDeadColumnsGoV43 => Migration.Contract(
+        new SchemaVersion(43),
+        raisesMinimumReaderTo: new SchemaVersion(34),
+        "The layer's dead sharing, status, owner and is_hosted columns are dropped (D-33).",
+
+        "drop index if exists layer_sharing_idx",
+        "alter table layer drop column if exists sharing",
+        "alter table layer drop column if exists status",
+        "alter table layer drop column if exists owner_principal_id",
+        "alter table layer drop column if exists is_hosted")
+        .Cautioning(
+            "Discards what four layer columns held when migration 11 moved sharing, status and "
+            + "ownership to the service. Nothing has read them since, so no layer changes who "
+            + "can see it or whether it runs. A server built before schema 34 can no longer "
+            + "start against this store.");
 
     /// <summary>
     /// A service may name its reference by writing it out, not only by code.

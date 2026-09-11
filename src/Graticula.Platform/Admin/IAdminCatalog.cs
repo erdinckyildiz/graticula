@@ -161,9 +161,10 @@ public readonly record struct PublishedLayerAddress(
 /// <param name="Status">Whether it runs.</param>
 /// <param name="Hosted">
 /// Whether the data lives in the datastore, and so can be tiled. Derived from
-/// the data source rather than read from <c>layer.is_hosted</c>, which is
+/// the data source rather than read from <c>layer.is_hosted</c>, which was
 /// written <c>false</c> by every insert and read by nothing
-/// (<see href="../../../docs/architecture-debt.md">D-24</see>). Reported so the
+/// (<see href="../../../docs/architecture-debt.md">D-24</see>) until migration 43
+/// dropped it (D-33). Reported so the
 /// console can offer a tile control only where there is a tile service, rather
 /// than one that answers 400 (Q-67).
 /// </param>

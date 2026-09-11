@@ -172,19 +172,54 @@ public sealed class IdentitySchemaTests : PostgresFixture
     }
 
     [Fact]
-    public async Task Applying_every_migration_leaves_the_rollback_window_open()
+    public async Task Applying_every_migration_closes_the_rollback_window_exactly_as_far_as_the_contract_says()
     {
-        // Migrations 2 and 3 are both expands, so a version-1 component must
-        // still start against a fully migrated store. The applied version moved
-        // from 2 to 3 when ADR-018 added the role seed; the minimum reader did
-        // not move, and that is the number that matters (ADR-016 §4a).
+        // Every migration through 42 was an expand, and this test said a version-1
+        // component still started against a fully migrated store. Migration 43 is the
+        // first contract — the layer's dead columns, D-33 — and it raises the minimum
+        // reader to 34, the oldest build that names none of them (ADR-016 §4a). Both
+        // edges are asserted, because a window closed one version too far refuses a build
+        // that works, and one closed too little admits a build that will fail at publish.
         await MigrateAsync();
 
         SchemaStamp? stamp = await Store().ReadStampAsync(CancellationToken.None);
 
         Assert.Equal(PlatformMigrations.ComponentSchemaVersion, stamp!.Applied);
-        Assert.Equal(new SchemaVersion(1), stamp.MinimumReader);
-        Assert.True(SchemaCompatibility.Check("server", new SchemaVersion(1), stamp).IsCompatible);
+        Assert.Equal(new SchemaVersion(34), stamp.MinimumReader);
+        Assert.True(SchemaCompatibility.Check("server", new SchemaVersion(34), stamp).IsCompatible);
+        Assert.False(SchemaCompatibility.Check("server", new SchemaVersion(33), stamp).IsCompatible);
+    }
+
+    [Fact]
+    public async Task The_layers_dead_columns_are_gone_after_every_migration()
+    {
+        // D-33. Present, they were a value that is wrong and does not error; absent, a
+        // stale read fails. The service carries the same names and keeps them.
+        await MigrateAsync();
+
+        await using NpgsqlCommand command = DataSource.CreateCommand(
+            """
+            select table_name, column_name
+              from information_schema.columns
+             where table_schema = current_schema()
+               and table_name in ('layer', 'service')
+               and column_name in ('sharing', 'status', 'owner_principal_id', 'is_hosted')
+             order by table_name, column_name
+            """);
+
+        List<string> found = [];
+
+        await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                found.Add($"{reader.GetString(0)}.{reader.GetString(1)}");
+            }
+        }
+
+        Assert.Equal(
+            ["service.owner_principal_id", "service.sharing", "service.status"],
+            found);
     }
 
     private async Task<Guid> CreateUserAsync(string name)

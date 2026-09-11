@@ -495,10 +495,13 @@ Three tables carry `owner_principal_id`, and only two of them mean anything:
 
 - **`service`** — live and read; the catalogue reports the owner, and a service holds its layers.
 - **`folder`** — live; a folder created by a publisher belongs to them.
-- **`layer`** — vestigial. Migration 11 moved ownership onto the service and nothing has read the
+- ~~**`layer`** — vestigial. Migration 11 moved ownership onto the service and nothing has read the
   layer column since ([D-33](../architecture-debt.md)). It is written on transfer anyway, because
   leaving a stale principal id in a column somebody may one day read is how the next
-  [D-24](../architecture-debt.md) starts.
+  [D-24](../architecture-debt.md) starts.~~ **Gone.** The transfer stopped writing it on 2026-08-24
+  ([D-24](../architecture-debt.md)) — the sentence above was false from then — and migration 43
+  dropped the column on 2026-09-11 ([D-33](../architecture-debt.md)). A layer's owner is its
+  service's owner, which is the only place it was ever read.
 
 **Group layers are not owned and do not appear here.** `group_layer` has no owner column — measured,
 not assumed — so a group layer belongs to whoever owns its service and moves with it. That is also

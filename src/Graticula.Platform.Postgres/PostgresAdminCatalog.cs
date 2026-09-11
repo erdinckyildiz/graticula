@@ -581,8 +581,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             -- default, so omitting it failed the insert — the one writer that could not be
             -- removed by an edit. Migration 34 gives it a default, which is an expand and
             -- moves no reader version: the column still exists and still holds `false`,
-            -- and nothing has to say so. **Dropping the three is still D-33** and waits for
-            -- the release after the one that ships migration 11.
+            -- and nothing has to say so. **Migration 43 dropped all four on 2026-09-11 —
+            -- D-33** — so naming one here now fails the insert rather than writing a lie.
             insert into layer
               (id, data_source_id, name, schema_name, table_name, geometry_column,
                identity_column, object_id_column, srid, geometry_type,

@@ -27,9 +27,15 @@ namespace Graticula.Architecture.Tests;
 /// nothing reads, and left the layer readable by anybody.
 /// </para>
 /// <para>
-/// <b>So the comment becomes a check.</b> This does not drop the columns — that is a contract
-/// migration and a release decision, and it is what both rows stay open for. It makes the defence
-/// structural in the meantime: the next reader of `l.sharing` fails the build instead of shipping.
+/// <b>So the comment becomes a check.</b> This did not drop the columns — that was a contract
+/// migration and a release decision. It made the defence structural in the meantime: the next
+/// reader of `l.sharing` failed the build instead of shipping.
+/// </para>
+/// <para>
+/// <b>Migration 43 dropped them on 2026-09-11 (D-33), and the check stays.</b> A statement naming
+/// a dropped column now fails, which is the structural defence this was standing in for — but it
+/// fails when it runs, and the paths that write a layer run on a publish somebody does from one
+/// screen. Failing here costs nothing and fails first.
 /// </para>
 /// </remarks>
 public sealed class DeadColumnsStayDeadTests
@@ -125,10 +131,10 @@ public sealed class DeadColumnsStayDeadTests
 
         Assert.True(
             found.Count == 0,
-            "Migration 11 moved sharing, status and ownership onto the service and left the "
-            + "layer's columns carrying whatever they held that day. Reading one is the "
-            + "`is_hosted` mistake a third time — a value that is wrong and does not "
-            + "error:\n  " + string.Join("\n  ", found));
+            "Migration 11 moved sharing, status and ownership onto the service, and migration "
+            + "43 dropped the layer's copies (D-33). Reading one fails at runtime on whichever "
+            + "path runs it first; before 43 it was the `is_hosted` mistake a third time — a "
+            + "value that is wrong and does not error:\n  " + string.Join("\n  ", found));
     }
 
     /// <summary>
@@ -161,7 +167,7 @@ public sealed class DeadColumnsStayDeadTests
     /// defaulted, so both stopped being written that morning. <c>is_hosted</c> was `not null`
     /// with no default and could not — omitting it failed the insert — so migration 34 gives
     /// it one. That is an expand: the column still exists and still holds `false`, and
-    /// nothing has to say so. **Dropping the three is D-33** and is not this.
+    /// nothing has to say so. **Dropping the three was D-33**, done by migration 43.
     /// </remarks>
     private static readonly string[] Unwritable = ["owner_principal_id", "sharing", "is_hosted"];
 

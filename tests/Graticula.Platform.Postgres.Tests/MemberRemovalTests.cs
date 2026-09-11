@@ -125,16 +125,16 @@ public sealed class MemberRemovalTests : PostgresFixture
     }
 
     /// <summary>
-    /// Transferring moves the service, the folder, and the column nothing reads.
+    /// Transferring moves the service and the folder, and the layer inside goes with its service.
     /// </summary>
     /// <remarks>
-    /// <b>The vestigial <c>layer.owner_principal_id</c> moves too.</b> Nothing has read it since
-    /// migration 11 (D-33), and it is written anyway: a stale principal id in a column somebody may
-    /// one day read is how the next D-24 starts, and it costs one statement in a transaction that
-    /// is open regardless.
+    /// <b>This test used to be about the column nothing reads.</b> <c>layer.owner_principal_id</c>
+    /// was vestigial from migration 11 and was kept in step, then stopped being written (D-24),
+    /// then was dropped by migration 43 (D-33). A layer's owner is its service's owner, so what is
+    /// left to assert is that the layer is still in the service the taker now owns.
     /// </remarks>
     [Fact]
-    public async Task Transferring_moves_everything_including_the_column_nothing_reads()
+    public async Task Transferring_moves_the_service_the_folder_and_the_layer_with_its_service()
     {
         PostgresMemberDirectory members = await ReadyAsync();
 
@@ -148,9 +148,9 @@ public sealed class MemberRemovalTests : PostgresFixture
         object? host = await ScalarObjectAsync(
             $"select id from {SchemaName}.service where name = 'moving'");
 
-        // A layer row carrying the dead column, so the transfer can be seen to move it. It needs a
-        // data source, because `layer.data_source_id` is `not null` — the row is a fixture rather
-        // than a publication, so the source is a bare one with no credential in it.
+        // A layer row in the service, so the transfer can be seen to carry it. It needs a data
+        // source, because `layer.data_source_id` is `not null` — the row is a fixture rather than
+        // a publication, so the source is a bare one with no credential in it.
         await ExecuteAsync(
             $"insert into {SchemaName}.data_source (id, name, kind, connection_secret, key_version) "
             + "values ('11111111-1111-1111-1111-111111111111', 'fixture', 'postgis', "
@@ -158,10 +158,10 @@ public sealed class MemberRemovalTests : PostgresFixture
 
         await ExecuteAsync(
             $"insert into {SchemaName}.layer (id, data_source_id, name, schema_name, table_name, "
-            + "geometry_column, identity_column, srid, geometry_type, is_hosted, "
-            + "owner_principal_id, service_id, layer_index) values (gen_random_uuid(), "
+            + "geometry_column, identity_column, srid, geometry_type, "
+            + "service_id, layer_index) values (gen_random_uuid(), "
             + "'11111111-1111-1111-1111-111111111111', 'a_layer', 'hosted', 't', 'geom', "
-            + $"'objectid', 4326, 'Polygon', false, '{giver}', '{host}', 0)");
+            + $"'objectid', 4326, 'Polygon', '{host}', 0)");
 
         Assert.Equal(
             MemberRemoval.Removed,
@@ -175,10 +175,11 @@ public sealed class MemberRemovalTests : PostgresFixture
 
         Assert.Null(await members.HoldingsOfAsync("giver", CancellationToken.None));
 
-        // Nothing is left pointing at the principal that went. D-66: neither live owner column has
-        // a foreign key, so nothing in the schema would have caught it.
-        Assert.Equal(0L, await ScalarAsync(
-            $"select count(*) from {SchemaName}.layer where owner_principal_id = '{giver}'"));
+        // The layer went with its service, which is the only ownership a layer has.
+        Assert.Equal(1L, await ScalarAsync(
+            $"select count(*) from {SchemaName}.layer l join {SchemaName}.service s "
+            + "on s.id = l.service_id join " + SchemaName + ".principal p "
+            + "on p.id = s.owner_principal_id where l.name = 'a_layer' and p.name = 'taker'"));
     }
 
     /// <summary>

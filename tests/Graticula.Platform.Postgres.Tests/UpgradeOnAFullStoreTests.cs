@@ -128,9 +128,18 @@ public sealed class UpgradeOnAFullStoreTests : PostgresFixture
         await using (NpgsqlConnection connection =
             await DataSource.OpenConnectionAsync(CancellationToken.None))
         {
+            // <b>Read where the meaning lives, which is not where it was written.</b> Migration 5
+            // put `sharing` on the layer; migration 11 carried each layer's value onto the
+            // service made for it; migration 43 dropped the layer's column (D-33). Reading the
+            // service is also what the catalogue does, so this is the scope a caller gets.
             await using NpgsqlCommand read = connection.CreateCommand();
             read.CommandText =
-                $"""select sharing from "{SchemaName}".layer where name = 'published_before_sharing'""";
+                $"""
+                select s.sharing
+                  from "{SchemaName}".layer l
+                  join "{SchemaName}".service s on s.id = l.service_id
+                 where l.name = 'published_before_sharing'
+                """;
 
             await using NpgsqlDataReader reader = await read.ExecuteReaderAsync(CancellationToken.None);
 
