@@ -135,11 +135,14 @@ EOF
 
 curl -sk -X POST https://localhost:8443/admin/hosted/import \
   -H "Authorization: Bearer $TOKEN" \
-  -F "name=places" -F "file=@places.geojson"
+  -F "name=places" -F "file=@places.geojson" -F "sharing=public"
 ```
 
 It is a FeatureServer at
-`https://localhost:8443/rest/services/hosted/places/FeatureServer/0`, and the console at
+`https://localhost:8443/rest/services/hosted/places/FeatureServer/0` that any client can open
+without signing in — `sharing=public` is what makes that true. An import is private to whoever
+made it unless it says otherwise, so leave the line out for anything that is not a demonstration.
+The console at
 `https://localhost:8443/server/` will now show you a server with something in it. A zipped
 shapefile or a File Geodatabase goes in through the same address.
 

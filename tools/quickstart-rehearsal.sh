@@ -213,6 +213,23 @@ if [ ! -s "$PLACES" ]; then
   exit 1
 fi
 
+# <b>Public, because the section's sentence is that any client can open it -- and this step
+# found that it could not.</b> Its first run (v1.0.9, 2026-09-11) imported the README's
+# GeoJSON and then asked for the layer without a token, which is what a client does, and got
+# *No layer 'places' is visible to you*: an import is private to its maker unless it says
+# otherwise, and the README's command did not say. The section had been walked once, with a
+# token, so the walk never met it. Two releases were refused at this gate before the README
+# was corrected -- which is the gate doing its job rather than getting in the way.
+#
+# <b>Checked in the README rather than only sent from here</b>, so that deleting the flag from
+# the README fails this step instead of leaving a rehearsal that passes on its own flag while
+# the reader's layer goes private again.
+if ! grep -q 'file=@places.geojson" -F "sharing=public"' "$ROOT/README.md"; then
+  printf 'The README'"'"'s import no longer shares the layer, so its sentence that any client\n'
+  printf 'can open it is false -- an import is private to its maker by default. D-258.\n'
+  exit 1
+fi
+
 # The password is the one this script set, which is the reader's own choice in the README.
 # The token is read without jq: the README uses it, and a runner that lacks it would fail
 # here for a reason that has nothing to do with the product.
@@ -229,7 +246,7 @@ fi
 imported=$(curl -sk -o /dev/null -w '%{http_code}' \
   -X POST "https://127.0.0.1:$PORT/admin/hosted/import" \
   -H "Authorization: Bearer $SIGNED" \
-  -F "name=places" -F "file=@$PLACES" || true)
+  -F "name=places" -F "file=@$PLACES" -F "sharing=public" || true)
 
 rm -rf "$SCRATCH"
 
