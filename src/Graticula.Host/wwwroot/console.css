@@ -254,8 +254,10 @@ a:hover { text-decoration: underline; }
 
 /*
   <b>Sidebar, then everything else.</b> Navigation is a column and the work is a column, which is
-  the reference's arrangement and the reason it survives a narrow window: at 980 px the sidebar
-  becomes a strip of icons rather than wrapping into the content.
+  the reference's arrangement and the reason it survives a narrow window: the sidebar collapses
+  to a strip of icons rather than wrapping into the content. <b>The reader collapses it; no width
+  does.</b> This said *at 980 px* until 2026-09-11, when D-221's measurements found no rule at
+  980 or anywhere else — the strip is the 64-pixel state the toggle chooses.
 */
 /* <b>232, not 248.</b> Handoff 2026-09-04: sixteen pixels back to the work column, which is where
    the screens that need width are — the members table wants 1100 and the symbology editor 1180. No
@@ -2378,7 +2380,10 @@ html[data-session="held"] #app { display: block !important; }
 
 /* <b>Full height minus the top bar, so the three columns end where the window does.</b> The
    preview is the middle column and it fills what is left; without a height on the page it would
-   be as tall as whichever column had the most in it. */
+   be as tall as whichever column had the most in it.
+   <b>The 1,180 is the three columns' floor, not the screen's.</b> Below it the columns stack
+   rather than being cut off by `#edit`'s rounded corners — see *below the editor's floor*,
+   D-221, further down, which lifts this minimum. */
 #app.symfull #page-symbology.on {
   display: flex; flex-direction: column;
   height: calc(100vh - 58px);
@@ -2506,6 +2511,13 @@ html[data-session="held"] #app { display: block !important; }
   cursor: pointer;
 }
 .symkind:hover { border-color: var(--rule-strong); }
+/* <b>The card is the radio's containing block — `position: relative`, added 2026-09-11.</b>
+   Without it the hidden radio was positioned against a box outside every scroller on the page,
+   so it did not move when the rail scrolled: focusing a card in a scrolled rail left the card, and
+   its focus ring, out of sight. Measured at 1,300 below the floor (D-221): card at 300 pixels,
+   rail box from 549. It was latent in the wide window only because the rail there overflows by
+   fourteen pixels. */
+.symkind { position: relative; }
 .symkind input { position: absolute; opacity: 0; width: 0; height: 0; }
 .symkind:has(input:checked) {
   border: 2px solid var(--accent); padding: 8px 10px;
@@ -3569,6 +3581,126 @@ tr.rowbad > td { background: var(--alert-soft); }
 .sympreview .ol-zoom button:hover { background: var(--surface-2); color: var(--accent); }
 /* The legend keeps the bottom-left corner, so it moves up out of the buttons' way. */
 .symlegend { bottom: 74px; }
+
+/* ══════════════════════════════════ below the editor's floor, D-221 — owner decision 2026-09-11
+   <b>The columns stack and the picture stays on the screen.</b> The owner's answer —
+   *"Yeniden dizilsin"*, re-arrange it — and the two alternatives they turned down: a sentence
+   saying this screen needs more width, and waiting for somebody to complain. ADR-053 set a floor of 1,180 pixels and nothing answered below it.
+
+   <b>What happened below it was worse than the register said.</b> D-221 recorded that the whole
+   editor scrolled sideways. It did not: `#edit` carries `overflow: hidden` for its rounded
+   corners, so the three columns were cut off at the window's edge with no scrollbar at all.
+   Measured 2026-09-11 with the sidebar open: at 1,300 the inspector and Store were past the edge
+   and unreachable; at 1,024 the picture was cut to 528 of its 580 pixels as well; at 768 a
+   reader saw 272 pixels of picture and nothing to the right of it.
+
+   <b>Measured against the editor, not the window.</b> The floor is the editor's own width, and the
+   window is that plus a sidebar the reader chooses — 232 pixels open, 64 collapsed. A window
+   query would have to carry a copy of the sidebar's width inside each breakpoint and a copy of
+   each rule per sidebar state, and the sidebar has changed width once already (248 to 232, see
+   `#shell`). The idiom is otherwise the one `.pickpair` and `.cardpair` use: a grid gives up a
+   column under a width, nothing is hidden, nothing new is drawn. So the numbers here are the
+   editor's: three columns from 1,180, which is a 1,412 window with the sidebar open and 1,244
+   with it collapsed — exactly where they were, so the wide layout is unchanged wherever it fit.
+
+   <b>Layout containment, and only while the editor is showing.</b> A size container contains its
+   own layout, which makes it the reference box for anything fixed-position inside it. Nothing on
+   this page is — the row menus that position themselves against the window live on other pages,
+   and the dialogs are in the top layer — and `symfull` is set for this page alone. */
+#app.symfull #editPages { container: symeditor / inline-size; }
+
+/* <b>Under 1,180: the picture on top of the renderer, the inspector beside both.</b> The picture
+   keeps the full width of the column it leaves and the height of most of the screen; the
+   inspector keeps exactly the column it had — 336 pixels, window-tall — because it is the one
+   whose inside was tuned against a height: the class list gives up room so the symbol stack
+   below it stays on the screen (ADR-053 §5), and a short inspector would bring that fault back.
+   The rail is the column that moves. It was a scroller before and it still is, now under the
+   picture rather than beside it. */
+@container symeditor (max-width: 1179px) {
+  #app.symfull #page-symbology.on { min-width: 0; }
+
+  .symcols {
+    grid-template-columns: minmax(0, 1fr) 336px;
+    grid-template-rows: minmax(240px, 56%) minmax(0, 1fr);
+    grid-template-areas: "preview insp" "rail insp";
+  }
+  .symcols > .sympreview { grid-area: preview; }
+  .symcols > .symrail { grid-area: rail; border-right: 0; border-top: 1px solid var(--rule); }
+  .symcols > .syminsp { grid-area: insp; }
+
+  /* <b>The rail's form keeps a form's width, and the three renderer cards go side by side.</b>
+     Design review 2026-09-11, measured at 1,300: under the picture the rail is 732 pixels wide
+     and 350 tall, holding 736 of content — the cards and the Field list stretched across all of
+     it with an icon and a label at one end, and half the rail was below the box. Side by side the
+     cards give back 75 pixels of that height, which at 1,300 brings the Renderer section to
+     within eight pixels of the box's bottom; the cap stops every control being as wide as a
+     picture. 560 is three cards at 180 and a list at a width somebody can read across. What is
+     still below the box there is the two folds and the service-wide override, which the handoff
+     folded for being the parts a reader has usually not asked for, and the rail scrolls to them —
+     with its own scrollbar, as it always has. At 1,024 by 768 the box is 274 pixels and the
+     Field list and *Read the values* are below it too; the picture keeps its height regardless,
+     because it is what the page is for. */
+  .symcols > .symrail > * { max-width: 560px; }
+  .symcols > .symrail .symkinds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+  /* No rail, so no second row: the picture takes the height the rail would have had. */
+  .symcols.noRail { grid-template-rows: minmax(0, 1fr); grid-template-areas: "preview insp"; }
+
+  /* The generated screen keeps its shape — the layer list, then the sentence across the rest —
+     because the columns it covers are the ones that moved. */
+  .symcols.generated {
+    grid-template-columns: 264px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+    grid-template-areas: "rail empty";
+  }
+  .symcols.generated > .symrail { border-top: 0; border-right: 1px solid var(--rule); }
+  .symcols.generated > .symempty { grid-area: empty; }
+
+  /* <b>The strip wraps rather than pushing Store out.</b> Its children want about 970 pixels on
+     one line; below that the two acts go to a second line, still at the right-hand end. The
+     breadcrumb's basis is zero so that it is the thing that gives way on the first line, which is
+     the order `.symstrip .crumbs` already sets for the wide strip. No vertical padding: Store is
+     44 pixels and the strip's own minimum, so on one line it touches both edges in the wide
+     window too — padding added here made the one-line strip 12 pixels taller than the wide one. */
+  .symstrip { flex-wrap: wrap; row-gap: 6px; }
+  .symstrip .crumbs { flex: 1 1 0; }
+}
+
+/* <b>Under 760: one column, and the picture is pinned to the top of it.</b> The picture beside a
+   column of controls would be under 424 pixels here, which is back to ADR-051's thumbnail. So the
+   editor becomes one scrolling column — picture, renderer, inspector, in the order they read
+   across a wide window — and the picture is `sticky`, so that scrolling down to a control does
+   not scroll away the thing the control changes. The inspector is sized to fill what the picture
+   leaves, which puts the class list and the symbol stack on the screen together when it is
+   scrolled to, as they are in the wide window. */
+@container symeditor (max-width: 759px) {
+  /* <b>`scroll-padding-top`, because a pinned picture is a pinned header.</b> Anything scrolled
+     to from below lands at the top of the scrollport, which is under the picture. The page does
+     that itself — *Add a class* calls `scrollIntoView({ block: "nearest" })` on the new row —
+     and measured at 768 by 900 a card brought into view that way sat at 177 pixels under a
+     picture ending at 480; with the padding it sits at 481. Chrome centres a focused control,
+     which happens to clear the picture; a browser that aligns focus to the edge would not. */
+  .symcols {
+    display: flex; flex-direction: column; overflow-y: auto;
+    scroll-padding-top: max(220px, 42%);
+  }
+  .symcols > * { flex: none; }
+
+  .symcols > .sympreview {
+    order: -1; position: sticky; top: 0; z-index: 3;
+    height: 42%; min-height: 220px; border-bottom: 1px solid var(--rule);
+  }
+  .symcols > .symrail { overflow: visible; border-top: 0; border-right: 0; }
+  .symcols > .syminsp { height: 58%; min-height: 360px; border-left: 0; border-top: 1px solid var(--rule); }
+
+  /* The generated screen reads first, and the layer list follows it. */
+  .symcols > .symempty { order: -1; border-left: 0; border-bottom: 1px solid var(--rule); }
+  .symcols.generated > .symrail { border-right: 0; }
+
+  /* The state sentence is the one child of the strip that may shorten; Store and *Back to
+     generated* do not. */
+  .symstrip .symdo { flex: 0 1 auto; min-width: 0; }
+  .symstrip .symstate { flex: 0 1 auto; min-width: 0; }
+}
 
 /*
   <b>Visibly out of use rather than gone.</b> When the advanced connection string is filled in

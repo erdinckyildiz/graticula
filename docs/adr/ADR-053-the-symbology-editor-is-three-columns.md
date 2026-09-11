@@ -189,7 +189,8 @@ Symbology panel, which is the rule it is the exception to.
 **Negative.**
 
 - **The editor needs 1,180 pixels and the strip wants about 1,370.** Below 1,440 the
-  breadcrumb abbreviates; below 1,180 the whole editor scrolls horizontally. This
+  breadcrumb abbreviates; below 1,180 the whole editor scrolls horizontally *(it did
+  not — it was clipped, with no scrollbar; measured 2026-09-11 and answered in §9c)*. This
   console is an operator's tool on a desktop and that is the trade taken, but it is a
   trade: the symbology page is now the one screen with a width requirement.
 - **One screen has a different layout from every other.** See §3.
@@ -214,7 +215,7 @@ Symbology panel, which is the rule it is the exception to.
 
 | ID | Assumption | Status |
 |---|---|---|
-| [A-081](../architecture-assumptions.md) | The operator console is read on a screen at least 1,180 CSS pixels wide | `UNVALIDATED` — **written for this ADR**, because nothing in the product depended on a width until now. Every other screen degrades; this one scrolls sideways and the picture is what leaves |
+| [A-081](../architecture-assumptions.md) | The operator console is read on a screen at least 1,180 CSS pixels wide | `SUPERSEDED` 2026-09-11 by §9c — **nothing depends on the width any more**: under it the editor reflows the way every other screen degrades. ~~`UNVALIDATED` — **written for this ADR**, because nothing in the product depended on a width until now. Every other screen degrades; this one scrolls sideways and the picture is what leaves~~ |
 
 ## 8. Dependencies
 
@@ -297,6 +298,77 @@ between a default and a guess.
 **Measured on every entry path, 2026-09-05:** from the tab, the first layer; from an address or
 an Overview row, the layer that was asked for; on a one-layer service, that layer. The third is
 not an exception to the rule — a caller who names a layer has already chosen.
+
+## 9c. Below the floor, decided 2026-09-11
+
+**The editor reflows, by owner decision: the columns stack on a narrow window and the preview
+picture stays visible.** Two alternatives were put and both were declined — a sentence saying this
+screen needs more width, and leaving it until somebody complained. That answers §9's first
+revisit trigger and [D-221](../architecture-debt.md), which had been left open under §82 on the
+argument that a second layout for a reader nobody had met was over-engineering; the decision is
+the owner's answer to that argument.
+
+**What happened below the floor was worse than §6 says.** §6 records that under 1,180 pixels the
+editor scrolls horizontally. Measured 2026-09-11, it did not: `#edit` clips its overflow for its
+rounded corners, so the three columns were cut off at the window's edge with no scrollbar. With
+the sidebar open, a 1,300-pixel window had the inspector and Store past the edge and no way to
+reach them; at 1,024 the picture was cut to 528 of its 580 pixels too; at 768 a reader saw 272
+pixels of picture and nothing to the right of it.
+
+**The floor is the editor's width, and a window is that plus a sidebar of 232 or 64 pixels.** So
+1,180 of editor is a 1,412-pixel window with the sidebar open and 1,244 with it collapsed. The
+bands are measured against the editor with a container query on `#editPages`:
+
+| Editor width | Arrangement |
+|---|---|
+| 1,180 and over | The three columns of §5, unchanged. |
+| 760 to 1,179 | The picture on top of the renderer rail; the inspector beside both at 336 pixels and the window's full height, because its inside — the class list giving up room so the symbol stack stays on the screen — was tuned against a height. |
+| Under 760 | One scrolling column in the wide layout's reading order, with the picture `sticky` at the top of it and the inspector sized to fill what the picture leaves. |
+
+**Why a container query when every other breakpoint in the stylesheet is a window query.** A
+window query would carry a copy of the sidebar's width in each breakpoint and a copy of each rule
+per sidebar state, and the sidebar has changed width once already. The idiom is otherwise the one
+`.pickpair` and `.cardpair` use — a grid gives up columns under a width, nothing is hidden, nothing
+new is drawn. If a second screen ever needs a width floor, §9's fourth trigger applies and this
+choice is part of what gets decided.
+
+**Proved by** `Below_the_floor_the_columns_stack_and_the_picture_stays_on_the_screen` at six
+widths — 1,411, 1,280 by 720, 1,200, 1,024, 900 and 768 — and its pair,
+`Where_three_columns_fitted_they_are_still_three_columns`, at 1,440, 1,412 and a collapsed 1,300.
+The picture has to be inside the window, uncovered at its centre, larger than ADR-051's 336×224,
+and no smaller a share of the editor's width than the floor gives it (580 of 1,180); it has to be
+there again after the inspector is scrolled to; Store and the symbol panel have to be reachable.
+Each property was broken on purpose and watched to fail: without the reflow the editor is cut
+off; with three squeezed columns instead the share fails at every two-column width; without the
+`sticky` the picture scrolls away at 900 and 768; and stacking above the floor fails the pair.
+
+**The design review, and what was done with it.** Two reviews ran, one per band.
+
+- *Accepted:* under the picture the rail was 732 pixels wide at a 1,300 window, with the renderer
+  cards and the Field list stretched across all of it, and it held 736 pixels of content in a
+  350-pixel box. The rail's children are capped at 560 and the three renderer cards sit side by
+  side below the floor, which gave back 75 of those pixels.
+- *Accepted, and found while checking it:* a renderer card's hidden radio was positioned against a
+  box outside every scroller, so focusing a card in a scrolled rail left the card out of sight. The
+  card is its radio's containing block now. It was latent in the wide window, where the rail
+  overflows by fourteen pixels.
+- *Declined:* that the rail gives no sign it scrolls. The reviewer's browser was started with
+  scrollbars hidden, which Playwright does by default; in Chrome on Windows the rail has its
+  fifteen-pixel scrollbar. What remains below its box at 1,300 is the two folds and the
+  service-wide override, which §9a folded because they are the parts a reader has usually not
+  asked for.
+- *Declined, and recorded:* that the stacked layouts show the picture before the rail while the
+  focus order still reaches the rail first. True under 1,180 in both bands — not only the narrow
+  one, as the review said. Moving the picture first in the markup would make the three-column
+  layout the one whose focus order disagrees with its reading order, and that is the layout this
+  screen is used in; the stops that move are the picture's own five controls — three grounds and
+  two zoom buttons.
+- *Out of scope, and reported:* the console's own header clips its status line at 820 pixels and
+  below. Every screen has it; it is not this one's.
+
+**What it costs.** Two more arrangements of one screen, which is the objection D-221's row made and
+the owner's decision answered. [A-081](../architecture-assumptions.md) stops being a floor the
+product depends on: under 1,180 the editor degrades the way every other screen does.
 
 ## 10. Dissent
 

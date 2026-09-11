@@ -1106,6 +1106,239 @@ public sealed class SymbologyEditorTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
+    /// <summary>
+    /// Below the three columns' floor the editor stacks, and the picture is on the screen.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-221](../../docs/architecture-debt.md), decided by the owner 2026-09-11:</b> *columns
+    /// stack on a narrow window, the preview picture stays visible.* ADR-053's three columns need
+    /// 1,180 pixels of editor, which is a 1,412-pixel window with the sidebar open, and below that
+    /// nothing answered. The register said the editor scrolled sideways; measured, it did not —
+    /// `#edit` clips its overflow for its rounded corners, so at 1,280 the inspector and Store were
+    /// past the window's edge with no scrollbar, and at 768 a reader saw 272 pixels of picture.
+    /// </para>
+    /// <para>
+    /// <b>Reachable, not present.</b> Every element this test names existed in the document
+    /// throughout that fault, which is the shape this console has shipped three times with green
+    /// tests. So each is asked whether it is inside the window and whether the point at its centre
+    /// belongs to it — which a clipped, covered or scrolled-away element fails.
+    /// </para>
+    /// <para>
+    /// <b>And not a postage stamp.</b> Keeping three columns and letting the picture shrink would
+    /// also have put it on the screen: at 1,024 it would be 192 pixels wide. Two bars, both taken
+    /// from the ADRs rather than invented here. The picture has to be larger than ADR-051's own
+    /// preview, 336 by 224, which ADR-053 retired as a thumbnail. And it has to keep at least the
+    /// share of the editor's width that ADR-053's floor gives it — 580 of 1,180, 49 per cent —
+    /// because three squeezed columns give it less than that at every width under the floor, and
+    /// the first bar alone lets them through down to a 1,168 window. Falsified both ways: without
+    /// the reflow the editor is cut off, and with three columns squeezed instead the share fails.
+    /// </para>
+    /// <para>
+    /// <b>Then the far end of the controls, and the picture again.</b> In one column the inspector
+    /// is below the renderer, so a reader scrolls to it; the picture being on the screen at the top
+    /// and gone by the time they reach a class colour is the same fault turned on its side. So the
+    /// inspector is scrolled to, and the picture, the class list's symbol panel and the picture's
+    /// place are asked for once more.
+    /// </para>
+    /// <para>
+    /// <b>The widths.</b> 1,411 is one pixel under the floor with the sidebar open; 1,280 by 720 is
+    /// the laptop D-221 names; 1,200 is just above the 1,180 people quote as the floor, which is the
+    /// editor's width and not the window's; 1,024, 900 and 768 are well under it.
+    /// </para>
+    /// </remarks>
+    /// <param name="width">The window's width.</param>
+    /// <param name="height">The window's height.</param>
+    /// <returns>The task.</returns>
+    [Theory]
+    [InlineData(1411, 900)]
+    [InlineData(1280, 720)]
+    [InlineData(1200, 800)]
+    [InlineData(1024, 768)]
+    [InlineData(900, 800)]
+    [InlineData(768, 900)]
+    public async Task Below_the_floor_the_columns_stack_and_the_picture_stays_on_the_screen(
+        int width, int height)
+    {
+        (string token, _) = await SignInAsync();
+        string layer = await AnyLayerAsync();
+
+        await Browser.CallAsync("Emulation.setDeviceMetricsOverride", new
+        {
+            width,
+            height,
+            deviceScaleFactor = 1,
+            mobile = false,
+        });
+
+        try
+        {
+            await OpenSymbologyAsync(layer, token);
+
+            await WaitForAsync(
+                "(() => { const e = document.getElementById('edit');"
+                + " return e.scrollWidth <= e.clientWidth"
+                + " && document.documentElement.scrollWidth <= window.innerWidth; })()",
+                $"At {width}×{height} the editor is wider than the room it has, so `#edit` cuts it "
+                + "off at the window's edge — the inspector and Store with it, and no scrollbar.");
+
+            await WaitForAsync(
+                PictureOnTheScreen,
+                $"At {width}×{height} the picture is not wholly on the screen, is no larger than "
+                + "the 336×224 thumbnail ADR-053 retired, or has less of the editor's width than the "
+                + "three columns give it at their floor. ADR-051 makes it the thing being chosen.");
+
+            await WaitForAsync(
+                Reachable("[data-symbology-put]"),
+                $"At {width}×{height} Store is not on the screen. It is the one control on this page "
+                + "that cannot be reached another way.");
+
+            // <b>The inspector, wherever the layout put it.</b> In one column it is the last thing
+            // in the scroll, so a reader scrolls to it; in two it is already beside the picture and
+            // this moves nothing.
+            await Browser.EvaluateAsync<bool>(
+                "(() => { document.querySelector('.syminsp').scrollIntoView({ block: 'end' });"
+                + " return true; })()");
+
+            await WaitForAsync(
+                Reachable("#symTabClasses") + " && " + Reachable("#symStack"),
+                $"At {width}×{height} the inspector's tabs or the symbol panel cannot be reached, so "
+                + "a reader can see the picture and cannot say what a class is made of.");
+
+            await WaitForAsync(
+                PictureOnTheScreen,
+                $"At {width}×{height} scrolling to the inspector scrolled the picture away. The "
+                + "control and the thing it changes have to be on the screen together.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await Browser.CallAsync("Emulation.clearDeviceMetricsOverride");
+        }
+    }
+
+    /// <summary>
+    /// Where the three columns fitted before D-221 they are still three columns.
+    /// </summary>
+    /// <remarks>
+    /// <b>The pair of the test above, and the cheap way to pass that one.</b> A stacked layout at
+    /// every width would put the picture on the screen everywhere and quietly retire ADR-053. So
+    /// the three widths where the editor had its 1,180 pixels before this change are asked for
+    /// three columns side by side at their designed widths: the suite's own window, the floor
+    /// exactly with the sidebar open, and a 1,300 window with the sidebar collapsed — which
+    /// fitted then, and which a breakpoint written against the window would have stacked.
+    /// </remarks>
+    /// <param name="width">The window's width.</param>
+    /// <param name="collapsed">Whether the sidebar is collapsed to its icons.</param>
+    /// <returns>The task.</returns>
+    [Theory]
+    [InlineData(1440, false)]
+    [InlineData(1412, false)]
+    [InlineData(1300, true)]
+    public async Task Where_three_columns_fitted_they_are_still_three_columns(
+        int width, bool collapsed)
+    {
+        (string token, _) = await SignInAsync();
+        string layer = await AnyLayerAsync();
+
+        await Browser.CallAsync("Emulation.setDeviceMetricsOverride", new
+        {
+            width,
+            height = 900,
+            deviceScaleFactor = 1,
+            mobile = false,
+        });
+
+        try
+        {
+            await OpenSymbologyAsync(layer, token);
+
+            if (collapsed)
+            {
+                await ClickAsync("#collapse");
+
+                await WaitForAsync(
+                    "document.getElementById('shell').classList.contains('tight')",
+                    "The sidebar did not collapse, so this case measured the open one.");
+            }
+
+            await WaitForAsync(
+                """
+                (() => {
+                  const r = s => document.querySelector(s).getBoundingClientRect();
+                  const rail = r('.symrail'), pic = r('.sympreview'), insp = r('.syminsp');
+                  return Math.round(rail.width) === 264 && Math.round(insp.width) === 336
+                      && pic.width >= 580
+                      && rail.right <= pic.left + 1 && pic.right <= insp.left + 1
+                      && Math.abs(rail.top - pic.top) < 1 && Math.abs(pic.top - insp.top) < 1
+                      && Math.abs(rail.height - pic.height) < 1;
+                })()
+                """,
+                $"At {width} with the sidebar {(collapsed ? "collapsed" : "open")} the editor has "
+                + "its 1,180 pixels and is not three columns side by side at 264, 580 or more, and "
+                + "336 — the layout ADR-053 decided, where it fitted before D-221.");
+
+            await WaitForAsync(
+                Reachable("[data-symbology-put]"),
+                $"At {width} Store is not on the screen.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            if (collapsed)
+            {
+                await ClickIfPresentAsync("#shell.tight #collapse");
+            }
+
+            await Browser.CallAsync("Emulation.clearDeviceMetricsOverride");
+        }
+    }
+
+    /// <summary>
+    /// The picture is inside the window, uncovered at its centre, larger than a thumbnail, and
+    /// at least the share of the editor's width that the three columns give it at their floor.
+    /// </summary>
+    /// <remarks>
+    /// <b>The frame, not the image.</b> The suite's write trap answers the preview's `POST` with
+    /// JSON, so the image is hidden and the caption says *not available* — that is the preview
+    /// tests' subject. What a reader looks at is the frame: the map under the picture and the
+    /// picture over it, both `inset: 0` inside it, so where the frame is, the picture is.
+    /// </remarks>
+    private const string PictureOnTheScreen =
+        """
+        (() => {
+          const box = document.getElementById('symPreviewBox');
+          if (!box || box.offsetParent === null) return false;
+          const b = box.getBoundingClientRect();
+          if (b.left < 0 || b.top < 0 || b.right > innerWidth || b.bottom > innerHeight) return false;
+          if (!(b.width > 336 && b.height > 224)) return false;
+          const editor = document.getElementById('page-symbology').getBoundingClientRect().width;
+          if (b.width < editor * 580 / 1180) return false;
+          const at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+          return !!at && box.contains(at);
+        })()
+        """;
+
+    /// <summary>
+    /// An expression that is true when the element is rendered, inside the window, and is what
+    /// the point at its own centre hits.
+    /// </summary>
+    /// <param name="selector">A CSS selector for one element.</param>
+    /// <returns>The expression.</returns>
+    private static string Reachable(string selector) =>
+        $$"""
+        (() => {
+          const e = document.querySelector({{JsonSerializer.Serialize(selector)}});
+          if (!e || e.offsetParent === null) return false;
+          const b = e.getBoundingClientRect();
+          if (b.left < 0 || b.top < 0 || b.right > innerWidth || b.bottom > innerHeight) return false;
+          const at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+          return !!at && (at === e || e.contains(at));
+        })()
+        """;
+
     /// <summary>A published layer with no stored symbology.</summary>
     /// <param name="token">The reader's token.</param>
     /// <returns>Its name.</returns>
