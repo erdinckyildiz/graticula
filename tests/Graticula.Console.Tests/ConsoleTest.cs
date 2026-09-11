@@ -1020,6 +1020,32 @@ public abstract class ConsoleTest : IAsyncLifetime
           // `api()` rejects on every refusal, so the second is the one that matters here.
           window.__pageErrors = [];
 
+          // <b>What the console said in a red toast, because a screen's loader cannot be
+          // heard anywhere else — D-259.</b> `section()` catches whatever a screen's loader
+          // throws and turns it into a toast, so an exception there is neither an `error` nor
+          // an `unhandledrejection` and the report above says *no errors of its own* while the
+          // screen sits half-drawn. That is exactly how the Publish half of D-259 read for a
+          // day: the one fetch the screen makes died on `ERR_CERT_VERIFIER_CHANGED`, the
+          // loader threw, and the toast that said so vanished seven seconds later. Only the
+          // bad ones, because a green toast is the page reporting success.
+          window.__toasts = [];
+
+          document.addEventListener("DOMContentLoaded", () => {
+            const box = document.getElementById("toast");
+
+            if (!box) return;
+
+            new MutationObserver(() => {
+              const said = (box.textContent || "").trim();
+
+              if (!said || !box.className.includes("bad")) return;
+              if (window.__toasts[window.__toasts.length - 1] === said) return;
+
+              window.__toasts.push(said);
+              if (window.__toasts.length > 10) { window.__toasts.shift(); }
+            }).observe(box, { attributes: true, childList: true, characterData: true, subtree: true });
+          });
+
           // <b>Which documents this tab has loaded, in order — D-173.</b> A page that
           // navigates cancels everything in flight, and the cancellation is reported by
           // the browser exactly like a request that failed. The console does navigate on
@@ -1547,12 +1573,18 @@ public abstract class ConsoleTest : IAsyncLifetime
                         + (bytes === undefined ? 'size unrecorded' : bytes + 'B');
                     }).join(' | ') || 'the page made no request through the harness';
 
+                    // <b>What the console told its operator in red — D-259.</b> A screen's
+                    // loader that throws is caught by `section()` and becomes a toast, which
+                    // neither error listener hears; this is the only line that can name it.
+                    const toasts = (window.__toasts || []).join(' | ');
+
                     return 'readyState=' + document.readyState
                       + ' at=' + location.pathname
                       + ' assets=[' + listed.join(', ') + ']'
                       + ' documents=' + documents
                       + (refetched ? ' refetched:' + refetched : '')
-                      + '\nlast calls: ' + calls;
+                      + '\nlast calls: ' + calls
+                      + (toasts ? '\nred toasts: ' + toasts : '');
                   } catch (e) { return 'the report itself threw: ' + e; }
                 })()
                 """) ?? "no load report";
