@@ -127,6 +127,7 @@ internal static class MapServerEndpoints
         string serviceName,
         CatalogFallback catalog,
         ServiceContexts contexts,
+        IProjector projector,
         HostSettings settings,
         CancellationToken cancellation)
     {
@@ -140,7 +141,7 @@ internal static class MapServerEndpoints
         }
 
         List<FeatureServerMetadataWriter.ServiceLayer> layers =
-            await LayersOfAsync(contexts, service, cancellation).ConfigureAwait(false);
+            await LayersOfAsync(contexts, projector, service, cancellation).ConfigureAwait(false);
 
         object document = MapServerMetadataWriter.Service(
             layers,
@@ -178,7 +179,7 @@ internal static class MapServerEndpoints
                             + $"&service={Uri.EscapeDataString(service.QualifiedName)}"),
                         ("ArcGIS SDK", "/studio/map.html?face=mapserver"
                             + $"&service={Uri.EscapeDataString(service.QualifiedName)}"),
-                        ("Export", $"{path}/export?bbox={ExtentText(layers)}"
+                        ("Export", $"{path}/export?{ExtentText(layers)}"
                             + $"&size=800,600&format=png&transparent=true&f=image"),
                         ("Legend", $"{path}/legend?f=json"),
                     ],
@@ -199,6 +200,7 @@ internal static class MapServerEndpoints
         int layerId,
         CatalogFallback catalog,
         ServiceContexts contexts,
+        IProjector projector,
         HostSettings settings,
         CancellationToken cancellation)
     {
@@ -214,12 +216,15 @@ internal static class MapServerEndpoints
         (_, LayerDescription described) =
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
+        (int servedSrid, Envelope? servedExtent) = await ServedAsync(
+            layer, described.Extent, projector, cancellation).ConfigureAwait(false);
+
         FeatureServerMetadataWriter.ServiceLayer entry = new(
             layer.LayerIndex,
             layer.Definition.Name,
             layer.GeometryType,
-            layer.Definition.Srid,
-            described.Extent);
+            servedSrid,
+            servedExtent);
 
         // <b>The layer's own stored style, not a synthesised one.</b> This called
         // the two-argument `DrawingInfo`, which always invents an appearance from the
@@ -632,8 +637,22 @@ internal static class MapServerEndpoints
         return false;
     }
 
+    /// <summary>The service's drawable layers, in the reference the service answers in.</summary>
+    /// <remarks>
+    /// <b>The reference the service names, and each extent moved into it —
+    /// [D-229](../../docs/architecture-debt.md), owner decision 2026-09-11.</b> This face was the
+    /// last to take a layer's table reference while every other face read the service's choice:
+    /// FeatureServer, WMS, WFS and OGC API Features all answer in it, and a service set to
+    /// EPSG:5253 over a 3857 table told a MapServer client *3857*. The same move the
+    /// FeatureServer document makes, for the reason it gives: `ServedExtent` moves the box
+    /// rather than relabelling it, and a layer whose extent will not go there keeps its own —
+    /// the one pair the document can still prove.
+    /// </remarks>
     private static async Task<List<FeatureServerMetadataWriter.ServiceLayer>> LayersOfAsync(
-        ServiceContexts contexts, PublishedService service, CancellationToken cancellation)
+        ServiceContexts contexts,
+        IProjector projector,
+        PublishedService service,
+        CancellationToken cancellation)
     {
         List<FeatureServerMetadataWriter.ServiceLayer> layers = [];
 
@@ -647,18 +666,49 @@ internal static class MapServerEndpoints
             (_, LayerDescription described) =
                 await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
+            (int srid, Envelope? extent) = await ServedAsync(
+                layer, described.Extent, projector, cancellation).ConfigureAwait(false);
+
             layers.Add(new FeatureServerMetadataWriter.ServiceLayer(
                 layer.LayerIndex,
                 layer.Definition.Name,
                 layer.GeometryType,
-                layer.Definition.Srid,
-                described.Extent));
+                srid,
+                extent));
         }
 
         return layers;
     }
 
-    private static string ExtentText(IReadOnlyList<FeatureServerMetadataWriter.ServiceLayer> layers)
+    /// <summary>A layer's reference and extent, as the service publishes them.</summary>
+    /// <remarks>
+    /// One method for the service document and the layer document, so the two cannot answer
+    /// in different references for the same layer — which is the contradiction that held the
+    /// FeatureServer face back for three days (D-229).
+    /// </remarks>
+    private static async Task<(int Srid, Envelope? Extent)> ServedAsync(
+        PublishedLayer layer, Envelope? stored, IProjector projector, CancellationToken cancellation)
+    {
+        if (layer.ServedSrid is not { } wanted || wanted == layer.Definition.Srid)
+        {
+            return (layer.Definition.Srid, stored);
+        }
+
+        Envelope? moved = await ServedExtent
+            .InAsync(stored, layer.Definition.Srid, wanted, projector, cancellation)
+            .ConfigureAwait(false);
+
+        return moved is null ? (layer.Definition.Srid, stored) : (wanted, moved);
+    }
+
+    /// <summary>The whole map's box as <c>bbox</c> and <c>bboxSR</c>, for the directory's link.</summary>
+    /// <remarks>
+    /// <b>The reference is stated rather than left to the default</b>, because this link was the
+    /// one caller that relied on it: until 2026-09-11 an absent <c>bboxSR</c> meant 4326, so the
+    /// link drew a 3857 service's metres as degrees, and after it the world fallback below would
+    /// have been read in the map's units. The reference is the first layer's, as the document's is.
+    /// </remarks>
+    private static string ExtentText(List<FeatureServerMetadataWriter.ServiceLayer> layers)
     {
         Envelope whole = Envelope.Empty;
 
@@ -671,11 +721,13 @@ internal static class MapServerEndpoints
         }
 
         return whole.IsEmpty
-            ? "-180,-90,180,90"
-            : string.Join(
-                ',',
-                new[] { whole.MinX, whole.MinY, whole.MaxX, whole.MaxY }
-                    .Select(MapServerMetadataWriter.Number));
+            ? "bbox=-180,-90,180,90&bboxSR=4326"
+            : "bbox="
+                + string.Join(
+                    ',',
+                    new[] { whole.MinX, whole.MinY, whole.MaxX, whole.MaxY }
+                        .Select(MapServerMetadataWriter.Number))
+                + "&bboxSR=" + layers[0].Srid.ToString(CultureInfo.InvariantCulture);
     }
 
     // <b>The case-insensitive parameter lookup this face used to carry is

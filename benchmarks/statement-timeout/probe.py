@@ -88,7 +88,7 @@ CASES = [
      "&crs=EPSG:4326&bbox=35,25,42,45&width=4096&height=4096&format=image/png"),
     ("MapServer export 4000x3000, 25,280 polygons",
      "/rest/services/hosted/tr_ilce/MapServer/export"
-     "?bbox=25,35,45,42&size=4000,3000&format=png&f=image"),
+     "?bbox=25,35,45,42&bboxSR=4326&size=4000,3000&format=png&f=image"),
 
     # A cold vector tile at a zoom that actually holds something.
     ("VectorTile z8 cold-ish",

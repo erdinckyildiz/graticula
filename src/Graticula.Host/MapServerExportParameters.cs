@@ -87,7 +87,20 @@ internal sealed class MapServerExportParameters
         // bbox is written in, `imageSR` is what to draw in, and a request that gives
         // only `bboxSR` means draw in that one. Treating them as one parameter
         // silently reprojects the extent to itself.
-        int bboxSrid = Srid(parameter("bboxSR")) ?? 4326;
+        //
+        // <b>An absent `bboxSR` is the map's reference, not 4326 — and it was 4326 until
+        // 2026-09-11.</b> ArcGIS's published Export Map reference says a bbox with no bboxSR
+        // *is assumed to be in the spatial reference of the map*, and the map's reference is
+        // what the service document states. This face stated the table's reference in its
+        // document and read an unqualified bbox as degrees, so a client that took the document
+        // at its word and sent map units without repeating the reference got an image of
+        // somewhere else. [D-229](../../docs/architecture-debt.md): now both read the service's
+        // choice when it made one. **Two readings, not one expression, and the edges are
+        // named**: the document takes its first *drawable* layer and keeps a layer's own
+        // reference when its extent cannot be moved into the chosen one, so a service whose
+        // first layer is a table, or whose extent PROJ refuses, can still disagree here.
+        int mapSrid = available.Count > 0 ? available[0].PublishedSrid : 4326;
+        int bboxSrid = Srid(parameter("bboxSR")) ?? mapSrid;
         int imageSrid = Srid(parameter("imageSR")) ?? bboxSrid;
 
         if (bboxSrid != imageSrid)

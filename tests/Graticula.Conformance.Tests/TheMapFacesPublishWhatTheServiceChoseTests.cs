@@ -326,6 +326,37 @@ public sealed class TheMapFacesPublishWhatTheServiceChoseTests : ArcGisClient
                 + "word is *storage*: moving it to the service's choice would be a false "
                 + "statement about the database rather than a repair, and this is the one "
                 + "place in the server where the two can differ.");
+
+            // ---- ArcGIS MapServer: the last face, by owner decision 2026-09-11 ----
+            //
+            // <b>Both documents, and each with its extent in the same reference as its label.</b>
+            // This face took the table's reference while every other one read the service's, and
+            // the FeatureServer face's history says why the extent is asserted beside the label:
+            // a document that renames a reference without moving its box claims metres are
+            // degrees. D-229.
+            JsonElement map = await GetJsonAsync($"/rest/services/{qualified}/MapServer?f=json");
+
+            Assert.True(
+                Wkid(map.GetProperty("spatialReference")) == other,
+                $"`{qualified}` is published in EPSG:{other} and its MapServer document states "
+                + $"EPSG:{Wkid(map.GetProperty("spatialReference"))}. Every other face states the "
+                + "service's choice; this one was the last to read the table.");
+
+            Assert.True(
+                Wkid(map.GetProperty("fullExtent").GetProperty("spatialReference")) == other,
+                $"The MapServer document states EPSG:{other} and its fullExtent is in EPSG:"
+                + $"{Wkid(map.GetProperty("fullExtent").GetProperty("spatialReference"))}. A label "
+                + "moved without its box is the contradiction that held the FeatureServer face "
+                + "back for three days.");
+
+            JsonElement mapLayer = await GetJsonAsync($"/rest/services/{qualified}/MapServer/0?f=json");
+
+            Assert.True(
+                Wkid(mapLayer.GetProperty("extent").GetProperty("spatialReference")) == other,
+                $"The MapServer layer document's extent is in EPSG:"
+                + $"{Wkid(mapLayer.GetProperty("extent").GetProperty("spatialReference"))} while its "
+                + $"service states EPSG:{other} — the layer and the service disagreeing about one "
+                + "layer, which is what the shared method on the server side exists to prevent.");
         }
         finally
         {
@@ -339,6 +370,12 @@ public sealed class TheMapFacesPublishWhatTheServiceChoseTests : ArcGisClient
     }
 
     // ---------- plumbing ----------
+
+    /// <summary>An ArcGIS spatialReference's code, latest first.</summary>
+    private static int Wkid(JsonElement reference) =>
+        reference.TryGetProperty("latestWkid", out JsonElement latest) && latest.ValueKind == JsonValueKind.Number
+            ? latest.GetInt32()
+            : reference.GetProperty("wkid").GetInt32();
 
     /// <summary>CRS84, which is what a GeoJSON collection defaults to.</summary>
     private const string Crs84 = "http://www.opengis.net/def/crs/OGC/1.3/CRS84";

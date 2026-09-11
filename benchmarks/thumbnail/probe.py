@@ -49,7 +49,9 @@ for name in services:
             layer = json.load(answer)
         e = layer.get("extent") or {}
         if all(k in e for k in ("xmin", "ymin", "xmax", "ymax")):
-            extent = f'{e["xmin"]},{e["ymin"]},{e["xmax"]},{e["ymax"]}'
+            sr = e.get("spatialReference") or {}
+            extent = (f'{e["xmin"]},{e["ymin"]},{e["xmax"]},{e["ymax"]}'
+                      f'&bboxSR={sr.get("latestWkid") or sr.get("wkid") or 4326}')
     except Exception as failed:                                    # noqa: BLE001
         print(f"  {name}: layer document unavailable ({str(failed)[:40]})")
         continue

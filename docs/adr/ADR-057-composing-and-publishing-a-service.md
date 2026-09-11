@@ -220,6 +220,17 @@ Web Mercator, `VectorTileServerMetadataWriter` refuses any other extent, and a d
 `fullExtent` and `tileInfo` disagreed would make a client fetch the metadata and then no tiles
 ([D-49](../architecture-debt.md)).
 
+**And MapServer serves in it too — owner decision, 2026-09-11.** *"MapServer da uysun."* It was
+the last face reading the table: internally consistent, since it stated and drew 3857 for a 3857
+table, but a service set to 4326 told a MapServer client *3857* while every other face said 4326.
+Its service and layer documents now state `ServedSrid` with the extent moved into it, by the
+`ServedExtent` the FeatureServer document already uses. **The export moved with the documents,
+because the document and the drawing are one claim**: an Export Map `bbox` with no `bboxSR` is,
+by ArcGIS's published reference, *in the spatial reference of the map*, and this server had read
+it as 4326 regardless — wrong before this decision for every service not stored in 4326. It now
+reads the first drawable layer's `PublishedSrid`, the same reference the document states
+([D-229](../architecture-debt.md), closed).
+
 **What this does not do is close the capability.** A caller may still name another reference per
 request — `outSR` on ArcGIS, `srsName` on WFS, `crs` on WMS — and it is still honoured, which the
 owner asked about directly and which is measured: with no `srsName` a feature comes back in the
