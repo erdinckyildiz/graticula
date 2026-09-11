@@ -47,13 +47,22 @@ public sealed class DevTools : IAsyncDisposable
     private readonly byte[] _buffer = new byte[1 << 20];
     private int _nextId;
     private bool _closed;
+    private readonly Stopwatch _age;
 
-    private DevTools(Process chrome, ClientWebSocket socket, string profile)
+    private DevTools(Process chrome, ClientWebSocket socket, string profile, Stopwatch age)
     {
         _chrome = chrome;
         _socket = socket;
         _profile = profile;
+        _age = age;
     }
+
+    /// <summary>How long ago this browser's process was started.</summary>
+    /// <remarks>
+    /// Read by the warm-up, which waits out the window in which Chrome rebuilds its certificate
+    /// verifier and discards whatever is in flight — [D-173](../../docs/architecture-debt.md).
+    /// </remarks>
+    public TimeSpan Age => _age.Elapsed;
 
     /// <summary>
     /// Finds Chrome, or explains what to set.
@@ -138,6 +147,16 @@ public sealed class DevTools : IAsyncDisposable
             "--no-default-browser-check",
             "--disable-extensions",
 
+            // <b>No background traffic to Google — D-173, 2026-09-11.</b> A fresh profile talks
+            // to half a dozen Google hosts in its first hundred milliseconds, and some of what
+            // comes back makes Chrome rebuild its certificate verifier, which abandons every
+            // request in flight with ERR_CERT_VERIFIER_CHANGED. Measured on this machine,
+            // three launches each: the verifier was rebuilt twice at start — around 300–600 ms
+            // and again at 680–1,030 ms — and with these two flags only the first wave was left,
+            // never later than 639 ms. They are Puppeteer's own defaults, for the same reason.
+            "--disable-background-networking",
+            "--disable-component-update",
+
             // ADR-014 generates a self-signed certificate on start, so a browser
             // that validated the chain could never reach a development server.
             // Accepted here and nowhere else, exactly as ArcGisClient does it.
@@ -194,6 +213,8 @@ public sealed class DevTools : IAsyncDisposable
                 "--log-net-log=" + Path.Combine(netLog, Path.GetFileName(profile) + ".json"));
         }
 
+        Stopwatch age = Stopwatch.StartNew();
+
         Process process = Process.Start(start)
             ?? throw new InvalidOperationException($"'{chrome}' did not start.");
 
@@ -205,7 +226,7 @@ public sealed class DevTools : IAsyncDisposable
             ClientWebSocket socket = new();
             await socket.ConnectAsync(new Uri(page), CancellationToken.None);
 
-            DevTools tools = new(process, socket, profile);
+            DevTools tools = new(process, socket, profile, age);
             await tools.CallAsync("Page.enable");
             await tools.CallAsync("Runtime.enable");
             return tools;

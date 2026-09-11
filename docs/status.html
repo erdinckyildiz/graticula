@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>f72877e</code> · 2026-09-11 16:02</p>
+<p class="stamp">Generated from commit <code>3fcb840</code> · 2026-09-11 16:16</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">63</div><div class="kpi-l">ADRs</div><div class="kpi-n">12 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">191/235</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">42 live · 2 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">157 answered</div></div>
-<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">open debts</div><div class="kpi-n">244 repaid · 1 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">open debts</div><div class="kpi-n">244 repaid · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">2638</div><div class="kpi-l">tests</div><div class="kpi-n">281 source files, 117,966 lines</div></div>
@@ -261,7 +261,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-162</td><td>A provider that is not PostGIS would be handed PostGIS SQL.</td><td class="muted-t">When DuckDB is designed as the file-format query engine (Q-81), and not after.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-237</td><td>The server has no view of how large its own datastore is, and cannot answer who is filling the store.</td><td class="muted-t">The first of these, and the second is the one that changes the answer rather than the priority.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-243</td><td>A job claimed by a worker that dies stays running for ever, nothing reclaims it, and no operator surface can clear it.</td><td class="muted-t">The first job observed stuck in running, or the first deployment that runs two servers.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-259</td><td>Two CI runs in a row lost a different console test, each waiting ten seconds for a data-source list that never filled — and it is neither of the two rows that already describe console flakiness.</td><td class="muted-t">Now.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-259</td><td>Two CI runs in a row lost a different console test, each waiting ten seconds for a data-source list that never filled — and it is neither of the two rows that already describe console flakiness.</td><td class="muted-t">Now.</td><td><span class="pill cond">PARTLY</span></td></tr>
 </tbody></table></div>
 <p class="sub">244 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
@@ -373,6 +373,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.7%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>3fcb840</code><time>2026-09-11</time><span>An outage&#x27;s own words reach the operator&#x27;s log, so /admin/health can stay redacted</span></li>
 <li><code>f72877e</code><time>2026-09-11</time><span>ASP.NET Core writes nothing per request unless somebody asks it to</span></li>
 <li><code>d8a3b09</code><time>2026-09-11</time><span>An anonymous request no longer asks the platform store who it is</span></li>
 <li><code>d87a1d0</code><time>2026-09-11</time><span>A group no longer takes the anonymous principal as a member</span></li>
@@ -386,7 +387,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>4c77542</code><time>2026-09-11</time><span>ADR-063&#x27;s three conditions are discharged, and the page moves to 191 of 235</span></li>
 <li><code>5d66df9</code><time>2026-09-11</time><span>A layer&#x27;s Fields page: a label per column, and the one screen that shows a hidden column</span></li>
 <li><code>839a227</code><time>2026-09-11</time><span>A layer may label a column and may hide one, and a hidden column is refused like an absent one</span></li>
-<li><code>41118c3</code><time>2026-09-11</time><span>The quickstart&#x27;s import section is now rehearsed by the release gate</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

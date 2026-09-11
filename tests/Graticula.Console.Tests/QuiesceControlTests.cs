@@ -327,29 +327,34 @@ public sealed class QuiesceControlTests : ConsoleTest
         // next lines make it the Resume one rather than pretending the server said anything.
         await Browser.EvaluateAsync<bool>("(window.__writes = [], true)");
 
-        // <b>Found and rewritten in one expression, and it has to be.</b> Pressing Quiesce makes
-        // the pane re-read its listing, so the row this needs is replaced somewhere between the
-        // press and here — a bare `querySelector` finds null on a slow machine and the click that
-        // follows reports *nothing matched*, which is what CI saw and a developer machine never
-        // did. `ClickAsync` carries the same lesson in its own remarks: poll one atomic
-        // expression rather than narrowing the gap.
+        // <b>Found, rewritten and pressed in one expression — and the first version stopped one
+        // step short.</b> Pressing Quiesce makes the pane re-read its listing, so the row this needs
+        // is replaced somewhere between the press and here. The first repair rewrote the control
+        // atomically and then clicked it in a *second* call, which reopened the same gap one step
+        // later: on `3fcb840` the rewrite landed on the old row, the re-read (11 ms, 431 bytes —
+        // D-259's diagnostic line, which is how this was read rather than guessed) drew a fresh
+        // row with a Quiesce button, and the click waited ten seconds for a Resume control that
+        // had been thrown away. The console's handler reads the pressed element's own `data-*` at
+        // the moment of the click, so pressing it inside the same expression works whether or not
+        // the row is about to be replaced. D-259.
         await WaitForAsync(
             """
             (() => {
-              const row = document.querySelector('#sources [data-source-resume]');
-              if (row) return true;
-              const quiesce = document.querySelector('#sources [data-source-quiesce]');
-              if (!quiesce) return false;
-              quiesce.setAttribute(
-                'data-source-resume', quiesce.getAttribute('data-source-quiesce'));
-              quiesce.removeAttribute('data-source-quiesce');
+              const control =
+                document.querySelector('#sources [data-source-resume]')
+                || document.querySelector('#sources [data-source-quiesce]');
+              if (!control) return false;
+              if (control.hasAttribute('data-source-quiesce')) {
+                control.setAttribute(
+                  'data-source-resume', control.getAttribute('data-source-quiesce'));
+                control.removeAttribute('data-source-quiesce');
+              }
+              control.click();
               return true;
             })()
             """,
             "No row on the Data sources screen offered a control to rewrite, so the pane never "
             + "settled after the quiesce was sent.");
-
-        await ClickAsync("#sources [data-source-resume]");
 
         await WaitForAsync(
             "(window.__writes || []).some(w => w.startsWith('DELETE') && w.includes('/quiesce'))",

@@ -944,10 +944,27 @@ public abstract class ConsoleTest : IAsyncLifetime
 
             if (!changed)
             {
-                return;
+                break;
             }
         }
+
+        // <b>And the browser is old enough that the verifier has already been rebuilt — D-173
+        // again, 2026-09-11.</b> The loop above can only see a rebuild that landed on a warming
+        // page; one that comes after the warm-up finishes lands on the page under test. That is
+        // what happened on `f72877e`, the commit that took four log lines per request off the
+        // server: the warm-up got faster, finished inside the window, and `/server/ground.js`
+        // on the Logs screen died with ERR_CERT_VERIFIER_CHANGED at 786 ms into the browser's
+        // life. With the launch flags the last rebuild measured was 639 ms; waiting until the
+        // browser is a second old puts every one of them behind the warm-up, whatever the
+        // server's speed, and costs nothing on a run whose warm-up already took that long.
+        if (Browser.Age < Settled)
+        {
+            await Task.Delay(Settled - Browser.Age);
+        }
     }
+
+    /// <summary>How old a browser must be before the first page under test — D-173.</summary>
+    private static readonly TimeSpan Settled = TimeSpan.FromSeconds(1);
 
     /// <summary>
     /// The script that runs before the console's own, in the console's own tab.
