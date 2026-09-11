@@ -223,6 +223,47 @@ internal sealed class ServiceContexts
     {
         ArgumentNullException.ThrowIfNull(layer);
 
+        (IFeatureSource source, LayerDescription table) =
+            await TableAsync(layer, cancellation).ConfigureAwait(false);
+
+        // <b>ADR-063's overrides, applied here and nowhere else.</b> Every face takes its
+        // column names from this description — three document writers, the query path, the
+        // write path, the filter readers, the tile attributes — so a hidden column removed
+        // here is refused by each of them with the words it already uses for an unknown one,
+        // and none of them has to know the decision exists.
+        //
+        // <b>After the cache and never inside it, and that is forced rather than chosen.</b>
+        // The cache is keyed by the table, not the layer — see the class remarks — so two
+        // layers over one table share one entry, and since migration 40 two services may
+        // publish the same table with different labels. Overrides applied inside the cache
+        // would give the second layer the first one's hidden columns. The catalogue entry is
+        // read on every request, so a changed override is seen on the next one. For a layer
+        // with none this returns the same instance and allocates nothing.
+        return (source, FieldOverrides.Apply(table, layer.FieldOverrides));
+    }
+
+    /// <summary>
+    /// The layer's table as the table describes it, before the layer's overrides.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>For the admin surface, and it is the one door around ADR-063 on purpose.</b> An
+    /// operator has to see a hidden column in order to unhide it, and has to see which
+    /// overrides name nothing (condition 3) — neither is possible from a description with
+    /// the hidden columns already removed.
+    /// </para>
+    /// <para>
+    /// <b>Nothing that serves data may call this.</b> A face that took its columns from here
+    /// would serve every hidden column, which is the leak the decision is built to make
+    /// impossible. It is named for what it returns rather than for its caller so that a
+    /// reader reaching for it has to read that.
+    /// </para>
+    /// </remarks>
+    public async Task<(IFeatureSource Source, LayerDescription Description)> TableAsync(
+        PublishedLayer layer, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(layer);
+
         IFeatureSource source = _connections.SourceFor(layer);
         Key key = Key.Of(layer);
         DateTimeOffset now = _clock.GetUtcNow();
@@ -271,6 +312,8 @@ internal sealed class ServiceContexts
             */
             _entries.TryRemove(new KeyValuePair<Key, Entry>(key, entry));
 
+            // The remembered shape is the table's, and `GetAsync` applies the overrides to it
+            // exactly as to a fresh one — an outage must not un-hide a hidden column.
             return (source, _known[key]);
         }
         catch

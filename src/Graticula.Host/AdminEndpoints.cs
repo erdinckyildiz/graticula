@@ -405,7 +405,7 @@ internal sealed record SystemLimitsRequest(
 /// becomes wrong and §5b applies.
 /// </para>
 /// </remarks>
-internal static class AdminEndpoints
+internal static partial class AdminEndpoints
 {
     /// <summary>
     /// Every URL prefix that serves somebody's data, and therefore must be governed.
@@ -520,6 +520,7 @@ internal static class AdminEndpoints
         app.MapPut("/admin/layers/{name}/sharing", SetSharingAsync);
         app.MapPut("/admin/layers/{name}/cache", SetCacheLifetimeAsync);
         app.MapPut("/admin/layers/{name}/time-field", SetTimeFieldAsync);
+        MapFieldOverrides(app);  // ADR-063 — AdminEndpoints.FieldOverrides.cs
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
             SetStatusAsync(c, name, ServiceStatus.Started, a, l, t));
         app.MapPost("/admin/layers/{name}/stop", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>

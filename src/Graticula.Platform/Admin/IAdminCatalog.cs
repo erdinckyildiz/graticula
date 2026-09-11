@@ -598,6 +598,24 @@ public interface IAdminCatalog
     Task<bool> SetTimeFieldAsync(
         string name, string? field, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Replaces a layer's per-column overrides — ADR-063.
+    /// </summary>
+    /// <param name="layerId">The layer, by identity.</param>
+    /// <param name="fieldOverrides">The whole list; entries that say nothing are not stored.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>Whether a layer was updated.</returns>
+    /// <remarks>
+    /// <b>By identity rather than by name</b>, because a layer's name is not unique across
+    /// services since migration 40 — one table may be published into several — and a write
+    /// keyed by name would relabel every one of them. The caller has already resolved which
+    /// layer it means; this does not guess again.
+    /// </remarks>
+    Task<bool> SetFieldOverridesAsync(
+        Guid layerId,
+        IReadOnlyList<Graticula.Catalog.FieldOverride> fieldOverrides,
+        CancellationToken cancellationToken);
+
     /// <summary>Creates a group layer inside a service.</summary>
     /// <param name="folder">The service's folder, or null for the root.</param>
     /// <param name="serviceName">The service's name.</param>

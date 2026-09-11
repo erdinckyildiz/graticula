@@ -236,7 +236,9 @@ internal static class MapServerEndpoints
             {
                 name = f.Name,
                 type = FeatureServerMetadataWriter.TypeName(f.Type),
-                alias = f.Name,
+                // The same label the FeatureServer face gives the same column (ADR-063); two
+                // faces over one layer disagreeing about a label is D-179's shape.
+                alias = f.Label,
                 nullable = f.Nullable,
                 length = f.MaxLength,
             })],

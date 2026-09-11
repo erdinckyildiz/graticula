@@ -698,6 +698,24 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> SetFieldOverridesAsync(
+        Guid layerId,
+        IReadOnlyList<Graticula.Catalog.FieldOverride> fieldOverrides,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(fieldOverrides);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update layer set field_overrides = @overrides::jsonb, updated_at = now() "
+            + "where id = @id");
+
+        command.Parameters.AddWithValue("id", layerId);
+        command.Parameters.AddWithValue("overrides", FieldOverrideJson.Write(fieldOverrides));
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<GroupLayerAddress?> CreateGroupLayerAsync(
         string? folder,
         string serviceName,

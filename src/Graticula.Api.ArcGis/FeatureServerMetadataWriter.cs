@@ -947,7 +947,11 @@ public static class FeatureServerMetadataWriter
             type = string.Equals(field.Name, layer.IntegerIdentityColumn, StringComparison.Ordinal)
                 ? "esriFieldTypeOID"
                 : TypeName(field.Type),
-            alias = field.Name,
+            // <b>The layer's label, and the column's own name when it has none — ADR-063.</b>
+            // This sent the name as the alias for every field, which is not *no alias* but a
+            // wrong one: a client shows it, and a geodatabase import that read the operator's
+            // own labels threw them away before they could get here.
+            alias = field.Label,
             length = field.MaxLength,
             nullable = field.Nullable,
 

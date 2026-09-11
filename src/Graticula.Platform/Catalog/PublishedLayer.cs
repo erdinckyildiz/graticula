@@ -272,6 +272,32 @@ public sealed class PublishedLayer
     /// </remarks>
     public string? ServedWkt { get; init; }
 
+    /// <summary>
+    /// What this layer says about its table's columns that the table does not say — ADR-063.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Empty for almost every layer, and that is the case the read path is written for.</b>
+    /// A layer with nothing to say about its columns describes exactly what its table
+    /// describes, and <see cref="Graticula.Features.FieldOverrides.Apply"/> returns the
+    /// description it was given rather than rebuilding it.
+    /// </para>
+    /// <para>
+    /// <b>Carried on the layer rather than fetched beside it</b>, because the describe cache
+    /// already holds a layer's shape for its lifetime and a second lookup would give the two
+    /// halves different ages — a field list from one moment labelled by overrides from
+    /// another. ADR-063 §6 says these travel with the layer definition and expire with it.
+    /// </para>
+    /// <para>
+    /// <b>An entry naming a column the table does not have is kept, not dropped.</b> It is
+    /// inert by design and visible by condition 3: an operator who renamed a column in the
+    /// database and lost a label has to be able to find out why, and a read that quietly
+    /// discarded the orphan would leave the admin surface nothing to report.
+    /// </para>
+    /// </remarks>
+    public ImmutableArray<FieldOverride> FieldOverrides { get; init; } =
+        ImmutableArray<FieldOverride>.Empty;
+
     /// <summary>The catalogue identity.</summary>
     public Guid Id { get; }
 

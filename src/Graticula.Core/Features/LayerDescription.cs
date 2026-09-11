@@ -81,8 +81,36 @@ public enum FieldType
 /// <param name="Type">Its type.</param>
 /// <param name="Nullable">Whether it accepts null.</param>
 /// <param name="MaxLength">Its declared length, for text, or null.</param>
+/// <param name="Alias">
+/// What to call it on the wire, or <see langword="null"/> for its own name.
+/// </param>
+/// <remarks>
+/// <para>
+/// <b><see cref="Alias"/> is a label and never an identifier — ADR-063.</b> It is what a
+/// client shows a person; every place this server matches a column, filters on one, orders
+/// by one or writes to one goes on using <see cref="Name"/>. A caller may not ask for a
+/// column by its alias, because two layers over one table may label it differently and a
+/// name that means different columns in different services is not a name.
+/// </para>
+/// <para>
+/// <b>On the end and optional, which is deliberate.</b> Every construction of this type that
+/// predates the decision keeps compiling and keeps meaning what it meant — no alias — and a
+/// provider that has no opinion about labels does not have to acquire one.
+/// </para>
+/// <para>
+/// <b>There is no <c>Hidden</c> here, and its absence is the design.</b> A hidden column is
+/// removed from <see cref="LayerDescription.Fields"/> rather than flagged in it, so every
+/// surface that already refuses a column it cannot find refuses a hidden one by the same
+/// code and with the same words. A flag would need every reader to remember to check it, and
+/// the reader that forgets is a leak rather than a cosmetic bug.
+/// </para>
+/// </remarks>
 public readonly record struct FieldDescription(
-    string Name, FieldType Type, bool Nullable, int? MaxLength);
+    string Name, FieldType Type, bool Nullable, int? MaxLength, string? Alias = null)
+{
+    /// <summary>What a client should show for this column.</summary>
+    public string Label => string.IsNullOrWhiteSpace(Alias) ? Name : Alias;
+}
 
 /// <summary>
 /// What a client needs to know about a layer before querying it.

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(41);
+    public static SchemaVersion ComponentSchemaVersion => new(42);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -76,6 +76,7 @@ public static class PlatformMigrations
         AServiceNamesItsReferenceV39,
         OneTableMayBeInManyServicesV40,
         AReferenceMayBeWrittenOutV41,
+        AFieldListMayCarryOverridesV42,
     ]);
 
 
@@ -2552,6 +2553,65 @@ public static class PlatformMigrations
     /// satisfies the per-service one.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Per-column overrides on a layer: a display alias and a hidden flag.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-063](../../../docs/adr/ADR-063-a-field-list-may-differ-from-the-table.md),
+    /// answering [Q-36](../../../docs/open-questions.md).</b> A layer may say two things
+    /// about a column the table does not say: what to call it, and that it is not to be
+    /// shown. It may not create a column and it may not change one's type, nullability or
+    /// name on the wire.
+    /// </para>
+    /// <para>
+    /// <b>A column rather than a table, and the reason is measured rather than stylistic.</b>
+    /// §6 of that ADR allows either. A `layer_field_override` table would be read with one
+    /// more aggregate subquery on the catalogue's hottest query, and
+    /// [D-249](../../../docs/architecture-debt.md) established on 2026-09-10 that the
+    /// platform store is this server's ceiling: every request already pays a grants lookup,
+    /// and the answer to a ceiling is not another subquery. A `jsonb` column on a row the
+    /// query already selects costs nothing to read.
+    /// </para>
+    /// <para>
+    /// <b>And it is the machinery the rest of the data model attaches to.</b> ADR-013 §5a's
+    /// domains and subtypes are the same shape of claim about a column — a per-column
+    /// document, not a per-column table — so this carries them later rather than being
+    /// joined by a second mechanism that disagrees with it.
+    /// </para>
+    /// <para>
+    /// <b>What the database enforces and what it does not.</b> It enforces that the value is
+    /// a JSON array, which is the one thing a reader cannot recover from: an object or a
+    /// scalar here would make every read throw rather than return an empty list. Everything
+    /// else — that an entry names a column, that an alias is not blank, that the identity and
+    /// geometry columns are not hidden — is refused where the override is set, because
+    /// ADR-063 condition 2 asks for exactly that: <em>a check at query time is a check
+    /// somebody can reach a state without passing</em>.
+    /// </para>
+    /// <para>
+    /// <b>Default `[]` and not null</b>, so that every layer written before this migration
+    /// reads as *no overrides* rather than as a null a caller has to remember to handle. The
+    /// list being empty is the common case and the read path returns the table's own fields
+    /// unchanged for it.
+    /// </para>
+    /// </remarks>
+    private static Migration AFieldListMayCarryOverridesV42 => Migration.Expand(
+        new SchemaVersion(42),
+        "A layer may carry a display alias and a hidden flag per column.",
+
+        """
+        alter table layer add column if not exists field_overrides jsonb not null default '[]'::jsonb
+        """,
+
+        """
+        alter table layer drop constraint if exists layer_field_overrides_is_a_list
+        """,
+
+        """
+        alter table layer add constraint layer_field_overrides_is_a_list
+            check (jsonb_typeof(field_overrides) = 'array')
+        """);
+
     /// <summary>
     /// A service may name its reference by writing it out, not only by code.
     /// </summary>

@@ -77,7 +77,12 @@ public sealed class PostgresLayerCatalog
         -- The reference this service is served in, or null for each layer's own
         -- (ADR-057 §5c, migration 39). On the end, per the rule above.
         s.srid as service_srid,
-        s.srid_wkt as service_srid_wkt
+        s.srid_wkt as service_srid_wkt,
+
+        -- What the layer says about its table's columns (ADR-063, migration 42). On the end,
+        -- per the rule above, and read by name. A column of a row already selected rather than
+        -- a subquery: D-249 measured the platform store as this server's ceiling.
+        l.field_overrides::text as field_overrides
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -465,6 +470,14 @@ public sealed class PostgresLayerCatalog
             ServedWkt = reader.IsDBNull(reader.GetOrdinal("service_srid_wkt"))
                 ? null
                 : reader.GetString(reader.GetOrdinal("service_srid_wkt")),
+
+            // <b>Kept whole, orphans included.</b> An override naming a column the table no
+            // longer has is inert by design and reported by condition 3 of ADR-063; dropping
+            // it here would leave the admin surface nothing to report.
+            FieldOverrides = FieldOverrideJson.Read(
+                reader.IsDBNull(reader.GetOrdinal("field_overrides"))
+                    ? null
+                    : reader.GetString(reader.GetOrdinal("field_overrides"))),
         };
     }
 

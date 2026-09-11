@@ -489,7 +489,8 @@ internal static class RelationshipEndpoints
             {
                 name = f.Name,
                 type = FeatureServerMetadataWriter.TypeName(f.Type),
-                alias = f.Name,
+                // ADR-063: the related layer's own label, as its layer document gives it.
+                alias = f.Label,
             }),
             relatedRecordGroups = groups.Select(g => new
             {
