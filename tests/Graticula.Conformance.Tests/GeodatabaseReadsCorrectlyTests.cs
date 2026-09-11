@@ -205,6 +205,22 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
             Assert.Equal("esriFieldTypeInteger", fields["count"]);
             Assert.Equal("esriFieldTypeDouble", fields["area"]);
 
+            // <b>The archive's own label reaches the served layer — ADR-063.</b> The fixture gives
+            // `count` the alias *Visit count* and the other three none, so this asserts a label
+            // carried and a label not invented: a field without an alias is labelled with its own
+            // column name, not with the source field's spelling or with nothing.
+            Dictionary<string, string> labels = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (JsonElement field in
+                JsonDocument.Parse(layerDocument).RootElement.GetProperty("fields").EnumerateArray())
+            {
+                labels[field.GetProperty("name").GetString() ?? string.Empty] =
+                    field.GetProperty("alias").GetString() ?? string.Empty;
+            }
+
+            Assert.Equal("Visit count", labels["count"]);
+            Assert.Equal("name", labels["name"]);
+
             // <b>And the features, which is the half a document cannot claim.</b> A service can
             // describe a layer it cannot read.
             (HttpStatusCode queried, string answer) = await GetAsync(

@@ -5,7 +5,7 @@
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | ~~`MEDIUM` — the decision is the owner's and the shape is forced by what already exists, but nothing is built yet and the drift story is argued rather than measured.~~ **`HIGH` for the mechanism, measured 2026-09-11** — a hidden column's refusal is byte-identical to an absent column's at every door tested, and drift is tested rather than argued · `MEDIUM` for how hiding will be read (§6) |
 | **Decided** | 2026-09-09 |
-| **Built** | 2026-09-11 — `839a227` (storage, mechanism, admin API, tests) and `5d66df9` (the console's Fields page). §5a says what was and was not |
+| **Built** | 2026-09-11 — `839a227` (storage, mechanism, admin API, tests), `5d66df9` (the console's Fields page), and the geodatabase importer carrying the archive's own aliases (§5a) |
 | **Supersedes** | — |
 | **Superseded by** | — |
 
@@ -172,11 +172,17 @@ predicate — what leaks is that two rows are related, which the relationship ex
 a relationship cannot be *created* on a hidden key, because that check reads the same
 description.
 
-**Not built.** Carrying a geodatabase's own field aliases through the importer (§6's first
-positive consequence): the reader still reports them and nothing consumes them. The write it
-needs exists — `IAdminCatalog.SetFieldOverridesAsync` — and the files it belongs in are in
-another piece of work's hands at the time of writing, so it is left open here rather than
-claimed.
+~~**Not built.** Carrying a geodatabase's own field aliases through the importer (§6's first
+positive consequence): the reader still reports them and nothing consumes them.~~ **Built the
+same day.** The reader's `features` stream now carries each field's alternative name beside its
+type, and after a layer is published the importer writes those as the layer's labels — keyed by
+the column it actually created, through `PostGisImporter.ColumnNameFor`, which is public for
+exactly this: a label keyed by the source spelling (`Visit Count`) would name no column
+(`visit_count`) and be inert. Only a real alias is carried; the archive's field name is not
+promoted to a label, because that would be this server inventing one. The import report
+counts them per layer as `labelled`. **Tested end to end**: the reader's own GDAL fixture gives
+one of its four fields an alias, and `GeodatabaseReadsCorrectlyTests` asserts the served layer
+carries that label and that a field without one is labelled with its own column name.
 
 ## 6. Consequences
 

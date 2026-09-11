@@ -605,7 +605,14 @@ public sealed class PostGisImporter
     /// already unreadable, and already the one at risk — moves.
     /// </para>
     /// </remarks>
-    private static string ColumnNameFor(string property)
+    /// <remarks>
+    /// <b>Public because a second caller has to agree with it exactly</b> — ADR-063. A geodatabase
+    /// import labels the columns it created with the archive's own aliases, and a label keyed by the
+    /// source field's name rather than by the column this produced would be an override naming
+    /// nothing: inert, reported, and the label lost. One rule in one place is the only way the two
+    /// cannot drift.
+    /// </remarks>
+    public static string ColumnNameFor(string property)
     {
         StringBuilder safe = new();
 

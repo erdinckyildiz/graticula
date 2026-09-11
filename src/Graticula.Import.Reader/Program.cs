@@ -285,6 +285,14 @@ internal static class Program
                 defined.SetWidth(64);
             }
 
+            // <b>One field with an alias and three without</b>, so the import is tested carrying a
+            // label and not inventing one — ADR-063. A geodatabase's alias is its owner's label
+            // for the field, and the published layer should show it.
+            if (field == "count")
+            {
+                defined.SetAlternativeName("Visit count");
+            }
+
             layer.CreateField(defined, 1);
         }
 
@@ -423,7 +431,16 @@ internal static class Program
         {
             using FieldDefn field = definition.GetFieldDefn(f);
 
-            fields.Add(new { name = field.GetName(), type = field.GetFieldTypeName(field.GetFieldType()) });
+            fields.Add(new
+            {
+                name = field.GetName(),
+                type = field.GetFieldTypeName(field.GetFieldType()),
+
+                // <b>The label the archive's owner gave the field, on the stream that imports it and
+                // not only on the inspection that describes it</b> — ADR-063. It was reported and
+                // dropped, because the schema had nowhere to put it; it has now.
+                alias = Nothing(field.GetAlternativeName()),
+            });
         }
 
         Answer(new
@@ -522,8 +539,8 @@ internal static class Program
                     type = field.GetFieldTypeName(field.GetFieldType()),
 
                     // The geodatabase's own alias, which is what an operator reads in ArcGIS. Reported
-                    // rather than used: our schema has no alias column, and saying so is better than
-                    // dropping it silently.
+                    // here for the picker, and carried by the `features` stream to the published
+                    // layer as its label since ADR-063 gave the schema somewhere to put it.
                     alias = Nothing(field.GetAlternativeName()),
 
                     // A coded value domain, by name. We have no domains either; this is the same

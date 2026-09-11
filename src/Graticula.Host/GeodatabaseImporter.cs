@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Graticula.Catalog;
 using Graticula.Features;
 using Graticula.Formats;
 using Graticula.Geometries;
@@ -266,6 +267,9 @@ internal sealed class GeodatabaseImporter : BackgroundService
                         // being schema-only; a layer with none needs to, because otherwise *published,
                         // 0 features* reads as a failure somebody should investigate.
                         schemaOnly = made.Rows == 0 ? made.Declared : (int?)null,
+
+                        // How many columns carry the archive's own label (ADR-063).
+                        labelled = made.Labelled,
                     });
                 }
                 catch (Exception refused)
@@ -374,7 +378,59 @@ internal sealed class GeodatabaseImporter : BackgroundService
     /// unless the layer was empty, which is D-106's case and worth reporting because *published with no
     /// features* and *failed* look the same from a distance.
     /// </param>
-    private readonly record struct Landed(int Rows, int Flattened, int Declared = 0);
+    /// <param name="Labelled">How many columns were given the archive's own alias as their label (ADR-063).</param>
+    private readonly record struct Landed(
+        int Rows, int Flattened, int Declared = 0, int Labelled = 0);
+
+    /// <summary>
+    /// Gives the published layer the archive's own field aliases as its labels — ADR-063.
+    /// </summary>
+    /// <returns>How many columns were labelled.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Keyed by the column the importer made, not by the field's own name.</b> The importer
+    /// lowercases and replaces what PostgreSQL would need quoted, so `Visit Count` becomes
+    /// `visit_count`; a label keyed by the source name would name no column — inert, reported, and
+    /// the label lost. <see cref="PostGisImporter.ColumnNameFor"/> is the one rule both use.
+    /// </para>
+    /// <para>
+    /// <b>Only a real alias.</b> An alias equal to the column name says nothing, and the archive's
+    /// field name is not treated as an alias either: that would be this server inventing a label
+    /// the archive's owner never chose.
+    /// </para>
+    /// <para>
+    /// <b>After the publish and outside it</b>, so a layer is never lost for the sake of its
+    /// labels: if writing them fails the layer is served with its column names, which is exactly
+    /// what every import did before this, and the failure propagates to the per-layer report.
+    /// </para>
+    /// </remarks>
+    private async Task<int> LabelAsync(
+        Guid layerId, IReadOnlyList<FieldDescription> declared, CancellationToken stopping)
+    {
+        List<FieldOverride> labels = [];
+
+        foreach (FieldDescription field in declared)
+        {
+            if (string.IsNullOrWhiteSpace(field.Alias))
+            {
+                continue;
+            }
+
+            string column = PostGisImporter.ColumnNameFor(field.Name);
+
+            if (!string.Equals(field.Alias, column, StringComparison.Ordinal))
+            {
+                labels.Add(new FieldOverride(column, field.Alias.Trim(), Hidden: false));
+            }
+        }
+
+        if (labels.Count > 0)
+        {
+            await _catalog.SetFieldOverridesAsync(layerId, labels, stopping).ConfigureAwait(false);
+        }
+
+        return labels.Count;
+    }
 
     /// <summary>Streams one layer out of the archive and publishes it into the service.</summary>
     private async Task<Landed> PublishAsync(
@@ -507,7 +563,13 @@ internal sealed class GeodatabaseImporter : BackgroundService
                             // one import path that does honour a `not null` is the designed one, where
                             // a person chose it.
                             Nullable: true,
-                            MaxLength: null));
+                            MaxLength: null,
+
+                            // The archive's own label for the field, when it has one (ADR-063).
+                            Alias: field.TryGetProperty("alias", out JsonElement alias)
+                                && alias.ValueKind == JsonValueKind.String
+                                    ? alias.GetString()
+                                    : null));
                     }
                 }
             }
@@ -553,7 +615,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
                 .DefineAsync(declared, declaredKind.Value, srid, layer, stopping)
                 .ConfigureAwait(false);
 
-            await _catalog.PublishLayerAsync(
+            PublishedLayerAddress emptyAt = await _catalog.PublishLayerAsync(
                 new LayerPublication(
                     layer,
                     asked.Datastore,
@@ -572,7 +634,9 @@ internal sealed class GeodatabaseImporter : BackgroundService
                 asked.Owner,
                 stopping).ConfigureAwait(false);
 
-            return new Landed(0, 0, Declared: declared.Count);
+            int emptyLabels = await LabelAsync(emptyAt.Id, declared, stopping).ConfigureAwait(false);
+
+            return new Landed(0, 0, Declared: declared.Count, Labelled: emptyLabels);
         }
 
         if (kind is null)
@@ -594,7 +658,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
         // <b>Into the named service, at the next free index.</b> This is the mechanism the
         // registered-table form has always used and the geodatabase import is its first other caller —
         // which is what makes one archive one service rather than N.
-        await _catalog.PublishLayerAsync(
+        PublishedLayerAddress at = await _catalog.PublishLayerAsync(
             new LayerPublication(
                 layer,
                 asked.Datastore,
@@ -618,7 +682,9 @@ internal sealed class GeodatabaseImporter : BackgroundService
             asked.Owner,
             stopping).ConfigureAwait(false);
 
-        return new Landed(features.Count, flattened);
+        int labelled = await LabelAsync(at.Id, declared, stopping).ConfigureAwait(false);
+
+        return new Landed(features.Count, flattened, Labelled: labelled);
     }
 
     /// <summary>
