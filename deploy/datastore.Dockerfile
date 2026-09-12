@@ -7,7 +7,16 @@
 # and upgrade agents arrive they have somewhere to go that is not "edit your
 # compose file".
 
-FROM postgis/postgis:16-3.4
+# <b>The multi-architecture build of the same recipes, and the reason is that the
+# official one is not.</b> `postgis/postgis` publishes **amd64 only** — measured
+# 2026-09-12 against Docker Hub for `16-3.4`, `16-3.5`, `17-3.5`, the alpine variants
+# and `latest` — so `docker compose up`, which README.md offers as the first command
+# anybody runs, failed on every arm64 machine: an ARM VPS, and every Apple Silicon
+# laptop. `imresamu/postgis` is the multi-architecture publication of the
+# `postgis/docker-postgis` recipes by one of that project's maintainers, same version
+# numbers, and it carries both architectures. [D-262](../docs/architecture-debt.md)
+# records the trust that buys and what would end it.
+FROM imresamu/postgis:16-3.4
 
 # Stamped so a running datastore can be asked what it is, rather than inferred
 # from a tag somebody may have moved.
