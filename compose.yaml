@@ -26,6 +26,17 @@ services:
       POSTGRES_PASSWORD: ${GIS_DATASTORE_PASSWORD:-gis}
     volumes:
       - datastore:/var/lib/postgresql/data
+
+    # <b>Docker gives a container 64 MB of shared memory and PostgreSQL needs more than
+    # that to run a query in parallel.</b> Found on the first real deployment, 2026-09-12:
+    # `vacuum analyze` over a 6.8 GB database stopped with *could not resize shared memory
+    # segment to 67128736 bytes: No space left on device*, which names the 64 MB default
+    # without naming where it comes from. Every parallel plan shares that budget, so the
+    # failure is not about maintenance: it is what a large spatial query does when the
+    # planner decides to use more than one worker. This is a ceiling rather than an
+    # allocation — the tmpfs grows as it is used — so it costs an idle deployment nothing.
+    shm_size: 1gb
+
     healthcheck:
       # The server refuses to start against a store it cannot identify, so
       # starting it before PostgreSQL accepts connections turns a race into a
