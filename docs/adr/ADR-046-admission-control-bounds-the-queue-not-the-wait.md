@@ -277,6 +277,39 @@ design and is stated rather than hidden: the budget bounds what one worker does 
 and two workers can still do twice that. Nothing here survives a restart, and nothing needs
 to.
 
+## 6a. The holder, and what v1 accepts
+
+**Added 2026-09-12, and it is a decision rather than a note.** §6 says this decision bounds the
+queue and not the holder; [D-144](../architecture-debt.md) records what that costs, and
+[Q-139](../open-questions.md) measured it on 2026-09-09. **The two faces do not share a
+mechanism.** On the ArcGIS `query` face the permit, the pool slot and the backend are released
+before the client's drain begins — 304 ms of handler time against a client that took 68.4 s —
+because the writer runs over `context.Response.BodyWriter` and `PipeWriter.Advance` applies no
+backpressure. On the **WFS and OGC** faces the writers flush into `Response.Body` every 16 kB
+and 32 kB, so Kestrel's buffer pushes backpressure into the reader and the hold **is** the
+client's read time: 33,739 ms at 600 kB/s and 67,198 ms at 300 kB/s. Eight readers at 60 kB/s
+held eight of a source's twenty-four permits for 289 seconds
+([benchmarks/slow-reader](../../benchmarks/slow-reader/RESULTS.md)).
+
+**Three ways to bound it, and each pays somewhere else.**
+
+| Bound | What it costs |
+|---|---|
+| A data-rate floor — `MinResponseDataRate`, at the framework's 240 B/s today, which is 250× slower than the readers above and never fires | Demonstrated at 100 kB/s: the same 60 kB/s reader was cut off after 11.6 MB of 17.8 with a reset it cannot read as an error. That is [D-07](../architecture-debt.md)'s shape — a valid JSON prefix carrying no message — and any floor high enough to stop a slow reader also refuses a genuine one on a large export |
+| Buffer the answer and release the permit first | The ArcGIS face's shape, and its cost is memory that nothing bounds: a 21 MB answer per slow reader, held for as long as they read |
+| Release the permit before the drain on the streaming faces | The same trade one face further along, and it removes the backpressure those writers were given deliberately |
+
+**Decision: v1 accepts the hold on the streaming faces and sets no floor.** The bound that
+exists is `RequestDeadline` — ten minutes, in place since 2026-08-18 and installed before
+authentication — and it is the only one of the four that ends a request with a reason rather
+than with a severed socket. A floor would trade a bounded, visible exposure for a silent
+truncation, which is what this repository refuses everywhere else.
+
+**Taken 2026-09-12 on the owner's instruction to close what can be closed** (*"açık konu
+kalmasın"* — let no open topic remain), and written here rather than left as an inference.
+**Revisit triggers**: a deployment serving untrusted readers, a report of a data source
+exhausted by slow ones, or any change that gives the ArcGIS face backpressure.
+
 ## 7. Assumptions this decision rests on
 
 | ID | Assumption | Status |

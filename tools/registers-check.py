@@ -624,7 +624,14 @@ def a_gate_tally_that_disagrees_with_the_gates():
 # had to be edited in the same commit for them to agree again. Anything not here is
 # a word nobody counts, which is what `a_debt_status_nobody_counts` refuses.
 DEBT_VERDICTS = (
-    "OPEN", "PARTLY", "PARTIALLY",
+    # <b>PARKED is the third state, added 2026-09-12.</b> A row whose answer is
+    # decided and whose trigger has not fired is neither live work nor a repaid
+    # debt, and counting it with the first reported loose ends where there were
+    # none -- the same argument CLAUDE.md §2 makes for a condition deferred with
+    # its decision. `status-page.py` counts it apart; this list is what lets the
+    # word exist at all, because a status opening with a word neither file knows
+    # fails the build.
+    "OPEN", "PARTLY", "PARTIALLY", "PARKED",
     "RESOLVED", "CLOSED", "REPAID", "REPAIRED", "WITHDRAWN",
 )
 

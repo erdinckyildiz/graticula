@@ -107,6 +107,7 @@ TEXT = {
         "n_blocking": "blocking",
         "n_repaid": "repaid",
         "n_partly": "partly",
+        "n_parked": "waiting on a trigger",
         "kept_in_register": "every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work",
         "n_outside": "need an outside reviewer",
         "n_unproven": "the rest are unproven",
@@ -200,6 +201,7 @@ TEXT = {
         "n_blocking": "engelleyici",
         "n_repaid": "\u00f6dendi",
         "n_partly": "k\u0131smen",
+        "n_parked": "teti\u011fini bekliyor",
         "kept_in_register": "hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir",
         "n_outside": "tanesi d\u0131\u015far\u0131dan bir incelemeci istiyor",
         "n_unproven": "geri kalan\u0131 kan\u0131tlanmad\u0131",
@@ -504,6 +506,16 @@ def debts():
                 r"\s*(\*{0,2}|~~open~~\s*)(RESOLVED|CLOSED|REPAID|REPAIRED|WITHDRAWN)\b",
                 status, re.I),
             "partly": bool(re.match(r"\s*\*{0,2}(PARTLY|PARTIALLY)", status, re.I)),
+            # <b>A third state, for the reason the conditions already have one.</b>
+            # CLAUDE.md §2 says a condition deferred with its decision, counted
+            # beside live work, "makes the pile look larger than it is and makes
+            # the two indistinguishable to whoever is choosing what to do next".
+            # A debt whose answer is decided and whose trigger has not fired is
+            # that shape exactly: nobody is waiting on it and nobody can act on
+            # it, and counting it as open reported loose ends where there were
+            # none. It is not closed -- what it records is still true -- so it
+            # stays in the table under its own word.
+            "parked": bool(re.match(r"\s*\*{0,2}PARKED\b", status, re.I)),
         })
     return out
 
@@ -749,6 +761,8 @@ def build():
     q_open = [x for x in q if not x["resolved"] and not x["withdrawn"]]
     q_blocking = [x for x in q_open if x["blocking"]]
     d_open = [x for x in d if x["open"]]
+    d_parked = [x for x in d_open if x["parked"]]
+    d_live = [x for x in d_open if not x["parked"]]
     conditions = sum(x["conditions"] for x in a)
     discharged = sum(x["discharged"] for x in a)
     validated = sum(1 for x in s if x["state"].startswith("VALIDATED"))
@@ -797,10 +811,11 @@ def build():
                      f"{sum(1 for x in q if x['resolved'])} {ui('n_answered')}"
                      + (f" · {len(q_blocking)} {ui('n_blocking')}" if q_blocking else "")))
     partly = sum(1 for x in d if x["partly"])
-    parts.append(kpi(len(d_open), ui("k_debts"),
+    parts.append(kpi(len(d_live), ui("k_debts"),
                      f"{len(d) - len(d_open)} {ui('n_repaid')}"
+                     + (f" · {len(d_parked)} {ui('n_parked')}" if d_parked else "")
                      + (f" · {partly} {ui('n_partly')}" if partly else ""),
-                     "warn" if len(d_open) > 10 else ""))
+                     "warn" if len(d_live) > 10 else ""))
     gates_run = sum(1 for x in gate if x["run"])
     parts.append(kpi(f"{gates_run}/{len(gate)}", ui("k_gates"),
                      f"{sum(1 for x in gate if not x['run'] and x['outside'])} {ui('n_outside')}",
@@ -843,10 +858,10 @@ def build():
 
     parts.append(
         f'<article class="card"><div class="card-h"><span class="id">{esc(ui("ours"))}</span>'
-        f'<span class="owner">{len(left) + len(d_open) + len(cold) + len(ours)} {ui("items")}</span></div>'
+        f'<span class="owner">{len(left) + len(d_live) + len(cold) + len(ours)} {ui("items")}</span></div>'
         f'<p><b>{len(left)} ADR conditions</b> outstanding across '
         f'{len({x["adr"] for x in left})} decisions — the largest commitment on this page.</p>'
-        f'<p><b>{len(d_open)} debts</b> with their repayment triggers already written down.</p>'
+        f'<p><b>{len(d_live)} debts</b> with their repayment triggers already written down.</p>'
         f'<p><b>{len(cold)} capability areas</b> not started: '
         f'{esc(", ".join(x["name"] for x in cold))}.</p>'
         + (f'<p><b>{len(ours)} review gates</b> nobody else is blocking: '
@@ -939,14 +954,16 @@ def build():
     # above already carries the same number, and the line below says where the
     # rest went, so nobody concludes the register lost them.
     for x in d_open:
-        tone = "cond" if x["partly"] else "warn" if x["open"] else "good"
+        tone = ("muted" if x["parked"] else "cond" if x["partly"]
+                else "warn" if x["open"] else "good")
 
         # <b>The register's word, not a synonym for it.</b> A debt is repaid; a
         # question is resolved. Reading `repaid` in the row and printing `RESOLVED`
         # here is the same small drift that let five repaid rows be counted open.
         closed = ("WITHDRAWN" if "withdrawn" in x["status"].lower()
                   else "REPAID" if "repaid" in x["status"].lower() else "RESOLVED")
-        label = "PARTLY" if x["partly"] else "OPEN" if x["open"] else closed
+        label = ("PARKED" if x["parked"] else "PARTLY" if x["partly"]
+                 else "OPEN" if x["open"] else closed)
         parts.append(f'<tr class="{"" if x["open"] else "done"}"><td class="id">{esc(x["id"])}</td>'
                      f'<td>{esc(x["text"])}</td><td class="muted-t">{esc(x["trigger"])}</td>'
                      f'<td><span class="pill {tone}">{label}</span></td></tr>')
