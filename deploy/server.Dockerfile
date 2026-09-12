@@ -6,7 +6,11 @@
 # is more than one image.
 
 # ---------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/sdk:9.0-noble AS build
+# <b>`$BUILDPLATFORM`, so a two-architecture build compiles once — D-262.</b> The publish
+# below is portable (`UseAppHost=false`, no runtime identifier), so its output runs on amd64
+# and arm64 alike and there is nothing to gain from running the SDK under emulation. Only the
+# runtime stage is architecture-specific, and all it does there is install curl and add a user.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:9.0-noble AS build
 WORKDIR /src
 
 # <b>The release's number, into the binary and not only onto the image.</b> It reached
