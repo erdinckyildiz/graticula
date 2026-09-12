@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -135,7 +136,7 @@ public sealed class LastAdministratorTests : ArcGisClient
         // after the disposition has run answers 409 just the same.
         string[] after = [.. await EveryServiceNameAsync()];
 
-        Assert.Equal<string>(before, after);
+        Assert.Equal<IEnumerable<string>>(before, after);
     }
 
     private async Task RemoveAsync(string root, string token)

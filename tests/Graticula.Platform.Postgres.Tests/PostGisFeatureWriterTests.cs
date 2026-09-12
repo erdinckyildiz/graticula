@@ -358,7 +358,7 @@ public sealed class PostGisFeatureWriterTests : PostgresFixture
     }
 
     [Fact]
-    public async Task A_layer_with_no_integer_object_id_cannot_be_constructed_as_writable()
+    public Task A_layer_with_no_integer_object_id_cannot_be_constructed_as_writable()
     {
         // ADR-013 §2a: without a unique integer key there is no way to name a
         // row for update or delete, so editing is unexpressible rather than
@@ -369,5 +369,7 @@ public sealed class PostGisFeatureWriterTests : PostgresFixture
 
         Assert.Throws<ArgumentException>(
             () => new PostGisFeatureWriter(DataSource, noOid, []));
+
+        return Task.CompletedTask;
     }
 }

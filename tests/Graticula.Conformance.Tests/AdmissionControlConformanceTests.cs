@@ -87,7 +87,7 @@ public sealed class AdmissionControlConformanceTests : ArcGisClient
     /// </remarks>
     private const int LeastMeaningfulBody = 64 * 1024;
 
-    private static async Task<string> LayerAsync()
+    private static Task<string> LayerAsync()
     {
         string? name = Environment.GetEnvironmentVariable(LargeLayerVariable);
 
@@ -97,7 +97,7 @@ public sealed class AdmissionControlConformanceTests : ArcGisClient
             + "layer whose 200-record answer is larger than "
             + $"{LeastMeaningfulBody / 1024} kB, e.g. hosted/tr_il.");
 
-        return name!.Trim('/');
+        return Task.FromResult(name!.Trim('/'));
     }
 
     /// <summary>

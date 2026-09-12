@@ -48,6 +48,15 @@ jobs:
       - name: build
         run: dotnet build graticula.sln -c Release --no-restore
 
+      # <b>Debug as well, since 2026-09-12.</b> Release was the only configuration this
+      # workflow ever built, and Debug did not compile on the very SDK it installs:
+      # two async methods with nothing to await, and an `Assert.Equal` whose overload
+      # the 9.0.318 compiler cannot choose. It went unseen for as long as it did
+      # because every developer machine had a newer SDK, which resolves all three.
+      # A configuration nobody builds is a configuration that stops building.
+      - name: it builds in Debug too
+        run: dotnet build graticula.sln -c Debug --no-restore
+
       # <b>The dependency gate lives in security.yml, not here.</b> It was in
       # both for a day, and two copies of one gate is how they come to
       # disagree: somebody tightens the pattern in one file and the other
