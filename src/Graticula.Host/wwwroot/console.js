@@ -17731,10 +17731,15 @@ async function handleClick(event) {
     return;
   }
 
-  const shown = t.closest?.("[data-pubshow]");
+  // <b>Named for its attribute, like every other lookup here — and it has to be.</b> Called
+  // `shown`, this function-scoped const put the module-level `shown` map into the temporal
+  // dead zone for the whole of `handleClick`, so the three branches above that ask whether a
+  // layer is drawn threw *Cannot access 'shown' before initialization* instead. Pressing Map
+  // or hiding a layer reported that error and did nothing.
+  const pubShow = t.closest?.("[data-pubshow]");
 
-  if (shown) {
-    const found = pubFind(shown.dataset.pubshow);
+  if (pubShow) {
+    const found = pubFind(pubShow.dataset.pubshow);
 
     if (found) { found.node.shown = found.node.shown === false; pubDraw(); }
 
