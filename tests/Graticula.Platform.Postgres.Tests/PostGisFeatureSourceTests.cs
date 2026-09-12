@@ -147,13 +147,23 @@ public sealed class PostGisFeatureSourceTests : PostgresFixture
         // The claim ADR-003 §6a rests on. If the filter were applied in our
         // process, an unfiltered query would read the same rows and take
         // comparable time — so the assertion is that it does not.
+        //
+        // <b>The envelope is small on purpose, and it was not until 2026-09-12.</b> It used to
+        // span 60 km, which on this corpus is 606,155 of 6,499,215 rows — nine per cent — and
+        // with `limit 500` a sequential scan finds five hundred of those immediately. So the
+        // planner was right to refuse the index and this test was wrong to read that as the
+        // filter not being pushed down. It passed for as long as it did on a table whose
+        // statistics made the same query look expensive; the first freshly restored database it
+        // met chose the honest plan and failed it. A selective envelope asks the question this
+        // test means to ask: the filter reaches the database, and the database can serve it from
+        // the spatial index.
         await RequireCorpusAsync();
 
         await using NpgsqlCommand explain = DataSource.CreateCommand(
             """
             explain (format text)
             select osm_id, st_asbinary(way) from public.planet_osm_polygon
-            where way && st_makeenvelope(3200000, 5000000, 3260000, 5060000, 3857)
+            where way && st_makeenvelope(3200000, 5000000, 3201000, 5001000, 3857)
             limit 500
             """);
 
