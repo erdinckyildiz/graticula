@@ -404,7 +404,9 @@ ADR-045 (the Logs screen, where condition 3's refusals become visible).
    though with the pipeline faster the bound does begin to fire: the queue reached **96 of 96**
    and refused 253 at 480 anonymous callers. That is the mechanism this decision built, and it
    refuses too little too late to hold a median whose growth is outside the gate. **The ceiling
-   is now on the query path itself** — [D-261](../architecture-debt.md) — with the server at 3.6
+   is now on the query path itself** — [D-261](../architecture-debt.md), and named on 2026-09-12:
+   every request under `/rest/services` makes six to eleven short database round trips
+   where `/rest/info` makes none and runs at 34,973 req/s — with the server at 3.6
    to 5.0 of 16 cores and the database container at 3.1 to 4.0 of the 6 Docker is given. So the
    second clause stands BREACHED on a cause that is measured rather than guessed, and §6's
    concession — *what is not claimed: a ceiling on latency* — is the part of this decision

@@ -153,3 +153,54 @@ the same virtual machine the container runs in; that is a candidate, not a findi
   That is a revocation question as much as a performance one — a held grant is one that a
   revocation has to reach — and ADR-015 §3a answered it for the anonymous caller only.
 - **One layer, one request shape, one machine**, as on 2026-09-09.
+
+## 8. Where the ceiling is: round trips, not the query — 2026-09-12
+
+§7 said two things were excluded and one was suggested and not shown. This is the
+measurement that shows it. Four floods, 240 callers, 30 s measured, one server, taken with
+PostgreSQL's own counters read either side of each run (`pg_stat_database`) and divided by
+the requests the generator counted.
+
+| path | req/s | median | out | server cores | **database transactions per request** | rows returned per request |
+|---|---:|---:|---:|---:|---:|---:|
+| `/rest/info` | **34,973** | 4.9 ms | 6.1 MB/s | 4.82 | **0.00** | 0.1 |
+| layer document, anonymous | 1,460 | 158.6 ms | 3.3 MB/s | 2.50 | **10.89** | 53.9 |
+| `query`, 200 rows, anonymous | 1,358 | 172.3 ms | 106.5 MB/s | 5.28 | **6.40** | 235.8 |
+| `query`, 200 rows, with a token | 843 | 266.6 ms | 66.1 MB/s | 3.99 | **10.67** | 266.3 |
+
+**Every path under `/rest/services` pays six to eleven short round trips to the database;
+the one path that pays none runs twenty-seven times faster on the same server at the same
+concurrency.** That is the ceiling named. It is not the query — the layer document asks
+for 54 rows and caps where an 82 kB query asking for 236 does — and it is not the response
+size, which §5 had already made unlikely and this makes plain: 3.3 MB/s and 106.5 MB/s
+reach the same rate.
+
+**A token costs about four round trips.** 10.67 against 6.40 on the same query, which is
+the session lookup and the grants read that `Authentication.ResolveAsync` does on every
+authenticated request — D-249 held that answer for the anonymous caller and for nobody
+else.
+
+**Two hypotheses died here, and one of them was mine an hour earlier.**
+
+- *A serialization point — a lock somewhere on the services path.* Refuted by Little's
+  law: throughput times median latency puts **225 to 234 of 240 callers in flight** on
+  every services path, so requests are waiting in parallel, not queueing single-file
+  through one gate. The first version of this section said the opposite from a division
+  done the wrong way round.
+- *One saturated counter in the database.* Refuted by its own numbers: the transaction
+  rate is **15,900 a second** on the document path and **8,700** on the query path, so
+  no single per-second figure is the wall. What the two share is that the work is
+  round-trip shaped and the database container sits at **3.1 to 4.1 of the 6 cores Docker
+  is given** in every sampled run, against a server using 2.5 to 5.3 of 16.
+
+**What this still does not name** is which of the six to eleven trips are avoidable. The
+repair direction is fewer of them — holding the catalogue and identity reads the way
+[ADR-015](../../../docs/adr/ADR-015-authentication.md) §3a holds the anonymous caller's
+grants — and that is a revocation decision before it is a performance one, so it is
+recorded in [D-261](../../../docs/architecture-debt.md) rather than taken here.
+
+**Two things about the method.** The counters are database-wide and the platform store and
+the data source share one database, so a path's trips are not split between them here. And
+the counters span the warm-up while the request count does not, so each figure is about
+12% high as an absolute — the comparisons between paths, which is what this section is
+for, are unaffected.
