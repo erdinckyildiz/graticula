@@ -143,8 +143,8 @@ shape as ADR-005's precondition check, and only on the path that refuses.
 **Depends on** ADR-013 (§5a, condition 6), ADR-063 (the overrides), ADR-036 (group editing),
 ADR-058 (adding a hosted column), ADR-018 (privileges).
 
-**Depended on by** nothing yet. Domains and subtypes, the rest of §5a, will sit on the same
-overrides.
+**Depended on by** [ADR-065](ADR-065-domains-and-subtypes.md) — domains and subtypes, the rest
+of §5a, which sit on the same overrides and take no domain on a column with a role.
 
 ## 9. Conditions
 

@@ -57,20 +57,38 @@ namespace Graticula.Catalog;
 /// What it records about edits — ADR-064. <b>Last and defaulted</b>, so every override written
 /// before editor tracking existed means what it meant.
 /// </param>
+/// <param name="Domain">
+/// What values the column may hold — ADR-065 — or null for any its type allows. After
+/// <paramref name="Tracks"/> and defaulted, for the same reason.
+/// </param>
+/// <param name="Subtypes">
+/// The layer's subtypes, when this column is the one whose value says which subtype a feature is
+/// — ADR-065. Its <see cref="LayerSubtypes.Field"/> is this override's column.
+/// </param>
 public readonly record struct FieldOverride(
-    string Column, string? Alias, bool Hidden, EditRole Tracks = EditRole.None)
+    string Column,
+    string? Alias,
+    bool Hidden,
+    EditRole Tracks = EditRole.None,
+    FieldDomain? Domain = null,
+    LayerSubtypes? Subtypes = null)
 {
     /// <summary>
     /// Whether this override says anything at all.
     /// </summary>
     /// <remarks>
-    /// <b>An override that neither renames, hides nor tracks is a row with no effect</b>, and
+    /// <b>An override that neither renames, hides, tracks, bounds nor subtypes is a row with no
+    /// effect</b>, and
     /// keeping one lets a surface show a column as *overridden* when nothing about it
     /// differs from the table. The admin surface drops these on write rather than storing
     /// them, so what is stored is what is claimed.
     /// </remarks>
     public bool SaysSomething =>
-        Hidden || !string.IsNullOrWhiteSpace(Alias) || Tracks != EditRole.None;
+        Hidden
+        || !string.IsNullOrWhiteSpace(Alias)
+        || Tracks != EditRole.None
+        || Domain is not null
+        || Subtypes is not null;
 
     /// <summary>
     /// Whether <paramref name="column"/> is the column this override is about.

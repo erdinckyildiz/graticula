@@ -167,7 +167,7 @@ internal static partial class OgcFeaturesEndpoints
 
         return new WriteTarget(
             layer, collection, described,
-            connections.WriterFor(layer, described.Fields, described.Tracking));
+            connections.WriterFor(layer, described.Fields, described.Tracking, described.Subtypes));
     }
 
     /// <summary>

@@ -749,6 +749,26 @@ public static class FeatureServerMetadataWriter
             globalIdField = string.Empty,
 
             fields = Fields(layer, description, capabilities),
+
+            // <b>Subtypes, in both of the shapes the ArcGIS REST reference gives them — ADR-065.</b>
+            // `typeIdField` and `types` are the older pair, and what an editing client builds its
+            // templates from; `subtypeField` and `subtypes` are the newer, and what a subtype group
+            // layer reads. They describe one set, so they are written from one object. Null and
+            // empty on a layer without subtypes, so a client is told there are none rather than
+            // left to guess from an absent key — the reason `domain` has always been null rather
+            // than missing.
+            typeIdField = description.Subtypes?.Field,
+            subtypeField = description.Subtypes?.Field,
+            defaultSubtypeCode = description.Subtypes?.DefaultCode,
+            types = Types(geometryType, description),
+            subtypes = Subtypes(description),
+
+            // <b>Layer-level templates are empty, with subtypes and without.</b> With subtypes the
+            // specification puts them inside each type. Without, nobody has authored one: a
+            // template invented here would be a choice the layer's owner never made, presented to
+            // every editing client as though they had — the generated-appearance argument of
+            // `drawingInfoGenerated`, and there is no key to say this one was generated.
+            templates = Array.Empty<object>(),
             // <b>The reference this layer is served in, which is not always the one its table
             // is stored in.</b> ADR-057 §5c: a service may name its own, and a document that
             // reported the table's while the query answered the service's would be a contract
@@ -991,8 +1011,140 @@ public static class FeatureServerMetadataWriter
                 // write.</b> The writer replaces whatever a client sends for these, and the
                 // document says so here rather than letting a client find out.
                 && !field.Maintained,
-            domain = (object?)null,
+            // <b>ADR-065: what values the column may hold, and null when any its type allows.</b>
+            // The writer both faces share refuses a value outside it, so a drop-down here is not a
+            // suggestion a hand-made applyEdits can ignore.
+            domain = field.Domain is { } domain ? Domain(domain) : null,
         })];
+
+    /// <summary>A domain in the ArcGIS REST API's domain-object shape.</summary>
+    /// <param name="domain">The domain.</param>
+    /// <returns>The object.</returns>
+    public static object Domain(FieldDomain domain)
+    {
+        ArgumentNullException.ThrowIfNull(domain);
+
+        return domain.Kind == DomainKind.Range
+            ? new
+            {
+                type = "range",
+                name = domain.Name,
+                range = new[] { Scalar(domain.Min), Scalar(domain.Max) },
+            }
+            : new
+            {
+                type = "codedValue",
+                name = domain.Name,
+                codedValues = domain.Codes.Select(c => new { name = c.Name, code = Scalar(c.Code) }).ToArray(),
+            };
+    }
+
+    /// <summary>A domain value as JSON writes it: a number or a string.</summary>
+    private static object? Scalar(DomainValue? value) =>
+        value is not { } known ? null
+        : known.Number is { } number ? number
+        : known.Text;
+
+    /// <summary>
+    /// What a subtype says about each column's domain: its own, or <c>inherited</c>.
+    /// </summary>
+    /// <remarks>
+    /// <b>Every column that has a domain for any feature is named</b>, so a client reading one
+    /// subtype learns that a column it has a drop-down for elsewhere keeps the column's own here,
+    /// rather than inferring it from a missing key.
+    /// </remarks>
+    private static Dictionary<string, object> SubtypeDomains(Subtype type, LayerDescription description)
+    {
+        Dictionary<string, object> domains = new(StringComparer.Ordinal);
+
+        foreach (FieldDescription field in description.Fields)
+        {
+            if (type.Domains.TryGetValue(field.Name, out FieldDomain? own))
+            {
+                domains[field.Name] = Domain(own);
+            }
+            else if (field.Domain is not null || description.Subtypes!.Varies(field.Name))
+            {
+                domains[field.Name] = new { type = "inherited" };
+            }
+        }
+
+        return domains;
+    }
+
+    /// <summary>A subtype's defaults, which a template carries and a subtype reports.</summary>
+    private static Dictionary<string, object?> Defaults(Subtype type)
+    {
+        Dictionary<string, object?> defaults = new(StringComparer.Ordinal);
+
+        foreach ((string column, DomainValue value) in type.Defaults)
+        {
+            defaults[column] = Scalar(value);
+        }
+
+        return defaults;
+    }
+
+    /// <summary>The <c>types</c> array: one per subtype, each with its template.</summary>
+    /// <remarks>
+    /// <b>A template per subtype, named after it, whose prototype sets the subtype column to its
+    /// code</b> and carries its defaults. That is the shape the web map specification's type
+    /// object gives, and it is what an editing client offers a person to choose from.
+    /// </remarks>
+    private static object[] Types(GeometryKind geometryType, LayerDescription description)
+    {
+        if (description.Subtypes is not { } subtypes)
+        {
+            return [];
+        }
+
+        return [.. subtypes.Types.Select(type =>
+        {
+            Dictionary<string, object?> attributes = Defaults(type);
+            attributes[subtypes.Field] = type.Code;
+
+            return (object)new
+            {
+                id = type.Code,
+                name = type.Name,
+                domains = SubtypeDomains(type, description),
+                templates = new[]
+                {
+                    new
+                    {
+                        name = type.Name,
+                        description = string.Empty,
+                        prototype = new { attributes },
+                        drawingTool = DrawingTool(geometryType),
+                    },
+                },
+            };
+        })];
+    }
+
+    /// <summary>The <c>subtypes</c> array.</summary>
+    private static object[] Subtypes(LayerDescription description) =>
+        description.Subtypes is not { } subtypes
+            ? []
+            : [.. subtypes.Types.Select(type => (object)new
+            {
+                code = type.Code,
+                name = type.Name,
+                defaultValues = Defaults(type),
+                domains = SubtypeDomains(type, description),
+            })];
+
+    /// <summary>The drawing tool a template offers, from the layer's geometry.</summary>
+    private static string DrawingTool(GeometryKind geometryType) => geometryType switch
+    {
+        GeometryKind.Point or GeometryKind.MultiPoint => "esriFeatureEditToolPoint",
+        GeometryKind.LineString or GeometryKind.MultiLineString => "esriFeatureEditToolLine",
+        GeometryKind.Polygon or GeometryKind.MultiPolygon => "esriFeatureEditToolPolygon",
+
+        // enum-default-is-deliberate: every kind is named above; a value cast in from outside the
+        // enum draws nothing rather than a shape the layer cannot hold.
+        _ => "esriFeatureEditToolNone",
+    };
 
     /// <summary>
     /// The field a client labels features with by default.

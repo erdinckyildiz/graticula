@@ -1941,6 +1941,16 @@ internal static class HostedDataEndpoints
                  + "field can then go.";
         }
 
+        // <b>ADR-065: the subtype column holds what kind each feature is.</b> Dropping it takes
+        // every subtype, template and per-subtype domain with it, and the Fields page is where
+        // somebody who means that says so first.
+        if (layer.FieldOverrides.Any(o => o.Subtypes is not null && Same(o.Column)))
+        {
+            return $"'{column}' is this layer's subtype column — every feature's kind is recorded in "
+                 + "it, and its templates are built from it. Remove the subtypes on the layer's "
+                 + "Fields page first, and this field can then go.";
+        }
+
         if (layer.Symbology is { Length: > 0 } document && SymbologyNames(document).Any(Same))
         {
             return $"'{column}' is what this layer's symbology draws with — its classes are "

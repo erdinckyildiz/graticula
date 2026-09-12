@@ -110,35 +110,36 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>90f51d7</code> · 2026-09-12 16:05</p>
+<p class="stamp">Generated from commit <code>e28e910</code> · 2026-09-12 17:30</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">64</div><div class="kpi-l">ADRs</div><div class="kpi-n">12 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">195/238</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">41 live · 2 deferred with their decision</div></div>
+<div class="kpi "><div class="kpi-v">65</div><div class="kpi-l">ADRs</div><div class="kpi-n">12 accepted outright</div></div>
+<div class="kpi good"><div class="kpi-v">198/242</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">42 live · 2 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">157 answered</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open debts</div><div class="kpi-n">248 repaid · 9 waiting on a trigger</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">2658</div><div class="kpi-l">tests</div><div class="kpi-n">285 source files, 119,638 lines</div></div>
+<div class="kpi good"><div class="kpi-v">2695</div><div class="kpi-l">tests</div><div class="kpi-n">290 source files, 122,158 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">45 items</span></div><p><b>41 ADR conditions</b> outstanding across 31 decisions — the largest commitment on this page.</p><p><b>0 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">46 items</span></div><p><b>42 ADR conditions</b> outstanding across 32 decisions — the largest commitment on this page.</p><p><b>0 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-017 · Admin API Shape</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-029 · Affinity routing is not the defaul</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-052 · The canonical symbology document i</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-065 · Domains and subtypes</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-002 · Primary Data Architecture</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-005 · API Architecture</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -192,7 +193,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">010</td><td>Caching</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
 <tr><td class="id">011</td><td>Job System</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">3/4</td></tr>
 <tr><td class="id">012</td><td>Clustering</td><td><span class="pill muted">DEFERRED</span></td><td class="muted-t">—</td><td class="num"></td></tr>
-<tr><td class="id">013</td><td>Feature Service Data Model: Identity, Relationships and Attachments</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/7</td></tr>
+<tr><td class="id">013</td><td>Feature Service Data Model: Identity, Relationships and Attachments</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/7</td></tr>
 <tr><td class="id">014</td><td>TLS and Certificates</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">4/4</td></tr>
 <tr><td class="id">015</td><td>Authentication</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/5</td></tr>
 <tr><td class="id">016</td><td>Packaging, Deployment and Upgrade</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
@@ -244,6 +245,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">062</td><td>The query face streams, like every other face</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — the choice is between two behaviours that were both measured on the same route…</td><td class="num"></td></tr>
 <tr><td class="id">063</td><td>A field list may differ from the table, in two ways and no more</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">~~MEDIUM — the decision is the owner&#x27;s and the shape is forced by what already exists,…</td><td class="num">3/3</td></tr>
 <tr><td class="id">064</td><td>Editor tracking, and what `features:edit` means</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
+<tr><td class="id">065</td><td>Domains and subtypes</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -359,11 +361,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">633</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:76.6%"></div></div><div class="bar-n">485</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:72.4%"></div></div><div class="bar-n">458</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:62.4%"></div></div><div class="bar-n">395</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.2%"></div></div><div class="bar-n">172</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:23.4%"></div></div><div class="bar-n">148</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:76.8%"></div></div><div class="bar-n">486</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:75.0%"></div></div><div class="bar-n">475</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:64.1%"></div></div><div class="bar-n">406</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.6%"></div></div><div class="bar-n">175</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:24.2%"></div></div><div class="bar-n">153</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:22.4%"></div></div><div class="bar-n">142</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:17.9%"></div></div><div class="bar-n">113</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:7.1%"></div></div><div class="bar-n">45</div></div>
@@ -372,6 +374,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.7%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>e28e910</code><time>2026-09-12</time><span>The pushdown test asks a question the planner can only answer one way</span></li>
+<li><code>671ffb2</code><time>2026-09-12</time><span>The datastore gets enough shared memory to run a query in parallel</span></li>
+<li><code>3495a6e</code><time>2026-09-12</time><span>The tree compiles in Debug, on the SDK this workflow installs</span></li>
+<li><code>436bcaa</code><time>2026-09-12</time><span>Pressing Map reaches the map, instead of a variable that does not exist yet</span></li>
+<li><code>5d5c17e</code><time>2026-09-12</time><span>Both images carry arm64, measured from the machine that needed it</span></li>
 <li><code>90f51d7</code><time>2026-09-12</time><span>The published images carry both architectures</span></li>
 <li><code>c418655</code><time>2026-09-12</time><span>The datastore image builds on arm64, because the official one does not</span></li>
 <li><code>43bcd32</code><time>2026-09-12</time><span>The query path&#x27;s ceiling has a name: six to eleven database round trips a request</span></li>
@@ -381,11 +388,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>1589dbc</code><time>2026-09-11</time><span>The Datastore card sits in the row, says its owners are a list, and says why Read again may repeat</span></li>
 <li><code>2200e05</code><time>2026-09-11</time><span>D-243 closes: a claimed job holds a lease, and a job whose worker died is taken back</span></li>
 <li><code>6136b6c</code><time>2026-09-11</time><span>D-237 closes: /admin/health says how large the datastore is and whose layers fill it</span></li>
-<li><code>d2ce726</code><time>2026-09-11</time><span>D-259 closes: the Publish half was D-173&#x27;s second wave on a fetch, and a red toast now reaches the report</span></li>
-<li><code>735947a</code><time>2026-09-11</time><span>The console harness waits out Chrome&#x27;s verifier rebuild, and presses what it rewrites</span></li>
-<li><code>3fcb840</code><time>2026-09-11</time><span>An outage&#x27;s own words reach the operator&#x27;s log, so /admin/health can stay redacted</span></li>
-<li><code>f72877e</code><time>2026-09-11</time><span>ASP.NET Core writes nothing per request unless somebody asks it to</span></li>
-<li><code>d8a3b09</code><time>2026-09-11</time><span>An anonymous request no longer asks the platform store who it is</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

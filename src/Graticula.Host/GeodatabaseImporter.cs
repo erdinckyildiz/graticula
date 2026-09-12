@@ -11,6 +11,7 @@ using Graticula.Geometries;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Identity;
 using Graticula.Platform.Jobs;
+using Graticula.Platform.Postgres;
 using Graticula.Providers.PostGis;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -282,6 +283,14 @@ internal sealed class GeodatabaseImporter : BackgroundService
 
                         // How many columns carry the archive's own label (ADR-063).
                         labelled = made.Labelled,
+
+                        // <b>ADR-065: which columns carry the archive's own domain, whether its subtypes
+                        // came with it, and what did not and why.</b> A domain the server refused to
+                        // store is named here rather than dropped quietly, because the layer is
+                        // published either way and nobody would otherwise know it lost a drop-down.
+                        domains = made.Domains,
+                        subtypes = made.Subtypes,
+                        notCarried = made.NotCarried is { Count: > 0 } lost ? lost : null,
                     });
                 }
                 catch (OperationCanceledException) when (working.IsCancellationRequested)
@@ -413,13 +422,30 @@ internal sealed class GeodatabaseImporter : BackgroundService
     /// features* and *failed* look the same from a distance.
     /// </param>
     /// <param name="Labelled">How many columns were given the archive's own alias as their label (ADR-063).</param>
+    /// <param name="Domains">The columns that carry the archive's own domain (ADR-065).</param>
+    /// <param name="Subtypes">The subtype column, when the archive's subtypes came with the layer.</param>
+    /// <param name="NotCarried">What the archive said about values and the layer does not, with why.</param>
     private readonly record struct Landed(
-        int Rows, int Flattened, int Declared = 0, int Labelled = 0);
+        int Rows,
+        int Flattened,
+        int Declared = 0,
+        int Labelled = 0,
+        IReadOnlyList<string>? Domains = null,
+        string? Subtypes = null,
+        IReadOnlyList<string>? NotCarried = null);
+
+    /// <summary>What a layer's header said about values: each field's domain, and the table's subtypes.</summary>
+    /// <param name="Domains">Each source field's domain, by the archive's own field name.</param>
+    /// <param name="Subtypes">The subtypes object, still keyed by the archive's field names, or null.</param>
+    /// <param name="Unread">Why the archive's catalogue could not be read, when it could not.</param>
+    private sealed record Declared(
+        IReadOnlyDictionary<string, JsonElement> Domains, JsonElement? Subtypes, string? Unread);
 
     /// <summary>
-    /// Gives the published layer the archive's own field aliases as its labels — ADR-063.
+    /// Gives the published layer the archive's own field aliases as its labels — ADR-063 — and its
+    /// own domains and subtypes — ADR-065.
     /// </summary>
-    /// <returns>How many columns were labelled.</returns>
+    /// <returns>What was carried, and what was not with the reason.</returns>
     /// <remarks>
     /// <para>
     /// <b>Keyed by the column the importer made, not by the field's own name.</b> The importer
@@ -437,11 +463,28 @@ internal sealed class GeodatabaseImporter : BackgroundService
     /// labels: if writing them fails the layer is served with its column names, which is exactly
     /// what every import did before this, and the failure propagates to the per-layer report.
     /// </para>
+    /// <para>
+    /// <b>A domain or a set of subtypes is judged by the rules the admin surface uses</b>, against
+    /// the columns this import actually made — <see cref="DomainRules"/>, so an archive cannot put
+    /// a domain on a layer that the Fields page would have refused. What does not fit is left off
+    /// the layer and named in the report: a range on a column the rows turned into text, or a
+    /// subtype default its own domain does not allow, is the archive's to fix and the operator's to
+    /// know about, and neither is a reason to lose the layer.
+    /// </para>
     /// </remarks>
-    private async Task<int> LabelAsync(
-        Guid layerId, IReadOnlyList<FieldDescription> declared, CancellationToken stopping)
+    private async Task<Landed> OverridesAsync(
+        Guid layerId,
+        IReadOnlyList<FieldDescription> declared,
+        LayerDescription table,
+        Declared values,
+        Landed landed,
+        CancellationToken stopping)
     {
-        List<FieldOverride> labels = [];
+        Dictionary<string, FieldOverride> overrides = new(StringComparer.Ordinal);
+        List<string> notCarried = [];
+
+        FieldOverride For(string column) =>
+            overrides.TryGetValue(column, out FieldOverride said) ? said : new FieldOverride(column, null, Hidden: false);
 
         foreach (FieldDescription field in declared)
         {
@@ -454,16 +497,112 @@ internal sealed class GeodatabaseImporter : BackgroundService
 
             if (!string.Equals(field.Alias, column, StringComparison.Ordinal))
             {
-                labels.Add(new FieldOverride(column, field.Alias.Trim(), Hidden: false));
+                overrides[column] = For(column) with { Alias = field.Alias.Trim() };
             }
         }
 
-        if (labels.Count > 0)
+        int labelled = overrides.Count;
+
+        foreach ((string source, JsonElement given) in values.Domains)
         {
-            await _catalog.SetFieldOverridesAsync(layerId, labels, stopping).ConfigureAwait(false);
+            string column = PostGisImporter.ColumnNameFor(source);
+
+            if (FieldDomainJson.ReadDomain(given, out string? unreadable) is not { } domain)
+            {
+                notCarried.Add($"the domain on '{source}' could not be read: {unreadable}");
+                continue;
+            }
+
+            if (table.Find(column) is not { } target)
+            {
+                notCarried.Add($"the domain '{domain.Name}' on '{source}': the layer has no column '{column}'.");
+                continue;
+            }
+
+            if (DomainRules.Refuse(domain, target.Type, target.MaxLength) is { } unfit)
+            {
+                notCarried.Add($"the domain '{domain.Name}' on '{source}': {unfit}");
+                continue;
+            }
+
+            overrides[column] = For(column) with { Domain = domain };
         }
 
-        return labels.Count;
+        string? subtypeColumn = null;
+
+        if (values.Subtypes is { ValueKind: JsonValueKind.Object } declaredSubtypes)
+        {
+            string sourceField = declaredSubtypes.TryGetProperty("field", out JsonElement f) && f.ValueKind == JsonValueKind.String
+                ? f.GetString()!
+                : string.Empty;
+
+            string column = PostGisImporter.ColumnNameFor(sourceField);
+
+            if (FieldDomainJson.ReadSubtypes(column, declaredSubtypes, out string? unreadable) is not { } read)
+            {
+                notCarried.Add($"the subtypes on '{sourceField}' could not be read: {unreadable}");
+            }
+            else
+            {
+                // Keyed by the columns this import made, which is the one rule the labels use too.
+                LayerSubtypes subtypes = read with
+                {
+                    Types = [.. read.Types.Select(t => t with
+                    {
+                        Defaults = t.Defaults.ToDictionary(
+                            d => PostGisImporter.ColumnNameFor(d.Key), d => d.Value, StringComparer.Ordinal),
+                        Domains = t.Domains.ToDictionary(
+                            d => PostGisImporter.ColumnNameFor(d.Key), d => d.Value, StringComparer.Ordinal),
+                    })],
+                };
+
+                string? refused = DomainRules.Refuse(
+                    subtypes,
+                    table,
+                    name => string.Equals(name, "objectid", StringComparison.Ordinal)
+                        ? "it is the object id this import creates."
+                        : null,
+                    name => overrides.TryGetValue(name, out FieldOverride said) ? said.Domain : null);
+
+                if (refused is null && overrides.TryGetValue(column, out FieldOverride onField) && onField.Domain is { } clash)
+                {
+                    // The archive gave the subtype column a domain as well; the subtypes are its domain.
+                    notCarried.Add($"the domain '{clash.Name}' on '{sourceField}': it is the subtype column, "
+                        + "and its subtypes are its domain.");
+                    overrides[column] = onField with { Domain = null };
+                }
+
+                if (refused is not null)
+                {
+                    notCarried.Add($"the subtypes on '{sourceField}': {refused}");
+                }
+                else
+                {
+                    overrides[column] = For(column) with { Subtypes = subtypes };
+                    subtypeColumn = column;
+                }
+            }
+        }
+
+        if (values.Unread is { Length: > 0 } unread)
+        {
+            notCarried.Add($"domains and subtypes: {unread}");
+        }
+
+        List<FieldOverride> stored = [.. overrides.Values.Where(o => o.SaysSomething)];
+
+        if (stored.Count > 0)
+        {
+            await _catalog.SetFieldOverridesAsync(layerId, stored, stopping).ConfigureAwait(false);
+        }
+
+        return landed with
+        {
+            Labelled = labelled,
+            Domains = [.. stored.Where(o => o.Domain is not null).Select(o => o.Column)],
+            Subtypes = subtypeColumn,
+            NotCarried = notCarried,
+        };
     }
 
     /// <summary>Streams one layer out of the archive and publishes it into the service.</summary>
@@ -574,6 +713,11 @@ internal sealed class GeodatabaseImporter : BackgroundService
         List<FieldDescription> declared = [];
         GeometryKind? declaredKind = null;
 
+        // ADR-065: what the header says about values, cloned out of the document before it goes.
+        Dictionary<string, JsonElement> declaredDomains = new(StringComparer.Ordinal);
+        JsonElement? declaredSubtypes = null;
+        string? catalogUnread = null;
+
         if (header is not null)
         {
             if (header.RootElement.TryGetProperty("fields", out JsonElement fields)
@@ -584,6 +728,12 @@ internal sealed class GeodatabaseImporter : BackgroundService
                     if (field.TryGetProperty("name", out JsonElement named)
                         && named.GetString() is { Length: > 0 } name)
                     {
+                        if (field.TryGetProperty("domain", out JsonElement domain)
+                            && domain.ValueKind == JsonValueKind.Object)
+                        {
+                            declaredDomains[name] = domain.Clone();
+                        }
+
                         declared.Add(new FieldDescription(
                             name,
                             FieldTypeOf(field.TryGetProperty("type", out JsonElement declaredType)
@@ -612,7 +762,21 @@ internal sealed class GeodatabaseImporter : BackgroundService
                 header.RootElement.TryGetProperty("geometry", out JsonElement geometry)
                     ? geometry.GetString()
                     : null);
+
+            if (header.RootElement.TryGetProperty("subtypes", out JsonElement subtypes)
+                && subtypes.ValueKind == JsonValueKind.Object)
+            {
+                declaredSubtypes = subtypes.Clone();
+            }
+
+            if (header.RootElement.TryGetProperty("catalogUnread", out JsonElement catalogSaid)
+                && catalogSaid.ValueKind == JsonValueKind.String)
+            {
+                catalogUnread = catalogSaid.GetString();
+            }
         }
+
+        Declared values = new(declaredDomains, declaredSubtypes, catalogUnread);
 
         header?.Dispose();
         trailer?.Dispose();
@@ -668,9 +832,17 @@ internal sealed class GeodatabaseImporter : BackgroundService
                 asked.Owner,
                 stopping).ConfigureAwait(false);
 
-            int emptyLabels = await LabelAsync(emptyAt.Id, declared, stopping).ConfigureAwait(false);
+            // The columns `DefineAsync` made are the declared ones, under the names the one rule gives.
+            LayerDescription definedColumns = new(
+                [
+                    new FieldDescription("objectid", FieldType.Integer, false, null),
+                    .. declared.Select(d => d with { Name = PostGisImporter.ColumnNameFor(d.Name) }),
+                ],
+                null);
 
-            return new Landed(0, 0, Declared: declared.Count, Labelled: emptyLabels);
+            return await OverridesAsync(
+                    emptyAt.Id, declared, definedColumns, values, new Landed(0, 0, Declared: declared.Count), stopping)
+                .ConfigureAwait(false);
         }
 
         if (kind is null)
@@ -716,9 +888,17 @@ internal sealed class GeodatabaseImporter : BackgroundService
             asked.Owner,
             stopping).ConfigureAwait(false);
 
-        int labelled = await LabelAsync(at.Id, declared, stopping).ConfigureAwait(false);
+        // The columns `ImportAsync` made: one per property the rows carried, typed by what the rows held.
+        LayerDescription madeColumns = new(
+            [
+                new FieldDescription("objectid", FieldType.Integer, false, null),
+                .. dataset.Columns.Select(c => new FieldDescription(
+                    PostGisImporter.ColumnNameFor(c.Name), c.Type, c.Nullable, null)),
+            ],
+            null);
 
-        return new Landed(features.Count, flattened, Labelled: labelled);
+        return await OverridesAsync(at.Id, declared, madeColumns, values, new Landed(features.Count, flattened), stopping)
+            .ConfigureAwait(false);
     }
 
     /// <summary>

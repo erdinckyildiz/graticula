@@ -3494,7 +3494,7 @@ public static class Program
         };
 
         EditOutcome outcome = await connections
-            .WriterFor(layer, description.Fields, description.Tracking)
+            .WriterFor(layer, description.Fields, description.Tracking, description.Subtypes)
             .ApplyAsync(batch, cancellation)
             .ConfigureAwait(false);
 

@@ -289,8 +289,10 @@ decides it. Revisit when there is something to undo with.
 
 **Still absent from the edit surface**, listed so it is a known gap rather than
 a discovered one: `updateAttachment` (add and delete exist), `globalId` (always
-null), editor tracking, domains and subtypes ([Q-58c](../open-questions.md)),
-and versioned or disconnected editing.
+null), ~~editor tracking, domains and subtypes ([Q-58c](../open-questions.md)),~~
+and versioned or disconnected editing. *(Editor tracking built 2026-09-11,
+[ADR-064](ADR-064-editor-tracking-and-what-features-edit-means.md); domains and subtypes
+2026-09-12, [ADR-065](ADR-065-domains-and-subtypes.md).)*
 
 ## 2. Alternatives
 

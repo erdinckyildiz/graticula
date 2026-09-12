@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -238,7 +239,167 @@ internal static partial class AdminEndpoints
                 }
             }
 
-            wanted.Add(new FieldOverride(column, alias, entry.Hidden, tracks));
+            // <b>ADR-065: a domain is refused here, on a column it cannot govern</b>, for the reason
+            // a role is: a domain that fits no value is found by whoever edits next, and a domain on
+            // an identity would refuse the value the database assigns.
+            FieldDomain? domain = null;
+
+            if (entry.Domain is { ValueKind: not JsonValueKind.Null } given)
+            {
+                domain = FieldDomainJson.ReadDomain(given, out string? unreadable);
+
+                if (domain is null)
+                {
+                    await Refuse(context, 400, $"The domain given to '{column}' cannot be read: {unreadable}")
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                if (Unhideable(layer, column) is { } identity)
+                {
+                    await Refuse(context, 400, $"'{column}' cannot have a domain: {identity}")
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                if (tracks != EditRole.None)
+                {
+                    await Refuse(
+                        context, 400,
+                        $"'{column}' records {Recorded(tracks)}, which this server writes and a client "
+                        + "never does, so a domain on it would govern nothing anybody sends.")
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                // <b>A column the table does not have keeps its domain unjudged</b> — ADR-063's
+                // drift answer: it is what an operator's earlier save said about a column that has
+                // since gone, carried back by the Fields page, and it governs nothing until a column
+                // of a type it fits appears under that name.
+                if (table.Find(column) is { } target
+                    && DomainRules.Refuse(domain, target.Type, target.MaxLength) is { } unfit)
+                {
+                    // <b>A domain named after its column is called by its kind</b>, or the sentence
+                    // quotes one word as two things — design review 2026-09-12, *"'diameter' cannot
+                    // take the domain 'diameter'"*, which is what the Fields page's default name gives.
+                    string called = string.Equals(domain.Name, column, StringComparison.OrdinalIgnoreCase)
+                        ? (domain.Kind == DomainKind.Range ? "this range" : "this list")
+                        : $"the domain '{domain.Name}'";
+
+                    await Refuse(context, 400, $"'{column}' cannot take {called}: {unfit}")
+                        .ConfigureAwait(false);
+                    return;
+                }
+            }
+
+            // Subtypes on an entry are the ones a dropped column left behind, carried back unchanged;
+            // the live set is the request's own `subtypes`, below.
+            LayerSubtypes? leftBehind = null;
+
+            if (entry.Subtypes is { ValueKind: not JsonValueKind.Null } kept)
+            {
+                if (table.Find(column) is not null)
+                {
+                    await Refuse(
+                        context, 400,
+                        $"Subtypes are given on the override for '{column}'. The subtypes of a column this "
+                        + "table has are the request's own `subtypes`, which names the column as field; "
+                        + "an override carries them only for a column that has gone.")
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                leftBehind = FieldDomainJson.ReadSubtypes(column, kept, out string? unreadable);
+
+                if (leftBehind is null)
+                {
+                    await Refuse(context, 400, $"The subtypes kept for '{column}' cannot be read: {unreadable}")
+                        .ConfigureAwait(false);
+                    return;
+                }
+            }
+
+            wanted.Add(new FieldOverride(column, alias, entry.Hidden, tracks, domain, leftBehind));
+        }
+
+        // <b>ADR-065: the layer's subtypes, judged against the whole request</b> — a subtype's
+        // default is checked against the domain the same request gives its column, and the subtype
+        // column may be neither hidden nor tracked by the same save that names it.
+        if (request.Subtypes is { ValueKind: not JsonValueKind.Null } declared)
+        {
+            string field = declared.ValueKind == JsonValueKind.Object
+                && declared.TryGetProperty("field", out JsonElement named)
+                && named.ValueKind == JsonValueKind.String
+                    ? named.GetString()!.Trim()
+                    : string.Empty;
+
+            if (field.Length == 0)
+            {
+                await Refuse(
+                    context, 400,
+                    "Subtypes name the column that holds their codes, as field. Send null to have none.")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            if (FieldDomainJson.ReadSubtypes(field, declared, out string? unreadable) is not { } subtypes)
+            {
+                await Refuse(context, 400, $"The subtypes cannot be read: {unreadable}").ConfigureAwait(false);
+                return;
+            }
+
+            int at = wanted.FindIndex(o => o.Matches(field));
+            FieldOverride? onField = at >= 0 ? wanted[at] : null;
+
+            if (onField is { Domain: { } clash })
+            {
+                await Refuse(
+                    context, 400,
+                    $"'{field}' is the subtype column, whose values are the subtype codes, and it is also "
+                    + $"given the domain '{clash.Name}'. The subtypes are its domain; remove the other.")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            string? Locked(string name)
+            {
+                if (Unhideable(layer, name) is { } identity)
+                {
+                    return identity;
+                }
+
+                FieldOverride? said = wanted.FirstOrDefault(o => o.Matches(name)) is { Column: not null } found
+                    ? found
+                    : null;
+
+                if (said is { Tracks: not EditRole.None } tracked)
+                {
+                    return $"it records {Recorded(tracked.Tracks)}, which this server writes.";
+                }
+
+                return said is { Hidden: true }
+                    ? "it is hidden, and a template would put it in front of every client that creates a feature."
+                    : null;
+            }
+
+            if (DomainRules.Refuse(
+                    subtypes,
+                    table,
+                    Locked,
+                    name => wanted.FirstOrDefault(o => o.Matches(name)).Domain) is { } refused)
+            {
+                await Refuse(context, 400, $"The subtypes cannot be stored: {refused}").ConfigureAwait(false);
+                return;
+            }
+
+            if (onField is { } existing)
+            {
+                wanted[at] = existing with { Subtypes = subtypes };
+            }
+            else
+            {
+                wanted.Add(new FieldOverride(field, null, Hidden: false, Subtypes: subtypes));
+            }
         }
 
         if (!await catalog.SetFieldOverridesAsync(layer.Id, wanted, cancellation)
@@ -256,6 +417,8 @@ internal static partial class AdminEndpoints
             {
                 hidden = stored.Where(o => o.Hidden).Select(o => o.Column).ToArray(),
                 labelled = stored.Count(o => o.Alias is not null),
+                domains = stored.Where(o => o.Domain is not null).Select(o => o.Column).ToArray(),
+                subtypes = stored.FirstOrDefault(o => o.Subtypes is not null && table.Find(o.Column) is not null).Column,
             }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
@@ -332,6 +495,18 @@ internal static partial class AdminEndpoints
                     // ADR-064: what the column records about edits, or null.
                     tracks = Role(said?.Tracks ?? EditRole.None),
 
+                    // ADR-065: what values it may hold, in the ArcGIS domain object's shape, or null.
+                    domain = said?.Domain is { } domain ? FieldDomainJson.Write(domain) : null,
+
+                    // <b>What the Fields page may offer, from the rules that judge what it sends</b>:
+                    // the kinds of domain this column can take, and whether it can hold subtype codes.
+                    // Empty and false for an identity. A role or a hidden box set on the page rules
+                    // a column out as well, and the page reads those from its own controls.
+                    domainKinds = Unhideable(layer, f.Name) is null
+                        ? DomainRules.KindsFor(f.Type).Select(k => k == DomainKind.Range ? "range" : "codedValue")
+                        : [],
+                    holdsSubtypes = Unhideable(layer, f.Name) is null && DomainRules.HoldsSubtypes(f.Type),
+
                     // <b>A tracked column is locked like an identity column</b>, and the Fields
                     // page draws its hide box disabled with this sentence beside it.
                     locked = Unhideable(layer, f.Name)
@@ -348,9 +523,22 @@ internal static partial class AdminEndpoints
             // <b>ADR-063 condition 3: inert is the design, visible is the condition.</b> An
             // override that names a column this table does not have changes nothing — and an
             // operator who renamed a column and lost its label has to be able to see why.
+            // <b>ADR-065: the layer's subtypes, naming their column</b> — the same object the request
+            // takes back, so the Fields page sends what it was given. Null when the layer has none,
+            // or when the column that held them has gone, in which case they are in `inert`.
+            subtypes = overrides.FirstOrDefault(o => o.Subtypes is not null && table.Find(o.Column) is not null)
+                is { Subtypes: { } live }
+                    ? FieldDomainJson.Write(live, withField: true)
+                    : null,
+
             inert = inert.Select(o => new
             {
-                column = o.Column, alias = o.Alias, hidden = o.Hidden, tracks = Role(o.Tracks),
+                column = o.Column,
+                alias = o.Alias,
+                hidden = o.Hidden,
+                tracks = Role(o.Tracks),
+                domain = o.Domain is { } domain ? FieldDomainJson.Write(domain) : null,
+                subtypes = o.Subtypes is { } left ? FieldDomainJson.Write(left, withField: false) : null,
             }),
 
             note = inert.Count == 0
@@ -364,8 +552,14 @@ internal static partial class AdminEndpoints
 
     /// <summary>The body of <c>PUT /admin/layers/{name}/fields</c>.</summary>
     /// <param name="Overrides">The whole list; it replaces what is stored.</param>
+    /// <param name="Subtypes">
+    /// The layer's subtypes — ADR-065 — as <c>{field, defaultCode, types}</c>, or null for none.
+    /// Replaced with the list, like everything else in this body: a save without it leaves the
+    /// layer with no subtypes.
+    /// </param>
     internal sealed record FieldOverridesRequest(
-        [property: JsonPropertyName("overrides")] IReadOnlyList<FieldOverrideEntry>? Overrides);
+        [property: JsonPropertyName("overrides")] IReadOnlyList<FieldOverrideEntry>? Overrides,
+        [property: JsonPropertyName("subtypes")] JsonElement? Subtypes = null);
 
     /// <summary>One entry of <see cref="FieldOverridesRequest"/>.</summary>
     /// <param name="Column">The column it is about.</param>
@@ -376,11 +570,20 @@ internal static partial class AdminEndpoints
     /// <c>edited</c> — or null. ADR-064. Last and optional, so a body written before editor
     /// tracking existed means what it meant.
     /// </param>
+    /// <param name="Domain">
+    /// What values it may hold, as an ArcGIS domain object, or null — ADR-065. Optional for the
+    /// reason <paramref name="Tracks"/> is.
+    /// </param>
+    /// <param name="Subtypes">
+    /// Subtypes a dropped column left behind, as the answer's <c>inert</c> gave them, or null.
+    /// </param>
     internal sealed record FieldOverrideEntry(
         [property: JsonPropertyName("column")] string? Column,
         [property: JsonPropertyName("alias")] string? Alias,
         [property: JsonPropertyName("hidden")] bool Hidden,
-        [property: JsonPropertyName("tracks")] string? Tracks = null);
+        [property: JsonPropertyName("tracks")] string? Tracks = null,
+        [property: JsonPropertyName("domain")] JsonElement? Domain = null,
+        [property: JsonPropertyName("subtypes")] JsonElement? Subtypes = null);
 
     /// <summary>A role's wire name, or null for none — the word the request takes back.</summary>
     private static string? Role(EditRole role) =>

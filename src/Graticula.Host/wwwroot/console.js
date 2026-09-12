@@ -9566,11 +9566,15 @@ function showLayer(name, page, pending = null) {
         when. This server writes those columns and a client never does. Once one records who
         created each feature, an account with <b>features:edit</b> may change its own features
         and nobody else's. Only text and date columns can record these; the others show —.</p>
+      <p class="hint"><b>Values</b> limits what a column may hold: a list a client shows as a
+        drop-down, or a range. It is enforced — an edit with any other value is refused, from
+        every client.</p>
       <table class="fieldsgrid">
-        <colgroup><col class="c-name"><col class="c-type"><col class="c-label"><col class="c-records"><col class="c-hide"></colgroup>
-        <thead><tr><th>Column</th><th>Type</th><th>Label</th><th>Records</th><th>Hidden</th></tr></thead>
-        <tbody id="fieldsRows"><tr><td colspan="5" class="empty">Reading the columns…</td></tr></tbody>
+        <colgroup><col class="c-name"><col class="c-type"><col class="c-label"><col class="c-values"><col class="c-records"><col class="c-hide"></colgroup>
+        <thead><tr><th>Column</th><th>Type</th><th>Label</th><th>Values</th><th>Records</th><th>Hidden</th></tr></thead>
+        <tbody id="fieldsRows"><tr><td colspan="6" class="empty">Reading the columns…</td></tr></tbody>
       </table>
+      <div id="fieldsSubtypes"></div>
       <div id="fieldsInert"></div>
       <div class="row" style="margin-top:10px">
         <button type="button" id="fieldsSave">Save</button>
@@ -10251,12 +10255,26 @@ function showEditPage(page) {
  * <b>Overrides that name a column the table no longer has are kept, shown and removable</b>
  * (condition 3). Saving does not drop them quietly: a label lost because somebody renamed a
  * column in the database is exactly what an operator needs to be able to find.
+ *
+ * <b>Values and subtypes are on the same page and in the same save — ADR-065</b>, because they are
+ * claims about the same columns and the server stores them in the same list. What a column may take
+ * is the server's to say (`domainKinds`, `holdsSubtypes`), so this page offers exactly what would be
+ * stored, and a refusal is the server's own sentence in `#fieldsSays`.
  */
 let fieldsState = null;
 
 async function loadFields(name) {
   const answer = await api(`/admin/layers/${encodeURIComponent(name)}/fields`);
-  fieldsState = { name, columns: answer.columns || [], inert: answer.inert || [] };
+  fieldsState = {
+    name,
+    columns: answer.columns || [],
+    inert: answer.inert || [],
+    subtypes: answer.subtypes || null,
+    // The Values editor's unsaved copy, and which column (and subtype) it is for; null when shut.
+    values: null,
+    // The subtype whose defaults and values are open, by position; null when none is.
+    subtypeOpen: null,
+  };
   drawFields();
 }
 
@@ -10284,20 +10302,180 @@ function editRolesFor(type) {
   return [];
 }
 
+/** Whether a column holds numbers, by the type name this page is given. */
+function numericType(type) {
+  return ["SmallInteger", "Integer", "Single", "Double"].includes(type);
+}
+
+/** A domain value, a bound or a default as a person reads it: a date as its day. */
+function shownValue(value, type) {
+  if (value === null || value === undefined || value === "") return "?";
+  if (type === "Date" && typeof value === "number") return new Date(value).toISOString().slice(0, 10);
+  return String(value);
+}
+
+/** What a domain says, in a cell's worth of words. */
+function valuesSummary(domain, type) {
+  if (!domain) return "Any";
+  if (domain.type === "range") {
+    const [least, most] = domain.range || [];
+
+    // Two new years' days read as the years, which is what a person set: "2020 to 2030".
+    const yearOf = ms => (typeof ms === "number" && new Date(ms).toISOString().endsWith("-01-01T00:00:00.000Z"))
+      ? new Date(ms).getUTCFullYear() : null;
+
+    if (type === "Date" && yearOf(least) !== null && yearOf(most) !== null) {
+      return `${yearOf(least)} to ${yearOf(most)}`;
+    }
+
+    return `${shownValue(least, type)} to ${shownValue(most, type)}`;
+  }
+  const count = (domain.codedValues || []).length;
+  return `List of ${count}`;
+}
+
+/** What a typed value is on the wire: a number, a date as milliseconds, or text; null for nothing. */
+function typedValue(text, type) {
+  if (text === null || text === undefined || String(text).trim() === "") return null;
+  if (type === "Date") {
+    const ms = Date.parse(`${text}T00:00:00Z`);
+    return Number.isNaN(ms) ? String(text) : ms;
+  }
+  if (numericType(type)) {
+    const n = Number(text);
+    // Sent as typed when it is not a number, so the server's refusal names what was wrong.
+    return Number.isNaN(n) ? String(text) : n;
+  }
+  return String(text);
+}
+
+/** A value as a box shows it: a date as YYYY-MM-DD, anything else as it is. */
+function boxValue(value, type) {
+  if (value === null || value === undefined) return "";
+  if (type === "Date" && typeof value === "number") return new Date(value).toISOString().slice(0, 10);
+  return String(value);
+}
+
+/** The input type a value of this column is typed into. */
+function valueInputType(type) {
+  if (type === "Date") return "date";
+  return numericType(type) ? "number" : "text";
+}
+
+function fieldColumn(name) {
+  return fieldsState.columns.find(c => c.name === name);
+}
+
+/** Whether a column may be given values, from what the server allows and the page's own controls. */
+function valuesOffered(c) {
+  if (!(c.domainKinds || []).length || c.tracks) return false;
+  return !(fieldsState.subtypes && fieldsState.subtypes.field === c.name);
+}
+
+/** Why a column shows no Values button, for its tooltip. */
+function whyNoValues(c) {
+  if (c.type === "OID") return "The object id is assigned by the database.";
+  if (c.tracks) return "This server writes this column, so no client value is checked.";
+  if (fieldsState.subtypes && fieldsState.subtypes.field === c.name) {
+    return "Its values are the subtype codes below.";
+  }
+  return "A column of this type cannot have a list or a range.";
+}
+
+/**
+ * Reads every control on the page back into the state, before anything redraws.
+ *
+ * <b>A redraw writes the page from the state</b>, so a label typed and not yet saved was lost the
+ * moment anything redrew — pressing Remove on an orphaned override did it before ADR-065, and the
+ * Values and subtype controls redraw on nearly every press.
+ */
+function captureFields() {
+  if (!fieldsState) return;
+
+  fieldsState.columns.forEach((c, i) => {
+    const alias = document.querySelector(`[data-field-alias="${i}"]`);
+    const hidden = document.querySelector(`[data-field-hidden="${i}"]`);
+    const tracks = document.querySelector(`[data-field-tracks="${i}"]`);
+    if (alias) c.alias = alias.value.trim() || null;
+    if (hidden) c.hidden = hidden.checked;
+    if (tracks) c.tracks = tracks.value || null;
+  });
+
+  const s = fieldsState.subtypes;
+
+  if (s) {
+    s.types.forEach((t, i) => {
+      const code = document.querySelector(`[data-subtype-code="${i}"]`);
+      const name = document.querySelector(`[data-subtype-name="${i}"]`);
+      if (code) t.code = code.value === "" ? null : Number(code.value);
+      if (name) t.name = name.value;
+    });
+
+    const first = document.querySelector("[name=subtypeDefault]:checked");
+    if (first && s.types[Number(first.value)]) s.defaultCode = s.types[Number(first.value)].code;
+
+    const open = s.types[fieldsState.subtypeOpen];
+
+    if (open) {
+      for (const box of document.querySelectorAll("[data-subtype-starts]")) {
+        const column = box.getAttribute("data-subtype-starts");
+        const value = typedValue(box.value, fieldColumn(column)?.type);
+        if (value === null) delete open.defaultValues[column];
+        else open.defaultValues[column] = value;
+      }
+    }
+  }
+
+  captureValues();
+}
+
+/** Reads the Values editor's controls into its copy. */
+function captureValues() {
+  const v = fieldsState && fieldsState.values;
+  if (!v) return;
+
+  const type = fieldColumn(v.column)?.type;
+  const kind = document.querySelector("[name=valuesKind]:checked");
+  if (kind) v.kind = kind.value;
+
+  const name = $("valuesName");
+  if (name) v.name = name.value;
+
+  for (const box of document.querySelectorAll("[data-values-code]")) {
+    const row = v.codes[Number(box.getAttribute("data-values-code"))];
+    if (row) row.code = typedValue(box.value, type) ?? "";
+  }
+
+  for (const box of document.querySelectorAll("[data-values-name]")) {
+    const row = v.codes[Number(box.getAttribute("data-values-name"))];
+    if (row) row.name = box.value;
+  }
+
+  if ($("valuesLeast")) v.least = typedValue($("valuesLeast").value, type);
+  if ($("valuesMost")) v.most = typedValue($("valuesMost").value, type);
+}
+
 function drawFields(said, tone) {
   if (!fieldsState) return;
 
   $("fieldsRows").innerHTML = fieldsState.columns.length
     ? fieldsState.columns.map((c, i) => {
       const roles = editRolesFor(c.type);
+      const open = fieldsState.values && fieldsState.values.subtype === null && fieldsState.values.column === c.name;
+      const summary = valuesSummary(c.domain, c.type);
 
       // A long name may break after an underscore rather than mid-word ("created_use / r").
-      return `<tr>
+      return `<tr data-column="${h(c.name)}">
         <td><code>${h(c.name).replace(/_/g, "_<wbr>")}</code></td>
         <td>${h(c.type)}</td>
         <td><input type="text" data-field-alias="${i}" maxlength="255"
           aria-label="Label for ${h(c.name)}" placeholder="${h(c.name)}"
           value="${h(c.alias || "")}"></td>
+        <td>${valuesOffered(c)
+          ? `<button type="button" class="tiny ghost valuesbtn${c.domain ? " set" : ""}" data-field-values="${i}"
+              aria-expanded="${open ? "true" : "false"}" aria-controls="fieldsValues"
+              aria-label="Values of ${h(c.name)}: ${h(summary)}">${h(summary)}</button>`
+          : `<span class="val" title="${h(whyNoValues(c))}">—</span>`}</td>
         <td>${roles.length
           ? `<select data-field-tracks="${i}" aria-label="What ${h(c.name)} records">
               <option value="">Nothing</option>
@@ -10309,9 +10487,13 @@ function drawFields(said, tone) {
           ${c.locked ? `disabled aria-describedby="fieldLock${i}"` : ""} aria-label="Hide ${h(c.name)}"
           title="${h(c.locked ? "Can't be hidden: " + c.locked : "Hide this column from every client")}">
           ${c.locked ? `<span class="lockwhy" id="fieldLock${i}">can't be hidden: ${h(firstSentence(c.locked))}</span>` : ""}</label></td>
-      </tr>`;
+      </tr>${open ? valuesRow(6) : ""}`;
     }).join("")
-    : `<tr><td colspan="5" class="empty">This layer's table reports no attribute columns.</td></tr>`;
+    : `<tr><td colspan="6" class="empty">This layer's table reports no attribute columns.</td></tr>`;
+
+  // The subtypes first, because a subtype's editor is written inside them.
+  drawSubtypes();
+  drawValues();
 
   // <b>Shown with a way out, never dropped.</b> Each names a column the table does not have
   // today, so it changes nothing — and it is still what somebody wrote, so removing it is
@@ -10322,7 +10504,7 @@ function drawFields(said, tone) {
          That is what renaming or dropping a column in the database leaves behind: the label
          stays with the old name. Remove them, or give the label to the column's new name above.</p>
        <ul>${fieldsState.inert.map((o, i) => `<li><code>${h(o.column)}</code>
-         ${o.alias ? `labelled “${h(o.alias)}”` : ""}${o.hidden ? " (hidden)" : ""}${o.tracks ? ` (recorded ${h(o.tracks)})` : ""}
+         ${o.alias ? `labelled “${h(o.alias)}”` : ""}${o.hidden ? " (hidden)" : ""}${o.tracks ? ` (recorded ${h(o.tracks)})` : ""}${o.domain ? ` (values “${h(o.domain.name)}”)` : ""}${o.subtypes ? " (subtypes)" : ""}
          <button type="button" class="ghost" data-field-inert-remove="${i}">Remove</button></li>`).join("")}</ul>`
     : "";
 
@@ -10332,21 +10514,278 @@ function drawFields(said, tone) {
   }
 }
 
+/**
+ * The table row the Values editor is written into, under the row whose button opened it.
+ *
+ * <b>Under the row, not under the table</b> — design review 2026-09-12 measured the editor opening
+ * three unrelated rows below the column pressed, so a person scrolled past other columns to reach
+ * what they had just opened.
+ */
+function valuesRow(columns) {
+  return `<tr class="valuesrow"><td colspan="${columns}">
+    <div id="fieldsValues" class="valuesedit" role="group" aria-labelledby="valuesTitle"></div></td></tr>`;
+}
+
+/**
+ * Opens the Values editor on a column's own domain, or on one subtype's domain for a column.
+ *
+ * <b>It edits a copy</b>, so Cancel leaves what was there and Done puts the copy where it belongs.
+ * Save below stores the page as a whole, which is the one write this page makes.
+ */
+function openValues(column, subtype) {
+  captureFields();
+
+  const same = fieldsState.values
+    && fieldsState.values.column === column && fieldsState.values.subtype === subtype;
+
+  // Pressing the button of the column already open closes it, as a disclosure does.
+  if (same) {
+    closeValues(false);
+    return;
+  }
+
+  const c = fieldColumn(column);
+  const source = subtype === null
+    ? c.domain
+    : fieldsState.subtypes.types[subtype].domains[column];
+
+  fieldsState.values = {
+    column,
+    subtype,
+    kind: source ? (source.type === "range" ? "range" : "list") : "none",
+    name: source ? source.name : (c.alias || c.name),
+    codes: source && source.type === "codedValue"
+      ? source.codedValues.map(v => ({ code: v.code, name: v.name }))
+      : [],
+    least: source && source.type === "range" ? source.range[0] : null,
+    most: source && source.type === "range" ? source.range[1] : null,
+  };
+
+  drawFields();
+  document.querySelector("[name=valuesKind]:checked")?.focus();
+}
+
+/** Shuts the Values editor, keeping its copy when asked to. */
+function closeValues(keep) {
+  captureFields();
+
+  const v = fieldsState.values;
+  if (!v) return;
+
+  if (keep) {
+    let domain = null;
+
+    if (v.kind === "list") {
+      domain = {
+        type: "codedValue",
+        name: String(v.name || "").trim(),
+        codedValues: v.codes.map(row => ({ code: row.code, name: String(row.name || "").trim() })),
+      };
+    } else if (v.kind === "range") {
+      domain = { type: "range", name: String(v.name || "").trim(), range: [v.least, v.most] };
+    }
+
+    if (v.subtype === null) {
+      fieldColumn(v.column).domain = domain;
+    } else {
+      const type = fieldsState.subtypes.types[v.subtype];
+      if (domain) type.domains[v.column] = domain;
+      else delete type.domains[v.column];
+    }
+  }
+
+  fieldsState.values = null;
+
+  drawFields(keep ? `The values of “${v.column}” are set on this page. Save stores them.` : undefined);
+
+  // Focus goes back to the button that opened the editor, which is still on the page.
+  const back = v.subtype === null
+    ? document.querySelector(`[data-field-values="${fieldsState.columns.findIndex(c => c.name === v.column)}"]`)
+    : document.querySelector(`[data-subtype-values="${CSS.escape(v.column)}"]`);
+
+  (back || $("fieldsSave")).focus();
+}
+
+function drawValues() {
+  const box = $("fieldsValues");
+  const v = fieldsState && fieldsState.values;
+
+  // The container exists only while an editor is open, written by the row that opened it.
+  if (!box || !v) return;
+
+  const c = fieldColumn(v.column);
+  const kinds = c.domainKinds || [];
+  const input = valueInputType(c.type);
+  const step = input === "number" ? ` step="any"` : "";
+  const whose = v.subtype === null ? "" : ` for subtype ${h(fieldsState.subtypes.types[v.subtype].name || "")}`;
+
+  box.innerHTML = `
+    <h4 id="valuesTitle">Values of <code>${h(v.column)}</code>${whose}</h4>
+    <fieldset class="valueskind">
+      <legend class="sr-only">What values ${h(v.column)} may hold</legend>
+      <label><input type="radio" name="valuesKind" value="none" ${v.kind === "none" ? "checked" : ""}>
+        ${v.subtype === null ? "Any value" : "Same as the column"}</label>
+      ${kinds.includes("codedValue") ? `<label><input type="radio" name="valuesKind" value="list"
+        ${v.kind === "list" ? "checked" : ""}> A list</label>` : ""}
+      ${kinds.includes("range") ? `<label><input type="radio" name="valuesKind" value="range"
+        ${v.kind === "range" ? "checked" : ""}> A range</label>` : ""}
+    </fieldset>
+    ${v.kind === "list" || v.kind === "range" ? `
+      <label class="valuesname" for="valuesName">Name a client shows for them
+        <input type="text" id="valuesName" maxlength="255" value="${h(v.name || "")}"></label>` : ""}
+    ${v.kind === "list" ? `
+      <table class="valuesgrid">
+        <thead><tr><th>Stored</th><th>Shown as</th><th><span class="sr-only">Remove</span></th></tr></thead>
+        <tbody>${v.codes.length
+          ? v.codes.map((row, i) => `<tr>
+            <td><input type="${input}"${step} data-values-code="${i}" aria-label="Stored value ${i + 1}"
+              value="${h(boxValue(row.code, c.type))}"></td>
+            <td><input type="text" maxlength="255" data-values-name="${i}" aria-label="Shown as, value ${i + 1}"
+              value="${h(row.name || "")}"></td>
+            <td><button type="button" class="tiny ghost" data-values-remove="${i}"
+              aria-label="Remove value ${i + 1}">Remove</button></td></tr>`).join("")
+          : `<tr><td colspan="3" class="empty">No values yet. A list with none allows nothing.</td></tr>`}</tbody>
+      </table>
+      <div class="row"><button type="button" class="ghost" id="valuesAdd">Add a value</button></div>` : ""}
+    ${v.kind === "range" ? `
+      <div class="setting"><label class="q" for="valuesLeast">From</label>
+        <input type="${input}"${step} id="valuesLeast" value="${h(boxValue(v.least, c.type))}"></div>
+      <div class="setting"><label class="q" for="valuesMost">To</label>
+        <input type="${input}"${step} id="valuesMost" value="${h(boxValue(v.most, c.type))}"></div>
+      <p class="hint">Both ends are allowed.</p>` : ""}
+    <p class="hint valuesnote">Done keeps these on the page. <b>Nothing is stored until you press Save</b>
+      at the bottom of the page.</p>
+    <div class="row">
+      <button type="button" id="valuesDone">Done</button>
+      <button type="button" class="ghost" id="valuesCancel">Cancel</button>
+    </div>`;
+}
+
+function drawSubtypes() {
+  const box = $("fieldsSubtypes");
+  if (!box || !fieldsState) return;
+
+  const s = fieldsState.subtypes;
+
+  // A column already holding its own values can still be chosen; choosing it says what that does.
+  const candidates = fieldsState.columns.filter(c =>
+    c.holdsSubtypes && !c.hidden && !c.tracks || (s && s.field === c.name));
+
+  box.innerHTML = `
+    <h4>Subtypes</h4>
+    <p class="hint">A subtype is a kind of feature, such as a main and a lateral pipe in one layer,
+      recorded as a whole-number code in one column. An editing client offers one template per
+      subtype. Each subtype can give new features their starting values, and can allow a narrower
+      list or range in a column.</p>
+    ${candidates.length ? `
+      <div class="setting"><label class="q" for="subtypeField">Column that records the kind</label>
+        <select id="subtypeField">
+          <option value="">No subtypes</option>
+          ${candidates.map(c => `<option value="${h(c.name)}" ${s && s.field === c.name ? "selected" : ""}>${h(c.name)}</option>`).join("")}
+        </select></div>`
+      : `<p class="hint">This layer has no whole-number column that could record a kind, so it cannot
+          have subtypes. A hosted layer can have one added from its service's Data tab.</p>`}
+    ${s ? `
+      <table class="subtypesgrid">
+        <thead><tr><th>Code</th><th>Name</th><th>Offered first</th><th><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>${s.types.map((t, i) => `<tr${fieldsState.subtypeOpen === i ? ` class="open"` : ""}>
+          <td><input type="number" step="1" data-subtype-code="${i}" aria-label="Code of subtype ${i + 1}"
+            value="${h(t.code ?? "")}"></td>
+          <td><input type="text" maxlength="255" data-subtype-name="${i}" aria-label="Name of subtype ${i + 1}"
+            value="${h(t.name || "")}"></td>
+          <td><input type="radio" name="subtypeDefault" value="${i}" ${t.code === s.defaultCode ? "checked" : ""}
+            aria-label="Offer subtype ${i + 1} first"></td>
+          <td class="actions">
+            <button type="button" class="tiny ghost" data-subtype-open="${i}"
+              aria-expanded="${fieldsState.subtypeOpen === i ? "true" : "false"}">What differs</button>
+            <button type="button" class="tiny ghost" data-subtype-remove="${i}"
+              aria-label="Remove subtype ${i + 1}">Remove</button></td>
+        </tr>`).join("")}</tbody>
+      </table>
+      <div class="row"><button type="button" class="ghost" id="subtypeAdd">Add a subtype</button></div>
+      ${subtypeDetail()}` : ""}`;
+}
+
+/** The open subtype's starting values and its own values per column, as markup. */
+function subtypeDetail() {
+  const s = fieldsState.subtypes;
+  const t = s && s.types[fieldsState.subtypeOpen];
+  if (!t) return "";
+
+  // Columns a template can carry: shown, not the object id, not written by this server, not the kind itself.
+  const columns = fieldsState.columns.filter(c =>
+    c.name !== s.field && c.type !== "OID" && !c.hidden && !c.tracks
+    && (numericType(c.type) || c.type === "String" || c.type === "Date"));
+
+  const editing = fieldsState.values && fieldsState.values.subtype === fieldsState.subtypeOpen
+    ? fieldsState.values.column
+    : null;
+
+  return `<div class="subtypedetail">
+    <h4>${h(t.name || `Subtype ${fieldsState.subtypeOpen + 1}`)}: what differs</h4>
+    <p class="hint">A new feature of this kind starts with these values. A column given its own values
+      here allows only those for features of this kind; the others keep the column's.</p>
+    <table class="valuesgrid">
+      <thead><tr><th>Column</th><th>Starts as</th><th>Values</th></tr></thead>
+      <tbody>${columns.map(c => {
+        const input = valueInputType(c.type);
+        return `<tr>
+          <td><code>${h(c.name).replace(/_/g, "_<wbr>")}</code></td>
+          <td><input type="${input}"${input === "number" ? ` step="any"` : ""} data-subtype-starts="${h(c.name)}"
+            aria-label="${h(c.name)} starts as" value="${h(boxValue(t.defaultValues[c.name], c.type))}"></td>
+          <td>${(c.domainKinds || []).length
+            ? `<button type="button" class="tiny ghost valuesbtn${t.domains[c.name] ? " set" : ""}"
+                data-subtype-values="${h(c.name)}" aria-controls="fieldsValues"
+                aria-expanded="${editing === c.name ? "true" : "false"}">${h(
+                  t.domains[c.name] ? valuesSummary(t.domains[c.name], c.type) : "Same as the column")}</button>`
+            : `<span class="val">—</span>`}</td>
+        </tr>${editing === c.name ? valuesRow(3) : ""}`;
+      }).join("")}</tbody>
+    </table>
+  </div>`;
+}
+
 async function saveFields() {
   if (!fieldsState) return;
 
-  const overrides = fieldsState.columns.map((c, i) => ({
+  // An open Values editor is kept, as Done would: pressing Save is not a way to lose a list.
+  if (fieldsState.values) closeValues(true);
+
+  captureFields();
+
+  const overrides = fieldsState.columns.map(c => ({
     column: c.name,
-    alias: (document.querySelector(`[data-field-alias="${i}"]`)?.value || "").trim() || null,
-    hidden: !!document.querySelector(`[data-field-hidden="${i}"]`)?.checked,
+    alias: c.alias || null,
+    hidden: !!c.hidden,
     // ADR-064: what the column records about edits, or nothing.
-    tracks: document.querySelector(`[data-field-tracks="${i}"]`)?.value || null,
-  })).filter(o => o.alias || o.hidden || o.tracks)
-    // The orphans travel back unchanged unless somebody pressed Remove on one — role included,
-    // so a save does not quietly take a role away from a column somebody renamed.
+    tracks: c.tracks || null,
+    // ADR-065: what values it may hold, or any.
+    domain: c.domain || null,
+  })).filter(o => o.alias || o.hidden || o.tracks || o.domain)
+    // The orphans travel back unchanged unless somebody pressed Remove on one — role, values and
+    // subtypes included, so a save does not quietly take them from a column somebody renamed.
     .concat(fieldsState.inert.map(o => ({
-      column: o.column, alias: o.alias, hidden: !!o.hidden, tracks: o.tracks || null,
+      column: o.column,
+      alias: o.alias,
+      hidden: !!o.hidden,
+      tracks: o.tracks || null,
+      domain: o.domain || null,
+      subtypes: o.subtypes || null,
     })));
+
+  const s = fieldsState.subtypes;
+  const subtypes = s
+    ? {
+      field: s.field,
+      defaultCode: s.defaultCode,
+      types: s.types.map(t => ({
+        code: t.code,
+        name: String(t.name || "").trim(),
+        defaultValues: t.defaultValues,
+        domains: t.domains,
+      })),
+    }
+    : null;
 
   const button = $("fieldsSave");
   button.disabled = true;
@@ -10355,18 +10794,25 @@ async function saveFields() {
     const answer = await api(`/admin/layers/${encodeURIComponent(fieldsState.name)}/fields`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ overrides }),
+      body: JSON.stringify({ overrides, subtypes }),
     });
 
     // Only what the server actually returned replaces what is held: an answer without the lists
-    // is not a statement that the table has no columns.
+    // is not a statement that the table has no columns, or that the layer has no subtypes.
     if (Array.isArray(answer.columns)) fieldsState.columns = answer.columns;
     if (Array.isArray(answer.inert)) fieldsState.inert = answer.inert;
+    if (answer && Object.prototype.hasOwnProperty.call(answer, "subtypes")) {
+      fieldsState.subtypes = answer.subtypes;
+      if (!answer.subtypes) fieldsState.subtypeOpen = null;
+    }
 
     const hidden = fieldsState.columns.filter(c => c.hidden).length;
     const labelled = fieldsState.columns.filter(c => c.alias).length;
+    const bounded = fieldsState.columns.filter(c => c.domain).length;
+    const kinds = fieldsState.subtypes ? fieldsState.subtypes.types.length : 0;
 
-    drawFields(`Saved. ${labelled} labelled, ${hidden} hidden. ${answer.note || ""}`.trim());
+    drawFields(`Saved. ${labelled} labelled, ${hidden} hidden, ${bounded} with values`
+      + `${kinds ? `, ${kinds} subtypes` : ""}. ${answer.note || ""}`.trim());
   } catch (e) {
     // Drawn again from what is held, so the boxes keep what was typed and the refusal
     // names the column — the server's sentence, which says why.
@@ -10434,6 +10880,8 @@ document.addEventListener("click", e => {
 
   const remove = t.closest("[data-field-inert-remove]");
   if (remove && fieldsState) {
+    // What was typed into the table is kept: the redraw below writes the page from the state.
+    captureFields();
     const at = Number(remove.getAttribute("data-field-inert-remove"));
     const gone = fieldsState.inert.splice(at, 1)[0];
     drawFields(gone ? `“${gone.column}” will be removed when you save.` : undefined);
@@ -10443,6 +10891,148 @@ document.addEventListener("click", e => {
     const next = document.querySelector(
       `[data-field-inert-remove="${Math.min(at, fieldsState.inert.length - 1)}"]`);
     (next || $("fieldsSave")).focus();
+    return;
+  }
+
+  if (!fieldsState) return;
+
+  // <b>ADR-065: a column's values, and a subtype's.</b> Every one of these redraws the page, so each
+  // reads the controls first and puts focus back on a control that is still there afterwards — the
+  // two faults every new screen in this console has had (focus dropped to the body, and a result
+  // nobody hears), which is why the answers go to `#fieldsSays`.
+  const values = t.closest("[data-field-values]");
+  if (values) {
+    openValues(fieldsState.columns[Number(values.getAttribute("data-field-values"))].name, null);
+    return;
+  }
+
+  const subtypeValues = t.closest("[data-subtype-values]");
+  if (subtypeValues) {
+    openValues(subtypeValues.getAttribute("data-subtype-values"), fieldsState.subtypeOpen);
+    return;
+  }
+
+  if (t.id === "valuesDone") {
+    closeValues(true);
+    return;
+  }
+
+  if (t.id === "valuesCancel") {
+    closeValues(false);
+    return;
+  }
+
+  if (t.id === "valuesAdd" && fieldsState.values) {
+    captureFields();
+    fieldsState.values.codes.push({ code: "", name: "" });
+    drawValues();
+    document.querySelector(`[data-values-code="${fieldsState.values.codes.length - 1}"]`)?.focus();
+    return;
+  }
+
+  const valuesRemove = t.closest("[data-values-remove]");
+  if (valuesRemove && fieldsState.values) {
+    captureFields();
+    const at = Number(valuesRemove.getAttribute("data-values-remove"));
+    fieldsState.values.codes.splice(at, 1);
+    drawValues();
+    (document.querySelector(`[data-values-remove="${Math.min(at, fieldsState.values.codes.length - 1)}"]`)
+      || $("valuesAdd")).focus();
+    return;
+  }
+
+  if (t.id === "subtypeAdd" && fieldsState.subtypes) {
+    captureFields();
+    const types = fieldsState.subtypes.types;
+    const next = types.reduce((most, type) => Math.max(most, Number(type.code) || 0), 0) + 1;
+    types.push({ code: next, name: "", defaultValues: {}, domains: {} });
+    drawFields();
+    document.querySelector(`[data-subtype-name="${types.length - 1}"]`)?.focus();
+    return;
+  }
+
+  const subtypeRemove = t.closest("[data-subtype-remove]");
+  if (subtypeRemove && fieldsState.subtypes) {
+    captureFields();
+    const s = fieldsState.subtypes;
+    const at = Number(subtypeRemove.getAttribute("data-subtype-remove"));
+    const [gone] = s.types.splice(at, 1);
+
+    // The last one gone is no subtypes; the first offered gone moves to the first left.
+    if (!s.types.length) {
+      fieldsState.subtypes = null;
+    } else if (gone && gone.code === s.defaultCode) {
+      s.defaultCode = s.types[0].code;
+    }
+
+    if (fieldsState.subtypeOpen === at) fieldsState.subtypeOpen = null;
+    else if (fieldsState.subtypeOpen > at) fieldsState.subtypeOpen -= 1;
+
+    if (fieldsState.values && fieldsState.values.subtype !== null) fieldsState.values = null;
+
+    drawFields(gone ? `Subtype “${gone.name || gone.code}” will be removed when you save.` : undefined);
+    (document.querySelector(`[data-subtype-remove="${Math.max(0, at - 1)}"]`) || $("subtypeField")).focus();
+    return;
+  }
+
+  const subtypeOpen = t.closest("[data-subtype-open]");
+  if (subtypeOpen && fieldsState.subtypes) {
+    captureFields();
+    const at = Number(subtypeOpen.getAttribute("data-subtype-open"));
+    fieldsState.subtypeOpen = fieldsState.subtypeOpen === at ? null : at;
+    if (fieldsState.values && fieldsState.values.subtype !== null) fieldsState.values = null;
+    drawFields();
+    document.querySelector(`[data-subtype-open="${at}"]`)?.focus();
+  }
+});
+
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (!(t instanceof Element) || !fieldsState) return;
+
+  // Switching between any, a list and a range redraws the editor and keeps the choice focused.
+  if (t.getAttribute("name") === "valuesKind" && fieldsState.values) {
+    captureFields();
+    drawValues();
+    document.querySelector("[name=valuesKind]:checked")?.focus();
+    return;
+  }
+
+  if (t.id === "subtypeField") {
+    captureFields();
+    const field = t.value;
+    let said;
+
+    if (!field) {
+      fieldsState.subtypes = null;
+      fieldsState.subtypeOpen = null;
+      said = "The layer will have no subtypes when you save.";
+    } else {
+      const column = fieldColumn(field);
+
+      // The kind's column cannot also have values of its own: its values are the subtype codes.
+      if (column && column.domain) {
+        column.domain = null;
+        said = `“${field}” had values of its own. Its values are now the subtype codes.`;
+      }
+
+      if (fieldsState.subtypes) {
+        fieldsState.subtypes.field = field;
+      } else {
+        fieldsState.subtypes = {
+          field,
+          defaultCode: 1,
+          types: [{ code: 1, name: "", defaultValues: {}, domains: {} }],
+        };
+      }
+    }
+
+    if (fieldsState.values && (fieldsState.values.subtype !== null || fieldsState.values.column === field)) {
+      fieldsState.values = null;
+    }
+
+    drawFields(said);
+    $("subtypeField")?.focus();
   }
 });
 

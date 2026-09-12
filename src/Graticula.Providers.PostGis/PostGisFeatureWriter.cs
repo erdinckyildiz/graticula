@@ -50,6 +50,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
     private readonly LayerDefinition _layer;
     private readonly IReadOnlyList<FieldDescription> _fields;
     private readonly EditorTracking _tracking;
+    private readonly LayerSubtypes? _subtypes;
 
     /// <summary>Creates the writer.</summary>
     /// <param name="dataSource">The pool for the layer's database.</param>
@@ -63,11 +64,16 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
     /// Which columns record edits — ADR-064 — or null for a layer that records none. Last and
     /// optional, so a writer built before editor tracking existed writes as it did.
     /// </param>
+    /// <param name="subtypes">
+    /// The layer's subtypes — ADR-065 — or null for a layer with none. Last and optional for the
+    /// same reason. The columns' own domains ride on <paramref name="fields"/>.
+    /// </param>
     public PostGisFeatureWriter(
         NpgsqlDataSource dataSource,
         LayerDefinition layer,
         IReadOnlyList<FieldDescription> fields,
-        EditorTracking? tracking = null)
+        EditorTracking? tracking = null,
+        LayerSubtypes? subtypes = null)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(layer);
@@ -88,6 +94,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         _layer = layer;
         _fields = fields;
         _tracking = tracking ?? EditorTracking.None;
+        _subtypes = subtypes;
     }
 
     /// <inheritdoc/>
@@ -112,6 +119,13 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         IReadOnlyDictionary<long, int> zmFlags = await ReadZmFlagsAsync(
             connection, transaction, batch.Updates, cancellationToken).ConfigureAwait(false);
 
+        // <b>ADR-065: the subtype a feature already is, for the updates that need it</b> — the
+        // ones that write a column some subtype governs and do not say which subtype the feature
+        // is. Once, for the same reason as the flags above; not at all on a layer where no subtype
+        // gives any column a domain of its own.
+        IReadOnlyDictionary<long, long?> storedSubtypes = await ReadSubtypesAsync(
+            connection, transaction, batch.Updates, cancellationToken).ConfigureAwait(false);
+
         int savepoint = 0;
 
         foreach (FeatureAdd add in batch.Adds)
@@ -128,6 +142,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
                 transaction, savepoint++,
                 () => UpdateAsync(
                     connection, transaction, update, zmFlags,
+                    storedSubtypes.TryGetValue(update.Identity, out long? stored) ? stored : null,
                     Expected(batch, update.Identity), batch, cancellationToken),
                 cancellationToken).ConfigureAwait(false));
         }
@@ -211,7 +226,8 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         EditBatch batch,
         CancellationToken cancellationToken)
     {
-        if (!TryBindColumns(add.Attributes, out List<(string Column, object? Value)> bound, out string? error))
+        // A new feature has no stored subtype: the one it is given is the one it is.
+        if (!TryBindColumns(add.Attributes, null, out List<(string Column, object? Value)> bound, out string? error))
         {
             return EditResult.Failed(-1, error!);
         }
@@ -361,6 +377,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         NpgsqlTransaction transaction,
         FeatureUpdate update,
         IReadOnlyDictionary<long, int> zmFlags,
+        long? storedSubtype,
         string[]? expected,
         EditBatch batch,
         CancellationToken cancellationToken)
@@ -383,7 +400,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
                 + "updates to this feature are still accepted.");
         }
 
-        if (!TryBindColumns(update.Attributes, out List<(string Column, object? Value)> bound, out string? error))
+        if (!TryBindColumns(update.Attributes, storedSubtype, out List<(string Column, object? Value)> bound, out string? error))
         {
             return EditResult.Failed(update.Identity, error!);
         }
@@ -696,22 +713,101 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
     }
 
     /// <summary>
-    /// Checks every column against the layer's real columns.
+    /// The subtype each updated feature already is, for the updates whose values depend on it.
     /// </summary>
     /// <remarks>
+    /// <b>Asked only when the answer changes what is allowed</b>: the layer has subtypes, some
+    /// subtype gives a column a domain of its own, the update writes that column, and it does not
+    /// say which subtype the feature is. Every other update is checked against what it sends, and
+    /// asking would be a query per batch that decides nothing.
+    /// </remarks>
+    private async Task<IReadOnlyDictionary<long, long?>> ReadSubtypesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        IReadOnlyList<FeatureUpdate> updates,
+        CancellationToken cancellationToken)
+    {
+        if (_subtypes is not { } subtypes || updates.Count == 0)
+        {
+            return new Dictionary<long, long?>();
+        }
+
+        long[] needed = [.. updates
+            .Where(u => !u.Attributes.ContainsKey(subtypes.Field) && u.Attributes.Keys.Any(subtypes.Varies))
+            .Select(u => u.Identity)
+            .Distinct()];
+
+        if (needed.Length == 0)
+        {
+            return new Dictionary<long, long?>();
+        }
+
+        await using NpgsqlCommand command = new(
+            $"select {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)}, "
+            + $"{LayerDefinition.Quote(subtypes.Field)}::bigint "
+            + $"from {_layer.QuotedTable} "
+            + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = any(@ids)",
+            connection,
+            transaction);
+
+        command.Parameters.AddWithValue("ids", needed);
+
+        Dictionary<long, long?> codes = [];
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            codes[Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture)] =
+                reader.IsDBNull(1) ? null : reader.GetInt64(1);
+        }
+
+        return codes;
+    }
+
+    /// <summary>
+    /// Checks every column against the layer's real columns, and every value against the domain
+    /// that governs it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
     /// ADR-008 §4.6. A column name cannot be a parameter, so it is compared
     /// against the list the database gave us and refused if absent. The object
     /// id and the geometry column are refused too: the first is assigned by the
     /// database and the second has its own handling, and letting either through
     /// here would write a raw value into a column that expects something else.
+    /// </para>
+    /// <para>
+    /// <b>ADR-065 and ADR-013 condition 5: a domain the document reports is a domain this refuses
+    /// a value outside.</b> Here, in the writer both faces share, so ArcGIS <c>applyEdits</c> and
+    /// OGC API Features refuse the same values with the same sentence. A value is checked against
+    /// its subtype's domain when the feature has a subtype that gives the column one — the subtype
+    /// sent in the same edit, or the one it already is — and against the column's own otherwise.
+    /// </para>
+    /// <para>
+    /// <b>What is checked is what is written</b>, not the row it lands in. An update that moves a
+    /// feature to another subtype and leaves a column alone does not have that column's stored
+    /// value checked against the new subtype's domain: the value was not sent, and refusing an edit
+    /// for something already in the table is refusing a different edit than the one asked for.
+    /// </para>
     /// </remarks>
     private bool TryBindColumns(
         IReadOnlyDictionary<string, object?> attributes,
+        long? storedSubtype,
         out List<(string Column, object? Value)> bound,
         out string? error)
     {
         bound = [];
         error = null;
+
+        // The subtype this feature will be: the one sent, when one is, and the one it is otherwise.
+        long? subtype = storedSubtype;
+
+        if (_subtypes is { } declared && attributes.TryGetValue(declared.Field, out object? sent))
+        {
+            subtype = DomainRules.TryCode(sent, out long code) ? code : null;
+        }
 
         foreach (KeyValuePair<string, object?> attribute in attributes)
         {
@@ -758,6 +854,35 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             if (field.Value.Maintained)
             {
                 continue;
+            }
+
+            if (_subtypes is { } subtypes
+                && string.Equals(attribute.Key, subtypes.Field, StringComparison.Ordinal))
+            {
+                if (DomainRules.SubtypeRefusal(subtypes, attribute.Value) is { } notASubtype)
+                {
+                    error = notASubtype;
+                    return false;
+                }
+            }
+            else
+            {
+                FieldDomain? governing = _subtypes?.DomainFor(attribute.Key, subtype, field.Value.Domain)
+                    ?? field.Value.Domain;
+
+                // The subtype is named in the refusal only when the domain is the subtype's, so a
+                // value refused by the column's own domain is not blamed on the feature's kind.
+                Subtype? whose = governing is not null
+                    && !ReferenceEquals(governing, field.Value.Domain)
+                    && subtype is { } kind
+                        ? _subtypes!.Find(kind)
+                        : null;
+
+                if (DomainRules.Refusal(field.Value, attribute.Value, governing, whose) is { } outside)
+                {
+                    error = outside;
+                    return false;
+                }
             }
 
             bound.Add((attribute.Key, attribute.Value));

@@ -13,7 +13,9 @@ namespace Graticula.Platform.Postgres;
 /// <para>
 /// <b>One reader and one writer, in one file, because the shape is a contract between
 /// them.</b> <c>layer.field_overrides</c> is a JSON array of
-/// <c>{"column": …, "alias": …, "hidden": …}</c>; the catalogue reads it on every layer load
+/// <c>{"column": …, "alias": …, "hidden": …}</c>, with <c>tracks</c> (ADR-064) and
+/// <c>domain</c> and <c>subtypes</c> (ADR-065, in <see cref="FieldDomainJson"/>'s shapes) when an
+/// entry says them; the catalogue reads it on every layer load
 /// and the admin surface writes it, and two independently written serialisers is how a key
 /// comes to be spelt two ways.
 /// </para>
@@ -76,7 +78,20 @@ internal static class FieldOverrideJson
                     ? role
                     : EditRole.None;
 
-            read.Add(new FieldOverride(column.GetString()!, alias, hidden, tracks));
+            // <b>A domain and subtypes, ADR-065, and one that cannot be read is left out</b> — for
+            // the proportion argument above: the layer is served as though the entry said nothing
+            // about values, which is what it said before, rather than taken off every face.
+            FieldDomain? domain = entry.TryGetProperty("domain", out JsonElement d)
+                && d.ValueKind == JsonValueKind.Object
+                    ? FieldDomainJson.ReadDomain(d, out _)
+                    : null;
+
+            LayerSubtypes? subtypes = entry.TryGetProperty("subtypes", out JsonElement st)
+                && st.ValueKind == JsonValueKind.Object
+                    ? FieldDomainJson.ReadSubtypes(column.GetString()!, st, out _)
+                    : null;
+
+            read.Add(new FieldOverride(column.GetString()!, alias, hidden, tracks, domain, subtypes));
         }
 
         return read.ToImmutable();
@@ -113,6 +128,17 @@ internal static class FieldOverrideJson
             if (says.Tracks != EditRole.None)
             {
                 entry["tracks"] = says.Tracks.ToString().ToLowerInvariant();
+            }
+
+            // ADR-065, on the same terms: absent unless it says something.
+            if (says.Domain is { } domain)
+            {
+                entry["domain"] = FieldDomainJson.Write(domain);
+            }
+
+            if (says.Subtypes is { } subtypes)
+            {
+                entry["subtypes"] = FieldDomainJson.Write(subtypes, withField: false);
             }
 
             stored.Add(entry);

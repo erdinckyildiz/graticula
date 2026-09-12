@@ -3840,13 +3840,20 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
    ~980px instead of being squeezed by a long column name — design review 2026-09-11. A long
    name wraps inside its cell rather than widening the table. */
 #page-fields .fieldsgrid { table-layout: fixed; width: 100%; }
-#page-fields .fieldsgrid col.c-name  { width: 22%; }
-#page-fields .fieldsgrid col.c-type  { width: 12%; }
+#page-fields .fieldsgrid col.c-name  { width: 19%; }
+/* "SmallInteger" is the longest type name and does not wrap (below); 11% holds it at 1280. */
+#page-fields .fieldsgrid col.c-type  { width: 11%; }
+/* ADR-065: the Values button says what the column allows in a few words ("List of 12", or a date
+   range, which wraps to two lines rather than being cut — design review 2026-09-12 measured every
+   summary truncated at 1280 and the date range at 1440 when this was 13% and never wrapped). */
+#page-fields .fieldsgrid col.c-values { width: 15%; }
 /* ADR-064: what a column records about edits. A native select cuts its value with no ellipsis,
    so this is sized for the longest option, "Created on", at ~1100px — design review 2026-09-11,
    which found the first labels cut at 1440. Label keeps 24%. */
-#page-fields .fieldsgrid col.c-records { width: 24%; }
-#page-fields .fieldsgrid col.c-hide  { width: 18%; }
+#page-fields .fieldsgrid col.c-records { width: 18%; }
+#page-fields .fieldsgrid col.c-hide  { width: 14%; }
+/* The label column keeps the rest, 23%. The name column went to 17% for a first draft of this and
+   "material" broke mid-word at 1024 — the rule above is that only a long name may break. */
 #page-fields .fieldsgrid select { width: 100%; }
 /* Only a long column name may break; a type name broken mid-word ("Stri ng") reads as two. */
 #page-fields .fieldsgrid td code { overflow-wrap: anywhere; }
@@ -3856,3 +3863,35 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
   line-height: 1.3; margin-top: 2px; }
 #fieldsInert ul { list-style: none; padding: 0; margin: 6px 0 0; }
 #fieldsInert li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; }
+
+/* ADR-065 — values and subtypes on the Fields page. The editor and a subtype's detail are panels
+   under what opened them, bounded in width so a two-column list does not stretch across a wide
+   window; a Values button that has something set reads in ink rather than muted. */
+#page-fields .valuesbtn { max-width: 100%; white-space: normal; text-align: left; overflow-wrap: anywhere;
+  line-height: 1.3; }
+/* The editor row spans the table and sits flush under the row that opened it. */
+#page-fields tr.valuesrow > td { padding-top: 0; }
+#page-fields .valuesedit .setting input { width: 180px; }
+/* A name is prose: left-aligned, proportional, as wide as the panel allows — not the right-aligned
+   monospace box `.setting` gives a number with a unit, which is what it inherited and why the
+   review found "Pipe material" cut in a 116px box. */
+#page-fields .valuesname { display: flex; flex-direction: column; gap: 4px; margin: 0 0 var(--gap-2);
+  max-width: 420px; }
+#page-fields .valuesname input { width: 100%; }
+#page-fields .valuesnote { margin: var(--gap-2) 0 var(--gap-2); }
+#page-fields .valuesbtn.set { color: var(--ink); }
+#page-fields .valuesedit,
+#page-fields .subtypedetail { border: 1px solid var(--rule); border-radius: var(--round);
+  padding: var(--gap-3); margin: var(--gap-3) 0; max-width: 720px; background: var(--surface); }
+#page-fields .valueskind { border: 0; padding: 0; margin: 0 0 var(--gap-2); display: flex;
+  flex-wrap: wrap; gap: var(--gap-3); }
+#page-fields .valueskind label { display: inline-flex; align-items: center; gap: 6px; }
+#page-fields .valuesgrid,
+#page-fields .subtypesgrid { width: 100%; max-width: 720px; }
+#page-fields .valuesgrid input,
+#page-fields .subtypesgrid input[type=text],
+#page-fields .subtypesgrid input[type=number] { width: 100%; min-width: 6ch; }
+#page-fields .subtypesgrid td.actions { white-space: nowrap; }
+#page-fields .subtypesgrid tr.open td { background: var(--surface-2); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

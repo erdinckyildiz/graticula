@@ -362,17 +362,23 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// Which columns record edits — ADR-064, from the layer's description. Last and optional, so
     /// a caller that has none means an untracked layer.
     /// </param>
+    /// <param name="subtypes">
+    /// The layer's subtypes — ADR-065, from the layer's description — or null. Last and optional,
+    /// like <paramref name="tracking"/>. The columns' own domains are on
+    /// <paramref name="fields"/>.
+    /// </param>
     public IFeatureWriter WriterFor(
         PublishedLayer layer,
         IReadOnlyList<FieldDescription> fields,
-        Graticula.Catalog.EditorTracking? tracking = null)
+        Graticula.Catalog.EditorTracking? tracking = null,
+        Graticula.Catalog.LayerSubtypes? subtypes = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
 
         return new PostGisFeatureWriter(
             PoolFor(layer.ConnectionString), layer.Definition, fields,
-            tracking ?? Graticula.Catalog.EditorTracking.None);
+            tracking ?? Graticula.Catalog.EditorTracking.None, subtypes);
     }
 
     /// <summary>A tile source for one layer, over the same shared pool.</summary>

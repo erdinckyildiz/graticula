@@ -244,19 +244,72 @@ internal static class Program
             Directory.Delete(path, recursive: true);
         }
 
-        using DataSource made = driver.CreateDataSource(path, []);
-
-        SpatialReference wgs84 = new(null);
-        wgs84.ImportFromEPSG(4326);
-
         int written = 0;
 
-        written += Write(made, wgs84, "places", wkbGeometryType.wkbPoint);
-        written += Write(made, wgs84, "parcels", wkbGeometryType.wkbPolygon);
+        using (DataSource made = driver.CreateDataSource(path, []))
+        {
+            SpatialReference wgs84 = new(null);
+            wgs84.ImportFromEPSG(4326);
 
-        made.FlushCache();
+            written += Write(made, wgs84, "places", wkbGeometryType.wkbPoint);
+            written += Write(made, wgs84, "parcels", wkbGeometryType.wkbPolygon);
+
+            made.FlushCache();
+        }
+
+        Bound(path);
 
         return new { path, layers = 2, features = written };
+    }
+
+    /// <summary>
+    /// Gives the fixture's <c>count</c> field on <c>places</c> a range domain — ADR-065.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A range and not a list, because a range is what this binding can write.</b> GDAL's C#
+    /// binding creates a range domain and cannot create a coded-value one, and the OGR data source that
+    /// wrote the layers cannot add a domain at all — so the archive is reopened as a GDAL dataset, the
+    /// domain added there, and the field altered to name it. What the import then reads is the
+    /// <c>GPRangeDomain2</c> item GDAL's writer puts in <c>GDB_Items</c>, which is the path an
+    /// Esri-written archive's domains take too. A coded-value list read from an Esri-written archive was
+    /// measured by hand against GDAL's own <c>Domains.gdb</c> test archive, and is recorded in ADR-065
+    /// rather than committed, for Q-138's reason.
+    /// </para>
+    /// <para>
+    /// <b>0 to 100, and every value the fixture writes is inside it</b> (3 to 15), so the import is
+    /// tested carrying a domain rather than tripping over one.
+    /// </para>
+    /// </remarks>
+    private static void Bound(string path)
+    {
+        // `ALTER_DOMAIN_FLAG`, which the binding does not name: GDAL's ogr_core.h gives it as 64.
+        const int AlterDomain = 64;
+
+        using Dataset opened = Gdal.OpenEx(path, (uint)(GdalConst.OF_VECTOR | GdalConst.OF_UPDATE), null, null, null)
+            ?? throw new InvalidOperationException($"GDAL could not reopen the fixture it just wrote at '{path}'.");
+
+        using FieldDomain visits = Ogr.CreateRangeFieldDomain(
+            "Visits", "How many visits a place has had", FieldType.OFTInteger, FieldSubType.OFSTNone,
+            0, true, 100, true);
+
+        if (!opened.AddFieldDomain(visits))
+        {
+            throw new InvalidOperationException("GDAL refused to add the fixture's range domain.");
+        }
+
+        using Layer places = opened.GetLayerByName("places");
+        using FeatureDefn definition = places.GetLayerDefn();
+
+        using FieldDefn bounded = new("count", FieldType.OFTInteger);
+        bounded.SetDomainName("Visits");
+
+        if (places.AlterFieldDefn(definition.GetFieldIndex("count"), bounded, AlterDomain) != 0)
+        {
+            throw new InvalidOperationException("GDAL refused to give the fixture's count field its domain.");
+        }
+
+        opened.FlushCache();
     }
 
     /// <summary>One layer of the fixture, with its fields and a handful of features.</summary>
@@ -425,11 +478,20 @@ internal static class Program
 
         using FeatureDefn definition = layer.GetLayerDefn();
 
+        // <b>ADR-065: the geodatabase's domains and this table's subtypes</b>, which GDAL's binding
+        // cannot hand over and the catalogue's own XML can. Read once per layer, and an archive whose
+        // catalogue cannot be read imports as it did before — `catalogUnread` says why.
+        GeodatabaseCatalog catalog = GeodatabaseCatalog.Read(Vsi(archive), DriverOf(source));
+
         List<object> fields = [];
+        Dictionary<string, string?> ownDomains = new(StringComparer.OrdinalIgnoreCase);
 
         for (int f = 0; f < definition.GetFieldCount(); f++)
         {
             using FieldDefn field = definition.GetFieldDefn(f);
+
+            string? domainName = Nothing(field.GetDomainName());
+            ownDomains[field.GetName()] = domainName;
 
             fields.Add(new
             {
@@ -440,6 +502,10 @@ internal static class Program
                 // not only on the inspection that describes it</b> — ADR-063. It was reported and
                 // dropped, because the schema had nowhere to put it; it has now.
                 alias = Nothing(field.GetAlternativeName()),
+
+                // <b>The field's domain, whole — ADR-065.</b> The inspection reports its name; this is
+                // the list or the range, in the ArcGIS domain object's shape the server stores.
+                domain = catalog.Domain(domainName),
             });
         }
 
@@ -450,6 +516,10 @@ internal static class Program
             srid = Epsg(layer),
             geometry = definition.GetGeomType().ToString(),
             fields,
+
+            // The table's subtypes, with the archive's own field names; the importer maps them.
+            subtypes = catalog.Subtypes(layerName, ownDomains),
+            catalogUnread = catalog.Unread,
         });
 
         long written = 0;
@@ -866,6 +936,13 @@ internal static class Program
         request.TryGetProperty(name, out JsonElement value) && value.GetString() is { } said
             ? said
             : throw new ArgumentException($"The request has no '{name}'.");
+
+    /// <summary>The short name of the driver that opened an archive, or empty.</summary>
+    private static string DriverOf(Dataset source)
+    {
+        using OSGeo.GDAL.Driver? driver = source.GetDriver();
+        return driver?.ShortName ?? string.Empty;
+    }
 
     private static string? Nothing(string? said) =>
         string.IsNullOrWhiteSpace(said) ? null : said;

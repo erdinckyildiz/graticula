@@ -18,8 +18,10 @@ namespace Graticula.Features;
 /// <para>
 /// <b>Deliberately coarse.</b> It carries what a client needs in order to render
 /// and filter a value, not what the database needs in order to store one.
-/// Precision, scale, collation and domain are absent because no consumer of this
-/// has ever needed them.
+/// Precision, scale and collation are absent because no consumer of this has ever
+/// needed them. <b>A domain said the same here until ADR-065</b>; it is a claim the
+/// layer makes about a column rather than part of its type, so it lives on
+/// <see cref="FieldDescription.Domain"/>.
 /// </para>
 /// </remarks>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
@@ -121,6 +123,17 @@ public readonly record struct FieldDescription(
     /// means a column the client may write.
     /// </remarks>
     public bool Maintained { get; init; }
+
+    /// <summary>
+    /// What values the column may hold — ADR-065 — or null for any its type allows.
+    /// </summary>
+    /// <remarks>
+    /// <b>The column's own domain</b>; a subtype may replace it for features of that kind, and
+    /// <see cref="LayerDescription.Subtypes"/> says where. Set in one place,
+    /// <see cref="FieldOverrides.Apply"/>, like <see cref="Maintained"/>, and not positional for
+    /// the same reason.
+    /// </remarks>
+    public Graticula.Catalog.FieldDomain? Domain { get; init; }
 }
 
 /// <summary>
@@ -187,6 +200,16 @@ public sealed record LayerDescription(
     /// </remarks>
     public Graticula.Catalog.EditorTracking Tracking { get; init; } =
         Graticula.Catalog.EditorTracking.None;
+
+    /// <summary>
+    /// The layer's subtypes — ADR-065 — or null for a layer that has none.
+    /// </summary>
+    /// <remarks>
+    /// <b>Set by <see cref="FieldOverrides.Apply"/> only when the subtype column is on the layer</b>,
+    /// and narrowed there to the columns a caller can see, so a subtype's default for a hidden
+    /// column never reaches a template.
+    /// </remarks>
+    public Graticula.Catalog.LayerSubtypes? Subtypes { get; init; }
 
     /// <summary>Finds a field by name, or null.</summary>
     public FieldDescription? Find(string name)

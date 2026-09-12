@@ -474,6 +474,13 @@ by argument; nobody has pointed a slow reader at it.
    The test is not that the document contains the key; it is that a write of a value
    outside the domain is refused, and that the refusal names the domain.
 
+   **DISCHARGED 2026-09-12 — [ADR-065](ADR-065-domains-and-subtypes.md), and on the terms written
+   here: the refusal, not the key.** `DomainConformanceTests`, against a running server: through
+   ArcGIS `addFeatures` and `updateFeatures` a value outside a coded-value list, outside a range,
+   not one of the layer's subtypes, or outside the list a subtype narrows the column to is refused
+   in a result naming the domain; through OGC API Features the same values answer `400` naming it
+   and a value inside answers `204`. The writer's half is falsified in ADR-065 §4.
+
 6. **Editor tracking closes [D-20](../architecture-debt.md) or it has not been built.**
    The reason to build it is that `features:edit` cannot mean *change your own* while the
    server cannot tell whose feature is whose. Shipping the four `editFieldsInfo` columns
@@ -489,7 +496,9 @@ by argument; nobody has pointed a slow reader at it.
    alike; `features:fullEdit` and a group's editing reach every feature. Measured end to end by
    `EditorTrackingConformanceTests` with two real accounts, an administrator and an `editor`
    user type whose ceiling is `features:edit`. [D-20](../architecture-debt.md) closes with it.
-   **Domains and subtypes — condition 5 — are not built**, and this does not claim them.
+   ~~**Domains and subtypes — condition 5 — are not built**, and this does not claim them.~~
+   *(Built 2026-09-12 — [ADR-065](ADR-065-domains-and-subtypes.md) — and condition 5 carries its
+   own marker.)*
 
 1. ~~**Streaming is verified, not assumed.**~~ **DISCHARGED 2026-08-15.** A 40 MB round trip moves the process working set by 4 MB on upload and not at all on download, bytes identical. And the test that would have caught the original design hands over a stream reporting no length, refusing to seek, and yielding its bytes once — which is what a request body is, and what a `MemoryStream` is not. Original: A test that uploads and downloads a
    large attachment while watching allocation must show flat memory. If any

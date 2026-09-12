@@ -31,8 +31,9 @@ namespace Graticula.Conformance.Tests;
 /// <para>
 /// <b>So the archive is built at test time, by the reader's own GDAL.</b> `Graticula.Import.Reader`
 /// answers a `fixture` operation that writes two layers — points and polygons, in EPSG:4326,
-/// with a text, an integer, a real and a date field — and this zips that directory and puts it
-/// through the import the console uses.
+/// with a text, an integer, a real and a date field, the integer bounded by a range domain in the
+/// archive's catalogue (ADR-065) — and this zips that directory and puts it through the import the
+/// console uses.
 /// </para>
 /// <para>
 /// <b>What this does not test, said plainly because Q-138 said it first.</b> It reads what
@@ -144,12 +145,15 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
                     or HttpStatusCode.Accepted,
                 $"Publishing the inspected archive answered {(int)published}: {publishedWhy}");
 
+            // What the publish job reported per layer, kept for the domain assertion's message below.
+            string publishDetail = publishedWhy;
+
             if (published == HttpStatusCode.Accepted)
             {
                 string second = JsonDocument.Parse(publishedWhy).RootElement
                     .GetProperty("job").GetString()!;
 
-                (string landed, string landedWhy, _) = await SettledAsync(root, token!, second);
+                (string landed, string landedWhy, publishDetail) = await SettledAsync(root, token!, second);
 
                 Assert.True(
                     landed == "done",
@@ -220,6 +224,31 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
 
             Assert.Equal("Visit count", labels["count"]);
             Assert.Equal("name", labels["name"]);
+
+            // <b>And the archive's own domain — ADR-065.</b> The fixture bounds `count` to 0–100 in
+            // the geodatabase's catalogue, which GDAL's binding cannot hand over as a list and the
+            // reader reads from `GDB_Items`; this is that domain arriving on the served field, and
+            // `name`, which has none, still saying so.
+            Dictionary<string, JsonElement> domains = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (JsonElement field in
+                JsonDocument.Parse(layerDocument).RootElement.GetProperty("fields").EnumerateArray())
+            {
+                domains[field.GetProperty("name").GetString() ?? string.Empty] =
+                    field.GetProperty("domain").Clone();
+            }
+
+            Assert.True(
+                domains["count"].ValueKind == JsonValueKind.Object,
+                $"The archive's range domain on 'count' did not reach the served field: {domains["count"]}. "
+                + $"The publish said: {publishDetail}");
+
+            Assert.Equal("range", domains["count"].GetProperty("type").GetString());
+            Assert.Equal("Visits", domains["count"].GetProperty("name").GetString());
+            Assert.Equal(
+                [0m, 100m],
+                domains["count"].GetProperty("range").EnumerateArray().Select(v => v.GetDecimal()));
+            Assert.Equal(JsonValueKind.Null, domains["name"].ValueKind);
 
             // <b>And the features, which is the half a document cannot claim.</b> A service can
             // describe a layer it cannot read.

@@ -55,6 +55,7 @@ public static class FieldOverrides
 
         List<FieldDescription> kept = new(described.Fields.Count);
         List<FieldOverride> tracked = [];
+        LayerSubtypes? subtypes = null;
         bool changed = false;
 
         foreach (FieldDescription field in described.Fields)
@@ -93,6 +94,24 @@ public static class FieldOverrides
                 next = next with { Maintained = true };
             }
 
+            // <b>ADR-065: the column's own domain, on the one object every face reads.</b> The
+            // document that reports it and the writer that enforces it read the same instance, so
+            // they cannot come to disagree about what it allows. Not on a column this server
+            // writes: the admin surface refuses one there, and a value no client sends is not a
+            // value a domain can govern.
+            //
+            // <b>And only a domain that fits the column the table has today.</b> The admin surface
+            // refuses one that does not, but a column can be retyped in the database after the
+            // domain was stored — a domain of integer codes on what is now a text column would
+            // refuse every value in it. Inert rather than broken, as ADR-063 answers drift.
+            if (says.Domain is { } domain
+                && says.Tracks == EditRole.None
+                && !domain.SameAs(field.Domain)
+                && DomainRules.Refuse(domain, field.Type, field.MaxLength) is null)
+            {
+                next = next with { Domain = domain };
+            }
+
             if (next != field)
             {
                 changed = true;
@@ -104,6 +123,14 @@ public static class FieldOverrides
             {
                 tracked.Add(says);
             }
+
+            // <b>The subtype column is one of the columns that is there</b>, and it has to be an
+            // integer one: a column somebody retyped to text no longer holds codes, and a layer
+            // advertising subtypes on it would refuse every value it holds.
+            if (says.Subtypes is { } declared && DomainRules.HoldsSubtypes(field.Type))
+            {
+                subtypes ??= declared with { Field = field.Name };
+            }
         }
 
         // <b>Tracking from the columns that are there</b>, so a role left on a dropped column
@@ -113,8 +140,30 @@ public static class FieldOverrides
         // <b>An override that matched nothing is not a change.</b> A layer whose only
         // overrides name dropped columns describes exactly what the table describes, and
         // rebuilding the list to say so would allocate for a difference nobody can observe.
-        return changed || tracking.Any
-            ? described with { Fields = changed ? kept : described.Fields, Tracking = tracking }
+        // <b>Narrowed to what a caller can see</b>, so a subtype's default or domain for a hidden
+        // column never reaches a template, and one for a column that has gone describes nothing —
+        // ADR-063's drift answer, one level down.
+        if (subtypes is not null)
+        {
+            Dictionary<string, FieldDescription> visible = new(StringComparer.Ordinal);
+
+            foreach (FieldDescription field in kept)
+            {
+                visible[field.Name] = field;
+            }
+
+            subtypes = subtypes.Narrowed(
+                visible.ContainsKey,
+                (column, domain) => DomainRules.Refuse(domain, visible[column].Type, visible[column].MaxLength) is null);
+        }
+
+        return changed || tracking.Any || subtypes is not null
+            ? described with
+            {
+                Fields = changed ? kept : described.Fields,
+                Tracking = tracking,
+                Subtypes = subtypes,
+            }
             : described;
     }
 
