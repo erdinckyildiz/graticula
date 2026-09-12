@@ -49,9 +49,16 @@ internal static class GeometryCorpus
     public const string PolygonTables = """
         select c.table_schema || '.' || quote_ident(c.table_name)
         from information_schema.columns c
+        -- <b>A join to pg_namespace, not a ::regnamespace cast.</b> The cast throws 3F000 for a
+        -- schema that another test class drops between information_schema listing the row and
+        -- the cast reading it; a join simply finds no match. Measured 2026-09-12 on main: the
+        -- datastore job failed with `schema "zzzfieldcat" does not exist`, a schema
+        -- FieldsComeFromTheCatalogueThatHasThemTests makes and drops outside the fixture's own.
+        join pg_namespace n
+          on n.nspname = c.table_schema
         join pg_class p
           on p.relname = c.table_name
-         and p.relnamespace = c.table_schema::regnamespace
+         and p.relnamespace = n.oid
         join geometry_columns g
           on g.f_table_schema = c.table_schema
          and g.f_table_name = c.table_name
