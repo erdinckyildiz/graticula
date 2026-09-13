@@ -68,6 +68,7 @@ internal static class AuthEndpoints
 
         app.MapPost("/rest/auth/login", LoginAsync);
         app.MapPost("/rest/auth/logout", LogoutAsync);
+        app.MapPost("/rest/auth/session", ExchangeAsync);
         app.MapPost("/rest/auth/password", ChangePasswordAsync);
 
         // <b>The token endpoint every Esri client looks for, and it was advertised
@@ -325,6 +326,112 @@ internal static class AuthEndpoints
             usage = "Send this as 'Authorization: Bearer <token>'. Do not put it in a URL.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Turns the browsing cookie into a bearer token of its own, for a page on this server.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner decision, 2026-09-13</b> — ADR-023 §4c amended. Signed in through the services
+    /// directory, the owner pressed <em>Server</em> and was asked to sign in again: the cookie
+    /// authenticates reading only, and the console writes, so it needed a token and had no way to
+    /// get one but the password. §4c had refused both obvious accommodations — a <c>GET</c> that
+    /// hands out credentials, and a cookie that authenticates a <c>POST</c> behind an antiforgery
+    /// token — and neither is what this is.
+    /// </para>
+    /// <para>
+    /// <b>The control is a header no page can write.</b> <c>Sec-Fetch-Site</c> is set by the
+    /// browser itself, is a forbidden header name to script, and says <c>same-origin</c> only when
+    /// the request came from a page on this origin. A page elsewhere that makes the browser post here
+    /// gets <c>cross-site</c> — and the cookie is <c>SameSite=Strict</c>, so it would not have been
+    /// sent anyway — and even a request that got through would return a token that page cannot read.
+    /// A client that is not a browser can set the header, and needs the cookie's value to use it, at
+    /// which point it already holds the credential.
+    /// </para>
+    /// <para>
+    /// <b>What same-origin still admits is script on this origin</b>, and the answer is where script
+    /// can run: every directory page is served with <c>default-src 'none'</c>, so the pages that
+    /// render catalogue text run none at all, and the pages that do run script — the console, the
+    /// map and the viewer — load it only from this server and hold a bearer token already.
+    /// </para>
+    /// <para>
+    /// <b>A new session, not the cookie's own token.</b> The cookie stays <c>HttpOnly</c> in the
+    /// sense that matters: its value never reaches script. The new session ends when the cookie's
+    /// does — it is not a way to extend one — and signing out of the console revokes it and clears
+    /// the cookie.
+    /// </para>
+    /// </remarks>
+    private static async Task ExchangeAsync(
+        HttpContext context,
+        IIdentityStore store,
+        TimeProvider time,
+        CancellationToken cancellation)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+
+        if (!FromThisOrigin(context.Request))
+        {
+            await Refuse(
+                context, 403,
+                "A browsing session is exchanged for a token only by a page on this server, and this "
+                + "request did not come from one. Sign in with a name and password instead.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        if (!context.Request.Cookies.TryGetValue(Authentication.SessionCookie, out string? cookie)
+            || string.IsNullOrEmpty(cookie))
+        {
+            await Refuse(context, 401, "There is no browsing session to exchange. Sign in.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        DateTimeOffset now = time.GetUtcNow();
+
+        if (await store.FindSessionAsync(SessionToken.HashOf(cookie), now, cancellation)
+                .ConfigureAwait(false) is not { } session)
+        {
+            // Expired or revoked: the browser is holding a cookie for nothing, so it goes too.
+            ClearSessionCookie(context);
+
+            await Refuse(context, 401, "The browsing session has ended. Sign in.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        string token = SessionToken.Generate();
+
+        await store
+            .CreateSessionAsync(
+                session.Principal.Id,
+                SessionToken.HashOf(token),
+                session.ExpiresAt,
+                RemoteAddress(context),
+                cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            token,
+            expiresAt = session.ExpiresAt,
+            principal = new { name = session.Principal.Name, kind = session.Principal.Kind.ToString() },
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Whether a request came from a page on this origin, as the browser says.</summary>
+    /// <param name="request">The request.</param>
+    /// <returns>True only for <c>Sec-Fetch-Site: same-origin</c>.</returns>
+    /// <remarks>
+    /// <b>Absent is refused, not assumed.</b> Every browser this console supports sends the header;
+    /// one that does not is a client whose origin cannot be told, and the answer for that client is
+    /// the password it would otherwise have typed.
+    /// </remarks>
+    internal static bool FromThisOrigin(HttpRequest request) =>
+        string.Equals(request.Headers["Sec-Fetch-Site"].ToString(), "same-origin", StringComparison.OrdinalIgnoreCase);
 
     private static async Task LogoutAsync(
         HttpContext context, IIdentityStore store, CancellationToken cancellation)

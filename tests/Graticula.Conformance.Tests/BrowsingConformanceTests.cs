@@ -280,6 +280,92 @@ public sealed class BrowsingConformanceTests : ArcGisClient
     }
 
     /// <summary>
+    /// A page on this server trades the browsing cookie for a token; nothing else can.
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-023 §4c, amended by owner decision 2026-09-13.</b> The owner signed in on the directory,
+    /// pressed Server and was asked for the password again. The console now asks
+    /// <c>/rest/auth/session</c>, and the control is <c>Sec-Fetch-Site</c> — set by the browser, not
+    /// writable by script — so this test sends what a browser sends from a page here, and what it sends
+    /// from a page elsewhere, and what a client that says nothing sends.
+    /// </remarks>
+    [Fact]
+    public async Task A_page_on_this_server_trades_the_cookie_for_a_token_and_nothing_else_can()
+    {
+        string root = await RequireServerAsync();
+
+        CookieContainer jar = new();
+        using HttpClient http = Browser(jar);
+
+        using (HttpResponseMessage _ = await SignInAsync(http, root, "/rest/services"))
+        {
+        }
+
+        async Task<HttpResponseMessage> ExchangeAsync(string? site)
+        {
+            using HttpRequestMessage request = new(HttpMethod.Post, new Uri(root + "/rest/auth/session"));
+
+            if (site is not null)
+            {
+                request.Headers.Add("Sec-Fetch-Site", site);
+            }
+
+            return await http.SendAsync(request);
+        }
+
+        using (HttpResponseMessage elsewhere = await ExchangeAsync("cross-site"))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, elsewhere.StatusCode);
+        }
+
+        using (HttpResponseMessage unsaid = await ExchangeAsync(null))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, unsaid.StatusCode);
+        }
+
+        using HttpResponseMessage here = await ExchangeAsync("same-origin");
+        Assert.Equal(HttpStatusCode.OK, here.StatusCode);
+        Assert.Contains("no-store", here.Headers.CacheControl?.ToString() ?? string.Empty, StringComparison.Ordinal);
+
+        string token = System.Text.Json.JsonDocument.Parse(await here.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("token").GetString()!;
+
+        // A token of its own, not the cookie's value, and it works where the cookie does not: as a
+        // bearer credential from a client holding no cookie at all.
+        string? cookie = jar.GetCookies(new Uri(root))["gis-session"]?.Value;
+        Assert.NotEqual(cookie, token);
+
+        using HttpClient bare = new(new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+            UseCookies = false,
+        });
+
+        using HttpRequestMessage who = new(HttpMethod.Get, new Uri(root + "/rest/whoami"));
+        who.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        using HttpResponseMessage answered = await bare.SendAsync(who);
+        string body = await answered.Content.ReadAsStringAsync();
+
+        Assert.True(answered.IsSuccessStatusCode, body);
+        Assert.Contains("\"authenticated\":true", body.Replace(" ", string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Without_a_browsing_session_there_is_nothing_to_exchange()
+    {
+        string root = await RequireServerAsync();
+
+        using HttpClient http = Browser(new CookieContainer());
+        using HttpRequestMessage request = new(HttpMethod.Post, new Uri(root + "/rest/auth/session"));
+        request.Headers.Add("Sec-Fetch-Site", "same-origin");
+
+        using HttpResponseMessage answered = await http.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, answered.StatusCode);
+    }
+
+    /// <summary>
     /// A refused operation explains itself as a page.
     /// </summary>
     [Fact]

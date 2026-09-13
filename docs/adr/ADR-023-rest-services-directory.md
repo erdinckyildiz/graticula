@@ -307,6 +307,32 @@ to the surface that lives with it*. So the console now says it: a tokenless read
 form with the reason, and the header says *read-only session* rather than naming a role they
 cannot exercise.
 
+**AMENDED 2026-09-13 by owner decision — the console exchanges the cookie for a token of its
+own.** The owner signed in on the directory, pressed **Server** and was asked for the password
+again; shown why and offered a way out, the answer was *"yap"*. The two accommodations the
+paragraph above refuses are still refused, and the one taken is neither:
+
+- **Not a `GET`.** `POST /rest/auth/session`, answered `Cache-Control: no-store`.
+- **Not the cookie authenticating a write.** `Authentication.CookieToken` is unchanged: the cookie
+  still authenticates `GET` and `HEAD` and nothing else. The exchange reads the cookie itself, and
+  only to open a *new* session for the same principal that ends when the cookie's does — the
+  cookie's own value never reaches script.
+- **The control is a header no page can write.** The request must carry
+  `Sec-Fetch-Site: same-origin`, which the browser sets and script cannot; a page elsewhere gets
+  `cross-site`, would not have had the `SameSite=Strict` cookie sent at all, and could not read the
+  answer if it had. A request with no such header is refused rather than trusted. There is still
+  no token to get wrong.
+- **What same-origin admits is script on this origin, and that is where the argument rests.** The
+  directory's pages — which render catalogue text somebody else wrote — are served with
+  `default-src 'none'` and run no script at all; the pages that do run script load it only from this
+  server and the pinned map SDK, and hold a bearer token already. **The day a directory page runs
+  script, this reasoning has to be read again**, because an injection there would reach a token it
+  cannot reach today.
+
+`BrowsingConformanceTests.A_page_on_this_server_trades_the_cookie_for_a_token_and_nothing_else_can`
+sends what a browser sends from a page here, from a page elsewhere, and what a client that says
+nothing sends; `The_cookie_does_not_authenticate_a_post` still passes beside it.
+
 **Two things broke on the way, both worth recording.** The sign-in form returned
 `415`: the endpoint bound its body from JSON, and a browser cannot post JSON from
 a form — so the page this ADR had just added could not sign anybody in. And the

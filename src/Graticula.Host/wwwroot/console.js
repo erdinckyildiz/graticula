@@ -19185,8 +19185,43 @@ try {
   }
 } catch { /* private mode: the default width is a fine answer */ }
 
+/**
+ * Takes the browsing session the services directory opened and gives this console a token of its own.
+ *
+ * <b>ADR-023 §4c, amended by owner decision 2026-09-13.</b> Signed in on the directory, the owner pressed
+ * Server and was asked for the password again — the cookie reads and does not write. The server now
+ * exchanges it for a bearer token, but only for a request its browser marks as coming from this origin,
+ * which is every request this page makes and none that another site can.
+ *
+ * @returns {Promise<boolean>} whether a token is now held
+ */
+async function exchangeSession() {
+  try {
+    const response = await fetch("/rest/auth/session", { method: "POST", credentials: "same-origin" });
+
+    if (!response.ok) return false;
+
+    const body = await response.json();
+
+    if (!body || typeof body.token !== "string" || !body.token) return false;
+
+    token = body.token;
+    sessionStorage.setItem("gis-token", token);
+    return true;
+  } catch {
+    // Unreachable, or refused: the sign-in form is still the way in, and it says why.
+    return false;
+  }
+}
+
 async function start() {
-  const me = await whoami();
+  let me = await whoami();
+
+  // A reader signed in through the directory holds a cookie and no token; trade one for the other
+  // before deciding they need the form.
+  if (me.authenticated && !token && await exchangeSession()) {
+    me = await whoami();
+  }
 
   if (!me.authenticated || !token) {
     /*
