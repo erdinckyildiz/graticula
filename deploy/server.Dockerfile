@@ -131,8 +131,13 @@ RUN apt-get update  && apt-get install --yes --no-install-recommends curl  && rm
 # 64198 on one host and read by a differently-numbered user on the next is the
 # most common way persisted state becomes unreadable after a redeploy — which
 # for us would mean the serving certificate (ADR-016 §3).
+#
+# <b>A home directory, since ADR-067's MotherDuck.</b> The user had none, and MotherDuck's DuckDB extension
+# refuses to initialise without the one HOME names -- *Can't find the home directory at '/home/gisserver'*,
+# measured in this image -- which DuckDB's own home_directory setting does not change. It keeps a small
+# .duckdb folder there; nothing in it is state, so it is not on the volume.
 RUN groupadd --gid 64198 gisserver \
- && useradd --uid 64198 --gid 64198 --no-create-home --shell /usr/sbin/nologin gisserver \
+ && useradd --uid 64198 --gid 64198 --create-home --home-dir /home/gisserver --shell /usr/sbin/nologin gisserver \
  && mkdir -p /var/lib/graticula \
  && chown 64198:64198 /var/lib/graticula
 

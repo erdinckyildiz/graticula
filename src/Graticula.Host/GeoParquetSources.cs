@@ -310,6 +310,15 @@ internal sealed partial class GeoParquetSources : IDisposable
     {
         const string Name = "motherduck.duckdb_extension";
 
+        // <b>Said before anything is downloaded</b>: MotherDuck's extension refuses to initialise unless the
+        // directory HOME names exists, and the image this server first shipped in created its user without one.
+        if (Environment.GetEnvironmentVariable("HOME") is not { Length: > 0 } home || !Directory.Exists(home))
+        {
+            throw new InvalidOperationException(
+                $"MotherDuck's extension needs the server user's home directory to exist, and HOME is "
+                + $"'{Environment.GetEnvironmentVariable("HOME")}'. Create it, owned by that user, or set HOME to a directory that is.");
+        }
+
         if (_options.ExtensionDirectory is { } shipped
             && Path.Combine(shipped, GeoParquetFolder.ExtensionPlatform, Name) is { } provided
             && File.Exists(provided))
@@ -335,6 +344,7 @@ internal sealed partial class GeoParquetSources : IDisposable
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        RemoveLeftovers(Path.GetDirectoryName(target)!);
         Uri source = new($"https://extensions.duckdb.org/{version}/{GeoParquetFolder.ExtensionPlatform}/{Name}.gz");
 
         // <b>Buffered whole, then decompressed off the network, and tried three times.</b> The first version
@@ -418,6 +428,34 @@ internal sealed partial class GeoParquetSources : IDisposable
         }
 
         throw new InvalidOperationException($"three attempts failed: {last?.Message}", last);
+
+        // A process that exits mid-download — a `migrate` container did — leaves its staging behind; nothing reads it.
+        static void RemoveLeftovers(string folder)
+        {
+            foreach (string stale in Directory.EnumerateFileSystemEntries(folder, "*partial*"))
+            {
+                try
+                {
+                    if (DateTime.UtcNow - File.GetLastWriteTimeUtc(stale) > TimeSpan.FromMinutes(15))
+                    {
+                        if (Directory.Exists(stale))
+                        {
+                            Directory.Delete(stale, recursive: true);
+                        }
+                        else
+                        {
+                            File.Delete(stale);
+                        }
+                    }
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
+        }
 
         static bool Loads(string path)
         {

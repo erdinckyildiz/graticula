@@ -334,8 +334,6 @@ public static class Program
             settings.DuckDbExtensions, settings.RemoteDataAllowPrivate,
             settings.MotherDuck ? System.IO.Path.Combine(settings.StatePath, "duckdb-extensions") : null);
 
-        // ADR-067 §5.4: MotherDuck's extension is fetched in the background from the start, never on a request.
-        duckDbSources.BeginMotherDuckInstall();
         builder.Services.AddSingleton(duckDbSources);
 
         builder.Services.AddSingleton<LayerConnections>();
@@ -1271,6 +1269,12 @@ public static class Program
                     "import a File Geodatabase or a shapefile; GeoJSON is unaffected");
             }
         }
+
+        // <b>ADR-067 §5.4: MotherDuck's extension is fetched in the background from here, never on a request</b>
+        // — and only here, where the server is about to serve. It was at registration, where `migrate` runs it
+        // too: the showcase's upgrade started a download in the short-lived migration container and left the
+        // half-written file behind when that container exited.
+        app.Services.GetRequiredService<GeoParquetSources>().BeginMotherDuckInstall();
 
         Log.Listening(
             logger,
