@@ -45,13 +45,63 @@ internal sealed class GeoParquetSources : IDisposable
     private static readonly System.Buffers.SearchValues<char> PatternCharacters =
         System.Buffers.SearchValues.Create("*?[]{}");
     private readonly GeoParquetOptions _options;
+    private readonly bool _allowPrivate;
     private bool _disposed;
 
-    public GeoParquetSources(string? root, string memoryLimit = "1GB", int? threads = null)
+    public GeoParquetSources(
+        string? root,
+        string memoryLimit = "1GB",
+        int? threads = null,
+        string? extensionDirectory = null,
+        bool allowPrivate = false)
     {
         Root = string.IsNullOrWhiteSpace(root) ? null : Normalise(Path.GetFullPath(root));
-        _options = new GeoParquetOptions { MemoryLimit = memoryLimit, Threads = threads };
+        _options = new GeoParquetOptions
+        {
+            MemoryLimit = memoryLimit,
+            Threads = threads,
+            ExtensionDirectory = string.IsNullOrWhiteSpace(extensionDirectory) ? null : Path.GetFullPath(extensionDirectory),
+        };
+        _allowPrivate = allowPrivate;
     }
+
+    /// <summary>Whether remote locations can be read: <c>httpfs</c> is where the deployment said — ADR-067 §5.2.</summary>
+    public bool RemoteEnabled =>
+        _options.ExtensionDirectory is { } directory && File.Exists(GeoParquetFolder.HttpfsPath(directory));
+
+    /// <summary>Turns a remote location request into the locator a registration stores.</summary>
+    /// <param name="request">What the administrator sent.</param>
+    /// <param name="locator">The locator to seal.</param>
+    /// <param name="why">Why it was refused.</param>
+    /// <returns>Whether it may be registered.</returns>
+    public bool TryLocateRemote(RemoteLocationRequest request, out string? locator, out string? why)
+    {
+        if (!RemoteEnabled)
+        {
+            locator = null;
+            why = RemoteGeoParquetLocations.Off;
+            return false;
+        }
+
+        return RemoteGeoParquetLocations.TryLocate(request, _allowPrivate, out locator, out why);
+    }
+
+    /// <summary>The key an instance is kept under: the canonical folder, or a hash of a remote locator.</summary>
+    /// <remarks>
+    /// <b>Hashed, so the dictionary holds no credential</b> — two registrations of one bucket with
+    /// different keys are two instances, which is right, because each reads with its own.
+    /// </remarks>
+    private static string KeyOf(string locator) =>
+        GeoParquetLocator.IsRemote(locator)
+            ? "remote:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(locator)))
+            : Normalise(Path.GetFullPath(GeoParquetLocator.FolderOf(locator)));
+
+    /// <summary>Where a locator reads from, for a sentence: the folder, or the remote location without credentials.</summary>
+    public static string LocationOf(string locator) =>
+        GeoParquetLocator.IsRemote(locator)
+            ? RemoteGeoParquetLocations.Parse(locator).Location
+            : GeoParquetLocator.FolderOf(locator);
 
     /// <summary>The root folders may be registered under, or null when the feature is off.</summary>
     public string? Root { get; }
@@ -120,6 +170,11 @@ internal sealed class GeoParquetSources : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        if (GeoParquetLocator.IsRemote(locator))
+        {
+            return Kept(KeyOf(locator), () => OpenRemote(locator));
+        }
+
         // <b>Canonical before it is compared</b> — a security review's finding. A stored
         // `…/geoparquet/../../etc` begins with the root as text and is not inside it.
         string folder = Normalise(Path.GetFullPath(GeoParquetLocator.FolderOf(locator)));
@@ -144,8 +199,12 @@ internal sealed class GeoParquetSources : IDisposable
             throw new InvalidOperationException(unsafeWhy);
         }
 
-        Lazy<GeoParquetFolder> opened = _folders.GetOrAdd(
-            folder, f => new Lazy<GeoParquetFolder>(() => new GeoParquetFolder(f, _options)));
+        return Kept(folder, () => new GeoParquetFolder(folder, _options));
+    }
+
+    private GeoParquetFolder Kept(string key, Func<GeoParquetFolder> open)
+    {
+        Lazy<GeoParquetFolder> opened = _folders.GetOrAdd(key, _ => new Lazy<GeoParquetFolder>(open));
 
         try
         {
@@ -155,9 +214,33 @@ internal sealed class GeoParquetSources : IDisposable
         {
             // A folder that could not be opened — deleted, unreadable — is tried again next time
             // rather than remembered as broken for the life of the process.
-            _folders.TryRemove(new KeyValuePair<string, Lazy<GeoParquetFolder>>(folder, opened));
+            _folders.TryRemove(new KeyValuePair<string, Lazy<GeoParquetFolder>>(key, opened));
             throw;
         }
+    }
+
+    /// <summary>A remote location, checked and opened — ADR-067 §5.2.</summary>
+    /// <remarks>
+    /// <b>The address check again, at open</b>: a name can move to a private address after it was
+    /// registered, and this is the last moment before DuckDB is handed it.
+    /// </remarks>
+    private GeoParquetFolder OpenRemote(string locator)
+    {
+        if (!RemoteEnabled)
+        {
+            throw new InvalidOperationException(
+                "A layer is served from a remote GeoParquet location and this server cannot read one. "
+                + RemoteGeoParquetLocations.Off);
+        }
+
+        RemoteGeoParquet remote = RemoteGeoParquetLocations.Parse(locator);
+
+        if (RemoteGeoParquetLocations.Unreachable(remote, _allowPrivate) is { } why)
+        {
+            throw new InvalidOperationException(why);
+        }
+
+        return new GeoParquetFolder(remote, _options);
     }
 
     /// <summary>Closes a folder's DuckDB, so the next use opens it afresh.</summary>
@@ -166,7 +249,7 @@ internal sealed class GeoParquetSources : IDisposable
     public bool Close(string locator)
     {
         if (!GeoParquetLocator.Is(locator)
-            || !_folders.TryRemove(GeoParquetLocator.FolderOf(locator), out Lazy<GeoParquetFolder>? opened))
+            || !_folders.TryRemove(KeyOf(locator), out Lazy<GeoParquetFolder>? opened))
         {
             return false;
         }
@@ -184,7 +267,17 @@ internal sealed class GeoParquetSources : IDisposable
     /// <returns>The files that can be published, and the ones that cannot with why.</returns>
     public ProbeResult Probe(string locator)
     {
-        string folder = GeoParquetLocator.FolderOf(locator);
+        string folder;
+
+        try
+        {
+            folder = LocationOf(locator);
+        }
+        catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException or ArgumentException)
+        {
+            return new ProbeResult(ProbeOutcome.CannotConnect, "The stored remote location cannot be read.", null, null, []);
+        }
+
         GeoParquetFolder opened;
         GeoParquetFolder? transient = null;
 
@@ -200,6 +293,10 @@ internal sealed class GeoParquetSources : IDisposable
         catch (Exception e) when (e is InvalidOperationException or IOException or UnauthorizedAccessException)
         {
             return new ProbeResult(ProbeOutcome.CannotConnect, e.Message, null, null, []);
+        }
+        catch (DuckDB.NET.Data.DuckDBException e)
+        {
+            return new ProbeResult(ProbeOutcome.CannotConnect, $"'{folder}' cannot be read: {FirstLine(e.Message)}", null, null, []);
         }
 
         using (transient)
@@ -221,6 +318,12 @@ internal sealed class GeoParquetSources : IDisposable
             // Opened earlier and gone since — the folder was deleted or its permissions changed.
             Close(locator);
             return new ProbeResult(ProbeOutcome.CannotConnect, $"The folder '{folder}' cannot be read: {e.Message}", null, null, []);
+        }
+        catch (DuckDB.NET.Data.DuckDBException e)
+        {
+            // A bucket that refuses the listing — wrong region, no permission, no such bucket — says so
+            // here, in DuckDB's words, which name the HTTP status.
+            return new ProbeResult(ProbeOutcome.CannotConnect, $"'{folder}' cannot be listed: {FirstLine(e.Message)}", null, null, []);
         }
 
         List<SourceTable> tables = [];
@@ -248,7 +351,17 @@ internal sealed class GeoParquetSources : IDisposable
                 Writable: false));
         }
 
-        string message = files.Count == 0
+        string message = opened.IsRemote
+            ? (files.Count == 0
+                ? $"{opened.EngineVersion} found no .parquet files at '{folder}'."
+                : $"{opened.EngineVersion} read {files.Count} .parquet file{(files.Count == 1 ? string.Empty : "s")} at "
+                  + $"'{folder}': {tables.Count} can be published"
+                  + (skipped.Count == 0 ? "." : $", and {skipped.Count} cannot — each says why.")
+                  + " Remote GeoParquet layers are read-only, and each query reads over the network."
+                  + (opened.RemoteListingTruncated
+                      ? $" Listing stopped at {GeoParquetFolder.MostRemoteFiles:N0} files; register a narrower prefix to reach the rest."
+                      : string.Empty))
+            : files.Count == 0
             ? $"{opened.EngineVersion} found no .parquet files in '{folder}'."
             : $"{opened.EngineVersion} read {files.Count} .parquet file{(files.Count == 1 ? string.Empty : "s")} in "
               + $"'{folder}': {tables.Count} can be published"
@@ -264,12 +377,22 @@ internal sealed class GeoParquetSources : IDisposable
             skipped);
     }
 
-    private bool IsOpen(string locator) =>
-        _folders.ContainsKey(Normalise(Path.GetFullPath(GeoParquetLocator.FolderOf(locator))));
+    private bool IsOpen(string locator) => _folders.ContainsKey(KeyOf(locator));
+
+    private static string FirstLine(string message)
+    {
+        int newline = message.IndexOf('\n', StringComparison.Ordinal);
+        return newline < 0 ? message : message[..newline];
+    }
 
     /// <summary>A folder checked as <see cref="FolderFor"/> checks it, opened for one use.</summary>
     private GeoParquetFolder Opened(string locator)
     {
+        if (GeoParquetLocator.IsRemote(locator))
+        {
+            return OpenRemote(locator);
+        }
+
         string folder = Normalise(Path.GetFullPath(GeoParquetLocator.FolderOf(locator)));
 
         if (Root is null)

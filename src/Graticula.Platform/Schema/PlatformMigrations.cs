@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(46);
+    public static SchemaVersion ComponentSchemaVersion => new(47);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -81,6 +81,7 @@ public static class PlatformMigrations
         GrantChangesAreAnnouncedV44,
         AClaimedJobHoldsALeaseV45,
         AFolderOfGeoParquetFilesIsASourceV46,
+        DuckDbSourcesBeyondAFolderV47,
     ]);
 
 
@@ -2741,6 +2742,27 @@ public static class PlatformMigrations
     /// they answer 500 until the newer build returns.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Remote GeoParquet, a DuckDB database file and MotherDuck become kinds a source may be — ADR-067.
+    /// </summary>
+    /// <remarks>
+    /// <b>All three at once, although only the first is registered by this build.</b> The constraint
+    /// is what the catalogue will hold, and registration is what refuses a kind it does not serve yet;
+    /// writing the three together means the two that follow need no migration of their own, and a
+    /// store migrated by this build is not one migration behind a build that serves them.
+    /// <b>Expand.</b> A constraint widened; every existing row satisfies it.
+    /// </remarks>
+    private static Migration DuckDbSourcesBeyondAFolderV47 => Migration.Expand(
+        new SchemaVersion(47),
+        "A data source may be remote GeoParquet, a DuckDB database file or MotherDuck (ADR-067).",
+
+        "alter table data_source drop constraint if exists data_source_kind_known",
+
+        """
+        alter table data_source add constraint data_source_kind_known
+            check (kind in ('postgis', 'geoparquet', 'geoparquet-remote', 'duckdb', 'motherduck'))
+        """);
+
     private static Migration AFolderOfGeoParquetFilesIsASourceV46 => Migration.Expand(
         new SchemaVersion(46),
         "A data source may be a folder of GeoParquet files (ADR-066).",

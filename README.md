@@ -36,7 +36,7 @@ Five ArcGIS service types, plus the portal surface Pro connects through.
 
 | | | |
 |---|---|---|
-| **Feature services** | complete | `query`, `applyEdits`, attachments, related records, `generateRenderer` — over a registered PostGIS table or a hosted layer, and read-only over a GeoParquet file read in place ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md)) |
+| **Feature services** | complete | `query`, `applyEdits`, attachments, related records, `generateRenderer` — over a registered PostGIS table or a hosted layer, and read-only over a GeoParquet file read in place, from a folder on the server or over `https://` and `s3://` ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md), [ADR-067](docs/adr/ADR-067-duckdb-sources-beyond-a-local-folder.md)) |
 | **Map services** | complete | `export`, `identify`, `legend`. A layer published without a style gets a generated appearance that reports itself as generated |
 | **Vector tile services** | partial | Tiles from hosted data, a style document and a checked-in glyph set. **The sprite sheet answers and is empty** — no icon library, and no way to upload one ([ADR-027](docs/adr/ADR-027-glyphs-and-sprites.md)) |
 | **Image services** | partial | `exportImage`, `identify`, `tile`, over imagery registered where it lies and never copied. **No raster function chains, no mosaic datasets** |
@@ -58,9 +58,12 @@ that works.
 - **PostGIS, and nothing else, for databases.** No Oracle, no SQL Server, no file geodatabase
   served in place. An enterprise geodatabase on Oracle has to move first. The other engines are
   deferred, not cancelled — [v1-scope.md](docs/v1-scope.md) §3a. **GeoParquet files are the one
-  thing served where they lie**, and only for reading: no edits, no attachments, no related
-  records, no vector tiles, and spatial filters by intersection only
-  ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md)).
+  thing served where they lie** — in a folder on the server, or over `https://` and `s3://` — and
+  only for reading: no edits, no attachments, no related records, no vector tiles, and spatial
+  filters by intersection only ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md),
+  [ADR-067](docs/adr/ADR-067-duckdb-sources-beyond-a-local-folder.md)). A remote file is read over
+  the network on every query, at the bucket's latency. A DuckDB database file and MotherDuck are
+  decided and not built.
 - **No single sign-on.** Local accounts and server-issued tokens only: no SAML, no OIDC,
   no Active Directory, no SCIM. Every account is one you create here.
 - **No geoprocessing and no geocoding.** No GPServer, no web tools, no Python toolboxes.
@@ -191,6 +194,22 @@ a publication that disagrees with them is refused.
 curl -sk -X POST https://localhost:8443/admin/datasources \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"reference","kind":"geoparquet","path":"istanbul"}'
+```
+
+**GeoParquet in S3 or on the web.** An `s3://bucket/prefix/` — every `.parquet` file directly under
+it is a table — or one `https://…/name.parquet`. A public bucket needs only its region; a private
+one takes an access key, and an S3-compatible store an `endpoint`. The secret is sealed and never
+read back. A location that resolves to a private or loopback address is refused unless the
+deployment sets `Graticula__RemoteDataAllowPrivate=true`, and **a redirect from an allowed host is
+followed** — DuckDB offers no way to stop it — so a deployment that cares restricts the server's
+outbound traffic ([ADR-067](docs/adr/ADR-067-duckdb-sources-beyond-a-local-folder.md) §3).
+
+```bash
+curl -sk -X POST https://localhost:8443/admin/datasources \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"boundaries","kind":"geoparquet-remote",
+       "url":"s3://overturemaps-us-west-2/release/2026-07-22.0/theme=divisions/type=division_area/",
+       "region":"us-west-2"}'
 ```
 
 ### A service of several layers, in one act

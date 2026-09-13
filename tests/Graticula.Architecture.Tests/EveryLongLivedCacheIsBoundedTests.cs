@@ -70,8 +70,9 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["JobSignal._waiting"] = "one per job kind, and the kinds are an enum",
         ["LayerConnections._pools"] = "one pool per connection string; cleared on reload",
         ["LayerConnections._attachmentPools"] = "one pool per connection string; cleared on reload",
-        ["GeoParquetSources._folders"] = "one DuckDB per folder a layer has read; closed when its source is removed, moved or quiesced, and a probe of any other folder opens and closes its own",
+        ["GeoParquetSources._folders"] = "one DuckDB per folder or remote location a layer has read; closed when its source is removed, moved or quiesced, and a probe of any other folder opens and closes its own",
         ["GeoParquetFolder._tables"] = "one per file name read in one folder; replaced when the file changes",
+        ["GeoParquetFolder._remoteTables"] = "one per table name at one remote location, and only names the location's own listing holds (ADR-067 §5.2); replaced after the metadata lifetime",
         ["LogEndpoints._seen"] = "explicit capacity; cleared when full",
         ["ServiceContexts._entries"] = "one per table, and expires",
         ["ServiceThumbnails._held"] =

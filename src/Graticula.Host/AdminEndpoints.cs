@@ -37,6 +37,13 @@ namespace Graticula.Host;
 /// <param name="Path">
 /// For <c>geoparquet</c>, the folder: relative to <c>Graticula:GeoParquetRoot</c> or inside it.
 /// </param>
+/// <param name="Url">For <c>geoparquet-remote</c>, the <c>s3://</c> prefix or file, or the <c>https://</c> file.</param>
+/// <param name="Region">For an S3 location, the bucket's region.</param>
+/// <param name="Endpoint">For an S3-compatible store, its host or host:port.</param>
+/// <param name="AccessKeyId">For a private bucket, the access key id.</param>
+/// <param name="SecretAccessKey">For a private bucket, the secret — written, never read back.</param>
+/// <param name="UrlStyle">For an S3-compatible store, <c>vhost</c> or <c>path</c>.</param>
+/// <param name="UseSsl">False only for an S3-compatible store without TLS.</param>
 /// <remarks>
 /// <para>
 /// <b>The fields exist because the console stopped asking for a string, and the assembly is
@@ -66,7 +73,27 @@ internal sealed record DataSourceRequest(
     // above.</b> On the end and optional, so every request written before a second kind existed
     // means what it meant.
     string? Kind = null,
-    string? Path = null);
+    string? Path = null,
+
+    // <b>ADR-067 §5.2: `geoparquet-remote` with a `url`, and for S3 optionally the rest.</b> The
+    // secret is write-only: the readback endpoint says whether one is held and never what it is.
+    string? Url = null,
+    string? Region = null,
+    string? Endpoint = null,
+    string? AccessKeyId = null,
+    string? SecretAccessKey = null,
+    string? UrlStyle = null,
+    bool? UseSsl = null)
+{
+    /// <summary>Never a password or a secret: a record's generated text prints every property.</summary>
+    /// <returns>The name and kind, and what was sent to reach it without anything secret.</returns>
+    /// <remarks>
+    /// A security review's P3: nothing logs this record today, and the first thing that did would
+    /// have written the PostgreSQL password and the S3 secret beside the name.
+    /// </remarks>
+    public override string ToString() =>
+        $"{Name} ({Kind ?? "postgis"}) {Url ?? Path ?? Host ?? (ConnectionString is null ? string.Empty : "connection string")}";
+}
 
 /// <summary>The reference a service should be served in, or null for each layer's own.</summary>
 /// <param name="Srid">The EPSG code, or null to go back to the tables'.</param>
@@ -7879,6 +7906,9 @@ internal static partial class AdminEndpoints
         {
             dataSources = listed,
             geoParquetRoot = geoParquet.Root,
+
+            // ADR-067 §5.2: whether this server can read GeoParquet over https and S3, for the same reason.
+            remoteGeoParquet = geoParquet.RemoteEnabled,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -10304,6 +10334,35 @@ internal static partial class AdminEndpoints
         // console — and it would be wrong on exactly the values nobody tests with: a database
         // name with a space, a host written with a quoted port. The builder has already parsed
         // this string once to take the password out; naming what it found costs nothing.
+        // <b>A remote location's fields, and never its secret — ADR-067 §5.1.6.</b> The form needs
+        // to know one is held so it can say so; it never needs the value, and a correction sends a
+        // whole new one like a PostgreSQL password.
+        if (GeoParquetLocator.IsRemote(stored))
+        {
+            Graticula.Providers.DuckDb.RemoteGeoParquet remote = RemoteGeoParquetLocations.Parse(stored);
+
+            await Results.Json(new
+            {
+                name = found.Value.Name,
+                kind = DataSourceKinds.GeoParquetRemote,
+                url = remote.Location,
+                region = remote.Region,
+                endpoint = remote.Endpoint,
+                // <b>Masked, like the secret is withheld</b> — a security review's M4: the key id is half
+                // of the credential, and §5.1.6 says credentials are not returned. Enough is shown to
+                // recognise which key is held; a correction types it again with its secret.
+                accessKeyHint = remote.AccessKeyId is { Length: > 8 } key
+                    ? key[..4] + "…" + key[^4..]
+                    : remote.AccessKeyId is { Length: > 0 } ? "…" : null,
+                hasKey = remote.AccessKeyId is { Length: > 0 },
+                hasSecret = remote.SecretAccessKey is { Length: > 0 },
+                urlStyle = remote.UrlStyle,
+                useSsl = remote.UseSsl,
+            }).ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
+
         if (GeoParquetLocator.Is(stored))
         {
             await Results.Json(new
@@ -10381,14 +10440,59 @@ internal static partial class AdminEndpoints
                 return null;
             }
 
+            if (HasRemoteFields(request))
+            {
+                why = "`url`, region, endpoint and credentials describe a remote location; send them with "
+                    + $"`kind: \"{DataSourceKinds.GeoParquetRemote}\"`.";
+
+                return null;
+            }
+
             return geoParquet.TryLocate(request.Path, out string? located, out why) ? located : null;
+        }
+
+        // <b>GeoParquet over https or S3 — ADR-067 §5.2 — named by a `url` and its S3 fields.</b> As
+        // with a folder, the locator is produced here and only here, after every field has passed its
+        // own rule and the host has passed the address check.
+        if (string.Equals(request.Kind, DataSourceKinds.GeoParquetRemote, StringComparison.OrdinalIgnoreCase))
+        {
+            if (hasString || hasFields || !string.IsNullOrWhiteSpace(request.Path))
+            {
+                why = "A remote GeoParquet location is named by `url` (and, for S3, region, endpoint and "
+                    + "credentials); a connection string, host fields or a folder path describe something else.";
+
+                return null;
+            }
+
+            if (geoParquet is null)
+            {
+                why = RemoteGeoParquetLocations.Off;
+                return null;
+            }
+
+            return geoParquet.TryLocateRemote(
+                new RemoteLocationRequest(
+                    request.Url, request.Region, request.Endpoint, request.AccessKeyId, request.SecretAccessKey,
+                    request.UrlStyle, request.UseSsl),
+                out string? remote,
+                out why)
+                ? remote
+                : null;
         }
 
         if (!string.IsNullOrWhiteSpace(request.Kind)
             && !string.Equals(request.Kind, DataSourceKinds.PostGis, StringComparison.OrdinalIgnoreCase))
         {
             why = $"`kind` '{request.Kind}' is not one this server registers: "
-                + $"{DataSourceKinds.PostGis} or {DataSourceKinds.GeoParquet}.";
+                + $"{DataSourceKinds.PostGis}, {DataSourceKinds.GeoParquet} or {DataSourceKinds.GeoParquetRemote}.";
+
+            return null;
+        }
+
+        if (HasRemoteFields(request))
+        {
+            why = "`url`, region, endpoint and credentials describe a remote GeoParquet location; send them with "
+                + $"`kind: \"{DataSourceKinds.GeoParquetRemote}\"`.";
 
             return null;
         }
@@ -10401,9 +10505,9 @@ internal static partial class AdminEndpoints
 
         if (hasString && GeoParquetLocator.Is(request.ConnectionString))
         {
-            why = "A GeoParquet folder is registered with `kind: \"geoparquet\"` and a `path`, which "
-                + "is checked against the directory this server may read; a locator written by hand "
-                + "is not.";
+            why = "A GeoParquet folder is registered with `kind: \"geoparquet\"` and a `path`, and a remote "
+                + $"location with `kind: \"{DataSourceKinds.GeoParquetRemote}\"` and a `url` — each checked "
+                + "before it is stored; a locator written by hand is not.";
 
             return null;
         }
@@ -10492,7 +10596,12 @@ internal static partial class AdminEndpoints
     /// <returns>The same connection with no password in it.</returns>
     private static string WithoutSecrets(string connectionString)
     {
-        // A folder's locator carries no secret to take out.
+        // A folder's locator carries no secret to take out; a remote one does, and none of it is shown.
+        if (GeoParquetLocator.IsRemote(connectionString))
+        {
+            return string.Empty;
+        }
+
         if (GeoParquetLocator.Is(connectionString))
         {
             return connectionString;
@@ -10512,11 +10621,24 @@ internal static partial class AdminEndpoints
         }
     }
 
+    private static bool HasRemoteFields(DataSourceRequest request) =>
+        !string.IsNullOrWhiteSpace(request.Url) || !string.IsNullOrWhiteSpace(request.Region)
+        || !string.IsNullOrWhiteSpace(request.Endpoint) || !string.IsNullOrEmpty(request.AccessKeyId)
+        || !string.IsNullOrEmpty(request.SecretAccessKey) || !string.IsNullOrWhiteSpace(request.UrlStyle)
+        || request.UseSsl is not null;
+
     private static string Summarise(string connectionString)
     {
         if (GeoParquetLocator.Is(connectionString))
         {
-            return GeoParquetLocator.FolderOf(connectionString);
+            try
+            {
+                return GeoParquetSources.LocationOf(connectionString);
+            }
+            catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException or ArgumentException)
+            {
+                return "unparseable";
+            }
         }
 
         try

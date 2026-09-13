@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using DuckDB.NET.Data;
 using Graticula.Geometries;
 
@@ -25,6 +26,46 @@ public sealed record GeoParquetOptions
 
     /// <summary>DuckDB's <c>threads</c> for one folder, or null for its default.</summary>
     public int? Threads { get; init; }
+
+    /// <summary>
+    /// The directory DuckDB extensions are loaded from by path — ADR-067 §5.1 — or null when none
+    /// may be loaded, which switches remote locations off.
+    /// </summary>
+    public string? ExtensionDirectory { get; init; }
+
+    /// <summary>How long a remote table's metadata is trusted before it is read again.</summary>
+    public TimeSpan RemoteMetadataLifetime { get; init; } = TimeSpan.FromMinutes(1);
+}
+
+/// <summary>
+/// GeoParquet somewhere other than this machine's disk — ADR-067 §5.2.
+/// </summary>
+/// <param name="Location">
+/// An <c>s3://bucket/prefix/</c> whose <c>.parquet</c> files directly under it are the tables, or
+/// one <c>https://…/name.parquet</c> file.
+/// </param>
+/// <param name="Region">The bucket's region, e.g. <c>us-west-2</c>.</param>
+/// <param name="Endpoint">An S3-compatible endpoint host, or null for AWS.</param>
+/// <param name="AccessKeyId">The access key id, or null to read anonymously.</param>
+/// <param name="SecretAccessKey">The secret access key, with <paramref name="AccessKeyId"/>.</param>
+/// <param name="UrlStyle"><c>vhost</c> or <c>path</c>, or null for DuckDB's default.</param>
+/// <param name="UseSsl">False only for an S3-compatible endpoint that does not speak TLS.</param>
+public sealed record RemoteGeoParquet(
+    string Location,
+    string? Region = null,
+    string? Endpoint = null,
+    string? AccessKeyId = null,
+    string? SecretAccessKey = null,
+    string? UrlStyle = null,
+    bool UseSsl = true)
+{
+    /// <summary>Whether the location is an S3 prefix rather than one file.</summary>
+    public bool IsPrefix => Location.EndsWith('/');
+
+    /// <summary>Never the secret: a record's generated text would otherwise print it.</summary>
+    /// <returns>The location and whether credentials are held.</returns>
+    public override string ToString() =>
+        $"{Location}{(AccessKeyId is null ? string.Empty : " (with credentials)")}";
 }
 
 /// <summary>A column of a GeoParquet file, as DuckDB types it.</summary>
@@ -106,6 +147,12 @@ public sealed partial class GeoParquetFolder : IDisposable
     private readonly DuckDBConnection _root;
     private readonly ConcurrentDictionary<string, (long Length, DateTime Modified, GeoParquetTable Table)> _tables =
         new(StringComparer.Ordinal);
+    private readonly RemoteGeoParquet? _remote;
+    private readonly TimeSpan _remoteLifetime;
+    private readonly ConcurrentDictionary<string, (long ReadAt, GeoParquetTable Table)> _remoteTables =
+        new(StringComparer.Ordinal);
+    private RemoteFiles? _remoteListing;
+    private readonly object _remoteRefresh = new();
     private bool _disposed;
 
     /// <summary>Opens a sandboxed DuckDB over one folder.</summary>
@@ -125,48 +172,179 @@ public sealed partial class GeoParquetFolder : IDisposable
         }
 
         Folder = Normalise(full);
+        _remoteLifetime = options.RemoteMetadataLifetime;
 
-        _root = new DuckDBConnection("DataSource=:memory:");
-        _root.Open();
+        List<string> settings =
+        [
+            $"set memory_limit = {Literal(options.MemoryLimit)}",
+            "set global TimeZone = 'UTC'",
+            $"set allowed_directories = [{Literal(Folder + "/")}]",
+            "set autoinstall_known_extensions = false",
+            "set autoload_known_extensions = false",
+            "set allow_community_extensions = false",
+            "set enable_external_access = false",
+        ];
+
+        if (options.Threads is > 0 and var threads)
+        {
+            settings.Insert(1, $"set threads = {threads.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        // Last, so nothing after it — here or in any duplicate — can change the lines above.
+        settings.Add("set lock_configuration = true");
+
+        (_root, EngineVersion) = OpenConfined(settings);
+    }
+
+    /// <summary>Opens a sandboxed DuckDB over a remote location — ADR-067 §5.2.</summary>
+    /// <param name="remote">Where the files are, and any credentials.</param>
+    /// <param name="options">Bounds, and the directory <c>httpfs</c> is loaded from.</param>
+    public GeoParquetFolder(RemoteGeoParquet remote, GeoParquetOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(remote);
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (options.ExtensionDirectory is null)
+        {
+            throw new InvalidOperationException(
+                "Remote GeoParquet needs DuckDB's httpfs extension, and no extension directory is configured.");
+        }
+
+        _remote = remote;
+        _remoteLifetime = options.RemoteMetadataLifetime;
+        Folder = remote.Location;
+
+        (_root, EngineVersion) = OpenConfined(RemoteSettings(remote, options));
+    }
+
+    /// <summary>The platform directory DuckDB names its extension builds by, for this process.</summary>
+    public static string ExtensionPlatform =>
+        (OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "osx" : "linux")
+        + "_"
+        + (System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+            == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "amd64");
+
+    /// <summary>Where <c>httpfs</c> is expected under an extension directory.</summary>
+    /// <param name="directory">The extension directory.</param>
+    /// <returns>The file path, with forward slashes.</returns>
+    public static string HttpfsPath(string directory) =>
+        Normalise(System.IO.Path.Combine(directory, ExtensionPlatform, "httpfs.duckdb_extension"));
+
+    /// <summary>
+    /// Every statement a remote location's DuckDB runs before it is locked, in order.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Credentials by the legacy settings, and never <c>CREATE SECRET</c> — ADR-067 §3.</b>
+    /// Measured on 1.5.5, Windows x64 and linux-arm64: any DuckDB secret created before
+    /// <c>allowed_directories</c> is set makes DuckDB send reads that are outside the list — to
+    /// another bucket, to any https host, and to <c>http://127.0.0.1</c>. The <c>s3_*</c> settings
+    /// in the same position leave the list intact. A test reads this list for the word.
+    /// </para>
+    /// <para>
+    /// <b>The order is the sandbox.</b> The extension is loaded while loading is still allowed, the
+    /// credentials are set while settings may still change, the allow-list is set before external
+    /// access is switched off (or the location itself is refused, as with a folder), and the lock
+    /// is last.
+    /// </para>
+    /// </remarks>
+    internal static IReadOnlyList<string> RemoteSettings(RemoteGeoParquet remote, GeoParquetOptions options)
+    {
+        List<string> settings =
+        [
+            $"set memory_limit = {Literal(options.MemoryLimit)}",
+            "set global TimeZone = 'UTC'",
+            "set autoinstall_known_extensions = false",
+            "set autoload_known_extensions = false",
+            "set allow_community_extensions = false",
+            "set allow_persistent_secrets = false",
+            $"load {Literal(HttpfsPath(options.ExtensionDirectory!))}",
+        ];
+
+        if (options.Threads is > 0 and var threads)
+        {
+            settings.Insert(1, $"set threads = {threads.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        // <b>Global, because the connections that run queries are duplicates.</b> A plain `set` changes
+        // the session that ran it, and every query here runs on a connection `Open` duplicates from the
+        // root — which reads the global value. The first version set these per session: its test of the
+        // environment below found the server's own AWS key still in force on the query connection, which
+        // also meant a registration's own keys and region had never reached a query.
+        //
+        // <b>Every S3 setting, every time, including the ones this location does not use.</b> A
+        // security review suspected, and a probe measured on 1.5.5: loading httpfs copies
+        // AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION and DUCKDB_S3_ENDPOINT
+        // from this process's environment into these settings. Left unset, an anonymous registration
+        // would read with the server's own credentials, and an endpoint from the environment would send
+        // it somewhere the address check never saw. So nothing is inherited: absent means empty.
+        settings.Add($"set global s3_region = {Literal(remote.Region is { Length: > 0 } region ? region : "us-east-1")}");
+        settings.Add($"set global s3_endpoint = {Literal(remote.Endpoint is { Length: > 0 } endpoint ? endpoint : "s3.amazonaws.com")}");
+        settings.Add($"set global s3_url_style = {Literal(remote.UrlStyle is { Length: > 0 } style ? style : "vhost")}");
+        settings.Add(remote.UseSsl ? "set global s3_use_ssl = true" : "set global s3_use_ssl = false");
+        settings.Add($"set global s3_access_key_id = {Literal(remote.AccessKeyId ?? string.Empty)}");
+        settings.Add($"set global s3_secret_access_key = {Literal(remote.AccessKeyId is { Length: > 0 } ? remote.SecretAccessKey ?? string.Empty : string.Empty)}");
+        settings.Add("set global s3_session_token = ''");
+        settings.Add("set global http_proxy = ''");
+
+        // A listed key is never a pattern that walks the whole bucket (the review's P2).
+        settings.Add("set global s3_allow_recursive_globbing = false");
+
+        // <b>Bounded, because a slow server holds a request thread for as long as DuckDB waits</b>:
+        // thirty seconds a try, in seconds as DuckDB counts them, and one retry rather than three.
+        settings.Add("set global http_timeout = 30");
+        settings.Add("set global http_retries = 1");
+
+        // <b>A prefix is a directory and one file is a path</b>, and DuckDB keeps the two lists
+        // apart: measured, a file URL in `allowed_directories` is refused as itself, and allowing its
+        // directory instead would make every sibling readable.
+        settings.Add(remote.IsPrefix
+            ? $"set allowed_directories = [{Literal(remote.Location)}]"
+            : $"set allowed_paths = [{Literal(remote.Location)}]");
+        settings.Add("set enable_external_access = false");
+        settings.Add("set lock_configuration = true");
+
+        return settings;
+    }
+
+    private static (DuckDBConnection Root, string EngineVersion) OpenConfined(IReadOnlyList<string> settings)
+    {
+        DuckDBConnection root = new("DataSource=:memory:");
+        root.Open();
 
         try
         {
-            List<string> settings =
-            [
-                $"set memory_limit = {Literal(options.MemoryLimit)}",
-                "set global TimeZone = 'UTC'",
-                $"set allowed_directories = [{Literal(Folder + "/")}]",
-                "set autoinstall_known_extensions = false",
-                "set autoload_known_extensions = false",
-                "set allow_community_extensions = false",
-                "set enable_external_access = false",
-            ];
-
-            if (options.Threads is > 0 and var threads)
-            {
-                settings.Insert(1, $"set threads = {threads.ToString(CultureInfo.InvariantCulture)}");
-            }
-
-            // Last, so nothing after it — here or in any duplicate — can change the lines above.
-            settings.Add("set lock_configuration = true");
-
             foreach (string setting in settings)
             {
-                using DuckDBCommand command = _root.CreateCommand();
+                using DuckDBCommand command = root.CreateCommand();
                 command.CommandText = setting;
                 command.ExecuteNonQuery();
             }
 
-            using DuckDBCommand version = _root.CreateCommand();
+            using DuckDBCommand version = root.CreateCommand();
             version.CommandText = "select version()";
-            EngineVersion = "DuckDB " + (string)version.ExecuteScalar()!;
+            return (root, "DuckDB " + (string)version.ExecuteScalar()!);
+        }
+        catch (DuckDBException failure)
+        {
+            root.Dispose();
+
+            // <b>Without the statement, which may hold a credential — and without the exception
+            // either.</b> DuckDB's message names what failed on its first line and quotes the statement
+            // on its next; a security review found the original kept as the inner exception, where any
+            // logger that prints exceptions whole would print the secret.
+            throw new InvalidOperationException(
+                $"DuckDB could not be prepared for this source: {FirstLine(failure.Message)}");
         }
         catch
         {
-            _root.Dispose();
+            root.Dispose();
             throw;
         }
     }
+
+    /// <summary>Whether this instance reads a remote location rather than a folder.</summary>
+    public bool IsRemote => _remote is not null;
 
     /// <summary>The folder, absolute, with forward slashes and no trailing one.</summary>
     public string Folder { get; }
@@ -201,6 +379,22 @@ public sealed partial class GeoParquetFolder : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        if (_remote is not null)
+        {
+            // <b>Four footers at a time</b>: each is two or three round trips at the bucket's latency and
+            // they share nothing, so an eight-file prefix is read in the time of two. DuckDB's own model
+            // is a connection per thread over one database, which is what `Find` already opens.
+            IReadOnlyList<string> names = RemoteNames(refresh: true);
+            GeoParquetTable[] read = new GeoParquetTable[names.Count];
+
+            System.Threading.Tasks.Parallel.For(
+                0, names.Count, new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = 4 },
+                i => read[i] = FindRemote(names[i], gated: false)
+                    ?? Unreadable(names[i], PathOf(names[i]), "The file vanished while it was being read."));
+
+            return read;
+        }
+
         List<GeoParquetTable> tables = [];
 
         foreach (string file in Directory
@@ -230,6 +424,11 @@ public sealed partial class GeoParquetFolder : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        if (_remote is not null)
+        {
+            return FindRemote(name);
+        }
 
         string path = PathOf(name);
         FileInfo file = new(path);
@@ -261,7 +460,7 @@ public sealed partial class GeoParquetFolder : IDisposable
 
         try
         {
-            table = Read(name, path, file);
+            table = Read(name, path, LocalVersion(file));
         }
         catch (Exception failure) when (failure is DuckDBException or WkbFormatException
             or ArgumentException or InvalidOperationException or FormatException or OverflowException)
@@ -292,8 +491,307 @@ public sealed partial class GeoParquetFolder : IDisposable
                 + "the extension, in letters, digits and underscores.", nameof(name));
         }
 
+        if (_remote is not null)
+        {
+            // The listing knows the file a sanitised name stands for; a name it does not hold is
+            // answered with the spelling it would have had, for the sentence that says it is missing.
+            return RemoteListing(refresh: false).Files.TryGetValue(name, out string? url)
+                ? url
+                : _remote.IsPrefix ? _remote.Location + name + ".parquet" : _remote.Location;
+        }
+
         return Folder + "/" + name + ".parquet";
     }
+
+    /// <summary>
+    /// The table name a remote file is published under: its name without <c>.parquet</c>, made into
+    /// an identifier.
+    /// </summary>
+    /// <param name="stem">The file name without <c>.parquet</c>.</param>
+    /// <returns>Letters, digits and underscores, at most 63, not starting with a digit.</returns>
+    /// <remarks>
+    /// <b>Sanitised for a remote file, and refused for a local one, because only one of them can be
+    /// renamed by the person registering it.</b> A folder on this server is the operator's, and
+    /// ADR-066 asks them to rename a file. A bucket usually is not: Overture's files are
+    /// <c>part-00000-3d6dbc8d-…-c000.zstd.parquet</c>, and the first run of ADR-067's end-to-end check
+    /// found every one of them silently dropped from the listing. So the name is made plain and the
+    /// listing remembers which file it stands for.
+    /// </remarks>
+    public static string TableNameOf(string stem)
+    {
+        ArgumentNullException.ThrowIfNull(stem);
+
+        StringBuilder name = new(Math.Min(stem.Length, 63) + 1);
+
+        foreach (char c in stem)
+        {
+            name.Append(char.IsAsciiLetterOrDigit(c) || c == '_' ? c : '_');
+        }
+
+        if (name.Length == 0 || char.IsAsciiDigit(name[0]))
+        {
+            name.Insert(0, '_');
+        }
+
+        return name.Length > 63 ? name.ToString(0, 63) : name.ToString();
+    }
+
+    /// <summary>The table name a remote file is published under: its file name without <c>.parquet</c>.</summary>
+    /// <param name="url">The file's URL.</param>
+    /// <returns>The name, or null when the URL does not end in a <c>.parquet</c> file.</returns>
+    public static string? NameOfUrl(string url)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+
+        int query = url.IndexOfAny(['?', '#']);
+        string path = query < 0 ? url : url[..query];
+        int slash = path.LastIndexOf('/');
+        string file = slash < 0 ? path : path[(slash + 1)..];
+
+        return file.EndsWith(".parquet", StringComparison.OrdinalIgnoreCase) && file.Length > ".parquet".Length
+            ? file[..^".parquet".Length]
+            : null;
+    }
+
+    private GeoParquetTable? FindRemote(string name, bool gated = true)
+    {
+        RemoteFiles listing = RemoteListing(refresh: false);
+
+        if (listing.Problems.TryGetValue(name, out string? problem))
+        {
+            return Unreadable(name, _remote!.Location, problem);
+        }
+
+        if (!listing.Files.ContainsKey(name))
+        {
+            return null;
+        }
+
+        long lifetime = (long)_remoteLifetime.TotalMilliseconds;
+
+        if (_remoteTables.TryGetValue(name, out var cached)
+            && Environment.TickCount64 - cached.ReadAt < lifetime)
+        {
+            return cached.Table;
+        }
+
+        // <b>One refresh at a time, and the others keep what they had</b> — the review's M1. When the
+        // lifetime ends under load every request would otherwise read the footer again at the bucket's
+        // latency, all at once. A request that finds a refresh already running is answered from the
+        // metadata that was current a minute ago; only one with nothing cached waits for it.
+        //
+        // <b>Not for the listing, which reads every file at once on purpose.</b> The first version gated
+        // it too, and one gate for the whole location put the four parallel footers back in single
+        // file: Overture's eight took 23.9 s instead of 6.3. A listing is a probe an administrator
+        // asked for, not a stampede of map requests.
+        if (!gated)
+        {
+            return ReadRemote(name);
+        }
+
+        bool entered = Monitor.TryEnter(_remoteRefresh);
+
+        if (!entered)
+        {
+            if (_remoteTables.TryGetValue(name, out var stale))
+            {
+                return stale.Table;
+            }
+
+            Monitor.Enter(_remoteRefresh);
+        }
+
+        try
+        {
+            if (_remoteTables.TryGetValue(name, out var fresh)
+                && Environment.TickCount64 - fresh.ReadAt < lifetime)
+            {
+                return fresh.Table;
+            }
+
+            return ReadRemote(name);
+        }
+        finally
+        {
+            Monitor.Exit(_remoteRefresh);
+        }
+    }
+
+    private GeoParquetTable ReadRemote(string name)
+    {
+        string path = PathOf(name);
+        GeoParquetTable table;
+
+        try
+        {
+            table = Read(name, path, version: null);
+        }
+        catch (Exception failure) when (failure is DuckDBException or WkbFormatException
+            or ArgumentException or InvalidOperationException or FormatException or OverflowException)
+        {
+            table = Unreadable(name, path, $"The file could not be read: {FirstLine(failure.Message)}");
+        }
+
+        _remoteTables[name] = (Environment.TickCount64, table);
+        return table;
+    }
+
+    private IReadOnlyList<string> RemoteNames(bool refresh) => RemoteListing(refresh).Names;
+
+    /// <summary>The most files a remote prefix lists; past it the listing says it stopped.</summary>
+    /// <remarks>
+    /// A security review's M2: a prefix of a hundred thousand objects made the probe read a hundred
+    /// thousand footers, several round trips each, on threads the request had already let go of.
+    /// </remarks>
+    public const int MostRemoteFiles = 1000;
+
+    /// <summary>Whether the last listing of this remote prefix stopped at <see cref="MostRemoteFiles"/>.</summary>
+    public bool RemoteListingTruncated => _remoteListing?.Truncated ?? false;
+
+    /// <summary>
+    /// The files at a remote location and the table name each is published under, listed at most
+    /// once per metadata lifetime.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Two files whose names sanitise alike are refused, both of them, rather than numbered.</b>
+    /// Numbering them in listing order was the first version, and a security review showed what it
+    /// lets a bucket's writer do: add <c>a+b.parquet</c> beside a published <c>a-b.parquet</c>, and
+    /// <c>+</c> sorts first, so the new file takes <c>a_b</c> and every layer on it serves the newcomer.
+    /// </para>
+    /// <para>
+    /// <b>A key with a pattern character in it is listed and refused</b>: a store returns whatever
+    /// names it likes, and DuckDB would read <c>*</c> or <c>?</c> in one as a pattern rather than a file.
+    /// </para>
+    /// <para>
+    /// <b>Swapped whole</b>, so a reader on another thread sees the old listing or the new one and
+    /// never half of each (the review's L5).
+    /// </para>
+    /// </remarks>
+    private RemoteFiles RemoteListing(bool refresh)
+    {
+        long now = Environment.TickCount64;
+
+        if (!refresh
+            && Volatile.Read(ref _remoteListing) is { } listed
+            && now - listed.ReadAt < (long)_remoteLifetime.TotalMilliseconds)
+        {
+            return listed;
+        }
+
+        List<string> urls = [];
+        bool truncated = false;
+
+        if (_remote!.IsPrefix)
+        {
+            using DuckDBConnection connection = Open();
+            using DuckDBCommand command = connection.CreateCommand();
+
+            // Directly under the prefix: `*` does not cross a `/`, so a prefix is one level, as a folder is.
+            command.CommandText =
+                $"select file from glob({Literal(_remote.Location + "*.parquet")}) order by file "
+                + $"limit {(MostRemoteFiles + 1).ToString(CultureInfo.InvariantCulture)}";
+
+            using DuckDBDataReader reader = command.ExecuteReader();
+
+            while (reader.Read())
+            {
+                if (urls.Count == MostRemoteFiles)
+                {
+                    truncated = true;
+                    break;
+                }
+
+                urls.Add(reader.GetString(0));
+            }
+        }
+        else
+        {
+            urls.Add(_remote.Location);
+        }
+
+        (IReadOnlyDictionary<string, string> files, IReadOnlyDictionary<string, string> problems, IReadOnlyList<string> names) =
+            MapRemoteNames(urls, _remote.Location);
+
+        RemoteFiles result = new(files, problems, names, now, truncated);
+        Volatile.Write(ref _remoteListing, result);
+        return result;
+    }
+
+    /// <summary>The table name each listed file is published under, and the files that cannot be.</summary>
+    /// <param name="urls">The listed URLs, in listing order.</param>
+    /// <param name="location">The location they were listed under.</param>
+    /// <returns>Name to URL for publishable files, name to reason for the rest, and every name in order.</returns>
+    internal static (IReadOnlyDictionary<string, string> Files, IReadOnlyDictionary<string, string> Problems, IReadOnlyList<string> Names)
+        MapRemoteNames(IReadOnlyList<string> urls, string location)
+    {
+        ArgumentNullException.ThrowIfNull(urls);
+        ArgumentNullException.ThrowIfNull(location);
+
+        Dictionary<string, string> files = new(StringComparer.Ordinal);
+        Dictionary<string, string> problems = new(StringComparer.Ordinal);
+        Dictionary<string, List<string>> byName = new(StringComparer.Ordinal);
+        List<string> names = [];
+
+        foreach (string url in urls)
+        {
+            if (NameOfUrl(url) is not { } stem)
+            {
+                continue;
+            }
+
+            string name = TableNameOf(stem);
+
+            if (!byName.TryGetValue(name, out List<string>? same))
+            {
+                byName[name] = same = [];
+                names.Add(name);
+            }
+
+            same.Add(url);
+        }
+
+        foreach (string name in names)
+        {
+            List<string> same = byName[name];
+
+            if (same.Count > 1)
+            {
+                problems[name] = $"{same.Count} files here would be published as '{name}' — "
+                    + string.Join(", ", same.Select(u => "'" + u[(u.LastIndexOf('/') + 1)..] + "'"))
+                    + " — and a layer must name one file. Rename all but one of them.";
+            }
+            else if (same[0].AsSpan(Math.Min(location.Length, same[0].Length)).IndexOfAny(PatternCharacters) >= 0)
+            {
+                problems[name] = "The file's name holds a character DuckDB reads as a pattern (* ? [ ] { }), "
+                    + "so it cannot be read as one file. Rename it.";
+            }
+            else
+            {
+                files[name] = same[0];
+            }
+        }
+
+        return (files, problems, names);
+    }
+
+    private static readonly System.Buffers.SearchValues<char> PatternCharacters =
+        System.Buffers.SearchValues.Create("*?[]{}");
+
+    private sealed record RemoteFiles(
+        IReadOnlyDictionary<string, string> Files,
+        IReadOnlyDictionary<string, string> Problems,
+        IReadOnlyList<string> Names,
+        long ReadAt,
+        bool Truncated);
+
+    // <b>Hashed, so an entity tag does not tell a stranger the file's size and when it was
+    // written</b> — a security review's note. It still changes whenever either does.
+    private static string LocalVersion(FileInfo file) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(string.Create(
+                CultureInfo.InvariantCulture, $"{file.Length}:{file.LastWriteTimeUtc.Ticks}"))))[..16]
+            .ToLowerInvariant();
 
     /// <summary>The table expression for a file, with the row-number column when it is needed.</summary>
     internal static string TableExpression(GeoParquetTable table, bool rowNumbers) =>
@@ -326,24 +824,40 @@ public sealed partial class GeoParquetFolder : IDisposable
     private static GeoParquetTable Unreadable(string name, string path, string problem) =>
         new(name, path, 0, string.Empty, GeoParquetMetadata.Parse(null), [], null, [], null, problem);
 
-    private GeoParquetTable Read(string name, string path, FileInfo file)
+    private GeoParquetTable Read(string name, string path, string? version)
     {
-        // <b>Hashed, so an entity tag does not tell a stranger the file's size and when it was
-        // written</b> — a security review's note. It still changes whenever either does.
-        string version = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(string.Create(
-                CultureInfo.InvariantCulture, $"{file.Length}:{file.LastWriteTimeUtc.Ticks}"))))[..16]
-            .ToLowerInvariant();
-
         using DuckDBConnection connection = Open();
 
         string? geo = Scalar(connection,
             $"select decode(value) from parquet_kv_metadata({Literal(path)}) where decode(key) = 'geo'")
             as string;
 
-        long rows = Convert.ToInt64(
-            Scalar(connection, $"select num_rows from parquet_file_metadata({Literal(path)})"),
-            CultureInfo.InvariantCulture);
+        long rows;
+
+        using (DuckDBCommand footer = connection.CreateCommand())
+        {
+            footer.CommandText =
+                $"select num_rows, num_row_groups, created_by from parquet_file_metadata({Literal(path)})";
+
+            using DuckDBDataReader reader = footer.ExecuteReader();
+
+            if (!reader.Read())
+            {
+                throw new InvalidOperationException("The file has no Parquet footer.");
+            }
+
+            rows = Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture);
+
+            // <b>A remote file's version is its footer — ADR-067 §5.2.</b> There is no modification
+            // time to read cheaply over https or S3, and a rewritten file almost always changes its
+            // row count, its row groups or its writer; the `geo` key, which carries the bbox, covers
+            // most of the rest. A rewrite that changes none of those keeps its old version, and
+            // ADR-067 says so.
+            version ??= Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture,
+                    $"{rows}:{reader.GetValue(1)}:{(reader.IsDBNull(2) ? string.Empty : reader.GetString(2))}:{geo}"))))[..16]
+                .ToLowerInvariant();
+        }
 
         GeoParquetMetadata metadata = GeoParquetMetadata.Parse(geo);
 
@@ -405,9 +919,17 @@ public sealed partial class GeoParquetFolder : IDisposable
             kind = SampleKind(connection, path, metadata.Column);
         }
 
-        (IReadOnlyList<string> candidates, string? preferred) = problem is null
-            ? Identities(connection, path, columns)
-            : ([], null);
+        // <b>A remote file offers its row number and nothing it would have to scan to prove.</b>
+        // Measuring a column unique reads the whole column, and over S3 that is the probe's dominant
+        // cost: on Overture's division areas from the VPS, 3.7 s of a file's 6.6 s, for eight files, and
+        // the first end-to-end run's test request was abandoned by its client at a minute (ADR-067).
+        // A remote file is as immutable as a local one — its version is its footer — so the row number
+        // is as stable, and a publisher who knows a column is unique says so on a local copy.
+        (IReadOnlyList<string> candidates, string? preferred) = problem is not null
+            ? ([], null)
+            : _remote is not null
+                ? ([RowNumberColumn], RowNumberColumn)
+                : Identities(connection, path, columns);
 
         return new GeoParquetTable(
             name, path, rows, version, metadata, columns, kind, candidates, preferred, problem);

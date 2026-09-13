@@ -172,7 +172,18 @@ internal sealed record HostSettings(
     // <b>DuckDB's threads per folder, two unless the deployment says otherwise.</b> DuckDB's own
     // default is one per core for each folder, and a security review counted what that does across a
     // few registered folders on a server that is answering everything else too.
-    int? GeoParquetThreads = 2)
+    int? GeoParquetThreads = 2,
+
+    // <b>Where DuckDB extensions are loaded from by path — ADR-067 §5.1 — and unset by default,
+    // which switches remote GeoParquet off.</b> The image sets it to the directory it carries
+    // httpfs in. Nothing is ever installed or autoloaded from the network by this setting.
+    string? DuckDbExtensions = null,
+
+    // <b>Whether a remote location may resolve to a private, loopback or link-local address —
+    // ADR-067 §5.2.</b> Off, because the server reads the location from inside the deployment's
+    // network and an administrator pointing it inward reaches what the deployment did not publish.
+    // A MinIO beside the server on a private network is the case for turning it on.
+    bool RemoteDataAllowPrivate = false)
 {
 
     /// <summary>
@@ -542,7 +553,9 @@ internal sealed record HostSettings(
 
             keys.Text("GeoParquetRoot"),
             keys.Text("GeoParquetMemoryLimit") ?? "1GB",
-            Math.Max(1, keys.Value("GeoParquetThreads", 2)));
+            Math.Max(1, keys.Value("GeoParquetThreads", 2)),
+            keys.Text("DuckDbExtensions"),
+            keys.Value("RemoteDataAllowPrivate", false));
     }
 
     /// <summary>

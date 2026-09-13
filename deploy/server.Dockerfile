@@ -102,6 +102,22 @@ RUN rm -f /app/runtimes/osx/native/libduckdb.dylib \
  && cp "${bindings}LICENSE-DuckDB.txt" /app/LICENSE-DuckDB.txt \
  && cp "${bindings}LICENSE.md" /app/LICENSE-DuckDB.NET.txt
 
+# <b>DuckDB's httpfs extension, for remote GeoParquet — ADR-067 §5.2.</b> Fetched here, at build,
+# for the version of DuckDB the package restored, and never at run time: the server loads it by
+# path with autoinstall and autoload off. DuckDB checks the extension's signature when it loads,
+# so a file altered on the way is refused rather than run. MIT, part of DuckDB itself, under the
+# notice copied just above. Both architectures are fetched here and the runtime stage keeps its own.
+# The version is the one Directory.Packages.props pins, not whichever the package cache lists first.
+RUN version="v$(sed -n 's/.*Include="DuckDB.NET.Data.Full" Version="\([^"]*\)".*/\1/p' Directory.Packages.props)" \
+ && test "$version" != "v" \
+ && for platform in linux_amd64 linux_arm64; do \
+      mkdir -p "/duckdb-extensions/${platform}" \
+      && curl --fail --silent --show-error --location --retry 3 \
+           "https://extensions.duckdb.org/${version}/${platform}/httpfs.duckdb_extension.gz" \
+         | gunzip > "/duckdb-extensions/${platform}/httpfs.duckdb_extension" \
+      && test -s "/duckdb-extensions/${platform}/httpfs.duckdb_extension" || exit 1; \
+    done
+
 # ---------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS runtime
 
@@ -123,6 +139,11 @@ RUN groupadd --gid 64198 gisserver \
 WORKDIR /app
 COPY --from=build /app ./
 
+# ADR-067 §5.1.4: this architecture's extensions only. DuckDB names its builds amd64 and arm64,
+# as Docker names its architectures, so the one argument selects both.
+ARG TARGETARCH
+COPY --from=build /duckdb-extensions/linux_${TARGETARCH}/ ./duckdb-extensions/linux_${TARGETARCH}/
+
 # <b>The font is redistributed by this image, so its notice travels with it.</b>
 # DejaVu Sans is compiled into `Graticula.Render.Skia.dll` rather than sitting beside
 # it, which makes the image a redistribution of the font under the Bitstream Vera
@@ -143,6 +164,7 @@ RUN mkdir -p /data/geoparquet
 ENV Graticula__StatePath=/var/lib/graticula \
     Graticula__Listen=0.0.0.0 \
     Graticula__GeoParquetRoot=/data/geoparquet \
+    Graticula__DuckDbExtensions=/app/duckdb-extensions \
     DOTNET_gcServer=1
 
 EXPOSE 8443

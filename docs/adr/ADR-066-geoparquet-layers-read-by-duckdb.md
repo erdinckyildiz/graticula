@@ -264,8 +264,14 @@ Core, a face or a writer. `QueryNotSupportedException` (Core) carries a provider
 - **A GeoParquet file can be uploaded through the API** — the §3 line is crossed; DuckDB moves to a
   child process (Alternative C) or the upload is converted instead (Alternative B).
 - **A crash in `libduckdb` is observed in the serving process** — the same move.
-- **Remote object storage is asked for** (`s3://`, `https://`) — `httpfs` is an extension, and
-  external access is exactly what the sandbox switches off; that is a new decision, not a setting.
+- ~~**Remote object storage is asked for** (`s3://`, `https://`) — `httpfs` is an extension, and
+  external access is exactly what the sandbox switches off; that is a new decision, not a setting.~~
+  **Fired 2026-09-13, the same day, and answered by a new decision rather than a setting —
+  [ADR-067](ADR-067-duckdb-sources-beyond-a-local-folder.md)**, by owner decision (*"üçünü de
+  destekleyelim"*): GeoParquet over `https://` and `s3://`, a DuckDB database file and MotherDuck.
+  The sandbox this ADR built is kept for each, with `httpfs` loaded by path before the lock, and
+  ADR-067 §3 records the two places DuckDB's allow-list measured weaker than this ADR assumed — a
+  redirect is followed, and `CREATE SECRET` switches the list off.
 - **A client needs contains, within, touches, crosses, overlaps, relate or distance on a file** — the
   in-process predicate set is extended with PostGIS as its oracle, or the layer is imported.
 - ~~**Spatial p50 on a GeoParquet layer exceeds three times PostGIS's on the same rows at a million

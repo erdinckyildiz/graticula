@@ -328,7 +328,8 @@ public static class Program
         // them, and the probe, which lists their files. With no root configured every folder is
         // refused by name and nothing is opened.
         builder.Services.AddSingleton(new GeoParquetSources(
-            settings.GeoParquetRoot, settings.GeoParquetMemoryLimit, settings.GeoParquetThreads));
+            settings.GeoParquetRoot, settings.GeoParquetMemoryLimit, settings.GeoParquetThreads,
+            settings.DuckDbExtensions, settings.RemoteDataAllowPrivate));
 
         builder.Services.AddSingleton<LayerConnections>();
 

@@ -14070,9 +14070,13 @@ function pubDraw() {
  */
 let geoParquetRoot;
 
+/** Whether this server reads GeoParquet over https and S3 (ADR-067 §5.2). Undefined until read. */
+let remoteGeoParquet;
+
 async function loadSources() {
-  const { dataSources, geoParquetRoot: root } = await api("/admin/datasources");
+  const { dataSources, geoParquetRoot: root, remoteGeoParquet: remote } = await api("/admin/datasources");
   geoParquetRoot = root ?? null;
+  remoteGeoParquet = remote === true;
   $("cSources").textContent = dataSources.length;
 
   $("sourcesPager").innerHTML = pagerFor("sources", dataSources.length);
@@ -14420,6 +14424,30 @@ function dbconnBody() {
     return { name: $("dcName").value.trim(), kind: "geoparquet", path: $("dcPath").value.trim() };
   }
 
+  // <b>A remote location sends only what was filled in</b> (ADR-067 §5.2): an https file refuses S3
+  // fields, so empty ones are left out rather than sent blank.
+  if (dbconnKind() === "geoparquet-remote") {
+    const body = { name: $("dcName").value.trim(), kind: "geoparquet-remote", url: $("dcUrl").value.trim() };
+
+    // <b>An https file sends no bucket settings, even ones still typed in the hidden section.</b> A
+    // design review walked it: try an s3:// prefix with a region, change the location to https://, press
+    // Test — and the server refused a region nobody could see any more.
+    if (!body.url.startsWith("s3://")) return body;
+
+    const text = { region: "dcRegion", endpoint: "dcEndpoint", accessKeyId: "dcKeyId", urlStyle: "dcUrlStyle" };
+
+    for (const [key, id] of Object.entries(text)) {
+      const value = $(id).value.trim();
+      if (value) body[key] = value;
+    }
+
+    // Not trimmed: a secret is a secret, spaces and all.
+    if ($("dcSecret").value) body.secretAccessKey = $("dcSecret").value;
+    if (!$("dcSsl").checked) body.useSsl = false;
+
+    return body;
+  }
+
   const raw = $("dcRaw");
 
   if (raw && raw.value.trim()) {
@@ -14437,16 +14465,29 @@ function dbconnBody() {
 }
 
 /**
+ * Shows the bucket settings only while the location is not an https file.
+ *
+ * <b>Hidden, not cleared</b>: somebody who types https:// by mistake and goes back to s3:// finds what
+ * they had typed, and `dbconnBody` sends none of it meanwhile. Found by a design review (ADR-067).
+ */
+function dbconnRemoteScheme() {
+  const https = $("dcUrl").value.trim().toLowerCase().startsWith("https://");
+
+  $("dcS3").hidden = https;
+  $("dcHttpsNote").hidden = !https;
+}
+
+/**
  * Which kind of source the dialog is describing.
  *
- * @returns {"postgis"|"geoparquet"} the chosen kind, or the kind of the source being corrected
+ * @returns {"postgis"|"geoparquet"|"geoparquet-remote"} the chosen kind, or the kind of the source being corrected
  */
 function dbconnKind() {
-  if (dbconn) return dbconn.kind === "geoparquet" ? "geoparquet" : "postgis";
+  const known = kind => (kind === "geoparquet" || kind === "geoparquet-remote" ? kind : "postgis");
 
-  return document.querySelector('input[name="dcKind"]:checked')?.value === "geoparquet"
-    ? "geoparquet"
-    : "postgis";
+  if (dbconn) return known(dbconn.kind);
+
+  return known(document.querySelector('input[name="dcKind"]:checked')?.value);
 }
 
 /**
@@ -14458,10 +14499,11 @@ function dbconnKind() {
  * a host field sitting under a folder path is a question the form is not asking.
  */
 function dbconnShowKind() {
-  const folder = dbconnKind() === "geoparquet";
+  const kind = dbconnKind();
 
-  $("dcPostgis").hidden = folder;
-  $("dcFolder").hidden = !folder;
+  $("dcPostgis").hidden = kind !== "postgis";
+  $("dcFolder").hidden = kind !== "geoparquet";
+  $("dcRemote").hidden = kind !== "geoparquet-remote";
 
   // <b>Emptied, not written blank.</b> `dbconnSays` gives the region its bordered class even with
   // nothing to say, and a design review found the empty box it left sitting under the fields for the
@@ -14628,19 +14670,23 @@ async function openDbConnection(source) {
   const dialog = $("dbconn");
 
   const folderKind = source?.kind === "geoparquet";
+  const remoteKind = source?.kind === "geoparquet-remote";
 
   // <b>Asked here when the Sources screen has not been read</b>, which is the Publish screen's
   // path into this dialog: the root decides whether the folder choice can be offered at all.
-  if (geoParquetRoot === undefined) {
+  if (geoParquetRoot === undefined || remoteGeoParquet === undefined) {
     try {
-      geoParquetRoot = (await api("/admin/datasources")).geoParquetRoot ?? null;
+      const listing = await api("/admin/datasources");
+      geoParquetRoot = listing.geoParquetRoot ?? null;
+      remoteGeoParquet = listing.remoteGeoParquet === true;
     } catch {
       geoParquetRoot = null;
+      remoteGeoParquet = false;
     }
   }
 
   $("dbconnTitle").textContent = source
-    ? `${source.name} — ${folderKind ? "folder" : "connection"}`
+    ? `${source.name} — ${folderKind ? "folder" : remoteKind ? "location" : "connection"}`
     : "Add a source";
 
   /*
@@ -14660,6 +14706,12 @@ async function openDbConnection(source) {
         ${geoParquetRoot ? "" : `<p class="hint" id="dcKindOff">This server reads no GeoParquet
           folders: it was started without <code>Graticula:GeoParquetRoot</code>, the setting that
           names the directory they may be registered from.</p>`}
+        <label><input type="radio" name="dcKind" value="geoparquet-remote"
+          ${remoteGeoParquet ? "" : "disabled aria-describedby=\"dcRemoteOff\""}>
+          GeoParquet on the web or in S3</label>
+        ${remoteGeoParquet ? "" : `<p class="hint" id="dcRemoteOff">This server reads no remote
+          GeoParquet: it was started without DuckDB's httpfs extension in the directory
+          <code>Graticula:DuckDbExtensions</code> names.</p>`}
       </fieldset>`;
 
   $("dbconnBody").innerHTML = `
@@ -14667,8 +14719,51 @@ async function openDbConnection(source) {
       ${kindChoice}
       <div class="row">
         <label class="field" style="flex:1 1 100%">Name
-          <input id="dcName" spellcheck="false" placeholder="${folderKind ? "istanbul" : "cadastre"}"
+          <input id="dcName" spellcheck="false" placeholder="${folderKind ? "istanbul" : remoteKind ? "boundaries" : "cadastre"}"
                  value="${h(source ? source.name : "")}"></label>
+      </div>
+      <div id="dcRemote" ${remoteKind ? "" : "hidden"}>
+        <div class="row">
+          <label class="field" style="flex:1 1 100%">Location
+            <input id="dcUrl" spellcheck="false" inputmode="url"
+                   placeholder="s3://bucket/prefix/  or  https://example.org/data/roads.parquet"></label>
+        </div>
+        <p class="hint"><b><code>s3://bucket/prefix/</code> is a folder</b>: every
+          <code>.parquet</code> file directly under it can be published, each under its file name made
+          into letters, digits and underscores. <b><code>https://</code> is one file.</b> The files are
+          read where they are, on every query, and never written.</p>
+        <p class="hint" id="dcHttpsNote" hidden>An https file has no bucket settings; they are for
+          <code>s3://</code> locations.</p>
+        <details id="dcS3">
+          <summary>Bucket settings and credentials</summary>
+          <p class="hint">Only for <code>s3://</code>. Leave the keys empty for a public bucket.</p>
+          <div class="row">
+            <label class="field" style="flex:1 1 45%">Region
+              <input id="dcRegion" spellcheck="false" placeholder="us-west-2"></label>
+            <label class="field" style="flex:1 1 45%">Endpoint
+              <input id="dcEndpoint" spellcheck="false" placeholder="for S3-compatible stores: minio.example.org:9000"></label>
+          </div>
+          <div class="row">
+            <label class="field" style="flex:1 1 45%">Access key id
+              <input id="dcKeyId" spellcheck="false" autocomplete="off"></label>
+            <label class="field" style="flex:1 1 45%">Secret access key
+              <input id="dcSecret" type="password" autocomplete="new-password"></label>
+          </div>
+          <div class="row">
+            <label class="field" style="flex:1 1 45%">URL style
+              <select id="dcUrlStyle">
+                <option value="">default</option>
+                <option value="vhost">vhost</option>
+                <option value="path">path</option>
+              </select></label>
+            <label class="field check" style="flex:1 1 45%">
+              <input id="dcSsl" type="checkbox" checked> Use TLS</label>
+          </div>
+          <p class="hint">${remoteKind
+            ? `The keys are not filled in: they are sealed and never read back, so a correction types
+               both again — or leaves both empty to read the bucket anonymously.`
+            : `The secret is sealed when it is saved and is never shown again, here or anywhere.`}</p>
+        </details>
       </div>
       <div id="dcFolder" ${folderKind ? "" : "hidden"}>
         <div class="row">
@@ -14682,7 +14777,7 @@ async function openDbConnection(source) {
              edits.`
           : ""}</p>
       </div>
-      <div id="dcPostgis" ${folderKind ? "hidden" : ""}>
+      <div id="dcPostgis" ${folderKind || remoteKind ? "hidden" : ""}>
       <div class="row">
         <label class="field" style="flex:3 1 60%">Instance
           <input id="dcHost" spellcheck="false" placeholder="localhost" required></label>
@@ -14740,6 +14835,8 @@ async function openDbConnection(source) {
   for (const radio of document.querySelectorAll('input[name="dcKind"]')) {
     radio.addEventListener("change", dbconnShowKind);
   }
+
+  $("dcUrl").addEventListener("input", dbconnRemoteScheme);
 
   $("dcDatabase").addEventListener("mousedown", dbconnFill);
   $("dcDatabase").addEventListener("focus", dbconnFill);
@@ -14799,6 +14896,31 @@ async function openDbConnection(source) {
     } catch (e) {
       dbconnSays("alert", "Not filled in. ", `${e.message} Type the folder again.`);
       $("dcPath").focus();
+    }
+
+    return;
+  }
+
+  if (remoteKind) {
+    try {
+      const said = await api(`/admin/datasources/${encodeURIComponent(source.id)}/connection`);
+      $("dcUrl").value = said.url || "";
+      $("dcRegion").value = said.region || "";
+      $("dcEndpoint").value = said.endpoint || "";
+      $("dcUrlStyle").value = said.urlStyle || "";
+      $("dcSsl").checked = said.useSsl !== false;
+
+      // The key id comes back masked (a security review), so it is shown as a hint and not a value.
+      if (said.hasKey) $("dcKeyId").placeholder = `held: ${said.accessKeyHint || "…"}`;
+
+      dbconnRemoteScheme();
+
+      // Open when anything in it is set, so a correction shows what it is correcting.
+      $("dcS3").open = Boolean(said.region || said.endpoint || said.hasKey || said.urlStyle || said.useSsl === false);
+      (said.hasKey ? $("dcKeyId") : $("dcUrl")).focus();
+    } catch (e) {
+      dbconnSays("alert", "Not filled in. ", `${e.message} Type the location again.`);
+      $("dcUrl").focus();
     }
 
     return;
@@ -14920,7 +15042,7 @@ async function dbconnSave() {
 
     toast(answer.name
       ? `${answer.name} now reads ${answer.summary
-        || (body.kind === "geoparquet" ? "that folder" : "that connection")}.`
+        || (body.kind === "geoparquet" ? "that folder" : body.kind === "geoparquet-remote" ? "that location" : "that connection")}.`
       : "Saved.", true);
 
     await loadSources();

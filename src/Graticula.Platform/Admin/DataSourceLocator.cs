@@ -10,6 +10,17 @@ public static class DataSourceKinds
 
     /// <summary>A folder of GeoParquet files read in place by DuckDB — ADR-066.</summary>
     public const string GeoParquet = "geoparquet";
+
+    /// <summary>
+    /// GeoParquet files in an S3 bucket prefix, or one file over https, read by DuckDB — ADR-067 §5.2.
+    /// </summary>
+    public const string GeoParquetRemote = "geoparquet-remote";
+
+    /// <summary>A DuckDB database file — ADR-067 §5.3. Reserved; not yet registered.</summary>
+    public const string DuckDb = "duckdb";
+
+    /// <summary>A MotherDuck database — ADR-067 §5.4. Reserved; not yet registered.</summary>
+    public const string MotherDuck = "motherduck";
 }
 
 /// <summary>
@@ -37,11 +48,54 @@ public static class GeoParquetLocator
     /// <summary>The prefix.</summary>
     public const string Scheme = "geoparquet:";
 
-    /// <summary>Whether a stored locator is a GeoParquet folder.</summary>
+    /// <summary>The prefix of a remote location — ADR-067 §5.2 — followed by its JSON description.</summary>
+    /// <remarks>
+    /// <b>Not a prefix of <see cref="Scheme"/> and not prefixed by it</b>, so a check for one never
+    /// matches the other. The JSON carries the location and any S3 credentials, and the whole
+    /// locator is sealed like a connection string with a password in it.
+    /// </remarks>
+    public const string RemoteScheme = "geoparquet-remote:";
+
+    /// <summary>Whether a stored locator is served by DuckDB: a local folder or a remote location.</summary>
     /// <param name="stored">The unsealed locator.</param>
-    /// <returns>Whether it names a folder rather than a database.</returns>
+    /// <returns>Whether it names files rather than a PostgreSQL database.</returns>
+    /// <remarks>
+    /// <b>Both kinds, because every caller of this asks the same question</b> — is this read-only and
+    /// served by DuckDB rather than PostgreSQL — and a remote location answers it the same way a
+    /// folder does. Where the two differ, <see cref="IsRemote"/> says which.
+    /// </remarks>
     public static bool Is(string? stored) =>
-        stored is not null && stored.StartsWith(Scheme, StringComparison.Ordinal);
+        stored is not null
+        && (stored.StartsWith(Scheme, StringComparison.Ordinal)
+            || stored.StartsWith(RemoteScheme, StringComparison.Ordinal));
+
+    /// <summary>Whether a stored locator is a remote location rather than a local folder.</summary>
+    /// <param name="stored">The unsealed locator.</param>
+    /// <returns>Whether it begins with <see cref="RemoteScheme"/>.</returns>
+    public static bool IsRemote(string? stored) =>
+        stored is not null && stored.StartsWith(RemoteScheme, StringComparison.Ordinal);
+
+    /// <summary>The locator for a remote location.</summary>
+    /// <param name="json">The location's JSON description, credentials included.</param>
+    /// <returns>The string to seal and store.</returns>
+    public static string ForRemote(string json)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(json);
+        return RemoteScheme + json;
+    }
+
+    /// <summary>The JSON description a remote locator carries.</summary>
+    /// <param name="stored">A locator for which <see cref="IsRemote"/> is true.</param>
+    /// <returns>The JSON, credentials included — never to be shown.</returns>
+    public static string RemoteOf(string stored)
+    {
+        if (!IsRemote(stored))
+        {
+            throw new ArgumentException("That locator does not name a remote GeoParquet location.", nameof(stored));
+        }
+
+        return stored[RemoteScheme.Length..];
+    }
 
     /// <summary>The locator for a folder.</summary>
     /// <param name="folder">The absolute folder path.</param>
@@ -57,7 +111,7 @@ public static class GeoParquetLocator
     /// <returns>The folder path.</returns>
     public static string FolderOf(string stored)
     {
-        if (!Is(stored))
+        if (!Is(stored) || IsRemote(stored))
         {
             throw new ArgumentException("That locator does not name a GeoParquet folder.", nameof(stored));
         }
@@ -67,7 +121,9 @@ public static class GeoParquetLocator
 
     /// <summary>The kind a stored locator belongs to.</summary>
     /// <param name="stored">The unsealed locator.</param>
-    /// <returns><see cref="DataSourceKinds.GeoParquet"/> or <see cref="DataSourceKinds.PostGis"/>.</returns>
+    /// <returns>The kind, <see cref="DataSourceKinds.PostGis"/> for anything that is not files.</returns>
     public static string KindOf(string? stored) =>
-        Is(stored) ? DataSourceKinds.GeoParquet : DataSourceKinds.PostGis;
+        IsRemote(stored) ? DataSourceKinds.GeoParquetRemote
+        : Is(stored) ? DataSourceKinds.GeoParquet
+        : DataSourceKinds.PostGis;
 }

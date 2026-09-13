@@ -91,6 +91,11 @@ services:
       # container. The image sets the same value; it is repeated here so the line beside
       # the mount below says where the mount is read.
       Graticula__GeoParquetRoot: /data/geoparquet
+
+      # ADR-067 §5.2: whether a remote GeoParquet location may resolve to a private address —
+      # an object store beside this server on its own network. Off: the server reads remote
+      # locations from inside the deployment, and an address there is not the internet.
+      Graticula__RemoteDataAllowPrivate: ${GIS_REMOTE_DATA_ALLOW_PRIVATE:-false}
     ports:
       - "${GIS_PORT:-8443}:8443"
     volumes:

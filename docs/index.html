@@ -269,7 +269,7 @@ pre .k{color:var(--accent)}
         <p class="eyebrow">Graticula <span class="sep">/</span> v1 <span class="sep">/</span> source-available</p>
         <h1>A GIS server and its portal, from one container and one Postgres.</h1>
         <p class="lede"><b>Server</b> does what a GIS Server site does: services at
-        <span class="nm">/rest/services</span>, published out of PostGIS or a folder of GeoParquet files, opened by the clients
+        <span class="nm">/rest/services</span>, published out of PostGIS or GeoParquet files — on the server, on the web or in S3 — opened by the clients
         you already have. <b>Studio</b> does what the portal does &mdash; items, members, roles,
         groups, sharing. They are one process and one API with two doors, because the three tiers
         are fused rather than federated:
@@ -356,8 +356,9 @@ pre .k{color:var(--accent)}
               <tr><td>An enterprise geodatabase registered as a data store</td>
                   <td>Your own PostGIS, registered &mdash; read and write where rights allow.</td></tr>
               <tr><td>A folder of files registered as a data store</td>
-                  <td>A folder of GeoParquet files, registered by name and read in place by DuckDB
-                  &mdash; for reading only.</td></tr>
+                  <td>A folder of GeoParquet files, an <span class="nm">s3://</span> prefix or an
+                  <span class="nm">https://</span> file, registered by name and read in place by
+                  DuckDB &mdash; for reading only.</td></tr>
               <tr><td>Server Manager</td>
                   <td><b>Server</b>, the console an operator signs in to.</td></tr>
               <tr><td>Portal for ArcGIS</td>
@@ -505,7 +506,7 @@ pre .k{color:var(--accent)}
               <p>No Oracle, no SQL Server, no file geodatabase served in place. An enterprise
               geodatabase on Oracle has to move before this can serve it. The other engines are
               deferred, not cancelled. <b>GeoParquet files are the one thing served where they
-              lie</b>, and only for reading: no edits, no attachments, no related records, no
+              lie</b> &mdash; on the server, over https or in S3 &mdash; and only for reading: no edits, no attachments, no related records, no
               vector tiles, and spatial filters by intersection only.</p>
             </div>
           </div>
