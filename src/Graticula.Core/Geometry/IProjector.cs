@@ -148,6 +148,47 @@ public interface IProjector
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Projects geometries, then removes the vertices within a tolerance without making any of
+    /// them invalid — what a query's <c>maxAllowableOffset</c> asks for.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Added 2026-09-13 because a GeoParquet layer never drew in the ArcGIS SDK.</b> The SDK
+    /// asks a polygon layer for tiles with <c>maxAllowableOffset</c> set to the tile's resolution,
+    /// and the DuckDB provider returned the stored shape on the argument that the parameter
+    /// allows it. Measured on the showcase: one tile at 1,223 m carried <b>200,159 vertices in
+    /// 7.6 MB</b>, where <c>ST_SimplifyPreserveTopology</c> at the same tolerance leaves
+    /// <b>1,808</b>. Every tile the map asked for was that size, and the console's preview never
+    /// finished loading.
+    /// </para>
+    /// <para>
+    /// <b>On the projector, and in the same statement as the projection.</b> A layer asked for
+    /// another reference already sends its shapes here, and the tolerance is in the output's
+    /// units, so transform-then-simplify is one round trip returning the small shape rather than
+    /// two carrying the large one. It is also the order <c>PostGisFeatureSource</c> writes, and
+    /// [D-236](../../../docs/architecture-debt.md)'s owner decision is that every face answering
+    /// <i>simplify to tolerance t</i> gives the same answer.
+    /// </para>
+    /// <para>
+    /// <b>Equal references mean no projection</b>, and that is how a caller simplifies alone —
+    /// including geometries already moved by <see cref="ProjectToDefinitionAsync"/>, which have
+    /// no code to name.
+    /// </para>
+    /// </remarks>
+    /// <param name="geometries">What to simplify.</param>
+    /// <param name="fromSrid">The reference they are in.</param>
+    /// <param name="toSrid">The reference to put them in first; equal to <paramref name="fromSrid"/> for none.</param>
+    /// <param name="tolerance">The most a vertex may move, in <paramref name="toSrid"/>'s units.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The simplified geometries, in order, one per input.</returns>
+    Task<IReadOnlyList<Geometry>> GeneralizeAsync(
+        IReadOnlyList<Geometry> geometries,
+        int fromSrid,
+        int toSrid,
+        double tolerance,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Whether this deployment can work in a coordinate reference system at all.
     /// </summary>
     /// <remarks>

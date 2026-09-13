@@ -125,6 +125,41 @@ internal sealed class BreakingProjector(IProjector inner, SourceBreaker breaker)
 
     /// <inheritdoc/>
     /// <remarks>
+    /// <b>Guarded like a projection, because it is one with a simplifier after it</b> — and it is
+    /// on a map's tile path, where a four-second wait per tile is the outage D-127 measured.
+    /// </remarks>
+    public async Task<IReadOnlyList<Geometry>> GeneralizeAsync(
+        IReadOnlyList<Geometry> geometries,
+        int fromSrid,
+        int toSrid,
+        double tolerance,
+        CancellationToken cancellationToken)
+    {
+        if (breaker.IsOpen(Source))
+        {
+            throw new SourceUnreachableException(
+                "The database that performs coordinate transformations is unreachable. This "
+                + "request was refused without waiting for it.");
+        }
+
+        try
+        {
+            IReadOnlyList<Geometry> simplified = await inner
+                .GeneralizeAsync(geometries, fromSrid, toSrid, tolerance, cancellationToken)
+                .ConfigureAwait(false);
+
+            breaker.Succeeded(Source);
+
+            return simplified;
+        }
+        catch (Exception failure) when (breaker.Failed(Source, failure))
+        {
+            throw;
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// <b>Guarded too, because this is the cheaper question asked on the same socket.</b> A
     /// deployment asking *do you know EPSG:2154* during an outage waits precisely as long as one
     /// asking for a transformation, and the caller's fallback for *no* and for *cannot say* is

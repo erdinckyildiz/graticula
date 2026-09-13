@@ -305,6 +305,66 @@ public sealed class GeoParquetAgainstPostgisTests : PostgresFixture
     }
 
     [Fact]
+    public async Task A_tolerance_gives_the_same_shapes_vertex_for_vertex()
+    {
+        (IFeatureSource postgis, GeoParquetFeatureSource parquet, GeoParquetFolder folder, string path) = await SourcesAsync();
+
+        try
+        {
+            // What the ArcGIS SDK asks a polygon layer for, tile by tile: a box, the output in web
+            // Mercator, a tolerance of the tile's resolution. Also the same in degrees, where the
+            // tolerance is in the output's units and the order of transform and simplify decides
+            // the answer — a provider that simplified before projecting fails here and not above.
+            (double Tolerance, int? OutSrid)[] asks = [(40, null), (300, null), (2_500, null), (0.004, 4326)];
+            int compared = 0, reduced = 0;
+
+            foreach ((double tolerance, int? outSrid) in asks)
+            {
+                for (int i = 0; i < 4; i++)
+                {
+                    double x = 2_950_000 + (i * 300_000), y = 4_350_000 + (i * 120_000);
+                    FeatureQuery query = new(
+                        FeatureQuery.MaximumLimit, boundingBox: new Envelope(x, y, x + 400_000, y + 250_000),
+                        fields: ["objectid"], outSrid: outSrid, maxAllowableOffset: tolerance);
+
+                    List<Feature> expected = await ReadAsync(postgis, query);
+                    List<Feature> actual = await ReadAsync(parquet, query);
+
+                    Assert.Equal(expected.Select(f => f.Id), actual.Select(f => f.Id));
+
+                    for (int k = 0; k < expected.Count; k++)
+                    {
+                        byte[] a = WkbWriter.ToArray(expected[k].Geometry!), b = WkbWriter.ToArray(actual[k].Geometry!);
+
+                        Assert.True(
+                            a.AsSpan().SequenceEqual(b),
+                            $"Feature {expected[k].Id} at tolerance {tolerance}: PostGIS {expected[k].Geometry!.CoordinateCount} "
+                            + $"vertices, GeoParquet {actual[k].Geometry!.CoordinateCount}.");
+
+                        compared++;
+                    }
+                }
+            }
+
+            // Proof the tolerance did something: the stored rings are sixteen-sided, and a shape
+            // that came back with fewer vertices than it was stored with was simplified.
+            await using (NpgsqlCommand count = DataSource.CreateCommand(
+                "select count(*) from shapes where st_npoints(st_simplifypreservetopology(geom, 300)) < st_npoints(geom)"))
+            {
+                reduced = Convert.ToInt32(await count.ExecuteScalarAsync(CancellationToken.None), CultureInfo.InvariantCulture);
+            }
+
+            Assert.True(compared > 200, $"Only {compared} shapes were compared.");
+            Assert.True(reduced > 100, $"Only {reduced} stored shapes lose a vertex at 300 m, which proves little.");
+        }
+        finally
+        {
+            folder.Dispose();
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Ids_extents_and_statistics_agree()
     {
         (IFeatureSource postgisSource, GeoParquetFeatureSource parquet, GeoParquetFolder folder, string path) = await SourcesAsync();

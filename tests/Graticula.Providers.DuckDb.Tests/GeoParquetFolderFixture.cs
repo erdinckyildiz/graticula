@@ -67,6 +67,29 @@ internal sealed class ShiftingProjector : IProjector
         IReadOnlyList<Geometry> geometries, int fromSrid, string definition, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<Geometry>?>(null);
 
+    /// <summary>Every simplification asked for: the references, the batch size and the tolerance.</summary>
+    public List<(int From, int To, int Count, double Tolerance)> Generalized { get; } = [];
+
+    /// <summary>Moves like <see cref="ProjectAsync"/> and removes nothing, so a test sees it was asked.</summary>
+    public async Task<IReadOnlyList<Geometry>> GeneralizeAsync(
+        IReadOnlyList<Geometry> geometries, int fromSrid, int toSrid, double tolerance, CancellationToken cancellationToken)
+    {
+        lock (Generalized)
+        {
+            Generalized.Add((fromSrid, toSrid, geometries.Count, tolerance));
+        }
+
+        double dx = Offset(toSrid) - Offset(fromSrid);
+        List<Geometry> moved = [];
+
+        foreach (Geometry geometry in geometries)
+        {
+            moved.Add(Shift(geometry, dx));
+        }
+
+        return await Task.FromResult(moved);
+    }
+
     public Task<bool> KnowsAsync(int srid, CancellationToken cancellationToken) => Task.FromResult(true);
 
     public Task<Envelope?> DomainOfAsync(int srid, CancellationToken cancellationToken) => Task.FromResult<Envelope?>(null);

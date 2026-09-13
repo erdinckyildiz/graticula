@@ -248,6 +248,12 @@ public sealed class GeoParquetSourcesTests : IDisposable
 
     private sealed class NoProjector : IProjector
     {
+        /// <summary>Not asked by these tests; simplifying is the GeoParquet provider's call.</summary>
+        public Task<System.Collections.Generic.IReadOnlyList<Graticula.Geometries.Geometry>> GeneralizeAsync(
+            System.Collections.Generic.IReadOnlyList<Graticula.Geometries.Geometry> geometries, int fromSrid, int toSrid, double tolerance,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException("this test does not simplify");
+
         public Task<(System.Collections.Generic.IReadOnlyList<Geometry> Projected, ProjectionProvenance Provenance)> ProjectAsync(
             System.Collections.Generic.IReadOnlyList<Geometry> geometries, int fromSrid, int toSrid, CancellationToken cancellationToken) =>
             throw new NotSupportedException();

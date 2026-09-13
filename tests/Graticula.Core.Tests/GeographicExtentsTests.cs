@@ -29,6 +29,12 @@ public sealed class GeographicExtentsTests
     /// </remarks>
     private sealed class CountingProjector : IProjector
     {
+        /// <summary>Not asked by these tests; simplifying is the GeoParquet provider's call.</summary>
+        public Task<IReadOnlyList<Graticula.Geometries.Geometry>> GeneralizeAsync(
+            IReadOnlyList<Graticula.Geometries.Geometry> geometries, int fromSrid, int toSrid, double tolerance,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException("this test does not simplify");
+
     /// <summary>Not something this double does; a caller's fallback is the table's own.</summary>
     /// <param name="geometries">Ignored.</param>
     /// <param name="fromSrid">Ignored.</param>
@@ -192,6 +198,12 @@ public sealed class GeographicExtentsTests
 
     private sealed class RefusingProjector : IProjector
     {
+        /// <summary>Not asked by these tests; simplifying is the GeoParquet provider's call.</summary>
+        public Task<IReadOnlyList<Graticula.Geometries.Geometry>> GeneralizeAsync(
+            IReadOnlyList<Graticula.Geometries.Geometry> geometries, int fromSrid, int toSrid, double tolerance,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException("this test does not simplify");
+
     /// <summary>Not something this double does; a caller's fallback is the table's own.</summary>
     /// <param name="geometries">Ignored.</param>
     /// <param name="fromSrid">Ignored.</param>

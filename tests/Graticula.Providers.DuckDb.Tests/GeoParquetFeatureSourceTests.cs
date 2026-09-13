@@ -309,6 +309,26 @@ public sealed class GeoParquetFeatureSourceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_tolerance_is_applied_in_the_output_reference_in_the_same_round_trip_as_the_projection()
+    {
+        // What the ArcGIS SDK sends for every tile of a polygon layer. Until 2026-09-13 this was
+        // ignored and a tile of real areas carried 200,159 vertices where 1,808 would do.
+        FeatureQuery projected = new(10, boundingBox: new Envelope(4, 0, 4.5, 0.5), outSrid: 4326, maxAllowableOffset: 5);
+
+        Feature moved = Assert.Single(await ReadAsync(Source(), projected));
+
+        Assert.Equal(new Envelope(1_000_004, 0, 1_000_005, 1), moved.Geometry!.Envelope);
+        Assert.Contains((3857, 4326, 1, 5.0), _projector.Generalized);
+        Assert.DoesNotContain(_projector.Calls, call => call.From == 3857 && call.To == 4326);
+
+        // In the layer's own reference there is nothing to move, and the tolerance still applies.
+        FeatureQuery local = new(10, boundingBox: new Envelope(4, 0, 4.5, 0.5), maxAllowableOffset: 2.5);
+
+        Assert.Single(await ReadAsync(Source(), local));
+        Assert.Contains((3857, 3857, 1, 2.5), _projector.Generalized);
+    }
+
+    [Fact]
     public void Precision_rounds_every_coordinate_and_changes_nothing_else()
     {
         Polygon shape = new(

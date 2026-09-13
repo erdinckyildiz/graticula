@@ -183,8 +183,18 @@ process.** Concretely:
    most a million matched features, past which the filter is refused rather than held.
 6. **References.** A filter stated in another reference and an output reference go through the
    datastore's PROJ (`IProjector`), so a file and a table in the same reference answer with the same
-   numbers. `maxAllowableOffset` is not applied — the stored shape satisfies it — and
-   `geometryPrecision` rounds coordinates.
+   numbers. ~~`maxAllowableOffset` is not applied — the stored shape satisfies it —~~ and
+   `geometryPrecision` rounds coordinates. **Amended 2026-09-13: `maxAllowableOffset` is applied**,
+   through the same datastore round trip as the projection (`IProjector.GeneralizeAsync`,
+   `ST_SimplifyPreserveTopology` after `ST_Transform` — `PostGisFeatureSource`'s order), so a file
+   and a table answer with the same vertices, asserted in `GeoParquetAgainstPostgisTests`. *The
+   stored shape satisfies it* was true of the parameter and false of the client: the ArcGIS SDK
+   draws a polygon layer in tiles at the tile's resolution, and on the showcase one tile at 1,223 m
+   carried 200,159 vertices in 7.6 MB where the simplified answer is 1,808 — the console's map
+   preview of a GeoParquet layer never finished loading. The sentence's other support, that a
+   third simplifier would repeat [D-236](../architecture-debt.md), had lapsed two days before it
+   was written, when D-236 was repaired by making every face run the topology-preserving
+   algorithm.
 7. **Summaries.** Counts, ids, extents and statistics are answered — through a new port,
    `IFeatureSummaries`, which PostGIS implements too, replacing three casts to the PostGIS provider.
 8. **Identity.** An integer column measured unique and never null, a column of the file's own first,

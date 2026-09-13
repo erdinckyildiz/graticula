@@ -351,6 +351,87 @@ public sealed class PostGisProjector : IProjector
 
     /// <inheritdoc/>
     /// <remarks>
+    /// <b>The original shape when the simplifier answers NULL</b>, which is what GEOS gives for a
+    /// shape it reduces to nothing. Dropping the geometry would hand a caller a feature without
+    /// one; the stored shape is within any tolerance, so it is the honest fallback.
+    /// </remarks>
+    public async Task<IReadOnlyList<Geometry>> GeneralizeAsync(
+        IReadOnlyList<Geometry> geometries,
+        int fromSrid,
+        int toSrid,
+        double tolerance,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(geometries);
+
+        if (tolerance < 0 || double.IsNaN(tolerance))
+        {
+            throw new ArgumentOutOfRangeException(nameof(tolerance), "A tolerance cannot be negative.");
+        }
+
+        if (geometries.Count == 0)
+        {
+            return [];
+        }
+
+        // Ordered by an explicit index, for the reason ProjectAsync gives.
+        string shape = fromSrid == toSrid
+            ? "ST_GeomFromWKB(g)"
+            : "ST_Transform(ST_SetSRID(ST_GeomFromWKB(g), @from), @to)";
+
+        string sql = $"""
+            select ST_AsBinary(coalesce(ST_SimplifyPreserveTopology(s, @tolerance), s))
+            from unnest(@geometries) with ordinality as t(g, n)
+            cross join lateral (select {shape} as s) shaped
+            order by t.n
+            """;
+
+        byte[][] wkb = new byte[geometries.Count][];
+
+        for (int i = 0; i < geometries.Count; i++)
+        {
+            wkb[i] = WkbWriter.ToArray(geometries[i]);
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("from", fromSrid);
+        command.Parameters.AddWithValue("to", toSrid);
+        command.Parameters.AddWithValue("tolerance", tolerance);
+        command.Parameters.Add(new NpgsqlParameter("geometries", NpgsqlDbType.Array | NpgsqlDbType.Bytea)
+        {
+            Value = wkb,
+        });
+
+        List<Geometry> simplified = new(geometries.Count);
+
+        await using (NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (reader.IsDBNull(0))
+                {
+                    throw new InvalidOperationException(
+                        "ST_SimplifyPreserveTopology returned NULL for a non-null geometry, which means "
+                        + "the batch and its results are no longer aligned.");
+                }
+
+                simplified.Add(WkbReader.Read((byte[])reader[0]));
+            }
+        }
+
+        if (simplified.Count != geometries.Count)
+        {
+            throw new InvalidOperationException(
+                $"Simplified {simplified.Count} geometries from a batch of {geometries.Count}. "
+                + "Returning a short list would silently pair shapes with the wrong features.");
+        }
+
+        return simplified;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// <para>
     /// <b>One row of <c>spatial_ref_sys</c>, cached forever.</b> The table is PROJ's
     /// own, it is written when PostGIS is installed, and a deployment that edits it

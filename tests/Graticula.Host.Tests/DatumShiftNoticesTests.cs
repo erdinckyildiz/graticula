@@ -205,6 +205,12 @@ public sealed class DatumShiftNoticesTests
     private sealed class Projector(bool? shift, bool refuse = false, bool cancel = false)
         : IProjector
     {
+        /// <summary>Not asked by these tests; simplifying is the GeoParquet provider's call.</summary>
+        public Task<IReadOnlyList<Graticula.Geometries.Geometry>> GeneralizeAsync(
+            IReadOnlyList<Graticula.Geometries.Geometry> geometries, int fromSrid, int toSrid, double tolerance,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException("this test does not simplify");
+
     /// <summary>Not something this double does; a caller's fallback is the table's own.</summary>
     /// <param name="geometries">Ignored.</param>
     /// <param name="fromSrid">Ignored.</param>

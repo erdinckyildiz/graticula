@@ -208,7 +208,8 @@ public sealed class GeoParquetFeatureSource : IFeatureSource, IFeatureSummaries,
         AppendOrderAndPaging(statement, query, schema);
 
         List<Feature> batch = new(ProjectionBatch);
-        bool reshape = query.IncludeGeometry && (Projects(query) || query.Precision is >= 0);
+        bool reshape = query.IncludeGeometry
+            && (Projects(query) || query.Precision is >= 0 || query.MaxAllowableOffset is > 0);
 
         using DuckDBConnection connection = _folder.Open();
         using DuckDBCommand command = statement.Command(connection);
@@ -1071,13 +1072,24 @@ public sealed class GeoParquetFeatureSource : IFeatureSource, IFeatureSummaries,
         return extent;
     }
 
-    /// <summary>Projects and rounds a batch's geometries, keeping everything else.</summary>
+    /// <summary>Projects, simplifies and rounds a batch's geometries, keeping everything else.</summary>
     /// <remarks>
-    /// <b><c>maxAllowableOffset</c> is not applied, and that is an answer the parameter
-    /// allows.</b> It is the most a returned shape may deviate from the stored one, so the stored
-    /// shape satisfies it. Simplifying here would be a third simplifier beside PostGIS's
-    /// topology-preserving one and GeometryServer's Douglas–Peucker, and D-236 measured the two
-    /// that exist disagreeing on half of real polygons at 100 m.
+    /// <para>
+    /// <b><c>maxAllowableOffset</c> is applied, through the same
+    /// <c>ST_SimplifyPreserveTopology</c> a PostGIS layer runs.</b> Until 2026-09-13 it was not, on
+    /// the argument that the stored shape is within any tolerance and that simplifying here would
+    /// be a third simplifier beside two D-236 had measured disagreeing. The second half had
+    /// stopped being true two days earlier — D-236 was repaired by making both faces run the same
+    /// topology-preserving algorithm — and the first half is true of the parameter and false of
+    /// the client: the ArcGIS SDK draws a polygon layer in tiles, sets the tolerance to the tile's
+    /// resolution, and a GeoParquet layer handed it 200,159 vertices where 1,808 would do. The map
+    /// never finished drawing.
+    /// </para>
+    /// <para>
+    /// <b>Transform, simplify, round, in that order</b> — <c>PostGisFeatureSource</c>'s order,
+    /// because the tolerance is in the output's units and rounding is the last thing a
+    /// coordinate meets.
+    /// </para>
     /// </remarks>
     private async Task<List<Feature>> ReshapeAsync(
         List<Feature> batch, FeatureQuery query, CancellationToken cancellationToken)
@@ -1094,9 +1106,32 @@ public sealed class GeoParquetFeatureSource : IFeatureSource, IFeatureSummaries,
             }
         }
 
-        IReadOnlyList<Geometry> moved = shapes.Count > 0 && Projects(query)
-            ? await OutputAsync(shapes, query, cancellationToken).ConfigureAwait(false)
-            : shapes;
+        IReadOnlyList<Geometry> moved = shapes;
+
+        if (shapes.Count > 0 && query.MaxAllowableOffset is { } tolerance and > 0)
+        {
+            if (query.OutSrid is { } srid && srid != _layer.Srid)
+            {
+                moved = await _projector
+                    .GeneralizeAsync(shapes, _layer.Srid, srid, tolerance, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                // A written reference has no code, so it is moved first and simplified where it lands.
+                IReadOnlyList<Geometry> placed = Projects(query)
+                    ? await OutputAsync(shapes, query, cancellationToken).ConfigureAwait(false)
+                    : shapes;
+
+                moved = await _projector
+                    .GeneralizeAsync(placed, _layer.Srid, _layer.Srid, tolerance, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        else if (shapes.Count > 0 && Projects(query))
+        {
+            moved = await OutputAsync(shapes, query, cancellationToken).ConfigureAwait(false);
+        }
 
         List<Feature> result = new(batch);
 
