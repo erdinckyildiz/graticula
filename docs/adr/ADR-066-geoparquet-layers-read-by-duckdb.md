@@ -200,8 +200,44 @@ process.** Concretely:
 8. **Identity.** An integer column measured unique and never null, a column of the file's own first,
    or `file_row_number`. Verified at publish and again whenever the file changes.
 9. **Read-only.** `Writable` is false, so capabilities are `Query`; editing, attachments, related
-   records, vector tiles and schema editing are refused, the last line of each in
-   `LayerConnections`.
+   records, ~~vector tiles~~ and schema editing are refused, the last line of each in
+   `LayerConnections`. **Amended 2026-09-13: vector tiles are no longer one of the refusals —
+   owner decision.** The Studio console's map preview draws every layer as an ArcGIS SDK
+   `FeatureLayer`, which fetches FeatureServer `query` tiles; for a GeoParquet polygon layer that
+   was 4–8 MB per tile even after `maxAllowableOffset` cut far-zoom tiles 107× (item 6 above),
+   because near-zoom tiles carry the vertices a low tolerance keeps. The owner looked at how a
+   comparable server (Honua, from its published docs only — ADR-030) draws maps — every layer as
+   vector tiles from a server-side cache — and this server already has that for PostGIS layers
+   (ADR-021, `VectorTileServer`). Building it a second time for GeoParquet would have repeated
+   ADR-021's own tiling pipeline for a source that only differs in where its rows come from.
+   Instead, `GeoParquetTileSource` reads rows through the same bounded path
+   `GeoParquetFeatureSource` already uses for every other query — the box test as
+   `SpatialRelation.EnvelopeIntersects` against the tile's envelope, the statement timeout, the
+   million-feature bound — in pages of `FeatureQuery.MaximumLimit` — and hands them, still in the layer's own reference, to
+   `IMvtEncoder`. **The encoding stays PostGIS's** (ADR-021 §2 is unchanged by this decision; its own text now notes that the statement runs over rows read from a file as well as rows read from a table),
+   reached by a round trip that sends the batch as WKB and JSON-typed attributes and runs the same
+   `ST_AsMVTGeom`/`ST_AsMVT` statement `PostGisTileSource` runs over a table — `PostGisProjector`'s
+   shape, `unnest(...) with ordinality`, one call per tile. Editing, attachments, related records
+   and schema editing are still refused; those need a database this layer is not in, and a tile
+   does not.
+   <br><br>
+   **What this does not change.** A GeoParquet layer is still never hosted (`LayerDefinition.IsHosted`
+   is about the datastore, and a file is not the datastore), so Q-67's rule — vector tiles come only
+   from data this server owns or reads under its own control — is not relaxed for a *registered
+   database* layer; `VectorTileEndpoints.Tileable` names the two cases that now qualify (hosted,
+   or GeoParquet) rather than widening `IsHosted` itself. **Cache invalidation is structural, not a
+   sweep**: a replaced file's own version (`GeoParquetTable.Version`, from its length and
+   modification time) rides in `TileCacheKey.FingerprintOf`, so a replacement invalidates its tiles
+   the same way a schema change already invalidates a hosted layer's. ~~**A bound this face has that
+   `PostGisTileSource` does not**: a GeoParquet tile reads at most `FeatureQuery.MaximumLimit`
+   (50,000) rows~~ — **corrected at integration, before release**: measured on the showcase, the
+   million-building layer's tile over central Istanbul matches 93,923 features at z6, 64,539 at z9
+   and 55,182 at z10, so that bound would have drawn the lowest-numbered part of the city and a
+   tile has no way to say it is partial. A tile now reads every row the box test matches, in pages
+   of 50,000, bounded as PostGIS's tile query is — by the statement timeout — plus the provider's
+   million-feature bound, which refuses rather than truncates. Asserted by
+   `A_tile_denser_than_one_page_reaches_the_encoder_whole` (52,900 rows; falsified by stopping
+   after one page, which delivered 50,000).
 10. **Publish** checks the request against the file — reference, geometry column and family,
     identity — on both publish routes; validity and the declared reference, which are PostGIS's
     measurements over a table, are not asked.

@@ -37,7 +37,7 @@ const TILE_COLOUR = "#8fb8cc";
 // one request goes out. The object URLs live as long as the tab, which for a couple of kilobytes
 // each is cheaper than tracking when the last <img> using one went away.
 const pictures = new Map();
-const shown = new Map();     // layer name -> { colour, layer }
+const shown = new Map();     // layer name -> { colour, layer, tiled }
 let esri = null;             // the SDK modules, loaded once
 let view = null;
 
@@ -2484,37 +2484,142 @@ function clearMap() {
 }
 
 /**
- * Draws a layer, with **no renderer of our own**.
+ * Whether a service offers vector tiles, asked rather than assumed.
  *
- * <b>Passing no `renderer` is the change, and it is the point.</b> The SDK then reads
- * `drawingInfo` from the layer document — so what this console shows is what the server
- * told every client, and if the two ever disagree it is visible here first. Before
- * 2026-08-17 this file built its own symbol from a local palette, which meant the console
- * was the one viewer guaranteed *not* to show what anybody else saw.
+ * <b>Probed, not read off `hosted`.</b> `hosted` says whether a layer's source is the
+ * datastore, and until 2026-09-13 that was the same question as *does it have tiles* —
+ * `VectorTileEndpoints.Tileable` answered yes to exactly the layers `hosted` named. A
+ * GeoParquet layer now also has tiles and is never `hosted`, and a registered database
+ * layer is `hosted`'s false in the other direction too — so the console asks the server,
+ * the same way `showTiles` already had to, rather than encoding `Tileable`'s rule a
+ * second time and drifting the day it changes again.
+ */
+async function offersTiles(root) {
+  try {
+    const response = await fetch(`${root}/VectorTileServer?f=json`, {
+      headers: { Authorization: "Bearer " + token },
+    });
+
+    if (!response.ok) return false;
+    const body = await response.json();
+    return !body.error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Shows the attributes of whatever a click landed on, for a layer drawn as tiles.
+ *
+ * <b>Why this exists at all: a `VectorTileLayer` carries no `popupTemplate`.</b> It is
+ * rendered vectors, not queryable features — unlike `FeatureLayer`, there is no
+ * `PopupTemplate` support to pass it. What it *does* carry is the tags this server
+ * already put in every tile (`VectorTileEndpoints.AttributesOf`), and `hitTest` reads
+ * them back off whatever was drawn at the clicked pixel — no second request, and the
+ * values shown are exactly the ones the tile carried rather than a fresh query that
+ * could answer differently a moment later.
+ *
+ * <b>Wired once, not once per `show()`.</b> `clearMap()` replaces what is on the map
+ * but not the view itself, so a listener added on every call would stack — every past
+ * layer's popup logic still firing on every future click. This reads `shown` at click
+ * time instead, which is always the current state.
+ */
+let identifyWired = false;
+
+function wireTileIdentify(mapView) {
+  if (identifyWired) return;
+  identifyWired = true;
+
+  mapView.on("click", async event => {
+    const entry = [...shown.entries()].find(([, s]) => s.tiled);
+    if (!entry) return;
+
+    const [name, { layer }] = entry;
+    const hit = await mapView.hitTest(event, { include: layer });
+    const graphic = hit.results.find(r => r.graphic && r.graphic.attributes)?.graphic;
+
+    if (!graphic) return;
+
+    const rows = Object.entries(graphic.attributes)
+      .map(([k, v]) => `<tr><td>${h(k)}</td><td>${h(String(v))}</td></tr>`)
+      .join("");
+
+    mapView.popup.open({
+      location: event.mapPoint,
+      title: name,
+      content: rows ? `<table class="popuptbl">${rows}</table>` : "(no attributes on this tile)",
+    });
+  });
+}
+
+/**
+ * Draws a layer, from its vector tiles when it offers them and as a `FeatureLayer`
+ * otherwise — **no renderer of our own** either way.
+ *
+ * <b>Passing no `renderer` is the change from before ADR-021's tile face existed, and
+ * it is still the point.</b> A `FeatureLayer` here reads `drawingInfo` from the layer
+ * document, so what this console shows is what the server told every client. A
+ * `VectorTileLayer` takes its appearance from `resources/styles/root.json` instead —
+ * `VectorTileServerMetadataWriter.Style`, the same generated-or-authored symbology the
+ * feature face's `drawingInfo` comes from (ADR-033 §5d) — so the rule holds without
+ * being restated: nothing here chooses a colour.
+ *
+ * <b>Tiles first, for every layer that has them — hosted or GeoParquet</b>, since
+ * 2026-09-13. A hosted polygon layer used to draw the same 4-8 MB `query` responses a
+ * GeoParquet layer did; the fix is not a GeoParquet special case, it is one path both
+ * follow, matching how their tiles are built: one encoder, one endpoint, one client
+ * layer type.
  *
  * The document is passed in because the caller already fetched it to decide the geometry
  * type; asking for it again to read a colour would be a second request for a fact in hand.
  */
 async function show(name, doc) {
-  const { FeatureLayer } = await loadEsri();
+  const { FeatureLayer, VectorTileLayer } = await loadEsri();
   const mapView = await ensureMap();
   const colour = serverColour(doc);
 
-  const layer = new FeatureLayer({
-    url: layerUrl(name),
-    title: name,
-    outFields: ["*"],
-    popupTemplate: { title: name, content: "{*}" },
-  });
+  const place = placeOf(name);
+  const root = place
+    ? `${location.origin}/rest/services/${place.service}`
+    : serviceRoot(layerNamed(name));
+
+  const tiled = await offersTiles(root);
+
+  const layer = tiled
+    ? new VectorTileLayer({ url: `${root}/VectorTileServer`, title: name })
+    : new FeatureLayer({
+      url: layerUrl(name),
+      title: name,
+      outFields: ["*"],
+      popupTemplate: { title: name, content: "{*}" },
+    });
 
   clearMap();
   mapView.map.add(layer);
-  shown.set(name, { colour, layer });
+  shown.set(name, { colour, layer, tiled });
   drawLegend();
   $("mapPanel").classList.add("on");
 
+  if (tiled) wireTileIdentify(mapView);
+
   try {
     await layer.when();
+
+    // <b>A VectorTileServer is a service's, not a layer's.</b> Its style carries one style layer
+    // per service layer, keyed by `source-layer` — look_EarlyAlert's has three — so previewing
+    // one layer would draw its siblings too. The others are hidden; and if no style layer names
+    // this one, nothing is, because a preview that shows everything is wrong in a way a blank
+    // map would hide.
+    if (tiled) {
+      const styleLayers = layer.currentStyleInfo?.style?.layers || [];
+      if (styleLayers.some(l => l["source-layer"] === name)) {
+        for (const l of styleLayers) {
+          if (l["source-layer"] && l["source-layer"] !== name) {
+            layer.setStyleLayerVisibility(l.id, "none");
+          }
+        }
+      }
+    }
 
     // Zoom to the layer just shown. fullExtent comes from the layer document,
     // which this server fills from PostGIS statistics — so it may be absent,

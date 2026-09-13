@@ -126,6 +126,13 @@
          behaviour, and the alternative to a controllable clock is a test that
          sleeps: slow, flaky, and unable to test a 15-minute window at all. -->
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="9.0.0" />
+    <!-- ADR-068: response compression is a pipeline behaviour — what a middleware
+         does to headers and bytes on the wire — and every other test in this suite
+         exercises a class or a pure function directly. `ResponseCompressionMiddleware`
+         decides whether to compress from `IHttpsCompressionFeature`, which nothing
+         populates until a server implementation calls `OnStarting`; `TestServer` is
+         that implementation, in process, with no socket. Test-only, MIT, not linked. -->
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="9.0.0" />
   </ItemGroup>
 
 </Project>

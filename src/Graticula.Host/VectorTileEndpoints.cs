@@ -143,11 +143,19 @@ internal static class VectorTileEndpoints
         // service's layers, so one registered or non-Mercator layer disqualifies
         // the service rather than being quietly skipped — a tile missing one of
         // three layers looks like missing data, and nobody would know to ask.
+        //
+        // <b>GeoParquet counts as tileable too, since 2026-09-13 — owner decision, reversing
+        // ADR-066 §9 for this one face.</b> A GeoParquet layer is never hosted (`IsHosted` is
+        // about the datastore, and a file is not the datastore), so it used to fail this test
+        // for the same reason a registered Oracle table does. The two are not the same fact any
+        // more: a registered database layer still has no tile service, because nothing here
+        // reads *its* rows the way a GeoParquet layer's are read through DuckDB and encoded by
+        // PostGIS. `Tileable` is what tells the two apart now that `IsHosted` alone cannot.
         PublishedLayer layer = service.Layers[0];
 
         foreach (PublishedLayer each in service.Layers)
         {
-            if (!each.Definition.IsHosted)
+            if (!Tileable(each))
             {
                 layer = each;
                 break;
@@ -156,7 +164,7 @@ internal static class VectorTileEndpoints
 
         string layerName = service.QualifiedName;
 
-        if (!layer.Definition.IsHosted)
+        if (!Tileable(layer))
         {
             await Results.Json(
                 new
@@ -166,9 +174,10 @@ internal static class VectorTileEndpoints
                         code = 400,
                         message =
                             $"Layer '{layerName}' is registered rather than hosted, so it has no "
-                            + "vector tile service. Tiles are served only from hosted data — data "
-                            + "this server owns as system of record (Q-67). Its FeatureServer is "
-                            + $"at /rest/services/{layerName}/FeatureServer and is unaffected.",
+                            + "vector tile service. Tiles are served only from hosted data and from "
+                            + "GeoParquet layers, which are read the same way a query already reads "
+                            + "them (Q-67, ADR-066 §9). Its FeatureServer is at "
+                            + $"/rest/services/{layerName}/FeatureServer and is unaffected.",
                     },
                 },
                 statusCode: StatusCodes.Status400BadRequest)
@@ -193,6 +202,18 @@ internal static class VectorTileEndpoints
         // than solved here.
         return service;
     }
+
+    /// <summary>Whether a layer's rows can reach a vector tile at all.</summary>
+    /// <remarks>
+    /// <b>Hosted, or a GeoParquet file — nothing else.</b> A hosted layer is read from the
+    /// datastore by <c>PostGisTileSource</c>; a GeoParquet layer is read from its file by
+    /// <c>GeoParquetTileSource</c> and encoded by the same PostGIS statement either way. A
+    /// registered PostgreSQL layer that is neither is exactly what Q-67 still refuses: tiles come
+    /// from data this server owns as system of record or reads in place under its own control,
+    /// never from a database that belongs to somebody else.
+    /// </remarks>
+    private static bool Tileable(PublishedLayer layer) =>
+        layer.Definition.IsHosted || Graticula.Platform.Admin.GeoParquetLocator.Is(layer.ConnectionString);
 
     /// <summary>
     /// The only spatial reference tiles are served on.
@@ -540,6 +561,7 @@ internal static class VectorTileEndpoints
         IProjector projector,
         DatumShiftNotices datumShifts,
         ILoggerFactory loggerFactory,
+        GeoParquetSources geoParquet,
         CancellationToken cancellation)
     {
         PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
@@ -595,7 +617,7 @@ internal static class VectorTileEndpoints
             (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
                 .ConfigureAwait(false);
 
-            IReadOnlyList<string> attributes = AttributesOf(layer, description);
+            IReadOnlyList<FieldDescription> attributes = AttributesOf(layer, description);
 
             /*
               <b>Q-141: the operator hears about the datum, because nobody else can.</b> A
@@ -621,14 +643,25 @@ internal static class VectorTileEndpoints
                     cancellation)
                 .ConfigureAwait(false);
 
+            // <b>A GeoParquet layer's own version rides in the fingerprint, so a replaced file
+            // invalidates its tiles structurally instead of waiting out the cache lifetime.</b>
+            // A hosted table's schema changing already moves the fingerprint through the
+            // attribute list; a file can be replaced by another with the same columns and a
+            // different geometry, and nothing above would notice without this. Null for a hosted
+            // layer, which keeps every existing cache key unchanged.
+            string? fileVersion = Graticula.Platform.Admin.GeoParquetLocator.Is(layer.ConnectionString)
+                ? geoParquet.VersionOf(layer.ConnectionString, layer.Definition.TableName)
+                : null;
+
             TileCacheKey key = new(
                 layer.Id,
                 TileCacheKey.FingerprintOf(
                     layer.Definition.Srid,
                     layer.Definition.GeometryColumn,
-                    attributes,
+                    attributes.Select(a => a.Name),
                     PostGisTileSource.Extent,
-                    PostGisTileSource.Buffer),
+                    PostGisTileSource.Buffer,
+                    fileVersion),
                 address);
 
             // <b>The layer's own lifetime, not the server's.</b> D-25: a
@@ -930,7 +963,7 @@ internal static class VectorTileEndpoints
     /// <c>ST_AsMVT</c> has nowhere to put a feature id from a named column
     /// without it also becoming a tag.
     /// </remarks>
-    private static IReadOnlyList<string> AttributesOf(
+    private static IReadOnlyList<FieldDescription> AttributesOf(
         PublishedLayer layer, LayerDescription description)
     {
         HashSet<string> skip = new(StringComparer.Ordinal)
@@ -942,7 +975,6 @@ internal static class VectorTileEndpoints
         [
             .. description.Fields
                 .Where(field => !skip.Contains(field.Name) && CanBeATag(field.Type))
-                .Select(field => field.Name)
                 .Take(MaximumAttributes),
         ];
     }

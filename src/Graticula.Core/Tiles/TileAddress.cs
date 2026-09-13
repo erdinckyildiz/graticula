@@ -1,4 +1,5 @@
 using System;
+using Graticula.Geometries;
 
 namespace Graticula.Tiles;
 
@@ -78,4 +79,38 @@ public readonly record struct TileAddress(int Z, int X, int Y)
     /// <inheritdoc/>
     public override string ToString() =>
         string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{Z}/{X}/{Y}");
+
+    /// <summary>Web Mercator half-extent, in metres — the same figure PostGIS's <c>ST_TileEnvelope</c>
+    /// uses for its default bounds.</summary>
+    /// <remarks>
+    /// <b>Published, not derived.</b> The Web Mercator square is not exactly
+    /// 2×20037508.342789244 by construction — that would need the earth radius PostGIS assumes,
+    /// 6378137, times pi — and a value computed from first principles here would differ from
+    /// PostGIS's own in a low bit, which is exactly the kind of disagreement a tile envelope
+    /// cannot afford: two engines placing a tile a few nanometres apart, at zoom 22, is the
+    /// difference between an edge feature appearing in one server's tile and not the other's.
+    /// This is PostGIS's own constant, so a caller computing an envelope from it agrees with
+    /// <c>ST_TileEnvelope</c> to the last digit.
+    /// </remarks>
+    public const double WebMercatorHalfExtent = 20037508.342789244;
+
+    /// <summary>
+    /// The ground this tile covers, in Web Mercator — what <c>ST_TileEnvelope(Z, X, Y)</c>
+    /// returns for the same address.
+    /// </summary>
+    /// <remarks>
+    /// <b>Unexpanded.</b> This is the plain tile box, the one a <c>&amp;&amp;</c> test compares a
+    /// stored geometry's bounding box against; the render buffer that lets a stroke cross a tile
+    /// seam is <c>ST_AsMVTGeom</c>'s own margin, applied after this box has already decided which
+    /// rows are candidates. Expanding here would select rows PostGIS's own tile query does not.
+    /// </remarks>
+    /// <returns>The tile's envelope, in EPSG:3857.</returns>
+    public Envelope WebMercatorEnvelope()
+    {
+        double side = WebMercatorHalfExtent * 2.0 / (1L << Z);
+        double minX = -WebMercatorHalfExtent + (X * side);
+        double maxY = WebMercatorHalfExtent - (Y * side);
+
+        return new Envelope(minX, maxY - side, minX + side, maxY);
+    }
 }

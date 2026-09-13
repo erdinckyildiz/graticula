@@ -243,6 +243,38 @@ internal sealed class GeoParquetSources : IDisposable
         return new GeoParquetFolder(remote, _options);
     }
 
+    /// <summary>A file's own version, for a tile cache key — or null when it cannot be read.</summary>
+    /// <param name="locator">A GeoParquet locator.</param>
+    /// <param name="tableName">The file, named the way a layer's table name already is: without
+    /// its <c>.parquet</c> extension.</param>
+    /// <remarks>
+    /// <b>Added 2026-09-13 so a replaced file cannot go on serving stale tiles.</b>
+    /// <see cref="GeoParquetFeatureSource"/> already refuses a query against a file that no
+    /// longer matches what was published — a different geometry column, a broken identity — but
+    /// a replacement that keeps the same shape answers every query correctly and every cached
+    /// tile <em>incorrectly</em>, because nothing about the replacement changed a cache key built
+    /// only from the layer's schema. <c>GeoParquetTable.Version</c> is built from the file's
+    /// length and modification time, so it changes on every replacement and on nothing else —
+    /// which is exactly what <see cref="Graticula.Tiles.TileCacheKey.FingerprintOf"/> needs to
+    /// make a replacement structurally invalidating, the same way a schema change already is.
+    /// </remarks>
+    /// <returns>The version, or null when the folder or the file cannot be read right now.</returns>
+    public string? VersionOf(string locator, string tableName)
+    {
+        try
+        {
+            return FolderFor(locator).Find(tableName)?.Version;
+        }
+        catch (Exception e) when (e is InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            // <b>Null, not a thrown failure.</b> This is read to build a cache key, before the
+            // tile query itself has run; if the folder genuinely cannot be read, the query a few
+            // lines later reports that in its own words, and this is not the place to pre-empt it
+            // with a different message for the same fact.
+            return null;
+        }
+    }
+
     /// <summary>Closes a folder's DuckDB, so the next use opens it afresh.</summary>
     /// <param name="locator">A GeoParquet locator.</param>
     /// <returns>Whether one was open.</returns>

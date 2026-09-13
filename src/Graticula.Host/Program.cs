@@ -29,12 +29,14 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using System.IO.Compression;
 
 namespace Graticula.Host;
 
@@ -363,6 +365,42 @@ public static class Program
             options.MultipartBodyLengthLimit = HostedDataEndpoints.MaximumBytes;
         });
 
+        /*
+          <b>Brotli preferred, gzip the fallback — ADR-068.</b> Every browser this server's
+          clients run has shipped brotli support since 2018; gzip stays registered for the one
+          caller that does not send `Accept-Encoding: br`, which `ResponseCompressionProvider`
+          negotiates from the request rather than this list picking one.
+
+          <b>`EnableForHttps = true`, and the allowlist is enforced by which requests reach this
+          middleware at all rather than by a per-request feature on the ones that do.</b>
+          `IHttpsCompressionFeature` was tried first and measured wrong in both directions — see
+          `ResponseCompressionPolicy.IsAllowed`'s own remarks — so the branch this server takes
+          is `UseWhen`, registered where the pipeline is built, and `EnableForHttps` here only
+          has to be true because every request that reaches this configuration already passed
+          the allowlist.
+
+          <b>The MIME types and the paths are both named in `ResponseCompressionPolicy`</b>, because
+          that is where the measurement and the BREACH reasoning are written down, and a reader
+          asking *what does this compress* should find one place rather than piece it together from
+          two.
+        */
+        builder.Services.AddResponseCompression(options =>
+        {
+            options.EnableForHttps = true;
+            options.Providers.Add<BrotliCompressionProvider>();
+            options.Providers.Add<GzipCompressionProvider>();
+            options.MimeTypes = ResponseCompressionPolicy.MimeTypes;
+        });
+
+        // <b>`Fastest`, and the measurement is in `ResponseCompressionPolicy`'s own remarks.</b>
+        // `SmallestSize` bought a fraction of a ratio point over `Fastest` on a 633 KB capture and
+        // cost 12.6 seconds on a 7.7 MB one — a query response is not a file compressed once and
+        // served forever, it is compressed on every request.
+        builder.Services.Configure<BrotliCompressionProviderOptions>(
+            options => options.Level = CompressionLevel.Fastest);
+        builder.Services.Configure<GzipCompressionProviderOptions>(
+            options => options.Level = CompressionLevel.Fastest);
+
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<ServerState>();
         builder.Services.AddSingleton<IPasswordHasher>(_ => new Argon2idPasswordHasher());
@@ -485,6 +523,13 @@ public static class Program
                 new PostGisProjector(
                     services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool)),
                 services.GetRequiredService<SourceBreaker>()));
+
+        // <b>The other half of a GeoParquet tile, ADR-066 §9 amended 2026-09-13.</b> Rows are
+        // read from a file; encoding them is still PostGIS's job (ADR-021), and this is the
+        // datastore round trip that does it — the same pool `IProjector` reaches, because
+        // encoding is a service of the datastore rather than of any registered database.
+        builder.Services.AddSingleton<Graticula.Tiles.IMvtEncoder>(services =>
+            new PostGisMvtEncoder(services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool)));
 
         // <b>Overlay runs in its own process, and the pool is what kills it.</b>
         // Q-97, answered by the owner: no property of the input predicts overlay
@@ -744,6 +789,29 @@ public static class Program
           what the first attempt did and what the measurement caught.
         */
         app.UseRouting();
+
+        /*
+          <b>A branch, not a gate — ADR-068.</b> `ResponseCompressionMiddleware` has no notion
+          of *which paths*, and `IHttpsCompressionFeature` was tried as a per-request override
+          and measured wrong in both directions (`ResponseCompressionPolicy.IsAllowed`'s own
+          remarks have the numbers). `UseWhen` is the alternative that does not depend on how
+          the middleware reads a feature: `app.UseResponseCompression()` is registered only on
+          the branch `ResponseCompressionPolicy.IsAllowed` admits, so a request outside it —
+          including every response that carries a token or a session — never passes through the
+          compression middleware at all. There is nothing to misread.
+
+          <b>Early, ahead of the exception handler and the access log</b>, so a compressed error
+          page or a compressed access-logged response both go through the same one decision
+          rather than a second copy of it further down.
+
+          <b>`Vary: Accept-Encoding` is added by the middleware itself</b> on every response it
+          compresses, so a downstream cache — including the one Agent B is adding
+          `Cache-Control`/`ETag` to — cannot serve a brotli body to a client that asked for
+          identity encoding.
+        */
+        app.UseWhen(
+            context => ResponseCompressionPolicy.IsAllowed(context.Request.Path),
+            branch => branch.UseResponseCompression());
 
         /*
           <b>Who is calling, resolved once, [D-12](../../docs/architecture-debt.md).</b> The
@@ -4470,6 +4538,26 @@ public static class Program
             await QueryPage
                 .WriteResultsAsync(context, layer, described, source, query!, cancellation)
                 .ConfigureAwait(false);
+            return;
+        }
+
+        // <b>The layer's own cache lifetime, on a GET, once every other refusal has already had
+        // its turn — ADR-069.</b> Everything above this line that could still say no — the
+        // ceiling, the identity check, an unusable reference, a POST that carries a body this
+        // route has always ignored — has already returned, so a header written from here on
+        // describes a response this handler is actually about to send. GET only: `query`
+        // answers POST with the same code (D-139) and RFC 9111 §3 never treats POST as
+        // cacheable regardless of what a response claims.
+        //
+        // <b>Ahead of the writer, not after it.</b> A cheap validator — today, only a
+        // GeoParquet layer's file stat — lets a matching `If-None-Match` end the request in a
+        // 304 before `source.ReadAsync` runs at all, which is the one case where this saves the
+        // query and not merely the bytes on the wire.
+        if (QueryResponseCaching.IsSafeMethod(context)
+            && await QueryResponseCaching
+                .ApplyAsync(context, layer, source, settings.TileCacheLifetime, cancellation)
+                .ConfigureAwait(false))
+        {
             return;
         }
 

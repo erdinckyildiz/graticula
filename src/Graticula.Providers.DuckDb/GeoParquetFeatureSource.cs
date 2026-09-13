@@ -47,7 +47,8 @@ namespace Graticula.Providers.DuckDb;
 /// the same reference answer with the same numbers.
 /// </para>
 /// </remarks>
-public sealed class GeoParquetFeatureSource : IFeatureSource, IFeatureSummaries, IFeatureVersions
+public sealed class GeoParquetFeatureSource
+    : IFeatureSource, IFeatureSummaries, IFeatureVersions, ISourceCacheValidator
 {
     private const int ProjectionBatch = 512;
 
@@ -605,6 +606,16 @@ public sealed class GeoParquetFeatureSource : IFeatureSource, IFeatureSummaries,
     /// time is exact rather than approximate: it changes on every replacement and on nothing else.
     /// </remarks>
     public Task<string?> VersionOfAsync(long identity, CancellationToken cancellationToken) =>
+        Task.FromResult<string?>(Table().Version);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <b>The same value <see cref="VersionOfAsync"/> answers, and the same reasoning — ADR-069.</b>
+    /// <c>Table()</c> costs a dictionary lookup and, at most, a file stat that <c>GeoParquetFolder</c>
+    /// already does to decide whether to reopen the file; nothing here queries DuckDB. That is what
+    /// makes it cheap enough to compute before deciding whether to run the query it would validate.
+    /// </remarks>
+    public Task<string?> CacheValidatorAsync(CancellationToken cancellationToken) =>
         Task.FromResult<string?>(Table().Version);
 
     /// <summary>Refuses what this provider does not answer, before any work is done.</summary>

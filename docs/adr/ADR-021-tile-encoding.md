@@ -70,6 +70,15 @@ PostgreSQL is not what a tile costs. What the in-process path costs instead is
 That is A-037 — *allocation rate, not CPU, sets the ceiling* — appearing in the
 one workload that was supposed to be the encoder's best case.
 
+**Amended 2026-09-13: the rows reaching `ST_AsMVTGeom`/`ST_AsMVT` are no longer always PostGIS's
+own.** ADR-066 §9 started giving GeoParquet layers vector tiles; their rows are read from a file
+through DuckDB (`GeoParquetTileSource`) and cross into the datastore as a batch — WKB and
+JSON-typed attributes, `unnest(...) with ordinality`, `PostGisMvtEncoder` — to reach the same
+statement this section decided on. **The decision above is unchanged**: PostGIS still does every
+byte of encoding, `/src` still carries no MVT encoder, and the round trip this section measured
+against an in-process alternative is the same round trip a GeoParquet tile now also pays, once per
+cold tile rather than once per row.
+
 ---
 
 ## 3. What this does not throw away

@@ -8,11 +8,15 @@ namespace Graticula.Tiles;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The port exists even though there is exactly one implementation, and
-/// exactly one is expected.</b> [ADR-021] decided that tiles are encoded by
-/// PostGIS, so <c>PostGisTileSource</c> is not the first of several. The port is
-/// here because the build-vs-adopt policy forbids a provider type appearing in a
-/// Tier 1 signature: without it the tile endpoint would take an
+/// <b>Two implementations now, and both still encode through PostGIS.</b> Until
+/// 2026-09-13 <c>PostGisTileSource</c> was the only one, because [ADR-021]
+/// decided that tiles are encoded by PostGIS and every row this server tiled
+/// came from PostGIS too. <c>GeoParquetTileSource</c> reads its rows from
+/// DuckDB — a GeoParquet layer, ADR-066 §9 amended — and hands them to
+/// <see cref="IMvtEncoder"/>, which is the same PostGIS encoding step wearing a
+/// port so a second source of rows can reach it. The port is here because the
+/// build-vs-adopt policy forbids a provider type appearing in a Tier 1
+/// signature: without it the tile endpoint would take an
 /// <c>NpgsqlDataSource</c>, and the argument that most of the tiling pipeline is
 /// still ours would stop being true at the first line of the handler.
 /// </para>

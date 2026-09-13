@@ -38,7 +38,8 @@ internal sealed class BudgetedFeatureSource(
     // <b>On the end and optional, because every caller predates it.</b> A source constructed
     // without one is never quiesced, which is what every path that does not go through
     // `LayerConnections` wants — ADR-059 is about the request path against a registered database.
-    SourceQuiesce? quiesce = null) : IFeatureSource, IFeatureVersions, IGeometryStatistics
+    SourceQuiesce? quiesce = null)
+    : IFeatureSource, IFeatureVersions, IGeometryStatistics, ISourceCacheValidator
 {
     /// <summary>
     /// Refuses at once when this source failed a moment ago, and reports what happens.
@@ -246,6 +247,22 @@ internal sealed class BudgetedFeatureSource(
                     return await versions.VersionOfAsync(identity, token).ConfigureAwait(false);
                 },
                 cancellationToken).AsTask();
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Not through the budget — ADR-069.</b> Unlike <see cref="VersionOfAsync"/>, this is not a
+    /// round trip to the database at all when the inner source implements it: <c>GeoParquetFeatureSource</c>
+    /// answers from a file stat <c>GeoParquetFolder</c> already tracks. Taking a connection-budget
+    /// permit to answer a question that touches no connection would be counting work against a bound
+    /// that exists for a different kind of work.
+    ///
+    /// <b>A source that offers no cheap validator answers null</b>, which is what its caller already
+    /// has to handle — a query response over such a layer falls back to hashing the body.
+    /// </remarks>
+    public Task<string?> CacheValidatorAsync(CancellationToken cancellationToken) =>
+        inner is ISourceCacheValidator validator
+            ? validator.CacheValidatorAsync(cancellationToken)
+            : Task.FromResult<string?>(null);
 
     /// <inheritdoc/>
     /// <remarks>

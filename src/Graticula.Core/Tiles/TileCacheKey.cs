@@ -43,6 +43,15 @@ public readonly record struct TileCacheKey(Guid LayerId, string Fingerprint, Til
     /// <param name="attributes">Which columns ride along as tags, in order.</param>
     /// <param name="extent">The MVT coordinate space.</param>
     /// <param name="buffer">The margin, in tile units.</param>
+    /// <param name="version">
+    /// A source's own version, or null when it has none. Last and optional, so every existing
+    /// caller keeps its fingerprint unchanged. A hosted PostGIS table is invalidated by its
+    /// schema changing — which changes the attribute list this already hashes — but a GeoParquet
+    /// file can be replaced by a different one with the same columns, and nothing above would
+    /// notice. Its version, from <c>GeoParquetTable.Version</c>, changes on every replacement and
+    /// on nothing else, which is what makes including it here the whole fix rather than a sweep
+    /// to remember.
+    /// </param>
     /// <returns>Eight hex characters.</returns>
     /// <remarks>
     /// <para>
@@ -65,7 +74,8 @@ public readonly record struct TileCacheKey(Guid LayerId, string Fingerprint, Til
         string geometryColumn,
         System.Collections.Generic.IEnumerable<string> attributes,
         int extent,
-        int buffer)
+        int buffer,
+        string? version = null)
     {
         ArgumentNullException.ThrowIfNull(attributes);
 
@@ -80,6 +90,11 @@ public readonly record struct TileCacheKey(Guid LayerId, string Fingerprint, Til
         foreach (string attribute in attributes)
         {
             canonical.Append(attribute).Append(',');
+        }
+
+        if (version is { Length: > 0 })
+        {
+            canonical.Append(";version=").Append(version);
         }
 
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString()));

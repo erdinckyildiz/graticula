@@ -9,6 +9,7 @@ using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Graticula.Testing;
+using Graticula.Tiles;
 using Xunit;
 
 namespace Graticula.Host.Tests;
@@ -226,10 +227,47 @@ public sealed class GeoParquetSourcesTests : IDisposable
             () => connections.WriterFor(layer, []));
         Assert.Contains("cannot be edited", refused.Message, StringComparison.Ordinal);
 
-        Assert.Throws<QueryNotSupportedException>(() => connections.TileSourceFor(layer, []));
+        // <b>Tiling is not one of these any more — ADR-066 §9, amended 2026-09-13.</b> A
+        // GeoParquet layer's tiles are refused only when this process has no encoder to build
+        // them with, which is a different failure from *a file cannot do this at all*.
+        InvalidOperationException noEncoder = Assert.Throws<InvalidOperationException>(
+            () => connections.TileSourceFor(layer, []));
+        Assert.Contains("vector tile encoder", noEncoder.Message, StringComparison.Ordinal);
+
         Assert.Throws<QueryNotSupportedException>(() => connections.AttachmentsFor(layer));
         Assert.Throws<QueryNotSupportedException>(() => connections.RelatedFor(layer, layer));
         Assert.True(connections.CloseSource(locator!));
+    }
+
+    [Fact]
+    public void A_GeoParquet_layer_hands_out_a_tile_source_when_the_server_has_an_encoder()
+    {
+        using ConnectionBudget budget = new(8, 4);
+        using LayerConnections connections = new(
+            budget, new SourceBreaker(), null, _sources, new NoProjector(), new RecordingEncoder());
+
+        Assert.True(_sources.TryLocate("istanbul", out string? locator, out _));
+
+        PublishedLayer layer = new(
+            Guid.NewGuid(),
+            new Graticula.Catalog.LayerDefinition("parcels", "main", "parcels", "geom", 3857, "objectid", "objectid", false),
+            "istanbul", locator!, GeometryKind.Point, null, SharingScope.Public, ServiceStatus.Started);
+
+        ITileSource source = connections.TileSourceFor(
+            layer, [new FieldDescription("name", FieldType.Text, true, null)]);
+
+        Assert.IsType<Graticula.Providers.DuckDb.GeoParquetTileSource>(source);
+    }
+
+    private sealed class RecordingEncoder : Graticula.Tiles.IMvtEncoder
+    {
+        public Task<byte[]> EncodeAsync(
+            System.Collections.Generic.IReadOnlyList<Graticula.Tiles.MvtRow> rows,
+            Graticula.Tiles.TileAddress address,
+            string layerName,
+            int srid,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(Array.Empty<byte>());
     }
 
     private sealed class RecordingProbe : IDataSourceProbe

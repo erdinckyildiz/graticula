@@ -165,6 +165,24 @@ public sealed class FileSystemTileCacheTests : IDisposable
     }
 
     [Fact]
+    public void A_files_own_version_moves_the_fingerprint_so_a_replaced_file_invalidates_its_tiles()
+    {
+        // GeoParquetTable.Version, not stated here as such — it is whatever string the caller
+        // hands in, changed by a replacement and by nothing else.
+        string v1 = TileCacheKey.FingerprintOf(3857, "geom", ["a", "b"], 4096, 64, "len=100;mtime=1");
+        string v2 = TileCacheKey.FingerprintOf(3857, "geom", ["a", "b"], 4096, 64, "len=140;mtime=2");
+
+        Assert.NotEqual(v1, v2);
+
+        // Every existing caller passes no version, and its fingerprint is unchanged by this
+        // parameter existing — a hosted layer's cache is not invalidated by a change nothing
+        // about it made.
+        Assert.Equal(
+            TileCacheKey.FingerprintOf(3857, "geom", ["a", "b"], 4096, 64),
+            TileCacheKey.FingerprintOf(3857, "geom", ["a", "b"], 4096, 64, version: null));
+    }
+
+    [Fact]
     public void The_same_shape_produces_the_same_fingerprint_every_time()
     {
         // Otherwise every restart invalidates the whole cache, which would look

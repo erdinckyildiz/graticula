@@ -274,10 +274,18 @@ public sealed class PostGisTileSourceTests : PostgresFixture
 
     // ---------- a decoder written from the specification ----------
 
-    /// <summary>A minimal Mapbox Vector Tile reader.</summary>
-    private static class Mvt
+    /// <summary>
+    /// A minimal Mapbox Vector Tile reader.
+    /// </summary>
+    /// <remarks>
+    /// <b>Internal rather than private since 2026-09-13</b>, so <c>GeoParquetTileOracleTests</c>
+    /// can decode a <c>GeoParquetTileSource</c> tile with the same reader this class checks a
+    /// <c>PostGisTileSource</c> tile with — one decoder, so the two are being read the same way
+    /// rather than by two implementations that could disagree about the same bytes.
+    /// </remarks>
+    internal static class Mvt
     {
-        internal sealed record Feature(int Kind, List<List<(int X, int Y)>> Rings);
+        internal sealed record Feature(int Kind, List<List<(int X, int Y)>> Rings, Dictionary<string, object?> Attributes);
 
         internal sealed record Layer(
             string Name, int Extent, List<string> Keys, List<Feature> Features);
@@ -306,12 +314,17 @@ public sealed class PostGisTileSourceTests : PostgresFixture
             return layers;
         }
 
+        /// <summary>A feature before its tag indices are resolved against the layer's key and
+        /// value tables — which, on the wire, can arrive after the feature that names them.</summary>
+        private sealed record RawFeature(int Kind, List<List<(int X, int Y)>> Rings, List<uint> Tags);
+
         private static Layer ReadLayer(byte[] b, int i, int end)
         {
             string name = "?";
             int extent = 4096;
             List<string> keys = [];
-            List<Feature> features = [];
+            List<object?> values = [];
+            List<RawFeature> raw = [];
 
             while (i < end)
             {
@@ -326,13 +339,18 @@ public sealed class PostGisTileSourceTests : PostgresFixture
                         break;
                     case 2 when wire == 2:
                         int featureLength = (int)Varint(b, ref i);
-                        features.Add(ReadFeature(b, i, i + featureLength));
+                        raw.Add(ReadFeature(b, i, i + featureLength));
                         i += featureLength;
                         break;
                     case 3 when wire == 2:
                         int keyLength = (int)Varint(b, ref i);
                         keys.Add(System.Text.Encoding.UTF8.GetString(b, i, keyLength));
                         i += keyLength;
+                        break;
+                    case 4 when wire == 2:
+                        int valueLength = (int)Varint(b, ref i);
+                        values.Add(ReadValue(b, i, i + valueLength));
+                        i += valueLength;
                         break;
                     case 5 when wire == 0:
                         extent = (int)Varint(b, ref i);
@@ -343,19 +361,98 @@ public sealed class PostGisTileSourceTests : PostgresFixture
                 }
             }
 
+            // <b>Resolved after the whole layer is read</b>, because the wire order between a
+            // feature and the key/value table entries it points into is not specified — and the
+            // encoders under test do not promise one either.
+            List<Feature> features = [.. raw.Select(f =>
+            {
+                Dictionary<string, object?> attributes = [];
+
+                for (int t = 0; t + 1 < f.Tags.Count; t += 2)
+                {
+                    int keyIndex = (int)f.Tags[t];
+                    int valueIndex = (int)f.Tags[t + 1];
+
+                    if (keyIndex >= 0 && keyIndex < keys.Count && valueIndex >= 0 && valueIndex < values.Count)
+                    {
+                        attributes[keys[keyIndex]] = values[valueIndex];
+                    }
+                }
+
+                return new Feature(f.Kind, f.Rings, attributes);
+            })];
+
             return new Layer(name, extent, keys, features);
         }
 
-        private static Feature ReadFeature(byte[] b, int i, int end)
+        /// <summary>One entry of the value table: string, float, double, int, uint, sint or bool.</summary>
+        private static object? ReadValue(byte[] b, int i, int end)
         {
-            int kind = 0;
-            List<uint> commands = [];
+            object? value = null;
 
             while (i < end)
             {
                 (int field, int wire) = Tag(b, ref i);
 
-                if (field == 3 && wire == 0)
+                switch (field)
+                {
+                    case 1 when wire == 2:
+                        int length = (int)Varint(b, ref i);
+                        value = System.Text.Encoding.UTF8.GetString(b, i, length);
+                        i += length;
+                        break;
+                    case 2 when wire == 5:
+                        value = BitConverter.ToSingle(b, i);
+                        i += 4;
+                        break;
+                    case 3 when wire == 1:
+                        value = BitConverter.ToDouble(b, i);
+                        i += 8;
+                        break;
+                    case 4 when wire == 0:
+                        value = unchecked((long)Varint(b, ref i));
+                        break;
+                    case 5 when wire == 0:
+                        value = Varint(b, ref i);
+                        break;
+                    case 6 when wire == 0:
+                        value = ZigZagLong(Varint(b, ref i));
+                        break;
+                    case 7 when wire == 0:
+                        value = Varint(b, ref i) != 0;
+                        break;
+                    default:
+                        Skip(b, ref i, wire);
+                        break;
+                }
+            }
+
+            return value;
+        }
+
+        private static long ZigZagLong(ulong n) => (long)(n >> 1) ^ -(long)(n & 1);
+
+        private static RawFeature ReadFeature(byte[] b, int i, int end)
+        {
+            int kind = 0;
+            List<uint> commands = [];
+            List<uint> tags = [];
+
+            while (i < end)
+            {
+                (int field, int wire) = Tag(b, ref i);
+
+                if (field == 2 && wire == 2)
+                {
+                    int length = (int)Varint(b, ref i);
+                    int stop = i + length;
+
+                    while (i < stop)
+                    {
+                        tags.Add((uint)Varint(b, ref i));
+                    }
+                }
+                else if (field == 3 && wire == 0)
                 {
                     kind = (int)Varint(b, ref i);
                 }
@@ -375,7 +472,7 @@ public sealed class PostGisTileSourceTests : PostgresFixture
                 }
             }
 
-            return new Feature(kind, Rings(commands));
+            return new RawFeature(kind, Rings(commands), tags);
         }
 
         /// <summary>Walks the command stream into rings.</summary>

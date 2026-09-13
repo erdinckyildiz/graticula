@@ -52,6 +52,7 @@ fact.
 | xunit.runner.visualstudio | 2.8.2 | **Apache-2.0** | nuspec | **Yes** |
 | Microsoft.NET.Test.Sdk | 17.12.0 | **MIT** | nuspec | **Yes** |
 | Microsoft.Extensions.TimeProvider.Testing | 9.0.0 | **MIT** | nuspec | **Yes** |
+| Microsoft.AspNetCore.TestHost | 9.0.0 | **MIT** | nuspec `<license type="expression">` | **Yes** — added 2026-09-13, ADR-068, test-only, in-process pipeline tests for response compression |
 | **SkiaSharp** | 3.119.2 | **MIT** | nuspec `<license type="expression">MIT</license>` | **Yes** |
 | **SkiaSharp.NativeAssets.Linux** | 3.119.2 | **MIT** | same package family, same expression | **Yes** |
 | **SkiaSharp.NativeAssets.Linux.NoDependencies** | 3.119.2 | **MIT** | same package family, same expression | **Yes** |
@@ -142,7 +143,7 @@ matters: no copyleft anywhere.**
 
 | Licence | Packages |
 |---|---|
-| MIT | `DuckDB.NET.Data.Full` · `DuckDB.NET.Bindings.Full` (2026-09-13, ADR-066) · `MaxRev.Gdal.Core` and its four runtime packages · `SkiaSharp` and its four native-asset packages · `Newtonsoft.Json` · `Konscious.Security.Cryptography.Argon2` · `Konscious.Security.Cryptography.Blake2` · `Microsoft.Extensions.DependencyInjection.Abstractions` · `Microsoft.Extensions.Logging.Abstractions` · `System.Memory` · `System.Reflection.Metadata` · `Microsoft.CodeCoverage` · `Microsoft.Extensions.TimeProvider.Testing` · `Microsoft.NET.Test.Sdk` · `Microsoft.TestPlatform.ObjectModel` · `Microsoft.TestPlatform.TestHost` |
+| MIT | `DuckDB.NET.Data.Full` · `DuckDB.NET.Bindings.Full` (2026-09-13, ADR-066) · `MaxRev.Gdal.Core` and its four runtime packages · `SkiaSharp` and its four native-asset packages · `Newtonsoft.Json` · `Konscious.Security.Cryptography.Argon2` · `Konscious.Security.Cryptography.Blake2` · `Microsoft.Extensions.DependencyInjection.Abstractions` · `Microsoft.Extensions.Logging.Abstractions` · `System.Memory` · `System.Reflection.Metadata` · `Microsoft.CodeCoverage` · `Microsoft.Extensions.TimeProvider.Testing` · `Microsoft.NET.Test.Sdk` · `Microsoft.TestPlatform.ObjectModel` · `Microsoft.TestPlatform.TestHost` · `Microsoft.AspNetCore.TestHost` (2026-09-13, ADR-068) |
 | BSD-3-Clause | `NetTopologySuite` |
 | PostgreSQL Licence (BSD-style) | `Npgsql` |
 | Apache-2.0 | `Apache.Arrow` · `Apache.Arrow.Scalars` (2026-09-13, with DuckDB.NET) · the `xunit` family — `xunit`, `xunit.assert`, `xunit.core`, `xunit.analyzers`, `xunit.abstractions`, `xunit.extensibility.core`, `xunit.extensibility.execution`, `xunit.runner.visualstudio` |

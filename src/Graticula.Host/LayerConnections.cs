@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using Graticula.Features;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
@@ -75,12 +76,19 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// layer on a folder asked of a process without it is refused by name.
     /// </param>
     /// <param name="projector">The datastore's projector, which a GeoParquet layer projects through.</param>
+    /// <param name="mvtEncoder">
+    /// Where a GeoParquet tile's rows are encoded — ADR-066 §9, amended 2026-09-13. Optional for
+    /// the same reason <paramref name="geoParquet"/> is: a process started without one serves no
+    /// GeoParquet tiles, and <see cref="TileSourceFor"/> says so by name rather than reaching a
+    /// null reference.
+    /// </param>
     public LayerConnections(
         ConnectionBudget budget,
         SourceBreaker breaker,
         SourceQuiesce? quiesce = null,
         GeoParquetSources? geoParquet = null,
-        Graticula.Geometries.IProjector? projector = null)
+        Graticula.Geometries.IProjector? projector = null,
+        Graticula.Tiles.IMvtEncoder? mvtEncoder = null)
     {
         ArgumentNullException.ThrowIfNull(budget);
         ArgumentNullException.ThrowIfNull(breaker);
@@ -90,10 +98,12 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         _quiesce = quiesce;
         _geoParquet = geoParquet;
         _projector = projector;
+        _mvtEncoder = mvtEncoder;
     }
 
     private readonly GeoParquetSources? _geoParquet;
     private readonly Graticula.Geometries.IProjector? _projector;
+    private readonly Graticula.Tiles.IMvtEncoder? _mvtEncoder;
 
     /// <summary>
     /// Closes this source's pool, so nothing of ours is holding its tables.
@@ -434,22 +444,67 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             tracking ?? Graticula.Catalog.EditorTracking.None, subtypes);
     }
 
-    /// <summary>A tile source for one layer, over the same shared pool.</summary>
+    /// <summary>A tile source for one layer.</summary>
     /// <param name="layer">The layer.</param>
     /// <param name="attributes">
-    /// The columns to carry into the tile, already checked against the table's
-    /// real columns — the same identifier whitelist ADR-008 §4.6 requires of the
-    /// select list, for the same reason.
+    /// The columns to carry into the tile, with their types, already checked against the layer's
+    /// real columns — the same identifier whitelist ADR-008 §4.6 requires of the select list, for
+    /// the same reason. The type travels too because a GeoParquet layer's encoder has to give
+    /// each value back the PostgreSQL type a hosted column of that kind would have.
     /// </param>
     /// <returns>The tile source.</returns>
-    public ITileSource TileSourceFor(PublishedLayer layer, IReadOnlyList<string> attributes)
+    /// <remarks>
+    /// <b>GeoParquet layers get tiles too, since 2026-09-13 — owner decision, reversing ADR-066
+    /// §9 for this one face.</b> Editing, attachments, related records and schema editing are
+    /// still refused by <see cref="RefuseIfFile"/>; tiling is not, because a GeoParquet layer's
+    /// rows can still be read and PostGIS can still encode them, which is the whole of what a
+    /// tile needs.
+    /// </remarks>
+    public ITileSource TileSourceFor(PublishedLayer layer, IReadOnlyList<FieldDescription> attributes)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
-        RefuseIfFile(layer, "tiled");
+        ArgumentNullException.ThrowIfNull(attributes);
+
+        if (GeoParquetLocator.Is(layer.ConnectionString))
+        {
+            // <b>The same gate <see cref="SourceFor"/> applies, restated.</b> A tile source is
+            // built once per cold tile rather than once per request (`TileSingleFlight`), but the
+            // pool it reads through is the file's own, and an operator quiescing that source
+            // needs it honoured here exactly as it is on the query path.
+            if (_quiesce?.Holding(layer.ConnectionString) is { } held)
+            {
+                throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
+            }
+
+            if (_geoParquet is null || _projector is null)
+            {
+                throw new InvalidOperationException(
+                    $"Layer '{layer.Definition.Name}' is served from a GeoParquet folder and this "
+                    + "server was started without the means to read one.");
+            }
+
+            if (_mvtEncoder is null)
+            {
+                throw new InvalidOperationException(
+                    $"Layer '{layer.Definition.Name}' is served from a GeoParquet folder and this "
+                    + "server was started without a vector tile encoder for it.");
+            }
+
+            TimeSpan? lowered = layer.StatementTimeout is { } fileWanted
+                && fileWanted > TimeSpan.Zero && fileWanted < StatementTimeout
+                    ? fileWanted
+                    : StatementTimeout;
+
+            GeoParquetFeatureSource reader = new(
+                _geoParquet.FolderFor(layer.ConnectionString), layer.Definition, _projector, lowered);
+
+            return new GeoParquetTileSource(reader, layer.Definition, attributes, _mvtEncoder);
+        }
 
         return new PostGisTileSource(
-            PoolFor(layer.ConnectionString), layer.Definition, attributes);
+            PoolFor(layer.ConnectionString), layer.Definition,
+            [.. attributes.Select(a => a.Name)]);
     }
 
     /// <summary>
@@ -562,8 +617,14 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// <remarks>
     /// <b>The last line, not the first.</b> Each face that reaches one of these already refuses a
     /// read-only or non-hosted layer in its own words — capabilities without Create, attachments
-    /// gated on the hosted schema, tiles on hosted data. This is here so that a face written later
-    /// that forgets gets a sentence rather than an Npgsql parse error about a folder path.
+    /// gated on the hosted schema. This is here so that a face written later that forgets gets a
+    /// sentence rather than an Npgsql parse error about a folder path.
+    /// <para>
+    /// <b>Tiling stopped being one of these on 2026-09-13.</b> <see cref="TileSourceFor"/> used
+    /// to call this too — ADR-066 §9's original refusal — and now branches to
+    /// <see cref="GeoParquetTileSource"/> instead. The sentence above is what every other caller
+    /// still gets; a GeoParquet layer's own words about tiles no longer include *cannot*.
+    /// </para>
     /// </remarks>
     private static void RefuseIfFile(PublishedLayer layer, string what)
     {

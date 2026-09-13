@@ -393,6 +393,32 @@ public sealed class GeoParquetFeatureSourceTests : IDisposable
     }
 
     [Fact]
+    public async Task CacheValidatorAsync_agrees_with_VersionOfAsync_and_changes_when_the_file_is_replaced()
+    {
+        // <b>ADR-069.</b> `CacheValidatorAsync` exists so a query response's ETag can be computed
+        // without running the query; this asserts it answers the same thing `VersionOfAsync` does
+        // — the file's own version — rather than drifting into a second, independently-wrong idea
+        // of what "changed" means.
+        GeoParquetFixture.Write(_temporary.File("cacheable.parquet"), Shapes.GridColumns, Shapes.Grid(2), srid: 3857);
+
+        GeoParquetFeatureSource source = new(
+            _folder, new LayerDefinition("cacheable", "main", "cacheable", "geom", 3857, "objectid", "objectid", false), _projector);
+
+        string beforeVersion = (await source.VersionOfAsync(1, CancellationToken.None))!;
+        string beforeValidator = (await source.CacheValidatorAsync(CancellationToken.None))!;
+        Assert.Equal(beforeVersion, beforeValidator);
+
+        File.SetLastWriteTimeUtc(_temporary.File("cacheable.parquet"), DateTime.UtcNow.AddMinutes(-5));
+        GeoParquetFixture.Write(_temporary.File("cacheable.parquet"), Shapes.GridColumns, Shapes.Grid(3), srid: 3857);
+
+        string afterValidator = (await source.CacheValidatorAsync(CancellationToken.None))!;
+
+        // <b>Falsified: making `CacheValidatorAsync` return a constant instead of `Table().Version`
+        // makes this fail</b> — confirmed by hand.
+        Assert.NotEqual(beforeValidator, afterValidator);
+    }
+
+    [Fact]
     public async Task A_file_replaced_by_one_whose_identity_repeats_is_refused()
     {
         GeoParquetFixture.Write(_temporary.File("repeating.parquet"), Shapes.GridColumns, Shapes.Grid(2), srid: 3857);
