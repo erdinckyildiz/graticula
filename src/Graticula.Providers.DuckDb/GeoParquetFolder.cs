@@ -875,6 +875,27 @@ public sealed partial class GeoParquetFolder : IDisposable
     {
         using DuckDBConnection connection = Open();
 
+        // <b>MotherDuck's catalogue is asked to catch up first.</b> Found by the cities benchmark: a source opened
+        // hours earlier did not list two tables created since, while a fresh connection did — and the same idle
+        // source listed them on the next run, minutes later, before this line existed. MotherDuck stops refreshing
+        // an attached catalogue in the background after five minutes idle
+        // (`motherduck_background_catalog_refresh_inactivity_timeout`), so the first listing after a quiet spell
+        // can be one refresh behind. `refresh databases` costs about 12 ms and asks for that refresh up front;
+        // that it closes the gap is not measured, and a failure leaves the catalogue as it was.
+        if (_attached!.IsMotherDuck)
+        {
+            try
+            {
+                using DuckDBCommand refresh = connection.CreateCommand();
+                refresh.CommandText = "refresh databases";
+                using CancellationTokenSource deadline = Deadline(refresh);
+                refresh.ExecuteNonQuery();
+            }
+            catch (DuckDBException)
+            {
+            }
+        }
+
         HashSet<string> baseTables = new(StringComparer.Ordinal);
 
         using (DuckDBCommand command = connection.CreateCommand())
