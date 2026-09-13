@@ -742,54 +742,92 @@ public sealed class GeoParquetFeatureSource : IFeatureSource, IFeatureSummaries,
     private async Task<Filters> FiltersAsync(
         FeatureQuery query, GeoParquetTable table, CancellationToken cancellationToken)
     {
-        List<string> clauses = [];
+        List<string> attributes = [];
         List<DuckDBParameter> parameters = [];
+        List<Envelope> boxes = [];
+        Geometry? shape = null;
 
         if (query.BoundingBox is { } box)
         {
-            Envelope inLayer = await ToLayerAsync(Rectangle(box), query, cancellationToken)
+            boxes.Add(await ToLayerAsync(Rectangle(box), query, cancellationToken)
                 .ConfigureAwait(false) is { IsEmpty: false } moved
                     ? moved.Envelope
-                    : box;
-
-            clauses.Add(BoxClause(inLayer, "bb", table, parameters));
+                    : box);
         }
 
         if (query.Where is { Sql.Length: > 0 } where)
         {
-            clauses.Add("(" + Where(where, table, parameters) + ")");
+            attributes.Add("(" + Where(where, table, parameters) + ")");
         }
 
         if (query.Identities.Count > 0)
         {
             parameters.Add(new DuckDBParameter("ids", query.Identities.ToArray()));
-            clauses.Add($"{Id} in (select unnest($ids))");
+            attributes.Add($"{Id} in (select unnest($ids))");
         }
 
-        if (query.Spatial is not { } spatial)
+        if (query.Spatial is { } spatial)
         {
-            return new Filters(clauses, parameters);
+            Geometry filter = await ToLayerAsync(spatial.Geometry, query, cancellationToken).ConfigureAwait(false);
+
+            if (filter.IsEmpty)
+            {
+                return new Filters(["false"], []);
+            }
+
+            boxes.Add(filter.Envelope);
+
+            // Envelope and index intersection are the box test; intersects is the shape.
+            if (spatial.Relation == SpatialRelation.Intersects)
+            {
+                shape = filter;
+            }
         }
 
-        Geometry filter = await ToLayerAsync(spatial.Geometry, query, cancellationToken).ConfigureAwait(false);
-
-        if (filter.IsEmpty)
+        if (boxes.Count == 0)
         {
-            return new Filters(["false"], []);
+            return new Filters(attributes, parameters);
         }
 
-        clauses.Add(BoxClause(filter.Envelope, "sf", table, parameters));
+        // The box tests as DuckDB would run them exactly — on the geometry column — kept for the
+        // file with no covering column, and for a box-only query too large to answer here.
+        List<string> inDuckDb = [.. attributes];
 
-        if (spatial.Relation != SpatialRelation.Intersects)
+        for (int i = 0; i < boxes.Count; i++)
         {
-            // Envelope and index intersection are the box test, and the box test is exact.
-            return new Filters(clauses, parameters);
+            inDuckDb.Add(ExtentClause(boxes[i], "box" + i.ToString(CultureInfo.InvariantCulture), parameters));
         }
 
-        List<long> matched = Refine(
-            table, new Filters(clauses, parameters), filter, cancellationToken);
+        List<long>? matched;
 
-        if (matched.Count == 0)
+        if (table.Geometry.Covering is { } covering)
+        {
+            List<string> pruned = [.. attributes];
+
+            for (int i = 0; i < boxes.Count; i++)
+            {
+                pruned.Add(CoveringClause(boxes[i], "cover" + i.ToString(CultureInfo.InvariantCulture), covering, parameters));
+            }
+
+            matched = Refine(table, new Filters(pruned, parameters), boxes, shape, cancellationToken);
+
+            if (matched is null)
+            {
+                // A box-only query past the bound: DuckDB answers it exactly, and slowly, rather
+                // than this server holding a list that long or refusing a question it can answer.
+                return new Filters(inDuckDb, parameters);
+            }
+        }
+        else if (shape is null)
+        {
+            return new Filters(inDuckDb, parameters);
+        }
+        else
+        {
+            matched = Refine(table, new Filters(inDuckDb, parameters), [], shape, cancellationToken);
+        }
+
+        if (matched!.Count == 0)
         {
             return new Filters(["false"], [], matched);
         }
@@ -801,10 +839,24 @@ public sealed class GeoParquetFeatureSource : IFeatureSource, IFeatureSummaries,
     }
 
     /// <summary>
-    /// The identities of the candidates whose shapes meet the filter — the second pass.
+    /// The identities of the candidates whose boxes and shapes meet the filters — the exact pass.
     /// </summary>
-    private List<long> Refine(
-        GeoParquetTable table, Filters candidates, Geometry filter, CancellationToken cancellationToken)
+    /// <param name="table">The file.</param>
+    /// <param name="candidates">What DuckDB narrows the rows to first.</param>
+    /// <param name="boxes">Boxes each geometry's own box must meet, tested here exactly.</param>
+    /// <param name="shape">A geometry each must intersect, or null for boxes only.</param>
+    /// <param name="cancellationToken">The deadline.</param>
+    /// <returns>
+    /// The identities, or null when a query of boxes alone matched more than this server holds —
+    /// which the caller answers in DuckDB instead. A shape past the bound is refused, because only
+    /// this process can answer it.
+    /// </returns>
+    private List<long>? Refine(
+        GeoParquetTable table,
+        Filters candidates,
+        IReadOnlyList<Envelope> boxes,
+        Geometry? shape,
+        CancellationToken cancellationToken)
     {
         Statement statement = new(candidates);
 
@@ -828,65 +880,90 @@ public sealed class GeoParquetFeatureSource : IFeatureSource, IFeatureSummaries,
                 continue;
             }
 
-            if (GeometryPredicates.Intersects(WkbReader.Read(Bytes(reader, 1)), filter))
+            Geometry geometry = WkbReader.Read(Bytes(reader, 1));
+            Envelope own = geometry.Envelope;
+            bool meets = true;
+
+            foreach (Envelope box in boxes)
             {
-                if (matched.Count == _mostMatched)
+                if (!own.Intersects(box))
                 {
-                    throw new QueryNotSupportedException(
-                        $"The filter meets more than {_mostMatched:N0} features of this layer. A layer served "
-                        + "from a GeoParquet file holds what a spatial filter matched while it answers, so "
-                        + "it bounds how many; narrow the filter, or import the file into the datastore, "
-                        + "where the geometry is indexed.");
+                    meets = false;
+                    break;
+                }
+            }
+
+            if (!meets || (shape is not null && !GeometryPredicates.Intersects(geometry, shape)))
+            {
+                continue;
+            }
+
+            if (matched.Count == _mostMatched)
+            {
+                if (shape is null)
+                {
+                    return null;
                 }
 
-                matched.Add(Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture));
+                throw new QueryNotSupportedException(
+                    $"The filter meets more than {_mostMatched:N0} features of this layer. A layer served "
+                    + "from a GeoParquet file holds what a spatial filter matched while it answers, so "
+                    + "it bounds how many; narrow the filter, or import the file into the datastore, "
+                    + "where the geometry is indexed.");
             }
+
+            matched.Add(Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture));
         }
 
         return matched;
     }
 
     /// <summary>
-    /// A box test on the geometry, preceded by one on the covering column when the file has it.
+    /// A box test on the covering column, widened past single-precision rounding — the prefilter.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Two tests, because they do different jobs.</b> The covering column is what lets DuckDB
-    /// skip a whole row group from the file's statistics without reading a geometry, and it is
-    /// single precision — so it is compared against a box widened past float rounding, which can
-    /// only let extra rows through. <c>st_intersects_extent</c> on the geometry then decides
-    /// exactly, in double precision, on the rows that remain.
+    /// <b>DuckDB prunes on this and this process decides.</b> The covering column's statistics let
+    /// DuckDB skip whole row groups without reading a geometry; its values are single precision, so
+    /// it is compared against a box widened outwards, which can only let extra rows through. The
+    /// exact box test and the exact shape test then run in <see cref="Refine"/> on the WKB of the
+    /// rows that survive.
+    /// </para>
+    /// <para>
+    /// <b>Why the exact box test left DuckDB — measured on a million OSM polygons, 2026-09-13.</b>
+    /// With the covering filter alone a small box took 35 ms; adding <c>st_intersects_extent</c> on the
+    /// geometry made DuckDB turn the whole geometry column of every surviving row group into its
+    /// <c>GEOMETRY</c> type, and the same query took 440 ms. Reading the survivors' WKB and testing
+    /// their boxes here took 88 ms, and the second pass over the identities 9.
     /// </para>
     /// <para>
     /// <b>Where PostGIS differs, it is PostGIS that is wide.</b> Its <c>&amp;&amp;</c> compares
-    /// boxes rounded outwards to single precision — 1.68 m at the far edge of web Mercator,
-    /// measured for Q-20 — so at large magnitudes a PostGIS layer can return a feature whose box
-    /// misses the query's by a metre and this one will not.
+    /// boxes rounded outwards to single precision — 1.68 m at the far edge of web Mercator, measured
+    /// for Q-20 — so a PostGIS layer can return a feature whose box misses the query's by a metre and
+    /// this one will not.
     /// </para>
     /// </remarks>
-    private string BoxClause(Envelope box, string name, GeoParquetTable table, List<DuckDBParameter> parameters)
+    private static string CoveringClause(
+        Envelope box, string name, string covering, List<DuckDBParameter> parameters)
     {
-        StringBuilder clause = new("(");
+        string c = GeoParquetFolder.Quote(covering);
 
-        if (table.Geometry.Covering is { } covering)
-        {
-            string c = GeoParquetFolder.Quote(covering);
+        parameters.Add(new DuckDBParameter(name + "_minx", Widen(box.MinX, -1)));
+        parameters.Add(new DuckDBParameter(name + "_miny", Widen(box.MinY, -1)));
+        parameters.Add(new DuckDBParameter(name + "_maxx", Widen(box.MaxX, 1)));
+        parameters.Add(new DuckDBParameter(name + "_maxy", Widen(box.MaxY, 1)));
 
-            parameters.Add(new DuckDBParameter(name + "_minx", Widen(box.MinX, -1)));
-            parameters.Add(new DuckDBParameter(name + "_miny", Widen(box.MinY, -1)));
-            parameters.Add(new DuckDBParameter(name + "_maxx", Widen(box.MaxX, 1)));
-            parameters.Add(new DuckDBParameter(name + "_maxy", Widen(box.MaxY, 1)));
+        return $"(struct_extract({c}, 'xmin') <= ${name}_maxx and "
+            + $"struct_extract({c}, 'xmax') >= ${name}_minx and "
+            + $"struct_extract({c}, 'ymin') <= ${name}_maxy and "
+            + $"struct_extract({c}, 'ymax') >= ${name}_miny)";
+    }
 
-            clause.Append($"struct_extract({c}, 'xmin') <= ${name}_maxx and ")
-                  .Append($"struct_extract({c}, 'xmax') >= ${name}_minx and ")
-                  .Append($"struct_extract({c}, 'ymin') <= ${name}_maxy and ")
-                  .Append($"struct_extract({c}, 'ymax') >= ${name}_miny and ");
-        }
-
+    /// <summary>The exact box test in DuckDB, on the geometry column itself.</summary>
+    private string ExtentClause(Envelope box, string name, List<DuckDBParameter> parameters)
+    {
         parameters.Add(new DuckDBParameter(name, WkbWriter.ToArray(Rectangle(box))));
-        clause.Append($"st_intersects_extent({Shape}, st_geomfromwkb(${name})))");
-
-        return clause.ToString();
+        return $"st_intersects_extent({Shape}, st_geomfromwkb(${name}))";
     }
 
     /// <summary>A double moved outwards past any single-precision rounding of it.</summary>

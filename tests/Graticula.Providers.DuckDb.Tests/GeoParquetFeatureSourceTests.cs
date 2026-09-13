@@ -427,6 +427,47 @@ public sealed class GeoParquetFeatureSourceTests : IDisposable
 
         IReadOnlyList<long> atTheEdge = await source.ObjectIdsAsync(new FeatureQuery(10, boundingBox: new Envelope(10_000_000.2, 1, 10_000_010, 2)), CancellationToken.None);
         Assert.Equal([1L], atTheEdge);
+
+        // And the other side: a box starting a tenth past the true edge passes the widened covering
+        // test and misses the shape's own box, which is the exact test this process makes.
+        IReadOnlyList<long> pastTheEdge = await source.ObjectIdsAsync(new FeatureQuery(10, boundingBox: new Envelope(10_000_000.5, 1, 10_000_010, 2)), CancellationToken.None);
+        Assert.Empty(pastTheEdge);
+        Assert.Equal(0, await source.CountAsync(new FeatureQuery(10, boundingBox: new Envelope(10_000_000.5, 1, 10_000_010, 2)), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_file_without_a_covering_column_is_filtered_exactly_by_DuckDB()
+    {
+        GeoParquetFixture.Write(_temporary.File("uncovered.parquet"), Shapes.GridColumns, Shapes.Grid(10), srid: 3857, covering: false);
+
+        Assert.Null(_folder.Find("uncovered")!.Geometry.Covering);
+
+        GeoParquetFeatureSource source = Source(table: "uncovered");
+
+        long[] touched = await IdsAsync(source, new FeatureQuery(1000, boundingBox: new Envelope(1, 0, 2, 0.5)));
+        Assert.Equal([1L, 2L], touched);
+
+        Polygon ell = new(new LinearRing(XySequence.Wrap(
+            [0.5, 0.5, 2.5, 0.5, 2.5, 1.5, 1.5, 1.5, 1.5, 2.5, 0.5, 2.5, 0.5, 0.5])));
+
+        long[] shaped = await IdsAsync(source, new FeatureQuery(1000, spatial: new SpatialFilter(ell)));
+        Assert.Equal([1L, 2L, 11L], shaped);
+    }
+
+    [Fact]
+    public async Task A_box_that_matches_more_than_the_bound_is_answered_by_DuckDB_rather_than_refused()
+    {
+        GeoParquetFeatureSource bounded = new(
+            _folder,
+            new LayerDefinition("grid", "main", "grid", "geom", 3857, "objectid", "objectid", false),
+            _projector,
+            null,
+            mostMatched: 5);
+
+        FeatureQuery everything = new(1000, boundingBox: new Envelope(-1, -1, 30, 30));
+
+        Assert.Equal(100, await bounded.CountAsync(everything, CancellationToken.None));
+        Assert.Equal(100, (await IdsAsync(bounded, everything)).Length);
     }
 
     // ---------- bounds (a security review's findings) ----------

@@ -147,6 +147,7 @@ All on DuckDB 1.5.5 through DuckDB.NET 1.5.5, on 2026-09-13.
 | Every face serves a file written by GDAL | Three OSM files from the importer's own GDAL (30,000 polygons in CRS84, 20,000 roads in EPSG:3857, 3,405 places): register, refuse four bad registrations, refuse a wrong reference and a non-unique identity at publish, then FeatureServer document (`Query` only, no distance), count, where, ids, grouped statistics, envelope, exact intersects **245 against the box's 294**, extent, `Within` and distance refused by name, a 3857 file projected to 4326, `applyEdits` refused; OGC API collections, bbox and property filter; WFS capabilities and GetFeature; WMS capabilities and a drawn PNG; `generateRenderer` — **all pass** | `gp-e2e.py` against the fixture server, VPS arm64 |
 | Through the FeatureServer, a file and a PostGIS table holding the same rows agree | 47 questions (40 random triangles, envelopes, lines and points; five where clauses; grouped statistics; an extent), **29,367 feature ids compared**: two envelope queries differ, by five features PostGIS alone returns. Each is **outside the envelope by 0.87 × 10⁻⁶ to 3.6 × 10⁻⁶ degrees** (0.1–0.4 m), and PostGIS's own `ST_Intersects` says false where its `&&` says true — the single-precision box widening Q-20 measured. The file's answer is the exact one | `gp-compare.py`, VPS arm64 |
 | An independent security review of the working tree, before commit | One high finding and four low, all repaired in the same change and each with a test: **no statement deadline** on this provider (the PostGIS path's thirty seconds now applies, lowered by the service; a cancelled DuckDB command was measured stopping within milliseconds with its connection reusable), an **unbounded list of matched identities** (refused past a million), **no vertex cap on a filter** compared in process (GeometryServer's 130,000), a stored locator compared **as text before it was canonical** and **links not refused** between the root and a file, **DuckDB instances never closed** after a probe, removal or move, a malformed `geo` value that **threw instead of reporting**, and path **pattern characters** DuckDB would expand. No caller-controlled text was found reaching DuckDB SQL, and no path reaching an anonymous caller | review of 2026-09-13; `A_query_past_its_statement_timeout_is_stopped_and_says_so` falsified by removing the deadline |
+| At a million features, where row groups matter | One million OSM polygons, numbered in geohash order, served as a PostGIS table (706 MB with its index) and as the GeoParquet file GDAL wrote from it (507 MB, 16 row groups, covering column). 41 questions through the FeatureServer, median of two warm rounds, file against table: small envelopes, triangles and points **125–204 ms / 19–41 ms**; a page of 1,000 features with geometry **683 / 330**; where-clause counts **36 / 155**; the whole count **32 / 103**; grouped statistics **41 / 196**. Id sets compared over 17,114 features: three envelope questions differ by six features, **all six returned by PostGIS alone** — the direction the 30,000-row run traced to its single-precision box, not traced one by one here. **Before the exact box test moved into this process the spatial questions took about 470 ms**: `st_intersects_extent` on the geometry column made DuckDB convert every surviving row group's geometry, measured at 440 ms against 35 ms for the covering filter alone | `gp-bench.py` and a DuckDB.NET probe of the statement, VPS arm64 |
 | What it costs | Median of two warm rounds, loopback, 30,000 polygons in one row group — file against table: where **27 / 29 ms**, statistics **28 / 31**, envelope **50 / 21**, point **62 / 23**, line **76 / 45**, triangle **80 / 42**, extent **60 / 37**. Before ids and counts were answered from the exact test's own identities rather than a second scan, point was 68, line 83 and triangle 89 | `gp-compare.py`, VPS arm64 |
 
 ## 5. Decision
@@ -210,10 +211,10 @@ to the PostGIS provider and turned them into a port. Attribute queries and stati
 cost on PostGIS. The exact answer to an envelope query is exact, where PostGIS's is up to a
 single-precision step wide.
 
-**Negative.** DuckDB's calls are synchronous, so a running GeoParquet query holds a thread-pool
+**Negative.** At a million features a small spatial query costs **four to six times** what PostGIS
+costs (125–204 ms against 19–41) — §4 — and revisit trigger 5 fired on it; see §9. DuckDB's calls are synchronous, so a running GeoParquet query holds a thread-pool
 thread for its duration — bounded by the connection budget and the thirty-second statement deadline,
-not removed. Spatial queries are about twice as slow as PostGIS at 30,000 features in one row
-group, and nothing yet says how that scales (condition 4). Five relations and distance are refused.
+not removed. Spatial queries are about twice as slow as PostGIS at 30,000 features in one row group. Five relations and distance are refused.
 A native parser runs in the serving process. The image grows by DuckDB's two Linux libraries
 (68 MB for x64, 61 MB for arm64, uncompressed). The WFS capabilities list spatial operators for the
 whole service, and a GeoParquet layer refuses some of them (condition 3). A layer on a file with no
@@ -257,9 +258,17 @@ Core, a face or a writer. `QueryNotSupportedException` (Core) carries a provider
   external access is exactly what the sandbox switches off; that is a new decision, not a setting.
 - **A client needs contains, within, touches, crosses, overlaps, relate or distance on a file** — the
   in-process predicate set is extended with PostGIS as its oracle, or the layer is imported.
-- **Spatial p50 on a GeoParquet layer exceeds three times PostGIS's on the same rows at a million
+- ~~**Spatial p50 on a GeoParquet layer exceeds three times PostGIS's on the same rows at a million
   features** — condition 4's measurement decides whether the file path is fit for anything but
-  reference layers.
+  reference layers.~~ **Fired the night it was written, 2026-09-13, and answered rather than
+  dismissed.** 125–204 ms against 19–41 ms is four to six times. The answer is the one §2 already
+  gave for Alternative B, now with its number: **a GeoParquet layer is a reference layer** — drawn,
+  identified, counted, classified — and a layer queried spatially at a high rate belongs in the
+  datastore, where the geometry is indexed. What the measurement also says is that the file path is
+  not slow everywhere: counts, where clauses and statistics are three to five times *faster* than
+  PostGIS on the same million rows, because they read columns rather than rows. The trigger that
+  replaces it: **a small spatial query on a GeoParquet layer passes 500 ms at median**, which is
+  where an interactive map stops feeling like one.
 - **DuckDB.NET changes how `GEOMETRY` is returned** — the binding workaround (`st_aswkb`) is load
   bearing and pinned by version.
 
@@ -286,9 +295,10 @@ justified* — Q-87's last words — is the owner's to answer, and §11 asks.
 ## 12. Conditions
 
 1. **The provider is checked against PostGIS in CI, not only on the VPS.** `GeoParquetAgainstPostgisTests`
-   carries no `Needs` trait, so the platform suite runs it against the CI datastore. It passes 3 of 3
-   against the VPS datastore and has been falsified there; it has not yet run in CI, and until it has
-   this condition is a claim about a workflow file rather than about a run.
+   carries no `Needs` trait, so the platform suite runs it against the CI datastore. **DISCHARGED
+   2026-09-13** by CI run 34729938403 on the branch: the platform and providers job passed 392 of 392
+   with the class in it, on `postgis/postgis:16-3.4`, and the provider's own 71 tests passed on the
+   runner's linux-x64 library.
 2. **An ArcGIS client adds a GeoParquet layer and draws and queries it.** Not measured — the same gap
    ADR-065 condition 2 records, for the same reason.
 3. **WFS and OGC API Features advertise, per layer, only the spatial operators the layer answers.**
@@ -296,7 +306,11 @@ justified* — Q-87's last words — is the owner's to answer, and §11 asks.
    answer is refused at query time with a sentence rather than not offered. [D-263](../architecture-debt.md).
 4. **The spatial cost is measured at a size where row groups matter** — a million features or more,
    written by GDAL with its covering column — so §6's *twice as slow* is a number with a size attached
-   rather than a sample of one.
+   rather than a sample of one. **DISCHARGED 2026-09-13**, and it corrected the sentence it was written
+   to check: at a million polygons in 16 row groups, a small spatial query is four to six times
+   PostGIS's time, not two (§4). The measurement also found the reason it had been twenty times —
+   DuckDB converting the geometry column for its own box test — and the exact box test moved into
+   this process in the same change.
 5. **The image starts DuckDB on both architectures.** The release workflow builds `linux/amd64` and
    `linux/arm64`, and the Dockerfile fails if either library is missing; that a container on each
    actually opens a folder is not yet observed.
