@@ -24,7 +24,9 @@ making architectural claims. Section references below (§n) point into it.
 
 Scope is [docs/v1-scope.md](docs/v1-scope.md), which is authoritative: **PostGIS
 only, ArcGIS FeatureServer, VectorTileServer and GeometryServer, hosted and
-registered data.** Where any other document disagrees, v1-scope wins until that
+registered data** — and, since 2026-09-13, **read-only GeoParquet layers read in
+place by DuckDB** ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md)),
+which is a file-format engine rather than a second database. Where any other document disagrees, v1-scope wins until that
 document is amended.
 
 **Phase 0 did not end because its criteria were met.** It ended because the

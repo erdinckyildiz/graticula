@@ -584,8 +584,8 @@ internal static class WmsEndpoints
         // `statistics` a query carries and returns rows, so asking it for a min and
         // a max produces a feature with no attributes at all — which is what this
         // did on its first run, and it failed as *no attribute named 'from'* rather
-        // than as *statistics are somewhere else*. `StatisticsAsync` lives on the
-        // provider, and Program.cs's own query path casts for it the same way.
+        // than as *statistics are somewhere else*. `StatisticsAsync` is on
+        // `IFeatureSummaries`, and Program.cs's own query path casts for it the same way.
         // <b>Unwrapped first.</b> `ServiceContexts` hands back a
         // `BudgetedFeatureSource` — the connection-budget wrapper — and a cast
         // straight to the provider fails silently against it. Program.cs's own
@@ -593,7 +593,7 @@ internal static class WmsEndpoints
         // reason that step is worth naming rather than repeating from memory.
         IFeatureSource inner = source is BudgetedFeatureSource wrapper ? wrapper.Inner : source;
 
-        if (inner is not Graticula.Providers.PostGis.PostGisFeatureSource provider)
+        if (inner is not IFeatureSummaries provider)
         {
             return null;
         }

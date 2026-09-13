@@ -1,0 +1,1296 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using DuckDB.NET.Data;
+using Graticula.Catalog;
+using Graticula.Features;
+using Graticula.Geometries;
+using SortKey = Graticula.Features.SortKey;
+
+namespace Graticula.Providers.DuckDb;
+
+/// <summary>
+/// A layer served from one GeoParquet file, read in place by DuckDB — ADR-066.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Read-only, and says so.</b> <see cref="LayerDescription.Writable"/> is false, which is what
+/// takes Create, Update and Delete out of the layer's capabilities on every face; a GeoParquet
+/// file is immutable, and editing one means rewriting it.
+/// </para>
+/// <para>
+/// <b>The box test runs in DuckDB and the exact test runs here.</b> DuckDB's core has no exact
+/// spatial predicate — <c>st_intersects_extent</c> compares bounding boxes — and the extension
+/// that has one downloads at run time and links GEOS, which this server does not load (ADR-066
+/// §2). So a spatial filter is two passes: DuckDB returns the identity and the shape of every row
+/// whose box meets the filter's, <see cref="GeometryPredicates.Intersects"/> keeps the ones whose
+/// shapes meet, and every other part of the query — order, paging, distinct, statistics, counts —
+/// runs in DuckDB again over exactly those identities. PostGIS is the oracle for the second pass,
+/// on the corpus the rest of the geometry code is checked against.
+/// </para>
+/// <para>
+/// <b>The where clause is emitted again, not rewritten</b>: the parsed tree travels on
+/// <see cref="ParsedWhere.Predicate"/> and <see cref="PredicateSql"/> emits it with DuckDB's
+/// placeholders (D-162).
+/// </para>
+/// <para>
+/// <b>Coordinates move through the datastore's PROJ</b> — <see cref="IProjector"/> — for an output
+/// reference and for a filter stated in another one, so a GeoParquet layer and a PostGIS layer in
+/// the same reference answer with the same numbers.
+/// </para>
+/// </remarks>
+public sealed class GeoParquetFeatureSource : IFeatureSource, IFeatureSummaries, IFeatureVersions
+{
+    private const int ProjectionBatch = 512;
+
+    /// <summary>How long one query may run when the service says nothing shorter.</summary>
+    /// <remarks>
+    /// <b>The PostGIS path's thirty seconds, and for the PostGIS path's reason</b> (ADR-007 §4.8).
+    /// A security review found this provider had none: a request deadline of ten minutes was all
+    /// that stopped a public query holding a budget slot, a thread and DuckDB's cores, and three
+    /// folders' worth of them was the whole server's budget. Measured before relying on it: a
+    /// cancelled DuckDB command stops within a few milliseconds of the cancel and its connection
+    /// answers the next statement.
+    /// </remarks>
+    public static readonly TimeSpan DefaultStatementTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>The most features a spatial filter may match before it is refused.</summary>
+    /// <remarks>
+    /// <b>A bound on memory, because the exact test keeps what it matched.</b> The identities are
+    /// the answer the rest of the query is computed over, so they are held — eight bytes each, and a
+    /// copy handed to DuckDB. A filter over a whole province of buildings is a legitimate question
+    /// and this layer refuses it; the datastore, where the geometry is indexed, does not.
+    /// </remarks>
+    public const int DefaultMostMatched = 1_000_000;
+
+    /// <summary>The most vertices a spatial filter's geometry may have.</summary>
+    /// <remarks>
+    /// GeometryServer's cap, for the same reason: the exact test compares every segment of the filter
+    /// with every segment of each candidate, in this process, and a caller chooses the filter.
+    /// </remarks>
+    public const int MostFilterVertices = 130_000;
+
+    private readonly GeoParquetFolder _folder;
+    private readonly LayerDefinition _layer;
+    private readonly IProjector _projector;
+    private readonly TimeSpan _timeout;
+    private readonly int _mostMatched;
+
+    /// <summary>Serves one file of a folder as a layer.</summary>
+    /// <param name="folder">The folder's sandboxed DuckDB.</param>
+    /// <param name="layer">The layer; its table name is the file name without <c>.parquet</c>.</param>
+    /// <param name="projector">The datastore's projector.</param>
+    /// <param name="statementTimeout">How long one query may run; <see cref="DefaultStatementTimeout"/> when null.</param>
+    public GeoParquetFeatureSource(
+        GeoParquetFolder folder, LayerDefinition layer, IProjector projector, TimeSpan? statementTimeout = null)
+        : this(folder, layer, projector, statementTimeout, DefaultMostMatched)
+    {
+    }
+
+    internal GeoParquetFeatureSource(
+        GeoParquetFolder folder, LayerDefinition layer, IProjector projector, TimeSpan? statementTimeout, int mostMatched)
+    {
+        ArgumentNullException.ThrowIfNull(folder);
+        ArgumentNullException.ThrowIfNull(layer);
+        ArgumentNullException.ThrowIfNull(projector);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(mostMatched);
+
+        if (statementTimeout is { } given && given <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(statementTimeout), "A statement timeout must be positive.");
+        }
+
+        _folder = folder;
+        _layer = layer;
+        _projector = projector;
+        _timeout = statementTimeout ?? DefaultStatementTimeout;
+        _mostMatched = mostMatched;
+    }
+
+    /// <summary>The relations a GeoParquet layer answers.</summary>
+    public static IReadOnlyList<SpatialRelation> Relations { get; } =
+        [SpatialRelation.Intersects, SpatialRelation.EnvelopeIntersects, SpatialRelation.IndexIntersects];
+
+    private bool RowNumbers =>
+        string.Equals(_layer.IdentityColumn, GeoParquetFolder.RowNumberColumn, StringComparison.Ordinal);
+
+    private string Id => GeoParquetFolder.Quote(_layer.IdentityColumn);
+
+    private string Shape => GeoParquetFolder.Quote(_layer.GeometryColumn);
+
+    /// <inheritdoc />
+    public FeatureSchema SchemaFor(FeatureQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        // <b>Refused here, before a response has started.</b> A face writes its headers after
+        // asking for the schema and before the first row, so this is the last point at which a
+        // refusal can still be a status code rather than a truncated body.
+        Refuse(query);
+
+        return query.Fields.Count == 0 ? FeatureSchema.Empty : new FeatureSchema(query.Fields);
+    }
+
+    /// <inheritdoc />
+    public async IAsyncEnumerable<Feature> ReadAsync(
+        FeatureQuery query,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        // Refused before the deadline starts, so a refusal is a refusal and never a timeout.
+        SchemaFor(query);
+
+        using CancellationTokenSource deadline = Deadline(cancellationToken);
+
+        await using IAsyncEnumerator<Feature> rows =
+            ReadBoundedAsync(query, deadline.Token).GetAsyncEnumerator(deadline.Token);
+
+        while (true)
+        {
+            bool more;
+
+            try
+            {
+                more = await rows.MoveNextAsync().ConfigureAwait(false);
+            }
+            catch (Exception stopped) when (TimedOut(stopped, deadline, cancellationToken))
+            {
+                throw Timeout();
+            }
+
+            if (!more)
+            {
+                yield break;
+            }
+
+            yield return rows.Current;
+        }
+    }
+
+    private async IAsyncEnumerable<Feature> ReadBoundedAsync(
+        FeatureQuery query,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        FeatureSchema schema = SchemaFor(query);
+        GeoParquetTable table = Table();
+        Filters filters = await FiltersAsync(query, table, cancellationToken).ConfigureAwait(false);
+
+        Statement statement = new(filters);
+        StringBuilder sql = statement.Sql;
+
+        sql.Append("select ");
+
+        if (query.Distinct && schema.Count > 0)
+        {
+            sql.Append("distinct on (")
+               .Append(string.Join(", ", schema.Names.Select(GeoParquetFolder.Quote)))
+               .Append(") ");
+        }
+
+        sql.Append(Id);
+
+        foreach (string field in schema.Names)
+        {
+            sql.Append(", ").Append(GeoParquetFolder.Quote(field));
+        }
+
+        sql.Append(query.IncludeGeometry ? $", st_aswkb({Shape})" : ", null::blob");
+        sql.Append(" from ").Append(GeoParquetFolder.TableExpression(table, RowNumbers));
+
+        statement.AppendWhere();
+        AppendOrderAndPaging(statement, query, schema);
+
+        List<Feature> batch = new(ProjectionBatch);
+        bool reshape = query.IncludeGeometry && (Projects(query) || query.Precision is >= 0);
+
+        using DuckDBConnection connection = _folder.Open();
+        using DuckDBCommand command = statement.Command(connection);
+        using CancellationTokenRegistration cancel = cancellationToken.Register(command.Cancel);
+        using DuckDBDataReader reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (reader.IsDBNull(0))
+            {
+                throw new InvalidOperationException(
+                    $"Layer '{_layer.Name}' has a row whose identity column '{_layer.IdentityColumn}' "
+                    + "is null, and it was measured unique and never null when it was published — "
+                    + "so the file has been replaced by one it no longer describes.");
+            }
+
+            string id = Convert.ToString(reader.GetValue(0), CultureInfo.InvariantCulture)!;
+
+            object?[] values = new object?[schema.Count];
+
+            for (int i = 0; i < schema.Count; i++)
+            {
+                values[i] = reader.IsDBNull(i + 1) ? null : Normalise(reader.GetValue(i + 1));
+            }
+
+            int geometryOrdinal = schema.Count + 1;
+            Geometry? geometry = reader.IsDBNull(geometryOrdinal)
+                ? null
+                : WkbReader.Read(Bytes(reader, geometryOrdinal));
+
+            Feature feature = new(id, geometry, schema, values);
+
+            if (!reshape)
+            {
+                yield return feature;
+                continue;
+            }
+
+            batch.Add(feature);
+
+            if (batch.Count == ProjectionBatch)
+            {
+                foreach (Feature done in await ReshapeAsync(batch, query, cancellationToken).ConfigureAwait(false))
+                {
+                    yield return done;
+                }
+
+                batch.Clear();
+            }
+        }
+
+        if (batch.Count > 0)
+        {
+            foreach (Feature done in await ReshapeAsync(batch, query, cancellationToken).ConfigureAwait(false))
+            {
+                yield return done;
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<LayerDescription> DescribeAsync(CancellationToken cancellationToken) =>
+        Bounded(DescribeBoundedAsync, cancellationToken);
+
+    private async Task<LayerDescription> DescribeBoundedAsync(CancellationToken cancellationToken)
+    {
+        GeoParquetTable table = Table();
+
+        List<FieldDescription> fields = [];
+
+        if (RowNumbers)
+        {
+            fields.Add(new FieldDescription(GeoParquetFolder.RowNumberColumn, FieldType.BigInteger, false, null));
+        }
+
+        foreach (GeoParquetColumn column in table.Columns)
+        {
+            fields.Add(new FieldDescription(column.Name, MapType(column.Type), true, null));
+        }
+
+        Envelope? extent = table.Geometry.Bbox;
+
+        if (extent is null && table.Geometry.Covering is { } covering)
+        {
+            extent = await Task.Run(() => CoveringExtent(table, covering), cancellationToken).ConfigureAwait(false);
+        }
+
+        return new LayerDescription(fields, extent, Writable: false) { AnswersDistance = false };
+    }
+
+    /// <inheritdoc />
+    public Task<long> CountAsync(FeatureQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        Refuse(query);
+        return Bounded(token => CountBoundedAsync(query, token), cancellationToken);
+    }
+
+    private async Task<long> CountBoundedAsync(FeatureQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        Refuse(query);
+
+        GeoParquetTable table = Table();
+        Filters filters = await FiltersAsync(query, table, cancellationToken).ConfigureAwait(false);
+
+        if (filters.Refined is { } counted && !(query.Distinct && query.Fields.Count > 0))
+        {
+            return counted.Count;
+        }
+
+        Statement statement = new(filters);
+
+        if (query.Distinct && query.Fields.Count > 0)
+        {
+            statement.Sql.Append("select count(*) from (select distinct ")
+                .Append(string.Join(", ", query.Fields.Select(GeoParquetFolder.Quote)))
+                .Append(" from ").Append(GeoParquetFolder.TableExpression(table, RowNumbers));
+            statement.AppendWhere();
+            statement.Sql.Append(") distinct_rows");
+        }
+        else
+        {
+            statement.Sql.Append("select count(*) from ")
+                .Append(GeoParquetFolder.TableExpression(table, RowNumbers));
+            statement.AppendWhere();
+        }
+
+        return Convert.ToInt64(Scalar(statement, cancellationToken), CultureInfo.InvariantCulture);
+    }
+
+    /// <inheritdoc />
+    public Task<long> CountUpToAsync(
+        FeatureQuery query, long ceiling, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ceiling);
+        Refuse(query);
+        return Bounded(token => CountUpToBoundedAsync(query, ceiling, token), cancellationToken);
+    }
+
+    private async Task<long> CountUpToBoundedAsync(
+        FeatureQuery query, long ceiling, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ceiling);
+
+        if (query.Distinct && query.Fields.Count > 0)
+        {
+            return await CountBoundedAsync(query, cancellationToken).ConfigureAwait(false);
+        }
+
+        Refuse(query);
+
+        GeoParquetTable table = Table();
+        Filters filters = await FiltersAsync(query, table, cancellationToken).ConfigureAwait(false);
+
+        if (filters.Refined is { } counted)
+        {
+            return Math.Min(counted.Count, ceiling);
+        }
+
+        Statement statement = new(filters);
+
+        statement.Sql.Append("select count(*) from (select 1 from ")
+            .Append(GeoParquetFolder.TableExpression(table, RowNumbers));
+        statement.AppendWhere();
+        statement.Sql.Append(" limit ").Append(ceiling.ToString(CultureInfo.InvariantCulture)).Append(") s");
+
+        return Convert.ToInt64(Scalar(statement, cancellationToken), CultureInfo.InvariantCulture);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <b>Computed from the shapes, in this process.</b> DuckDB's core has no <c>st_xmin</c>, and
+    /// the covering column is single precision — a box rounded outwards is right for pruning and
+    /// wrong for an answer a client zooms to. So the extent is the union of the envelopes of the
+    /// matched rows, in the output reference when one is asked for, which is what PostGIS's
+    /// <c>st_extent</c> over the output geometry returns.
+    /// </remarks>
+    public Task<(Envelope? Extent, long Count)> ExtentAsync(
+        FeatureQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        Refuse(query);
+        return Bounded(token => ExtentBoundedAsync(query, token), cancellationToken);
+    }
+
+    private async Task<(Envelope? Extent, long Count)> ExtentBoundedAsync(
+        FeatureQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        Refuse(query);
+
+        GeoParquetTable table = Table();
+        Filters filters = await FiltersAsync(query, table, cancellationToken).ConfigureAwait(false);
+        Statement statement = new(filters);
+
+        statement.Sql.Append("select st_aswkb(").Append(Shape).Append(") from ")
+            .Append(GeoParquetFolder.TableExpression(table, RowNumbers));
+        statement.AppendWhere();
+
+        Envelope extent = Envelope.Empty;
+        long count = 0;
+        List<Geometry> pending = new(ProjectionBatch);
+
+        using (DuckDBConnection connection = _folder.Open())
+        using (DuckDBCommand command = statement.Command(connection))
+        using (cancellationToken.Register(command.Cancel))
+        using (DuckDBDataReader reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                count++;
+
+                if (reader.IsDBNull(0))
+                {
+                    continue;
+                }
+
+                Geometry shape = WkbReader.Read(Bytes(reader, 0));
+
+                if (shape.IsEmpty)
+                {
+                    continue;
+                }
+
+                if (!Projects(query))
+                {
+                    extent = extent.Union(shape.Envelope);
+                    continue;
+                }
+
+                pending.Add(shape);
+
+                if (pending.Count == ProjectionBatch)
+                {
+                    extent = extent.Union(await ExtentOfAsync(pending, query, cancellationToken).ConfigureAwait(false));
+                    pending.Clear();
+                }
+            }
+        }
+
+        if (pending.Count > 0)
+        {
+            extent = extent.Union(await ExtentOfAsync(pending, query, cancellationToken).ConfigureAwait(false));
+        }
+
+        return (extent.IsEmpty ? null : extent, count);
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<long>> ObjectIdsAsync(
+        FeatureQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        Refuse(query);
+        return Bounded(token => ObjectIdsBoundedAsync(query, token), cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<long>> ObjectIdsBoundedAsync(
+        FeatureQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        Refuse(query);
+
+        GeoParquetTable table = Table();
+        Filters filters = await FiltersAsync(query, table, cancellationToken).ConfigureAwait(false);
+
+        if (filters.Refined is { } refined)
+        {
+            List<long> sorted = [.. refined];
+            sorted.Sort();
+            return sorted;
+        }
+
+        Statement statement = new(filters);
+
+        statement.Sql.Append("select ").Append(Id).Append(" from ")
+            .Append(GeoParquetFolder.TableExpression(table, RowNumbers));
+        statement.AppendWhere();
+        statement.Sql.Append(" order by ").Append(Id);
+
+        List<long> ids = [];
+
+        using DuckDBConnection connection = _folder.Open();
+        using DuckDBCommand command = statement.Command(connection);
+        using CancellationTokenRegistration cancel = cancellationToken.Register(command.Cancel);
+        using DuckDBDataReader reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ids.Add(Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture));
+        }
+
+        return ids;
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> StatisticsAsync(
+        FeatureQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        Refuse(query);
+        return Bounded(token => StatisticsBoundedAsync(query, token), cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> StatisticsBoundedAsync(
+        FeatureQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        Refuse(query);
+
+        GeoParquetTable table = Table();
+        Filters filters = await FiltersAsync(query, table, cancellationToken).ConfigureAwait(false);
+        Statement statement = new(filters);
+        StringBuilder sql = statement.Sql;
+
+        List<string> select = [.. query.GroupBy.Select(GeoParquetFolder.Quote)];
+
+        foreach (StatisticRequest statistic in query.Statistics)
+        {
+            select.Add($"{Aggregate(statistic)} as {GeoParquetFolder.Quote(statistic.OutName)}");
+        }
+
+        sql.Append("select ").Append(string.Join(", ", select)).Append(" from ")
+           .Append(GeoParquetFolder.TableExpression(table, RowNumbers));
+
+        statement.AppendWhere();
+
+        if (query.GroupBy.Count > 0)
+        {
+            sql.Append(" group by ").Append(string.Join(", ", query.GroupBy.Select(GeoParquetFolder.Quote)));
+
+            // The same vocabulary rule as PostgreSQL's path: a sort key naming neither a group nor a
+            // statistic of this query is dropped rather than quoted into the statement.
+            List<string> ordering = [];
+
+            foreach (SortKey key in query.OrderBy)
+            {
+                string? named = query.GroupBy
+                    .Concat(query.Statistics.Select(s => s.OutName))
+                    .FirstOrDefault(n => n.Equals(key.Field, StringComparison.OrdinalIgnoreCase));
+
+                if (named is not null)
+                {
+                    ordering.Add(key.Descending
+                        ? $"{GeoParquetFolder.Quote(named)} desc"
+                        : GeoParquetFolder.Quote(named));
+                }
+            }
+
+            if (ordering.Count == 0)
+            {
+                ordering.AddRange(query.GroupBy.Select(GeoParquetFolder.Quote));
+            }
+
+            sql.Append(" order by ").Append(string.Join(", ", ordering))
+               .Append(" limit ").Append(statement.Bind("limit", query.Limit));
+        }
+
+        List<IReadOnlyDictionary<string, object?>> rows = [];
+
+        using DuckDBConnection connection = _folder.Open();
+        using DuckDBCommand command = statement.Command(connection);
+        using CancellationTokenRegistration cancel = cancellationToken.Register(command.Cancel);
+        using DuckDBDataReader reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Dictionary<string, object?> row = [];
+
+            for (int i = 0; i < reader.FieldCount; i++)
+            {
+                row[reader.GetName(i)] = reader.IsDBNull(i) ? null : Normalise(reader.GetValue(i));
+            }
+
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <b>The file's version, and the same for every row.</b> A row of an immutable file changes
+    /// only when the file does, so an entity tag built from the file's length and modification
+    /// time is exact rather than approximate: it changes on every replacement and on nothing else.
+    /// </remarks>
+    public Task<string?> VersionOfAsync(long identity, CancellationToken cancellationToken) =>
+        Task.FromResult<string?>(Table().Version);
+
+    /// <summary>Refuses what this provider does not answer, before any work is done.</summary>
+    private static void Refuse(FeatureQuery query)
+    {
+        if (query.Spatial is not { } spatial)
+        {
+            return;
+        }
+
+        if (spatial.Geometry.CoordinateCount > MostFilterVertices)
+        {
+            throw new QueryNotSupportedException(
+                $"The filter geometry has {spatial.Geometry.CoordinateCount:N0} vertices, and a layer served "
+                + $"from a GeoParquet file compares it with each feature in this server, so it takes at most "
+                + $"{MostFilterVertices:N0}. Generalize it first (GeometryServer/generalize).");
+        }
+
+        if (spatial.Distance > 0)
+        {
+            throw new QueryNotSupportedException(
+                "This layer is served from a GeoParquet file, which answers a spatial filter by "
+                + "intersection and not within a distance. Buffer the geometry first "
+                + "(GeometryServer/buffer) and filter by the result, or publish the data into the "
+                + "datastore, where distance is answered.");
+        }
+
+        if (!Relations.Contains(spatial.Relation))
+        {
+            throw new QueryNotSupportedException(
+                $"This layer is served from a GeoParquet file, which answers the spatial relations "
+                + $"intersects, envelope-intersects and index-intersects, and '{spatial.Relation}' is "
+                + "not one of them. It is computed exactly by a database this layer is not in; "
+                + "publishing the data into the datastore answers it.");
+        }
+    }
+
+    private CancellationTokenSource Deadline(CancellationToken cancellationToken)
+    {
+        CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(_timeout);
+        return deadline;
+    }
+
+    private async Task<T> Bounded<T>(Func<CancellationToken, Task<T>> work, CancellationToken cancellationToken)
+    {
+        using CancellationTokenSource deadline = Deadline(cancellationToken);
+
+        try
+        {
+            return await work(deadline.Token).ConfigureAwait(false);
+        }
+        catch (Exception stopped) when (TimedOut(stopped, deadline, cancellationToken))
+        {
+            throw Timeout();
+        }
+    }
+
+    /// <summary>Whether a failure is this provider's own deadline rather than the caller leaving.</summary>
+    /// <remarks>
+    /// <b>A DuckDB error counts too</b>, because an interrupted statement can surface as the engine's
+    /// own exception rather than as a cancellation, depending on where in its pipeline the interrupt
+    /// lands — and reporting that as a server fault would send an operator looking for a defect.
+    /// </remarks>
+    private static bool TimedOut(Exception stopped, CancellationTokenSource deadline, CancellationToken caller) =>
+        deadline.IsCancellationRequested
+        && !caller.IsCancellationRequested
+        && stopped is OperationCanceledException or DuckDBException;
+
+    private TimeoutException Timeout() => new(
+        $"A query on layer '{_layer.Name}' ran past the {_timeout.TotalSeconds:0.#} seconds this service "
+        + "allows one statement, and DuckDB was stopped. Narrow the extent or the where clause, or import "
+        + "the file into the datastore, where the geometry is indexed.");
+
+    private GeoParquetTable Table()
+    {
+        GeoParquetTable? table = _folder.Find(_layer.TableName);
+
+        if (table is null)
+        {
+            throw new FileNotFoundException(
+                $"Layer '{_layer.Name}' is served from '{_folder.PathOf(_layer.TableName)}', and that "
+                + "file is not there. The registration and the folder have diverged; retrying will "
+                + "not help.");
+        }
+
+        if (table.Problem is { } problem)
+        {
+            throw new InvalidOperationException(
+                $"Layer '{_layer.Name}' is served from '{table.Path}', which can no longer be served: "
+                + problem);
+        }
+
+        if (!string.Equals(table.Geometry.Column, _layer.GeometryColumn, StringComparison.Ordinal)
+            || table.Geometry.Srid != _layer.Srid)
+        {
+            throw new InvalidOperationException(
+                $"Layer '{_layer.Name}' was published from a file whose geometry was "
+                + $"'{_layer.GeometryColumn}' in EPSG:{_layer.Srid}, and '{table.Path}' now has "
+                + $"'{table.Geometry.Column}' in EPSG:{table.Geometry.Srid?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}. "
+                + "The file has been replaced by a different one; republishing reads it again.");
+        }
+
+        // <b>Measured again whenever the file changes, because a file is not a table with a key.</b>
+        // The identity was unique when the layer was published; a replacement that duplicates one
+        // would make a spatial filter return the duplicate's sibling — the identities carried back
+        // from the exact test would match two rows — so a layer whose identity is no longer unique
+        // is refused rather than answered.
+        if (!table.IdentityCandidates.Contains(_layer.IdentityColumn, StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Layer '{_layer.Name}' identifies its features by '{_layer.IdentityColumn}', and in "
+                + $"'{table.Path}' as it is now that column is no longer unique and never null. The "
+                + "file has been replaced by one that breaks the layer's identity; republish it "
+                + $"with one of: {string.Join(", ", table.IdentityCandidates)}.");
+        }
+
+        return table;
+    }
+
+    private bool Projects(FeatureQuery query) =>
+        (query.OutSrid is { } srid && srid != _layer.Srid) || query.OutWkt is { Length: > 0 };
+
+    /// <summary>The parts of a statement every method shares: the where clause and its values.</summary>
+    /// <param name="Clauses">The conditions, joined with <c>and</c>.</param>
+    /// <param name="Parameters">The values they bind.</param>
+    /// <param name="Refined">
+    /// When the exact test ran, the identities it kept — already the whole answer to <em>which</em>
+    /// and <em>how many</em>, so those two do not scan the file a second time to be told it again.
+    /// </param>
+    private sealed record Filters(
+        IReadOnlyList<string> Clauses,
+        IReadOnlyList<DuckDBParameter> Parameters,
+        IReadOnlyList<long>? Refined = null);
+
+    private async Task<Filters> FiltersAsync(
+        FeatureQuery query, GeoParquetTable table, CancellationToken cancellationToken)
+    {
+        List<string> clauses = [];
+        List<DuckDBParameter> parameters = [];
+
+        if (query.BoundingBox is { } box)
+        {
+            Envelope inLayer = await ToLayerAsync(Rectangle(box), query, cancellationToken)
+                .ConfigureAwait(false) is { IsEmpty: false } moved
+                    ? moved.Envelope
+                    : box;
+
+            clauses.Add(BoxClause(inLayer, "bb", table, parameters));
+        }
+
+        if (query.Where is { Sql.Length: > 0 } where)
+        {
+            clauses.Add("(" + Where(where, table, parameters) + ")");
+        }
+
+        if (query.Identities.Count > 0)
+        {
+            parameters.Add(new DuckDBParameter("ids", query.Identities.ToArray()));
+            clauses.Add($"{Id} in (select unnest($ids))");
+        }
+
+        if (query.Spatial is not { } spatial)
+        {
+            return new Filters(clauses, parameters);
+        }
+
+        Geometry filter = await ToLayerAsync(spatial.Geometry, query, cancellationToken).ConfigureAwait(false);
+
+        if (filter.IsEmpty)
+        {
+            return new Filters(["false"], []);
+        }
+
+        clauses.Add(BoxClause(filter.Envelope, "sf", table, parameters));
+
+        if (spatial.Relation != SpatialRelation.Intersects)
+        {
+            // Envelope and index intersection are the box test, and the box test is exact.
+            return new Filters(clauses, parameters);
+        }
+
+        List<long> matched = Refine(
+            table, new Filters(clauses, parameters), filter, cancellationToken);
+
+        if (matched.Count == 0)
+        {
+            return new Filters(["false"], [], matched);
+        }
+
+        return new Filters(
+            [$"{Id} in (select unnest($refined))"],
+            [new DuckDBParameter("refined", matched.ToArray())],
+            matched);
+    }
+
+    /// <summary>
+    /// The identities of the candidates whose shapes meet the filter — the second pass.
+    /// </summary>
+    private List<long> Refine(
+        GeoParquetTable table, Filters candidates, Geometry filter, CancellationToken cancellationToken)
+    {
+        Statement statement = new(candidates);
+
+        statement.Sql.Append("select ").Append(Id).Append(", st_aswkb(").Append(Shape).Append(") from ")
+            .Append(GeoParquetFolder.TableExpression(table, RowNumbers));
+        statement.AppendWhere();
+
+        List<long> matched = [];
+
+        using DuckDBConnection connection = _folder.Open();
+        using DuckDBCommand command = statement.Command(connection);
+        using CancellationTokenRegistration cancel = cancellationToken.Register(command.Cancel);
+        using DuckDBDataReader reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (reader.IsDBNull(0) || reader.IsDBNull(1))
+            {
+                continue;
+            }
+
+            if (GeometryPredicates.Intersects(WkbReader.Read(Bytes(reader, 1)), filter))
+            {
+                if (matched.Count == _mostMatched)
+                {
+                    throw new QueryNotSupportedException(
+                        $"The filter meets more than {_mostMatched:N0} features of this layer. A layer served "
+                        + "from a GeoParquet file holds what a spatial filter matched while it answers, so "
+                        + "it bounds how many; narrow the filter, or import the file into the datastore, "
+                        + "where the geometry is indexed.");
+                }
+
+                matched.Add(Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture));
+            }
+        }
+
+        return matched;
+    }
+
+    /// <summary>
+    /// A box test on the geometry, preceded by one on the covering column when the file has it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Two tests, because they do different jobs.</b> The covering column is what lets DuckDB
+    /// skip a whole row group from the file's statistics without reading a geometry, and it is
+    /// single precision — so it is compared against a box widened past float rounding, which can
+    /// only let extra rows through. <c>st_intersects_extent</c> on the geometry then decides
+    /// exactly, in double precision, on the rows that remain.
+    /// </para>
+    /// <para>
+    /// <b>Where PostGIS differs, it is PostGIS that is wide.</b> Its <c>&amp;&amp;</c> compares
+    /// boxes rounded outwards to single precision — 1.68 m at the far edge of web Mercator,
+    /// measured for Q-20 — so at large magnitudes a PostGIS layer can return a feature whose box
+    /// misses the query's by a metre and this one will not.
+    /// </para>
+    /// </remarks>
+    private string BoxClause(Envelope box, string name, GeoParquetTable table, List<DuckDBParameter> parameters)
+    {
+        StringBuilder clause = new("(");
+
+        if (table.Geometry.Covering is { } covering)
+        {
+            string c = GeoParquetFolder.Quote(covering);
+
+            parameters.Add(new DuckDBParameter(name + "_minx", Widen(box.MinX, -1)));
+            parameters.Add(new DuckDBParameter(name + "_miny", Widen(box.MinY, -1)));
+            parameters.Add(new DuckDBParameter(name + "_maxx", Widen(box.MaxX, 1)));
+            parameters.Add(new DuckDBParameter(name + "_maxy", Widen(box.MaxY, 1)));
+
+            clause.Append($"struct_extract({c}, 'xmin') <= ${name}_maxx and ")
+                  .Append($"struct_extract({c}, 'xmax') >= ${name}_minx and ")
+                  .Append($"struct_extract({c}, 'ymin') <= ${name}_maxy and ")
+                  .Append($"struct_extract({c}, 'ymax') >= ${name}_miny and ");
+        }
+
+        parameters.Add(new DuckDBParameter(name, WkbWriter.ToArray(Rectangle(box))));
+        clause.Append($"st_intersects_extent({Shape}, st_geomfromwkb(${name})))");
+
+        return clause.ToString();
+    }
+
+    /// <summary>A double moved outwards past any single-precision rounding of it.</summary>
+    private static double Widen(double value, int direction) =>
+        value + (direction * ((Math.Abs(value) * 1e-6) + 1e-6));
+
+    private static Polygon Rectangle(Envelope box) =>
+        new(new LinearRing(XySequence.Wrap(
+        [
+            box.MinX, box.MinY,
+            box.MaxX, box.MinY,
+            box.MaxX, box.MaxY,
+            box.MinX, box.MaxY,
+            box.MinX, box.MinY,
+        ])));
+
+    /// <summary>The where clause, emitted again from its tree with DuckDB's placeholders.</summary>
+    private string Where(ParsedWhere where, GeoParquetTable table, List<DuckDBParameter> parameters)
+    {
+        if (where.Predicate is null)
+        {
+            // Every producer in this repository carries the tree (D-162). A clause without one was
+            // built by hand as PostgreSQL text, and pasting it here would be the thing the parser
+            // exists to prevent.
+            throw new InvalidOperationException(
+                "A where clause reached a GeoParquet layer without its parsed predicate, so it "
+                + "cannot be emitted in DuckDB's dialect.");
+        }
+
+        List<string> columns = [.. table.Columns.Select(c => c.Name)];
+
+        if (RowNumbers)
+        {
+            columns.Add(GeoParquetFolder.RowNumberColumn);
+        }
+
+        if (!PredicateSql.TryEmit(
+                where.Predicate, columns, GeoParquetFolder.Quote, out ParsedWhere emitted, out string? error,
+                i => "$w" + i.ToString(CultureInfo.InvariantCulture)))
+        {
+            throw new QueryNotSupportedException(error!);
+        }
+
+        for (int i = 0; i < emitted.Parameters.Count; i++)
+        {
+            parameters.Add(new DuckDBParameter(
+                "w" + i.ToString(CultureInfo.InvariantCulture), emitted.Parameters[i] ?? DBNull.Value));
+        }
+
+        return emitted.Sql;
+    }
+
+    private async Task<Geometry> ToLayerAsync(Geometry geometry, FeatureQuery query, CancellationToken cancellationToken)
+    {
+        if (query.FilterSrid is not { } from || from == _layer.Srid || geometry.IsEmpty)
+        {
+            return geometry;
+        }
+
+        (IReadOnlyList<Geometry> projected, _) = await _projector
+            .ProjectAsync([geometry], from, _layer.Srid, cancellationToken)
+            .ConfigureAwait(false);
+
+        return projected[0];
+    }
+
+    private async Task<IReadOnlyList<Geometry>> OutputAsync(
+        IReadOnlyList<Geometry> geometries, FeatureQuery query, CancellationToken cancellationToken)
+    {
+        if (query.OutSrid is { } srid && srid != _layer.Srid)
+        {
+            (IReadOnlyList<Geometry> projected, _) = await _projector
+                .ProjectAsync(geometries, _layer.Srid, srid, cancellationToken)
+                .ConfigureAwait(false);
+
+            return projected;
+        }
+
+        if (query.OutWkt is { Length: > 0 } written)
+        {
+            return await _projector
+                .ProjectToDefinitionAsync(geometries, _layer.Srid, written, cancellationToken)
+                .ConfigureAwait(false)
+                ?? throw new QueryNotSupportedException(
+                    "The projector could not read the written coordinate reference this request "
+                    + "asked for.");
+        }
+
+        return geometries;
+    }
+
+    private async Task<Envelope> ExtentOfAsync(
+        List<Geometry> shapes, FeatureQuery query, CancellationToken cancellationToken)
+    {
+        Envelope extent = Envelope.Empty;
+
+        foreach (Geometry moved in await OutputAsync(shapes, query, cancellationToken).ConfigureAwait(false))
+        {
+            if (!moved.IsEmpty)
+            {
+                extent = extent.Union(moved.Envelope);
+            }
+        }
+
+        return extent;
+    }
+
+    /// <summary>Projects and rounds a batch's geometries, keeping everything else.</summary>
+    /// <remarks>
+    /// <b><c>maxAllowableOffset</c> is not applied, and that is an answer the parameter
+    /// allows.</b> It is the most a returned shape may deviate from the stored one, so the stored
+    /// shape satisfies it. Simplifying here would be a third simplifier beside PostGIS's
+    /// topology-preserving one and GeometryServer's Douglas–Peucker, and D-236 measured the two
+    /// that exist disagreeing on half of real polygons at 100 m.
+    /// </remarks>
+    private async Task<List<Feature>> ReshapeAsync(
+        List<Feature> batch, FeatureQuery query, CancellationToken cancellationToken)
+    {
+        List<Geometry> shapes = [];
+        List<int> at = [];
+
+        for (int i = 0; i < batch.Count; i++)
+        {
+            if (batch[i].Geometry is { IsEmpty: false } shape)
+            {
+                shapes.Add(shape);
+                at.Add(i);
+            }
+        }
+
+        IReadOnlyList<Geometry> moved = shapes.Count > 0 && Projects(query)
+            ? await OutputAsync(shapes, query, cancellationToken).ConfigureAwait(false)
+            : shapes;
+
+        List<Feature> result = new(batch);
+
+        for (int k = 0; k < at.Count; k++)
+        {
+            Feature old = batch[at[k]];
+            Geometry shape = query.Precision is { } places and >= 0
+                ? Round(moved[k], places)
+                : moved[k];
+
+            object?[] values = new object?[old.Schema.Count];
+
+            for (int v = 0; v < values.Length; v++)
+            {
+                values[v] = old[v];
+            }
+
+            result[at[k]] = new Feature(old.Id, shape, old.Schema, values);
+        }
+
+        return result;
+    }
+
+    /// <summary>Rounds every coordinate to a number of decimal places.</summary>
+    /// <remarks>
+    /// What <c>geometryPrecision</c> means in the ArcGIS REST documentation: decimal places.
+    /// PostGIS's path snaps to a grid with <c>st_reduceprecision</c>, which can also repair or
+    /// drop a part a rounding collapsed; this rounds and changes nothing else, so the two agree
+    /// on every coordinate and may differ on a sliver that rounding closes.
+    /// </remarks>
+    internal static Geometry Round(Geometry geometry, int places)
+    {
+        places = Math.Min(places, 15);
+
+        XySequence Sequence(XySequence coordinates)
+        {
+            double[] values = coordinates.ToInterleavedArray();
+
+            for (int i = 0; i < values.Length; i++)
+            {
+                values[i] = Math.Round(values[i], places, MidpointRounding.AwayFromZero);
+            }
+
+            return XySequence.Wrap(values);
+        }
+
+        LinearRing Ring(LinearRing ring) => ring.IsEmpty ? ring : new LinearRing(Sequence(ring.Coordinates));
+
+        Polygon Area(Polygon polygon) =>
+            polygon.IsEmpty ? polygon : new Polygon(Ring(polygon.Shell), [.. polygon.Holes.Select(Ring)]);
+
+        return geometry switch
+        {
+            { IsEmpty: true } => geometry,
+            Point p => new Point(
+                Math.Round(p.X, places, MidpointRounding.AwayFromZero),
+                Math.Round(p.Y, places, MidpointRounding.AwayFromZero)),
+            LinearRing ring => Ring(ring),
+            LineString line => new LineString(Sequence(line.Coordinates)),
+            Polygon polygon => Area(polygon),
+            MultiPoint multi => new MultiPoint([.. multi.Parts.Select(p => (Point)Round(p, places))]),
+            MultiLineString multi => new MultiLineString([.. multi.Parts.Select(l => (LineString)Round(l, places))]),
+            MultiPolygon multi => new MultiPolygon([.. multi.Parts.Select(Area)]),
+            _ => geometry,
+        };
+    }
+
+    private void AppendOrderAndPaging(Statement statement, FeatureQuery query, FeatureSchema schema)
+    {
+        StringBuilder sql = statement.Sql;
+
+        if (query.Distinct && schema.Count > 0)
+        {
+            sql.Append(" order by ").Append(string.Join(", ", schema.Names.Select(GeoParquetFolder.Quote)));
+
+            foreach (SortKey key in query.OrderBy)
+            {
+                sql.Append(", ").Append(GeoParquetFolder.Quote(key.Field)).Append(key.Descending ? " desc" : " asc");
+            }
+        }
+        else if (query.OrderBy.Count > 0)
+        {
+            sql.Append(" order by ").Append(string.Join(", ", query.OrderBy.Select(
+                k => GeoParquetFolder.Quote(k.Field) + (k.Descending ? " desc" : " asc"))));
+
+            // D-21's tiebreak, for D-21's reason: an order on a column that is not unique is not a
+            // total order, and paging over it repeats and skips rows.
+            if (!query.OrderBy.Any(k => string.Equals(k.Field, _layer.IdentityColumn, StringComparison.Ordinal)))
+            {
+                sql.Append(", ").Append(Id);
+            }
+        }
+        else
+        {
+            // Every limited result is a page, including the first one — D-21 again.
+            sql.Append(" order by ").Append(Id);
+        }
+
+        sql.Append(" limit ").Append(statement.Bind("limit", query.Limit));
+
+        if (query.Offset > 0)
+        {
+            sql.Append(" offset ").Append(statement.Bind("offset", query.Offset));
+        }
+    }
+
+    private static string Aggregate(StatisticRequest statistic)
+    {
+        string column = GeoParquetFolder.Quote(statistic.Field);
+
+        string function = statistic.Kind switch
+        {
+            StatisticKind.Count => "count",
+            StatisticKind.Sum => "sum",
+            StatisticKind.Min => "min",
+            StatisticKind.Max => "max",
+            StatisticKind.Avg => "avg",
+            StatisticKind.StdDev => "stddev_samp",
+            StatisticKind.Var => "var_samp",
+            StatisticKind.PercentileContinuous => "percentile_cont",
+            StatisticKind.PercentileDiscrete => "percentile_disc",
+            _ => throw new ArgumentOutOfRangeException(nameof(statistic), statistic.Kind, null),
+        };
+
+        if (statistic.Kind is not (StatisticKind.PercentileContinuous or StatisticKind.PercentileDiscrete))
+        {
+            return $"{function}({column})";
+        }
+
+        string fraction = Math.Clamp(statistic.Fraction, 0, 1)
+            .ToString("0.################", CultureInfo.InvariantCulture);
+
+        return $"{function}({fraction}) within group (order by {column} {(statistic.Descending ? "desc" : "asc")})";
+    }
+
+    private Envelope? CoveringExtent(GeoParquetTable table, string covering)
+    {
+        string c = GeoParquetFolder.Quote(covering);
+
+        using DuckDBConnection connection = _folder.Open();
+        using DuckDBCommand command = connection.CreateCommand();
+        command.CommandText =
+            $"select min(struct_extract({c}, 'xmin')), min(struct_extract({c}, 'ymin')), "
+            + $"max(struct_extract({c}, 'xmax')), max(struct_extract({c}, 'ymax')) "
+            + $"from {GeoParquetFolder.TableExpression(table, false)}";
+
+        using DuckDBDataReader reader = command.ExecuteReader();
+
+        if (!reader.Read() || reader.IsDBNull(0))
+        {
+            return null;
+        }
+
+        return new Envelope(
+            Convert.ToDouble(reader.GetValue(0), CultureInfo.InvariantCulture),
+            Convert.ToDouble(reader.GetValue(1), CultureInfo.InvariantCulture),
+            Convert.ToDouble(reader.GetValue(2), CultureInfo.InvariantCulture),
+            Convert.ToDouble(reader.GetValue(3), CultureInfo.InvariantCulture));
+    }
+
+    private object? Scalar(Statement statement, CancellationToken cancellationToken)
+    {
+        using DuckDBConnection connection = _folder.Open();
+        using DuckDBCommand command = statement.Command(connection);
+        using CancellationTokenRegistration cancel = cancellationToken.Register(command.Cancel);
+
+        object? value = command.ExecuteScalar();
+        cancellationToken.ThrowIfCancellationRequested();
+        return value;
+    }
+
+    private static byte[] Bytes(DuckDBDataReader reader, int ordinal)
+    {
+        object value = reader.GetValue(ordinal);
+
+        if (value is byte[] bytes)
+        {
+            return bytes;
+        }
+
+        using Stream stream = (Stream)value;
+        byte[] copy = new byte[stream.Length];
+        stream.ReadExactly(copy);
+        return copy;
+    }
+
+    /// <summary>A DuckDB type, as the field list reports it.</summary>
+    internal static FieldType MapType(string type) => GeoParquetFolder.BaseType(type) switch
+    {
+        "BOOLEAN" => FieldType.Boolean,
+        "TINYINT" or "SMALLINT" or "UTINYINT" => FieldType.SmallInteger,
+        "INTEGER" or "USMALLINT" => FieldType.Integer,
+        "BIGINT" or "UINTEGER" => FieldType.BigInteger,
+        "FLOAT" => FieldType.Single,
+        "DOUBLE" or "DECIMAL" or "UBIGINT" or "HUGEINT" or "UHUGEINT" => FieldType.Double,
+        "VARCHAR" => FieldType.Text,
+        "UUID" => FieldType.Guid,
+        "BLOB" => FieldType.Binary,
+        "DATE" or "TIMESTAMP" or "TIMESTAMP WITH TIME ZONE" or "TIMESTAMPTZ" or "TIMESTAMP_S"
+            or "TIMESTAMP_MS" or "TIMESTAMP_NS" or "TIME" => FieldType.Date,
+        _ => FieldType.Unknown,
+    };
+
+    /// <summary>
+    /// A DuckDB value as the faces expect one — the shapes Npgsql hands the PostGIS path.
+    /// </summary>
+    /// <remarks>
+    /// <b>Found by type, not assumed.</b> DuckDB.NET answers a <c>DATE</c> as <c>DateOnly</c>, a
+    /// <c>TIME</c> as <c>TimeOnly</c>, a <c>HUGEINT</c> as <c>BigInteger</c>, a <c>BLOB</c> as a
+    /// stream over native memory that is gone once the reader moves on, and a list or a struct as
+    /// a .NET collection — measured 2026-09-13. None of those is a shape a response writer was
+    /// written for, and the stream is not even safe to keep.
+    /// </remarks>
+    internal static object? Normalise(object? value) => value switch
+    {
+        null or DBNull => null,
+        DateOnly date => date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+        TimeOnly time => time.ToTimeSpan(),
+        sbyte small => (short)small,
+        byte small => (short)small,
+        ushort medium => (int)medium,
+        uint large => (long)large,
+        ulong huge => (double)huge,
+        BigInteger huge => (double)huge,
+        Stream stream => ReadAll(stream),
+        System.Collections.IDictionary or System.Collections.IList => JsonSerializer.Serialize(value),
+        _ => value,
+    };
+
+    private static byte[] ReadAll(Stream stream)
+    {
+        using (stream)
+        {
+            byte[] copy = new byte[stream.Length];
+            stream.ReadExactly(copy);
+            return copy;
+        }
+    }
+
+    /// <summary>A statement being built, with DuckDB's named parameters.</summary>
+    private sealed class Statement(Filters filters)
+    {
+        private readonly List<DuckDBParameter> _parameters = [.. filters.Parameters];
+
+        public StringBuilder Sql { get; } = new();
+
+        public string Bind(string name, object value)
+        {
+            _parameters.Add(new DuckDBParameter(name, value));
+            return "$" + name;
+        }
+
+        public void AppendWhere()
+        {
+            if (filters.Clauses.Count > 0)
+            {
+                Sql.Append(" where ").Append(string.Join(" and ", filters.Clauses));
+            }
+        }
+
+        public DuckDBCommand Command(DuckDBConnection connection)
+        {
+            DuckDBCommand command = connection.CreateCommand();
+            command.CommandText = Sql.ToString();
+
+            foreach (DuckDBParameter parameter in _parameters)
+            {
+                command.Parameters.Add(new DuckDBParameter(parameter.ParameterName, parameter.Value));
+            }
+
+            return command;
+        }
+    }
+}

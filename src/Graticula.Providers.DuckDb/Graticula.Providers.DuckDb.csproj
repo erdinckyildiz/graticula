@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    TIER 2 ADAPTER. Layers served from GeoParquet files, read by DuckDB — ADR-066.
+
+    Separate from Graticula.Providers.PostGis because the two share nothing below the port: a
+    different engine, a different dialect, and a file rather than a table. What they do share —
+    the query model, the where tree, the exact intersects test and the projector — is in Core, and
+    this project is the first thing that proves those are not PostGIS-shaped.
+
+    DuckDB is a native library in the serving process. NativeDependencyTests confines it to this
+    project, and ADR-066 §3 records why it is here rather than in a child process and what would
+    move it.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Providers.DuckDb</RootNamespace>
+    <AssemblyName>Graticula.Providers.DuckDb</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Graticula.Core\Graticula.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DuckDB.NET.Data.Full" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Graticula.Providers.DuckDb.Tests" />
+  </ItemGroup>
+
+</Project>

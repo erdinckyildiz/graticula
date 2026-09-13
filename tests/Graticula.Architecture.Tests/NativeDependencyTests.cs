@@ -107,6 +107,14 @@ public sealed class NativeDependencyTests
          + "may appear in a Tier 1 signature. Its condition 4 asks for this test on the same day "
          + "as the adapter, because a port with one implementation and no test is a port by "
          + "intention only."),
+
+        ("DuckDB.NET",
+         "Graticula.Providers.DuckDb",
+         "The GeoParquet layer is Tier 2 behind IFeatureSource and IFeatureSummaries. ADR-066 §2 "
+         + "puts a native engine that parses files in the serving process on the condition that "
+         + "one project holds it: no DuckDB type — connection, reader, parameter — reaches Core, "
+         + "an endpoint or a writer, so the engine can be moved out of process or replaced by "
+         + "changing one project rather than finding every place it leaked into."),
     ];
 
     [Fact]

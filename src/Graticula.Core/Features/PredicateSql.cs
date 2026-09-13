@@ -52,16 +52,30 @@ public static class PredicateSql
     /// <param name="quote">How to quote a column name for the target dialect.</param>
     /// <param name="parsed">The statement fragment and the values it binds.</param>
     /// <param name="error">Why it was refused.</param>
+    /// <param name="placeholder">
+    /// How the target dialect spells the <c>n</c>th bound value, counted from zero. Omitted, it is
+    /// <c>@w0</c>, <c>@w1</c> — Npgsql's named form.
+    /// </param>
     /// <returns>Whether it emitted.</returns>
+    /// <remarks>
+    /// <b><paramref name="placeholder"/> is the whole of the dialect difference a second datastore
+    /// has needed so far</b> (ADR-066 §4). DuckDB quotes identifiers with double quotes, has
+    /// <c>ilike</c>, <c>lower()</c> and <c>between</c>, and binds <c>$1</c> rather than
+    /// <c>@w0</c>. When a datastore needs more than that, the parameter becomes a dialect object;
+    /// it is not one yet because one difference does not tell anyone what the second will be.
+    /// </remarks>
     public static bool TryEmit(
         AttributePredicate? predicate,
         IReadOnlyCollection<string> columns,
         Func<string, string> quote,
         out ParsedWhere parsed,
-        out string? error)
+        out string? error,
+        Func<int, string>? placeholder = null)
     {
         ArgumentNullException.ThrowIfNull(columns);
         ArgumentNullException.ThrowIfNull(quote);
+
+        placeholder ??= NpgsqlPlaceholder;
 
         parsed = default;
         error = null;
@@ -75,12 +89,12 @@ public static class PredicateSql
         StringBuilder sql = new();
         List<object?> parameters = [];
 
-        if (!Write(predicate, sql, parameters, columns, quote, 0, out error))
+        if (!Write(predicate, sql, parameters, columns, quote, placeholder, 0, out error))
         {
             return false;
         }
 
-        parsed = new ParsedWhere(sql.ToString(), parameters);
+        parsed = new ParsedWhere(sql.ToString(), parameters, predicate);
         return true;
     }
 
@@ -90,6 +104,7 @@ public static class PredicateSql
         List<object?> parameters,
         IReadOnlyCollection<string> columns,
         Func<string, string> quote,
+        Func<int, string> placeholder,
         int depth,
         out string? error)
     {
@@ -114,15 +129,15 @@ public static class PredicateSql
                 return true;
 
             case AttributePredicate.Conjunction and:
-                return Branch(and.Left, " and ", and.Right, sql, parameters, columns, quote, depth, out error);
+                return Branch(and.Left, " and ", and.Right, sql, parameters, columns, quote, placeholder, depth, out error);
 
             case AttributePredicate.Disjunction or:
-                return Branch(or.Left, " or ", or.Right, sql, parameters, columns, quote, depth, out error);
+                return Branch(or.Left, " or ", or.Right, sql, parameters, columns, quote, placeholder, depth, out error);
 
             case AttributePredicate.Negation not:
                 sql.Append("not (");
 
-                if (!Write(not.Operand, sql, parameters, columns, quote, depth + 1, out error))
+                if (!Write(not.Operand, sql, parameters, columns, quote, placeholder, depth + 1, out error))
                 {
                     return false;
                 }
@@ -169,11 +184,11 @@ public static class PredicateSql
 
                 if (folded)
                 {
-                    sql.Append("lower(").Append(Bind(parameters, compare.Value)).Append(')');
+                    sql.Append("lower(").Append(Bind(parameters, placeholder, compare.Value)).Append(')');
                 }
                 else
                 {
-                    sql.Append(Bind(parameters, compare.Value));
+                    sql.Append(Bind(parameters, placeholder, compare.Value));
                 }
 
                 return true;
@@ -201,7 +216,7 @@ public static class PredicateSql
                 sql.Append(matched).Append(like.Negated
                         ? (like.IgnoreCase ? " not ilike " : " not like ")
                         : (like.IgnoreCase ? " ilike " : " like "))
-                   .Append(Bind(parameters, like.Pattern));
+                   .Append(Bind(parameters, placeholder, like.Pattern));
 
                 return true;
 
@@ -212,13 +227,13 @@ public static class PredicateSql
                 }
 
                 sql.Append(bounded).Append(between.Negated ? " not between " : " between ")
-                   .Append(Bind(parameters, between.Low)).Append(" and ")
-                   .Append(Bind(parameters, between.High));
+                   .Append(Bind(parameters, placeholder, between.Low)).Append(" and ")
+                   .Append(Bind(parameters, placeholder, between.High));
 
                 return true;
 
             case AttributePredicate.OneOf list:
-                return WriteIn(list, sql, parameters, columns, quote, out error);
+                return WriteIn(list, sql, parameters, columns, quote, placeholder, out error);
 
             default:
                 // Unreachable while every node is handled above, and a compile-time
@@ -237,6 +252,7 @@ public static class PredicateSql
         List<object?> parameters,
         IReadOnlyCollection<string> columns,
         Func<string, string> quote,
+        Func<int, string> placeholder,
         int depth,
         out string? error)
     {
@@ -245,14 +261,14 @@ public static class PredicateSql
         // tree's own shape already carries the precedence.
         bool bracket = keyword == " and ";
 
-        if (!Side(left, bracket, sql, parameters, columns, quote, depth, out error))
+        if (!Side(left, bracket, sql, parameters, columns, quote, placeholder, depth, out error))
         {
             return false;
         }
 
         sql.Append(keyword);
 
-        return Side(right, bracket, sql, parameters, columns, quote, depth, out error);
+        return Side(right, bracket, sql, parameters, columns, quote, placeholder, depth, out error);
     }
 
     private static bool Side(
@@ -262,6 +278,7 @@ public static class PredicateSql
         List<object?> parameters,
         IReadOnlyCollection<string> columns,
         Func<string, string> quote,
+        Func<int, string> placeholder,
         int depth,
         out string? error)
     {
@@ -272,7 +289,7 @@ public static class PredicateSql
             sql.Append('(');
         }
 
-        if (!Write(side, sql, parameters, columns, quote, depth + 1, out error))
+        if (!Write(side, sql, parameters, columns, quote, placeholder, depth + 1, out error))
         {
             return false;
         }
@@ -291,6 +308,7 @@ public static class PredicateSql
         List<object?> parameters,
         IReadOnlyCollection<string> columns,
         Func<string, string> quote,
+        Func<int, string> placeholder,
         out string? error)
     {
         if (!Resolve(list.Column, columns, quote, out string? column, out error))
@@ -311,7 +329,7 @@ public static class PredicateSql
 
         foreach (object? value in list.Values)
         {
-            placeholders.Add(Bind(parameters, value));
+            placeholders.Add(Bind(parameters, placeholder, value));
         }
 
         sql.Append(column).Append(list.Negated ? " not in (" : " in (")
@@ -347,11 +365,14 @@ public static class PredicateSql
         return false;
     }
 
-    private static string Bind(List<object?> parameters, object? value)
+    private static string Bind(List<object?> parameters, Func<int, string> placeholder, object? value)
     {
         parameters.Add(value);
-        return $"@w{(parameters.Count - 1).ToString(CultureInfo.InvariantCulture)}";
+        return placeholder(parameters.Count - 1);
     }
+
+    private static string NpgsqlPlaceholder(int index) =>
+        $"@w{index.ToString(CultureInfo.InvariantCulture)}";
 
     private static string Spelling(ComparisonOperator op) => op switch
     {

@@ -42,7 +42,8 @@ namespace Graticula.Providers.PostGis;
 /// and clipping belongs to the tile path where the output is a picture.
 /// </para>
 /// </remarks>
-public sealed class PostGisFeatureSource : IFeatureSource, IFeatureVersions, IGeometryStatistics
+public sealed class PostGisFeatureSource
+    : IFeatureSource, IFeatureVersions, IGeometryStatistics, IFeatureSummaries
 {
     private readonly NpgsqlDataSource _dataSource;
 

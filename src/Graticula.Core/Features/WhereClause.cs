@@ -10,7 +10,15 @@ namespace Graticula.Features;
 /// </summary>
 /// <param name="Sql">Parameterised SQL, safe to interpolate into a statement.</param>
 /// <param name="Parameters">The values its placeholders bind to, in order.</param>
-public readonly record struct ParsedWhere(string Sql, IReadOnlyList<object?> Parameters);
+/// <param name="Predicate">
+/// The tree <paramref name="Sql"/> was emitted from, or <see langword="null"/> when there is no
+/// predicate. A datastore that does not speak PostgreSQL's dialect emits its own statement from
+/// this rather than rewriting that one — [D-162](../../../docs/architecture-debt.md), ADR-066 §4.
+/// </param>
+public readonly record struct ParsedWhere(
+    string Sql,
+    IReadOnlyList<object?> Parameters,
+    AttributePredicate? Predicate = null);
 
 /// <summary>
 /// Parses the subset of SQL-92 that ArcGIS's <c>where</c> parameter uses.

@@ -242,4 +242,38 @@ public sealed class WhereClauseTests
         // bisect by hand.
         Assert.Contains("position", Refused("parcel_id = "), System.StringComparison.Ordinal);
     }
+
+    // ---------- the tree travels with the statement (D-162, ADR-066 §4) ----------
+
+    [Fact]
+    public void The_parsed_clause_carries_the_tree_it_was_emitted_from()
+    {
+        ParsedWhere parsed = Ok("(owner = 'x' or area > 10) and notes is not null");
+
+        Assert.NotNull(parsed.Predicate);
+        Assert.IsType<AttributePredicate.Conjunction>(parsed.Predicate);
+    }
+
+    [Fact]
+    public void A_second_dialect_emits_the_same_statement_with_its_own_placeholders()
+    {
+        ParsedWhere parsed = Ok("owner in ('a', 'b') and area between 1 and 2 and address like 'x%'");
+
+        Assert.True(PredicateSql.TryEmit(
+            parsed.Predicate, Columns, n => $"\"{n}\"", out ParsedWhere again, out string? error,
+            i => "$" + (i + 1)));
+        Assert.Null(error);
+
+        string renumbered = parsed.Sql;
+
+        for (int i = parsed.Parameters.Count - 1; i >= 0; i--)
+        {
+            renumbered = renumbered.Replace("@w" + i, "$" + (i + 1));
+        }
+
+        // Same text but for the placeholders, same values in the same order, and the same tree.
+        Assert.Equal(renumbered, again.Sql);
+        Assert.Equal(parsed.Parameters, again.Parameters);
+        Assert.Same(parsed.Predicate, again.Predicate);
+    }
 }

@@ -2,7 +2,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Graticula.Features;
+using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
+using Graticula.Providers.DuckDb;
 using Graticula.Providers.PostGis;
 using Graticula.Tiles;
 using Npgsql;
@@ -68,10 +70,17 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// pooling and the budget; a null register is a process where nothing is ever quiesced.
     /// </para>
     /// </param>
+    /// <param name="geoParquet">
+    /// The folders a GeoParquet layer is read from — ADR-066. Optional for the same reason, and a
+    /// layer on a folder asked of a process without it is refused by name.
+    /// </param>
+    /// <param name="projector">The datastore's projector, which a GeoParquet layer projects through.</param>
     public LayerConnections(
         ConnectionBudget budget,
         SourceBreaker breaker,
-        SourceQuiesce? quiesce = null)
+        SourceQuiesce? quiesce = null,
+        GeoParquetSources? geoParquet = null,
+        Graticula.Geometries.IProjector? projector = null)
     {
         ArgumentNullException.ThrowIfNull(budget);
         ArgumentNullException.ThrowIfNull(breaker);
@@ -79,7 +88,12 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         _budget = budget;
         _breaker = breaker;
         _quiesce = quiesce;
+        _geoParquet = geoParquet;
+        _projector = projector;
     }
+
+    private readonly GeoParquetSources? _geoParquet;
+    private readonly Graticula.Geometries.IProjector? _projector;
 
     /// <summary>
     /// Closes this source's pool, so nothing of ours is holding its tables.
@@ -132,6 +146,11 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         if (_attachmentPools.TryRemove(connectionString, out NpgsqlDataSource? attachments))
         {
             attachments.Dispose();
+            closed = true;
+        }
+
+        if (_geoParquet?.Close(connectionString) == true)
+        {
             closed = true;
         }
 
@@ -191,6 +210,39 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
+
+        if (GeoParquetLocator.Is(layer.ConnectionString))
+        {
+            // <b>ADR-066.</b> The same budget, breaker and quiesce as a database, because each of
+            // them is a statement about this server's work rather than about PostgreSQL: a DuckDB
+            // query holds threads and memory the way a connection holds a backend, and an operator
+            // replacing the files needs the same way to take a source out of service.
+            if (_quiesce?.Holding(layer.ConnectionString) is { } folderHeld)
+            {
+                throw new SourceQuiescedException(SourceQuiesce.Says(folderHeld), folderHeld.Until);
+            }
+
+            if (_geoParquet is null || _projector is null)
+            {
+                throw new InvalidOperationException(
+                    $"Layer '{layer.Definition.Name}' is served from a GeoParquet folder and this "
+                    + "server was started without the means to read one.");
+            }
+
+            // The same statement bound as a database layer's, lowered and never raised by the service.
+            TimeSpan? lowered = layer.StatementTimeout is { } fileWanted
+                && fileWanted > TimeSpan.Zero && fileWanted < StatementTimeout
+                    ? fileWanted
+                    : StatementTimeout;
+
+            return new BudgetedFeatureSource(
+                new GeoParquetFeatureSource(
+                    _geoParquet.FolderFor(layer.ConnectionString), layer.Definition, _projector, lowered),
+                _budget,
+                layer.ConnectionString,
+                _breaker,
+                _quiesce);
+        }
 
         // <b>Through the gate like every other hand-out.</b> The read path's own refusal lives in
         // `BudgetedFeatureSource`, which fires when a query runs — but the *pool* was still taken
@@ -375,6 +427,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
+        RefuseIfFile(layer, "edited");
 
         return new PostGisFeatureWriter(
             PoolFor(layer.ConnectionString), layer.Definition, fields,
@@ -393,6 +446,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
+        RefuseIfFile(layer, "tiled");
 
         return new PostGisTileSource(
             PoolFor(layer.ConnectionString), layer.Definition, attributes);
@@ -417,6 +471,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
+        RefuseIfFile(layer, "given attachments");
 
         // <b>The same guard, on the second dictionary.</b> Attachments are a separate pool keyed
         // the same way — a quiesced source that still served them would still be holding the
@@ -488,6 +543,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(origin);
         ArgumentNullException.ThrowIfNull(related);
+        RefuseIfFile(origin, "related to another layer");
+        RefuseIfFile(related, "related to another layer");
 
         bool same = string.Equals(
             origin.ConnectionString, related.ConnectionString, StringComparison.Ordinal);
@@ -497,6 +554,25 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             origin.Definition,
             related.Definition,
             same);
+    }
+
+    /// <summary>
+    /// Refuses what only a database can do, for a layer served from a GeoParquet file.
+    /// </summary>
+    /// <remarks>
+    /// <b>The last line, not the first.</b> Each face that reaches one of these already refuses a
+    /// read-only or non-hosted layer in its own words — capabilities without Create, attachments
+    /// gated on the hosted schema, tiles on hosted data. This is here so that a face written later
+    /// that forgets gets a sentence rather than an Npgsql parse error about a folder path.
+    /// </remarks>
+    private static void RefuseIfFile(PublishedLayer layer, string what)
+    {
+        if (GeoParquetLocator.Is(layer.ConnectionString))
+        {
+            throw new QueryNotSupportedException(
+                $"Layer '{layer.Definition.Name}' is served from a GeoParquet file, which cannot be "
+                + $"{what}: the file is read in place and never written (ADR-066).");
+        }
     }
 
     /// <inheritdoc/>

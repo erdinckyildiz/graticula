@@ -123,6 +123,109 @@ public sealed class GeometryOperationsAgainstPostgisTests : PostgresFixture
         return WkbReader.Read((byte[])result!);
     }
 
+    // ---------- intersects (ADR-066) ----------
+
+    /// <summary>
+    /// Our exact <c>intersects</c> answers what <c>ST_Intersects</c> answers, on real polygons and
+    /// on the shapes a map client and an identify tool send against them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The cases are built from each polygon rather than drawn at random</b>, because random
+    /// shapes almost never land on a boundary and the boundary is where two implementations
+    /// differ: the polygon's own box and its four quarters, a small box on each corner of that box
+    /// (inside the box, often outside the shape), a point on a vertex, the box's centre, the
+    /// diagonal of the box, and the next polygon in the corpus, which for administrative data is
+    /// often a neighbour sharing an edge.
+    /// </para>
+    /// <para>
+    /// <b>One statement for every pair</b>, through <c>unnest ... with ordinality</c>, so a few
+    /// thousand comparisons cost one round trip rather than a few thousand.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Intersects_matches_PostGIS_on_real_polygons_and_the_shapes_sent_against_them()
+    {
+        await MigrateAsync();
+
+        IReadOnlyList<Geometry> corpus = await CorpusAsync(300);
+        List<(Geometry A, Geometry B, string Case)> pairs = [];
+
+        for (int i = 0; i < corpus.Count; i++)
+        {
+            Geometry shape = corpus[i];
+            Envelope box = shape.Envelope;
+            double w = box.MaxX - box.MinX, h = box.MaxY - box.MinY;
+            double cx = box.MinX + (w / 2), cy = box.MinY + (h / 2);
+
+            pairs.Add((shape, Rectangle(box.MinX, box.MinY, box.MaxX, box.MaxY), "own box"));
+            pairs.Add((shape, Rectangle(box.MinX, box.MinY, cx, cy), "south-west quarter"));
+            pairs.Add((shape, Rectangle(cx, cy, box.MaxX, box.MaxY), "north-east quarter"));
+            pairs.Add((shape, Rectangle(box.MinX, cy, cx, box.MaxY), "north-west quarter"));
+            pairs.Add((shape, Rectangle(cx, box.MinY, box.MaxX, cy), "south-east quarter"));
+
+            foreach ((double x, double y) in ((double, double)[])
+                [(box.MinX, box.MinY), (box.MaxX, box.MinY), (box.MaxX, box.MaxY), (box.MinX, box.MaxY)])
+            {
+                pairs.Add((shape, Rectangle(x - (w * 0.05), y - (h * 0.05), x + (w * 0.05), y + (h * 0.05)), "corner box"));
+            }
+
+            (double vx, double vy) = Coordinates(shape).First();
+            pairs.Add((shape, new Point(vx, vy), "a vertex"));
+            pairs.Add((shape, new Point(cx, cy), "the box centre"));
+            pairs.Add((shape, new LineString(XySequence.Wrap([box.MinX, box.MinY, box.MaxX, box.MaxY])), "the diagonal"));
+
+            if (i + 1 < corpus.Count)
+            {
+                pairs.Add((shape, corpus[i + 1], "the next polygon"));
+            }
+        }
+
+        await using NpgsqlCommand command = DataSource.CreateCommand(
+            "select ST_Intersects(ST_GeomFromWKB(a), ST_GeomFromWKB(b)) "
+            + "from unnest(@a::bytea[], @b::bytea[]) with ordinality as t(a, b, n) order by n");
+        command.Parameters.AddWithValue("a", pairs.Select(p => WkbWriter.ToArray(p.A)).ToArray());
+        command.Parameters.AddWithValue("b", pairs.Select(p => WkbWriter.ToArray(p.B)).ToArray());
+
+        List<bool> theirs = [];
+
+        await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(CancellationToken.None))
+        {
+            while (await reader.ReadAsync(CancellationToken.None))
+            {
+                theirs.Add(reader.GetBoolean(0));
+            }
+        }
+
+        Assert.Equal(pairs.Count, theirs.Count);
+
+        List<string> disagreements = [];
+        int yes = 0;
+
+        for (int i = 0; i < pairs.Count; i++)
+        {
+            bool ours = GeometryPredicates.Intersects(pairs[i].A, pairs[i].B);
+            yes += theirs[i] ? 1 : 0;
+
+            if (ours != theirs[i])
+            {
+                disagreements.Add($"{pairs[i].Case}: PostGIS {theirs[i]}, ours {ours}");
+            }
+        }
+
+        Assert.True(
+            pairs.Count >= 500 && yes > 0 && yes < pairs.Count,
+            $"{pairs.Count} pairs, {yes} intersecting: too few, or all one answer, to say anything.");
+
+        Assert.True(
+            disagreements.Count == 0,
+            $"{disagreements.Count} of {pairs.Count} comparisons disagree with ST_Intersects "
+            + $"({yes} intersect by PostGIS): " + string.Join("; ", disagreements.Take(12)));
+    }
+
+    private static Polygon Rectangle(double minX, double minY, double maxX, double maxY) =>
+        new(new LinearRing(XySequence.Wrap([minX, minY, maxX, minY, maxX, maxY, minX, maxY, minX, minY])));
+
     // ---------- area ----------
 
     /// <summary>

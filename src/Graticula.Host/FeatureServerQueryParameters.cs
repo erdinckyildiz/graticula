@@ -1143,7 +1143,9 @@ internal static class FeatureServerQueryParameters
         {
             // True is no filter at all. False is a predicate nothing satisfies, expressed
             // with no parameters, so it costs the database a constant-false plan.
-            where = constant ? null : new ParsedWhere("false", Array.Empty<object?>());
+            where = constant
+                ? null
+                : new ParsedWhere("false", Array.Empty<object?>(), new AttributePredicate.MatchesNothing());
             return true;
         }
 

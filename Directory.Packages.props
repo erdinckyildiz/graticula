@@ -70,6 +70,20 @@
          single most security-critical primitive in the server, and that is worth
          saying out loud rather than discovering later. -->
     <PackageVersion Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
+    <!-- DuckDB, for layers served from GeoParquet files — ADR-066. MIT for the managed binding,
+         the native bindings and DuckDB itself; Apache.Arrow (Apache-2.0) arrives with it. The
+         Full package carries the native library for linux-x64, linux-arm64, win-x64, win-arm64
+         and osx, and only the first two reach the server image (deploy/server.Dockerfile).
+
+         <b>A native library in the serving process that parses files, and that is the part to
+         read twice.</b> GDAL is confined to a child process because it parses a file a caller
+         chose (ADR-009 §2.2). A GeoParquet layer's file is placed on disk by the operator, under a
+         root the deployment names, and never arrives through the API — which is the line ADR-066
+         §3 draws, and the thing that moves DuckDB out of process if it is ever crossed.
+
+         Core only: the spatial extension is never installed or loaded, so GEOS and GDAL do not
+         come with it. Confined to Graticula.Providers.DuckDb by NativeDependencyTests. -->
+    <PackageVersion Include="DuckDB.NET.Data.Full" Version="1.5.5" />
   </ItemGroup>
 
   <ItemGroup Label="Rendering — Tier 2, behind our own port, in the serving process">

@@ -143,6 +143,13 @@ jobs:
       - name: renderer
         run: dotnet test tests/Graticula.Render.Skia.Tests -c Release --no-build
 
+      # ADR-066: GeoParquet layers read by DuckDB. Needs nothing outside the process — the
+      # fixtures are written by DuckDB into a temporary folder — and runs on the native library
+      # the package carries for the runner's architecture. The half that compares it with PostGIS
+      # is `GeoParquetAgainstPostgisTests`, in the platform suite below.
+      - name: geoparquet
+        run: dotnet test tests/Graticula.Providers.DuckDb.Tests -c Release --no-build
+
       - name: argon2
         run: |
           dotnet test tests/Graticula.Security.Argon2.Tests -c Release --no-build \

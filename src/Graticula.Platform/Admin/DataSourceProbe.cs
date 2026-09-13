@@ -96,16 +96,28 @@ public readonly record struct SourceTable(
 /// <param name="ServerVersion">The database version, if we got that far.</param>
 /// <param name="PostgisVersion">The PostGIS version, if present.</param>
 /// <param name="Tables">What could be published, if we got that far.</param>
+/// <param name="Skipped">
+/// What was found and cannot be published, each with the reason — ADR-066. A folder of files is
+/// where this matters: a file with no reference, or two geometry families, or a name that is not
+/// an identifier, is something the operator put there on purpose and needs to be told about, where
+/// a PostGIS table without a geometry column is simply not a candidate.
+/// </param>
 public sealed record ProbeResult(
     ProbeOutcome Outcome,
     string Message,
     string? ServerVersion,
     string? PostgisVersion,
-    IReadOnlyList<SourceTable> Tables)
+    IReadOnlyList<SourceTable> Tables,
+    IReadOnlyList<SkippedTable>? Skipped = null)
 {
     /// <summary>Whether anything can be published from this source.</summary>
     public bool CanPublish => Outcome == ProbeOutcome.Usable && Tables.Count > 0;
 }
+
+/// <summary>Something a probe found and cannot publish.</summary>
+/// <param name="Name">What it is called — for a GeoParquet folder, the file name.</param>
+/// <param name="Reason">Why it cannot be published, in a sentence the operator can act on.</param>
+public readonly record struct SkippedTable(string Name, string Reason);
 
 /// <summary>What databases a server offers the credential that asked.</summary>
 /// <param name="Outcome">How far the attempt got, using the probe's own vocabulary.</param>

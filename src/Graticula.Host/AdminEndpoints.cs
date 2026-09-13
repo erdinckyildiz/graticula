@@ -33,6 +33,10 @@ namespace Graticula.Host;
 /// <param name="Database">The database on it.</param>
 /// <param name="Username">Who to connect as.</param>
 /// <param name="Password">Their password, or null for a server that needs none.</param>
+/// <param name="Kind"><c>postgis</c>, the default, or <c>geoparquet</c> — ADR-066.</param>
+/// <param name="Path">
+/// For <c>geoparquet</c>, the folder: relative to <c>Graticula:GeoParquetRoot</c> or inside it.
+/// </param>
 /// <remarks>
 /// <para>
 /// <b>The fields exist because the console stopped asking for a string, and the assembly is
@@ -56,7 +60,13 @@ internal sealed record DataSourceRequest(
     int? Port = null,
     string? Database = null,
     string? Username = null,
-    string? Password = null);
+    string? Password = null,
+
+    // <b>ADR-066: `geoparquet` with a `path`, or `postgis` — the default — with the fields
+    // above.</b> On the end and optional, so every request written before a second kind existed
+    // means what it meant.
+    string? Kind = null,
+    string? Path = null);
 
 /// <summary>The reference a service should be served in, or null for each layer's own.</summary>
 /// <param name="Srid">The EPSG code, or null to go back to the tables'.</param>
@@ -6273,6 +6283,7 @@ internal static partial class AdminEndpoints
         HttpContext context,
         DataSourceRequest request,
         IDataSourceProbe probe,
+        GeoParquetSources geoParquet,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentRegisterDataStore)
@@ -6281,7 +6292,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (Assemble(request, out string? unusable) is not { } connection)
+        if (Assemble(request, out string? unusable, geoParquet: geoParquet) is not { } connection)
         {
             await Refuse(context, 400, unusable!).ConfigureAwait(false);
             return;
@@ -6330,12 +6341,14 @@ internal static partial class AdminEndpoints
     /// <param name="context">The request.</param>
     /// <param name="request">Where and as whom to connect.</param>
     /// <param name="probe">The port that does the connecting.</param>
+    /// <param name="geoParquet">The folder register, which refuses a folder with a sentence.</param>
     /// <param name="cancellation">The caller's.</param>
     /// <returns>The task.</returns>
     private static async Task ListDatabasesAsync(
         HttpContext context,
         DataSourceRequest request,
         IDataSourceProbe probe,
+        GeoParquetSources geoParquet,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentRegisterDataStore)
@@ -6347,7 +6360,7 @@ internal static partial class AdminEndpoints
         // <b>The database is optional here and required everywhere else.</b> This is the call
         // that answers *which databases are there*, so a caller that already had to know one
         // would have no reason to make it.
-        if (Assemble(request, out string? unusable, databaseOptional: true) is not { } connection)
+        if (Assemble(request, out string? unusable, databaseOptional: true, geoParquet: geoParquet) is not { } connection)
         {
             await Refuse(context, 400, unusable!).ConfigureAwait(false);
             return;
@@ -6398,6 +6411,7 @@ internal static partial class AdminEndpoints
     /// <param name="contexts">The remembered shapes, so a replaced layer's are dropped.</param>
     /// <param name="tiles">The tile cache, so a replaced layer's pictures are dropped.</param>
     /// <param name="audit">The log.</param>
+    /// <param name="geoParquet">The folders, against whose files a GeoParquet layer is checked.</param>
     /// <param name="cancellation">The caller's.</param>
     /// <returns>The task.</returns>
     private static async Task PublishCompositionAsync(
@@ -6409,6 +6423,7 @@ internal static partial class AdminEndpoints
         ServiceContexts contexts,
         ITileCache tiles,
         IAuditLog audit,
+        GeoParquetSources geoParquet,
         CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(catalog);
@@ -6647,6 +6662,22 @@ internal static partial class AdminEndpoints
         {
             await Refuse(context, 400, unreadable!).ConfigureAwait(false);
             return;
+        }
+
+        // <b>Every GeoParquet layer checked against its file — ADR-066 — on this route as on
+        // `POST /admin/layers`.</b> D-46 is why it is said twice: a second way in that does not
+        // carry what the first way carries is the defect that route's own guards were added for.
+        foreach (CompositionNode node in composed!)
+        {
+            foreach (LayerPublication layer in node.Children ?? (node.Layer is { } one ? [one] : []))
+            {
+                if (await GeoParquetRefusalAsync(catalog, geoParquet, layer, cancellation)
+                        .ConfigureAwait(false) is { } refusal)
+                {
+                    await Refuse(context, 422, refusal).ConfigureAwait(false);
+                    return;
+                }
+            }
         }
 
         if (catalog is not PostgresAdminCatalog postgres)
@@ -7341,6 +7372,7 @@ internal static partial class AdminEndpoints
         Guid id,
         IAdminCatalog catalog,
         IAuditLog audit,
+        GeoParquetSources geoParquet,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentRegisterDataStore)
@@ -7396,10 +7428,19 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        string? removedLocator = await LocatorOrNullAsync(catalog, id, cancellation).ConfigureAwait(false);
+
         if (!await catalog.RemoveDataSourceAsync(id, cancellation).ConfigureAwait(false))
         {
             await Refuse(context, 404, $"No data source '{id}'.").ConfigureAwait(false);
             return;
+        }
+
+        // <b>A removed folder's DuckDB is closed</b> — a security review found it open for the life of
+        // the process. Nothing is published on the source by now, so nothing is reading with it.
+        if (GeoParquetLocator.Is(removedLocator))
+        {
+            geoParquet.Close(removedLocator!);
         }
 
         await AuditAsync(
@@ -7448,6 +7489,7 @@ internal static partial class AdminEndpoints
         IAdminCatalog catalog,
         IDataSourceProbe probe,
         IAuditLog audit,
+        GeoParquetSources geoParquet,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentRegisterDataStore)
@@ -7462,7 +7504,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (Assemble(request, out string? unusable) is not { } connection)
+        if (Assemble(request, out string? unusable, geoParquet: geoParquet) is not { } connection)
         {
             await Refuse(
                 context, 400,
@@ -7512,6 +7554,20 @@ internal static partial class AdminEndpoints
                 + "keeps — it is read from the 'Graticula:PlatformStore' setting and written "
                 + "into this row on every start. Changing it here would hold until the next "
                 + "restart and no longer. Change the setting and restart.").ConfigureAwait(false);
+
+            return;
+        }
+
+        // <b>A source keeps its kind — ADR-066.</b> Every layer on it was published against a
+        // table in a database or a file in a folder, and a correction that turned one into the
+        // other would leave every one of them pointing at something of the wrong shape.
+        if (!string.Equals(GeoParquetLocator.KindOf(connection), existing.Value.Kind, StringComparison.Ordinal))
+        {
+            await Refuse(
+                context, 409,
+                $"'{existing.Value.Name}' is a {existing.Value.Kind} source and the correction describes a "
+                + $"{GeoParquetLocator.KindOf(connection)} one. A source cannot change kind; register the "
+                + "new one alongside it and publish its layers there.").ConfigureAwait(false);
 
             return;
         }
@@ -7569,11 +7625,23 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        string? previousLocator = await LocatorOrNullAsync(catalog, id, cancellation).ConfigureAwait(false);
+
         if (!await catalog.UpdateDataSourceAsync(
                 id, request.Name, connection, cancellation).ConfigureAwait(false))
         {
             await Refuse(context, 404, $"No data source '{id}'.").ConfigureAwait(false);
             return;
+        }
+
+        // <b>A folder moved elsewhere closes the DuckDB it was read with.</b> Unlike a database pool,
+        // which is left to drain because a query may still be reading from it, a folder's instance is
+        // shared by reference with every query holding a connection, so closing it here ends nothing
+        // that is running and stops it outliving its registration.
+        if (GeoParquetLocator.Is(previousLocator)
+            && !string.Equals(previousLocator, connection, StringComparison.Ordinal))
+        {
+            geoParquet.Close(previousLocator!);
         }
 
         await AuditAsync(
@@ -7608,6 +7676,7 @@ internal static partial class AdminEndpoints
         IAdminCatalog catalog,
         IDataSourceProbe probe,
         IAuditLog audit,
+        GeoParquetSources geoParquet,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentRegisterDataStore)
@@ -7622,7 +7691,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (Assemble(request, out string? unusable) is not { } connection)
+        if (Assemble(request, out string? unusable, geoParquet: geoParquet) is not { } connection)
         {
             await Refuse(context, 400, unusable!).ConfigureAwait(false);
             return;
@@ -7650,7 +7719,7 @@ internal static partial class AdminEndpoints
         try
         {
             id = await catalog
-                .RegisterDataSourceAsync(request.Name, "postgis", connection, cancellation)
+                .RegisterDataSourceAsync(request.Name, GeoParquetLocator.KindOf(connection), connection, cancellation)
                 .ConfigureAwait(false);
         }
         catch (PostgresException e) when (e.SqlState == "23505")
@@ -7692,6 +7761,7 @@ internal static partial class AdminEndpoints
         HttpContext context,
         IAdminCatalog catalog,
         SourceQuiesce quiesce,
+        GeoParquetSources geoParquet,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentRegisterDataStore)
@@ -7802,7 +7872,14 @@ internal static partial class AdminEndpoints
             });
         }
 
-        await Results.Json(new { dataSources = listed }).ExecuteAsync(context).ConfigureAwait(false);
+        // <b>Where a GeoParquet folder may be registered from, or null when nowhere — ADR-066.</b>
+        // The registration form says it before somebody types a path, so an operator on a server
+        // with the feature off is told so by the form rather than by a refusal after the attempt.
+        await Results.Json(new
+        {
+            dataSources = listed,
+            geoParquetRoot = geoParquet.Root,
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -7834,6 +7911,62 @@ internal static partial class AdminEndpoints
         ProbeResult result = await probe.ProbeAsync(connectionString, cancellation).ConfigureAwait(false);
 
         await Results.Json(Describe(result)).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>A source's unsealed locator, or null when it cannot be read.</summary>
+    private static async Task<string?> LocatorOrNullAsync(
+        IAdminCatalog catalog, Guid id, CancellationToken cancellation)
+    {
+        try
+        {
+            return await catalog.ConnectionStringOfAsync(id, cancellation).ConfigureAwait(false);
+        }
+        catch (CryptographicException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Whether a registered source is a GeoParquet folder.</summary>
+    /// <remarks>
+    /// <b>False when the locator cannot be read</b>, so a source sealed with another key takes the
+    /// PostGIS path it always took and fails there with the sentence that path already has.
+    /// </remarks>
+    private static async Task<bool> IsGeoParquetAsync(
+        IAdminCatalog catalog, Guid dataSourceId, CancellationToken cancellation)
+    {
+        try
+        {
+            return GeoParquetLocator.Is(
+                await catalog.ConnectionStringOfAsync(dataSourceId, cancellation).ConfigureAwait(false));
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Why a layer cannot be published from its GeoParquet file, or null.</summary>
+    /// <returns>Null for a layer on any other kind of source, and for one its file serves.</returns>
+    private static async Task<string?> GeoParquetRefusalAsync(
+        IAdminCatalog catalog,
+        GeoParquetSources geoParquet,
+        LayerPublication publication,
+        CancellationToken cancellation)
+    {
+        string? locator;
+
+        try
+        {
+            locator = await catalog.ConnectionStringOfAsync(publication.DataSourceId, cancellation)
+                .ConfigureAwait(false);
+        }
+        catch (CryptographicException)
+        {
+            return null;
+        }
+
+        return GeoParquetLocator.Is(locator) ? geoParquet.RefusalFor(locator!, publication) : null;
     }
 
     /// <summary>
@@ -7937,6 +8070,7 @@ internal static partial class AdminEndpoints
         PostgresLayerCatalog layers,
         PostgresSystemServices systemServices,
         IAuditLog audit,
+        GeoParquetSources geoParquet,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -8039,8 +8173,39 @@ internal static partial class AdminEndpoints
         // permission on the table, a timeout on a very large one — is still a source it
         // can serve, and answering 500 because a *report* could not be produced would
         // refuse work over a diagnostic. `null` means unmeasured and says so.
-        GeometryValidity? validity = await ValidityOfSourceAsync(
-            catalog, publication, cancellation).ConfigureAwait(false);
+        // <b>A GeoParquet layer is checked against its file instead — ADR-066.</b> Validity and the
+        // declared reference are PostGIS's measurements over a table; a file's reference is read
+        // from the file and is not declared by anybody, and its geometry is not scanned, so the
+        // two questions below are not asked of it and the ones that matter for a file are.
+        bool fromFile = await IsGeoParquetAsync(catalog, publication.DataSourceId, cancellation)
+            .ConfigureAwait(false);
+
+        if (fromFile)
+        {
+            if (await GeoParquetRefusalAsync(catalog, geoParquet, publication, cancellation)
+                    .ConfigureAwait(false) is { } refusal)
+            {
+                await Refuse(context, 422, refusal).ConfigureAwait(false);
+                return;
+            }
+
+            if (request.RequireValidGeometry)
+            {
+                await Refuse(
+                    context, 422,
+                    $"'{publication.TableName}.parquet' was not published because requireValidGeometry "
+                    + "was asked for, and validity is measured by PostGIS over a table — a GeoParquet "
+                    + "file is read in place and its geometry is not scanned. Publish without that "
+                    + "flag, or import the file into the datastore where it can be measured.")
+                    .ConfigureAwait(false);
+
+                return;
+            }
+        }
+
+        GeometryValidity? validity = fromFile
+            ? null
+            : await ValidityOfSourceAsync(catalog, publication, cancellation).ConfigureAwait(false);
 
         if (request.RequireValidGeometry && validity is not null && !validity.AllValid)
         {
@@ -8085,8 +8250,9 @@ internal static partial class AdminEndpoints
         // <b>Unmeasured is not a refusal.</b> A source this server cannot scan is still a
         // source it can serve — the same reasoning as the validity probe above — so a null
         // check publishes.
-        DeclaredReference? reference = await DeclaredReferenceOfSourceAsync(
-            catalog, publication, cancellation).ConfigureAwait(false);
+        DeclaredReference? reference = fromFile
+            ? null
+            : await DeclaredReferenceOfSourceAsync(catalog, publication, cancellation).ConfigureAwait(false);
 
         if (!request.OverrideDeclaredSrid && reference is { Agrees: false } mismatch)
         {
@@ -9905,6 +10071,7 @@ internal static partial class AdminEndpoints
         canPublish = result.CanPublish,
         serverVersion = result.ServerVersion,
         postgisVersion = result.PostgisVersion,
+        skipped = (result.Skipped ?? []).Select(t => new { name = t.Name, reason = t.Reason }),
         tables = result.Tables.Select(t => new
         {
             t.SchemaName,
@@ -10137,10 +10304,23 @@ internal static partial class AdminEndpoints
         // console — and it would be wrong on exactly the values nobody tests with: a database
         // name with a space, a host written with a quoted port. The builder has already parsed
         // this string once to take the password out; naming what it found costs nothing.
+        if (GeoParquetLocator.Is(stored))
+        {
+            await Results.Json(new
+            {
+                name = found.Value.Name,
+                kind = DataSourceKinds.GeoParquet,
+                path = GeoParquetLocator.FolderOf(stored),
+            }).ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
+
         NpgsqlConnectionStringBuilder taken = new(stored);
 
         await Results.Json(new
         {
+            kind = DataSourceKinds.PostGis,
             name = found.Value.Name,
             connection = WithoutSecrets(stored),
             host = taken.Host,
@@ -10165,14 +10345,68 @@ internal static partial class AdminEndpoints
     /// True for the listing, which asks a server what databases it has and therefore cannot
     /// require the caller to already know one.
     /// </param>
+    /// <param name="geoParquet">
+    /// The folder register, which is the only thing that turns a <c>path</c> into a GeoParquet
+    /// locator — ADR-066.
+    /// </param>
     /// <returns>The connection string, or null when <paramref name="why" /> says what is missing.</returns>
     private static string? Assemble(
-        DataSourceRequest request, out string? why, bool databaseOptional = false)
+        DataSourceRequest request,
+        out string? why,
+        bool databaseOptional = false,
+        GeoParquetSources? geoParquet = null)
     {
         why = null;
 
         bool hasString = !string.IsNullOrWhiteSpace(request.ConnectionString);
         bool hasFields = !string.IsNullOrWhiteSpace(request.Host);
+
+        // <b>A folder of GeoParquet files — ADR-066 — named by a path and nothing else.</b> The
+        // root check is the whole of what makes registering one safe, so it is the only way to
+        // produce the locator: a caller cannot hand this endpoint a finished `geoparquet:` string
+        // and skip it, which is the refusal just below.
+        if (string.Equals(request.Kind, DataSourceKinds.GeoParquet, StringComparison.OrdinalIgnoreCase))
+        {
+            if (hasString || hasFields)
+            {
+                why = "A GeoParquet folder is named by `path` alone; a connection string or host "
+                    + "fields describe a database.";
+
+                return null;
+            }
+
+            if (geoParquet is null)
+            {
+                why = GeoParquetSources.Off;
+                return null;
+            }
+
+            return geoParquet.TryLocate(request.Path, out string? located, out why) ? located : null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Kind)
+            && !string.Equals(request.Kind, DataSourceKinds.PostGis, StringComparison.OrdinalIgnoreCase))
+        {
+            why = $"`kind` '{request.Kind}' is not one this server registers: "
+                + $"{DataSourceKinds.PostGis} or {DataSourceKinds.GeoParquet}.";
+
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Path))
+        {
+            why = "`path` names a GeoParquet folder; send it with `kind: \"geoparquet\"`.";
+            return null;
+        }
+
+        if (hasString && GeoParquetLocator.Is(request.ConnectionString))
+        {
+            why = "A GeoParquet folder is registered with `kind: \"geoparquet\"` and a `path`, which "
+                + "is checked against the directory this server may read; a locator written by hand "
+                + "is not.";
+
+            return null;
+        }
 
         if (hasString && hasFields)
         {
@@ -10258,6 +10492,12 @@ internal static partial class AdminEndpoints
     /// <returns>The same connection with no password in it.</returns>
     private static string WithoutSecrets(string connectionString)
     {
+        // A folder's locator carries no secret to take out.
+        if (GeoParquetLocator.Is(connectionString))
+        {
+            return connectionString;
+        }
+
         try
         {
             NpgsqlConnectionStringBuilder builder = new(connectionString) { Password = null };
@@ -10274,6 +10514,11 @@ internal static partial class AdminEndpoints
 
     private static string Summarise(string connectionString)
     {
+        if (GeoParquetLocator.Is(connectionString))
+        {
+            return GeoParquetLocator.FolderOf(connectionString);
+        }
+
         try
         {
             NpgsqlConnectionStringBuilder builder = new(connectionString);

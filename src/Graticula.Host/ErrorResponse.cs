@@ -512,6 +512,14 @@ internal static class ErrorResponse
         //
         // The name is the caller's own, so the whole sentence is theirs to read except
         // the aside about the database being healthy, which is a fact about the server.
+        // <b>A statement this server stopped itself — ADR-066.</b> A GeoParquet layer's DuckDB query
+        // has the same deadline a PostGIS statement has, and passing it is the same answer: the
+        // server did not fail, it stopped waiting.
+        TimeoutException stopped when stopped.Message.StartsWith("A query on layer", StringComparison.Ordinal) => new(
+            StatusCodes.Status504GatewayTimeout,
+            stopped.Message,
+            TookTooLong),
+
         PostgresException { SqlState: "23505" } => new(
             StatusCodes.Status409Conflict,
             "Something with that name or location is already registered here. The database is "
@@ -792,6 +800,14 @@ internal static class ErrorResponse
             "The request body is larger than this endpoint accepts. Each surface that takes a "
             + "body states its own limit in the refusal it would have given you; this one came "
             + "from the web server first.",
+            null),
+
+        // <b>A well-formed request this layer's provider does not answer — ADR-066.</b> 400 with the
+        // provider's own sentence, which names what was asked and what the layer does answer; the
+        // alternative was a 500 for a question that has a perfectly good explanation.
+        Graticula.Features.QueryNotSupportedException refused => new(
+            StatusCodes.Status400BadRequest,
+            refused.Message,
             null),
 
         SecretProtectionException => new(

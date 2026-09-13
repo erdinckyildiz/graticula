@@ -105,3 +105,6 @@ net-logs-kept/
 # beside real work. Session scripts belong outside the tree entirely; this is the
 # second line of defence, not the first.
 scratchpad/
+
+# ADR-066: the folder compose mounts read-only for GeoParquet files, when run from a checkout.
+/geoparquet/

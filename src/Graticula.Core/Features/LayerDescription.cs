@@ -211,6 +211,17 @@ public sealed record LayerDescription(
     /// </remarks>
     public Graticula.Catalog.LayerSubtypes? Subtypes { get; init; }
 
+    /// <summary>
+    /// Whether a query may filter within a distance of a geometry — false for a source that
+    /// answers intersection and nothing wider (ADR-066).
+    /// </summary>
+    /// <remarks>
+    /// <b>On the description because only the source knows</b>, and the layer document's
+    /// <c>supportsQueryWithDistance</c> is a claim a client acts on: it offers a buffer control,
+    /// and a control that answers 400 is the over-claim ADR-008 §2 refuses.
+    /// </remarks>
+    public bool AnswersDistance { get; init; } = true;
+
     /// <summary>Finds a field by name, or null.</summary>
     public FieldDescription? Find(string name)
     {

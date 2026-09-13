@@ -12287,6 +12287,16 @@ async function pubProbe(db) {
       schemas.get(t.schemaName).tables.push({ ...t });
     }
 
+    // <b>What was found and cannot be published, where the rest is — ADR-066.</b> A design review
+    // opened a folder here and saw one file of three, with no sign the other two existed; the
+    // PostGIS tables beside it that cannot be layers are shown greyed with the reason, and a file is
+    // owed the same. A folder's files are all in `main`.
+    for (const skipped of answer.skipped || []) {
+      if (!schemas.has("main")) schemas.set("main", { name: "main", open: true, tables: [] });
+
+      schemas.get("main").tables.push({ tableName: skipped.name, why: skipped.reason });
+    }
+
     db.schemas = [...schemas.values()];
   } catch (e) {
     db.why = e.message;
@@ -13992,7 +14002,7 @@ function pubDraw() {
       if (!schema.open) continue;
 
       for (const t of schema.tables) {
-        const can = Boolean(t.objectIdColumn) && Boolean(t.geometryColumn);
+        const can = Boolean(t.objectIdColumn) && Boolean(t.geometryColumn) && !t.why;
 
         // <b>Publishable or not, and nothing in between.</b> A table without a geometry column
         // or without an integer this server can use as an object id cannot become a layer at
@@ -14024,9 +14034,11 @@ function pubDraw() {
         </div>`;
 
         if (!can) {
-          html += `<div class="pubwhy">${t.geometryColumn
-            ? "No integer column this server can use as an ArcGIS object id."
-            : "No geometry column — a table without one is not a feature class."}</div>`;
+          html += `<div class="pubwhy">${t.why
+            ? h(t.why)
+            : t.geometryColumn
+              ? "No integer column this server can use as an ArcGIS object id."
+              : "No geometry column — a table without one is not a feature class."}</div>`;
         }
       }
     }
@@ -14052,8 +14064,15 @@ function pubDraw() {
   pubFocusRestore(held);
 }
 
+/**
+ * Where a GeoParquet folder may be registered from, as the last listing said — or null when this
+ * server reads no folders (ADR-066). Undefined until the Sources screen has been read once.
+ */
+let geoParquetRoot;
+
 async function loadSources() {
-  const { dataSources } = await api("/admin/datasources");
+  const { dataSources, geoParquetRoot: root } = await api("/admin/datasources");
+  geoParquetRoot = root ?? null;
   $("cSources").textContent = dataSources.length;
 
   $("sourcesPager").innerHTML = pagerFor("sources", dataSources.length);
@@ -14085,6 +14104,7 @@ async function loadSources() {
             d.name === "datastore"
               ? ""
               : ` <button data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
+                    data-source-kind="${h(d.kind)}"
                     data-source-summary="${h(d.summary || "")}"
                     data-source-layers="${num(d.layerCount)}">Edit</button>
                   <button class="danger" data-source-remove="${h(d.id)}"
@@ -14394,6 +14414,12 @@ let dbconn = null;
  * @returns {object} the body for `/admin/datasources` and its neighbours
  */
 function dbconnBody() {
+  // <b>A folder is a name and a path, and nothing else is sent with it</b> — the server refuses a
+  // folder that arrives with host fields, because that request describes two sources at once.
+  if (dbconnKind() === "geoparquet") {
+    return { name: $("dcName").value.trim(), kind: "geoparquet", path: $("dcPath").value.trim() };
+  }
+
   const raw = $("dcRaw");
 
   if (raw && raw.value.trim()) {
@@ -14408,6 +14434,49 @@ function dbconnBody() {
     username: $("dcUser").value,
     password: $("dcPassword").value,
   };
+}
+
+/**
+ * Which kind of source the dialog is describing.
+ *
+ * @returns {"postgis"|"geoparquet"} the chosen kind, or the kind of the source being corrected
+ */
+function dbconnKind() {
+  if (dbconn) return dbconn.kind === "geoparquet" ? "geoparquet" : "postgis";
+
+  return document.querySelector('input[name="dcKind"]:checked')?.value === "geoparquet"
+    ? "geoparquet"
+    : "postgis";
+}
+
+/**
+ * Shows the half of the form that belongs to the chosen kind, and says what the other half needs.
+ *
+ * <b>Hidden rather than disabled, which is the opposite of the advanced-string rule above</b>, and
+ * for the opposite reason: those fields and the string describe the same database, so seeing one
+ * greyed out while the other is sent is information; a folder and a database share nothing, and
+ * a host field sitting under a folder path is a question the form is not asking.
+ */
+function dbconnShowKind() {
+  const folder = dbconnKind() === "geoparquet";
+
+  $("dcPostgis").hidden = folder;
+  $("dcFolder").hidden = !folder;
+
+  // <b>Emptied, not written blank.</b> `dbconnSays` gives the region its bordered class even with
+  // nothing to say, and a design review found the empty box it left sitting under the fields for the
+  // rest of the dialog's life — an answer to a question nobody had asked yet.
+  const said = $("dcResult");
+
+  if (said) {
+    said.className = "";
+    said.innerHTML = "";
+  }
+
+  // <b>Focus stays on the radio.</b> This moved it to the first field of the chosen half, and a
+  // design review found what that does to the arrow keys: the second option was checked and focus
+  // left the group, so the first could not be arrowed back to — a change of context on input, which
+  // WCAG 3.2.2 forbids. The revealed half is one Tab away, and that is enough.
 }
 
 /**
@@ -14558,17 +14627,62 @@ async function openDbConnection(source) {
 
   const dialog = $("dbconn");
 
+  const folderKind = source?.kind === "geoparquet";
+
+  // <b>Asked here when the Sources screen has not been read</b>, which is the Publish screen's
+  // path into this dialog: the root decides whether the folder choice can be offered at all.
+  if (geoParquetRoot === undefined) {
+    try {
+      geoParquetRoot = (await api("/admin/datasources")).geoParquetRoot ?? null;
+    } catch {
+      geoParquetRoot = null;
+    }
+  }
+
   $("dbconnTitle").textContent = source
-    ? `${source.name} — connection`
-    : "Database connection";
+    ? `${source.name} — ${folderKind ? "folder" : "connection"}`
+    : "Add a source";
+
+  /*
+    <b>ADR-066: a second kind of source, chosen first.</b> A PostGIS database and a folder of
+    GeoParquet files are registered in the same list and published the same way, and they are
+    described by nothing in common — so the choice comes before any field, and the form below it
+    is the chosen kind's alone. Correcting a source does not offer the choice: a source keeps its
+    kind, and the server refuses a correction that would change it.
+  */
+  const kindChoice = source ? "" : `
+      <fieldset class="dckind">
+        <legend>What it is</legend>
+        <label><input type="radio" name="dcKind" value="postgis" checked> A PostGIS database</label>
+        <label><input type="radio" name="dcKind" value="geoparquet"
+          ${geoParquetRoot ? "" : "disabled aria-describedby=\"dcKindOff\""}>
+          A folder of GeoParquet files</label>
+        ${geoParquetRoot ? "" : `<p class="hint" id="dcKindOff">This server reads no GeoParquet
+          folders: it was started without <code>Graticula:GeoParquetRoot</code>, the setting that
+          names the directory they may be registered from.</p>`}
+      </fieldset>`;
 
   $("dbconnBody").innerHTML = `
     <form id="dcForm" autocomplete="off">
+      ${kindChoice}
       <div class="row">
         <label class="field" style="flex:1 1 100%">Name
-          <input id="dcName" spellcheck="false" placeholder="cadastre"
+          <input id="dcName" spellcheck="false" placeholder="${folderKind ? "istanbul" : "cadastre"}"
                  value="${h(source ? source.name : "")}"></label>
       </div>
+      <div id="dcFolder" ${folderKind ? "" : "hidden"}>
+        <div class="row">
+          <label class="field" style="flex:1 1 100%">Folder
+            <input id="dcPath" spellcheck="false" placeholder="istanbul"></label>
+        </div>
+        <p class="hint">${geoParquetRoot
+          ? `A folder inside <code>${h(geoParquetRoot)}</code> — its name, or its whole path. Every
+             <code>.parquet</code> file directly in it can be published as a layer. The files are
+             read where they are and never written, so the layers answer queries and take no
+             edits.`
+          : ""}</p>
+      </div>
+      <div id="dcPostgis" ${folderKind ? "hidden" : ""}>
       <div class="row">
         <label class="field" style="flex:3 1 60%">Instance
           <input id="dcHost" spellcheck="false" placeholder="localhost" required></label>
@@ -14602,11 +14716,12 @@ async function openDbConnection(source) {
                  placeholder="Host=…;Port=5432;Database=…;Username=…;Password=…"></label>
       </details>
       <p class="hint" id="dcOverride" hidden></p>
+      </div>
       <div id="dcResult" role="status" aria-live="polite"></div>
     </form>`;
 
   $("dbconnFoot").innerHTML = `
-    <button type="button" id="dcTest">Test connection</button>
+    <button type="button" id="dcTest">Test</button>
     <button type="button" class="primary" id="dcSave">${source ? "Save" : "Register"}</button>
     <button type="button" class="ghost" id="dcCancel">Cancel</button>`;
 
@@ -14621,6 +14736,10 @@ async function openDbConnection(source) {
   // out, the disclosure stays open while it has content, and a line under it names what is
   // being sent.
   $("dcRaw").addEventListener("input", dbconnOverride);
+
+  for (const radio of document.querySelectorAll('input[name="dcKind"]')) {
+    radio.addEventListener("change", dbconnShowKind);
+  }
 
   $("dcDatabase").addEventListener("mousedown", dbconnFill);
   $("dcDatabase").addEventListener("focus", dbconnFill);
@@ -14667,7 +14786,21 @@ async function openDbConnection(source) {
   dialog.showModal();
 
   if (!source) {
-    $("dcHost").focus();
+    // The first control, so forward Tab walks the dialog in the order it reads.
+    (document.querySelector('input[name="dcKind"]:checked') || $("dcName")).focus();
+    return;
+  }
+
+  if (folderKind) {
+    try {
+      const said = await api(`/admin/datasources/${encodeURIComponent(source.id)}/connection`);
+      $("dcPath").value = said.path || "";
+      $("dcPath").focus();
+    } catch (e) {
+      dbconnSays("alert", "Not filled in. ", `${e.message} Type the folder again.`);
+      $("dcPath").focus();
+    }
+
     return;
   }
 
@@ -14710,11 +14843,37 @@ async function dbconnTest() {
     });
 
     dbconnSays(sourceTone(r.outcome), spaced(r.outcome || "Done"), r.message || "");
+    dbconnSkipped(r.skipped);
   } catch (e) {
     dbconnSays("alert", "Refused. ", e.message);
   } finally {
     button.disabled = false;
+
+    // <b>A disabled button loses focus, and nothing gave it back</b> — a design review measured
+    // `<body>` after every Test, on both kinds. The answer is announced by the live region; the
+    // keyboard's place is the button that asked.
+    if (document.activeElement === document.body || document.activeElement === null) {
+      button.focus();
+    }
   }
+}
+
+/**
+ * Lists, under the result, what was found and cannot be published — each with its reason.
+ *
+ * <b>ADR-066: a folder is where this matters.</b> A file with no reference or with two kinds of
+ * geometry is something the operator put there deliberately, and a count of *3 can be published*
+ * without the fourth file's name and reason leaves them to find out which one and why.
+ *
+ * @param {Array<{name: string, reason: string}>|undefined} skipped what the probe could not offer
+ */
+function dbconnSkipped(skipped) {
+  const said = $("dcResult");
+
+  if (!said || !skipped || !skipped.length) return;
+
+  said.insertAdjacentHTML("beforeend", `<ul class="dcskipped">${skipped
+    .map(s => `<li><code>${h(s.name)}</code> — ${h(s.reason)}</li>`).join("")}</ul>`);
 }
 
 /**
@@ -14760,7 +14919,8 @@ async function dbconnSave() {
     dbconn = null;
 
     toast(answer.name
-      ? `${answer.name} now reads ${answer.summary || "that connection"}.`
+      ? `${answer.name} now reads ${answer.summary
+        || (body.kind === "geoparquet" ? "that folder" : "that connection")}.`
       : "Saved.", true);
 
     await loadSources();
@@ -14875,20 +15035,32 @@ function renderProbe(name, r) {
   resetPage("probeRows");
 
   const all = probeShown.result.tables || [];
+  const skipped = probeShown.result.skipped || [];
+
+  // <b>ADR-066: a folder reports its engine and its files, not a PostgreSQL version.</b> Read from
+  // what the probe says it spoke to rather than from the source's kind, so the panel describes the
+  // answer on screen even when it was opened from somewhere that does not know the kind.
+  const files = String(r.serverVersion || "").startsWith("DuckDB");
 
   $("probe").innerHTML = `
-    <h2>${h(name)} — probed</h2>
+    <h2 id="probeHead" tabindex="-1">${h(name)} — probed</h2>
     <div class="panel pad">
       <div class="row" style="margin-bottom:10px">
         ${pill(r.outcome)}
         <span style="font-size:13.5px">${h(r.message)}</span>
       </div>
       <dl class="facts" style="grid-template-columns:auto 1fr auto 1fr">
-        <dt>PostgreSQL</dt><dd>${h(r.serverVersion || "—")}</dd>
-        <dt>PostGIS</dt><dd>${h(r.postgisVersion || "—")}</dd>
+        ${files
+          ? `<dt>Read by</dt><dd>${h(r.serverVersion)}</dd>
+             <dt>Writable</dt><dd>no — files are read in place</dd>`
+          : `<dt>PostgreSQL</dt><dd>${h(r.serverVersion || "—")}</dd>
+             <dt>PostGIS</dt><dd>${h(r.postgisVersion || "—")}</dd>`}
         <dt>Can publish</dt><dd>${r.canPublish ? "yes" : "no"}</dd>
-        <dt>Tables visible</dt><dd>${num(all.length)}</dd>
+        <dt>${files ? "Files that can be layers" : "Tables visible"}</dt><dd>${num(all.length)}</dd>
       </dl>
+      ${skipped.length ? `<div class="label">${files ? "Files" : "Tables"} that cannot be published</div>
+        <ul class="dcskipped">${skipped
+          .map(s => `<li><code>${h(s.name)}</code> — ${h(s.reason)}</li>`).join("")}</ul>` : ""}
     </div>
     ${all.length ? `<div class="panel" style="margin-top:14px">
       <div class="row" style="margin:0 0 10px">
@@ -14905,6 +15077,16 @@ function renderProbe(name, r) {
     </div>` : ""}`;
 
   drawProbeRows();
+
+  // <b>Taken to the answer.</b> A design review pressed Probe and found the panel rendered below the
+  // fold with focus on `<body>` and nothing announced — the pressed button's row redraws, so its
+  // focus is gone either way. The heading is where a reader continues from.
+  const head = $("probeHead");
+
+  if (head) {
+    head.focus({ preventScroll: true });
+    head.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
 }
 
 /**
@@ -18172,6 +18354,7 @@ async function handleClick(event) {
     await openDbConnection({
       id: d.sourceEdit,
       name: d.sourceName,
+      kind: d.sourceKind,
       summary: d.sourceSummary,
       layers: Number(d.sourceLayers) || 0,
     });

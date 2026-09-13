@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(45);
+    public static SchemaVersion ComponentSchemaVersion => new(46);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -80,6 +80,7 @@ public static class PlatformMigrations
         TheLayersDeadColumnsGoV43,
         GrantChangesAreAnnouncedV44,
         AClaimedJobHoldsALeaseV45,
+        AFolderOfGeoParquetFilesIsASourceV46,
     ]);
 
 
@@ -2716,6 +2717,41 @@ public static class PlatformMigrations
     /// enough for an older build's live import, which takes seconds, to finish unharmed.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A data source may be a folder of GeoParquet files, read in place by DuckDB.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-066](../../../docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md).</b> Migration 1
+    /// wrote <c>check (kind in ('postgis'))</c> on the day there was one kind, and that constraint
+    /// is what stood between the catalogue and a second. The column was there from the start —
+    /// migration 1's own comment said a kind would be needed — so this widens a list rather than
+    /// adding a concept.
+    /// </para>
+    /// <para>
+    /// <b>The secret is the folder's path</b>, sealed the way a connection string is. A path is not
+    /// a credential, and sealing it anyway keeps one code path for every kind: a reader that forgot
+    /// to unseal would fail on both rather than on one.
+    /// </para>
+    /// <para>
+    /// <b>An expand, with one consequence for a rollback that is stated rather than hidden.</b> A
+    /// build older than this reads a <c>geoparquet</c> row as a PostgreSQL connection string and
+    /// its layers fail at their first query with a parse error, while every PostGIS layer beside
+    /// them keeps working. Rolling back means unpublishing those layers first, or accepting that
+    /// they answer 500 until the newer build returns.
+    /// </para>
+    /// </remarks>
+    private static Migration AFolderOfGeoParquetFilesIsASourceV46 => Migration.Expand(
+        new SchemaVersion(46),
+        "A data source may be a folder of GeoParquet files (ADR-066).",
+
+        "alter table data_source drop constraint if exists data_source_kind_known",
+
+        """
+        alter table data_source add constraint data_source_kind_known
+            check (kind in ('postgis', 'geoparquet'))
+        """);
+
     private static Migration AClaimedJobHoldsALeaseV45 => Migration.Expand(
         new SchemaVersion(45),
         "A claimed job holds a lease, so a worker that dies does not hold its job for ever (D-243).",

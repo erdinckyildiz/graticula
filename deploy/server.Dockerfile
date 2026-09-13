@@ -84,6 +84,24 @@ RUN set -eu; \
       /p:UseAppHost=false \
       "$@"
 
+# <b>DuckDB's native library for the two architectures this image is built for, and not the
+# other three — ADR-066.</b> The package carries it for linux-x64, linux-arm64, win-x64,
+# win-arm64 and osx, and a portable publish copies all five: 111 MB of macOS and Windows library
+# into an image that runs on neither. The .NET host picks `runtimes/<rid>/native` by the
+# architecture it starts on, so the two Linux directories are the whole of what is read here.
+#
+# <b>And the two notices travel with the library</b>, for the reason the DejaVu notice does below:
+# both are MIT, whose one obligation is that the copyright notice accompanies every copy, and an
+# image is a copy. They are read out of the package that was restored rather than typed here.
+RUN rm -f /app/runtimes/osx/native/libduckdb.dylib \
+          /app/runtimes/win-x64/native/duckdb.dll \
+          /app/runtimes/win-arm64/native/duckdb.dll \
+ && test -f /app/runtimes/linux-x64/native/libduckdb.so \
+ && test -f /app/runtimes/linux-arm64/native/libduckdb.so \
+ && bindings="$(ls -d /root/.nuget/packages/duckdb.net.bindings.full/*/ | head -n 1)" \
+ && cp "${bindings}LICENSE-DuckDB.txt" /app/LICENSE-DuckDB.txt \
+ && cp "${bindings}LICENSE.md" /app/LICENSE-DuckDB.NET.txt
+
 # ---------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS runtime
 
@@ -116,8 +134,15 @@ COPY tools/fonts/LICENSE-DejaVu.txt ./LICENSE-DejaVu.txt
 # ADR-016 §3's secret volume. Declared so that running without one is a visible
 # choice rather than a silent loss of the certificate on every replacement.
 VOLUME ["/var/lib/graticula"]
+
+# <b>Where GeoParquet folders may be registered from — ADR-066 §3.</b> Created and owned by root,
+# so the server can read it and cannot write it even before a deployment mounts anything over it;
+# compose mounts the operator's directory here read-only, which closes the one thing DuckDB's own
+# sandbox leaves open — a write inside the folder it may read.
+RUN mkdir -p /data/geoparquet
 ENV Graticula__StatePath=/var/lib/graticula \
     Graticula__Listen=0.0.0.0 \
+    Graticula__GeoParquetRoot=/data/geoparquet \
     DOTNET_gcServer=1
 
 EXPOSE 8443

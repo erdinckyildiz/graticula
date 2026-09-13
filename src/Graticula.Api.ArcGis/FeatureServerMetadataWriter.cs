@@ -874,7 +874,8 @@ public static class FeatureServerMetadataWriter
                 supportsStatistics = true,
                 supportsDistinct = true,
                 supportsReturningQueryExtent = true,
-                supportsQueryWithDistance = true,
+                // <b>From the source, since a layer's file cannot answer it — ADR-066.</b>
+                supportsQueryWithDistance = description.AnswersDistance,
                 // <b>False since 2026-08-16, and it was true for the wrong
                 // reason.</b> The clause was accepted and appended to the SQL
                 // statement unparsed, so this flag advertised an injection as a

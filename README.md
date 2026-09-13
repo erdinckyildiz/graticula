@@ -36,7 +36,7 @@ Five ArcGIS service types, plus the portal surface Pro connects through.
 
 | | | |
 |---|---|---|
-| **Feature services** | complete | `query`, `applyEdits`, attachments, related records, `generateRenderer` — over a registered PostGIS table or a hosted layer |
+| **Feature services** | complete | `query`, `applyEdits`, attachments, related records, `generateRenderer` — over a registered PostGIS table or a hosted layer, and read-only over a GeoParquet file read in place ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md)) |
 | **Map services** | complete | `export`, `identify`, `legend`. A layer published without a style gets a generated appearance that reports itself as generated |
 | **Vector tile services** | partial | Tiles from hosted data, a style document and a checked-in glyph set. **The sprite sheet answers and is empty** — no icon library, and no way to upload one ([ADR-027](docs/adr/ADR-027-glyphs-and-sprites.md)) |
 | **Image services** | partial | `exportImage`, `identify`, `tile`, over imagery registered where it lies and never copied. **No raster function chains, no mosaic datasets** |
@@ -55,9 +55,12 @@ and [docs/reviews/](docs/reviews/) has the OGC CITE runs behind them.
 On the front page on purpose. Each is a limit today, not a smaller version of something
 that works.
 
-- **PostGIS, and nothing else.** No Oracle, no SQL Server, no file geodatabase served in
-  place. An enterprise geodatabase on Oracle has to move first. The other engines are
-  deferred, not cancelled — [v1-scope.md](docs/v1-scope.md) §3a.
+- **PostGIS, and nothing else, for databases.** No Oracle, no SQL Server, no file geodatabase
+  served in place. An enterprise geodatabase on Oracle has to move first. The other engines are
+  deferred, not cancelled — [v1-scope.md](docs/v1-scope.md) §3a. **GeoParquet files are the one
+  thing served where they lie**, and only for reading: no edits, no attachments, no related
+  records, no vector tiles, and spatial filters by intersection only
+  ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md)).
 - **No single sign-on.** Local accounts and server-issued tokens only: no SAML, no OIDC,
   no Active Directory, no SCIM. Every account is one you create here.
 - **No geoprocessing and no geocoding.** No GPServer, no web tools, no Python toolboxes.
@@ -177,6 +180,18 @@ curl -sk -X POST https://localhost:8443/admin/layers \
 It is then a FeatureServer at
 `https://localhost:8443/rest/services/places/FeatureServer/0`, discoverable from
 `/rest/info` the way any ArcGIS client expects.
+
+**A folder of GeoParquet files instead of a database.** Put the folder under `./geoparquet`
+(compose mounts it read-only at `/data/geoparquet`, the only directory the server reads files
+from), register it by name, and publish a file the same way — its schema is `main` and its table
+is the file name. The reference, the geometry column and the identity are read from the file, and
+a publication that disagrees with them is refused.
+
+```bash
+curl -sk -X POST https://localhost:8443/admin/datasources \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"reference","kind":"geoparquet","path":"istanbul"}'
+```
 
 ### A service of several layers, in one act
 

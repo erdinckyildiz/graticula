@@ -172,6 +172,23 @@ internal static class RelationshipEndpoints
         // <b>ADR-013 §7's condition.</b> A declaration that names a column which
         // is not there produces a relationship that fails at query time, on
         // somebody else's request, long after the mistake.
+        // <b>A relationship is a join, and a GeoParquet layer is not in a database to join in —
+        // ADR-066.</b> Refused where it is declared, so the refusal is an administrator's sentence
+        // at the moment of the mistake rather than every client's 400 on every related-records
+        // query afterwards.
+        if (Graticula.Platform.Admin.GeoParquetLocator.Is(origin.ConnectionString)
+            || Graticula.Platform.Admin.GeoParquetLocator.Is(related.ConnectionString))
+        {
+            await Fail(
+                context, 422,
+                $"'{(Graticula.Platform.Admin.GeoParquetLocator.Is(origin.ConnectionString) ? origin : related).Definition.Name}' "
+                + "is served from a GeoParquet file, and related records are answered by a join in "
+                + "the database both layers are in. Import the file into the datastore to relate it.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
         if (!await ValidateAsync(context, contexts, origin, request.OriginKey, "originKey", cancellation)
                 .ConfigureAwait(false)
             || !await ValidateAsync(context, contexts, related, request.RelatedKey, "relatedKey", cancellation)

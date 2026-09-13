@@ -15,6 +15,7 @@
     <ProjectReference Include="..\..\src\Graticula.Platform.Postgres\Graticula.Platform.Postgres.csproj" />
     <ProjectReference Include="..\..\src\Graticula.Core\Graticula.Core.csproj" />
     <ProjectReference Include="..\..\src\Graticula.Providers.PostGis\Graticula.Providers.PostGis.csproj" />
+    <ProjectReference Include="..\..\src\Graticula.Providers.DuckDb\Graticula.Providers.DuckDb.csproj" />
     <ProjectReference Include="..\..\src\Graticula.Api.ArcGis\Graticula.Api.ArcGis.csproj" />
   </ItemGroup>
 
@@ -24,5 +25,6 @@
          Two verbatim copies is what D-46 is about, and one of them was fixed first. -->
     <Compile Include="..\shared\GeometryCorpus.cs" Link="GeometryCorpus.cs" />
     <Compile Include="..\shared\OneSuiteAtATime.cs" Link="OneSuiteAtATime.cs" />
+    <Compile Include="..\shared\GeoParquetFixture.cs" Link="GeoParquetFixture.cs" />
   </ItemGroup>
 </Project>

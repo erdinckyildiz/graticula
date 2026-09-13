@@ -688,11 +688,12 @@
       -->
       <div class="panel pad" id="sourceForm">
         <div class="label" style="margin-top:0">Register a source</div>
-        <p class="hint">A PostGIS database this server reads from. Registering stores the
-          credential, sealed, because the server connects again every time somebody opens a map
-          on it — nothing is published by registering, and you choose the tables afterwards.</p>
+        <p class="hint">A PostGIS database this server reads from, or a folder of GeoParquet files
+          it reads in place. Registering a database stores the credential, sealed, because the
+          server connects again every time somebody opens a map on it; a folder stores only its
+          path. Nothing is published by registering — you choose the tables or files afterwards.</p>
         <div class="row" style="margin-bottom:0">
-          <button class="primary" id="sAdd" type="button">Add a connection&hellip;</button>
+          <button class="primary" id="sAdd" type="button">Add a source&hellip;</button>
         </div>
       </div>
     </div>

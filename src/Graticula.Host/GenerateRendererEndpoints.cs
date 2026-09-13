@@ -12,7 +12,6 @@ using Graticula.Features;
 using Graticula.Geometries;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Postgres;
-using Graticula.Providers.PostGis;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -176,7 +175,7 @@ public static class GenerateRendererEndpoints
 
         // <b>The connection lease first, then the provider inside it.</b> A source arrives
         // wrapped in `BudgetedFeatureSource` -- ADR-007 §4.8's connection cap -- and the
-        // statistics below are the provider's own methods rather than `IFeatureSource`'s, so it
+        // statistics below are `IFeatureSummaries`'s rather than `IFeatureSource`'s, so it
         // has to be unwrapped. Taking the lease before unwrapping is what keeps this inside the
         // bound: a classification is three aggregates and a sort over a whole column, which is
         // not a cheap statement to issue outside the cap.
@@ -188,11 +187,11 @@ public static class GenerateRendererEndpoints
 
         IFeatureSource inner = budgeted?.Inner ?? source;
 
-        if (inner is not PostGisFeatureSource postgis)
+        if (inner is not IFeatureSummaries postgis)
         {
             throw new SymbologyException(
-                "This layer is not served from PostGIS, and generating a renderer needs the "
-                + "statistics only that provider computes.");
+                "The provider this layer is served by computes no statistics, and generating a "
+                + "renderer needs them.");
         }
 
         return Text(asked["type"]) switch
@@ -259,7 +258,7 @@ public static class GenerateRendererEndpoints
     /// <summary>A class-breaks renderer over a numeric field.</summary>
     private static async Task<JsonObject> BreaksAsync(
         JsonObject asked,
-        PostGisFeatureSource source,
+        IFeatureSummaries source,
         LayerDescription described,
         GeometryKind geometry,
         CancellationToken cancellation)
@@ -342,7 +341,7 @@ public static class GenerateRendererEndpoints
     /// <summary>A unique-value renderer over one field's distinct values.</summary>
     private static async Task<JsonObject> ValuesAsync(
         JsonObject asked,
-        PostGisFeatureSource source,
+        IFeatureSummaries source,
         LayerDescription described,
         GeometryKind geometry,
         CancellationToken cancellation)
@@ -550,7 +549,7 @@ public static class GenerateRendererEndpoints
 
     /// <summary>Runs one statistics query and returns its single row.</summary>
     private static async Task<IReadOnlyDictionary<string, object?>> OneRowAsync(
-        PostGisFeatureSource source,
+        IFeatureSummaries source,
         IReadOnlyList<StatisticRequest> wanted,
         CancellationToken cancellation)
     {

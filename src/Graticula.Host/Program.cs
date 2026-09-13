@@ -324,6 +324,12 @@ public static class Program
             wait: null,
             waitersPerPermit: settings.QueueWaitersPerPermit));
 
+        // <b>The GeoParquet folders, ADR-066.</b> Before `LayerConnections`, which reads layers on
+        // them, and the probe, which lists their files. With no root configured every folder is
+        // refused by name and nothing is opened.
+        builder.Services.AddSingleton(new GeoParquetSources(
+            settings.GeoParquetRoot, settings.GeoParquetMemoryLimit, settings.GeoParquetThreads));
+
         builder.Services.AddSingleton<LayerConnections>();
 
         builder.Services.AddSingleton(services =>
@@ -517,7 +523,8 @@ public static class Program
             services.GetRequiredService<NpgsqlDataSource>(),
             services.GetRequiredService<SecretProtector>()));
 
-        builder.Services.AddSingleton<IDataSourceProbe>(_ => new PostgresDataSourceProbe());
+        builder.Services.AddSingleton<IDataSourceProbe>(services => new DataSourceProbes(
+            new PostgresDataSourceProbe(), services.GetRequiredService<GeoParquetSources>()));
 
         builder.Services.AddSingleton<IAuditLog>(services =>
             new PostgresAuditLog(services.GetRequiredService<NpgsqlDataSource>()));
@@ -2277,8 +2284,8 @@ public static class Program
         CancellationToken cancellation)
     {
         // <b>Unwrapped, and the slot is held for the whole of it.</b> `LayerConnections` hands out a
-        // `BudgetedFeatureSource` (ADR-007 §4.8's connection cap) and the shape queries below are the
-        // provider's own methods rather than `IFeatureSource`'s, so the concrete type is needed here.
+        // `BudgetedFeatureSource` (ADR-007 §4.8's connection cap) and the shape queries below are
+        // `IFeatureSummaries`'s rather than `IFeatureSource`'s, so the provider itself is needed here.
         // Taking the lease first is what keeps a count inside the bound — a filtered `count(*)` is one
         // of the more expensive statements this server issues, and it is the first thing an ArcGIS
         // client asks for.
@@ -2293,11 +2300,11 @@ public static class Program
             source = budgeted.Inner;
         }
 
-        if (source is not PostGisFeatureSource postgis)
+        if (source is not IFeatureSummaries summaries)
         {
-            // Every source in this build is PostGIS. Said out loud rather than
-            // cast blindly, so a second provider fails here with a sentence
-            // instead of an InvalidCastException in a stack trace.
+            // <b>Both providers in this build answer these (ADR-066 §5)</b>, so this is a
+            // sentence for a third one that does not, rather than an InvalidCastException in a
+            // stack trace.
             await Results.Json(
                 new
                 {
@@ -2305,8 +2312,8 @@ public static class Program
                     {
                         code = 501,
                         message =
-                            "Counts, ids, extents and statistics are implemented for the PostGIS "
-                            + "provider only, and this layer is served by another.",
+                            "Counts, ids, extents and statistics are not implemented by the "
+                            + "provider this layer is served by.",
                     },
                 },
                 statusCode: StatusCodes.Status501NotImplemented)
@@ -2326,7 +2333,8 @@ public static class Program
         */
         try
         {
-            await ShapedAsync(context, layer, described, postgis, query, shape, html, cancellation)
+            await ShapedAsync(
+                    context, layer, described, source, summaries, query, shape, html, cancellation)
                 .ConfigureAwait(false);
 
             budgeted?.Observe(null);
@@ -2342,7 +2350,8 @@ public static class Program
         HttpContext context,
         PublishedLayer layer,
         LayerDescription described,
-        PostGisFeatureSource postgis,
+        IFeatureSource source,
+        IFeatureSummaries summaries,
         FeatureQuery query,
         QueryShape shape,
         bool html,
@@ -2352,7 +2361,7 @@ public static class Program
         {
             case QueryShape.Count:
             {
-                long count = await postgis.CountAsync(query, cancellation).ConfigureAwait(false);
+                long count = await source.CountAsync(query, cancellation).ConfigureAwait(false);
 
                 if (html)
                 {
@@ -2369,7 +2378,7 @@ public static class Program
 
             case QueryShape.Ids:
             {
-                IReadOnlyList<long> ids = await postgis
+                IReadOnlyList<long> ids = await summaries
                     .ObjectIdsAsync(query, cancellation).ConfigureAwait(false);
 
                 if (html)
@@ -2390,7 +2399,7 @@ public static class Program
 
             case QueryShape.Extent:
             {
-                (Envelope? extent, long count) = await postgis
+                (Envelope? extent, long count) = await summaries
                     .ExtentAsync(query, cancellation).ConfigureAwait(false);
 
                 int srid = query.OutSrid ?? layer.Definition.Srid;
@@ -2422,7 +2431,7 @@ public static class Program
 
             default:
             {
-                IReadOnlyList<IReadOnlyDictionary<string, object?>> rows = await postgis
+                IReadOnlyList<IReadOnlyDictionary<string, object?>> rows = await summaries
                     .StatisticsAsync(query, cancellation).ConfigureAwait(false);
 
                 if (html)

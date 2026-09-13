@@ -46,6 +46,9 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         "src/Graticula.Api.Wfs",
         "src/Graticula.Api.ArcGis",
         "src/Graticula.Api.OgcFeatures",
+
+        // ADR-066: a folder's DuckDB lives as long as the source, and it remembers its files.
+        "src/Graticula.Providers.DuckDb",
     ];
 
     /// <summary>
@@ -67,6 +70,8 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["JobSignal._waiting"] = "one per job kind, and the kinds are an enum",
         ["LayerConnections._pools"] = "one pool per connection string; cleared on reload",
         ["LayerConnections._attachmentPools"] = "one pool per connection string; cleared on reload",
+        ["GeoParquetSources._folders"] = "one DuckDB per folder a layer has read; closed when its source is removed, moved or quiesced, and a probe of any other folder opens and closes its own",
+        ["GeoParquetFolder._tables"] = "one per file name read in one folder; replaced when the file changes",
         ["LogEndpoints._seen"] = "explicit capacity; cleared when full",
         ["ServiceContexts._entries"] = "one per table, and expires",
         ["ServiceThumbnails._held"] =

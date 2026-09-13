@@ -155,7 +155,24 @@ internal sealed record HostSettings(
     //
     // <b>On the end and optional, because every caller predates it</b> — the convention this
     // file's neighbours already follow when a parameter is added.
-    long PreviewGeometryBudgetBytes = CompositionPreview.DefaultGeometryBudgetBytes)
+    long PreviewGeometryBudgetBytes = CompositionPreview.DefaultGeometryBudgetBytes,
+
+    // <b>The directory GeoParquet folders may be registered under — ADR-066 §3 — and unset by
+    // default, which switches the feature off.</b> DuckDB reads a registered folder in this
+    // process, so which directories an administrator may point it at is the deployment's decision
+    // rather than the API's: a folder outside this root is refused at registration and refused
+    // again at every query, so moving the root takes a folder out of service rather than leaving
+    // it served from a place the deployment no longer names.
+    string? GeoParquetRoot = null,
+
+    // <b>DuckDB's memory ceiling per registered folder.</b> DuckDB's own default is 80% of the
+    // machine, which is a notebook's number and not a server's.
+    string GeoParquetMemoryLimit = "1GB",
+
+    // <b>DuckDB's threads per folder, two unless the deployment says otherwise.</b> DuckDB's own
+    // default is one per core for each folder, and a security review counted what that does across a
+    // few registered folders on a server that is answering everything else too.
+    int? GeoParquetThreads = 2)
 {
 
     /// <summary>
@@ -521,7 +538,11 @@ internal sealed record HostSettings(
             // one feature of every layer and look like a broken preview.
             Math.Max(0, keys.Value(
                 "PreviewGeometryBudgetMB",
-                CompositionPreview.DefaultGeometryBudgetBytes / (1024 * 1024))) * 1024 * 1024);
+                CompositionPreview.DefaultGeometryBudgetBytes / (1024 * 1024))) * 1024 * 1024,
+
+            keys.Text("GeoParquetRoot"),
+            keys.Text("GeoParquetMemoryLimit") ?? "1GB",
+            Math.Max(1, keys.Value("GeoParquetThreads", 2)));
     }
 
     /// <summary>

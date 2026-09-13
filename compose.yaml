@@ -86,6 +86,11 @@ services:
       Graticula__SecretKey: ${GIS_SECRET_KEY:-}
 
       Graticula__HostName: ${GIS_HOSTNAME:-localhost}
+
+      # ADR-066: the directory GeoParquet folders may be registered from, inside the
+      # container. The image sets the same value; it is repeated here so the line beside
+      # the mount below says where the mount is read.
+      Graticula__GeoParquetRoot: /data/geoparquet
     ports:
       - "${GIS_PORT:-8443}:8443"
     volumes:
@@ -94,6 +99,12 @@ services:
       # on every replacement and every client that trusted the old one fails at
       # the same moment.
       - server-state:/var/lib/graticula
+
+      # ADR-066 §3: GeoParquet files, read in place and never written. Put a folder of
+      # .parquet files under ./geoparquet (or point GIS_GEOPARQUET_DIR somewhere else) and
+      # register it in Studio. Read-only, because DuckDB's sandbox confines reads to the
+      # folder and does not stop a write inside it; the mount does.
+      - ${GIS_GEOPARQUET_DIR:-./geoparquet}:/data/geoparquet:ro
     healthcheck:
       # Liveness, which by design does not consult the database — a probe that
       # did would tell the orchestrator to kill this container during a

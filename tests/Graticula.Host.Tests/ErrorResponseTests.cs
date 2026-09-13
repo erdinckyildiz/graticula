@@ -580,4 +580,29 @@ public sealed class ErrorResponseTests
         // frees a disk.
         Assert.Null(ErrorResponse.RetryAfterFor(WithSqlState(state)));
     }
+
+    [Fact]
+    public void A_GeoParquet_query_past_its_deadline_is_a_504_with_the_providers_sentence()
+    {
+        (int status, string message) = ErrorResponse.Classify(new TimeoutException(
+            "A query on layer 'areas' ran past the 30 seconds this service allows one statement, and "
+            + "DuckDB was stopped."));
+
+        Assert.Equal(StatusCodes.Status504GatewayTimeout, status);
+        Assert.Contains("'areas'", message, StringComparison.Ordinal);
+
+        // Any other timeout keeps whatever it had.
+        (int other, _) = ErrorResponse.Classify(new TimeoutException("something else"));
+        Assert.NotEqual(StatusCodes.Status504GatewayTimeout, other);
+    }
+
+    [Fact]
+    public void A_query_a_provider_does_not_answer_is_a_400_with_its_sentence()
+    {
+        (int status, string message) = ErrorResponse.Classify(
+            new Graticula.Features.QueryNotSupportedException("This layer answers intersects only."), detailed: false);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, status);
+        Assert.Equal("This layer answers intersects only.", message);
+    }
 }
