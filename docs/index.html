@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Graticula is an ArcGIS-compatible GIS server and portal on PostGIS: feature, map, image, vector tile and geometry services, with items, members, roles and sharing, from one container and one Postgres.">
+<meta name="description" content="Graticula is an ArcGIS-compatible GIS server and portal on PostGIS, which also serves GeoParquet files where they lie: feature, map, image, vector tile and geometry services, with items, members, roles and sharing, from one container and one Postgres.">
 <meta name="color-scheme" content="light dark">
 <meta property="og:title" content="Graticula">
 <meta property="og:description" content="A GIS server and its portal, from one container and one Postgres.">
@@ -255,7 +255,7 @@ pre .k{color:var(--accent)}
     <a class="nav-s" href="#gaps">What is missing</a>
     <a class="nav-s" href="#start">Start</a>
     <span class="nav-right">
-      <span class="nav-v">v0.1.0</span>
+      <span class="nav-v">v1</span>
       <a class="nav-gh" href="https://github.com/erdinckyildiz/graticula">GitHub</a>
     </span>
   </div>
@@ -266,10 +266,10 @@ pre .k{color:var(--accent)}
   <div class="hero sheet">
     <div class="hero-grid">
       <div>
-        <p class="eyebrow">Graticula <span class="sep">/</span> v0.1.0 <span class="sep">/</span> source-available</p>
+        <p class="eyebrow">Graticula <span class="sep">/</span> v1 <span class="sep">/</span> source-available</p>
         <h1>A GIS server and its portal, from one container and one Postgres.</h1>
         <p class="lede"><b>Server</b> does what a GIS Server site does: services at
-        <span class="nm">/rest/services</span>, published out of PostGIS, opened by the clients
+        <span class="nm">/rest/services</span>, published out of PostGIS or a folder of GeoParquet files, opened by the clients
         you already have. <b>Studio</b> does what the portal does &mdash; items, members, roles,
         groups, sharing. They are one process and one API with two doors, because the three tiers
         are fused rather than federated:
@@ -355,6 +355,9 @@ pre .k{color:var(--accent)}
                   <td>The same PostgreSQL the server already needs.</td></tr>
               <tr><td>An enterprise geodatabase registered as a data store</td>
                   <td>Your own PostGIS, registered &mdash; read and write where rights allow.</td></tr>
+              <tr><td>A folder of files registered as a data store</td>
+                  <td>A folder of GeoParquet files, registered by name and read in place by DuckDB
+                  &mdash; for reading only.</td></tr>
               <tr><td>Server Manager</td>
                   <td><b>Server</b>, the console an operator signs in to.</td></tr>
               <tr><td>Portal for ArcGIS</td>
@@ -395,8 +398,9 @@ pre .k{color:var(--accent)}
             <i class="sw full"><span class="vh">Complete.</span></i>
             <div>
               <h3>Feature services</h3>
-              <p>Query and edit a registered PostGIS table or a hosted layer. Identity,
-              relationships and attachments are declared rather than reverse-engineered.</p>
+              <p>Query and edit a registered PostGIS table or a hosted layer, and query a
+              GeoParquet file where it lies. Identity, relationships and attachments are
+              declared rather than reverse-engineered.</p>
               <p class="ops"><code>query</code><code>applyEdits</code><code>attachments</code><code>queryRelatedRecords</code><code>generateRenderer</code></p>
             </div>
           </div>
@@ -497,10 +501,12 @@ pre .k{color:var(--accent)}
           <div class="gap">
             <i class="sw none"><span class="vh">Not built.</span></i>
             <div>
-              <h3>PostGIS, and nothing else</h3>
+              <h3>PostGIS, and nothing else, for databases</h3>
               <p>No Oracle, no SQL Server, no file geodatabase served in place. An enterprise
               geodatabase on Oracle has to move before this can serve it. The other engines are
-              deferred, not cancelled.</p>
+              deferred, not cancelled. <b>GeoParquet files are the one thing served where they
+              lie</b>, and only for reading: no edits, no attachments, no related records, no
+              vector tiles, and spatial filters by intersection only.</p>
             </div>
           </div>
 
@@ -579,9 +585,9 @@ pre .k{color:var(--accent)}
           <div class="gap">
             <i class="sw none"><span class="vh">Not built.</span></i>
             <div>
-              <h3>Not 1.0</h3>
-              <p>v0.1.0. It runs and it is tested; it has not yet been operated in production by
-              anybody but its author.</p>
+              <h3>Not yet operated in production</h3>
+              <p>Released as v1, a patch for every change. It runs and it is tested; it has not
+              yet been operated in production by anybody but its author.</p>
             </div>
           </div>
 
