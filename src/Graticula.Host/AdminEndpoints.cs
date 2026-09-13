@@ -44,6 +44,10 @@ namespace Graticula.Host;
 /// <param name="SecretAccessKey">For a private bucket, the secret — written, never read back.</param>
 /// <param name="UrlStyle">For an S3-compatible store, <c>vhost</c> or <c>path</c>.</param>
 /// <param name="UseSsl">False only for an S3-compatible store without TLS.</param>
+/// <param name="Token">For <c>motherduck</c>, the access token — written, never read back.</param>
+/// <param name="Srid">
+/// For <c>duckdb</c> and <c>motherduck</c>, the EPSG code geometry is in where a column's type does not say.
+/// </param>
 /// <remarks>
 /// <para>
 /// <b>The fields exist because the console stopped asking for a string, and the assembly is
@@ -83,7 +87,11 @@ internal sealed record DataSourceRequest(
     string? AccessKeyId = null,
     string? SecretAccessKey = null,
     string? UrlStyle = null,
-    bool? UseSsl = null)
+    bool? UseSsl = null,
+
+    // <b>ADR-067 §5.3–5.4: `duckdb` with a `path`, `motherduck` with `database` and `token`, either with `srid`.</b>
+    string? Token = null,
+    int? Srid = null)
 {
     /// <summary>Never a password or a secret: a record's generated text prints every property.</summary>
     /// <returns>The name and kind, and what was sent to reach it without anything secret.</returns>
@@ -6698,7 +6706,7 @@ internal static partial class AdminEndpoints
         {
             foreach (LayerPublication layer in node.Children ?? (node.Layer is { } one ? [one] : []))
             {
-                if (await GeoParquetRefusalAsync(catalog, geoParquet, layer, cancellation)
+                if (await GeoParquetRefusalAsync(catalog, geoParquet, projector, layer, cancellation)
                         .ConfigureAwait(false) is { } refusal)
                 {
                     await Refuse(context, 422, refusal).ConfigureAwait(false);
@@ -7909,6 +7917,9 @@ internal static partial class AdminEndpoints
 
             // ADR-067 §5.2: whether this server can read GeoParquet over https and S3, for the same reason.
             remoteGeoParquet = geoParquet.RemoteEnabled,
+
+            // ADR-067 §5.4: whether MotherDuck may be registered. DuckDB files follow the root above.
+            motherDuck = geoParquet.MotherDuckEnabled,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -7981,6 +7992,7 @@ internal static partial class AdminEndpoints
     private static async Task<string?> GeoParquetRefusalAsync(
         IAdminCatalog catalog,
         GeoParquetSources geoParquet,
+        IProjector projector,
         LayerPublication publication,
         CancellationToken cancellation)
     {
@@ -7996,7 +8008,14 @@ internal static partial class AdminEndpoints
             return null;
         }
 
-        return GeoParquetLocator.Is(locator) ? geoParquet.RefusalFor(locator!, publication) : null;
+        if (!GeoParquetLocator.Is(locator))
+        {
+            return null;
+        }
+
+        // ADR-067 condition 5: a reference declared at registration is checked against the table's coordinates.
+        return geoParquet.RefusalFor(locator!, publication)
+            ?? await geoParquet.DeclaredReferenceRefusalAsync(locator!, publication, projector, cancellation).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -8101,6 +8120,7 @@ internal static partial class AdminEndpoints
         PostgresSystemServices systemServices,
         IAuditLog audit,
         GeoParquetSources geoParquet,
+        IProjector projector,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -8212,7 +8232,7 @@ internal static partial class AdminEndpoints
 
         if (fromFile)
         {
-            if (await GeoParquetRefusalAsync(catalog, geoParquet, publication, cancellation)
+            if (await GeoParquetRefusalAsync(catalog, geoParquet, projector, publication, cancellation)
                     .ConfigureAwait(false) is { } refusal)
             {
                 await Refuse(context, 422, refusal).ConfigureAwait(false);
@@ -10334,6 +10354,24 @@ internal static partial class AdminEndpoints
         // console — and it would be wrong on exactly the values nobody tests with: a database
         // name with a space, a host written with a quoted port. The builder has already parsed
         // this string once to take the password out; naming what it found costs nothing.
+        // <b>A DuckDB file's path and reference, or a MotherDuck database's name — never its token.</b>
+        if (GeoParquetLocator.IsAttached(stored))
+        {
+            Graticula.Providers.DuckDb.AttachedDuckDb attached = GeoParquetSources.ParseAttached(stored);
+
+            await Results.Json(new
+            {
+                name = found.Value.Name,
+                kind = attached.IsMotherDuck ? DataSourceKinds.MotherDuck : DataSourceKinds.DuckDb,
+                path = attached.File,
+                database = attached.MotherDuckDatabase,
+                hasToken = attached.Token is { Length: > 0 },
+                srid = attached.DeclaredSrid,
+            }).ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
+
         // <b>A remote location's fields, and never its secret — ADR-067 §5.1.6.</b> The form needs
         // to know one is held so it can say so; it never needs the value, and a correction sends a
         // whole new one like a PostgreSQL password.
@@ -10451,6 +10489,52 @@ internal static partial class AdminEndpoints
             return geoParquet.TryLocate(request.Path, out string? located, out why) ? located : null;
         }
 
+        // <b>A DuckDB database file — ADR-067 §5.3 — named by a `path` under the root, and a reference.</b>
+        if (string.Equals(request.Kind, DataSourceKinds.DuckDb, StringComparison.OrdinalIgnoreCase))
+        {
+            if (hasString || hasFields || HasRemoteFields(request) || !string.IsNullOrEmpty(request.Token))
+            {
+                why = "A DuckDB database file is named by `path` and, for its geometry, `srid`; nothing else describes it.";
+                return null;
+            }
+
+            if (geoParquet is null)
+            {
+                why = GeoParquetSources.DuckDbFilesOff;
+                return null;
+            }
+
+            return geoParquet.TryLocateDuckDb(request.Path, request.Srid, out string? file, out why) ? file : null;
+        }
+
+        // <b>MotherDuck — ADR-067 §5.4 — named by `database` and `token`, and a reference.</b> `database` is the
+        // PostgreSQL form's field too, and here it is the only one of those fields that is allowed.
+        if (string.Equals(request.Kind, DataSourceKinds.MotherDuck, StringComparison.OrdinalIgnoreCase))
+        {
+            if (hasString || hasFields || HasRemoteFields(request) || !string.IsNullOrWhiteSpace(request.Path)
+                || request.Port is not null || !string.IsNullOrEmpty(request.Username) || !string.IsNullOrEmpty(request.Password))
+            {
+                why = "A MotherDuck database is named by `database`, `token` and, for its geometry, `srid`; nothing else describes it.";
+                return null;
+            }
+
+            if (geoParquet is null)
+            {
+                why = GeoParquetSources.MotherDuckOff;
+                return null;
+            }
+
+            return geoParquet.TryLocateMotherDuck(request.Database, request.Token, request.Srid, out string? database, out why)
+                ? database
+                : null;
+        }
+
+        if (!string.IsNullOrEmpty(request.Token) || request.Srid is not null)
+        {
+            why = $"`token` and `srid` describe a DuckDB database; send them with `kind: \"{DataSourceKinds.DuckDb}\"` or `\"{DataSourceKinds.MotherDuck}\"`.";
+            return null;
+        }
+
         // <b>GeoParquet over https or S3 — ADR-067 §5.2 — named by a `url` and its S3 fields.</b> As
         // with a folder, the locator is produced here and only here, after every field has passed its
         // own rule and the host has passed the address check.
@@ -10484,7 +10568,8 @@ internal static partial class AdminEndpoints
             && !string.Equals(request.Kind, DataSourceKinds.PostGis, StringComparison.OrdinalIgnoreCase))
         {
             why = $"`kind` '{request.Kind}' is not one this server registers: "
-                + $"{DataSourceKinds.PostGis}, {DataSourceKinds.GeoParquet} or {DataSourceKinds.GeoParquetRemote}.";
+                + $"{DataSourceKinds.PostGis}, {DataSourceKinds.GeoParquet}, {DataSourceKinds.GeoParquetRemote}, "
+                + $"{DataSourceKinds.DuckDb} or {DataSourceKinds.MotherDuck}.";
 
             return null;
         }
@@ -10596,8 +10681,8 @@ internal static partial class AdminEndpoints
     /// <returns>The same connection with no password in it.</returns>
     private static string WithoutSecrets(string connectionString)
     {
-        // A folder's locator carries no secret to take out; a remote one does, and none of it is shown.
-        if (GeoParquetLocator.IsRemote(connectionString))
+        // A folder's locator carries no secret to take out; a remote one and a database do, and none of it is shown.
+        if (GeoParquetLocator.IsRemote(connectionString) || GeoParquetLocator.IsAttached(connectionString))
         {
             return string.Empty;
         }

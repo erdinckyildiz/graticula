@@ -96,6 +96,11 @@ services:
       # an object store beside this server on its own network. Off: the server reads remote
       # locations from inside the deployment, and an address there is not the internet.
       Graticula__RemoteDataAllowPrivate: ${GIS_REMOTE_DATA_ALLOW_PRIVATE:-false}
+
+      # ADR-067 §5.4: whether MotherDuck databases may be registered. On, the server downloads
+      # MotherDuck's extension into the state volume the first time one is opened; the image
+      # does not carry it, because MotherDuck's terms do not cover anybody redistributing it.
+      Graticula__MotherDuck: ${GIS_MOTHERDUCK:-false}
     ports:
       - "${GIS_PORT:-8443}:8443"
     volumes:

@@ -28,7 +28,7 @@ registered data** — and, since 2026-09-13, **read-only GeoParquet layers read 
 place by DuckDB** ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md)),
 which is a file-format engine rather than a second database — from a folder on the server and,
 since the same day's [ADR-067](docs/adr/ADR-067-duckdb-sources-beyond-a-local-folder.md), from
-`https://` and `s3://`, with a DuckDB database file and MotherDuck decided and not yet built. Where any other document disagrees, v1-scope wins until that
+`https://` and `s3://`, and from a DuckDB database file or a MotherDuck database. Where any other document disagrees, v1-scope wins until that
 document is amended.
 
 **Phase 0 did not end because its criteria were met.** It ended because the

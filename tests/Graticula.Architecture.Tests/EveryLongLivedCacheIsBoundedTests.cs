@@ -72,6 +72,8 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["LayerConnections._attachmentPools"] = "one pool per connection string; cleared on reload",
         ["GeoParquetSources._folders"] = "one DuckDB per folder or remote location a layer has read; closed when its source is removed, moved or quiesced, and a probe of any other folder opens and closes its own",
         ["GeoParquetFolder._tables"] = "one per file name read in one folder; replaced when the file changes",
+        ["GeoParquetFolder._attachedDetails"] = "one per table in one attached database; removed when the table leaves the database, replaced when its version changes (ADR-067 §5.3)",
+        ["GeoParquetFolder._attachedExtents"] = "one per table in one attached database, replaced when the table's version changes (ADR-067 §5.3)",
         ["GeoParquetFolder._remoteTables"] = "one per table name at one remote location, and only names the location's own listing holds (ADR-067 §5.2); replaced after the metadata lifetime",
         ["LogEndpoints._seen"] = "explicit capacity; cleared when full",
         ["ServiceContexts._entries"] = "one per table, and expires",

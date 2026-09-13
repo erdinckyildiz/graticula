@@ -300,6 +300,12 @@ public sealed class GeoParquetFeatureSource
             extent = await Task.Run(() => CoveringExtent(table, covering), cancellationToken).ConfigureAwait(false);
         }
 
+        // ADR-067 §5.3: a table in an attached database has neither a bbox nor a covering column.
+        if (extent is null && table.Relation is not null)
+        {
+            extent = await Task.Run(() => _folder.AttachedExtent(table), cancellationToken).ConfigureAwait(false);
+        }
+
         return new LayerDescription(fields, extent, Writable: false) { AnswersDistance = false };
     }
 

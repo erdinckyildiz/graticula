@@ -14178,10 +14178,14 @@ let geoParquetRoot;
 /** Whether this server reads GeoParquet over https and S3 (ADR-067 §5.2). Undefined until read. */
 let remoteGeoParquet;
 
+/** Whether this server may register MotherDuck (ADR-067 §5.4). Undefined until read. */
+let motherDuckOn;
+
 async function loadSources() {
-  const { dataSources, geoParquetRoot: root, remoteGeoParquet: remote } = await api("/admin/datasources");
+  const { dataSources, geoParquetRoot: root, remoteGeoParquet: remote, motherDuck } = await api("/admin/datasources");
   geoParquetRoot = root ?? null;
   remoteGeoParquet = remote === true;
+  motherDuckOn = motherDuck === true;
   $("cSources").textContent = dataSources.length;
 
   $("sourcesPager").innerHTML = pagerFor("sources", dataSources.length);
@@ -14529,6 +14533,24 @@ function dbconnBody() {
     return { name: $("dcName").value.trim(), kind: "geoparquet", path: $("dcPath").value.trim() };
   }
 
+  // <b>A DuckDB file is a path and a reference; MotherDuck a database, a token and perhaps a reference</b>
+  // (ADR-067 §5.3–5.4). An empty reference is left out, and the server says whether one was needed.
+  if (dbconnKind() === "duckdb" || dbconnKind() === "motherduck") {
+    const md = dbconnKind() === "motherduck";
+    const body = { name: $("dcName").value.trim(), kind: dbconnKind() };
+    const srid = Number($(md ? "dcMdSrid" : "dcDuckSrid").value);
+
+    if (md) {
+      body.database = $("dcMdDatabase").value.trim();
+      body.token = $("dcMdToken").value.trim();
+    } else {
+      body.path = $("dcDuckPath").value.trim();
+    }
+
+    if (srid > 0) body.srid = srid;
+    return body;
+  }
+
   // <b>A remote location sends only what was filled in</b> (ADR-067 §5.2): an https file refuses S3
   // fields, so empty ones are left out rather than sent blank.
   if (dbconnKind() === "geoparquet-remote") {
@@ -14585,10 +14607,10 @@ function dbconnRemoteScheme() {
 /**
  * Which kind of source the dialog is describing.
  *
- * @returns {"postgis"|"geoparquet"|"geoparquet-remote"} the chosen kind, or the kind of the source being corrected
+ * @returns {"postgis"|"geoparquet"|"geoparquet-remote"|"duckdb"|"motherduck"} the chosen kind, or the kind of the source being corrected
  */
 function dbconnKind() {
-  const known = kind => (kind === "geoparquet" || kind === "geoparquet-remote" ? kind : "postgis");
+  const known = kind => (["geoparquet", "geoparquet-remote", "duckdb", "motherduck"].includes(kind) ? kind : "postgis");
 
   if (dbconn) return known(dbconn.kind);
 
@@ -14609,6 +14631,8 @@ function dbconnShowKind() {
   $("dcPostgis").hidden = kind !== "postgis";
   $("dcFolder").hidden = kind !== "geoparquet";
   $("dcRemote").hidden = kind !== "geoparquet-remote";
+  $("dcDuckDb").hidden = kind !== "duckdb";
+  $("dcMotherDuck").hidden = kind !== "motherduck";
 
   // <b>Emptied, not written blank.</b> `dbconnSays` gives the region its bordered class even with
   // nothing to say, and a design review found the empty box it left sitting under the fields for the
@@ -14776,22 +14800,26 @@ async function openDbConnection(source) {
 
   const folderKind = source?.kind === "geoparquet";
   const remoteKind = source?.kind === "geoparquet-remote";
+  const duckKind = source?.kind === "duckdb";
+  const motherKind = source?.kind === "motherduck";
 
   // <b>Asked here when the Sources screen has not been read</b>, which is the Publish screen's
   // path into this dialog: the root decides whether the folder choice can be offered at all.
-  if (geoParquetRoot === undefined || remoteGeoParquet === undefined) {
+  if (geoParquetRoot === undefined || remoteGeoParquet === undefined || motherDuckOn === undefined) {
     try {
       const listing = await api("/admin/datasources");
       geoParquetRoot = listing.geoParquetRoot ?? null;
       remoteGeoParquet = listing.remoteGeoParquet === true;
+      motherDuckOn = listing.motherDuck === true;
     } catch {
       geoParquetRoot = null;
       remoteGeoParquet = false;
+      motherDuckOn = false;
     }
   }
 
   $("dbconnTitle").textContent = source
-    ? `${source.name} — ${folderKind ? "folder" : remoteKind ? "location" : "connection"}`
+    ? `${source.name} — ${folderKind ? "folder" : remoteKind ? "location" : duckKind || motherKind ? "database" : "connection"}`
     : "Add a source";
 
   /*
@@ -14817,6 +14845,14 @@ async function openDbConnection(source) {
         ${remoteGeoParquet ? "" : `<p class="hint" id="dcRemoteOff">This server reads no remote
           GeoParquet: it was started without DuckDB's httpfs extension in the directory
           <code>Graticula:DuckDbExtensions</code> names.</p>`}
+        <label><input type="radio" name="dcKind" value="duckdb"
+          ${geoParquetRoot ? "" : "disabled aria-describedby=\"dcKindOff\""}>
+          A DuckDB database file</label>
+        <label><input type="radio" name="dcKind" value="motherduck"
+          ${motherDuckOn ? "" : "disabled aria-describedby=\"dcMotherOff\""}>
+          A MotherDuck database</label>
+        ${motherDuckOn ? "" : `<p class="hint" id="dcMotherOff">This server reads no MotherDuck
+          databases: it was started without <code>Graticula:MotherDuck</code>.</p>`}
       </fieldset>`;
 
   $("dbconnBody").innerHTML = `
@@ -14826,6 +14862,39 @@ async function openDbConnection(source) {
         <label class="field" style="flex:1 1 100%">Name
           <input id="dcName" spellcheck="false" placeholder="${folderKind ? "istanbul" : remoteKind ? "boundaries" : "cadastre"}"
                  value="${h(source ? source.name : "")}"></label>
+      </div>
+      <div id="dcDuckDb" ${duckKind ? "" : "hidden"}>
+        <div class="row">
+          <label class="field" style="flex:3 1 60%">File
+            <input id="dcDuckPath" spellcheck="false" placeholder="istanbul/cadastre.duckdb"></label>
+          <label class="field" style="flex:1 1 25%">Reference (EPSG) — required
+            <input id="dcDuckSrid" type="number" min="1" inputmode="numeric" required
+                   aria-describedby="dcDuckHint" placeholder="4326 or 3857"></label>
+        </div>
+        <p class="hint" id="dcDuckHint">A <code>.duckdb</code> file inside <code>${h(geoParquetRoot || "")}</code>. Every
+          table in its <code>main</code> schema with a GEOMETRY column can be published, read where it is
+          and never written. <b>The reference is required</b>: DuckDB does not keep one in a database file,
+          so this is the one place the file's coordinates are said to be in EPSG:4326, 3857 or another
+          code — and a table whose coordinates cannot be in it is refused when it is published.</p>
+      </div>
+      <div id="dcMotherDuck" ${motherKind ? "" : "hidden"}>
+        <div class="row">
+          <label class="field" style="flex:1 1 45%">Database
+            <input id="dcMdDatabase" spellcheck="false" placeholder="graticula_demo"></label>
+          <label class="field" style="flex:1 1 25%">Reference (EPSG) — optional
+            <input id="dcMdSrid" type="number" min="1" inputmode="numeric" placeholder="if a table does not say"></label>
+        </div>
+        <div class="row">
+          <label class="field" style="flex:1 1 100%">Access token
+            <input id="dcMdToken" type="password" autocomplete="new-password" spellcheck="false"
+                   placeholder="${motherKind ? "type it again — a stored token is never shown" : "from MotherDuck: Settings → Access Tokens"}"></label>
+        </div>
+        <p class="hint">A database in your MotherDuck account, and a token from MotherDuck's
+          <b>Settings → Access Tokens</b> — a read-only one is enough. Every table in its <code>main</code>
+          schema with a GEOMETRY column can be published and is read over the network on every query. A
+          table whose column type names its reference uses it; the reference here is for tables that do not.
+          ${motherKind ? "The token is not filled in: it is sealed and never read back, so a correction types it again."
+            : "The token is sealed when it is saved and is never shown again."}</p>
       </div>
       <div id="dcRemote" ${remoteKind ? "" : "hidden"}>
         <div class="row">
@@ -14882,7 +14951,7 @@ async function openDbConnection(source) {
              edits.`
           : ""}</p>
       </div>
-      <div id="dcPostgis" ${folderKind || remoteKind ? "hidden" : ""}>
+      <div id="dcPostgis" ${folderKind || remoteKind || duckKind || motherKind ? "hidden" : ""}>
       <div class="row">
         <label class="field" style="flex:3 1 60%">Instance
           <input id="dcHost" spellcheck="false" placeholder="localhost" required></label>
@@ -15006,6 +15075,27 @@ async function openDbConnection(source) {
     return;
   }
 
+  if (duckKind || motherKind) {
+    try {
+      const said = await api(`/admin/datasources/${encodeURIComponent(source.id)}/connection`);
+
+      if (duckKind) {
+        $("dcDuckPath").value = said.path || "";
+        $("dcDuckSrid").value = said.srid || "";
+        $("dcDuckPath").focus();
+      } else {
+        $("dcMdDatabase").value = said.database || "";
+        $("dcMdSrid").value = said.srid || "";
+        $("dcMdToken").focus();
+      }
+    } catch (e) {
+      dbconnSays("alert", "Not filled in. ", `${e.message} Type the database again.`);
+      $(duckKind ? "dcDuckPath" : "dcMdDatabase").focus();
+    }
+
+    return;
+  }
+
   if (remoteKind) {
     try {
       const said = await api(`/admin/datasources/${encodeURIComponent(source.id)}/connection`);
@@ -15056,8 +15146,28 @@ async function openDbConnection(source) {
  *
  * @returns {Promise<void>} when the answer is on screen
  */
+/**
+ * Says a DuckDB file's reference is missing before the server is asked, or returns false.
+ *
+ * <b>Asked here, and not only by the server</b>: a design review found "required" only in the paragraph under
+ * the fields, so a person met the rule as a refusal after pressing Test (ADR-067 §5.3).
+ *
+ * @returns {boolean} true when the form was stopped
+ */
+function dbconnNeedsReference() {
+  if (dbconnKind() !== "duckdb" || Number($("dcDuckSrid").value) > 0) return false;
+
+  dbconnSays("warn", "A reference first. ",
+    "DuckDB does not keep one in a database file, so say which EPSG code the geometry is in — "
+    + "4326 for longitude and latitude, 3857 for web-Mercator metres.");
+  $("dcDuckSrid").focus();
+  return true;
+}
+
 async function dbconnTest() {
   const button = $("dcTest");
+
+  if (dbconnNeedsReference()) return;
 
   button.disabled = true;
   dbconnSays("", "Connecting…", "");
@@ -15118,6 +15228,8 @@ async function dbconnSave() {
   const button = $("dcSave");
   const body = dbconnBody();
 
+  if (dbconnNeedsReference()) return;
+
   if (!body.name) {
     dbconnSays("warn", "A name first. ", "It is what this source is called in the list.");
     $("dcName").focus();
@@ -15147,7 +15259,7 @@ async function dbconnSave() {
 
     toast(answer.name
       ? `${answer.name} now reads ${answer.summary
-        || (body.kind === "geoparquet" ? "that folder" : body.kind === "geoparquet-remote" ? "that location" : "that connection")}.`
+        || (body.kind === "geoparquet" ? "that folder" : body.kind === "geoparquet-remote" ? "that location" : body.kind === "duckdb" || body.kind === "motherduck" ? "that database" : "that connection")}.`
       : "Saved.", true);
 
     await loadSources();

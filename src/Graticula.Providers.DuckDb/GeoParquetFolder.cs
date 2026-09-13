@@ -35,6 +35,35 @@ public sealed record GeoParquetOptions
 
     /// <summary>How long a remote table's metadata is trusted before it is read again.</summary>
     public TimeSpan RemoteMetadataLifetime { get; init; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// The MotherDuck extension's file, or null when MotherDuck is not enabled — ADR-067 §5.4. Not in
+    /// <see cref="ExtensionDirectory"/>, because the image may not carry it: it is downloaded where
+    /// the server can write.
+    /// </summary>
+    public string? MotherDuckExtension { get; init; }
+}
+
+/// <summary>A DuckDB database read as a set of tables — a file on this machine, or MotherDuck — ADR-067 §5.3–5.4.</summary>
+/// <param name="File">The <c>.duckdb</c> file's full path, or null for MotherDuck.</param>
+/// <param name="MotherDuckDatabase">The MotherDuck database name, or null for a file.</param>
+/// <param name="Token">The MotherDuck access token.</param>
+/// <param name="DeclaredSrid">
+/// The EPSG code the registrant says the file's geometry is in, used for every geometry column whose
+/// type carries no reference — which, measured on DuckDB 1.5.5, is every column in a file: a
+/// <c>GEOMETRY('OGC:CRS84')</c> column comes back as <c>GEOMETRY</c> when the file is reopened.
+/// </param>
+public sealed record AttachedDuckDb(string? File, string? MotherDuckDatabase, string? Token, int? DeclaredSrid)
+{
+    /// <summary>Whether this is MotherDuck rather than a file.</summary>
+    public bool IsMotherDuck => MotherDuckDatabase is not null;
+
+    /// <summary>What a sentence may say about it: the file, or <c>md:database</c>.</summary>
+    public string Location => IsMotherDuck ? "md:" + MotherDuckDatabase : File!;
+
+    /// <summary>Never the token.</summary>
+    /// <returns>The location.</returns>
+    public override string ToString() => Location;
 }
 
 /// <summary>
@@ -87,6 +116,11 @@ public sealed record GeoParquetColumn(string Name, string Type);
 /// </param>
 /// <param name="CandidateObjectIdColumn">The candidate a publisher is offered first.</param>
 /// <param name="Problem">Why a layer cannot be served from this file, or null.</param>
+/// <param name="Relation">
+/// For a table in an attached database, the SQL naming it — <c>src."main"."places"</c> — which is
+/// read instead of <paramref name="Path"/>; null for a Parquet file.
+/// </param>
+/// <param name="SridDeclared">Whether the reference came from the registration rather than the data.</param>
 public sealed record GeoParquetTable(
     string Name,
     string Path,
@@ -97,7 +131,9 @@ public sealed record GeoParquetTable(
     GeometryKind? Kind,
     IReadOnlyList<string> IdentityCandidates,
     string? CandidateObjectIdColumn,
-    string? Problem);
+    string? Problem,
+    string? Relation = null,
+    bool SridDeclared = false);
 
 /// <summary>
 /// A folder of GeoParquet files, and the sandboxed DuckDB that reads them — ADR-066 §2.
@@ -152,6 +188,23 @@ public sealed partial class GeoParquetFolder : IDisposable
     private readonly ConcurrentDictionary<string, (long ReadAt, GeoParquetTable Table)> _remoteTables =
         new(StringComparer.Ordinal);
     private RemoteFiles? _remoteListing;
+    private readonly AttachedDuckDb? _attached;
+    private AttachedTables? _attachedListing;
+    private readonly ConcurrentDictionary<string, (string Version, Envelope? Extent)> _attachedExtents =
+        new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, GeoParquetTable> _attachedDetails = new(StringComparer.Ordinal);
+    private readonly object _attachedRefresh = new();
+    private readonly object _attachedExtentGate = new();
+
+    /// <summary>How long one statement reading an attached database's catalogue or extent may run.</summary>
+    /// <remarks>
+    /// The feature source's own deadline, applied to what it does not cover — a security review found the
+    /// listing and the extent scan running unbounded on the request path.
+    /// </remarks>
+    public static readonly TimeSpan AttachedStatementDeadline = TimeSpan.FromSeconds(30);
+
+    /// <summary>The most tables an attached database lists.</summary>
+    public const int MostAttachedTables = 1000;
     private readonly object _remoteRefresh = new();
     private bool _disposed;
 
@@ -216,6 +269,106 @@ public sealed partial class GeoParquetFolder : IDisposable
 
         (_root, EngineVersion) = OpenConfined(RemoteSettings(remote, options));
     }
+
+    /// <summary>Opens a sandboxed DuckDB over an attached database — ADR-067 §5.3–5.4.</summary>
+    /// <param name="attached">The file or the MotherDuck database.</param>
+    /// <param name="options">Bounds, and for MotherDuck the extension's file.</param>
+    public GeoParquetFolder(AttachedDuckDb attached, GeoParquetOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(attached);
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (attached.IsMotherDuck && options.MotherDuckExtension is null)
+        {
+            throw new InvalidOperationException("MotherDuck is not enabled on this server.");
+        }
+
+        if (attached.IsMotherDuck && string.IsNullOrEmpty(attached.Token))
+        {
+            // <b>Refused before DuckDB is asked</b>: with no token the extension opens a browser to sign in
+            // and waits a minute for it, measured (ADR-067 §4) — a request thread held for nothing.
+            throw new InvalidOperationException("A MotherDuck database needs an access token.");
+        }
+
+        _attached = attached;
+        _remoteLifetime = options.RemoteMetadataLifetime;
+        Folder = attached.Location;
+
+        (_root, EngineVersion) = OpenConfined(AttachedSettings(attached, options));
+
+        try
+        {
+            using DuckDBCommand attach = _root.CreateCommand();
+            attach.CommandText = attached.IsMotherDuck
+                ? $"attach {Literal("md:" + attached.MotherDuckDatabase)} as src (read_only)"
+                : $"attach {Literal(attached.File!)} as src (read_only)";
+            attach.ExecuteNonQuery();
+        }
+        catch (DuckDBException failure)
+        {
+            _root.Dispose();
+
+            // A design review: the driver's sentence is for support; the first one a person reads says what to do.
+            string said = attached.IsMotherDuck && failure.Message.Contains("not authenticated", StringComparison.OrdinalIgnoreCase)
+                ? "MotherDuck refused the access token — check it was copied whole and has not been revoked. "
+                : string.Empty;
+
+            throw new InvalidOperationException($"{said}'{attached.Location}' could not be opened: {FirstLine(failure.Message)}");
+        }
+    }
+
+    /// <summary>Every statement an attached database's DuckDB runs before it is locked, in order.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A file is allowed as two paths and nothing else</b>: the file and its write-ahead log, which
+    /// DuckDB reads when it attaches. Its folder is not allowed, so a Parquet file beside it is not
+    /// readable through this instance.
+    /// </para>
+    /// <para>
+    /// <b>MotherDuck's token is written globally and before the lock</b>, like the S3 settings and for
+    /// the same two reasons: query connections are duplicates and read the global value, and the
+    /// extension would otherwise take <c>motherduck_token</c> from this process's environment.
+    /// <b>What the lock does not govern is what MotherDuck runs on its own servers</b> — measured, an https
+    /// read from a confined, authenticated connection returned content (ADR-067 §3). No caller's SQL
+    /// reaches this instance, which is what that rests on.
+    /// </para>
+    /// </remarks>
+    internal static IReadOnlyList<string> AttachedSettings(AttachedDuckDb attached, GeoParquetOptions options)
+    {
+        List<string> settings =
+        [
+            $"set memory_limit = {Literal(options.MemoryLimit)}",
+            "set global TimeZone = 'UTC'",
+            "set autoinstall_known_extensions = false",
+            "set autoload_known_extensions = false",
+            "set allow_community_extensions = false",
+            "set allow_persistent_secrets = false",
+        ];
+
+        if (options.Threads is > 0 and var threads)
+        {
+            settings.Insert(1, $"set threads = {threads.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        if (attached.IsMotherDuck)
+        {
+            settings.Add($"load {Literal(Normalise(options.MotherDuckExtension!))}");
+            settings.Add($"set global motherduck_token = {Literal(attached.Token!)}");
+            settings.Add("set allowed_directories = ['md:']");
+        }
+        else
+        {
+            settings.Add($"set allowed_paths = [{Literal(attached.File!)}, {Literal(attached.File! + ".wal")}]");
+        }
+
+        settings.Add("set enable_external_access = false");
+        settings.Add("set lock_configuration = true");
+
+        return settings;
+    }
+
+    /// <summary>Whether this instance reads an attached database's tables.</summary>
+    public bool IsAttached => _attached is not null;
 
     /// <summary>The platform directory DuckDB names its extension builds by, for this process.</summary>
     public static string ExtensionPlatform =>
@@ -379,6 +532,11 @@ public sealed partial class GeoParquetFolder : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        if (_attached is not null)
+        {
+            return [.. AttachedListing(refresh: true).Tables.Values.OrderBy(t => t.Name, StringComparer.Ordinal)];
+        }
+
         if (_remote is not null)
         {
             // <b>Four footers at a time</b>: each is two or three round trips at the bucket's latency and
@@ -424,6 +582,11 @@ public sealed partial class GeoParquetFolder : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        if (_attached is not null)
+        {
+            return AttachedListing(refresh: false).Tables.GetValueOrDefault(name);
+        }
 
         if (_remote is not null)
         {
@@ -489,6 +652,11 @@ public sealed partial class GeoParquetFolder : IDisposable
             throw new ArgumentException(
                 $"'{name}' is not a plain file name. A GeoParquet layer names its file without "
                 + "the extension, in letters, digits and underscores.", nameof(name));
+        }
+
+        if (_attached is not null)
+        {
+            return _attached.Location + " → main." + name;
         }
 
         if (_remote is not null)
@@ -637,6 +805,370 @@ public sealed partial class GeoParquetFolder : IDisposable
     }
 
     private IReadOnlyList<string> RemoteNames(bool refresh) => RemoteListing(refresh).Names;
+
+    private sealed record AttachedTables(IReadOnlyDictionary<string, GeoParquetTable> Tables, long ReadAt, string? FileVersion);
+
+    /// <summary>
+    /// The tables in an attached database's <c>main</c> schema, as layers would be served from them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Read again when a file changes, and at most once per metadata lifetime for MotherDuck</b>,
+    /// whose tables have no modification time this server can ask for cheaply. A MotherDuck table's
+    /// version is its row count and columns, which is what a rewrite nearly always changes.
+    /// </para>
+    /// <para>
+    /// <b>One schema, <c>main</c></b>, because a layer names a schema and a table and the catalogue
+    /// keeps them apart, and a first version that listed every schema would have to answer what two
+    /// <c>places</c> tables in two schemas are called. Tables elsewhere are not listed (ADR-067 §5.3).
+    /// </para>
+    /// <para>
+    /// <b>A reference from the column's type when it has one, else from the registration</b>, and a
+    /// table with neither is listed with the reason. The two disagreeing is refused rather than
+    /// resolved: the data says one thing and the registrant another, and only a person knows which.
+    /// </para>
+    /// </remarks>
+    private AttachedTables AttachedListing(bool refresh)
+    {
+        string? fileVersion = _attached!.IsMotherDuck ? null : LocalVersion(new FileInfo(_attached.File!));
+        long now = Environment.TickCount64;
+
+        bool Current(AttachedTables listed) => _attached.IsMotherDuck
+            ? now - listed.ReadAt < (long)_remoteLifetime.TotalMilliseconds
+            : string.Equals(listed.FileVersion, fileVersion, StringComparison.Ordinal);
+
+        if (!refresh && Volatile.Read(ref _attachedListing) is { } listed && Current(listed))
+        {
+            return listed;
+        }
+
+        // <b>One refresh at a time, and everybody else keeps the listing they had</b> — a security review's
+        // finding: when MotherDuck's minute ended, every concurrent request relisted every table at once. A
+        // request that arrives while a refresh runs is answered from the previous listing; only the first
+        // request of all, with nothing to fall back on, waits.
+        if (!Monitor.TryEnter(_attachedRefresh))
+        {
+            if (!refresh && Volatile.Read(ref _attachedListing) is { } stale)
+            {
+                return stale;
+            }
+
+            Monitor.Enter(_attachedRefresh);
+        }
+
+        try
+        {
+            if (!refresh && Volatile.Read(ref _attachedListing) is { } fresh && Current(fresh))
+            {
+                return fresh;
+            }
+
+            return RefreshAttached(fileVersion, now);
+        }
+        finally
+        {
+            Monitor.Exit(_attachedRefresh);
+        }
+    }
+
+    private AttachedTables RefreshAttached(string? fileVersion, long now)
+    {
+        using DuckDBConnection connection = Open();
+
+        HashSet<string> baseTables = new(StringComparer.Ordinal);
+
+        using (DuckDBCommand command = connection.CreateCommand())
+        {
+            command.CommandText =
+                "select table_name from duckdb_tables() where database_name = 'src' and schema_name = 'main' "
+                + $"order by table_name limit {MostAttachedTables.ToString(CultureInfo.InvariantCulture)}";
+
+            using CancellationTokenSource deadline = Deadline(command);
+            using DuckDBDataReader reader = command.ExecuteReader();
+
+            while (reader.Read())
+            {
+                baseTables.Add(reader.GetString(0));
+            }
+        }
+
+        Dictionary<string, List<GeoParquetColumn>> columnsOf = new(StringComparer.Ordinal);
+
+        using (DuckDBCommand command = connection.CreateCommand())
+        {
+            command.CommandText =
+                "select table_name, column_name, data_type from information_schema.columns "
+                + "where table_catalog = 'src' and table_schema = 'main' order by table_name, ordinal_position";
+
+            using CancellationTokenSource deadline = Deadline(command);
+            using DuckDBDataReader reader = command.ExecuteReader();
+
+            while (reader.Read())
+            {
+                string table = reader.GetString(0);
+
+                if (!baseTables.Contains(table))
+                {
+                    continue;
+                }
+
+                if (!columnsOf.TryGetValue(table, out List<GeoParquetColumn>? columns))
+                {
+                    columnsOf[table] = columns = [];
+                }
+
+                columns.Add(new GeoParquetColumn(reader.GetString(1), reader.GetString(2)));
+            }
+        }
+
+        Dictionary<string, GeoParquetTable> tables = new(StringComparer.Ordinal);
+
+        foreach ((string name, List<GeoParquetColumn> all) in columnsOf.OrderBy(t => t.Key, StringComparer.Ordinal))
+        {
+            string location = _attached!.Location + " → main." + name;
+
+            if (!PlainName().IsMatch(name) || name.Length > 63)
+            {
+                tables[name] = Unreadable(name, location,
+                    "The table name is not a plain identifier of at most 63 letters, digits and underscores, "
+                    + "and a layer's table name must be one.");
+                continue;
+            }
+
+            try
+            {
+                tables[name] = ReadAttached(connection, name, location, all, fileVersion);
+                _attachedDetails[name] = tables[name];
+            }
+            catch (Exception failure) when (failure is DuckDBException or WkbFormatException
+                or ArgumentException or InvalidOperationException or FormatException or OverflowException)
+            {
+                tables[name] = Unreadable(name, location, $"The table could not be read: {FirstLine(failure.Message)}");
+            }
+        }
+
+        // Tables gone from the database leave the details cache with it.
+        foreach (string gone in _attachedDetails.Keys.Where(k => !tables.ContainsKey(k)))
+        {
+            _attachedDetails.TryRemove(gone, out _);
+        }
+
+        AttachedTables result = new(tables, now, fileVersion);
+        Volatile.Write(ref _attachedListing, result);
+        return result;
+    }
+
+    /// <summary>A cancellation that interrupts a command when the attached statement deadline passes.</summary>
+    private static CancellationTokenSource Deadline(DuckDBCommand command)
+    {
+        CancellationTokenSource deadline = new(AttachedStatementDeadline);
+        deadline.Token.Register(command.Cancel);
+        return deadline;
+    }
+
+    private GeoParquetTable ReadAttached(
+        DuckDBConnection connection, string name, string location, List<GeoParquetColumn> all, string? fileVersion)
+    {
+        string relation = "src.main." + Quote(name);
+        List<GeoParquetColumn> geometries = [.. all.Where(c => c.Type.StartsWith("GEOMETRY", StringComparison.Ordinal))];
+        List<GeoParquetColumn> columns = [.. all.Where(c => !c.Type.StartsWith("GEOMETRY", StringComparison.Ordinal))];
+
+        long rows;
+
+        using (DuckDBCommand count = connection.CreateCommand())
+        {
+            count.CommandText = $"select count(*) from {relation}";
+            using CancellationTokenSource deadline = Deadline(count);
+            rows = Convert.ToInt64(count.ExecuteScalar(), CultureInfo.InvariantCulture);
+        }
+
+        string version = fileVersion is not null
+            ? Hash($"{fileVersion}:{name}")
+            : Hash($"{rows}:{string.Join(",", all.Select(c => c.Name + " " + c.Type))}");
+
+        // <b>Measured once per version, not once per listing</b> — the review's point that relisting MotherDuck
+        // every minute ran a count-distinct over every table every minute, billed to the registrant.
+        if (_attachedDetails.TryGetValue(name, out GeoParquetTable? known)
+            && string.Equals(known.Version, version, StringComparison.Ordinal))
+        {
+            return known;
+        }
+
+        GeoParquetTable Refused(string problem, string column = "") =>
+            new(name, location, rows, version, new GeoParquetMetadata(column, null, null, null, null, problem),
+                columns, null, [], null, problem, relation);
+
+        if (geometries.Count == 0)
+        {
+            return Refused(all.Any(c => string.Equals(c.Type, "BLOB", StringComparison.Ordinal))
+                ? "The table has no GEOMETRY column. A BLOB of well-known binary is not read as one: cast it with st_geomfromwkb into a GEOMETRY column."
+                : "The table has no GEOMETRY column.");
+        }
+
+        GeoParquetColumn geometry = geometries[0];
+
+        if (!PlainName().IsMatch(geometry.Name))
+        {
+            return Refused($"The geometry column '{geometry.Name}' is not a plain identifier, and a layer's geometry column must be one.", geometry.Name);
+        }
+
+        int? typed = SridOfType(geometry.Type, out string? unreadable);
+
+        if (unreadable is not null)
+        {
+            return Refused(unreadable, geometry.Name);
+        }
+
+        int? srid = typed ?? _attached!.DeclaredSrid;
+
+        if (typed is not null && _attached!.DeclaredSrid is { } declared && declared != typed)
+        {
+            return Refused(
+                $"The column '{geometry.Name}' says its reference is EPSG:{typed}, and the registration declares "
+                + $"EPSG:{declared}. The data and the declaration disagree, and a person has to say which is right.",
+                geometry.Name);
+        }
+
+        if (srid is null)
+        {
+            return Refused(
+                $"The column '{geometry.Name}' carries no reference — DuckDB does not keep one in a database file — "
+                + "and the registration declares none. Register the source with the EPSG code its geometry is in: "
+                + "4326 for longitude and latitude, 3857 for web-Mercator metres, or the code of its national grid.",
+                geometry.Name);
+        }
+
+        GeometryKind? kind = SampleKind(connection, relation, geometry.Name);
+        (IReadOnlyList<string> candidates, string? preferred) = Identities(connection, relation, columns);
+
+        // <b>The row number only where it is a row number</b> — two findings of a security review. A column the
+        // table itself calls `rowid` hides DuckDB's pseudo-column, so the alias would name somebody's data; and on
+        // MotherDuck a row's `rowid` is not promised to survive deletes and compaction. Either way the layer needs
+        // an integer column of its own that is unique.
+        if (_attached!.IsMotherDuck || all.Any(c => string.Equals(c.Name, "rowid", StringComparison.OrdinalIgnoreCase)))
+        {
+            candidates = [.. candidates.Where(c => !string.Equals(c, RowNumberColumn, StringComparison.Ordinal))];
+            preferred = candidates.Count > 0 ? candidates[0] : null;
+
+            if (candidates.Count == 0)
+            {
+                return Refused(
+                    "The table has no integer column that is unique and never null, and a layer here needs one as its "
+                    + (_attached.IsMotherDuck
+                        ? "identity: MotherDuck does not promise that a row keeps its position."
+                        : "identity: the table has a column named rowid, which hides DuckDB's own row number."),
+                    geometry.Name);
+            }
+        }
+
+        return new GeoParquetTable(
+            name, location, rows, version,
+            new GeoParquetMetadata(geometry.Name, srid, kind, null, null, null),
+            columns, kind, candidates, preferred, null, relation, SridDeclared: typed is null);
+    }
+
+    /// <summary>The EPSG code a <c>GEOMETRY('…')</c> type names, or null when it names none.</summary>
+    /// <param name="type">DuckDB's type text.</param>
+    /// <param name="unreadable">Why a reference that is there cannot be used, or null.</param>
+    /// <returns>The code, or null.</returns>
+    internal static int? SridOfType(string type, out string? unreadable)
+    {
+        unreadable = null;
+
+        if (!type.StartsWith("GEOMETRY('", StringComparison.Ordinal) || !type.EndsWith("')", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        string crs = type["GEOMETRY('".Length..^2];
+
+        if (crs is "OGC:CRS84" or "EPSG:4326")
+        {
+            return 4326;
+        }
+
+        if (crs.StartsWith("EPSG:", StringComparison.Ordinal)
+            && int.TryParse(crs.AsSpan(5), NumberStyles.None, CultureInfo.InvariantCulture, out int code) && code > 0)
+        {
+            return code;
+        }
+
+        unreadable = $"The geometry column's reference is '{crs}', which is not an EPSG code this server can serve.";
+        return null;
+    }
+
+    /// <summary>The bounding box of an attached table's geometry, computed once per version.</summary>
+    /// <remarks>
+    /// <b>Read here because core DuckDB cannot say it</b> — <c>st_extent_agg</c> and <c>st_xmin</c> are the
+    /// spatial extension's — and a table, unlike a GeoParquet file, carries no bbox of its own. So every
+    /// geometry is read once as WKB and its envelope folded in, and the answer is kept until the table's
+    /// version changes. That is a full read of one column: seconds for a million rows on a local file,
+    /// longer over MotherDuck, once.
+    /// </remarks>
+    public Envelope? AttachedExtent(GeoParquetTable table)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+
+        if (table.Relation is null || table.Problem is not null)
+        {
+            return null;
+        }
+
+        if (_attachedExtents.TryGetValue(table.Name, out var cached)
+            && string.Equals(cached.Version, table.Version, StringComparison.Ordinal))
+        {
+            return cached.Extent;
+        }
+
+        // <b>One scan at a time for the whole database, under the deadline, and a failure is an unknown extent</b>
+        // — the review found concurrent first describes each scanning the column, nothing bounding it, and a
+        // malformed geometry turning a layer's description into a 500.
+        lock (_attachedExtentGate)
+        {
+            if (_attachedExtents.TryGetValue(table.Name, out cached)
+                && string.Equals(cached.Version, table.Version, StringComparison.Ordinal))
+            {
+                return cached.Extent;
+            }
+
+            Envelope? answer;
+
+            try
+            {
+                using DuckDBConnection connection = Open();
+                using DuckDBCommand command = connection.CreateCommand();
+                command.CommandText =
+                    $"select st_aswkb({Quote(table.Geometry.Column)}) from {table.Relation} where {Quote(table.Geometry.Column)} is not null";
+
+                using CancellationTokenSource deadline = Deadline(command);
+                Envelope extent = Envelope.Empty;
+
+                using (DuckDBDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        using Stream stream = reader.GetStream(0);
+                        byte[] wkb = new byte[stream.Length];
+                        stream.ReadExactly(wkb);
+                        extent = extent.Union(WkbReader.Read(wkb).Envelope);
+                    }
+                }
+
+                answer = extent.IsEmpty ? null : extent;
+            }
+            catch (Exception failure) when (failure is DuckDBException or WkbFormatException or ArgumentException
+                or InvalidOperationException or OverflowException)
+            {
+                answer = null;
+            }
+
+            _attachedExtents[table.Name] = (table.Version, answer);
+            return answer;
+        }
+    }
+
+    private static string Hash(string text) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16].ToLowerInvariant();
 
     /// <summary>The most files a remote prefix lists; past it the listing says it stopped.</summary>
     /// <remarks>
@@ -794,10 +1326,17 @@ public sealed partial class GeoParquetFolder : IDisposable
             .ToLowerInvariant();
 
     /// <summary>The table expression for a file, with the row-number column when it is needed.</summary>
+    /// <remarks>
+    /// <b>A table in an attached database answers to the same name for its row number</b>: its
+    /// <c>rowid</c>, aliased, so every statement the feature source writes reads a table exactly as it
+    /// reads a file. Measured on MotherDuck and on a local file: the alias filters and counts.
+    /// </remarks>
     internal static string TableExpression(GeoParquetTable table, bool rowNumbers) =>
-        rowNumbers
-            ? $"read_parquet({Literal(table.Path)}, file_row_number = true)"
-            : $"read_parquet({Literal(table.Path)})";
+        table.Relation is { } relation
+            ? rowNumbers ? $"(select *, rowid as {RowNumberColumn} from {relation})" : relation
+            : rowNumbers
+                ? $"read_parquet({Literal(table.Path)}, file_row_number = true)"
+                : $"read_parquet({Literal(table.Path)})";
 
     /// <summary>A SQL string literal.</summary>
     internal static string Literal(string text) =>
@@ -916,7 +1455,7 @@ public sealed partial class GeoParquetFolder : IDisposable
 
         if (problem is null && kind is null)
         {
-            kind = SampleKind(connection, path, metadata.Column);
+            kind = SampleKind(connection, $"read_parquet({Literal(path)})", metadata.Column);
         }
 
         // <b>A remote file offers its row number and nothing it would have to scan to prove.</b>
@@ -929,17 +1468,17 @@ public sealed partial class GeoParquetFolder : IDisposable
             ? ([], null)
             : _remote is not null
                 ? ([RowNumberColumn], RowNumberColumn)
-                : Identities(connection, path, columns);
+                : Identities(connection, $"read_parquet({Literal(path)})", columns);
 
         return new GeoParquetTable(
             name, path, rows, version, metadata, columns, kind, candidates, preferred, problem);
     }
 
-    private static GeometryKind? SampleKind(DuckDBConnection connection, string path, string column)
+    private static GeometryKind? SampleKind(DuckDBConnection connection, string relation, string column)
     {
         using DuckDBCommand command = connection.CreateCommand();
         command.CommandText =
-            $"select st_aswkb({Quote(column)}) from read_parquet({Literal(path)}) "
+            $"select st_aswkb({Quote(column)}) from {relation} "
             + $"where {Quote(column)} is not null limit 1";
 
         using DuckDBDataReader reader = command.ExecuteReader();
@@ -965,7 +1504,7 @@ public sealed partial class GeoParquetFolder : IDisposable
     /// integers does not make listing a folder expensive.
     /// </remarks>
     private static (IReadOnlyList<string> Candidates, string? Preferred) Identities(
-        DuckDBConnection connection, string path, IReadOnlyList<GeoParquetColumn> columns)
+        DuckDBConnection connection, string relation, IReadOnlyList<GeoParquetColumn> columns)
     {
         List<string> integers = columns
             .Where(c => IsInteger(c.Type) && PlainName().IsMatch(c.Name))
@@ -986,7 +1525,7 @@ public sealed partial class GeoParquetFolder : IDisposable
                    .Append(Quote(column)).Append(')');
             }
 
-            sql.Append(" from read_parquet(").Append(Literal(path)).Append(')');
+            sql.Append(" from ").Append(relation);
 
             using DuckDBCommand command = connection.CreateCommand();
             command.CommandText = sql.ToString();

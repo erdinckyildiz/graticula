@@ -16,10 +16,10 @@ public static class DataSourceKinds
     /// </summary>
     public const string GeoParquetRemote = "geoparquet-remote";
 
-    /// <summary>A DuckDB database file — ADR-067 §5.3. Reserved; not yet registered.</summary>
+    /// <summary>A DuckDB database file under the GeoParquet root, its tables read as layers — ADR-067 §5.3.</summary>
     public const string DuckDb = "duckdb";
 
-    /// <summary>A MotherDuck database — ADR-067 §5.4. Reserved; not yet registered.</summary>
+    /// <summary>A MotherDuck database, its tables read as layers — ADR-067 §5.4.</summary>
     public const string MotherDuck = "motherduck";
 }
 
@@ -56,6 +56,12 @@ public static class GeoParquetLocator
     /// </remarks>
     public const string RemoteScheme = "geoparquet-remote:";
 
+    /// <summary>The prefix of a DuckDB database file — ADR-067 §5.3 — followed by its JSON description.</summary>
+    public const string DuckDbScheme = "duckdb:";
+
+    /// <summary>The prefix of a MotherDuck database — ADR-067 §5.4 — followed by its JSON description, token included.</summary>
+    public const string MotherDuckScheme = "motherduck:";
+
     /// <summary>Whether a stored locator is served by DuckDB: a local folder or a remote location.</summary>
     /// <param name="stored">The unsealed locator.</param>
     /// <returns>Whether it names files rather than a PostgreSQL database.</returns>
@@ -67,7 +73,40 @@ public static class GeoParquetLocator
     public static bool Is(string? stored) =>
         stored is not null
         && (stored.StartsWith(Scheme, StringComparison.Ordinal)
-            || stored.StartsWith(RemoteScheme, StringComparison.Ordinal));
+            || stored.StartsWith(RemoteScheme, StringComparison.Ordinal)
+            || stored.StartsWith(DuckDbScheme, StringComparison.Ordinal)
+            || stored.StartsWith(MotherDuckScheme, StringComparison.Ordinal));
+
+    /// <summary>Whether a stored locator names a DuckDB database — a file or MotherDuck — rather than files.</summary>
+    /// <param name="stored">The unsealed locator.</param>
+    /// <returns>Whether its tables, not its files, are the layers.</returns>
+    public static bool IsAttached(string? stored) =>
+        stored is not null
+        && (stored.StartsWith(DuckDbScheme, StringComparison.Ordinal)
+            || stored.StartsWith(MotherDuckScheme, StringComparison.Ordinal));
+
+    /// <summary>The locator for a DuckDB database file or a MotherDuck database.</summary>
+    /// <param name="motherDuck">Whether it is MotherDuck.</param>
+    /// <param name="json">Its JSON description.</param>
+    /// <returns>The string to seal and store.</returns>
+    public static string ForAttached(bool motherDuck, string json)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(json);
+        return (motherDuck ? MotherDuckScheme : DuckDbScheme) + json;
+    }
+
+    /// <summary>The JSON description an attached-database locator carries.</summary>
+    /// <param name="stored">A locator for which <see cref="IsAttached"/> is true.</param>
+    /// <returns>The JSON, token included — never to be shown.</returns>
+    public static string AttachedOf(string stored)
+    {
+        if (stored is null || !IsAttached(stored))
+        {
+            throw new ArgumentException("That locator does not name a DuckDB database.", nameof(stored));
+        }
+
+        return stored[(stored.StartsWith(DuckDbScheme, StringComparison.Ordinal) ? DuckDbScheme : MotherDuckScheme).Length..];
+    }
 
     /// <summary>Whether a stored locator is a remote location rather than a local folder.</summary>
     /// <param name="stored">The unsealed locator.</param>
@@ -111,7 +150,7 @@ public static class GeoParquetLocator
     /// <returns>The folder path.</returns>
     public static string FolderOf(string stored)
     {
-        if (!Is(stored) || IsRemote(stored))
+        if (stored is null || !stored.StartsWith(Scheme, StringComparison.Ordinal))
         {
             throw new ArgumentException("That locator does not name a GeoParquet folder.", nameof(stored));
         }
@@ -124,6 +163,8 @@ public static class GeoParquetLocator
     /// <returns>The kind, <see cref="DataSourceKinds.PostGis"/> for anything that is not files.</returns>
     public static string KindOf(string? stored) =>
         IsRemote(stored) ? DataSourceKinds.GeoParquetRemote
+        : stored is not null && stored.StartsWith(DuckDbScheme, StringComparison.Ordinal) ? DataSourceKinds.DuckDb
+        : stored is not null && stored.StartsWith(MotherDuckScheme, StringComparison.Ordinal) ? DataSourceKinds.MotherDuck
         : Is(stored) ? DataSourceKinds.GeoParquet
         : DataSourceKinds.PostGis;
 }

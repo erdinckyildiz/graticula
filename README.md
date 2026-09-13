@@ -62,8 +62,9 @@ that works.
   only for reading: no edits, no attachments, no related records, no vector tiles, and spatial
   filters by intersection only ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md),
   [ADR-067](docs/adr/ADR-067-duckdb-sources-beyond-a-local-folder.md)). A remote file is read over
-  the network on every query, at the bucket's latency. A DuckDB database file and MotherDuck are
-  decided and not built.
+  the network on every query, at the bucket's latency. **A DuckDB database file and a MotherDuck
+  database are served the same way**, their tables read-only; a file's geometry reference has to be
+  declared, because DuckDB does not keep one in a database file.
 - **No single sign-on.** Local accounts and server-issued tokens only: no SAML, no OIDC,
   no Active Directory, no SCIM. Every account is one you create here.
 - **No geoprocessing and no geocoding.** No GPServer, no web tools, no Python toolboxes.
@@ -210,6 +211,26 @@ curl -sk -X POST https://localhost:8443/admin/datasources \
   -d '{"name":"boundaries","kind":"geoparquet-remote",
        "url":"s3://overturemaps-us-west-2/release/2026-07-22.0/theme=divisions/type=division_area/",
        "region":"us-west-2"}'
+```
+
+**A DuckDB database, on this server or in MotherDuck.** Every table in the `main` schema with a
+`GEOMETRY` column is a table to publish. A `.duckdb` file lives under `./geoparquet` like a folder does,
+and is registered with the EPSG code its geometry is in: DuckDB 1.5.5 does not keep a reference in a
+database file, so the registration says it, and a table whose coordinates cannot be in that reference
+is refused when it is published. A MotherDuck database is registered by name with an access token from
+MotherDuck's *Settings → Access Tokens*; its tables usually say their own reference. MotherDuck is off
+unless the deployment sets `Graticula__MotherDuck=true` (`GIS_MOTHERDUCK=true` in `.env`), and the server
+then downloads MotherDuck's extension from DuckDB's repository into its state volume the first time it is
+used — the image does not carry it, because MotherDuck's terms do not say anybody else may redistribute it.
+
+```bash
+curl -sk -X POST https://localhost:8443/admin/datasources \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"cadastre","kind":"duckdb","path":"istanbul/cadastre.duckdb","srid":4326}'
+
+curl -sk -X POST https://localhost:8443/admin/datasources \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"demo","kind":"motherduck","database":"graticula_demo","token":"'"$MOTHERDUCK_TOKEN"'"}'
 ```
 
 ### A service of several layers, in one act

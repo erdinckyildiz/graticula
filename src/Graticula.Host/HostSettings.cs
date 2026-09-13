@@ -183,7 +183,12 @@ internal sealed record HostSettings(
     // ADR-067 §5.2.</b> Off, because the server reads the location from inside the deployment's
     // network and an administrator pointing it inward reaches what the deployment did not publish.
     // A MinIO beside the server on a private network is the case for turning it on.
-    bool RemoteDataAllowPrivate = false)
+    bool RemoteDataAllowPrivate = false,
+
+    // <b>Whether MotherDuck may be registered — ADR-067 §5.4 — and off by default.</b> On, the server downloads
+    // MotherDuck's DuckDB extension into its state directory the first time a MotherDuck source is opened: the
+    // image does not carry it, because MotherDuck's terms do not say anybody else may redistribute it.
+    bool MotherDuck = false)
 {
 
     /// <summary>
@@ -555,7 +560,8 @@ internal sealed record HostSettings(
             keys.Text("GeoParquetMemoryLimit") ?? "1GB",
             Math.Max(1, keys.Value("GeoParquetThreads", 2)),
             keys.Text("DuckDbExtensions"),
-            keys.Value("RemoteDataAllowPrivate", false));
+            keys.Value("RemoteDataAllowPrivate", false),
+            keys.Value("MotherDuck", false));
     }
 
     /// <summary>

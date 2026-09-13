@@ -329,9 +329,14 @@ public static class Program
         // <b>The GeoParquet folders, ADR-066.</b> Before `LayerConnections`, which reads layers on
         // them, and the probe, which lists their files. With no root configured every folder is
         // refused by name and nothing is opened.
-        builder.Services.AddSingleton(new GeoParquetSources(
+        GeoParquetSources duckDbSources = new(
             settings.GeoParquetRoot, settings.GeoParquetMemoryLimit, settings.GeoParquetThreads,
-            settings.DuckDbExtensions, settings.RemoteDataAllowPrivate));
+            settings.DuckDbExtensions, settings.RemoteDataAllowPrivate,
+            settings.MotherDuck ? System.IO.Path.Combine(settings.StatePath, "duckdb-extensions") : null);
+
+        // ADR-067 §5.4: MotherDuck's extension is fetched in the background from the start, never on a request.
+        duckDbSources.BeginMotherDuckInstall();
+        builder.Services.AddSingleton(duckDbSources);
 
         builder.Services.AddSingleton<LayerConnections>();
 

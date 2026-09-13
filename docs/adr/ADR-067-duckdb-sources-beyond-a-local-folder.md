@@ -121,6 +121,12 @@ spike is disposable (`scratchpad/duckremote`) and is not promoted; the tests bel
 | **Proving an identity unique is the probe's dominant cost** | from the VPS to `us-west-2`, per Overture file: `geo` key 1,569 ms, footer 607, describe 664, `count(distinct)` over its two integer columns **3,731**; eight files took longer than the client's minute and the request was abandoned (499). Without the uniqueness scan and with four footers read at once: **8 files in 6.3–6.5 s** |
 | **An independent security review of §5.2, before release** | No injection path: every field reaches DuckDB through `Literal()` after its own rule. **Repaired, each with a test:** the address check resolved an S3-compatible endpoint while DuckDB connected to `bucket.endpoint` — bucket `169.254.169.254` on endpoint `nip.io` passed (H1; the bucket's own host is now checked unless the style is `path`, and address-shaped buckets are refused); **loading httpfs copied the server's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION` and `DUCKDB_S3_ENDPOINT` into its settings**, measured, so an anonymous registration would have read as the server (P1; every S3 setting is now written every time); metadata refreshed by every request at once when its minute ended, with no bound on a slow server (M1; one refresh at a time serving the previous answer, `http_timeout` 30 s, one retry); a probe with no bound on files (M2; 1,000, said when reached); the key id returned by the readback (M4; masked); a DuckDB exception kept inside the refusal, where a logger would print the statement and its secret (L2); two files sanitising to one name numbered in listing order, so a writer could take over a published name (L3; both refused); a torn listing cache (L5); IPv4 inside NAT64, 6to4 and IPv4-compatible IPv6, and 198.18/15 (L1); listed keys with pattern characters and recursive globbing (P2); records whose generated text printed secrets (P3); the extension version read from the package cache rather than the pin (L4). **Not repaired:** DNS rebinding and redirects between the check and DuckDB's own resolution (M3) — the check runs at registration and when an instance opens, not per read, and condition 2 is where it stays |
 | **The first version's S3 settings never reached a query** | found by the test written for P1: a plain `set` changes the session that ran it, and every query runs on a connection duplicated from it, which reads the *global* value — the environment's key was still in force there. So a registration's region and keys had never been used by a query; the public Overture bucket answered anyway. Now `set global`, and a test shows two instances each seeing only their own key |
+| **A DuckDB file does not keep a geometry column's reference** | a table created with `GEOMETRY('OGC:CRS84')`, or from a GeoParquet file whose column is typed so, reports the reference while the writer has it open and `GEOMETRY` after `checkpoint` and reopening; `st_crs` is null. `GEOMETRY('EPSG:4326')` is refused by core. Windows x64 and linux-arm64 |
+| **MotherDuck does** | the owner's account, 2026-09-13: a table created from the places file lists `GEOMETRY('OGC:CRS84')` through `information_schema.columns` on a confined, read-only attach |
+| MotherDuck with a real account, confined | extension loaded and token set 0.5 s; confined attach 112–228 ms; 3,405 rows counted in 14 ms; geometry as WKB; a box through core `st_intersects_extent` 37–44 ms; an `INSERT` refused; databases not attached not visible; a local file refused; `rowid` and its alias work. **An https read on the same confined, authenticated connection returned content** — it did not with a bad token, so it is taken to run on MotherDuck's servers; not verified further |
+| MotherDuck does not fall back to the environment, nor mix instances | the real token in `motherduck_token` and `MOTHERDUCK_TOKEN`, and a bogus or empty token set globally: attach refused both times. Two instances in one process, one with the real token and one with a bogus one: the second refused, the first still reading |
+| A security review of §5.3–5.4, before release | No injection, no file escape; the environment and isolation questions it raised measured and closed (row above). **Repaired, each with a test where one can be written:** listing and extent scans unbounded, uncancellable and repeated by every request when the minute ended (one refresh at a time serving the previous listing, measurements kept per version, thirty-second deadlines, a thousand tables); a column named `rowid` hiding the row number, and MotherDuck's `rowid` not being stable (neither offered); a malformed geometry making a description a 500; a `.wal` link; the extension downloaded on a request thread under a lock with no body deadline, into a shared partial name, never checked (background, bounded, unique, loaded before kept); a declared reference with no known area of use waved through (refused). **Not repaired:** a crafted `.duckdb` parsed in process (trusted as placed, §6), and a MotherDuck table's owner changing its data after publish (the version sees row counts and columns, not values) |
+| Both kinds end to end | `gp-attached-e2e.py`, fixture, linux-arm64: five refusals; the file registered on EPSG:4326, published, counted (3,405, 110 ms), boxed (1,570, 70 ms), extent computed; the same file declared EPSG:2320 refused at publish by the area-of-use check; MotherDuck `graticula_demo` registered with the owner's token, reference read from the column type, published, counted (40–50 ms), 5 features in 3857 (130 ms), boxed (40 ms); `hasToken` and no token in the readback, the listing or the logs — **all pass** |
 | Every face asked answers, over both schemes | `gp-remote-e2e.py` against the fixture, linux-arm64: seven refusals (http, a private endpoint, `169.254.169.254`, a signed URL, a key without a secret, remote fields on a folder, a hand-written locator); an https file tested (0.2–0.6 s), registered, published, counted (5, 70–240 ms) and returned in 3857 (290–340 ms); the Overture prefix tested (8 files), registered, one file published and counted from its footer (138,218, 610–670 ms), an envelope answered in 600–670 ms; a keyed registration's secret absent from the listing, the readback (`hasSecret: true`) and the logs endpoint — **all pass** |
 
 ## 5. Decision
@@ -174,31 +180,56 @@ names.** They ship in this order, one release each, and this ADR is the decision
 8. **Off unless `httpfs` is in the extension directory.** The image carries it for both
    architectures; `httpfs` is MIT, part of DuckDB itself.
 
-### 5.3 A DuckDB database file — `duckdb` *(second)*
+### 5.3 A DuckDB database file — `duckdb`
 
-A `.duckdb` file under `Graticula:GeoParquetRoot`, placed by the operator as a folder is, attached
-`READ_ONLY` with its directory as the only allowed one. Tables with one `GEOMETRY` column are
-listed; the reference is **declared at publish** (§3); identity is an integer column measured unique
-and never null, else `rowid`; the version changes with the file's length and modification time.
+1. **A `.duckdb` file under `Graticula:GeoParquetRoot`**, placed by the operator as a folder is, and
+   attached `READ_ONLY` with **the file and its `.wal` as the only allowed paths** — not its folder, so a
+   Parquet file beside it is not readable through it. A link at the file, its log or any folder between
+   it and the root is refused.
+2. **Tables in the `main` schema** with a `GEOMETRY` column are the tables; views are not listed (they
+   are not in `duckdb_tables()`), nor are other schemas, and a `BLOB` of WKB is listed with the reason.
+   At most a thousand tables.
+3. **The reference is declared at registration** (`srid`), because a file cannot keep one (§4); a column
+   type that does name one wins, and the two disagreeing is refused. At publish, the table's extent is
+   moved into degrees from the declared reference and must fall inside that reference's area of use,
+   widened by a degree; a reference with no known area of use is refused (condition 5).
+4. **Identity** is an integer column measured unique and never null, else `rowid` aliased as the row
+   number — except when the table has a column of its own named `rowid`, which hides DuckDB's.
+5. **The extent is computed here**, once per table version, by reading the geometry column: core DuckDB has
+   no aggregate for it. One scan at a time, under a thirty-second deadline; a failure is an unknown extent.
+6. **The version** changes with the file's length and modification time; the catalogue is read again when
+   it does, one refresh at a time, and a table's measurements are kept while its version holds.
 
-### 5.4 MotherDuck — `motherduck` *(third)*
+### 5.4 MotherDuck — `motherduck`
 
-A database name and a token. The instance loads `motherduck`, sets the token, allows only `md:`,
-locks, then attaches the database `READ_ONLY`; a registration with no token is refused before
-DuckDB is asked, so the browser flow can never start. Tables, reference and identity as §5.3; the
-version is refreshed at most once a minute. **The extension is not in the image**: it is downloaded
-into the extension directory when an operator sets `Graticula:MotherDuck` to `enabled`, and the
-server says so in the log.
+1. **A database name and a token**, the token set globally before the lock, `md:` the only allowed
+   location, the database attached `READ_ONLY`. A registration with no token, or one not shaped like a
+   token, is refused before DuckDB is asked, so the browser flow never starts. The database name rule
+   (letters, digits, underscores) keeps a registration to the token's own account's databases.
+2. **Tables, reference and extent as §5.3**, except that a MotherDuck column type usually names its
+   reference — measured, `GEOMETRY('OGC:CRS84')` survives there — so `srid` is optional.
+3. **No row number**: MotherDuck does not promise a row keeps its `rowid` through deletes and compaction,
+   so a table needs a unique integer column of its own.
+4. **The catalogue is refreshed at most once a minute**, one refresh at a time, serving the previous one
+   meanwhile; a table's version is its row count and columns, and its identity is measured once per version.
+5. **The extension is not in the image.** With `Graticula:MotherDuck=true` the server starts downloading
+   it in the background at startup, from `extensions.duckdb.org` for the version it carries, into
+   `<StatePath>/duckdb-extensions`, under a five-minute deadline and a size cap, under a name no other
+   process uses, and keeps it only after DuckDB has loaded it. A request that arrives first is told so.
 
 ## 6. Consequences
 
 **Positive.** A bucket of GeoParquet becomes a layer with no import and no copy, which is the
-reference-layer case the research note put against DuckDB in the first place. The same provider
-serves all four kinds.
+reference-layer case the research note put against DuckDB in the first place. A DuckDB file or a
+MotherDuck database becomes layers the same way. The same provider serves all five kinds.
 
 **Negative.** Network reads on the request path, at the bucket's latency. Two native extensions in
 the serving process beside DuckDB, one of them closed-source and fetched at run time. A redirect
-from an allowed host is followed. A declared reference that cannot be checked, for two of the kinds.
+from an allowed host is followed. A declared reference is checked by a heuristic that cannot tell two
+projected grids with overlapping areas apart. A `.duckdb` file is parsed by native code in the serving
+process, so a file under the root is trusted as ADR-066 trusts a Parquet file there: the operator placed
+it. **What MotherDuck runs on its own servers is outside this server's sandbox** (§4) — safe only while no
+caller's SQL reaches DuckDB, which is ADR-066's rule and is kept.
 The image grows by `httpfs` for two architectures (about 20 MB on arm64, 28 MB on x64, uncompressed).
 
 **State.** *Catalogue*: `data_source.kind` gains `geoparquet-remote`, `duckdb` and `motherduck`
@@ -238,8 +269,9 @@ defects are the reason an independent security review is condition 1 rather than
 
 1. **An independent security review of each kind before its release**, against §3's two defects and
    the credential path. **PARTLY DISCHARGED 2026-09-13 — for `geoparquet-remote`**: reviewed before its
-   release, and every finding but DNS rebinding repaired with a test (§4). The `duckdb` and `motherduck`
-   kinds are still owed theirs.
+   release, and every finding but DNS rebinding repaired with a test (§4). **DISCHARGED 2026-09-13 for
+   `duckdb` and `motherduck` too**: reviewed before their release, two suspicions measured and closed,
+   and every other finding repaired or recorded in §6 (§4).
 2. **The redirect residue** — a redirect from an allowed host is followed (§3), and a name that
    resolves publicly at the check can resolve privately when DuckDB connects (the review's M3).
    Discharged by a DuckDB setting that refuses or checks redirects, by routing DuckDB through
@@ -248,9 +280,13 @@ defects are the reason an independent security review is condition 1 rather than
 3. **The owner decides whether to report the `CREATE SECRET` defect to DuckDB** (§4); it is a
    security report about somebody else's product, and not this server's to file unasked.
 4. **MotherDuck is tested against a real account** before it is described as working. This build
-   has only ever seen it refuse a bad token.
+   has only ever seen it refuse a bad token. **DISCHARGED 2026-09-13** — the owner opened one and put a
+   token on the VPS; registered, published and queried through every step in §4.
 5. **A declared reference on a `duckdb` or `motherduck` layer is checked against its data** — at
-   least that the extent falls inside the reference's domain — before those kinds ship.
+   least that the extent falls inside the reference's domain — before those kinds ship. **DISCHARGED
+   2026-09-13** — `DeclaredReferenceRefusalAsync`, at both publish routes: the extent moved into degrees must
+   fall inside the reference's area of use; a reference with no known area is refused; degrees declared as
+   a Turkish grid were refused end to end. It is the heuristic §6 names, not a proof.
 6. **Every new form in the console goes through the UX review** the owner requires of every screen.
    **PARTLY DISCHARGED 2026-09-13 — for `geoparquet-remote`**: reviewed from headless-Chrome
    screenshots, since the reviewer had no browser. Repaired: bucket settings typed for an s3:// location
@@ -258,9 +294,14 @@ defects are the reason an independent security review is condition 1 rather than
    folder-versus-file distinction was buried in the hint; the secret's fate was explained only when
    correcting; a long prefix widened the Sources table past the page. Not repaired, as older than this
    change: the console's width at 400 px, and focus passing through the page once between the dialog's
-   last and first controls.
+   last and first controls. **DISCHARGED 2026-09-13 for `duckdb` and `motherduck`** the same way. Repaired:
+   the file's required reference was said only in the paragraph under it (now on the label, and asked for
+   before the server is); the refusal did not name the likely codes; MotherDuck's bad token arrived as the
+   driver's sentence alone; the optional reference was not called optional; where a token comes from was
+   far from its field; a refused table was named `places.parquet`. Not repaired: one flat list of five kinds.
 
 **`INFERRED`, for the owner to confirm:** the kind names; S3 prefixes rather than globs, and one
 https file per source; the one-minute metadata cache; the order of the three; downloading MotherDuck
 at run time rather than shipping it; refusing private addresses by default; a `.duckdb` file living
-under the GeoParquet root rather than a separate one.
+under the GeoParquet root rather than a separate one; one declared reference per DuckDB source rather than
+per table; only the `main` schema; no row number on MotherDuck.

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Graticula.Catalog;
 using Graticula.Geometries;
@@ -29,7 +30,7 @@ namespace Graticula.Host;
 /// second query cheaper than the first, and both would be thrown away by opening per request.
 /// </para>
 /// </remarks>
-internal sealed class GeoParquetSources : IDisposable
+internal sealed partial class GeoParquetSources : IDisposable
 {
     private readonly ConcurrentDictionary<string, Lazy<GeoParquetFolder>> _folders = new(PathComparer);
 
@@ -46,6 +47,12 @@ internal sealed class GeoParquetSources : IDisposable
         System.Buffers.SearchValues.Create("*?[]{}");
     private readonly GeoParquetOptions _options;
     private readonly bool _allowPrivate;
+    private readonly string? _motherDuckDirectory;
+    private readonly object _motherDuckDownload = new();
+    private Task<string>? _motherDuckInstall;
+
+    /// <summary>The largest MotherDuck extension this server accepts — measured 18–28 MB; anything far larger is not it.</summary>
+    private const long MostExtensionBytes = 256L * 1024 * 1024;
     private bool _disposed;
 
     public GeoParquetSources(
@@ -53,7 +60,8 @@ internal sealed class GeoParquetSources : IDisposable
         string memoryLimit = "1GB",
         int? threads = null,
         string? extensionDirectory = null,
-        bool allowPrivate = false)
+        bool allowPrivate = false,
+        string? motherDuckDirectory = null)
     {
         Root = string.IsNullOrWhiteSpace(root) ? null : Normalise(Path.GetFullPath(root));
         _options = new GeoParquetOptions
@@ -63,7 +71,322 @@ internal sealed class GeoParquetSources : IDisposable
             ExtensionDirectory = string.IsNullOrWhiteSpace(extensionDirectory) ? null : Path.GetFullPath(extensionDirectory),
         };
         _allowPrivate = allowPrivate;
+        _motherDuckDirectory = string.IsNullOrWhiteSpace(motherDuckDirectory) ? null : Path.GetFullPath(motherDuckDirectory);
+
     }
+
+    /// <summary>Starts installing MotherDuck's extension in the background, when MotherDuck is on.</summary>
+    /// <remarks>Called once at startup, so the first MotherDuck request finds it ready rather than starting it.</remarks>
+    public void BeginMotherDuckInstall()
+    {
+        if (_motherDuckDirectory is null)
+        {
+            return;
+        }
+
+        lock (_motherDuckDownload)
+        {
+            _motherDuckInstall ??= Task.Run(InstallMotherDuck);
+        }
+    }
+
+    /// <summary>Whether MotherDuck may be registered: the deployment switched it on — ADR-067 §5.4.</summary>
+    public bool MotherDuckEnabled => _motherDuckDirectory is not null;
+
+    /// <summary>The refusal when MotherDuck is off.</summary>
+    public const string MotherDuckOff =
+        "MotherDuck is not enabled on this server. Set Graticula:MotherDuck to true and restart: the server then "
+        + "downloads MotherDuck's DuckDB extension from DuckDB's repository into its state directory on first use. "
+        + "It is not shipped with the image, because MotherDuck's terms let a customer download and install it and "
+        + "say nothing about anybody else redistributing it (ADR-067 §3).";
+
+    /// <summary>The refusal when DuckDB database files are off, which is when folders are.</summary>
+    public const string DuckDbFilesOff =
+        "DuckDB database files are not enabled on this server. Set Graticula:GeoParquetRoot (or the environment "
+        + "variable Graticula__GeoParquetRoot) to the directory they may be registered under and restart.";
+
+    /// <summary>Turns a DuckDB database file request into the locator a registration stores — ADR-067 §5.3.</summary>
+    /// <param name="requested">The file, relative to the root or absolute inside it.</param>
+    /// <param name="srid">The EPSG code its geometry is in, for columns whose type carries none.</param>
+    /// <param name="locator">The locator to seal.</param>
+    /// <param name="why">Why it was refused.</param>
+    /// <returns>Whether it may be registered.</returns>
+    public bool TryLocateDuckDb(string? requested, int? srid, out string? locator, out string? why)
+    {
+        locator = null;
+
+        if (Root is null)
+        {
+            why = DuckDbFilesOff;
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(requested))
+        {
+            why = $"A file is required: a .duckdb file inside {Root}, by its path relative to it or its whole path.";
+            return false;
+        }
+
+        if (srid is <= 0)
+        {
+            why = "`srid` is an EPSG code, a positive number.";
+            return false;
+        }
+
+        string file = Normalise(Path.GetFullPath(Path.IsPathRooted(requested)
+            ? requested.Trim()
+            : Path.Combine(Root, requested.Trim())));
+
+        if (DuckDbFileRefusal(file) is { } refused)
+        {
+            why = refused;
+            return false;
+        }
+
+        why = null;
+        locator = GeoParquetLocator.ForAttached(false, JsonSerializer.Serialize(new StoredAttached(file, null, null, srid), AttachedJson));
+        return true;
+    }
+
+    /// <summary>Turns a MotherDuck request into the locator a registration stores — ADR-067 §5.4.</summary>
+    /// <param name="database">The MotherDuck database name.</param>
+    /// <param name="token">The access token.</param>
+    /// <param name="srid">The EPSG code for geometry columns whose type carries none.</param>
+    /// <param name="locator">The locator to seal.</param>
+    /// <param name="why">Why it was refused.</param>
+    /// <returns>Whether it may be registered.</returns>
+    public bool TryLocateMotherDuck(string? database, string? token, int? srid, out string? locator, out string? why)
+    {
+        locator = null;
+
+        if (!MotherDuckEnabled)
+        {
+            why = MotherDuckOff;
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(database) || !MotherDuckName().IsMatch(database))
+        {
+            why = "`database` is a MotherDuck database name: letters, digits and underscores, starting with a letter or an underscore.";
+            return false;
+        }
+
+        // <b>Refused before anything is asked</b>: with no token MotherDuck's extension opens a browser and waits.
+        if (string.IsNullOrEmpty(token) || token.Length > 8192 || !JwtShaped().IsMatch(token))
+        {
+            why = "`token` is a MotherDuck access token — three dot-separated parts, from Settings → Access Tokens in MotherDuck.";
+            return false;
+        }
+
+        if (srid is <= 0)
+        {
+            why = "`srid` is an EPSG code, a positive number.";
+            return false;
+        }
+
+        why = null;
+        locator = GeoParquetLocator.ForAttached(true, JsonSerializer.Serialize(new StoredAttached(null, database, token, srid), AttachedJson));
+        return true;
+    }
+
+    /// <summary>The database a stored attached locator describes, token included.</summary>
+    /// <param name="locator">A DuckDB file or MotherDuck locator.</param>
+    /// <returns>The database.</returns>
+    public static AttachedDuckDb ParseAttached(string locator)
+    {
+        StoredAttached stored = JsonSerializer.Deserialize<StoredAttached>(GeoParquetLocator.AttachedOf(locator), AttachedJson)
+            ?? throw new InvalidOperationException("The stored DuckDB database is empty.");
+
+        return new AttachedDuckDb(stored.File, stored.Database, stored.Token, stored.Srid);
+    }
+
+    private static readonly JsonSerializerOptions AttachedJson = new(JsonSerializerDefaults.Web);
+
+    /// <summary>What is sealed for a DuckDB file or a MotherDuck database. Never shown.</summary>
+    private sealed record StoredAttached(string? File, string? Database, string? Token, int? Srid);
+
+    /// <summary>Why a DuckDB database file may not be read, or null — the folder's rules, and the file's own.</summary>
+    private string? DuckDbFileRefusal(string file)
+    {
+        if (!Inside(file))
+        {
+            return $"'{file}' is outside {Root}, the only directory this server may read DuckDB files from.";
+        }
+
+        if (!file.EndsWith(".duckdb", StringComparison.OrdinalIgnoreCase))
+        {
+            return "A DuckDB database file is a .duckdb file.";
+        }
+
+        if (file.AsSpan().IndexOfAny(PatternCharacters) >= 0 || file.Contains('\'', StringComparison.Ordinal))
+        {
+            return $"'{file}' contains a character DuckDB reads as a pattern or a quote. Rename the file.";
+        }
+
+        FileInfo info = new(file);
+
+        if (!info.Exists)
+        {
+            return $"There is no file at '{file}'.";
+        }
+
+        if (info.LinkTarget is not null)
+        {
+            return $"'{file}' is a symbolic link, and a DuckDB file must be a file inside {Root}.";
+        }
+
+        // The write-ahead log is read at attach and allowed by name, so a link there reads somewhere else (a security review).
+        if (new FileInfo(file + ".wal") is { Exists: true, LinkTarget: not null })
+        {
+            return $"'{file}.wal' is a symbolic link, and a DuckDB file's log must be a file beside it.";
+        }
+
+        return Path.GetDirectoryName(file) is { } folder ? Unsafe(Normalise(folder)) : null;
+    }
+
+    /// <summary>MotherDuck's extension file, or why it is not ready — never waiting for a download.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Downloaded, not shipped</b> — ADR-067 §3: MotherDuck's terms grant a customer the right to download and
+    /// install it and say nothing about redistribution. An operator who switched MotherDuck on is that customer.
+    /// </para>
+    /// <para>
+    /// <b>In the background, from the moment the server starts, and never on a request thread</b> — a security
+    /// review found the first version downloading under a lock inside a request, where a stalled response body
+    /// held that request and every one behind it with no limit. A request that arrives before the extension is
+    /// ready is told so at once; one that arrives after a failure starts one new attempt and is told that too.
+    /// </para>
+    /// </remarks>
+    private string MotherDuckExtension()
+    {
+        Task<string> install;
+
+        lock (_motherDuckDownload)
+        {
+            install = _motherDuckInstall ??= Task.Run(InstallMotherDuck);
+
+            if (install.IsFaulted || install.IsCanceled)
+            {
+                string why = install.Exception?.GetBaseException().Message ?? "the download was cancelled";
+                _motherDuckInstall = Task.Run(InstallMotherDuck);
+                throw new InvalidOperationException(
+                    $"MotherDuck's extension could not be installed ({why}); another attempt has started. Try again in a minute.");
+            }
+        }
+
+        if (!install.IsCompleted)
+        {
+            throw new InvalidOperationException(
+                "MotherDuck's extension is still being downloaded from DuckDB's repository. Try again in a minute.");
+        }
+
+        return install.Result;
+    }
+
+    /// <summary>Finds or downloads MotherDuck's extension, and proves DuckDB loads it before it is kept.</summary>
+    /// <remarks>
+    /// <b>Bounded in time and in size, written under a name no other process uses, and deleted if DuckDB will
+    /// not load it</b> — the review's three findings about a partial file shared between servers on one volume
+    /// becoming a broken extension nobody removes. DuckDB checks the signature when it loads; unsigned
+    /// extensions stay off, so a file altered on the way is refused here rather than at a layer's first query.
+    /// </remarks>
+    private string InstallMotherDuck()
+    {
+        const string Name = "motherduck.duckdb_extension";
+
+        if (_options.ExtensionDirectory is { } shipped
+            && Path.Combine(shipped, GeoParquetFolder.ExtensionPlatform, Name) is { } provided
+            && File.Exists(provided))
+        {
+            return provided;
+        }
+
+        string version;
+
+        using (DuckDB.NET.Data.DuckDBConnection probe = new("DataSource=:memory:"))
+        {
+            probe.Open();
+            using DuckDB.NET.Data.DuckDBCommand command = probe.CreateCommand();
+            command.CommandText = "select version()";
+            version = (string)command.ExecuteScalar()!;
+        }
+
+        string target = Path.Combine(_motherDuckDirectory!, version, GeoParquetFolder.ExtensionPlatform, Name);
+
+        if (File.Exists(target) && Loads(target))
+        {
+            return target;
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        string partial = $"{target}.{Environment.ProcessId}.{Guid.NewGuid():n}.partial";
+
+        try
+        {
+            using CancellationTokenSource deadline = new(TimeSpan.FromMinutes(5));
+            using System.Net.Http.HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan };
+            using Stream compressed = http.GetStreamAsync(
+                new Uri($"https://extensions.duckdb.org/{version}/{GeoParquetFolder.ExtensionPlatform}/{Name}.gz"),
+                deadline.Token).GetAwaiter().GetResult();
+            using System.IO.Compression.GZipStream gzip = new(compressed, System.IO.Compression.CompressionMode.Decompress);
+
+            using (FileStream file = File.Create(partial))
+            {
+                byte[] buffer = new byte[81920];
+                long written = 0;
+                int read;
+
+                while ((read = gzip.ReadAsync(buffer, deadline.Token).AsTask().GetAwaiter().GetResult()) > 0)
+                {
+                    written += read;
+
+                    if (written > MostExtensionBytes)
+                    {
+                        throw new InvalidOperationException("the download is larger than any MotherDuck extension");
+                    }
+
+                    file.Write(buffer, 0, read);
+                }
+            }
+
+            if (!Loads(partial))
+            {
+                throw new InvalidOperationException("DuckDB would not load the downloaded file");
+            }
+
+            File.Move(partial, target, overwrite: true);
+            return target;
+        }
+        finally
+        {
+            File.Delete(partial);
+        }
+
+        static bool Loads(string path)
+        {
+            try
+            {
+                using DuckDB.NET.Data.DuckDBConnection check = new("DataSource=:memory:");
+                check.Open();
+                using DuckDB.NET.Data.DuckDBCommand command = check.CreateCommand();
+                command.CommandText =
+                    "set autoinstall_known_extensions = false; set autoload_known_extensions = false; "
+                    + $"load '{path.Replace('\\', '/').Replace("'", "''", StringComparison.Ordinal)}'";
+                command.ExecuteNonQuery();
+                return true;
+            }
+            catch (DuckDB.NET.Data.DuckDBException)
+            {
+                return false;
+            }
+        }
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]{0,62}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex MotherDuckName();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex JwtShaped();
 
     /// <summary>Whether remote locations can be read: <c>httpfs</c> is where the deployment said — ADR-067 §5.2.</summary>
     public bool RemoteEnabled =>
@@ -92,16 +415,18 @@ internal sealed class GeoParquetSources : IDisposable
     /// different keys are two instances, which is right, because each reads with its own.
     /// </remarks>
     private static string KeyOf(string locator) =>
-        GeoParquetLocator.IsRemote(locator)
-            ? "remote:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+        GeoParquetLocator.IsRemote(locator) || GeoParquetLocator.IsAttached(locator)
+            ? "hashed:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
                 System.Text.Encoding.UTF8.GetBytes(locator)))
             : Normalise(Path.GetFullPath(GeoParquetLocator.FolderOf(locator)));
 
-    /// <summary>Where a locator reads from, for a sentence: the folder, or the remote location without credentials.</summary>
+    /// <summary>Where a locator reads from, for a sentence: the folder, the remote location or the database, without credentials.</summary>
     public static string LocationOf(string locator) =>
         GeoParquetLocator.IsRemote(locator)
             ? RemoteGeoParquetLocations.Parse(locator).Location
-            : GeoParquetLocator.FolderOf(locator);
+            : GeoParquetLocator.IsAttached(locator)
+                ? ParseAttached(locator).Location
+                : GeoParquetLocator.FolderOf(locator);
 
     /// <summary>The root folders may be registered under, or null when the feature is off.</summary>
     public string? Root { get; }
@@ -175,6 +500,11 @@ internal sealed class GeoParquetSources : IDisposable
             return Kept(KeyOf(locator), () => OpenRemote(locator));
         }
 
+        if (GeoParquetLocator.IsAttached(locator))
+        {
+            return Kept(KeyOf(locator), () => OpenAttached(locator));
+        }
+
         // <b>Canonical before it is compared</b> — a security review's finding. A stored
         // `…/geoparquet/../../etc` begins with the root as text and is not inside it.
         string folder = Normalise(Path.GetFullPath(GeoParquetLocator.FolderOf(locator)));
@@ -217,6 +547,47 @@ internal sealed class GeoParquetSources : IDisposable
             _folders.TryRemove(new KeyValuePair<string, Lazy<GeoParquetFolder>>(key, opened));
             throw;
         }
+    }
+
+    /// <summary>A DuckDB file or a MotherDuck database, checked again and opened — ADR-067 §5.3–5.4.</summary>
+    private GeoParquetFolder OpenAttached(string locator)
+    {
+        AttachedDuckDb attached = ParseAttached(locator);
+
+        if (attached.IsMotherDuck)
+        {
+            if (!MotherDuckEnabled)
+            {
+                throw new InvalidOperationException("A layer is served from MotherDuck and this server does not read it. " + MotherDuckOff);
+            }
+
+            string extension;
+
+            try
+            {
+                extension = MotherDuckExtension();
+            }
+            catch (Exception e) when (e is System.Net.Http.HttpRequestException or IOException or UnauthorizedAccessException or TaskCanceledException)
+            {
+                throw new InvalidOperationException($"MotherDuck's extension could not be installed: {e.Message}");
+            }
+
+            return new GeoParquetFolder(attached, _options with { MotherDuckExtension = extension });
+        }
+
+        if (Root is null)
+        {
+            throw new InvalidOperationException(DuckDbFilesOff);
+        }
+
+        string file = Normalise(Path.GetFullPath(attached.File!));
+
+        if (DuckDbFileRefusal(file) is { } why)
+        {
+            throw new InvalidOperationException(why);
+        }
+
+        return new GeoParquetFolder(attached with { File = file }, _options);
     }
 
     /// <summary>A remote location, checked and opened — ADR-067 §5.2.</summary>
@@ -366,7 +737,7 @@ internal sealed class GeoParquetSources : IDisposable
             if (file.Problem is { } problem || file.Kind is null || file.Geometry.Srid is null)
             {
                 skipped.Add(new SkippedTable(
-                    file.Name + ".parquet",
+                    opened.IsAttached ? "main." + file.Name : file.Name + ".parquet",
                     file.Problem ?? "Every geometry in the file is null, so there is no geometry type to publish it as."));
                 continue;
             }
@@ -383,7 +754,14 @@ internal sealed class GeoParquetSources : IDisposable
                 Writable: false));
         }
 
-        string message = opened.IsRemote
+        string message = opened.IsAttached
+            ? (files.Count == 0
+                ? $"{opened.EngineVersion} found no tables in the main schema of '{folder}'."
+                : $"{opened.EngineVersion} read {files.Count} table{(files.Count == 1 ? string.Empty : "s")} in '{folder}': "
+                  + $"{tables.Count} can be published"
+                  + (skipped.Count == 0 ? "." : $", and {skipped.Count} cannot — each says why.")
+                  + " Its layers are read-only.")
+            : opened.IsRemote
             ? (files.Count == 0
                 ? $"{opened.EngineVersion} found no .parquet files at '{folder}'."
                 : $"{opened.EngineVersion} read {files.Count} .parquet file{(files.Count == 1 ? string.Empty : "s")} at "
@@ -423,6 +801,11 @@ internal sealed class GeoParquetSources : IDisposable
         if (GeoParquetLocator.IsRemote(locator))
         {
             return OpenRemote(locator);
+        }
+
+        if (GeoParquetLocator.IsAttached(locator))
+        {
+            return OpenAttached(locator);
         }
 
         string folder = Normalise(Path.GetFullPath(GeoParquetLocator.FolderOf(locator)));
@@ -526,11 +909,14 @@ internal sealed class GeoParquetSources : IDisposable
         }
 
         string table = $"{publication.SchemaName}.{publication.TableName}";
+        string called = folder.IsAttached ? $"'main.{publication.TableName}'" : $"'{publication.TableName}.parquet'";
 
         if (!string.Equals(publication.SchemaName, GeoParquetTableSchema, StringComparison.Ordinal))
         {
-            return $"'{table}' is not a file in this folder: a GeoParquet layer's schema is always "
-                + $"'{GeoParquetTableSchema}' and its table is the file name without '.parquet'.";
+            return folder.IsAttached
+                ? $"'{table}' is not served from '{folder.Folder}': only tables in its '{GeoParquetTableSchema}' schema are."
+                : $"'{table}' is not a file in this folder: a GeoParquet layer's schema is always "
+                  + $"'{GeoParquetTableSchema}' and its table is the file name without '.parquet'.";
         }
 
         GeoParquetTable? file;
@@ -546,31 +932,33 @@ internal sealed class GeoParquetSources : IDisposable
 
         if (file is null)
         {
-            return $"There is no '{publication.TableName}.parquet' in '{folder.Folder}'.";
+            return $"There is no {called} in '{folder.Folder}'.";
         }
 
         if (file.Problem is { } problem)
         {
-            return $"'{publication.TableName}.parquet' cannot be published: {problem}";
+            return $"{called} cannot be published: {problem}";
         }
 
         if (!string.Equals(publication.GeometryColumn, file.Geometry.Column, StringComparison.Ordinal))
         {
-            return $"'{publication.TableName}.parquet' keeps its geometry in '{file.Geometry.Column}', "
+            return $"{called} keeps its geometry in '{file.Geometry.Column}', "
                 + $"not '{publication.GeometryColumn}'.";
         }
 
         if (publication.Srid != file.Geometry.Srid)
         {
-            return $"'{publication.TableName}.parquet' says its coordinates are in EPSG:{file.Geometry.Srid}, "
-                + $"and the publication declares EPSG:{publication.Srid}. A file's reference is read "
-                + "from the file and cannot be overridden: a layer published in any other one answers "
-                + "every request with its features somewhere they are not.";
+            return $"{called} says its coordinates are in EPSG:{file.Geometry.Srid}, "
+                + $"and the publication declares EPSG:{publication.Srid}. "
+                + (file.SridDeclared
+                    ? "That reference is the one the source was registered with; to publish in another, correct the registration."
+                    : "A file's reference is read from the file and cannot be overridden: a layer published in any other one answers "
+                      + "every request with its features somewhere they are not.");
         }
 
         if (!file.IdentityCandidates.Contains(publication.IdentityColumn, StringComparer.Ordinal))
         {
-            return $"'{publication.IdentityColumn}' cannot be the identity of '{publication.TableName}.parquet': "
+            return $"'{publication.IdentityColumn}' cannot be the identity of '{called}: "
                 + "a GeoParquet layer's identity is an integer column measured unique and never null, "
                 + $"or {GeoParquetFolder.RowNumberColumn}. The candidates are "
                 + string.Join(", ", file.IdentityCandidates) + ".";
@@ -585,11 +973,125 @@ internal sealed class GeoParquetSources : IDisposable
 
         if (file.Kind is not { } kind || Family(kind) != Family(publication.GeometryType))
         {
-            return $"'{publication.TableName}.parquet' holds {(file.Kind?.ToString() ?? "no")} geometry, "
+            return $"{called} holds {(file.Kind?.ToString() ?? "no")} geometry, "
                 + $"not {publication.GeometryType}.";
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Whether a table whose reference was declared at registration holds coordinates that could be in it,
+    /// or null when it does, or when this server cannot tell — ADR-067 condition 5.
+    /// </summary>
+    /// <param name="locator">The source's locator.</param>
+    /// <param name="publication">What is being published.</param>
+    /// <param name="projector">The datastore's projector, which knows each reference's area of use.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>A sentence for the publisher, or null.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Only for a declared reference.</b> A reference read from the data is the data's word; one typed into a
+    /// registration is a person's, and a DuckDB file cannot keep one of its own (ADR-067 §4) — so every table
+    /// in a file is published on a declaration.
+    /// </para>
+    /// <para>
+    /// <b>A heuristic, and named as one</b>, as <c>DeclaredReference</c> names its PostGIS twin: the table's
+    /// extent is moved into longitude and latitude from the declared reference and must fall inside that
+    /// reference's area of use, widened by a degree. It catches the failure that matters — metres declared as
+    /// degrees, one national grid declared as another continent's — and cannot catch two projected systems
+    /// whose areas overlap, because metres look like metres.
+    /// </para>
+    /// </remarks>
+    public async Task<string?> DeclaredReferenceRefusalAsync(
+        string locator, LayerPublication publication, IProjector projector, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(publication);
+        ArgumentNullException.ThrowIfNull(projector);
+
+        if (!GeoParquetLocator.IsAttached(locator))
+        {
+            return null;
+        }
+
+        GeoParquetFolder folder;
+        GeoParquetTable? table;
+
+        try
+        {
+            folder = FolderFor(locator);
+            table = folder.Find(publication.TableName);
+        }
+        catch (Exception e) when (e is InvalidOperationException or IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return e.Message;
+        }
+
+        if (table is null || table.Problem is not null || !table.SridDeclared || table.Geometry.Srid is not { } srid)
+        {
+            return null;
+        }
+
+        Envelope? extent = await Task.Run(() => folder.AttachedExtent(table), cancellation).ConfigureAwait(false);
+        Envelope? domain = await projector.DomainOfAsync(srid, cancellation).ConfigureAwait(false);
+
+        if (extent is not { } box)
+        {
+            // An empty table, or one whose geometry could not be read: nothing to be wrong about yet.
+            return null;
+        }
+
+        if (domain is not { } area)
+        {
+            // <b>Refused rather than passed</b> — a security review: a code whose area of use this deployment does
+            // not know was the one declaration the check waved through.
+            return $"EPSG:{srid} has no area of use this server knows, so a declaration that main.{publication.TableName} "
+                + "is in it cannot be checked against its coordinates. Register the source with a reference the "
+                + "projection database describes — 4326 for longitude and latitude, 3857 for web-Mercator metres.";
+        }
+
+        Envelope degrees;
+
+        if (srid == 4326)
+        {
+            degrees = box;
+        }
+        else
+        {
+            try
+            {
+                Polygon outline = new(new LinearRing(XySequence.Wrap(
+                    [box.MinX, box.MinY, box.MaxX, box.MinY, box.MaxX, box.MaxY, box.MinX, box.MaxY, box.MinX, box.MinY])));
+
+                (IReadOnlyList<Geometry> moved, _) = await projector
+                    .ProjectAsync([outline], srid, 4326, cancellation).ConfigureAwait(false);
+
+                degrees = moved[0].Envelope;
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                return $"main.{publication.TableName}'s coordinates ({Describe(box)}) cannot be in EPSG:{srid}: moving them "
+                    + $"into longitude and latitude failed ({e.Message}). The reference the source was registered with "
+                    + "is probably not the one its geometry is in.";
+            }
+        }
+
+        Envelope widened = new(area.MinX - 1, area.MinY - 1, area.MaxX + 1, area.MaxY + 1);
+
+        if (double.IsFinite(degrees.MinX) && double.IsFinite(degrees.MaxY)
+            && degrees.MinX >= widened.MinX && degrees.MaxX <= widened.MaxX
+            && degrees.MinY >= widened.MinY && degrees.MaxY <= widened.MaxY)
+        {
+            return null;
+        }
+
+        return $"main.{publication.TableName}'s coordinates ({Describe(box)}) do not fall inside EPSG:{srid}'s area of use "
+            + $"({Describe(area)} in degrees), and the source was registered as being in EPSG:{srid}. A layer published "
+            + "on a wrong reference answers every request with its features somewhere they are not. Register the source "
+            + "with the reference its geometry is in.";
+
+        static string Describe(Envelope e) => string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"{e.MinX:G6}, {e.MinY:G6} to {e.MaxX:G6}, {e.MaxY:G6}");
     }
 
     public void Dispose()
