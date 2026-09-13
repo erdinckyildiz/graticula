@@ -20,8 +20,9 @@ namespace Graticula.Host;
 /// <b>One enum rather than four booleans, because they are exclusive.</b>
 /// <c>returnCountOnly</c>, <c>returnIdsOnly</c>, <c>returnExtentOnly</c> and
 /// <c>outStatistics</c> each replace the response with something else entirely,
-/// and a request carrying two of them is refused rather than ranked — guessing a
-/// precedence means answering one question and silently dropping the other.
+/// and a request carrying two of them is refused unless the specification ranks them —
+/// guessing a precedence means answering one question and silently dropping the other,
+/// but applying the one that is written down is not a guess.
 /// </remarks>
 internal enum QueryShape
 {
@@ -131,6 +132,15 @@ internal static class FeatureServerQueryParameters
         // wrong answer.
         ["returnCentroid"] = "no centroid is computed, so labels use the client's own placement",
         ["returnExceededLimitFeatures"] = "the transfer limit is reported either way",
+
+        // <b>Refused until 2026-09-13, and it cost a map.</b> The ArcGIS Maps SDK 4.29 loads a
+        // point layer in one snapshot request carrying `maxRecordCountFactor=4`; the 400 left the
+        // owner looking at 3,405 points that did not draw. The factor only raises the ceiling a
+        // server may return up to — it never changes which features match or their order — so
+        // holding the ceiling where it is gives a shorter page with exceededTransferLimit set,
+        // and a client that reads that pages on. A smaller page, not a different answer.
+        ["maxRecordCountFactor"] = "the page ceiling stays at maxRecordCount; a longer request is "
+            + "cut there and exceededTransferLimit says so",
         ["cacheHint"] = "nothing is cached yet",
         // <b>Reprojection does happen — measured, `outSR=3857` returns Web Mercator
         // metres — so *no reprojection happens* was false.</b> What is missing is the
@@ -362,12 +372,29 @@ internal static class FeatureServerQueryParameters
         if (Flag(parameters, "returnExtentOnly", false)) { asked.Add("returnExtentOnly"); }
         if (statistics) { asked.Add("outStatistics"); }
 
+        // <b>The precedence the specification writes down is applied, and nothing past it.</b>
+        // The query reference says of returnCountOnly: *"This option supersedes the
+        // returnIdsOnly parameter. If returnCountOnly is true, the response will return both
+        // the count and the extent"* — the second half when returnExtentOnly is also true, which
+        // is exactly what the Extent shape already answers. Until 2026-09-13 this refused both
+        // pairs as a guess it would not make, and it was not a guess: the ArcGIS Maps SDK for
+        // JavaScript 4.29 opens every point layer with `returnIdsOnly=true&returnCountOnly=true`,
+        // took the 400 as the layer failing, and drew nothing. Found by the owner on the
+        // showcase, a GeoParquet point layer with 3,405 points and an empty map; a PostGIS
+        // point layer asks the same question. Ids with extent, and statistics with anything,
+        // have no written rank and are still refused.
+        if (asked.Contains("returnCountOnly"))
+        {
+            asked.Remove("returnIdsOnly");
+
+            if (asked.Contains("returnExtentOnly"))
+            {
+                asked.Remove("returnCountOnly");
+            }
+        }
+
         if (asked.Count > 1)
         {
-            // <b>Refused rather than ranked.</b> ArcGIS documents a precedence
-            // among these; guessing at it would mean answering one question and
-            // silently dropping the other, which is the failure this whole class
-            // is written to avoid.
             error =
                 $"{string.Join(" and ", asked)} were all asked for, and each replaces the "
                 + "response with something different. Ask for one.";

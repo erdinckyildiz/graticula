@@ -255,12 +255,25 @@ public sealed class QueryCapabilityConformanceTests : ArcGisClient
     }
 
     [Fact]
-    public async Task Two_response_shapes_at_once_are_refused()
+    public async Task Two_response_shapes_the_specification_does_not_rank_are_refused()
     {
         (string path, _) = await LayerAsync();
 
         Assert.Equal(400, await StatusOfAsync(
-            $"{path}/query?returnCountOnly=true&returnIdsOnly=true&f=json"));
+            $"{path}/query?returnIdsOnly=true&returnExtentOnly=true&f=json"));
+    }
+
+    [Fact]
+    public async Task A_count_asked_for_with_ids_is_answered_as_a_count()
+    {
+        // The request the ArcGIS Maps SDK opens a point layer with (4.29); a 400 here is an empty map.
+        (string path, _) = await LayerAsync();
+
+        JsonElement both = await QueryAsync("where=1%3D1&returnIdsOnly=true&returnCountOnly=true");
+        JsonElement count = await QueryAsync("where=1%3D1&returnCountOnly=true");
+
+        Assert.Equal(count.GetProperty("count").GetInt64(), both.GetProperty("count").GetInt64());
+        Assert.False(both.TryGetProperty("objectIds", out _));
     }
 
     // ---------- geometry ----------

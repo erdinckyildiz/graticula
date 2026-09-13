@@ -501,12 +501,34 @@ public sealed class FeatureServerQueryParametersTests
     }
 
     [Fact]
-    public void Two_response_shapes_at_once_are_refused_rather_than_ranked()
+    public void A_count_supersedes_ids_because_the_specification_says_so()
     {
-        // Guessing a precedence means answering one question and silently
-        // dropping the other, which is the failure this whole class avoids.
+        // What the ArcGIS Maps SDK sends when it opens a point layer; refusing it drew nothing.
+        Assert.Equal(QueryShape.Count, Shape(("returnIdsOnly", "true"), ("returnCountOnly", "true")));
+    }
+
+    [Fact]
+    public void A_count_with_an_extent_is_answered_with_both()
+    {
+        Assert.Equal(QueryShape.Extent, Shape(("returnCountOnly", "true"), ("returnExtentOnly", "true")));
+        Assert.Equal(
+            QueryShape.Extent,
+            Shape(("returnCountOnly", "true"), ("returnIdsOnly", "true"), ("returnExtentOnly", "true")));
+    }
+
+    [Theory]
+    [InlineData("returnIdsOnly", "returnExtentOnly")]
+    [InlineData("returnCountOnly", "outStatistics")]
+    [InlineData("returnIdsOnly", "outStatistics")]
+    public void Shapes_the_specification_does_not_rank_are_still_refused(string first, string second)
+    {
+        // Guessing a precedence means answering one question and silently dropping the other.
+        static (string, string) Pair(string name) => name == "outStatistics"
+            ? (name, "[{\"statisticType\":\"count\",\"onStatisticField\":\"objectid\"}]")
+            : (name, "true");
+
         Assert.False(FeatureServerQueryParameters.TryParse(
-            Query(("returnCountOnly", "true"), ("returnIdsOnly", "true")),
+            Query(Pair(first), Pair(second)),
             "objectid", Srid, Fields, out _, out _, out string? error));
 
         Assert.Contains("Ask for one", error!, StringComparison.Ordinal);

@@ -64,6 +64,9 @@ public sealed class IgnoredParameterTests : ArcGisClient
             "{\"mode\":\"view\",\"originPosition\":\"upperLeft\",\"tolerance\":1}",
         ["returnCentroid"] = "true",
         ["returnExceededLimitFeatures"] = "false",
+
+        // What the ArcGIS Maps SDK 4.29 sends when it loads a point layer in one request.
+        ["maxRecordCountFactor"] = "4",
         ["cacheHint"] = "true",
         ["datumTransformation"] = "108001",
         ["gdbVersion"] = "sde.DEFAULT",
