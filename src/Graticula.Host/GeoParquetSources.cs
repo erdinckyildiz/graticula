@@ -86,8 +86,16 @@ internal sealed partial class GeoParquetSources : IDisposable
 
         lock (_motherDuckDownload)
         {
-            _motherDuckInstall ??= Task.Run(InstallMotherDuck);
+            _motherDuckInstall ??= StartInstall();
         }
+    }
+
+    private DateTime _motherDuckStarted;
+
+    private Task<string> StartInstall()
+    {
+        _motherDuckStarted = DateTime.UtcNow;
+        return Task.Factory.StartNew(InstallMotherDuck, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
     }
 
     /// <summary>Whether MotherDuck may be registered: the deployment switched it on — ADR-067 §5.4.</summary>
@@ -263,12 +271,20 @@ internal sealed partial class GeoParquetSources : IDisposable
 
         lock (_motherDuckDownload)
         {
-            install = _motherDuckInstall ??= Task.Run(InstallMotherDuck);
+            install = _motherDuckInstall ??= StartInstall();
+
+            // Three bounded attempts take under five minutes; one still running at ten is hung, and another starts.
+            if (!install.IsCompleted && DateTime.UtcNow - _motherDuckStarted > TimeSpan.FromMinutes(10))
+            {
+                _motherDuckInstall = StartInstall();
+                throw new InvalidOperationException(
+                    "MotherDuck's extension download stopped making progress; another attempt has started. Try again in a minute.");
+            }
 
             if (install.IsFaulted || install.IsCanceled)
             {
                 string why = install.Exception?.GetBaseException().Message ?? "the download was cancelled";
-                _motherDuckInstall = Task.Run(InstallMotherDuck);
+                _motherDuckInstall = StartInstall();
                 throw new InvalidOperationException(
                     $"MotherDuck's extension could not be installed ({why}); another attempt has started. Try again in a minute.");
             }
@@ -319,48 +335,89 @@ internal sealed partial class GeoParquetSources : IDisposable
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        string partial = $"{target}.{Environment.ProcessId}.{Guid.NewGuid():n}.partial";
+        Uri source = new($"https://extensions.duckdb.org/{version}/{GeoParquetFolder.ExtensionPlatform}/{Name}.gz");
 
-        try
+        // <b>Buffered whole, then decompressed off the network, and tried three times.</b> The first version
+        // streamed the response into a GZip reader and stalled on the showcase, 960 KB in, with the process
+        // idle and past its five-minute deadline — the same loop finished in 0.7 s standing alone in the same
+        // container, and why it hung inside the server was not found. A buffered request is one the client's
+        // own timeout covers from the first byte to the last, and decompressing from memory has nothing left
+        // to wait on.
+        Exception? last = null;
+
+        for (int attempt = 1; attempt <= 3; attempt++)
         {
-            using CancellationTokenSource deadline = new(TimeSpan.FromMinutes(5));
-            using System.Net.Http.HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan };
-            using Stream compressed = http.GetStreamAsync(
-                new Uri($"https://extensions.duckdb.org/{version}/{GeoParquetFolder.ExtensionPlatform}/{Name}.gz"),
-                deadline.Token).GetAwaiter().GetResult();
-            using System.IO.Compression.GZipStream gzip = new(compressed, System.IO.Compression.CompressionMode.Decompress);
+            // <b>Its own name, in a folder of its own</b>: DuckDB takes an extension's name from its file name
+            // and refuses a file that does not end in `.duckdb_extension` — found when the first build wrote
+            // `….duckdb_extension.<pid>.<guid>.partial` and every download was refused as not loadable.
+            string staging = Path.Combine(Path.GetDirectoryName(target)!, $".partial-{Environment.ProcessId}-{Guid.NewGuid():n}");
+            Directory.CreateDirectory(staging);
+            string partial = Path.Combine(staging, Name);
 
-            using (FileStream file = File.Create(partial))
+            try
             {
-                byte[] buffer = new byte[81920];
-                long written = 0;
-                int read;
+                byte[] compressed;
 
-                while ((read = gzip.ReadAsync(buffer, deadline.Token).AsTask().GetAwaiter().GetResult()) > 0)
+                using (System.Net.Http.HttpClient http = new() { Timeout = TimeSpan.FromSeconds(90) })
                 {
-                    written += read;
+                    http.DefaultRequestHeaders.ConnectionClose = true;
+                    compressed = http.GetByteArrayAsync(source).GetAwaiter().GetResult();
+                }
 
-                    if (written > MostExtensionBytes)
+                if (compressed.Length > MostExtensionBytes)
+                {
+                    throw new InvalidOperationException("the download is larger than any MotherDuck extension");
+                }
+
+                using (MemoryStream packed = new(compressed, writable: false))
+                using (System.IO.Compression.GZipStream gzip = new(packed, System.IO.Compression.CompressionMode.Decompress))
+                using (FileStream file = File.Create(partial))
+                {
+                    byte[] buffer = new byte[81920];
+                    long written = 0;
+                    int read;
+
+                    while ((read = gzip.Read(buffer, 0, buffer.Length)) > 0)
                     {
-                        throw new InvalidOperationException("the download is larger than any MotherDuck extension");
-                    }
+                        written += read;
 
-                    file.Write(buffer, 0, read);
+                        if (written > MostExtensionBytes)
+                        {
+                            throw new InvalidOperationException("the extension is larger than any MotherDuck extension");
+                        }
+
+                        file.Write(buffer, 0, read);
+                    }
+                }
+
+                if (!Loads(partial))
+                {
+                    throw new InvalidOperationException("DuckDB would not load the downloaded file");
+                }
+
+                File.Move(partial, target, overwrite: true);
+                return target;
+            }
+            catch (Exception failure) when (failure is System.Net.Http.HttpRequestException or TaskCanceledException
+                or IOException or InvalidOperationException or InvalidDataException)
+            {
+                last = failure;
+                Thread.Sleep(TimeSpan.FromSeconds(5 * attempt));
+            }
+            finally
+            {
+                try
+                {
+                    Directory.Delete(staging, recursive: true);
+                }
+                catch (IOException)
+                {
+                    // Removed on the next start's attempt if not now; nothing reads a staging folder.
                 }
             }
-
-            if (!Loads(partial))
-            {
-                throw new InvalidOperationException("DuckDB would not load the downloaded file");
-            }
-
-            File.Move(partial, target, overwrite: true);
-            return target;
         }
-        finally
-        {
-            File.Delete(partial);
-        }
+
+        throw new InvalidOperationException($"three attempts failed: {last?.Message}", last);
 
         static bool Loads(string path)
         {
