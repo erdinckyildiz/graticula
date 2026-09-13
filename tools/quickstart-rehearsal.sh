@@ -277,4 +277,35 @@ esac
 
 printf '   hosted/places/FeatureServer/0 serves the three features\n'
 
+# <b>And a tile is built once, not on every request.</b> From the first image until v1.0.49 the
+# tile cache lived under /app, which the server's user cannot write: it logged one warning, bypassed
+# itself, and every tile was rebuilt -- while every check above stayed green, because a bypassed
+# cache still serves the tile. The second request has to say HIT. z0/0/0 holds the README's three
+# points; a point survives any zoom.
+tile="https://127.0.0.1:$PORT/rest/services/hosted/places/VectorTileServer/tile/0/0/0.pbf"
+curl -sk -o /dev/null "$tile" || true
+cached=$(curl -sk -o /dev/null -D - "$tile" | tr -d '\r' | sed -n 's/^[Xx]-[Tt]ile-[Cc]ache: *//p' || true)
+
+if [ "$cached" != "HIT" ]; then
+  printf 'The same tile asked twice answered x-tile-cache: %s the second time, not HIT.\n' "${cached:-<none>}"
+  printf 'The tile cache is not storing. What the server said about it:\n'
+  $COMPOSE logs --no-log-prefix server 2>&1 | grep -i 'tile cache' | tail -5
+  exit 1
+fi
+
+printf '   a tile asked twice comes from the tile cache the second time\n'
+
+# <b>And a query can arrive compressed -- ADR-068.</b> Asked for brotli, a FeatureServer query
+# answers brotli; a regression in the middleware's placement would otherwise pass every step here.
+encoding=$(curl -sk -o /dev/null -D - -H 'Accept-Encoding: br' \
+  "https://127.0.0.1:$PORT/rest/services/hosted/places/FeatureServer/0/query?where=1%3D1&outFields=*&f=json" \
+  | tr -d '\r' | sed -n 's/^[Cc]ontent-[Ee]ncoding: *//p' || true)
+
+if [ "$encoding" != "br" ]; then
+  printf 'A query asked for brotli answered Content-Encoding: %s.\n' "${encoding:-<none>}"
+  exit 1
+fi
+
+printf '   a query asked for brotli answers brotli\n'
+
 printf '\nThe quickstart works, in the order the README gives it.\n'

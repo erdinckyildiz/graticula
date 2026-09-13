@@ -136,6 +136,16 @@ RUN groupadd --gid 64198 gisserver \
  && mkdir -p /var/lib/graticula \
  && chown 64198:64198 /var/lib/graticula
 
+# <b>The two things the server writes that are not state, somewhere it may write them.</b> Both
+# defaulted to directories beside the binary, under /app, which root owns -- so from the first
+# image until v1.0.49 the tile cache logged *Access to the path '/app/tilecache' is denied* once
+# and was bypassed for good, and every vector tile was rebuilt on every request. Found on the
+# showcase on 2026-09-13, by a tile that answered `x-tile-cache: MISS` three times in a row. Not
+# under /var/lib/graticula and not a volume: both are derived data a replacement may lose, and the
+# state volume is the one that has to be backed up (HostSettings says why, beside each default).
+RUN mkdir -p /var/cache/graticula/tiles /var/cache/graticula/import \
+ && chown -R 64198:64198 /var/cache/graticula
+
 WORKDIR /app
 COPY --from=build /app ./
 
@@ -162,6 +172,8 @@ VOLUME ["/var/lib/graticula"]
 # sandbox leaves open — a write inside the folder it may read.
 RUN mkdir -p /data/geoparquet
 ENV Graticula__StatePath=/var/lib/graticula \
+    Graticula__TileCachePath=/var/cache/graticula/tiles \
+    Graticula__ImportScratchPath=/var/cache/graticula/import \
     Graticula__Listen=0.0.0.0 \
     Graticula__GeoParquetRoot=/data/geoparquet \
     Graticula__DuckDbExtensions=/app/duckdb-extensions \
