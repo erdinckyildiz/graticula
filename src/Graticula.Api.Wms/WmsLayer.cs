@@ -73,6 +73,9 @@ public sealed record WmsLayer(
     /// <value>The size, or the WMS default swatch when the edge did not measure one.</value>
     public (int Width, int Height) LegendSize => Legend ?? (20, 20);
 
+    /// <summary>The scales GetMap draws this layer at — ADR-070. Unlimited unless the layer has one.</summary>
+    public Graticula.Cartography.VisibleScaleRange VisibleRange { get; init; }
+
     /// <summary>The reference this layer is published in.</summary>
     /// <remarks>
     /// <b>One expression, so the document and the abstract cannot disagree about it.</b>

@@ -683,6 +683,20 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> SetVisibleRangeAsync(
+        Guid id, double minScale, double maxScale, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update layer set min_scale = @min, max_scale = @max, updated_at = now() where id = @id");
+
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("min", minScale);
+        command.Parameters.AddWithValue("max", maxScale);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> SetTimeFieldAsync(
         string name, string? field, CancellationToken cancellationToken)
     {
@@ -850,7 +864,10 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                    -- listing since the tile-cache control was written, and this listing
                    -- has never selected it — so the box was blank for every layer, and
                    -- pressing Set with a blank box sent 0, which means *never cache*.
-                   l.cache_seconds
+                   l.cache_seconds,
+
+                   -- ADR-070: the scales it draws at, so the console shows what is set.
+                   l.min_scale, l.max_scale
             from layer l
             join data_source d on d.id = l.data_source_id
             join service s on s.id = l.service_id
@@ -881,7 +898,9 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 reader.IsDBNull(12) ? null : reader.GetString(12),
                 reader.GetInt32(13),
                 reader.IsDBNull(14) ? null : reader.GetString(14),
-                reader.IsDBNull(15) ? null : reader.GetInt32(15)));
+                reader.IsDBNull(15) ? null : reader.GetInt32(15),
+                reader.IsDBNull(16) ? null : reader.GetDouble(16),
+                reader.IsDBNull(17) ? null : reader.GetDouble(17)));
         }
 
         return layers;

@@ -566,6 +566,7 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/layers/{name}/cache", SetCacheLifetimeAsync);
         app.MapPut("/admin/layers/{name}/time-field", SetTimeFieldAsync);
         MapFieldOverrides(app);  // ADR-063 — AdminEndpoints.FieldOverrides.cs
+        MapVisibleRange(app);    // ADR-070 — AdminEndpoints.VisibleRange.cs
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
             SetStatusAsync(c, name, ServiceStatus.Started, a, l, t));
         app.MapPost("/admin/layers/{name}/stop", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
@@ -6441,6 +6442,7 @@ internal static partial class AdminEndpoints
     /// <param name="context">The request.</param>
     /// <param name="request">The composition.</param>
     /// <param name="catalog">The catalogue.</param>
+    /// <param name="layers">The layers, so each one published can be measured for its visible range (ADR-070).</param>
     /// <param name="systemServices">The addresses a published service may not take.</param>
     /// <param name="projector">What is asked whether it can serve in the reference chosen.</param>
     /// <param name="contexts">The remembered shapes, so a replaced layer's are dropped.</param>
@@ -6453,6 +6455,7 @@ internal static partial class AdminEndpoints
         HttpContext context,
         CompositionRequest? request,
         IAdminCatalog catalog,
+        PostgresLayerCatalog layers,
         PostgresSystemServices systemServices,
         IProjector projector,
         ServiceContexts contexts,
@@ -6787,6 +6790,22 @@ internal static partial class AdminEndpoints
                 }),
                 succeeded: true, cancellation).ConfigureAwait(false);
 
+            // <b>ADR-070: each layer measured and given the range its data suggests</b>, as ArcGIS
+            // Online does for a layer published from a file. After the audit, because the service
+            // exists whatever this finds.
+            List<object> visibleRanges = [];
+
+            foreach ((string layerName, _) in made.Layers)
+            {
+                visibleRanges.Add(new
+                {
+                    name = layerName,
+                    visibleRange = await SuggestAndStoreAsync(
+                        layerName, made.Name, layers, contexts, catalog, projector, cancellation)
+                        .ConfigureAwait(false),
+                });
+            }
+
             // <b>200 when it replaced, 201 when it created</b> — the codes mean *here is the
             // result* and *a new thing exists at this address*, and a replacement is the first.
             int code = replacing is null
@@ -6813,6 +6832,7 @@ internal static partial class AdminEndpoints
                 capabilities = request.Capabilities,
                 layers = made.Layers.Select(l => new { name = l.Name, id = l.Index }),
                 groups = made.Groups.Select(g => new { name = g.Name, id = g.Index }),
+                visibleRanges,
 
                 // <b>Said back, because the caller asked for a replacement and a create looks
                 // identical from here.</b> `replace: true` on a free name creates one — the
@@ -8121,6 +8141,7 @@ internal static partial class AdminEndpoints
         IAuditLog audit,
         GeoParquetSources geoParquet,
         IProjector projector,
+        ServiceContexts contexts,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -8349,6 +8370,10 @@ internal static partial class AdminEndpoints
                 }),
                 succeeded: true, cancellation).ConfigureAwait(false);
 
+            object visibleRange = await SuggestAndStoreAsync(
+                publication.Name, published.ServiceName, layers, contexts, catalog, projector, cancellation)
+                .ConfigureAwait(false);
+
             await Results.Json(
                 new
                 {
@@ -8398,6 +8423,9 @@ internal static partial class AdminEndpoints
                         ? "No integer object-id column was given, so this layer is not servable "
                           + "through the ArcGIS surface. It remains servable natively."
                         : null,
+
+                    // ADR-070: the scales it was given, measured from the data.
+                    visibleRange,
                 },
                 statusCode: StatusCodes.Status201Created).ExecuteAsync(context).ConfigureAwait(false);
         }
@@ -8483,6 +8511,10 @@ internal static partial class AdminEndpoints
                 // D-159: the console has read this off this listing since the tile-cache
                 // control was written, and it was not here.
                 cacheSeconds = l.CacheSeconds,
+
+                // ADR-070: the scales it draws at; 0 or null is no limit on that side.
+                minScale = l.MinScale ?? 0,
+                maxScale = l.MaxScale ?? 0,
             }),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }

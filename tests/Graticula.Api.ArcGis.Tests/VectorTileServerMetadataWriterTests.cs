@@ -319,6 +319,36 @@ public sealed class VectorTileServerMetadataWriterTests
                 .GetProperty("version").GetInt32());
     }
 
+    // ---------- ADR-070: the visible range ----------
+
+    [Fact]
+    public void A_layer_s_visible_range_becomes_its_style_layers_zooms()
+    {
+        Graticula.Cartography.VisibleScaleRange range =
+            new(Graticula.Cartography.VisibleScaleRange.VectorTileScale(13), Graticula.Cartography.VisibleScaleRange.VectorTileScale(20));
+
+        JsonElement style = Parse(VectorTileServerMetadataWriter.Style(
+            [("buildings", GeometryKind.Polygon, null), ("roads", GeometryKind.LineString, null)],
+            ranges: new System.Collections.Generic.Dictionary<string, Graticula.Cartography.VisibleScaleRange> { ["buildings"] = range }));
+
+        JsonElement buildings = style.GetProperty("layers")[0];
+        JsonElement roads = style.GetProperty("layers")[1];
+
+        Assert.Equal(13, buildings.GetProperty("minzoom").GetDouble(), 6);
+        Assert.Equal(20, buildings.GetProperty("maxzoom").GetDouble(), 6);
+        Assert.False(roads.TryGetProperty("minzoom", out _));
+    }
+
+    [Fact]
+    public void A_service_document_states_the_range_it_is_given()
+    {
+        JsonElement document = Parse(VectorTileServerMetadataWriter.Service(
+            "buildings", ["buildings"], null, 22, 3857, new Graticula.Cartography.VisibleScaleRange(72_223.8, 0)));
+
+        Assert.Equal(72_223.8, document.GetProperty("minScale").GetDouble());
+        Assert.Equal(0, document.GetProperty("maxScale").GetDouble());
+    }
+
     [Fact]
     public void A_service_needs_a_name()
     {

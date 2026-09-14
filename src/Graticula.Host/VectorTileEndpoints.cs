@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Api.ArcGis;
+using Graticula.Cartography;
 using Graticula.Geometries;
 using Graticula.Features;
 using Graticula.Platform.Catalog;
@@ -286,9 +287,24 @@ internal static class VectorTileEndpoints
             [.. service.Layers.Select(l => l.Definition.Name)],
             extent,
             TileAddress.MaxZoom,
-            WebMercator))
+            WebMercator,
+            ServiceRange(service.Layers)))
             .ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>The range a whole tile service draws in — ADR-070.</summary>
+    /// <remarks>
+    /// <b>Only as narrow as its widest layer.</b> A service is hidden only where every layer in it is:
+    /// its zoomed-out limit is the largest of its layers', and none when any layer has none; the
+    /// zoomed-in limit the other way round. One layer's range on a service of three would hide the
+    /// other two.
+    /// </remarks>
+    internal static VisibleScaleRange ServiceRange(IReadOnlyList<PublishedLayer> layers) =>
+        layers.Count == 0
+            ? default
+            : new VisibleScaleRange(
+                layers.Any(l => l.VisibleRange.MinScale <= 0) ? 0 : layers.Max(l => l.VisibleRange.MinScale),
+                layers.Any(l => l.VisibleRange.MaxScale <= 0) ? 0 : layers.Min(l => l.VisibleRange.MaxScale));
 
     /// <summary>
     /// The extent in Web Mercator, because that is the only reference a tile
@@ -529,7 +545,13 @@ internal static class VectorTileEndpoints
             // tile face draws what the feature face derives from rather than
             // generating a second opinion about the same layer.
             [.. service.Layers.Select(l => (l.Definition.Name, l.GeometryType, l.Symbology))],
-            glyphs.Any ? GlyphStore.Fallback : null))
+            glyphs.Any ? GlyphStore.Fallback : null,
+
+            // ADR-070: each layer's range narrows its style layers' zooms. The first layer of a
+            // name wins, which is the one the tile carries under that name.
+            service.Layers
+                .GroupBy(l => l.Definition.Name, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First().VisibleRange, StringComparer.Ordinal)))
             .ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -614,6 +636,20 @@ internal static class VectorTileEndpoints
 
         foreach (PublishedLayer layer in service.Layers)
         {
+            /*
+              <b>ADR-070: a layer outside its visible range is not in the tile at all.</b> Checked
+              before anything else is paid for — the describe, the cache, the build — because the
+              case this exists for is a zoomed-out map over a dense layer, where the build is the
+              whole cost: 33 MB and 46 seconds for one level-10 tile of Istanbul's buildings, and a
+              503 after 75 seconds at level 8, measured on the showcase before this was written.
+              The service's other layers are still drawn, and a tile with no layer left in it is
+              the empty answer ITileSource already defines for no features.
+            */
+            if (!layer.VisibleRange.CarriesVectorTile(address.Z))
+            {
+                continue;
+            }
+
             (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
                 .ConfigureAwait(false);
 

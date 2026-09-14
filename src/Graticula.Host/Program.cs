@@ -2777,6 +2777,8 @@ public static class Program
                 moved ?? described.Extent)
             {
                 ParentId = layer.ParentIndex,
+                MinScale = layer.VisibleRange.MinScale,
+                MaxScale = layer.VisibleRange.MaxScale,
             });
         }
 
@@ -3093,7 +3095,11 @@ public static class Program
             // <b>The group it is in, which this document did not carry until 2026-09-08.</b>
             // The service document said so and the layer's own did not, so a client reading one
             // layer could not tell it was inside a group — ADR-057 condition 5.
-            parentLayerId: layer.ParentIndex);
+            parentLayerId: layer.ParentIndex,
+
+            // ADR-070: the scales it draws at.
+            minScale: layer.VisibleRange.MinScale,
+            maxScale: layer.VisibleRange.MaxScale);
 
         return (document, description);
     }

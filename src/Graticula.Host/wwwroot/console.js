@@ -9524,6 +9524,15 @@ function editedValues() {
  * than a promise.
  */
 
+/** ADR-070: a visible range as a sentence, for the layer page. */
+function rangeText(minScale, maxScale) {
+  const n = (v) => Math.round(v).toLocaleString("en-US");
+  if (!(minScale > 0) && !(maxScale > 0)) return "Saved: drawn at every scale.";
+  if (minScale > 0 && !(maxScale > 0)) return `Saved: drawn when zoomed in to 1:${n(minScale)} or closer.`;
+  if (!(minScale > 0)) return `Saved: drawn until zoomed in past 1:${n(maxScale)}.`;
+  return `Saved: drawn between 1:${n(minScale)} and 1:${n(maxScale)}.`;
+}
+
 /**
  * Opens a layer's settings page — or flips between its pages if it is already open.
  *
@@ -9536,6 +9545,7 @@ function editedValues() {
  * `pending` carries the values a background refresh must not lose — redrawLayerPage
  * has the reason.
  */
+
 function showLayer(name, page, pending = null) {
   if (editing && editing.name === name && $("view-layer").classList.contains("on")) {
     editing.page = page;
@@ -9650,6 +9660,27 @@ function showLayer(name, page, pending = null) {
       <div class="row" style="margin-top:10px">
         <button data-time="${h(name)}">Set</button>
         <button data-time="${h(name)}" data-clear="1" class="ghost">Derive it</button>
+      </div>
+
+      <h4>Visible range</h4>
+      <div class="setting"><label class="q" for="minScale">Hide when zoomed out beyond (minimum scale):</label>
+        <span class="u" style="width:auto;margin-right:6px">1:</span><input type="number" id="minScale" min="0" step="1" placeholder="no limit"
+          value="${l.minScale > 0 ? Math.round(l.minScale) : ""}"></div>
+      <div class="setting"><label class="q" for="maxScale">Hide when zoomed in beyond (maximum scale):</label>
+        <span class="u" style="width:auto;margin-right:6px">1:</span><input type="number" id="maxScale" min="0" step="1" placeholder="no limit"
+          value="${l.maxScale > 0 ? Math.round(l.maxScale) : ""}"></div>
+      <p class="hint">A map outside this range leaves the layer out, and ArcGIS clients stop
+        asking for it. This is what keeps a map zoomed out over a dense layer — every building
+        in a city — from making the server draw all of it. Publishing sets the zoomed-out limit
+        from the data: the first scale at which no tile holds more than 10,000 features.</p>
+      <p class="hint"><b>${h(rangeText(l.minScale, l.maxScale))}</b></p>
+      <p class="hint" id="rangeSays" role="status" aria-live="polite"></p>
+      <div class="row" style="margin-top:10px">
+        <button data-range="${h(name)}">Set</button>
+        <button data-range-suggest="${h(name)}" class="ghost">Measure from the data</button>
+        <span style="flex:1"></span>
+        <button data-range="${h(name)}" data-clear="1" class="ghost"
+          title="Clears both limits and saves at once">No limit</button>
       </div>
 
       <h4>Identity</h4>
@@ -17494,6 +17525,52 @@ async function handleClick(event) {
       toast(r.note, true);
     } catch (e) { toast(e.message); }
     await loadLayers();
+    return;
+  }
+
+  if (d.range) {
+    // ADR-070. An empty box is no limit on that side, which the endpoint takes as 0.
+    const read = (id) => {
+      const typed = $(id).value.trim();
+      return d.clear || typed === "" ? 0 : Number(typed);
+    };
+    const minScale = read("minScale");
+    const maxScale = read("maxScale");
+
+    if (!Number.isFinite(minScale) || !Number.isFinite(maxScale) || minScale < 0 || maxScale < 0) {
+      toast("A scale is a number such as 50000, for 1:50,000 — or empty for no limit.");
+      return;
+    }
+
+    try {
+      const r = await api(`/admin/layers/${encodeURIComponent(d.range)}/visible-range`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ minScale, maxScale }),
+      });
+      toast(r.note, true);
+    } catch (e) { toast(e.message); }
+    await loadLayers();
+    return;
+  }
+
+  if (d.rangeSuggest) {
+    // Measures and fills the box; nothing is stored until Set, so the number can be looked at first.
+    const says = $("rangeSays");
+    t.disabled = true;
+    if (says) says.textContent = "Counting features tile by tile — this can take up to half a minute on a large layer…";
+    try {
+      const r = await api(`/admin/layers/${encodeURIComponent(d.rangeSuggest)}/visible-range/suggestion`,
+        { method: "POST" });
+      if (r.minScale != null && $("minScale")) $("minScale").value = r.minScale > 0 ? Math.round(r.minScale) : "";
+      if (says) says.textContent = r.minScale == null ? r.note : `Measured, not saved: ${r.note} Press Set to keep it.`;
+    } catch (e) {
+      if (says) says.textContent = e.message;
+    } finally {
+      // Disabling the pressed button threw focus to the page; it goes back where the keyboard left it.
+      t.disabled = false;
+      t.focus();
+    }
     return;
   }
 

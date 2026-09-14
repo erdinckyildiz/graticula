@@ -93,6 +93,17 @@ public sealed class PublishedLayer
     public string? TimeField { get; }
 
     /// <summary>
+    /// The scales this layer draws at, or <see cref="Graticula.Cartography.VisibleScaleRange.Unlimited"/>
+    /// when nobody has said — ADR-070.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not in a query's answer.</b> ArcGIS applies a visible range in the client and on a drawn map;
+    /// a feature query at any scale returns the same rows, so this changes documents, tiles and images
+    /// and never a query.
+    /// </remarks>
+    public Graticula.Cartography.VisibleScaleRange VisibleRange { get; init; }
+
+    /// <summary>
     /// This layer's canonical symbology document, or null for the generated one.
     /// </summary>
     /// <remarks>

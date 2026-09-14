@@ -82,7 +82,10 @@ public sealed class PostgresLayerCatalog
         -- What the layer says about its table's columns (ADR-063, migration 42). On the end,
         -- per the rule above, and read by name. A column of a row already selected rather than
         -- a subquery: D-249 measured the platform store as this server's ceiling.
-        l.field_overrides::text as field_overrides
+        l.field_overrides::text as field_overrides,
+
+        -- The scales the layer draws at (ADR-070, migration 48). On the end, read by name.
+        l.min_scale, l.max_scale
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -478,6 +481,11 @@ public sealed class PostgresLayerCatalog
                 reader.IsDBNull(reader.GetOrdinal("field_overrides"))
                     ? null
                     : reader.GetString(reader.GetOrdinal("field_overrides"))),
+
+            // ADR-070: null on either side is no limit on that side, which is every layer from before it.
+            VisibleRange = new Graticula.Cartography.VisibleScaleRange(
+                reader.IsDBNull(reader.GetOrdinal("min_scale")) ? 0 : reader.GetDouble(reader.GetOrdinal("min_scale")),
+                reader.IsDBNull(reader.GetOrdinal("max_scale")) ? 0 : reader.GetDouble(reader.GetOrdinal("max_scale"))),
         };
     }
 

@@ -398,6 +398,12 @@ public static class FeatureServerMetadataWriter
     {
         /// <summary>The group above it, or null at the top level.</summary>
         public int? ParentId { get; init; }
+
+        /// <summary>The largest scale it draws at, or 0 for no limit — ADR-070.</summary>
+        public double MinScale { get; init; }
+
+        /// <summary>The smallest scale it draws at, or 0 for no limit — ADR-070.</summary>
+        public double MaxScale { get; init; }
     }
 
     /// <summary>One group layer's entry in a service document.</summary>
@@ -559,8 +565,8 @@ public static class FeatureServerMetadataWriter
                 parentLayerId = layer.ParentId ?? -1,
                 defaultVisibility = true,
                 subLayerIds = (int[]?)null,
-                minScale = 0,
-                maxScale = 0,
+                minScale = layer.MinScale,
+                maxScale = layer.MaxScale,
                 type = "Feature Layer",
                 geometryType = (string?)ArcGisGeometryWriter.TypeName(layer.GeometryType),
             }));
@@ -683,6 +689,8 @@ public static class FeatureServerMetadataWriter
     /// <param name="parentLayerId">
     /// The group this layer sits in, or null for a layer at the top of the service.
     /// </param>
+    /// <param name="minScale">The largest scale the layer draws at, or 0 for no limit — ADR-070.</param>
+    /// <param name="maxScale">The smallest scale the layer draws at, or 0 for no limit — ADR-070.</param>
     public static object Layer(
         LayerDefinition layer,
         GeometryKind geometryType,
@@ -712,7 +720,12 @@ public static class FeatureServerMetadataWriter
         // carry the key at all, so a client that read a layer directly could not tell it was in
         // a group. Found by ADR-057 condition 5 — pointing Esri's JavaScript API at a grouped
         // service — and on the end for the reason the two above give.
-        int? parentLayerId = null)
+        int? parentLayerId = null,
+
+        // <b>ADR-070, on the end for the reason the four above give.</b> Until then this document
+        // did not carry the keys at all, and a client reads their absence as no limit.
+        double minScale = 0,
+        double maxScale = 0)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
@@ -777,6 +790,13 @@ public static class FeatureServerMetadataWriter
             // relabelling numbers measured in another reference is the worse of the two wrongs.
             extent = ExtentOrNull(
             servedExtent ?? description.Extent, servedSrid ?? layer.Srid, servedWkt),
+
+            // <b>The scales the layer draws at — ADR-070.</b> An ArcGIS client turns the layer off
+            // outside them and asks for nothing, which is what protects a dense layer from a map
+            // zoomed out over all of it; the tile and export faces enforce the same numbers for a
+            // client that does not.
+            minScale,
+            maxScale,
 
             capabilities,
 

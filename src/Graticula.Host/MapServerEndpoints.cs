@@ -350,7 +350,7 @@ internal static class MapServerEndpoints
             await WmsEndpoints
                 .DrawLayerAsync(
                     contexts, renderer, transform, layer, asked.ImageSrid, null,
-                    settings.MaximumRecordCount, cancellation)
+                    settings.MaximumRecordCount, cancellation, honourVisibleRange: true)
                 .ConfigureAwait(false);
         }
 
@@ -590,7 +590,11 @@ internal static class MapServerEndpoints
                     layer.Definition.Name,
                     layer.GeometryType,
                     layer.Definition.Srid,
-                    described.Extent),
+                    described.Extent)
+                {
+                    MinScale = layer.VisibleRange.MinScale,
+                    MaxScale = layer.VisibleRange.MaxScale,
+                },
                 entries,
                 Swatch,
                 Swatch));
@@ -674,7 +678,12 @@ internal static class MapServerEndpoints
                 layer.Definition.Name,
                 layer.GeometryType,
                 srid,
-                extent));
+                extent)
+            {
+                // ADR-070: the export draws the layer only inside these, so the document says so.
+                MinScale = layer.VisibleRange.MinScale,
+                MaxScale = layer.VisibleRange.MaxScale,
+            });
         }
 
         return layers;

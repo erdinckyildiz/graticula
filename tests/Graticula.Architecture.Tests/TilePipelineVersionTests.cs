@@ -68,6 +68,12 @@ public sealed class TilePipelineVersionTests
     /// its own question.
     /// </remarks>
     private const string RecordedHash =
+        // <b>Moved 2026-09-14 for two changes, and the version deliberately did not move.</b>
+        // 27e311d made GeoParquet layers tileable: their tiles are new, and a hosted layer's key is
+        // unchanged because the file version it adds is null for one. ADR-070 leaves a layer out of a
+        // tile outside its visible range, checked before the cache — a layer with no range builds the
+        // same bytes, and a cached tile of a ranged layer is never reached at a level it is left out
+        // of. CI had been red on this since 27e311d.
         // <b>Moved 2026-09-09 for a comment, and the version deliberately did not move with
         // it.</b> `VectorTileEndpoints` is in the list above and its doc comment named
         // `information_schema` as where a field's type comes from; the field list moved to
@@ -90,7 +96,7 @@ public sealed class TilePipelineVersionTests
         // encoded the same way, from the same key — so raising `TilePipeline.Version`
         // would have thrown away every cached tile in every deployment to describe them
         // more accurately, which is the wrong half of the choice this check forces.
-        "fc6f09149cf41098978d0e0ab7ffe5e4b1434caf7ab97a0b61cf4628e77fd903";
+        "491c32e315707af67cec6a74813aa16adfd8586eb170d241ca61412b3cde47f3";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 1;

@@ -173,6 +173,8 @@ public readonly record struct PublishedLayerAddress(
 /// <param name="LayerIndex">Its number within the service — the last URL segment.</param>
 /// <param name="TimeField">The column declared as this layer's time, or null to derive it (Q-129).</param>
 /// <param name="CacheSeconds">How long its tiles stay fresh, or null for the server's own figure. <b>Zero is not null</b> — see D-159.</param>
+/// <param name="MinScale">The largest scale it draws at, 0 or null for no limit (ADR-070).</param>
+/// <param name="MaxScale">The smallest scale it draws at, 0 or null for no limit (ADR-070).</param>
 public readonly record struct AdminLayer(
     Guid Id,
     string Name,
@@ -188,7 +190,9 @@ public readonly record struct AdminLayer(
     string? Folder,
     int LayerIndex,
     string? TimeField = null,
-    int? CacheSeconds = null)
+    int? CacheSeconds = null,
+    double? MinScale = null,
+    double? MaxScale = null)
 {
     /// <summary>Its address in the services directory, without the host.</summary>
     public string Address =>
@@ -598,6 +602,15 @@ public interface IAdminCatalog
     /// </remarks>
     Task<bool> SetTimeFieldAsync(
         string name, string? field, CancellationToken cancellationToken);
+
+    /// <summary>Stores the scales a layer draws at — ADR-070.</summary>
+    /// <param name="id">The layer — by id, because a name may belong to layers in several services.</param>
+    /// <param name="minScale">The largest scale it draws at, 0 for no limit.</param>
+    /// <param name="maxScale">The smallest scale it draws at, 0 for no limit.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the layer was found.</returns>
+    Task<bool> SetVisibleRangeAsync(
+        Guid id, double minScale, double maxScale, CancellationToken cancellationToken);
 
     /// <summary>
     /// Replaces a layer's per-column overrides — ADR-063.

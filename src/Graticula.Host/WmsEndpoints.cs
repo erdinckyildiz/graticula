@@ -449,7 +449,11 @@ internal static class WmsEndpoints
                 layer.Symbology is { Length: > 0 } stored
                     ? SymbologyPlan.Compile(stored)
                     : SymbologyPlan.Default(layer.Definition.Name, layer.GeometryType),
-                (20, 20)));
+                (20, 20)))
+        {
+            // ADR-070: GetMap leaves the layer out of a map outside these, so the document says so.
+            VisibleRange = layer.VisibleRange,
+        };
     }
 
     /// <summary>
@@ -739,7 +743,8 @@ internal static class WmsEndpoints
                 settings.MaximumRecordCount, cancellation,
                 context.RequestServices.GetService(typeof(ILoggerFactory)) is ILoggerFactory made
                     ? made.CreateLogger("wms")
-                    : null)
+                    : null,
+                honourVisibleRange: true)
                 .ConfigureAwait(false);
         }
 
@@ -802,6 +807,7 @@ internal static class WmsEndpoints
     /// return type could change without touching them.
     /// </para>
     /// </returns>
+    /// <param name="honourVisibleRange">Whether the layer's visible range decides if it is drawn at this scale — ADR-070. A map a client asked for does; a thumbnail or a preview does not.</param>
     public static async Task<int> DrawLayerAsync(
         ServiceContexts contexts,
         MapRenderer renderer,
@@ -812,11 +818,24 @@ internal static class WmsEndpoints
         int limit,
         CancellationToken cancellation,
         ILogger? log = null,
-        string? symbology = null)
+        string? symbology = null,
+        bool honourVisibleRange = false)
     {
         ArgumentNullException.ThrowIfNull(contexts);
         ArgumentNullException.ThrowIfNull(renderer);
         ArgumentNullException.ThrowIfNull(layer);
+
+        // <b>ADR-070: a map drawn outside the layer's visible range leaves it out</b>, as an ArcGIS
+        // MapServer export and a WMS GetMap both do. Before the describe, for the reason the tile
+        // endpoint gives: the zoomed-out map over a dense layer is the case this is for. A caller
+        // drawing one layer on purpose — a thumbnail, a symbology preview — does not ask for it, and
+        // a thumbnail of a city's buildings that came back blank would be a thumbnail of nothing.
+        if (honourVisibleRange && layer.VisibleRange.IsLimited
+            && !layer.VisibleRange.DrawsAt(VisibleScaleRange.ScaleOf(
+                MapScale.MetresPerPixel(transform.UnitsPerPixel, AxisOrder.IsGeographic(srid)))))
+        {
+            return 0;
+        }
 
         (IFeatureSource source, LayerDescription described) =
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);

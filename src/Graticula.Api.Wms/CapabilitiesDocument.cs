@@ -489,6 +489,27 @@ public static class CapabilitiesDocument
         }
 
         WriteStyle(writer, layer, endpoint, WmsVersion.V130);
+
+        // <b>ADR-070, after Style, which is where the 1.3.0 schema puts them.</b> The names run the
+        // other way from ArcGIS's: WMS's minimum denominator is the zoomed-in limit, ArcGIS's
+        // `maxScale`; and a WMS denominator is measured on a 0.28 mm pixel, not a 96 dpi one. 1.1.1's
+        // `ScaleHint` is a different quantity — a pixel's diagonal on the ground — and is not written.
+        if (layer.VisibleRange.MaxScale > 0)
+        {
+            writer.WriteElementString(
+                "MinScaleDenominator",
+                Graticula.Cartography.VisibleScaleRange.WmsDenominator(layer.VisibleRange.MaxScale)
+                    .ToString("0.######", System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        if (layer.VisibleRange.MinScale > 0)
+        {
+            writer.WriteElementString(
+                "MaxScaleDenominator",
+                Graticula.Cartography.VisibleScaleRange.WmsDenominator(layer.VisibleRange.MinScale)
+                    .ToString("0.######", System.Globalization.CultureInfo.InvariantCulture));
+        }
+
         writer.WriteEndElement();
     }
 

@@ -150,8 +150,8 @@ public static class MapServerMetadataWriter
             copyrightText = string.Empty,
             parentLayer = (object?)null,
             subLayers = Array.Empty<object>(),
-            minScale = 0,
-            maxScale = 0,
+            minScale = layer.MinScale,
+            maxScale = layer.MaxScale,
             drawingInfo,
             defaultVisibility = true,
             extent = Box(layer.Extent, layer.Srid),
@@ -222,8 +222,8 @@ public static class MapServerMetadataWriter
             layerId = layer.Id,
             layerName = layer.Name,
             layerType = "Feature Layer",
-            minScale = 0,
-            maxScale = 0,
+            minScale = layer.MinScale,
+            maxScale = layer.MaxScale,
 
             // <b>One entry per class since 2026-08-25, which is
             // [Q-131](../../docs/open-questions.md)'s answer on this face.</b> The
@@ -295,8 +295,8 @@ public static class MapServerMetadataWriter
                 parentLayerId = layers[i].ParentId ?? -1,
                 defaultVisibility = true,
                 subLayerIds = (object?)null,
-                minScale = 0,
-                maxScale = 0,
+                minScale = layers[i].MinScale,
+                maxScale = layers[i].MaxScale,
                 type = "Feature Layer",
                 geometryType = GeometryName(layers[i].GeometryType),
             };

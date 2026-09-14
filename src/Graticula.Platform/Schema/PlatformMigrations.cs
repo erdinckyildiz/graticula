@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(47);
+    public static SchemaVersion ComponentSchemaVersion => new(48);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -82,6 +82,7 @@ public static class PlatformMigrations
         AClaimedJobHoldsALeaseV45,
         AFolderOfGeoParquetFilesIsASourceV46,
         DuckDbSourcesBeyondAFolderV47,
+        ALayerHasAVisibleScaleRangeV48,
     ]);
 
 
@@ -2742,6 +2743,30 @@ public static class PlatformMigrations
     /// they answer 500 until the newer build returns.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A layer carries the scales it draws at — ADR-070.
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand.</b> Two nullable columns; null is <em>nobody has said</em>, which every existing
+    /// layer is, and draws at every scale exactly as it did. ArcGIS's numbers: a scale denominator at
+    /// 96 dpi, zero for no limit on that side, and the zoomed-in limit smaller than the zoomed-out one.
+    /// </remarks>
+    private static Migration ALayerHasAVisibleScaleRangeV48 => Migration.Expand(
+        new SchemaVersion(48),
+        "A layer may declare the scales it draws at (ADR-070).",
+
+        "alter table layer add column if not exists min_scale double precision",
+        "alter table layer add column if not exists max_scale double precision",
+
+        "alter table layer drop constraint if exists layer_scale_range_holds",
+
+        """
+        alter table layer add constraint layer_scale_range_holds
+            check ((min_scale is null or (min_scale >= 0 and min_scale <= 1e10))
+               and (max_scale is null or (max_scale >= 0 and max_scale <= 1e10))
+               and (coalesce(min_scale, 0) = 0 or coalesce(max_scale, 0) = 0 or max_scale < min_scale))
+        """);
+
     /// <summary>
     /// Remote GeoParquet, a DuckDB database file and MotherDuck become kinds a source may be — ADR-067.
     /// </summary>

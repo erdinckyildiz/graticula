@@ -64,12 +64,16 @@ public static class VectorTileServerMetadataWriter
     /// not the tile grid's. The grid is always Web Mercator; the data need not be.
     /// </param>
     /// <returns>The document.</returns>
+    /// <param name="range">The range the service draws in, or none — ADR-070.</param>
     public static object Service(
         string serviceName,
         IReadOnlyList<string> sourceLayerNames,
         Envelope? extent,
         int maxZoom,
-        int srid)
+        int srid,
+
+        // ADR-070, on the end and optional: the range the whole service draws in — see the caller.
+        Graticula.Cartography.VisibleScaleRange range = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
         ArgumentNullException.ThrowIfNull(sourceLayerNames);
@@ -120,8 +124,8 @@ public static class VectorTileServerMetadataWriter
             exportTilesAllowed = false,
             initialExtent = full,
             fullExtent = full,
-            minScale = 0,
-            maxScale = 0,
+            minScale = range.MinScale,
+            maxScale = range.MaxScale,
             maxzoom = maxZoom,
             tileInfo = TileInfo(maxZoom),
             // <b>No cacheInfo, deliberately.</b> The first version declared
@@ -193,9 +197,15 @@ public static class VectorTileServerMetadataWriter
     /// cannot draw a label at all — which is what this server did until
     /// 2026-08-15.
     /// </param>
+    /// <param name="ranges">Each source layer's visible range, by name, or null — ADR-070.</param>
     public static object Style(
         IReadOnlyList<(string Name, GeometryKind Geometry, string? Symbology)> sourceLayers,
-        string? fontStack = null)
+        string? fontStack = null,
+
+        // <b>ADR-070: each source layer's visible range, as style zooms.</b> On the end and optional.
+        // A style layer's own zooms are narrowed to it, never widened: a symbol authored to start at
+        // zoom 14 on a layer visible from 12 still starts at 14.
+        IReadOnlyDictionary<string, Graticula.Cartography.VisibleScaleRange>? ranges = null)
     {
         ArgumentNullException.ThrowIfNull(sourceLayers);
 
@@ -227,7 +237,13 @@ public static class VectorTileServerMetadataWriter
             // The alternative is a naming policy on the serialiser, which would
             // then apply to every other document this assembly writes and rename
             // fields ArcGIS clients match exactly.
-            layers = sourceLayers.SelectMany(StyleLayers).ToArray(),
+            layers = sourceLayers
+                .SelectMany(source => Narrowed(
+                    StyleLayers(source),
+                    ranges is not null && ranges.TryGetValue(source.Name, out Graticula.Cartography.VisibleScaleRange r)
+                        ? r
+                        : default))
+                .ToArray(),
         });
     }
 
@@ -320,6 +336,47 @@ public static class VectorTileServerMetadataWriter
             return null;
         }
     }
+
+    /// <summary>Style layers with their zooms narrowed to a visible range — ADR-070.</summary>
+    private static List<object> Narrowed(List<object> styleLayers, Graticula.Cartography.VisibleScaleRange range)
+    {
+        if (!range.IsLimited)
+        {
+            return styleLayers;
+        }
+
+        foreach (object layer in styleLayers)
+        {
+            if (layer is not Dictionary<string, object> one)
+            {
+                continue;
+            }
+
+            if (range.StyleMinZoom is { } min)
+            {
+                one["minzoom"] = Math.Round(Math.Max(min, ZoomOf(one, "minzoom") ?? 0), 6);
+            }
+
+            if (range.StyleMaxZoom is { } max)
+            {
+                one["maxzoom"] = Math.Round(Math.Min(max, ZoomOf(one, "maxzoom") ?? 24), 6);
+            }
+        }
+
+        return styleLayers;
+    }
+
+    private static double? ZoomOf(Dictionary<string, object> layer, string key) =>
+        layer.TryGetValue(key, out object? value)
+            ? value switch
+            {
+                System.Text.Json.Nodes.JsonNode node when node.GetValueKind() == System.Text.Json.JsonValueKind.Number
+                    => node.GetValue<double>(),
+                double d => d,
+                int i => i,
+                _ => null,
+            }
+            : null;
 
     private static Dictionary<string, object> Merge(
         Dictionary<string, object> head, object tail)
