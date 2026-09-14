@@ -58,6 +58,23 @@ public sealed class ThumbnailFramingTests : ArcGisClient
 
         string root = await RequireServerAsync();
 
+        // <b>Drawn again first — ADR-071.</b> A picture is kept until somebody redraws it, and the server
+        // draws every layer's shortly after it starts, so without this the picture measured here would be
+        // of the layer before the write suites edited it. What this test asks is how a picture is framed,
+        // which is a question about a draw, and the redraw is the one an administrator would press.
+        string layerName = qualified!.Trim('/');
+        layerName = layerName[(layerName.LastIndexOf('/') + 1)..];
+
+        using (HttpRequestMessage redraw = new(
+            HttpMethod.Post,
+            new Uri($"{root}/admin/layers/{Uri.EscapeDataString(layerName)}/thumbnail/redraw"
+                + $"?service={Uri.EscapeDataString(qualified!.Trim('/'))}")))
+        {
+            await AuthenticateAsync(redraw, root);
+            using HttpResponseMessage redrawn = await Http.SendAsync(redraw);
+            Assert.True(redrawn.IsSuccessStatusCode, $"The redraw answered {(int)redrawn.StatusCode} for {layerName}.");
+        }
+
         using HttpRequestMessage request = new(
             HttpMethod.Get,
             new Uri($"{root}/admin/thumbnail?service={Uri.EscapeDataString(qualified!.Trim('/'))}"

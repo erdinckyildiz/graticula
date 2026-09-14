@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED` |
 | **Confidence** | `HIGH` |
-| **Decided** | 2026-09-14, by owner decision, looking at the showcase's content list: *"her seferinde thumbnail oluşturmak maliyetli. tek sefer oluşturup, gerekirse içeriye bir düğme koymak mantıklı. thumbnail yeniden oluştur gibi"* — drawing a thumbnail every time is costly; draw it once, and put a button inside to redraw it. **That pictures are kept and redrawn on request is the owner's. Keeping them on the node's disk, keying them by layer id, and also redrawing when the symbology changes are `INFERRED`** |
+| **Decided** | 2026-09-14, by owner decision, looking at the showcase's content list: *"her seferinde thumbnail oluşturmak maliyetli. tek sefer oluşturup, gerekirse içeriye bir düğme koymak mantıklı. thumbnail yeniden oluştur gibi"* — drawing a thumbnail every time is costly; draw it once, and put a button inside to redraw it. Amended the same day, after the first release that kept pictures still made the list fill in one picture at a time: *"çok sürüyor. böyle olmamalı. hep cachete dursun bir tane. tekrar güncelleme istersek yenile butonuna basalım. ya da semboloji save ettiğimiz anda otomatik alsın."* — always in the cache, redrawn by the button or when the symbology is saved. **That pictures are kept and redrawn on request is the owner's. Keeping them on the node's disk, keying them by layer id, and also redrawing when the symbology changes are `INFERRED`** |
 | **Supersedes** | — (reverses the in-memory, five-minute design `ServiceThumbnails` recorded under [D-58](../architecture-debt.md)) |
 | **Superseded by** | — |
 
@@ -44,7 +44,8 @@ every five minutes after that.
 | Claim | Evidence |
 |---|---|
 | The render reads the record ceiling twice | `ThumbnailEndpoints.PictureAsync`: `DrawnExtentAsync` reads up to `MaximumRecordCount` features to frame, then `DrawLayerAsync` reads them again to draw |
-| Kept pictures survive a restart and never expire; a redraw forgets every size of one layer and no other; a torn write is drawn again | `ThumbnailsAreKeptUntilRedrawnTests` |
+| Kept pictures survive a restart and never expire; a redraw forgets every size of one layer and no other; a torn write is drawn again; several callers at once draw once, and one leaving does not stop it | `ThumbnailsAreKeptUntilRedrawnTests` |
+| Keeping alone still made viewers wait | Showcase 1.0.56, the owner's screenshot minutes after the upgrade: the content list's pictures filling in one at a time, each city layer about four seconds, because every picture's first viewer drew it |
 | What it saves, end to end | `thumb-e2e.py`, fixture, linux-arm64, New York's 1.66 million buildings from GeoParquet: first picture **3,900 ms**, again 61 ms, **after a restart 56 ms**; redraw removed the file, and the next picture took 4,088 ms and wrote it back |
 
 ## 5. Decision
@@ -56,7 +57,12 @@ every five minutes after that.
   The layer page shows the kept picture beside **Redraw thumbnail**, and pressing it asks for the picture
   again at once, so the new one is seen where the button is — the UX review's first finding against a
   version that only promised, in a toast, a picture drawn somewhere else.
-- Setting or clearing a layer's symbology forgets the pictures of every layer of that name.
+- Setting or clearing a layer's symbology draws the pictures of every layer of that name again.
+- **Nobody is the first viewer** (the amendment). `ThumbnailWarmer` draws, one at a time in the background:
+  every layer without a kept picture 15 seconds after the server starts, each layer as it is published,
+  and each picture a redraw or a symbology change forgot. A request that arrives while its picture is being
+  drawn waits for that draw rather than starting a second, and a caller that leaves does not cancel it —
+  the draw has its own two-minute bound.
 - The response is `private, no-cache` with the byte-derived ETag, so a browser revalidates with a 304
   instead of holding an old picture for five minutes after a redraw.
 - A disk that refuses a write is not a failure: the picture is answered from memory, as before.
@@ -66,7 +72,9 @@ every five minutes after that.
 - **State.** Files under the node's state directory, one per layer and size, a few kilobytes each;
   node-local. Nothing in the catalogue.
 - A deleted layer's file stays behind, unreachable, rather than hooking every path that removes a layer.
-- Every picture drawn by a build before this is drawn once more after upgrading, then kept.
+- Every picture drawn by a build before this is drawn once more after upgrading, in the background, then kept.
+- The conformance test of a picture's framing presses the redraw before it measures: the server draws the
+  edited layer's picture before the write suites have edited it.
 
 ## 7. Assumptions this decision rests on
 

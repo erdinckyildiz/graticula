@@ -3709,7 +3709,7 @@ internal static partial class AdminEndpoints
         ServiceContexts contexts,
 
         // ADR-071: the kept picture shows the old appearance until it is drawn again.
-        ServiceThumbnails thumbnails,
+        ThumbnailWarmer thumbnails,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -3875,7 +3875,7 @@ internal static partial class AdminEndpoints
         IAdminCatalog catalog,
         IAuditLog audit,
         PostgresLayerCatalog published,
-        ServiceThumbnails thumbnails,
+        ThumbnailWarmer thumbnails,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -6459,6 +6459,7 @@ internal static partial class AdminEndpoints
     /// <param name="tiles">The tile cache, so a replaced layer's pictures are dropped.</param>
     /// <param name="audit">The log.</param>
     /// <param name="geoParquet">The folders, against whose files a GeoParquet layer is checked.</param>
+    /// <param name="warmer">Draws each published layer's thumbnail ahead of its first viewer (ADR-071).</param>
     /// <param name="cancellation">The caller's.</param>
     /// <returns>The task.</returns>
     private static async Task PublishCompositionAsync(
@@ -6472,6 +6473,7 @@ internal static partial class AdminEndpoints
         ITileCache tiles,
         IAuditLog audit,
         GeoParquetSources geoParquet,
+        ThumbnailWarmer warmer,
         CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(catalog);
@@ -6807,6 +6809,8 @@ internal static partial class AdminEndpoints
 
             foreach ((string layerName, _) in made.Layers)
             {
+                await WarmThumbnailAsync(layerName, made.Name, layers, warmer, cancellation).ConfigureAwait(false);
+
                 visibleRanges.Add(new
                 {
                     name = layerName,
@@ -8152,6 +8156,7 @@ internal static partial class AdminEndpoints
         GeoParquetSources geoParquet,
         IProjector projector,
         ServiceContexts contexts,
+        ThumbnailWarmer warmer,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -8379,6 +8384,9 @@ internal static partial class AdminEndpoints
                         && reference is { Agrees: false },
                 }),
                 succeeded: true, cancellation).ConfigureAwait(false);
+
+            // ADR-071: its picture is drawn now, in the background, rather than by its first viewer.
+            warmer.Enqueue(published.Id);
 
             object visibleRange = await SuggestAndStoreAsync(
                 publication.Name, published.ServiceName, layers, contexts, catalog, projector, cancellation)

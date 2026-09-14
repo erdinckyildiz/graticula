@@ -80,6 +80,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["ServiceThumbnails._held"] =
             "explicit capacity of 256 pictures with oldest-drawn eviction; an evicted "
             + "picture is read back from disk (D-58, ADR-071)",
+        ["ServiceThumbnails._drawing"] = "one per picture being drawn right now; removed when its draw ends (ADR-071)",
         ["ServiceContexts._known"] = "one per table; removed by Forget on unpublish and refresh",
         ["ServiceContexts._times"] = "one per layer; removed by Forget on unpublish and refresh (D-160)",
         ["SourceBreaker._tripped"] = "one per data source; removed on recovery",

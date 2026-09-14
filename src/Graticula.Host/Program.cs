@@ -262,6 +262,8 @@ public static class Program
         // ADR-071: kept under the state directory, beside the other things this node keeps.
         builder.Services.AddSingleton(new ServiceThumbnails(
             System.IO.Path.Combine(settings.StatePath, "thumbnails")));
+        builder.Services.AddSingleton<ThumbnailWarmer>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<ThumbnailWarmer>());
 
         // <b>The rasteriser, behind its port, and this is the only line that names
         // the adapter.</b> ADR-041 §5.1: everything that draws asks for

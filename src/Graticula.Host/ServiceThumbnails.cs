@@ -5,6 +5,8 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Graticula.Host;
 
@@ -52,6 +54,7 @@ public sealed class ServiceThumbnails
     public const int Capacity = 256;
 
     private readonly ConcurrentDictionary<string, Held> _held = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Lazy<Task<Held?>>> _drawing = new(StringComparer.Ordinal);
     private readonly string? _directory;
 
     /// <summary>Creates a store held in memory only, for a test.</summary>
@@ -148,6 +151,33 @@ public sealed class ServiceThumbnails
         }
 
         return held;
+    }
+
+    /// <summary>Draws a picture once however many callers want it at the same moment.</summary>
+    /// <param name="key">From <see cref="KeyFor"/>.</param>
+    /// <param name="draw">What draws and keeps it; not bound to any one caller's cancellation.</param>
+    /// <param name="wait">How long this caller is willing to wait; leaving does not stop the draw.</param>
+    /// <returns>The picture, or null when there is nothing to draw.</returns>
+    public async Task<Held?> DrawOnceAsync(string key, Func<Task<Held?>> draw, CancellationToken wait)
+    {
+        ArgumentNullException.ThrowIfNull(draw);
+
+        Lazy<Task<Held?>> mine = new(() => Run(key, draw));
+        Lazy<Task<Held?>> running = _drawing.GetOrAdd(key, mine);
+
+        return await running.Value.WaitAsync(wait).ConfigureAwait(false);
+    }
+
+    private async Task<Held?> Run(string key, Func<Task<Held?>> draw)
+    {
+        try
+        {
+            return await draw().ConfigureAwait(false);
+        }
+        finally
+        {
+            _drawing.TryRemove(key, out _);
+        }
     }
 
     /// <summary>Forgets one layer's pictures, at every size, so the next request draws them again.</summary>

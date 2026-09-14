@@ -181,44 +181,79 @@ internal static class ThumbnailEndpoints
             return;
         }
 
-        string key = ServiceThumbnails.KeyFor(drawn.Id, Width, Height);
-        DateTimeOffset now = DateTimeOffset.UtcNow;
-
-        ServiceThumbnails.Held? picture = held.Find(key);
+        ServiceThumbnails.Held? picture = await DrawAndKeepAsync(
+            drawn, contexts, canvases, held, settings, cancellation).ConfigureAwait(false);
 
         if (picture is null)
         {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        await AnswerAsync(context, picture, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>The longest one picture may take to draw, whoever asked for it.</summary>
+    internal static readonly TimeSpan DrawDeadline = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// The layer's kept picture, drawn and kept first when there is none — ADR-071.
+    /// </summary>
+    /// <remarks>
+    /// <b>One path for a request and for <see cref="ThumbnailWarmer"/></b>, so a picture drawn ahead of
+    /// time is the picture a request would have drawn. Drawn once however many ask at the same moment:
+    /// the list, the layer page and the warmer can all want the same cold picture, and a city's
+    /// buildings take seconds.
+    /// </remarks>
+    /// <param name="layer">The layer, already authorised by the caller.</param>
+    /// <param name="contexts">Where its source comes from.</param>
+    /// <param name="canvases">The canvas factory.</param>
+    /// <param name="held">The kept pictures.</param>
+    /// <param name="settings">For the record ceiling.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The picture, or null when the layer has no geometry or no extent to frame.</returns>
+    internal static async Task<ServiceThumbnails.Held?> DrawAndKeepAsync(
+        PublishedLayer layer,
+        ServiceContexts contexts,
+        IMapCanvasFactory canvases,
+        ServiceThumbnails held,
+        HostSettings settings,
+        CancellationToken cancellation)
+    {
+        if (layer.Definition.GeometryColumn is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        string key = ServiceThumbnails.KeyFor(layer.Id, Width, Height);
+
+        return held.Find(key) ?? await held.DrawOnceAsync(key, async () =>
+        {
+            // <b>Not the caller's token.</b> The draw is shared, so the first caller walking away must
+            // not cancel it for the others; it has a bound of its own instead.
+            using CancellationTokenSource bound = new(DrawDeadline);
+            CancellationToken token = bound.Token;
+
             (IFeatureSource source, LayerDescription described) =
-                await contexts.GetAsync(drawn, cancellation).ConfigureAwait(false);
+                await contexts.GetAsync(layer, token).ConfigureAwait(false);
 
             if (described.Extent is not { } extent || extent.MinX > extent.MaxX)
             {
-                context.Response.StatusCode = StatusCodes.Status404NotFound;
-                return;
+                return null;
             }
 
             // <b>Framed on the features that will be drawn, not on the layer's declared extent
             // — [D-199](../../docs/architecture-debt.md).</b> That extent comes from
-            // `ST_EstimatedExtent`, which reads the GiST index: it grows with every insert and
-            // shrinks only under `VACUUM` or `REINDEX`, so it is an upper bound over everything
-            // the layer has *ever* held. Measured on `ci_editable`, three features left after a
-            // conformance suite: the declared box is 4,611 × 6,042 units and the data occupies
-            // 600 × 0, so the picture was three dots in the corner of an empty frame — which is
-            // exactly the *this layer is nearly empty* reading [D-58](../../docs/architecture-debt.md)
-            // replaced the sampled canvas to end, reached by a different route.
-            //
-            // <b>Correct by construction rather than by approximation.</b> A thumbnail draws at
-            // most `MaximumRecordCount` features; framing on the envelope of the features it
-            // will draw is the right frame for the picture it will produce. When a layer fills
-            // its own extent the two agree and nothing changes.
+            // `ST_EstimatedExtent`, which grows with every insert and shrinks only under `VACUUM` or
+            // `REINDEX`; framed on it, three features left after a conformance suite were three dots in
+            // the corner of an empty frame. A thumbnail draws at most `MaximumRecordCount` features, and
+            // framing on the envelope of those is the right frame for the picture it produces.
             byte[] bytes = await PictureAsync(
-                contexts, canvases, source, drawn, extent, settings, null, cancellation)
+                contexts, canvases, source, layer, extent, settings, null, token)
                 .ConfigureAwait(false);
 
-            picture = held.Keep(key, bytes, now);
-        }
-
-        await AnswerAsync(context, picture, cancellation).ConfigureAwait(false);
+            return held.Keep(key, bytes, DateTimeOffset.UtcNow);
+        }, cancellation).ConfigureAwait(false);
     }
 
     /// <summary>

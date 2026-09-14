@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Xunit;
 
 namespace Graticula.Host.Tests;
@@ -72,5 +74,33 @@ public sealed class ThumbnailsAreKeptUntilRedrawnTests : IDisposable
         store.Keep(key, [9], DateTimeOffset.UtcNow);
 
         Assert.NotNull(store.Find(key));
+    }
+
+    [Fact]
+    public async Task A_picture_wanted_by_several_at_once_is_drawn_once_and_a_caller_leaving_does_not_stop_it()
+    {
+        ServiceThumbnails store = new(_directory);
+        string key = ServiceThumbnails.KeyFor(Guid.NewGuid(), 336, 224);
+        TaskCompletionSource release = new();
+        int draws = 0;
+
+        async Task<ServiceThumbnails.Held?> Draw()
+        {
+            Interlocked.Increment(ref draws);
+            await release.Task;
+            return store.Keep(key, [7], DateTimeOffset.UtcNow);
+        }
+
+        using CancellationTokenSource impatient = new();
+        Task<ServiceThumbnails.Held?> leaving = store.DrawOnceAsync(key, Draw, impatient.Token);
+        Task<ServiceThumbnails.Held?> staying = store.DrawOnceAsync(key, Draw, CancellationToken.None);
+
+        impatient.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => leaving);
+
+        release.SetResult();
+        Assert.NotNull(await staying);
+        Assert.Equal(1, draws);
+        Assert.NotNull(new ServiceThumbnails(_directory).Find(key));
     }
 }
