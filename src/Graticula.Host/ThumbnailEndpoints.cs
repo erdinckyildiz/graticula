@@ -181,10 +181,10 @@ internal static class ThumbnailEndpoints
             return;
         }
 
-        string key = ServiceThumbnails.KeyFor(qualified, index, Width, Height);
+        string key = ServiceThumbnails.KeyFor(drawn.Id, Width, Height);
         DateTimeOffset now = DateTimeOffset.UtcNow;
 
-        ServiceThumbnails.Held? picture = held.Find(key, now);
+        ServiceThumbnails.Held? picture = held.Find(key);
 
         if (picture is null)
         {
@@ -422,9 +422,11 @@ internal static class ThumbnailEndpoints
 
         // <b>`private`, because a thumbnail is only visible to callers who can see the service.</b>
         // A shared proxy holding one would serve it to somebody the sharing model refuses.
-        context.Response.Headers.CacheControl = string.Create(
-            CultureInfo.InvariantCulture,
-            $"private, max-age={(int)ServiceThumbnails.Age.TotalSeconds}");
+        //
+        // <b>`no-cache` since ADR-071</b>: the picture is kept until somebody redraws it, so a browser
+        // asks each time and gets a 304 from the tag; a `max-age` would keep showing the old picture
+        // after a redraw for as long as it said.
+        context.Response.Headers.CacheControl = "private, no-cache";
 
         if (context.Request.Headers.IfNoneMatch.Count > 0
             && context.Request.Headers.IfNoneMatch.ToString().Contains(

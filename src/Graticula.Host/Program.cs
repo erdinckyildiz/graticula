@@ -259,13 +259,15 @@ public static class Program
         // request would be work in exchange for nothing.
         builder.Services.AddSingleton(_ => new GlyphStore(GlyphStore.BesideThisOne()));
 
+        // ADR-071: kept under the state directory, beside the other things this node keeps.
+        builder.Services.AddSingleton(new ServiceThumbnails(
+            System.IO.Path.Combine(settings.StatePath, "thumbnails")));
+
         // <b>The rasteriser, behind its port, and this is the only line that names
         // the adapter.</b> ADR-041 §5.1: everything that draws asks for
         // IMapCanvasFactory and receives whatever is registered here, so replacing
         // the implementation is this line and nothing else. A singleton because the
         // factory holds nothing; the canvases it makes are per request and disposed.
-        builder.Services.AddSingleton<ServiceThumbnails>();
-
         builder.Services.AddSingleton<IMapCanvasFactory>(
             _ => new Graticula.Render.Skia.SkiaMapCanvasFactory());
 

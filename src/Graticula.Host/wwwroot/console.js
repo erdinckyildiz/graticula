@@ -9649,6 +9649,20 @@ function showLayer(name, page, pending = null) {
       <h4>Contents</h4>
       <div id="contents" class="val">reading the layer document…</div>
 
+      <h4>Thumbnail</h4>
+      <div class="row" style="align-items:flex-start;gap:16px">
+        ${thumbnailFor(l.url)
+          ? `<img class="thumb" id="layerThumb" alt="" style="width:168px;height:112px"
+               data-thumb="${h(thumbnailFor(l.url))}">`
+          : `<div class="thumb empty" id="layerThumb" title="This layer has no map to show."></div>`}
+        <div style="flex:1;min-width:200px">
+          <p class="hint" style="margin-top:0">Drawn once and kept, so the lists that show it do not
+            draw the layer again. Redraw it after the data has changed.</p>
+          <button data-redraw-thumb="${h(name)}" ${thumbnailFor(l.url) ? "" : "disabled"}>Redraw thumbnail</button>
+          <p class="hint" id="thumbSays" role="status" aria-live="polite"></p>
+        </div>
+      </div>
+
       <h4>Time</h4>
       <div class="setting"><span class="q">Which column is this layer's time:</span>
         <input type="text" id="timeField" placeholder="derive it from the schema"
@@ -10264,6 +10278,9 @@ function showLayer(name, page, pending = null) {
   // element it looks for was null and it returned without a word. The screen was on the owner's
   // machine with an empty title bar for exactly as long as it took to look at it.
   drawSymStrip(name, at, trail);
+
+  // ADR-071: the layer's own kept picture, on the page that can redraw it.
+  paintPreviews();
 
   showEditPage(page);
   describeContents(name, l);
@@ -17588,6 +17605,37 @@ async function handleClick(event) {
       toast(r.note, r.declarationHolds);
     } catch (e) { toast(e.message); }
     await loadLayers();
+    return;
+  }
+
+  if (d.redrawThumb) {
+    // ADR-071: the server forgets the kept picture and this page forgets the copy it fetched; then the
+    // picture on this page is asked for again, which is what draws it, so the result is seen here.
+    const says = $("thumbSays");
+    const shown = $("layerThumb");
+    t.disabled = true;
+    try {
+      await api(`/admin/layers/${encodeURIComponent(d.redrawThumb)}/thumbnail/redraw`, { method: "POST" });
+      pictures.clear();
+      if (shown && shown.tagName === "IMG") {
+        const address = shown.getAttribute("src") ? thumbnailFor(layerNamed(d.redrawThumb).url) : shown.dataset.thumb;
+        const fresh = shown.cloneNode(false);
+        fresh.removeAttribute("src");
+        delete fresh.dataset.drawn;
+        fresh.dataset.thumb = address;
+        shown.replaceWith(fresh);
+        if (says) says.textContent = "Drawing the layer again — a large layer takes a few seconds…";
+        await paintPreviews();
+        if (says) says.textContent = $("layerThumb") && $("layerThumb").tagName === "IMG"
+          ? "Redrawn. Lists show this picture from now on."
+          : "Redrawn, and there is nothing to draw.";
+      }
+    } catch (e) {
+      if (says) says.textContent = e.message;
+    } finally {
+      t.disabled = false;
+      t.focus();
+    }
     return;
   }
 

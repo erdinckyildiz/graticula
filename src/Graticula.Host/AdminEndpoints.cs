@@ -567,6 +567,7 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/layers/{name}/time-field", SetTimeFieldAsync);
         MapFieldOverrides(app);  // ADR-063 — AdminEndpoints.FieldOverrides.cs
         MapVisibleRange(app);    // ADR-070 — AdminEndpoints.VisibleRange.cs
+        MapThumbnails(app);      // ADR-071 — AdminEndpoints.Thumbnails.cs
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
             SetStatusAsync(c, name, ServiceStatus.Started, a, l, t));
         app.MapPost("/admin/layers/{name}/stop", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
@@ -3706,6 +3707,9 @@ internal static partial class AdminEndpoints
         // seconds, so the cost on a write nobody makes often is a cached read.
         PostgresLayerCatalog published,
         ServiceContexts contexts,
+
+        // ADR-071: the kept picture shows the old appearance until it is drawn again.
+        ServiceThumbnails thumbnails,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -3811,6 +3815,8 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        await ForgetThumbnailsAsync(name, published, thumbnails, cancellation).ConfigureAwait(false);
+
         DerivedDrawingInfo derived =
             SymbologyConversion.ToDrawingInfo(written.Canonical, layer.Name, layer.Geometry);
 
@@ -3868,6 +3874,8 @@ internal static partial class AdminEndpoints
         string name,
         IAdminCatalog catalog,
         IAuditLog audit,
+        PostgresLayerCatalog published,
+        ServiceThumbnails thumbnails,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -3890,6 +3898,8 @@ internal static partial class AdminEndpoints
             await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
             return;
         }
+
+        await ForgetThumbnailsAsync(name, published, thumbnails, cancellation).ConfigureAwait(false);
 
         await AuditAsync(
             context, audit, "layer.symbology.clear", name,
