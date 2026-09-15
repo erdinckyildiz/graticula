@@ -796,6 +796,13 @@ public static class FeatureServerMetadataWriter
             extent = ExtentOrNull(
             servedExtent ?? description.Extent, servedSrid ?? layer.Srid, servedWkt),
 
+            // <b>The reference, said even when there is no extent to carry it — 2026-09-15.</b> A
+            // layer with no features has no extent, and the extent was the only place this document
+            // named its reference, so a client opening a newly designed layer to start editing had
+            // no way to learn it; found by a conformance test designing one in 4326. ArcGIS names it
+            // here as well.
+            sourceSpatialReference = SpatialReference(servedSrid ?? layer.Srid, servedWkt),
+
             // <b>The scales the layer draws at — ADR-070.</b> An ArcGIS client turns the layer off
             // outside them and asks for nothing, which is what protects a dense layer from a map
             // zoomed out over all of it; the tile and export faces enforce the same numbers for a

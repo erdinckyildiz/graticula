@@ -55,7 +55,8 @@ public sealed class ADesignedLayerNamesItsReferenceTests : ArcGisClient
                 .Single(f => f.GetProperty("name").GetString() == "label");
 
             Assert.Equal(20, label.GetProperty("length").GetInt32());
-            Assert.Contains("4326", document.GetRawText(), StringComparison.Ordinal);
+            // An empty layer has no extent, so the reference has to be said on its own.
+            Assert.Equal(4326, document.GetProperty("sourceSpatialReference").GetProperty("wkid").GetInt32());
         }
         finally
         {
