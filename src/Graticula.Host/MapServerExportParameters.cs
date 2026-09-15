@@ -50,6 +50,9 @@ internal sealed class MapServerExportParameters
     /// <summary>The layers to draw, in drawing order.</summary>
     public IReadOnlyList<PublishedLayer> Layers { get; private init; } = [];
 
+    /// <summary>The <c>layerDefs</c> clauses, by layer index, not yet parsed against columns.</summary>
+    public IReadOnlyDictionary<int, string> Definitions { get; private init; } = new Dictionary<int, string>();
+
     /// <summary>Reads the parameters.</summary>
     /// <param name="parameter">Reads one parameter by name, case-insensitively.</param>
     /// <param name="available">The service's layers.</param>
@@ -70,10 +73,9 @@ internal sealed class MapServerExportParameters
         parsed = null;
         error = null;
 
-        // <b>Refused rather than dropped, [D-125](../../docs/architecture-debt.md).</b>
-        // See SilentlyDroppedFilter: this face took `layerDefs` and ignored it, which is
-        // the one failure the caller cannot see.
-        if (!SilentlyDroppedFilter.Absent(parameter("layerDefs"), "layerDefs", out error))
+        // <b>Read, and evaluated by the handler — D-125's repair since 2026-09-15.</b> See
+        // `LayerDefinitions`: a definition that cannot be read or parsed is still refused.
+        if (!LayerDefinitions.TryRead(parameter("layerDefs"), available, out Dictionary<int, string> definitions, out error))
         {
             return false;
         }
@@ -138,6 +140,7 @@ internal sealed class MapServerExportParameters
             Format = format,
             Transparent = Flag(parameter("transparent")),
             Layers = layers,
+            Definitions = definitions,
         };
 
         return true;

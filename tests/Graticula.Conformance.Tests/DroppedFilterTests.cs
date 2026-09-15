@@ -8,7 +8,7 @@ using Xunit;
 namespace Graticula.Conformance.Tests;
 
 /// <summary>
-/// A filter this server cannot evaluate is refused, and never quietly dropped.
+/// A layer filter is evaluated, and one this server cannot evaluate is refused, never quietly dropped.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -98,16 +98,23 @@ public sealed class DroppedFilterTests : ArcGisClient
     }
 
     /// <summary>
-    /// Export refuses a `layerDefs` somebody wrote, and says why.
+    /// Export draws what a `layerDefs` selects, and refuses one it cannot parse.
     /// </summary>
     /// <remarks>
-    /// <b>The answer is a 200 carrying <c>error.code</c>, which is inherited rather than
-    /// chosen.</b> Every Esri client reads the code out of a successful response and several treat
-    /// a 4xx as a transport failure and never open the body — the same reasoning WMS service
-    /// exceptions are written under.
+    /// <para>
+    /// <b>Refused from 2026-08-20, evaluated since 2026-09-15.</b> D-125's rule was never
+    /// *refuse layerDefs*; it was *never draw more than was asked for*, and refusing was how that
+    /// held while nothing evaluated the parameter. So both halves are asserted: a definition that
+    /// selects nothing draws a different image from the unfiltered one, and one that does not parse
+    /// is still an error rather than the whole map.
+    /// </para>
+    /// <para>
+    /// <b>The error is a 200 carrying <c>error.code</c>, which is inherited rather than
+    /// chosen.</b> Every Esri client reads the code out of a successful response.
+    /// </para>
     /// </remarks>
     [Fact]
-    public async Task Export_refuses_a_layer_definition_it_cannot_evaluate()
+    public async Task Export_draws_what_a_layer_definition_selects_and_refuses_one_it_cannot_parse()
     {
         string root = await RequireServerAsync();
 
@@ -116,6 +123,9 @@ public sealed class DroppedFilterTests : ArcGisClient
         Assert.False(drawable is null, "No service in this catalogue can be drawn.");
 
         (string service, string bbox, int srid) = drawable!.Value;
+
+        string oid = (await GetJsonAsync($"/rest/services/{service}/FeatureServer/0"))
+            .GetProperty("objectIdField").GetString()!;
 
         string map = $"{root}/rest/services/{service}/MapServer/export"
             + $"?bbox={bbox}&bboxSR={srid}&size=200,150&format=png&f=image";
@@ -126,32 +136,27 @@ public sealed class DroppedFilterTests : ArcGisClient
             plain is 200 && !drawn.Contains("\"error\"", StringComparison.Ordinal),
             $"The export without a filter answered {plain} for {map}: {drawn[..Math.Min(200, drawn.Length)]}");
 
-        (int _, string body) = await AskAsync(
-            map + "&layerDefs=" + Uri.EscapeDataString("0:il='Adana'"));
+        (int nothingStatus, string nothing) = await AskAsync(
+            map + "&layerDefs=" + Uri.EscapeDataString($"{{\"0\":\"{oid} < 0\"}}"));
 
-        Assert.True(
-            body.Contains("layerDefs", StringComparison.Ordinal),
-            "The export accepted a layerDefs and drew a map. That is D-125: the caller asked for "
-            + "some features and was shown all of them, with nothing in the answer saying so. "
-            + $"It answered {body.Length} bytes.");
+        Assert.Equal(200, nothingStatus);
+        Assert.DoesNotContain("\"error\"", nothing, StringComparison.Ordinal);
+        Assert.NotEqual(drawn, nothing);
+
+        (int _, string body) = await AskAsync(
+            map + "&layerDefs=" + Uri.EscapeDataString("0:1=1; DROP TABLE x--"));
 
         JsonElement error = JsonDocument.Parse(body).RootElement.GetProperty("error");
 
         Assert.Equal(400, error.GetProperty("code").GetInt32());
-
-        // The refusal has to leave the caller somewhere to go, or it is a wall rather than an
-        // answer — the FeatureServer face evaluates `where` against the database.
-        Assert.Contains(
-            "FeatureServer",
-            error.GetProperty("message").GetString() ?? string.Empty,
-            StringComparison.Ordinal);
+        Assert.Contains("layerDefs", error.GetProperty("message").GetString() ?? string.Empty, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Identify refuses it too, because it took it and dropped it in the same way.
+    /// Identify finds only what a `layerDefs` selects, and refuses one it cannot parse.
     /// </summary>
     [Fact]
-    public async Task Identify_refuses_a_layer_definition_it_cannot_evaluate()
+    public async Task Identify_honours_a_layer_definition_and_refuses_one_it_cannot_parse()
     {
         string root = await RequireServerAsync();
 
@@ -161,7 +166,9 @@ public sealed class DroppedFilterTests : ArcGisClient
 
         (string service, string bbox, int srid) = drawable!.Value;
 
-        // The middle of the extent, so the probe is inside the data rather than beside it.
+        string oid = (await GetJsonAsync($"/rest/services/{service}/FeatureServer/0"))
+            .GetProperty("objectIdField").GetString()!;
+
         string[] corners = bbox.Split(',');
         double x = (double.Parse(corners[0], System.Globalization.CultureInfo.InvariantCulture)
             + double.Parse(corners[2], System.Globalization.CultureInfo.InvariantCulture)) / 2;
@@ -172,20 +179,21 @@ public sealed class DroppedFilterTests : ArcGisClient
             + $"?geometry={x.ToString(System.Globalization.CultureInfo.InvariantCulture)},"
             + $"{y.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             + $"&geometryType=esriGeometryPoint&mapExtent={bbox}&sr={srid}"
-            + "&imageDisplay=200,150,96&tolerance=5&f=json";
-
-        (int _, string plain) = await AskAsync(ask);
-
-        Assert.DoesNotContain("\"error\"", plain, StringComparison.Ordinal);
+            + "&imageDisplay=200,150,96&tolerance=200&layers=all:0&f=json";
 
         (int _, string filtered) = await AskAsync(
-            ask + "&layerDefs=" + Uri.EscapeDataString("0:il='Adana'"));
+            ask + "&layerDefs=" + Uri.EscapeDataString($"0:{oid} < 0"));
 
-        JsonElement root2 = JsonDocument.Parse(filtered).RootElement;
+        JsonElement results = JsonDocument.Parse(filtered).RootElement.GetProperty("results");
+
+        Assert.Equal(0, results.GetArrayLength());
+
+        (int _, string refused) = await AskAsync(
+            ask + "&layerDefs=" + Uri.EscapeDataString("0:pg_sleep(10) = 1"));
 
         Assert.True(
-            root2.TryGetProperty("error", out JsonElement error),
-            "Identify accepted a layerDefs and answered results. That is D-125.");
+            JsonDocument.Parse(refused).RootElement.TryGetProperty("error", out JsonElement error),
+            "Identify accepted a layer definition it could not parse and answered results.");
 
         Assert.Equal(400, error.GetProperty("code").GetInt32());
     }

@@ -339,7 +339,17 @@ internal static class MapServerEndpoints
             return;
         }
 
-        PixelTransform transform = new(asked!.Extent, asked.Width, asked.Height);
+        (Dictionary<Guid, AttributePredicate> definitions, string? definitionError) = await LayerDefinitions
+            .ParseAsync(asked!.Definitions, service.Layers, contexts, cancellation)
+            .ConfigureAwait(false);
+
+        if (definitionError is not null)
+        {
+            await RefuseAsync(context, 400, definitionError).ConfigureAwait(false);
+            return;
+        }
+
+        PixelTransform transform = new(asked.Extent, asked.Width, asked.Height);
 
         using IMapCanvas canvas = canvases.Create(asked.Width, asked.Height);
 
@@ -355,7 +365,8 @@ internal static class MapServerEndpoints
             await WmsEndpoints
                 .DrawLayerAsync(
                     contexts, renderer, transform, layer, asked.ImageSrid, null,
-                    settings.MaximumRecordCount, cancellation, honourVisibleRange: true)
+                    settings.MaximumRecordCount, cancellation, honourVisibleRange: true,
+                    definition: definitions.GetValueOrDefault(layer.Id))
                 .ConfigureAwait(false);
         }
 
@@ -433,9 +444,19 @@ internal static class MapServerEndpoints
             return;
         }
 
+        (Dictionary<Guid, AttributePredicate> definitions, string? definitionError) = await LayerDefinitions
+            .ParseAsync(asked!.Definitions, service.Layers, contexts, cancellation)
+            .ConfigureAwait(false);
+
+        if (definitionError is not null)
+        {
+            await RefuseAsync(context, 400, definitionError).ConfigureAwait(false);
+            return;
+        }
+
         List<object> results = [];
 
-        foreach (PublishedLayer layer in asked!.Layers)
+        foreach (PublishedLayer layer in asked.Layers)
         {
             (IFeatureSource source, LayerDescription described) =
                 await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
@@ -446,7 +467,8 @@ internal static class MapServerEndpoints
                 includeGeometry: asked.ReturnGeometry,
                 spatial: new SpatialFilter(Rectangle(asked.Around)),
                 outSrid: asked.Srid == layer.Definition.Srid ? null : asked.Srid,
-                filterSrid: asked.Srid == layer.Definition.Srid ? null : asked.Srid);
+                filterSrid: asked.Srid == layer.Definition.Srid ? null : asked.Srid,
+                where: Emitted(definitions.GetValueOrDefault(layer.Id), described));
 
             // <b>The field the layer document names, not the first column — 2026-09-15.</b> This
             // took `Fields[0]`, which is the object id on nearly every table, so an identify on
@@ -482,6 +504,21 @@ internal static class MapServerEndpoints
         }
 
         await Results.Ok(new { results }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>A parsed layer definition as the statement fragment a query carries, or null.</summary>
+    private static ParsedWhere? Emitted(AttributePredicate? definition, LayerDescription described)
+    {
+        if (definition is null)
+        {
+            return null;
+        }
+
+        return PredicateSql.TryEmit(
+                definition, [.. described.Fields.Select(f => f.Name)], LayerDefinition.Quote,
+                out ParsedWhere emitted, out string? error)
+            ? emitted
+            : throw new InvalidOperationException($"A layer definition parsed and did not emit: {error}");
     }
 
     /// <summary>

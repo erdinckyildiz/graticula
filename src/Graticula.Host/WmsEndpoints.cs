@@ -808,6 +808,7 @@ internal static class WmsEndpoints
     /// </para>
     /// </returns>
     /// <param name="honourVisibleRange">Whether the layer's visible range decides if it is drawn at this scale — ADR-070. A map a client asked for does; a thumbnail or a preview does not.</param>
+    /// <param name="definition">A MapServer layer definition already parsed against this layer's columns, or null.</param>
     public static async Task<int> DrawLayerAsync(
         ServiceContexts contexts,
         MapRenderer renderer,
@@ -819,7 +820,8 @@ internal static class WmsEndpoints
         CancellationToken cancellation,
         ILogger? log = null,
         string? symbology = null,
-        bool honourVisibleRange = false)
+        bool honourVisibleRange = false,
+        AttributePredicate? definition = null)
     {
         ArgumentNullException.ThrowIfNull(contexts);
         ArgumentNullException.ThrowIfNull(renderer);
@@ -913,19 +915,37 @@ internal static class WmsEndpoints
             }
         }
 
-        AttributePredicate? predicate = TimePredicate(time, described, layer.TimeField);
+        AttributePredicate? timed = TimePredicate(time, described, layer.TimeField);
+
+        // <b>A MapServer layer definition joins the time window — 2026-09-15.</b> It was parsed
+        // against these columns before any drawing began, so it emits; and if it somehow did not,
+        // the map is refused rather than drawn without it, which is D-125's whole point.
+        AttributePredicate? predicate = (timed, definition) switch
+        {
+            (null, null) => null,
+            ({ } only, null) => only,
+            (null, { } only) => only,
+            ({ } a, { } b) => new AttributePredicate.Conjunction(a, b),
+        };
 
         ParsedWhere? where = null;
 
-        if (predicate is not null
-            && PredicateSql.TryEmit(
-                predicate,
-                [.. described.Fields.Select(f => f.Name)],
-                LayerDefinition.Quote,
-                out ParsedWhere emitted,
-                out _))
+        if (predicate is not null)
         {
-            where = emitted;
+            if (PredicateSql.TryEmit(
+                    predicate,
+                    [.. described.Fields.Select(f => f.Name)],
+                    LayerDefinition.Quote,
+                    out ParsedWhere emitted,
+                    out string? emitError))
+            {
+                where = emitted;
+            }
+            else if (definition is not null)
+            {
+                throw new InvalidOperationException(
+                    $"The layer definition for '{layer.Definition.Name}' parsed and did not emit: {emitError}");
+            }
         }
 
         FeatureQuery features = new(

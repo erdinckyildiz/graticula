@@ -40,6 +40,9 @@ internal sealed class MapServerIdentifyParameters
     /// <summary>The layers to ask.</summary>
     public IReadOnlyList<PublishedLayer> Layers { get; private init; } = [];
 
+    /// <summary>The <c>layerDefs</c> clauses, by layer index, not yet parsed against columns.</summary>
+    public IReadOnlyDictionary<int, string> Definitions { get; private init; } = new Dictionary<int, string>();
+
     /// <summary>Whether to return each feature's shape.</summary>
     public bool ReturnGeometry { get; private init; }
 
@@ -61,10 +64,9 @@ internal sealed class MapServerIdentifyParameters
         parsed = null;
         error = null;
 
-        // <b>Refused rather than dropped, [D-125](../../docs/architecture-debt.md).</b>
-        // See SilentlyDroppedFilter: this face took `layerDefs` and ignored it, which is
-        // the one failure the caller cannot see.
-        if (!SilentlyDroppedFilter.Absent(parameter("layerDefs"), "layerDefs", out error))
+        // <b>Read, and evaluated by the handler — D-125's repair since 2026-09-15.</b> See
+        // `LayerDefinitions`: a definition that cannot be read or parsed is still refused.
+        if (!LayerDefinitions.TryRead(parameter("layerDefs"), available, out Dictionary<int, string> definitions, out error))
         {
             return false;
         }
@@ -117,6 +119,7 @@ internal sealed class MapServerIdentifyParameters
             Around = new Envelope(x - slopX, y - slopY, x + slopX, y + slopY),
             Srid = ReferenceOf(parameter("sr")) ?? 4326,
             Layers = layers,
+            Definitions = definitions,
             ReturnGeometry = !string.Equals(
                 parameter("returnGeometry")?.Trim(), "false", StringComparison.OrdinalIgnoreCase),
         };
