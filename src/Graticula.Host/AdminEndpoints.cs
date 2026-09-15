@@ -5921,10 +5921,21 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        (bool bindable, string? bound, string? unbindable) =
+            await AuthEndpoints.RequestedBindingAsync(context, cancellation).ConfigureAwait(false);
+
+        if (!bindable)
+        {
+            await Results.Json(new { error = new { code = 400, message = unbindable } }, statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         LoginResult result = await login
             .AuthenticateAsync(
                 name, password, CallerAddress.Of(context), cancellation,
-                await AuthEndpoints.RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false))
+                await AuthEndpoints.RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false),
+                bound)
             .ConfigureAwait(false);
 
         if (!result.Succeeded)

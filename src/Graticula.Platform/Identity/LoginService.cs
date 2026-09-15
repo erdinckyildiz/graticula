@@ -129,6 +129,10 @@ public sealed class LoginService
     /// How long the caller asks the session to last — ArcGIS's <c>expiration</c>. Granted up to the
     /// deployment's own lifetime and no further, and never under a minute; null is the deployment's.
     /// </param>
+    /// <param name="boundTo">
+    /// What the token is bound to — ArcGIS's <c>client</c>, read by <see cref="TokenBinding.TryRead"/> —
+    /// or null for a token usable from anywhere.
+    /// </param>
     /// <remarks>
     /// <para>
     /// <b>The order of the four steps is the security design</b>, not an
@@ -161,7 +165,8 @@ public sealed class LoginService
         string password,
         IPAddress? address,
         CancellationToken cancellationToken,
-        TimeSpan? lifetime = null)
+        TimeSpan? lifetime = null,
+        string? boundTo = null)
     {
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(password);
@@ -252,14 +257,14 @@ public sealed class LoginService
         DateTimeOffset expiresAt = now + granted;
 
         Guid sessionId = await _store
-            .CreateSessionAsync(principal.Id, SessionToken.HashOf(token), expiresAt, address, cancellationToken)
+            .CreateSessionAsync(principal.Id, SessionToken.HashOf(token), expiresAt, address, cancellationToken, boundTo)
             .ConfigureAwait(false);
 
         await _store.RecordAttemptAsync(name, address, succeeded: true, cancellationToken)
             .ConfigureAwait(false);
 
         return new LoginResult(
-            LoginFailure.None, token, new AuthenticatedSession(sessionId, principal, expiresAt));
+            LoginFailure.None, token, new AuthenticatedSession(sessionId, principal, expiresAt, BoundTo: boundTo));
     }
 
     /// <summary>

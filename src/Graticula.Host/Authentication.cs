@@ -163,6 +163,19 @@ internal sealed class Authentication
             AuthenticatedSession? session =
                 await FindSessionAsync(context, cancellationToken).ConfigureAwait(false);
 
+            // <b>A bound token used from somewhere it was not bound to is not a token — D-268.</b>
+            // Treated exactly as an unrecognised one, so the ArcGIS surface answers 498 and nothing
+            // tells the caller whether the token exists.
+            if (session is { BoundTo: { } bound }
+                && !TokenBinding.Admits(
+                    bound,
+                    CallerAddress.Of(context),
+                    context.Request.Headers.Referer.ToString(),
+                    context.Request.Headers.Origin.ToString()))
+            {
+                session = null;
+            }
+
             // <b>A token the caller chose to send, and the store did not recognise — ADR-015 §4a.</b>
             // Still anonymous, as the remarks above say; what is added is that it is remembered, so
             // the ArcGIS surface can answer 498 rather than serve the caller as though it had sent

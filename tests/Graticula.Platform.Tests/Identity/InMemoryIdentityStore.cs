@@ -27,6 +27,8 @@ internal sealed class InMemoryIdentityStore : IIdentityStore
         new(ByteArrayComparer.Instance);
 
     private readonly HashSet<Guid> _revoked = [];
+
+    private readonly Dictionary<Guid, string?> _bindings = [];
     private readonly Dictionary<Guid, HashSet<string>> _roles = [];
 
     public InMemoryIdentityStore(TimeProvider time) => Time = time;
@@ -67,7 +69,9 @@ internal sealed class InMemoryIdentityStore : IIdentityStore
         Principal principal = _principals.Values.First(p => p.Principal.Id == session.PrincipalId).Principal;
 
         return Task.FromResult<AuthenticatedSession?>(
-            principal.IsDisabled ? null : new AuthenticatedSession(session.Id, principal, session.Expires));
+            principal.IsDisabled
+                ? null
+                : new AuthenticatedSession(session.Id, principal, session.Expires, BoundTo: _bindings.GetValueOrDefault(session.Id)));
     }
 
     public Task<(Principal Principal, PasswordHash? Credential)?> FindForLoginAsync(
@@ -100,10 +104,12 @@ internal sealed class InMemoryIdentityStore : IIdentityStore
         byte[] tokenHash,
         DateTimeOffset expiresAt,
         IPAddress? address,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? boundTo = null)
     {
         Guid id = Guid.NewGuid();
         _sessions[tokenHash] = (id, principalId, expiresAt);
+        _bindings[id] = boundTo;
         return Task.FromResult(id);
     }
 

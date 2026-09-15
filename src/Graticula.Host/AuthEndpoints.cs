@@ -142,10 +142,20 @@ internal static class AuthEndpoints
             return;
         }
 
+        (bool bindable, string? bound, string? unbindable) =
+            await RequestedBindingAsync(context, cancellation).ConfigureAwait(false);
+
+        if (!bindable)
+        {
+            await EsriTokenError(context, StatusCodes.Status400BadRequest, unbindable!).ConfigureAwait(false);
+            return;
+        }
+
         LoginResult result = await login
             .AuthenticateAsync(
                 name, password, RemoteAddress(context), cancellation,
-                await RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false))
+                await RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false),
+                bound)
             .ConfigureAwait(false);
 
         if (!result.Succeeded)
@@ -835,6 +845,34 @@ internal static class AuthEndpoints
             && minutes < TimeSpan.MaxValue.TotalMinutes / 2
                 ? TimeSpan.FromMinutes(minutes)
                 : null;
+    }
+
+    /// <summary>
+    /// What an ArcGIS client asks its token to be bound to, from <c>client</c>, <c>referer</c> and
+    /// <c>ip</c> in the form or the query — <see cref="TokenBinding"/>.
+    /// </summary>
+    /// <remarks>One reading for all three token doors, for the reason
+    /// <see cref="RequestedLifetimeAsync"/> is.</remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>Whether a token may be issued, the binding to store, and why not.</returns>
+    internal static async Task<(bool Ok, string? Bound, string? Error)> RequestedBindingAsync(
+        HttpContext context, CancellationToken cancellation)
+    {
+        IFormCollection? form = context.Request.HasFormContentType
+            ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
+            : null;
+
+        string? Read(string name)
+        {
+            string? value = form?[name].ToString();
+            return string.IsNullOrWhiteSpace(value) ? context.Request.Query[name].ToString() : value;
+        }
+
+        bool ok = TokenBinding.TryRead(
+            Read("client"), Read("referer"), Read("ip"), CallerAddress.Of(context), out string? bound, out string? error);
+
+        return (ok, bound, error);
     }
 
     private static Task Refuse(HttpContext context, int status, string message) =>

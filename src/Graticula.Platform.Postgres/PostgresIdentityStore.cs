@@ -49,7 +49,7 @@ public sealed class PostgresIdentityStore : IIdentityStore
         // identity provider has no local credential, and *no password* is not *a dirty password*.
         const string Sql = """
             select s.id, s.expires_at, p.id, p.kind, p.name, p.display_name,
-                   coalesce(c.must_change, false)
+                   coalesce(c.must_change, false), s.bound_to
             from session s
             join principal p on p.id = s.principal_id
             left join local_credential c on c.principal_id = p.id
@@ -75,7 +75,8 @@ public sealed class PostgresIdentityStore : IIdentityStore
             reader.GetGuid(0),
             ReadPrincipal(reader, idOrdinal: 2, isDisabled: false),
             reader.GetFieldValue<DateTimeOffset>(1),
-            reader.GetBoolean(6));
+            reader.GetBoolean(6),
+            reader.IsDBNull(7) ? null : reader.GetString(7));
     }
 
     /// <inheritdoc/>
@@ -173,13 +174,14 @@ public sealed class PostgresIdentityStore : IIdentityStore
         byte[] tokenHash,
         DateTimeOffset expiresAt,
         IPAddress? address,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? boundTo = null)
     {
         ArgumentNullException.ThrowIfNull(tokenHash);
 
         const string Sql = """
-            insert into session (id, principal_id, token_hash, expires_at, source_address)
-            values (@id, @principal, @hash, @expires, @address)
+            insert into session (id, principal_id, token_hash, expires_at, source_address, bound_to)
+            values (@id, @principal, @hash, @expires, @address, @bound)
             """;
 
         Guid id = Guid.NewGuid();
@@ -192,6 +194,10 @@ public sealed class PostgresIdentityStore : IIdentityStore
         command.Parameters.Add(new NpgsqlParameter("address", NpgsqlDbType.Inet)
         {
             Value = (object?)address ?? DBNull.Value,
+        });
+        command.Parameters.Add(new NpgsqlParameter("bound", NpgsqlDbType.Text)
+        {
+            Value = (object?)boundTo ?? DBNull.Value,
         });
 
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);

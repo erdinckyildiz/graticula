@@ -10,6 +10,10 @@ namespace Graticula.Platform.Identity;
 /// <param name="SessionId">The session's id, for revocation and audit.</param>
 /// <param name="Principal">Who it is.</param>
 /// <param name="ExpiresAt">When it stops working.</param>
+/// <param name="BoundTo">
+/// What the token is bound to (<see cref="TokenBinding"/>), or null. Read per request with the session,
+/// so a bound token presented from elsewhere is refused on that request.
+/// </param>
 /// <param name="MustChangePassword">
 /// Whether the credential this session was opened with is one its owner has to replace.
 /// <b>Read per request rather than stamped into the token</b>, which is the same rule sharing and
@@ -21,7 +25,8 @@ public readonly record struct AuthenticatedSession(
     Guid SessionId,
     Principal Principal,
     DateTimeOffset ExpiresAt,
-    bool MustChangePassword = false);
+    bool MustChangePassword = false,
+    string? BoundTo = null);
 
 /// <summary>
 /// Everything the login and authentication paths read and write.
@@ -79,12 +84,19 @@ public interface IIdentityStore
         string name, IPAddress? address, bool succeeded, CancellationToken cancellationToken);
 
     /// <summary>Creates a session and returns its id.</summary>
+    /// <param name="principalId">Whose session.</param>
+    /// <param name="tokenHash">The token's hash.</param>
+    /// <param name="expiresAt">When it ends.</param>
+    /// <param name="address">Where the sign-in came from.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="boundTo">What the token is bound to — <see cref="TokenBinding"/> — or null.</param>
     Task<Guid> CreateSessionAsync(
         Guid principalId,
         byte[] tokenHash,
         DateTimeOffset expiresAt,
         IPAddress? address,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? boundTo = null);
 
     /// <summary>Revokes a session. Idempotent.</summary>
     Task RevokeSessionAsync(Guid sessionId, CancellationToken cancellationToken);

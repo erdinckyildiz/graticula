@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(48);
+    public static SchemaVersion ComponentSchemaVersion => new(49);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -83,6 +83,7 @@ public static class PlatformMigrations
         AFolderOfGeoParquetFilesIsASourceV46,
         DuckDbSourcesBeyondAFolderV47,
         ALayerHasAVisibleScaleRangeV48,
+        ATokenMayBeBoundV49,
     ]);
 
 
@@ -2743,6 +2744,28 @@ public static class PlatformMigrations
     /// they answer 500 until the newer build returns.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A session records what its token is bound to — ADR-015 §4 mitigation 3, D-268.
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand.</b> One nullable column; null is an unbound token, which every existing session is and
+    /// stays. <b>A rollback to a build before this one ignores the column</b> and honours a bound token
+    /// from anywhere — the restriction is lost, not the session, and that is stated here rather than
+    /// discovered.
+    /// </remarks>
+    private static Migration ATokenMayBeBoundV49 => Migration.Expand(
+        new SchemaVersion(49),
+        "A session may be bound to a caller address or a referer (ADR-015 §4, D-268).",
+
+        "alter table session add column if not exists bound_to text",
+
+        "alter table session drop constraint if exists session_binding_known",
+
+        """
+        alter table session add constraint session_binding_known
+            check (bound_to is null or bound_to like 'ip:%' or bound_to like 'referer:%')
+        """);
+
     /// <summary>
     /// A layer carries the scales it draws at — ADR-070.
     /// </summary>

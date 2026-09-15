@@ -259,10 +259,20 @@ internal static class PortalEndpoints
 
         // <b>`CallerAddress`, as the other two doors use — D-12.</b> This read the socket address, so
         // behind a proxy every portal sign-in was throttled as the proxy's.
+        (bool bindable, string? bound, string? unbindable) =
+            await AuthEndpoints.RequestedBindingAsync(context, cancellation).ConfigureAwait(false);
+
+        if (!bindable)
+        {
+            await PortalError(context, 400, unbindable!).ConfigureAwait(false);
+            return;
+        }
+
         LoginResult result = await login
             .AuthenticateAsync(
                 name, password, CallerAddress.Of(context), cancellation,
-                await AuthEndpoints.RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false))
+                await AuthEndpoints.RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false),
+                bound)
             .ConfigureAwait(false);
 
         if (!result.Succeeded)

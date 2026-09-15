@@ -177,7 +177,7 @@ Four mitigations, all required:
    capability report.
 3. *(Not implemented as written — [D-268](../architecture-debt.md), found 2026-09-15: tokens
    lived twelve hours whatever was asked and were not scoped. `expiration` is honoured since that
-   day; the default, `requestip`/`referer` binding and the scope are still owed.)*
+   day. **Binding repaid the same day:** `client=requestip`, `client=ip` and `client=referer` bind the token (migration 49, `TokenBinding`), a request from anywhere else is answered as an unrecognised token — 498 on the ArcGIS surface — and a binding that cannot be made is refused rather than issued unbound. A token requested without `client` stays unbound, as ArcGIS clients that send none expect. The default lifetime and the scope are still owed.)*
    **ArcGIS-issued tokens are short-lived by default and separately scoped.** A
    token that leaks into a `Referer` should expire before it is useful, and it
    should not be usable against the admin API. Compatibility tokens grant the
