@@ -100,6 +100,34 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
                     f => f.GetProperty("name").GetString()!,
                     f => f.GetProperty("type").GetString()!);
 
+            // <b>The query response's own field list says what the layer document says.</b>
+            // Until 2026-09-15 it declared every column a string labelled with its name, beside a
+            // layer document that said Integer and gave the operator's label — and a client that
+            // builds its table from the response (the Python API's data frame, an export) typed
+            // and labelled every column from the response.
+            Dictionary<string, JsonElement> documented = layer.GetProperty("fields").EnumerateArray()
+                .ToDictionary(f => f.GetProperty("name").GetString()!);
+
+            foreach (JsonElement answered in query.GetProperty("fields").EnumerateArray())
+            {
+                string column = answered.GetProperty("name").GetString()!;
+
+                if (!documented.TryGetValue(column, out JsonElement inDocument))
+                {
+                    continue;
+                }
+
+                Assert.True(
+                    inDocument.GetProperty("type").GetString() == answered.GetProperty("type").GetString(),
+                    $"'{name}.{column}' is {inDocument.GetProperty("type").GetString()} in the layer document "
+                    + $"and {answered.GetProperty("type").GetString()} in a query response.");
+
+                Assert.True(
+                    inDocument.GetProperty("alias").GetString() == answered.GetProperty("alias").GetString(),
+                    $"'{name}.{column}' is labelled '{inDocument.GetProperty("alias").GetString()}' in the layer "
+                    + $"document and '{answered.GetProperty("alias").GetString()}' in a query response.");
+            }
+
             foreach (JsonProperty attribute in attributes.EnumerateObject())
             {
                 // An undeclared attribute has no column in the client's table, so the value

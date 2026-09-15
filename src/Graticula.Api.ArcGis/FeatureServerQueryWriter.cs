@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -60,6 +61,9 @@ public sealed class FeatureServerQueryWriter
     /// </remarks>
     private readonly long _maximumBytes;
 
+    /// <summary>The layer's columns as its document describes them, by name; empty when not given.</summary>
+    private readonly Dictionary<string, FieldDescription> _fields;
+
     /// <summary>Creates a writer for one layer.</summary>
     /// <param name="layer">The layer being written.</param>
     /// <param name="maximumBytes">
@@ -67,7 +71,14 @@ public sealed class FeatureServerQueryWriter
     /// Truncation is reported as <c>exceededTransferLimit</c> — see the loop in
     /// <see cref="WriteAsync"/> for why that rather than an error.
     /// </param>
-    public FeatureServerQueryWriter(LayerDefinition layer, long maximumBytes = 0)
+    /// <param name="fields">
+    /// The layer's columns as its layer document describes them — the same list, so a column's
+    /// type and alias in a query response are the ones the client already read. Null leaves every
+    /// column a string labelled with its own name, which is what a caller that has no description
+    /// can honestly say.
+    /// </param>
+    public FeatureServerQueryWriter(
+        LayerDefinition layer, long maximumBytes = 0, IReadOnlyList<FieldDescription>? fields = null)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentOutOfRangeException.ThrowIfNegative(maximumBytes);
@@ -86,6 +97,7 @@ public sealed class FeatureServerQueryWriter
 
         _layer = layer;
         _maximumBytes = maximumBytes;
+        _fields = (fields ?? []).ToDictionary(field => field.Name, StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -211,19 +223,30 @@ public sealed class FeatureServerQueryWriter
 
         writer.WriteEndObject();
 
-        // Field types are not known until a value has been seen, and the header
-        // must be written first. Declaring them from the schema alone means
-        // every field is a string until the catalogue records column types —
-        // honest, and narrower than it will be. Recorded rather than hidden.
+        // <b>The layer document's types and aliases, not a string per column.</b> Until
+        // 2026-09-15 this wrote every field as `esriFieldTypeString` with its own name as the
+        // alias — "honest until the catalogue records column types", said the comment, and the
+        // catalogue had long since recorded them. So a layer document said `area_m2` was an
+        // Integer labelled *Alan* and the query response beside it said String labelled
+        // `area_m2`, and every client that builds a table from the response's `fields` — the
+        // Python API's data frame, a CSV export — typed and labelled the columns wrongly. A column
+        // the description does not carry (a statistic's output name) is still a string under its
+        // own name: that is what can be said about it without having seen a value.
         writer.WriteStartArray("fields");
         foreach (string name in schema.Names)
         {
-            WriteField(
-                writer,
-                name,
-                string.Equals(name, _layer.IntegerIdentityColumn, StringComparison.Ordinal)
-                    ? "esriFieldTypeOID"
-                    : "esriFieldTypeString");
+            if (string.Equals(name, _layer.IntegerIdentityColumn, StringComparison.Ordinal))
+            {
+                WriteField(writer, name, "esriFieldTypeOID", _fields.TryGetValue(name, out FieldDescription id) ? id.Label : name, null);
+            }
+            else if (_fields.TryGetValue(name, out FieldDescription field))
+            {
+                WriteField(writer, name, FeatureServerMetadataWriter.TypeName(field.Type), field.Label, field.MaxLength);
+            }
+            else
+            {
+                WriteField(writer, name, "esriFieldTypeString", name, null);
+            }
         }
 
         writer.WriteEndArray();
@@ -411,12 +434,18 @@ public sealed class FeatureServerQueryWriter
         }
     }
 
-    private static void WriteField(Utf8JsonWriter writer, string name, string type)
+    private static void WriteField(Utf8JsonWriter writer, string name, string type, string alias, int? length)
     {
         writer.WriteStartObject();
         writer.WriteString("name", name);
         writer.WriteString("type", type);
-        writer.WriteString("alias", name);
+        writer.WriteString("alias", alias);
+
+        if (length is { } characters)
+        {
+            writer.WriteNumber("length", characters);
+        }
+
         writer.WriteEndObject();
     }
 }

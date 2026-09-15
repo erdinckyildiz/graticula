@@ -204,9 +204,66 @@ public sealed class FeatureServerResponseCeilingTests
         }
     }
 
-    private static async Task<JsonElement> WriteQueryAsync(FeatureQuery query)
+    /// <summary>
+    /// A query response's <c>fields</c> carry the type, alias and length the layer document gives
+    /// each column.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15: every column went out as <c>esriFieldTypeString</c> labelled with its
+    /// own name, beside a layer document that said Integer and gave the operator's label.
+    /// </remarks>
+    [Fact]
+    public async Task The_fields_header_says_what_the_layer_document_says()
     {
-        FeatureServerQueryWriter writer = new(Layer());
+        FieldDescription[] described =
+        [
+            new("objectid", FieldType.Integer, false, null),
+            new("name", FieldType.Text, true, 80, Alias: "Ad"),
+        ];
+
+        JsonElement body = await WriteQueryAsync(new FeatureQuery(1, fields: Fields), described);
+
+        JsonElement[] fields = [.. body.GetProperty("fields").EnumerateArray()];
+
+        Assert.Equal("esriFieldTypeOID", fields[0].GetProperty("type").GetString());
+        Assert.Equal("esriFieldTypeString", fields[1].GetProperty("type").GetString());
+        Assert.Equal("Ad", fields[1].GetProperty("alias").GetString());
+        Assert.Equal(80, fields[1].GetProperty("length").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_numeric_column_is_declared_numeric()
+    {
+        string[] names = ["objectid", "name"];
+        FieldDescription[] described =
+        [
+            new("objectid", FieldType.Integer, false, null),
+            new("name", FieldType.Double, true, null),
+        ];
+
+        JsonElement body = await WriteQueryAsync(new FeatureQuery(1, fields: names), described);
+
+        Assert.Equal(
+            "esriFieldTypeDouble",
+            body.GetProperty("fields")[1].GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public async Task A_column_the_description_does_not_carry_is_a_string_under_its_own_name()
+    {
+        JsonElement body = await WriteQueryAsync(
+            new FeatureQuery(1, fields: Fields), [new("objectid", FieldType.Integer, false, null)]);
+
+        JsonElement name = body.GetProperty("fields")[1];
+
+        Assert.Equal("esriFieldTypeString", name.GetProperty("type").GetString());
+        Assert.Equal("name", name.GetProperty("alias").GetString());
+    }
+
+    private static async Task<JsonElement> WriteQueryAsync(
+        FeatureQuery query, IReadOnlyList<FieldDescription>? described = null)
+    {
+        FeatureServerQueryWriter writer = new(Layer(), 0, described);
         using MemoryStream stream = new();
 
         await using (Utf8JsonWriter json = new(stream))

@@ -4586,7 +4586,7 @@ public static class Program
         // response to measure it, which is the allocation A-037 measured as the
         // binding constraint.
         FeatureServerQueryWriter writer = new(
-            layer.Definition, cost.ResponseBytes(settings.MaximumResponseBytes));
+            layer.Definition, cost.ResponseBytes(settings.MaximumResponseBytes), described.Fields);
 
         context.Response.ContentType = "application/json; charset=utf-8";
 
