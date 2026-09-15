@@ -1,0 +1,72 @@
+using System;
+using System.Net;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Xunit;
+
+namespace Graticula.Conformance.Tests;
+
+/// <summary>
+/// A layer with a time field reports <c>timeInfo</c> on its FeatureServer document and filters a
+/// query by <c>time</c>.
+/// </summary>
+/// <remarks>
+/// Written 2026-09-15: the time field reached WMS only, so the Maps SDK's time slider never offered
+/// such a layer and <c>time=</c> was refused on every query.
+/// </remarks>
+[Collection("catalogue walk")]
+public sealed class ALayerWithTimeSaysSoTests : ArcGisClient
+{
+    private const string TemporalVariable = "GRATICULA_TEST_TEMPORAL";
+
+    [Fact]
+    public async Task The_document_reports_the_time_field_and_a_window_narrows_the_query()
+    {
+        await RequireServerAsync();
+        string? configured = Environment.GetEnvironmentVariable(TemporalVariable);
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(configured),
+            $"{TemporalVariable} is not set, so this test FAILS rather than skips.");
+
+        string service = configured!.Trim('/');
+        JsonElement layer = await GetJsonAsync($"/rest/services/{service}/FeatureServer/0");
+
+        Assert.True(
+            layer.TryGetProperty("timeInfo", out JsonElement timeInfo) && timeInfo.ValueKind == JsonValueKind.Object,
+            $"{service} has one date field and its layer document carries no timeInfo.");
+
+        string field = timeInfo.GetProperty("startTimeField").GetString()!;
+        Assert.False(string.IsNullOrWhiteSpace(field));
+
+        JsonElement extent = timeInfo.GetProperty("timeExtent");
+        long from = extent[0].GetInt64();
+        long until = extent[1].GetInt64();
+        Assert.True(from <= until, $"timeExtent runs backwards: {extent}");
+
+        long all = (await GetJsonAsync(
+            $"/rest/services/{service}/FeatureServer/0/query?where=1%3D1&returnCountOnly=true"))
+            .GetProperty("count").GetInt64();
+
+        long first = (await GetJsonAsync(
+            $"/rest/services/{service}/FeatureServer/0/query?where=1%3D1&returnCountOnly=true&time={from},{from}"))
+            .GetProperty("count").GetInt64();
+
+        long window = (await GetJsonAsync(
+            $"/rest/services/{service}/FeatureServer/0/query?where=1%3D1&returnCountOnly=true&time={from},{until}"))
+            .GetProperty("count").GetInt64();
+
+        Assert.True(first >= 1, "The first moment of the extent selects nothing, and a feature is at it by definition.");
+        Assert.True(window <= all, $"A window over the whole extent selected {window} of {all}.");
+
+        if (from < until)
+        {
+            Assert.True(first < all || all == first, $"The first moment selected {first} of {all}.");
+        }
+
+        (HttpStatusCode refused, _) = await AnonymousAsync(
+            $"/rest/services/{service}/FeatureServer/0/query?where=1%3D1&time=yesterday");
+
+        Assert.NotEqual(HttpStatusCode.OK, refused);
+    }
+}

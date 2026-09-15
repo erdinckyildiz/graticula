@@ -77,15 +77,13 @@ internal static class FeatureServerQueryParameters
         // day; these five cannot be implemented without something the product
         // does not have.
         //
-        //   time                  — no layer declares timeInfo, so there is no
-        //                           field to filter on and no extent to report.
         //   gdbVersion            — there is no version tree.
         //   historicMoment        — there is no history.
         //   fullText              — needs a tsvector column and an index nobody
         //                           has asked us to create on their table.
         //   uniqueIds /
         //   returnUniqueIdsOnly   — a 12.1 concept with no counterpart here.
-        "time", "fullText", "uniqueIds", "returnUniqueIdsOnly",
+        "fullText", "uniqueIds", "returnUniqueIdsOnly",
     ];
 
     /// <summary>
@@ -225,6 +223,10 @@ internal static class FeatureServerQueryParameters
     /// The most rows this deployment will return, whatever the caller or the service asks for.
     /// Configurable since 2026-08-19; it was `FeatureQuery.MaximumLimit` and nothing else.
     /// </param>
+    /// <param name="timeField">
+    /// The column <c>time</c> filters on — the layer's time field — or null for a layer without one,
+    /// where <c>time</c> is refused.
+    /// </param>
     public static bool TryParse(
         IQueryCollection parameters,
         string objectIdColumn,
@@ -237,7 +239,8 @@ internal static class FeatureServerQueryParameters
         int serverDefaultRecordCount = DefaultRecordCount,
         int serverMaximumRecordCount = FeatureQuery.MaximumLimit,
         int? servedSrid = null,
-        string? servedWkt = null)
+        string? servedWkt = null,
+        string? timeField = null)
     {
         query = null;
         shape = QueryShape.Features;
@@ -298,6 +301,11 @@ internal static class FeatureServerQueryParameters
         }
 
         if (!TryWhere(parameters, allFields, out ParsedWhere? where, out error))
+        {
+            return Fail(out error, error);
+        }
+
+        if (!TryTime(parameters, allFields, timeField, ref where, out error))
         {
             return Fail(out error, error);
         }
@@ -375,7 +383,6 @@ internal static class FeatureServerQueryParameters
     /// <summary>Why a refused parameter is refused, said specifically.</summary>
     private static string WhyRefused(string name) => name switch
     {
-        "time" => "No layer here declares timeInfo, so there is no time field to filter on.",
         "fullText" => "Full-text search needs a tsvector column and an index on your table.",
         _ => "Unique ids are an ArcGIS 12.1 concept with no counterpart in this server.",
     };
@@ -450,6 +457,9 @@ internal static class FeatureServerQueryParameters
         // Checked for its value in `TryUnknown`, which is the one parameter here whose name is
         // always sent and whose value decides whether the answer is the one asked for.
         "f",
+
+        // Filtered on the layer's time field since 2026-09-15, and refused on a layer without one.
+        "time",
     };
 
     /// <summary>The formats a query is answered in.</summary>
@@ -534,6 +544,127 @@ internal static class FeatureServerQueryParameters
             return false;
         }
 
+        return true;
+    }
+
+    /// <summary>
+    /// <c>time</c>, as a window on the layer's time field, added to <paramref name="where"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Refused for every layer until 2026-09-15</b>, with the reason that no layer declared
+    /// timeInfo — which was true of the document and not of the layer, since a time field could be
+    /// set for WMS. The layer document now reports that field as <c>timeInfo</c>, and this filters
+    /// on it.
+    /// </para>
+    /// <para>
+    /// <b>ArcGIS's shape</b>: epoch milliseconds, one instant or <c>start,end</c>, with
+    /// <c>null</c> for an open end. With only a start field a feature is in the window when its
+    /// moment is, ends included. Joined to the <c>where</c> as one predicate, so every dialect emits
+    /// it from the tree rather than from a second string.
+    /// </para>
+    /// </remarks>
+    private static bool TryTime(
+        IQueryCollection parameters,
+        IReadOnlyList<FieldDescription> allFields,
+        string? timeField,
+        ref ParsedWhere? where,
+        out string? error)
+    {
+        error = null;
+        string raw = First(parameters, "time");
+
+        if (raw.Length == 0)
+        {
+            return true;
+        }
+
+        if (timeField is null)
+        {
+            error =
+                "'time' is not supported on this layer: it has no time field, so there is nothing to "
+                + "filter on and its document reports no timeInfo. An administrator names one with "
+                + "PUT /admin/layers/{name}/time-field.";
+            return false;
+        }
+
+        string[] ends = raw.Split(',', StringSplitOptions.TrimEntries);
+
+        if (ends.Length > 2)
+        {
+            error = "'time' is one instant or 'start,end' in epoch milliseconds.";
+            return false;
+        }
+
+        DateTimeOffset? from = null;
+        DateTimeOffset? until = null;
+
+        for (int i = 0; i < ends.Length; i++)
+        {
+            if (ends[i].Length == 0 || ends[i].Equals("null", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!long.TryParse(ends[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out long ms)
+                || ms < DateTimeOffset.MinValue.ToUnixTimeMilliseconds()
+                || ms > DateTimeOffset.MaxValue.ToUnixTimeMilliseconds())
+            {
+                error = $"'time' has '{ends[i]}', which is not epoch milliseconds.";
+                return false;
+            }
+
+            DateTimeOffset moment = DateTimeOffset.FromUnixTimeMilliseconds(ms);
+
+            if (i == 0)
+            {
+                from = moment;
+            }
+            else
+            {
+                until = moment;
+            }
+        }
+
+        if (ends.Length == 1)
+        {
+            until = from;
+        }
+
+        if (from is { } a && until is { } b && a > b)
+        {
+            error = "'time' starts after it ends.";
+            return false;
+        }
+
+        AttributePredicate? window = null;
+
+        if (from is { } start)
+        {
+            window = new AttributePredicate.Comparison(timeField, ComparisonOperator.GreaterThanOrEqual, start);
+        }
+
+        if (until is { } end)
+        {
+            AttributePredicate upper = new AttributePredicate.Comparison(timeField, ComparisonOperator.LessThanOrEqual, end);
+            window = window is null ? upper : new AttributePredicate.Conjunction(window, upper);
+        }
+
+        if (window is null)
+        {
+            return true;
+        }
+
+        AttributePredicate combined = where is { Predicate: { } asked }
+            ? new AttributePredicate.Conjunction(asked, window)
+            : window;
+
+        if (!PredicateSql.TryEmit(combined, [.. allFields.Select(f => f.Name)], LayerDefinition.Quote, out ParsedWhere emitted, out error))
+        {
+            return false;
+        }
+
+        where = emitted;
         return true;
     }
 

@@ -677,11 +677,14 @@ happily while `within`, `touches`, `overlaps`, `crosses`, `relate` and
 reason `Every_spatial_relationship_is_answered_rather_than_refused` walks all
 nine rather than sampling.
 
-**What is refused, and none of it for effort:** `time` (no layer declares
-`timeInfo`), `fullText` (needs a tsvector column and an index on somebody
+**What is refused, and none of it for effort:** ~~`time` (no layer declares
+`timeInfo`)~~, `fullText` (needs a tsvector column and an index on somebody
 else's table), `gdbVersion` (no version tree), `historicMoment` (no history),
 `returnZ`/`returnM` (geometry is stored without them), `quantizationParameters`,
-and `uniqueIds`.
+and `uniqueIds`. *(Amended 2026-09-15: `time` is answered on a layer with a time field — the
+one WMS already used, now reported as `timeInfo` — and refused on a layer without one;
+`returnZ`/`returnM` are accepted when false; `gdbVersion` and `historicMoment` are ignored with
+a reason, as they had been for a while.)*
 
 **Percentile statistics left that list on 2026-09-04** and are now served:
 `PERCENTILE_CONT` and `PERCENTILE_DISC`, with the fraction in

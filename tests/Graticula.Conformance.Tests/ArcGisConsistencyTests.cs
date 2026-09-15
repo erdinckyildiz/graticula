@@ -713,7 +713,9 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
 
         Assert.Contains("Not supported:", page, StringComparison.Ordinal);
 
-        foreach (string refused in (string[]) ["time", "gdbVersion", "historicMoment", "returnZ"])
+        // `time` left this list on 2026-09-15: it is enabled on a layer with a time field and
+        // disabled on one without, so whether it is greyed out is the layer's answer, not the server's.
+        foreach (string refused in (string[]) ["gdbVersion", "historicMoment", "returnZ"])
         {
             int at = page.IndexOf($"name=\"{refused}\"", StringComparison.Ordinal);
 

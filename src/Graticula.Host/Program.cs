@@ -3075,7 +3075,14 @@ public static class Program
         IProjector projector,
         CancellationToken cancellation)
     {
-        (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
+        (IFeatureSource source, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
+            .ConfigureAwait(false);
+
+        // <b>The layer's time, measured the way WMS measures it and remembered in the same place</b>
+        // — so the two faces report one extent, and a layer document does not pay a min and a max
+        // on every read. Null when the layer has no single date field and none is declared.
+        Graticula.Api.Wms.TimeDimension? time = await WmsEndpoints
+            .TimeOfAsync(source, layer, description, contexts, cancellation)
             .ConfigureAwait(false);
 
         // <b>Null is *the platform store could not be asked*, and it is not the same as
@@ -3134,7 +3141,8 @@ public static class Program
 
             // ADR-070: the scales it draws at.
             minScale: layer.VisibleRange.MinScale,
-            maxScale: layer.VisibleRange.MaxScale);
+            maxScale: layer.VisibleRange.MaxScale,
+            time: time is null ? null : (time.Field, time.From, time.Until));
 
         return (document, description);
     }
@@ -4516,7 +4524,10 @@ public static class Program
                 // layer because this handler resolves a layer and never the service over it —
                 // the same reason the capability ceiling does, which is D-179.
                 layer.ServedSrid,
-                layer.ServedWkt))
+                layer.ServedWkt,
+
+                // The field `time=` filters on — the one the layer document reports as its time.
+                Graticula.Api.Wms.TimeDimension.FieldOf(described.Fields, layer.TimeField)))
         {
             await Results.Json(
                 new { error = new { code = 400, message = error } },

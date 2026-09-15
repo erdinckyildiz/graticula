@@ -494,8 +494,12 @@ internal static class QueryPage
         Text(body, "Unique Ids:", "uniqueIds", q["uniqueIds"], string.Empty, 80,
             disabled: "An ArcGIS 12.1 concept with no counterpart in this server.");
 
+        // <b>Enabled where the layer has a time field — 2026-09-15</b>, the same field the layer
+        // document reports as `timeInfo` and the query filters on.
         Text(body, "Time:", "time", q["time"], string.Empty, 40,
-            disabled: "No layer here declares timeInfo, so there is no time field to filter on.");
+            disabled: Graticula.Api.Wms.TimeDimension.FieldOf(description.Fields, layer.TimeField) is null
+                ? "This layer has no time field, so there is nothing to filter on."
+                : null);
 
         Area(body, "Input Geometry:", "geometry", q["geometry"], null);
 

@@ -691,6 +691,7 @@ public static class FeatureServerMetadataWriter
     /// </param>
     /// <param name="minScale">The largest scale the layer draws at, or 0 for no limit — ADR-070.</param>
     /// <param name="maxScale">The smallest scale the layer draws at, or 0 for no limit — ADR-070.</param>
+    /// <param name="time">The layer's time field and its measured extent, or null when it has none.</param>
     public static object Layer(
         LayerDefinition layer,
         GeometryKind geometryType,
@@ -725,7 +726,11 @@ public static class FeatureServerMetadataWriter
         // <b>ADR-070, on the end for the reason the four above give.</b> Until then this document
         // did not carry the keys at all, and a client reads their absence as no limit.
         double minScale = 0,
-        double maxScale = 0)
+        double maxScale = 0,
+
+        // <b>The layer's time, for ArcGIS clients — 2026-09-15.</b> On the end and optional for the
+        // reason the ones above give.
+        (string Field, DateTimeOffset? From, DateTimeOffset? Until)? time = null)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
@@ -928,9 +933,44 @@ public static class FeatureServerMetadataWriter
             hasM = false,
             supportsCoordinatesQuantization = false,
 
-            // The one thing we do support beyond a plain read, and the only
-            // spatial relationship the query endpoint implements.
-            supportedSpatialRelationships = new[] { "esriSpatialRelIntersects" },
+            // <b>What the query answers, which was nine relations while this said one.</b> A client
+            // that reads the list offers only what is in it, so the Maps SDK's spatial filter
+            // widgets offered *intersects* against a layer that computed contains, within and a
+            // DE-9IM pattern. A source that answers no distance — a GeoParquet file — answers the
+            // three box-and-intersects relations and no more, and says so.
+            supportedSpatialRelationships = description.AnswersDistance
+                ? new[]
+                {
+                    "esriSpatialRelIntersects", "esriSpatialRelContains", "esriSpatialRelCrosses",
+                    "esriSpatialRelEnvelopeIntersects", "esriSpatialRelIndexIntersects",
+                    "esriSpatialRelOverlaps", "esriSpatialRelTouches", "esriSpatialRelWithin",
+                    "esriSpatialRelRelation",
+                }
+                : new[] { "esriSpatialRelIntersects", "esriSpatialRelEnvelopeIntersects", "esriSpatialRelIndexIntersects" },
+
+            // <b>Present when the layer has a time field — 2026-09-15.</b> The field could be set
+            // (`PUT /admin/layers/{name}/time-field`) and only WMS heard of it: no FeatureServer
+            // document said the layer had time, so the Maps SDK's time slider and ArcGIS Pro's time
+            // tools never offered it, and `time=` on the query was refused. The extent is the one
+            // WMS measures; an end field, a track field and an interval this server does not have
+            // are said as absent rather than guessed.
+            timeInfo = time is { } declared
+                ? new
+                {
+                    startTimeField = declared.Field,
+                    endTimeField = (string?)null,
+                    trackIdField = (string?)null,
+                    timeExtent = new long?[]
+                    {
+                        declared.From?.ToUnixTimeMilliseconds(),
+                        declared.Until?.ToUnixTimeMilliseconds(),
+                    },
+                    timeReference = (object?)null,
+                    timeInterval = 0,
+                    timeIntervalUnits = "esriTimeUnitsUnknown",
+                    hasLiveData = false,
+                }
+                : null,
         };
 
         return relationshipsKnown ? document : RelationshipsUnknown(document);
