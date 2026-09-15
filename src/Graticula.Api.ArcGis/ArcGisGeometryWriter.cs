@@ -47,11 +47,16 @@ public static class ArcGisGeometryWriter
     /// <param name="writer">The writer, positioned where a value is expected.</param>
     /// <param name="geometry">The geometry.</param>
     /// <param name="wkid">
-    /// The layer's spatial reference. Carried on the geometry in ArcGIS JSON even
+    /// The spatial reference the coordinates are in — the layer's, or the one a
+    /// query transformed them to. Carried on the geometry in ArcGIS JSON even
     /// though our model keeps it on the layer, because their clients expect it
     /// per shape.
     /// </param>
-    public static void Write(Utf8JsonWriter writer, Geometry geometry, int wkid)
+    /// <param name="wkt">
+    /// A written definition the coordinates were transformed to, which has no code;
+    /// written as <c>wkt</c> in place of <paramref name="wkid"/> when given.
+    /// </param>
+    public static void Write(Utf8JsonWriter writer, Geometry geometry, int wkid, string? wkt = null)
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(geometry);
@@ -112,8 +117,17 @@ public static class ArcGisGeometryWriter
         }
 
         writer.WriteStartObject("spatialReference");
-        writer.WriteNumber("wkid", wkid);
-        writer.WriteNumber("latestWkid", wkid);
+
+        if (wkt is { Length: > 0 })
+        {
+            writer.WriteString("wkt", wkt);
+        }
+        else
+        {
+            writer.WriteNumber("wkid", wkid);
+            writer.WriteNumber("latestWkid", wkid);
+        }
+
         writer.WriteEndObject();
 
         writer.WriteEndObject();

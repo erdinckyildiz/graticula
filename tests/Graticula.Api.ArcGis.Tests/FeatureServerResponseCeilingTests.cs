@@ -150,6 +150,73 @@ public sealed class FeatureServerResponseCeilingTests
         Assert.False(partial.GetProperty("exceededTransferLimit").GetBoolean());
     }
 
+    /// <summary>
+    /// Each geometry names the reference its coordinates are in, which under <c>outSR</c> is not
+    /// the layer's.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15: a layer stored in 4326 queried with <c>outSR=3857</c> on the showcase
+    /// answered a 3857 header and, inside every geometry, <c>{"wkid":4326}</c> beside coordinates
+    /// in metres.
+    /// </remarks>
+    [Fact]
+    public async Task Under_outSR_every_geometry_names_the_output_reference()
+    {
+        JsonElement body = await WriteQueryAsync(new FeatureQuery(3, fields: Fields, outSrid: 3857));
+
+        Assert.Equal(3857, body.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+
+        foreach (JsonElement feature in body.GetProperty("features").EnumerateArray())
+        {
+            Assert.Equal(
+                3857,
+                feature.GetProperty("geometry").GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+        }
+    }
+
+    [Fact]
+    public async Task Under_a_written_outSR_every_geometry_carries_the_definition()
+    {
+        const string Definition = "PROJCS[\"a written reference\"]";
+
+        JsonElement body = await WriteQueryAsync(
+            new FeatureQuery(2, fields: Fields, outSrid: 0) { OutWkt = Definition });
+
+        foreach (JsonElement feature in body.GetProperty("features").EnumerateArray())
+        {
+            JsonElement reference = feature.GetProperty("geometry").GetProperty("spatialReference");
+
+            Assert.Equal(Definition, reference.GetProperty("wkt").GetString());
+            Assert.False(reference.TryGetProperty("wkid", out _), $"A written reference also carried a code: {reference}");
+        }
+    }
+
+    [Fact]
+    public async Task Without_outSR_every_geometry_names_the_layer_reference()
+    {
+        JsonElement body = await WriteQueryAsync(new FeatureQuery(2, fields: Fields));
+
+        foreach (JsonElement feature in body.GetProperty("features").EnumerateArray())
+        {
+            Assert.Equal(
+                4326,
+                feature.GetProperty("geometry").GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+        }
+    }
+
+    private static async Task<JsonElement> WriteQueryAsync(FeatureQuery query)
+    {
+        FeatureServerQueryWriter writer = new(Layer());
+        using MemoryStream stream = new();
+
+        await using (Utf8JsonWriter json = new(stream))
+        {
+            await writer.WriteAsync(json, new FakeSource(query.Limit), query, GeometryKind.Point, CancellationToken.None);
+        }
+
+        return JsonDocument.Parse(stream.ToArray()).RootElement;
+    }
+
     [Fact]
     public void A_negative_ceiling_is_refused()
     {

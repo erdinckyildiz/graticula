@@ -249,7 +249,7 @@ public sealed class FeatureServerQueryWriter
 
         for (bool more = hasFirst; more; more = await features.MoveNextAsync().ConfigureAwait(false))
         {
-            WriteFeature(writer, features.Current, schema, objectIdIndex);
+            WriteFeature(writer, features.Current, schema, objectIdIndex, srid, query.OutWkt);
             written++;
 
             // Checked after writing rather than before, so at least one feature is
@@ -291,8 +291,8 @@ public sealed class FeatureServerQueryWriter
         return written;
     }
 
-    private void WriteFeature(
-        Utf8JsonWriter writer, Feature feature, FeatureSchema schema, int objectIdIndex)
+    private static void WriteFeature(
+        Utf8JsonWriter writer, Feature feature, FeatureSchema schema, int objectIdIndex, int srid, string? wkt)
     {
         writer.WriteStartObject();
 
@@ -320,7 +320,11 @@ public sealed class FeatureServerQueryWriter
         }
 
         writer.WritePropertyName("geometry");
-        ArcGisGeometryWriter.Write(writer, feature.Geometry, _layer.Srid);
+        // <b>The reference the coordinates are in, the same one the header names.</b> This passed
+        // the layer's until 2026-09-15, so a layer stored in 4326 queried with outSR=3857 answered
+        // metres labelled 4326 on every shape while the header said 3857 — a client reading a
+        // geometry on its own put it in the wrong place.
+        ArcGisGeometryWriter.Write(writer, feature.Geometry, srid, wkt);
 
         writer.WriteEndObject();
     }
