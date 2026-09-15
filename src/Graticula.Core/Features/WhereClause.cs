@@ -52,12 +52,24 @@ public readonly record struct ParsedWhere(
 /// See [ADR-039](../../../docs/adr/ADR-039-wfs-is-the-first-surface-after-v1.md) §5.
 /// </para>
 /// <para>
-/// <b>What it does not accept, and will not by accident:</b> function calls,
-/// subqueries, <c>;</c>, comments, <c>CASE</c>, arithmetic. Each is absent
-/// because the grammar has no rule for it, so adding one is a deliberate act
-/// rather than an oversight. Arithmetic and functions are the two most likely
-/// future requests and both are safe to add — they are shapes, not holes — but
-/// they are not here today.
+/// <b>What it does not accept, and will not by accident:</b> subqueries, <c>;</c>,
+/// comments, <c>CASE</c>, general arithmetic and every function but two. Each is absent
+/// because the grammar has no rule for it, so adding one is a deliberate act rather than an
+/// oversight.
+/// </para>
+/// <para>
+/// <b>What was added on 2026-09-15, because ArcGIS clients write it</b> — found by a review
+/// from an ArcGIS user's side: <c>UPPER(field)</c> and <c>LOWER(field)</c> on the left of
+/// <c>=</c>, <c>&lt;&gt;</c>, <c>LIKE</c> and <c>IN</c>, which is how the Maps SDK's search
+/// asks for a case-insensitive match; <c>DATE '…'</c> and <c>TIMESTAMP '…'</c> literals and
+/// <c>CURRENT_DATE</c> / <c>CURRENT_TIMESTAMP</c>, optionally minus or plus a number of days
+/// or an <c>INTERVAL 'n' DAY|HOUR|MINUTE|SECOND</c>, which is how Dashboards and Experience
+/// Builder write *the last 30 days*; and a number compared with a date field, read as epoch
+/// milliseconds, which is what an ArcGIS date is. <b>None of them reaches SQL as a
+/// function.</b> A case function becomes the model's <c>IgnoreCase</c>, with a literal that
+/// the function could never equal answered as nothing; a date expression is evaluated here,
+/// once, into a bound value. Every emitter already speaks both, so no dialect learned a
+/// function to make this work.
 /// </para>
 /// <para>
 /// <b>Case folding follows SQL, not C#.</b> Keywords are recognised
@@ -96,6 +108,10 @@ public static class WhereClause
     /// <param name="types">
     /// What each column holds, where the caller knows. Optional, and only dates need it.
     /// </param>
+    /// <param name="clock">
+    /// What <c>CURRENT_DATE</c> and <c>CURRENT_TIMESTAMP</c> mean for this parse; the system clock
+    /// when not given.
+    /// </param>
     /// <returns>Whether it parsed.</returns>
     /// <remarks>
     /// <b><c>types</c> exists so that a date literal can be bound as a date, which is
@@ -115,7 +131,8 @@ public static class WhereClause
         Func<string, string> quote,
         out ParsedWhere parsed,
         out string? error,
-        IReadOnlyDictionary<string, FieldType>? types = null)
+        IReadOnlyDictionary<string, FieldType>? types = null,
+        TimeProvider? clock = null)
     {
         ArgumentNullException.ThrowIfNull(columns);
         ArgumentNullException.ThrowIfNull(quote);
@@ -140,7 +157,7 @@ public static class WhereClause
             return false;
         }
 
-        Parser parser = new(clause, columns, types);
+        Parser parser = new(clause, columns, types, (clock ?? TimeProvider.System).GetUtcNow());
 
         if (!parser.TryParse(out AttributePredicate? predicate, out error))
         {
@@ -154,8 +171,16 @@ public static class WhereClause
     private sealed class Parser(
         string text,
         IReadOnlyCollection<string> columns,
-        IReadOnlyDictionary<string, FieldType>? types = null)
+        IReadOnlyDictionary<string, FieldType>? types,
+        DateTimeOffset now)
     {
+        /// <summary>A case function applied to the column on the left.</summary>
+        private enum Fold
+        {
+            None,
+            Upper,
+            Lower,
+        }
         /// <summary>
         /// A literal, given the type of the column it is being compared with.
         /// </summary>
@@ -179,10 +204,36 @@ public static class WhereClause
             bound = value;
             error = null;
 
-            if (value is not string text
-                || types is null
-                || !types.TryGetValue(column, out FieldType type)
-                || type != FieldType.Date)
+            bool knownDate = types is not null
+                && types.TryGetValue(column, out FieldType known)
+                && known == FieldType.Date;
+
+            // <b>A date expression is for a date field.</b> `DATE '…'` against a text or number
+            // column would reach the database as a type mismatch and come back as a database's
+            // sentence; saying so here names the field.
+            if (value is DateTimeOffset && types is not null && types.ContainsKey(column) && !knownDate)
+            {
+                error = $"'{column}' does not hold a date, so it cannot be compared with a date.";
+                return false;
+            }
+
+            // <b>An ArcGIS date is epoch milliseconds, and clients compare with one.</b> Sent as
+            // a number against a timestamp column it reached PostgreSQL as `timestamp >= bigint`
+            // and was answered with the database's own message.
+            if (knownDate && value is long milliseconds)
+            {
+                if (milliseconds < DateTimeOffset.MinValue.ToUnixTimeMilliseconds()
+                    || milliseconds > DateTimeOffset.MaxValue.ToUnixTimeMilliseconds())
+                {
+                    error = $"'{column}' holds a date and {milliseconds} is outside any date as epoch milliseconds.";
+                    return false;
+                }
+
+                bound = DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
+                return true;
+            }
+
+            if (value is not string text || !knownDate)
             {
                 return true;
             }
@@ -345,9 +396,25 @@ public static class WhereClause
         {
             node = null;
 
+            Fold fold = CaseFunction();
+
             if (!Column(out string? column, out error))
             {
                 return false;
+            }
+
+            if (fold != Fold.None)
+            {
+                SkipSpace();
+
+                if (Peek() != ')')
+                {
+                    error = Unexpected("')' closing the function");
+                    return false;
+                }
+
+                _at++;
+                return Folded(column!, fold, out node, out error);
             }
 
             SkipSpace();
@@ -494,6 +561,364 @@ public static class WhereClause
         }
 
         /// <summary>
+        /// Consumes <c>UPPER(</c> or <c>LOWER(</c> when it is next, and says which.
+        /// </summary>
+        /// <remarks>
+        /// <b>Only when an opening bracket follows</b>, so a column that happens to be called
+        /// <c>upper</c> is still a column.
+        /// </remarks>
+        private Fold CaseFunction()
+        {
+            SkipSpace();
+            int start = _at;
+
+            if (Keyword("upper") && Peek() == '(')
+            {
+                _at++;
+                return Fold.Upper;
+            }
+
+            _at = start;
+
+            if (Keyword("lower") && Peek() == '(')
+            {
+                _at++;
+                return Fold.Lower;
+            }
+
+            _at = start;
+            return Fold.None;
+        }
+
+        /// <summary>
+        /// A predicate over <c>UPPER(column)</c> or <c>LOWER(column)</c>, as the model's
+        /// case-insensitive comparison.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Exact rather than approximate.</b> <c>UPPER(name) = 'ANKARA'</c> holds exactly when
+        /// the name equals <c>ANKARA</c> ignoring case — but <c>UPPER(name) = 'Ankara'</c> holds for
+        /// no row at all, because no upper-cased value has a lower-case letter in it. So a literal
+        /// the function could not produce is answered as nothing (and <c>&lt;&gt;</c> as every row
+        /// with a value), rather than as the case-insensitive match somebody might have meant.
+        /// </para>
+        /// <para>
+        /// <b>Ordering is refused.</b> <c>UPPER(name) &lt; 'M'</c> depends on how the database
+        /// orders folded text, which the model has no way to state.
+        /// </para>
+        /// </remarks>
+        private bool Folded(string column, Fold fold, out AttributePredicate? node, out string? error)
+        {
+            node = null;
+            error = null;
+
+            string function = fold == Fold.Upper ? "UPPER" : "LOWER";
+
+            if (Keyword("is"))
+            {
+                bool negated = Keyword("not");
+
+                if (!Keyword("null"))
+                {
+                    error = Unexpected("'null' after 'is'");
+                    return false;
+                }
+
+                node = new AttributePredicate.IsNull(column, negated);
+                return true;
+            }
+
+            bool not = Keyword("not");
+
+            if (Keyword("like"))
+            {
+                if (!Literal(out object? pattern, out error))
+                {
+                    return false;
+                }
+
+                if (pattern is not string text)
+                {
+                    error = "'like' compares text, so its right-hand side must be a quoted string.";
+                    return false;
+                }
+
+                node = Folds(fold, text) == text
+                    ? new AttributePredicate.Matches(column, text, not, IgnoreCase: true)
+                    : not
+                        ? new AttributePredicate.IsNull(column, Negated: true)
+                        : new AttributePredicate.MatchesNothing();
+
+                return true;
+            }
+
+            if (Keyword("in"))
+            {
+                SkipSpace();
+
+                if (Peek() != '(')
+                {
+                    error = Unexpected("'(' after 'in'");
+                    return false;
+                }
+
+                _at++;
+
+                AttributePredicate? any = null;
+
+                while (true)
+                {
+                    if (!Literal(out object? value, out error))
+                    {
+                        return false;
+                    }
+
+                    if (value is not string text)
+                    {
+                        error = $"{function}() is text, so every value in its 'in' list must be a quoted string.";
+                        return false;
+                    }
+
+                    if (Folds(fold, text) == text)
+                    {
+                        AttributePredicate one = new AttributePredicate.Comparison(
+                            column, ComparisonOperator.Equal, text, IgnoreCase: true);
+
+                        any = any is null ? one : new AttributePredicate.Disjunction(any, one);
+                    }
+
+                    SkipSpace();
+
+                    if (Peek() == ',')
+                    {
+                        _at++;
+                        continue;
+                    }
+
+                    break;
+                }
+
+                if (Peek() != ')')
+                {
+                    error = Unexpected("',' or ')' in an 'in' list");
+                    return false;
+                }
+
+                _at++;
+
+                AttributePredicate matched = any ?? new AttributePredicate.MatchesNothing();
+
+                node = not
+                    ? new AttributePredicate.Conjunction(
+                        new AttributePredicate.IsNull(column, Negated: true),
+                        new AttributePredicate.Negation(matched))
+                    : matched;
+
+                return true;
+            }
+
+            if (not)
+            {
+                error = Unexpected("'in' or 'like' after 'not'");
+                return false;
+            }
+
+            if (!Operator(out ComparisonOperator op, out error))
+            {
+                return false;
+            }
+
+            if (op is not (ComparisonOperator.Equal or ComparisonOperator.NotEqual))
+            {
+                error =
+                    $"{function}() may be compared with =, <>, LIKE or IN. Ordering folded text "
+                    + "depends on the database's collation, which this server does not choose for "
+                    + "the caller.";
+                return false;
+            }
+
+            if (!Literal(out object? literal, out error))
+            {
+                return false;
+            }
+
+            if (literal is not string comparand)
+            {
+                error = $"{function}() is text, so it must be compared with a quoted string.";
+                return false;
+            }
+
+            node = Folds(fold, comparand) == comparand
+                ? new AttributePredicate.Comparison(column, op, comparand, IgnoreCase: true)
+                : op == ComparisonOperator.Equal
+                    ? new AttributePredicate.MatchesNothing()
+                    : new AttributePredicate.IsNull(column, Negated: true);
+
+            return true;
+        }
+
+        private static string Folds(Fold fold, string value) =>
+            fold == Fold.Upper ? value.ToUpperInvariant() : value.ToLowerInvariant();
+
+        /// <summary>
+        /// <c>DATE '…'</c>, <c>TIMESTAMP '…'</c>, <c>CURRENT_DATE</c> or <c>CURRENT_TIMESTAMP</c>
+        /// with an optional offset, evaluated to a moment.
+        /// </summary>
+        /// <param name="value">The moment, when one was written.</param>
+        /// <param name="error">Why it was refused.</param>
+        /// <param name="present">Whether a date expression was next at all.</param>
+        /// <returns>False only for a date expression that is malformed.</returns>
+        /// <remarks>
+        /// <b>Evaluated once, here, against the clock the parse was given.</b> The database never
+        /// sees <c>current_timestamp</c>, so two dialects cannot disagree about what now means, and
+        /// a test can say which now it is.
+        /// </remarks>
+        private bool DateExpression(out object? value, out string? error, out bool present)
+        {
+            value = null;
+            error = null;
+            present = false;
+
+            SkipSpace();
+            int start = _at;
+
+            foreach (string kind in (string[])["date", "timestamp"])
+            {
+                if (Keyword(kind) && Peek() == '\'')
+                {
+                    present = true;
+
+                    if (!Literal(out object? written, out error))
+                    {
+                        return false;
+                    }
+
+                    if (written is not string text
+                        || !DateTimeOffset.TryParse(
+                            text,
+                            CultureInfo.InvariantCulture,
+                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                            out DateTimeOffset moment))
+                    {
+                        error =
+                            $"{kind.ToUpperInvariant()} '{written}' is not a date. Write it as "
+                            + "'2026-08-02' or '2026-08-02 14:30:00'.";
+                        return false;
+                    }
+
+                    value = moment;
+                    return true;
+                }
+
+                _at = start;
+            }
+
+            DateTimeOffset? origin = null;
+
+            if (Keyword("current_timestamp"))
+            {
+                origin = now;
+            }
+            else if (Keyword("current_date"))
+            {
+                origin = new DateTimeOffset(now.UtcDateTime.Date, TimeSpan.Zero);
+            }
+
+            if (origin is null)
+            {
+                _at = start;
+                return true;
+            }
+
+            present = true;
+
+            char sign = Peek();
+
+            if (sign is not ('-' or '+'))
+            {
+                value = origin.Value;
+                return true;
+            }
+
+            _at++;
+
+            TimeSpan offset;
+
+            if (Keyword("interval"))
+            {
+                if (!Literal(out object? amount, out error))
+                {
+                    return false;
+                }
+
+                if (!double.TryParse(
+                        Convert.ToString(amount, CultureInfo.InvariantCulture),
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture,
+                        out double count)
+                    || !double.IsFinite(count)
+                    || Math.Abs(count) > 1_000_000_000)
+                {
+                    error = $"INTERVAL '{amount}' is not a number of units this server can offset a date by.";
+                    return false;
+                }
+
+                if (Keyword("day"))
+                {
+                    offset = TimeSpan.FromDays(Math.Min(Math.Abs(count), 3_650_000) * Math.Sign(count));
+                }
+                else if (Keyword("hour"))
+                {
+                    offset = TimeSpan.FromHours(Math.Min(Math.Abs(count), 87_600_000) * Math.Sign(count));
+                }
+                else if (Keyword("minute"))
+                {
+                    offset = TimeSpan.FromMinutes(count);
+                }
+                else if (Keyword("second"))
+                {
+                    offset = TimeSpan.FromSeconds(count);
+                }
+                else
+                {
+                    error = Unexpected("DAY, HOUR, MINUTE or SECOND after an interval");
+                    return false;
+                }
+            }
+            else
+            {
+                // A bare number is days, which is what the ArcGIS standardized query examples mean
+                // by `CURRENT_TIMESTAMP - 30`.
+                if (!Literal(out object? days, out error))
+                {
+                    return false;
+                }
+
+                if (days is not (long or double)
+                    || !double.IsFinite(Convert.ToDouble(days, CultureInfo.InvariantCulture))
+                    || Math.Abs(Convert.ToDouble(days, CultureInfo.InvariantCulture)) > 3_650_000)
+                {
+                    error = "A date may be offset by a number of days, up to ten thousand years, or by an INTERVAL.";
+                    return false;
+                }
+
+                offset = TimeSpan.FromDays(Convert.ToDouble(days, CultureInfo.InvariantCulture));
+            }
+
+            try
+            {
+                value = sign == '-' ? origin.Value - offset : origin.Value + offset;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                error = "That offset reaches past the first or last date this server can represent.";
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// A column name, matched against the layer's own columns.
         /// </summary>
         /// <remarks>
@@ -600,6 +1025,16 @@ public static class WhereClause
             {
                 error = Unexpected("a value");
                 return false;
+            }
+
+            if (!DateExpression(out value, out error, out bool dated))
+            {
+                return false;
+            }
+
+            if (dated)
+            {
+                return true;
             }
 
             char c = text[_at];

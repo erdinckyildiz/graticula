@@ -491,7 +491,13 @@ Recursive descent over comparisons, `LIKE`, `IN`, `BETWEEN`, `IS NULL`,
 - **What is absent is absent by construction**, not by a blocklist. There is no
   grammar rule for `;`, comments, subqueries, function calls, arithmetic or
   column-to-column comparison — so none of them can arrive by an escape nobody
-  thought of. Twelve real injection techniques are asserted refused, and the
+  thought of. *(Amended 2026-09-15: two function names and one arithmetic shape now
+  have rules — `UPPER(field)`/`LOWER(field)` on the left of `=`, `<>`, `LIKE`, `IN`, and
+  `CURRENT_DATE`/`CURRENT_TIMESTAMP` ± days or an `INTERVAL`, plus `DATE '…'` and
+  `TIMESTAMP '…'` literals — because ArcGIS clients write them. Neither reaches SQL as
+  written: a case function becomes the model's case-insensitive comparison and a date
+  expression is evaluated by the parser into a bound value. Everything else in this list
+  is still absent. `WhereClause`'s remarks carry the detail.)* Twelve real injection techniques are asserted refused, and the
   conformance suite checks the refusal is a **400 from us** rather than a 500
   from PostgreSQL, because a 500 would mean the parser had already failed.
 - **Two limits are denial-of-service controls rather than tidiness.** Clause
