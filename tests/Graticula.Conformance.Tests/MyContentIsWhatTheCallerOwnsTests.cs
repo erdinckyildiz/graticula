@@ -137,10 +137,18 @@ public sealed class MyContentIsWhatTheCallerOwnsTests : ArcGisClient
                 + $"{administratorOwns} after. My Content is per-owner; a listing that grows "
                 + "when somebody else publishes is the catalogue wearing another name.");
 
+            // <b>One service, counted by its address rather than by items</b> — since 2026-09-15 a service
+            // is an item per face it answers (FeatureServer, MapServer, VectorTileServer), as ArcGIS lists
+            // a hosted layer's map image and vector tile layers beside it.
+            string[] services = [.. theirs.GetProperty("items").EnumerateArray()
+                .Select(i => i.GetProperty("url").GetString()!)
+                .Select(url => url[..url.LastIndexOf('/')])
+                .Distinct()];
+
             Assert.True(
-                theirs.GetProperty("total").GetInt32() == 1,
-                $"`{Member}` published one service and their content listing says "
-                + $"{theirs.GetProperty("total").GetInt32()}.");
+                services.Length == 1,
+                $"`{Member}` published one service and their content listing names "
+                + $"{services.Length}: {string.Join(", ", services)}.");
 
             foreach (JsonElement item in theirs.GetProperty("items").EnumerateArray())
             {
