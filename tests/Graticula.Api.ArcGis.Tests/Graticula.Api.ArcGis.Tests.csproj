@@ -11,6 +11,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Decodes a pbf answer without the writer's own types: ADR-073. -->
+    <Compile Include="..\shared\PbfReader.cs" Link="PbfReader.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Graticula.Api.ArcGis\Graticula.Api.ArcGis.csproj" />
   </ItemGroup>
 

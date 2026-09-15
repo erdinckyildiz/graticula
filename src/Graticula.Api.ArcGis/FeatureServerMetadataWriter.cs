@@ -488,7 +488,7 @@ public static class FeatureServerMetadataWriter
             supportsDisconnectedEditing = false,
             hasStaticData = IsStatic(capabilities),
             maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount, serverMaxRecordCount),
-            supportedQueryFormats = "JSON",
+            supportedQueryFormats = "JSON, PBF",
 
             // <b>Computed per caller, and saying so accurately is the point.</b>
             // ADR-008 §2's never-degrade-silently applies here before anywhere
@@ -850,7 +850,7 @@ public static class FeatureServerMetadataWriter
             drawingInfoGenerated = generated,
 
             maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount, serverMaxRecordCount),
-            supportedQueryFormats = "JSON",
+            supportedQueryFormats = "JSON, PBF",
             // Hosted layers only: ADR-013 §4c's registered cases are designed
             // and not built, and declaring a capability on a layer that refuses
             // it is worse than not declaring it.
@@ -943,7 +943,9 @@ public static class FeatureServerMetadataWriter
             // offer a z/m toggle at all.
             hasZ = false,
             hasM = false,
-            supportsCoordinatesQuantization = false,
+            // <b>True since f=pbf is answered — ADR-073.</b> `quantizationParameters` names the
+            // integer grid a pbf geometry is written on; a json answer stays at full precision.
+            supportsCoordinatesQuantization = true,
 
             // <b>What the query answers, which was nine relations while this said one.</b> A client
             // that reads the list offers only what is in it, so the Maps SDK's spatial filter

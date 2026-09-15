@@ -684,7 +684,8 @@ else's table), `gdbVersion` (no version tree), `historicMoment` (no history),
 and `uniqueIds`. *(Amended 2026-09-15: `time` is answered on a layer with a time field — the
 one WMS already used, now reported as `timeInfo` — and refused on a layer without one;
 `returnZ`/`returnM` are accepted when false; `gdbVersion` and `historicMoment` are ignored with
-a reason, as they had been for a while.)*
+a reason, as they had been for a while. `quantizationParameters` is honoured for `f=pbf` and ignored with a
+reason for json — [ADR-073](ADR-073-query-answers-in-pbf.md).)*
 
 **Percentile statistics left that list on 2026-09-04** and are now served:
 `PERCENTILE_CONT` and `PERCENTILE_DISC`, with the fraction in

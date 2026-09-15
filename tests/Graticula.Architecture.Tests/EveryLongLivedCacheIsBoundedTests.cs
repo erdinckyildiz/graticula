@@ -68,6 +68,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["ConnectionBudget._waiting"] = "one counter per data source",
         ["FileSystemTileCache._index"] = "byte budget with least-recently-used eviction",
         ["FeatureServerQueryWriter._fields"] = "one per column of the layer being queried; the writer is built per request and does not outlive it",
+        ["FeatureCollectionPbfWriter._fields"] = "one per column of the layer being queried; the pbf writer is built per request and does not outlive it",
         ["JobSignal._waiting"] = "one per job kind, and the kinds are an enum",
         ["LayerConnections._pools"] = "one pool per connection string; cleared on reload",
         ["LayerConnections._attachmentPools"] = "one pool per connection string; cleared on reload",

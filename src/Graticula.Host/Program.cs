@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Api.ArcGis;
+using Graticula.Api.ArcGis.Pbf;
 using Graticula.Cartography;
 using Graticula.Features;
 using System.Diagnostics;
@@ -2417,7 +2418,8 @@ public static class Program
         FeatureQuery query,
         QueryShape shape,
         bool html,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        bool pbf = false)
     {
         // <b>Unwrapped, and the slot is held for the whole of it.</b> `LayerConnections` hands out a
         // `BudgetedFeatureSource` (ADR-007 §4.8's connection cap) and the shape queries below are
@@ -2470,7 +2472,7 @@ public static class Program
         try
         {
             await ShapedAsync(
-                    context, layer, described, source, summaries, query, shape, html, cancellation)
+                    context, layer, described, source, summaries, query, shape, html, cancellation, pbf)
                 .ConfigureAwait(false);
 
             budgeted?.Observe(null);
@@ -2491,13 +2493,22 @@ public static class Program
         FeatureQuery query,
         QueryShape shape,
         bool html,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        bool pbf = false)
     {
         switch (shape)
         {
             case QueryShape.Count:
             {
                 long count = await source.CountAsync(query, cancellation).ConfigureAwait(false);
+
+                if (pbf)
+                {
+                    context.Response.ContentType = FeatureCollectionPbfWriter.ContentType;
+                    await FeatureCollectionPbfWriter.WriteCountAsync(context.Response.Body, count, cancellation)
+                        .ConfigureAwait(false);
+                    return;
+                }
 
                 if (html)
                 {
@@ -2516,6 +2527,15 @@ public static class Program
             {
                 IReadOnlyList<long> ids = await summaries
                     .ObjectIdsAsync(query, cancellation).ConfigureAwait(false);
+
+                if (pbf)
+                {
+                    context.Response.ContentType = FeatureCollectionPbfWriter.ContentType;
+                    await FeatureCollectionPbfWriter
+                        .WriteIdsAsync(context.Response.Body, layer.Definition.IntegerIdentityColumn!, ids, cancellation)
+                        .ConfigureAwait(false);
+                    return;
+                }
 
                 if (html)
                 {
@@ -2539,6 +2559,15 @@ public static class Program
                     .ExtentAsync(query, cancellation).ConfigureAwait(false);
 
                 int srid = query.OutSrid ?? layer.Definition.Srid;
+
+                if (pbf)
+                {
+                    context.Response.ContentType = FeatureCollectionPbfWriter.ContentType;
+                    await FeatureCollectionPbfWriter
+                        .WriteExtentAsync(context.Response.Body, extent, count, srid, cancellation)
+                        .ConfigureAwait(false);
+                    return;
+                }
 
                 if (html)
                 {
@@ -5059,8 +5088,10 @@ public static class Program
           geometry and an `outFields` list are exactly what does not fit in a URL, which is
           why the POST route was mapped in the first place.
         */
+        ArgumentsForQuery parameters = new(await ArcGisParameters.ReadAsync(context, cancellation).ConfigureAwait(false));
+
         if (!FeatureServerQueryParameters.TryParse(
-                await ArcGisParameters.ReadAsync(context, cancellation).ConfigureAwait(false),
+                parameters.All,
                 layer.Definition.IntegerIdentityColumn!,
                 layer.Definition.Srid,
                 described.Fields,
@@ -5084,6 +5115,41 @@ public static class Program
                 new { error = new { code = 400, message = error } },
                 statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
             return;
+        }
+
+        /*
+          <b>`f=pbf` — [ADR-073](../../docs/adr/ADR-073-query-answers-in-pbf.md).</b> The same parsed
+          query and the same source as the json answer, written as Esri's published FeatureCollection
+          message. Its grid is checked here, before anything is read, so a bad
+          `quantizationParameters` is a 400 with a sentence rather than a torn body. Statistics have
+          no message of their own in the specification that this server has chosen to fill, and are
+          refused rather than answered as json under a pbf request.
+        */
+        PbfQuantization? quantization = null;
+
+        if (parameters.WantsPbf)
+        {
+            string? refused = shape is QueryShape.Statistics
+                ? "outStatistics is answered as json only: f=pbf carries features, counts, ids and extents here."
+                : null;
+
+            if (refused is null
+                && !PbfQuantization.TryParse(
+                    parameters.All["quantizationParameters"].ToString(),
+                    query!.OutSrid ?? layer.Definition.Srid,
+                    out quantization,
+                    out refused))
+            {
+                refused ??= "quantizationParameters could not be used.";
+            }
+
+            if (refused is not null)
+            {
+                await Results.Json(
+                    new { error = new { code = 400, message = refused } },
+                    statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
         }
 
         // Parameters accepted and ignored are logged rather than left invisible.
@@ -5187,7 +5253,7 @@ public static class Program
         if (shape is not QueryShape.Features)
         {
             await AlternateShapeAsync(
-                context, layer, described, source, query!, shape, html, cancellation)
+                context, layer, described, source, query!, shape, html, cancellation, parameters.WantsPbf)
                 .ConfigureAwait(false);
             return;
         }
@@ -5229,6 +5295,24 @@ public static class Program
         // committed — and a ceiling enforced anywhere else would have to buffer the
         // response to measure it, which is the allocation A-037 measured as the
         // binding constraint.
+        if (quantization is not null)
+        {
+            // Buffered by the writer and bounded by the same ceiling, so a failure before the last
+            // row still has nothing on the wire and meets the exception handler whole.
+            FeatureCollectionPbfWriter encoded = new(
+                layer.Definition, cost.ResponseBytes(settings.MaximumResponseBytes), described.Fields);
+
+            using MemoryStream buffer = new();
+            await encoded.WriteAsync(buffer, source, query!, layer.GeometryType, quantization, cancellation)
+                .ConfigureAwait(false);
+
+            context.Response.ContentType = FeatureCollectionPbfWriter.ContentType;
+            context.Response.ContentLength = buffer.Length;
+            buffer.Position = 0;
+            await buffer.CopyToAsync(context.Response.Body, cancellation).ConfigureAwait(false);
+            return;
+        }
+
         FeatureServerQueryWriter writer = new(
             layer.Definition, cost.ResponseBytes(settings.MaximumResponseBytes), described.Fields);
 
@@ -5355,4 +5439,13 @@ public static class Program
             context.Abort();
         }
     }
+}
+
+/// <summary>A query's merged parameters, and whether they ask for pbf.</summary>
+/// <param name="All">The query string and form body together.</param>
+internal sealed record ArgumentsForQuery(ArcGisParameters All)
+{
+    /// <summary>Whether <c>f</c> is <c>pbf</c> — ADR-073.</summary>
+    public bool WantsPbf => All["f"].Any(
+        value => string.Equals(value?.Trim(), "pbf", StringComparison.OrdinalIgnoreCase));
 }

@@ -141,7 +141,6 @@ public sealed class FeatureServerQueryParametersTests
     /// </remarks>
     [Theory]
     [InlineData("geojson")]
-    [InlineData("pbf")]
     [InlineData("kmz")]
     public void A_format_that_is_not_produced_is_refused(string format)
     {
@@ -152,6 +151,7 @@ public sealed class FeatureServerQueryParametersTests
     [InlineData("json")]
     [InlineData("pjson")]
     [InlineData("JSON")]
+    [InlineData("pbf")]
     public void The_formats_that_are_produced_are_accepted(string format)
     {
         Parse(("f", format));

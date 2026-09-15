@@ -118,7 +118,9 @@ internal static class FeatureServerQueryParameters
     /// </remarks>
     private static readonly Dictionary<string, string> IgnoredParameters = new(StringComparer.Ordinal)
     {
-        ["quantizationParameters"] = "coordinates are returned at full precision",
+        // Read by the f=pbf path, where coordinates are integers on a grid and this names the grid
+        // (ADR-073). A json answer has no grid to apply it to and is written at full precision.
+        ["quantizationParameters"] = "honoured for f=pbf; a json answer is written at full precision",
 
         // <b>Refused for half an hour, on a misreading.</b> returnCentroid does
         // not replace the geometry — it asks for a centroid property *alongside*
@@ -471,7 +473,7 @@ internal static class FeatureServerQueryParameters
     /// <c>pjson</c> is ArcGIS's pretty-printed JSON, and the same document without the whitespace is
     /// the same answer.
     /// </remarks>
-    private static readonly string[] Formats = ["json", "pjson", "html"];
+    private static readonly string[] Formats = ["json", "pjson", "html", "pbf"];
 
     /// <summary>
     /// Refuses a parameter this class has never heard of.
@@ -507,8 +509,8 @@ internal static class FeatureServerQueryParameters
             if (format.Length > 0 && !Formats.Contains(format, StringComparer.OrdinalIgnoreCase))
             {
                 error =
-                    $"'f={format}' is not produced here: a query is answered as json or html "
-                    + "(supportedQueryFormats says JSON). It is refused rather than answered as json, "
+                    $"'f={format}' is not produced here: a query is answered as json, pbf or html "
+                    + "(supportedQueryFormats says JSON, PBF). It is refused rather than answered as json, "
                     + "which a client asking for another format would parse as the wrong document.";
                 return false;
             }

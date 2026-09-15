@@ -36,6 +36,8 @@
     <!-- D-60: one database-backed suite at a time. See the file for why the
          run settings could not do this and why the lock is a file handle. -->
     <Compile Include="..\shared\OneSuiteAtATime.cs" Link="OneSuiteAtATime.cs" />
+    <!-- A client-side pbf decoder, written from the published proto rather than from /src: ADR-073. -->
+    <Compile Include="..\shared\PbfReader.cs" Link="PbfReader.cs" />
   </ItemGroup>
 
   <!-- No project reference, deliberately. This suite is a client: it may only

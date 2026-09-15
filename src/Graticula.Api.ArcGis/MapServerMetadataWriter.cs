@@ -109,7 +109,7 @@ public static class MapServerMetadataWriter
             },
 
             capabilities,
-            supportedQueryFormats = "JSON",
+            supportedQueryFormats = "JSON, PBF",
             exportTilesAllowed = false,
             supportsDatumTransformation = true,
             maxRecordCount,
@@ -172,7 +172,7 @@ public static class MapServerMetadataWriter
             maxRecordCount,
             supportsStatistics = true,
             supportsAdvancedQueries = true,
-            supportedQueryFormats = "JSON",
+            supportedQueryFormats = "JSON, PBF",
             isDataVersioned = false,
         };
     }
