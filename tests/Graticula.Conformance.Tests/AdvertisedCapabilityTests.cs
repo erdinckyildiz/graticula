@@ -72,6 +72,10 @@ public sealed class AdvertisedCapabilityTests : ArcGisClient
         ["supportsQueryWithResultType"] =
             "`resultType` changes how a server plans rather than what it returns, so a "
             + "successful response does not distinguish honoured from ignored",
+        ["supportsQueryAttachments"] =
+            "it names an operation of its own, `queryAttachments`, not a parameter of `query`, and "
+            + "the fixture layer may hold no attachments; AttachmentsAreQueriedAndReplacedTests "
+            + "drives it on a layer it makes and attaches to",
         ["supportsCountDistinct"] =
             "the parameter is a modifier on outStatistics that this server does not parse "
             + "separately, so a refusal cannot be attributed to this key",
