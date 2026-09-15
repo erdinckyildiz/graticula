@@ -486,7 +486,7 @@ public static class FeatureServerMetadataWriter
             serviceDescription = string.Empty,
             hasVersionedData = false,
             supportsDisconnectedEditing = false,
-            hasStaticData = true,
+            hasStaticData = IsStatic(capabilities),
             maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount, serverMaxRecordCount),
             supportedQueryFormats = "JSON",
 
@@ -847,7 +847,7 @@ public static class FeatureServerMetadataWriter
             // queryRelatedRecords needs an id, and this document is the only
             // place an ArcGIS client looks for it.
             relationships = relationships ?? Array.Empty<object>(),
-            hasStaticData = true,
+            hasStaticData = IsStatic(capabilities),
             isDataVersioned = false,
 
             // <b>Two of these were false while the query endpoint honoured
@@ -985,6 +985,24 @@ public static class FeatureServerMetadataWriter
 
         return fields;
     }
+
+    /// <summary>
+    /// Whether a client may treat the data as unchanging: true only when the document offers no
+    /// way to change it.
+    /// </summary>
+    /// <remarks>
+    /// <b>This said true for every layer until 2026-09-15</b>, editable ones included. An ArcGIS
+    /// client that reads it may keep what it drew and not ask again, and on a layer that was edited
+    /// a minute ago that is a map showing a feature somebody deleted. Found by a review from an
+    /// ArcGIS user's side, beside the query's own <c>max-age</c>.
+    /// </remarks>
+    /// <param name="capabilities">The document's capabilities.</param>
+    /// <returns>Whether nothing here edits.</returns>
+    public static bool IsStatic(string capabilities) =>
+        !(capabilities.Contains("Create", StringComparison.Ordinal)
+          || capabilities.Contains("Update", StringComparison.Ordinal)
+          || capabilities.Contains("Delete", StringComparison.Ordinal)
+          || capabilities.Contains("Editing", StringComparison.Ordinal));
 
     /// <summary>Maps our field types onto ArcGIS's.</summary>
     /// <remarks>
