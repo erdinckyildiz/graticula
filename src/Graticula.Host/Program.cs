@@ -71,6 +71,13 @@ public static class Program
                                          promises every behaviour this executable
                                          has.
 
+          graticula tools inventory <https://host/arcgis> [--json <file>] [--insecure]
+                                          Walk an ArcGIS Server's services directory and
+                                          report what this server can take over, what in
+                                          part and what not, with the reason (Q-16).
+                                          Read-only. A token comes from
+                                          GRATICULA_INVENTORY_TOKEN. Needs no configuration.
+
           graticula tools admincreator [--name <name>] [--password <password>]
                                           Give a store that has accounts and no
                                           administrator one. Refuses if it already has
@@ -119,6 +126,13 @@ public static class Program
                 + "every registration must be re-entered, and a leaked one means every credential "
                 + "is readable from a database backup. Keep it where you keep secrets.");
             return 0;
+        }
+
+        // <b>Q-16's inventory, before configuration</b>: it reads another server's REST directory and needs
+        // neither this server's store nor its key, so an operator can run it before installing anything.
+        if (args is ["tools", "inventory", ..])
+        {
+            return await Tools.InventoryScan.RunAsync(args, Console.Out, CancellationToken.None).ConfigureAwait(false);
         }
 
         WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
