@@ -899,6 +899,9 @@ public static class FeatureServerMetadataWriter
                 supportsStatistics = true,
                 supportsDistinct = true,
                 supportsReturningQueryExtent = true,
+
+                // <b>queryAttachments answers where attachments do — 2026-09-15.</b>
+                supportsQueryAttachments = layer.IsHosted,
                 // <b>From the source, since a layer's file cannot answer it — ADR-066.</b>
                 supportsQueryWithDistance = description.AnswersDistance,
                 // <b>False since 2026-08-16, and it was true for the wrong

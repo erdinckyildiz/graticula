@@ -378,6 +378,90 @@ public sealed class PostGisAttachmentStore : IAttachmentStore
         return id;
     }
 
+    /// <inheritdoc/>
+    public async Task<bool> UpdateAsync(
+        long featureId,
+        int attachmentId,
+        string name,
+        string contentType,
+        string? declaredContentType,
+        Stream content,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+
+        await EnsureTableAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        // <b>The feature is part of the key</b>, for the reason the download gives: an attachment
+        // id is a guessable integer, and a replacement that ignored the feature would let one
+        // caller overwrite another feature's photograph by counting.
+        await using (NpgsqlCommand claim = new(
+            $"""
+             update {Qualified}
+                set att_name = @name, content_type = @type, declared_type = @declared,
+                    data_size = 0, uploaded_at = now()
+              where attachmentid = @id and rel_objectid = @feature
+             """,
+            connection,
+            transaction))
+        {
+            claim.Parameters.AddWithValue("id", attachmentId);
+            claim.Parameters.AddWithValue("feature", featureId);
+            claim.Parameters.AddWithValue("name", name);
+            claim.Parameters.AddWithValue("type", contentType);
+            claim.Parameters.Add(new NpgsqlParameter("declared", NpgsqlDbType.Text)
+            {
+                Value = (object?)declaredContentType ?? DBNull.Value,
+            });
+
+            if (await claim.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 0)
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return false;
+            }
+        }
+
+        await using (NpgsqlCommand clear = new(
+            $"delete from {QualifiedChunks} where attachmentid = @id", connection, transaction))
+        {
+            clear.Parameters.AddWithValue("id", attachmentId);
+            await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        long total = await WriteChunksAsync(connection, attachmentId, content, cancellationToken)
+            .ConfigureAwait(false);
+
+        await using (NpgsqlCommand size = new(
+            $"update {Qualified} set data_size = @size where attachmentid = @id",
+            connection,
+            transaction))
+        {
+            size.Parameters.AddWithValue("size", total);
+            size.Parameters.AddWithValue("id", attachmentId);
+            await size.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        long used = await SumAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+
+        if (used > _quota)
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+
+            throw new AttachmentQuotaExceededException(
+                $"This layer's attachments would reach {used:N0} bytes against a quota of "
+                + $"{_quota:N0}. The attachment was left as it was. Delete some attachments or raise the quota.");
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
     /// <summary>
     /// Reads the upload a block at a time and writes each block as a row.
     /// </summary>

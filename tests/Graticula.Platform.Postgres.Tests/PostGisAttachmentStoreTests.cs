@@ -67,7 +67,8 @@ public sealed class PostGisAttachmentStoreTests : PostgresFixture
     {
         await using NpgsqlCommand drop = DataSource.CreateCommand(
             $"drop table if exists {Schema}.{table} cascade; "
-            + $"drop table if exists {Schema}.{table}__attach cascade;");
+            + $"drop table if exists {Schema}.{table}__attach cascade; "
+            + $"drop table if exists {Schema}.{table}__attach_chunk cascade;");
 
         await drop.ExecuteNonQueryAsync();
     }
@@ -91,6 +92,44 @@ public sealed class PostGisAttachmentStoreTests : PostgresFixture
         return buffer.ToArray();
     }
 
+    // ---------- replacing ----------
+
+    /// <summary>
+    /// A replacement keeps the id and changes the bytes, and cannot reach another feature's.
+    /// </summary>
+    /// <remarks>Written 2026-09-15 with <c>updateAttachment</c>, which was a 404.</remarks>
+    [Fact]
+    public async Task A_replaced_attachment_keeps_its_id_and_only_its_own_feature_may_replace_it()
+    {
+        (PostGisAttachmentStore store, string table) = await StoreAsync();
+
+        try
+        {
+            int id = await store.AddAsync(
+                1, "before.png", "image/png", "image/png", Bytes(1_000, seed: 1), CancellationToken.None);
+
+            byte[] after = await DrainAsync(Bytes(150_000, seed: 9));
+
+            Assert.False(await store.UpdateAsync(
+                2, id, "stolen.png", "image/png", "image/png", new MemoryStream(after), CancellationToken.None));
+
+            Assert.True(await store.UpdateAsync(
+                1, id, "after.png", "image/png", "image/png", new MemoryStream(after), CancellationToken.None));
+
+            await using OpenAttachment? open = await store.OpenAsync(id, CancellationToken.None);
+
+            Assert.NotNull(open);
+            Assert.Equal("after.png", open!.Info.Name);
+            Assert.Equal(after.Length, open.Info.Size);
+            Assert.Equal(after, await DrainAsync(open.Content));
+        }
+        finally
+        {
+            await DropAsync(table);
+        }
+    }
+
+    // ---------- the round trip ----------
     // ---------- the round trip ----------
 
     [Fact]

@@ -73,6 +73,15 @@ internal static class AttachmentEndpoints
                 .Governed(SharingGovernedExtensions.ByService);
             app.MapPost($"{layer}/{{objectId:long}}/deleteAttachments", DeleteAsync)
                 .Governed(SharingGovernedExtensions.ByService);
+
+            // <b>2026-09-15, both found by a review from an ArcGIS user's side.</b> Dashboards,
+            // Experience Builder and the Maps SDK read a layer's attachments in one request with
+            // queryAttachments, and Survey123 replaces a photograph with updateAttachment; both
+            // were 404, so a gallery was empty and a replaced photograph was a failed edit.
+            app.MapMethods($"{layer}/queryAttachments", ["GET", "POST"], QueryAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+            app.MapPost($"{layer}/{{objectId:long}}/updateAttachment", UpdateAsync).DisableAntiforgery()
+                .Governed(SharingGovernedExtensions.ByService);
         }
     }
 
@@ -118,6 +127,266 @@ internal static class AttachmentEndpoints
                 uploaded = a.UploadedAt,
             }),
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    // ---------- query ----------
+
+    /// <summary>The most features one <c>queryAttachments</c> reads the attachments of.</summary>
+    private const int MostQueriedFeatures = 1_000;
+
+    /// <summary>
+    /// The attachments of several features in one answer, grouped by feature.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>By <c>objectIds</c>, which is what a client that already drew the features has.</b>
+    /// <c>definitionExpression</c>, <c>globalIds</c>, <c>attachmentsWhere</c>, <c>keywords</c> and
+    /// <c>size</c> are refused rather than ignored: each narrows the answer, and a caller who sent
+    /// one and got every attachment would be answered a different question.
+    /// </para>
+    /// <para>
+    /// <b>The same reads the per-feature listing makes</b>, one per feature, so the two cannot
+    /// disagree about what is attached; a thousand features is the ceiling, which is what a client
+    /// asks for a page at a time.
+    /// </para>
+    /// </remarks>
+    private static async Task QueryAsync(
+        HttpContext context,
+        string serviceName,
+        int layerId,
+        CatalogFallback catalog,
+        LayerConnections connections,
+        CancellationToken cancellation)
+    {
+        if (await ResolveAsync(context, serviceName, layerId, catalog, connections, write: false, cancellation)
+                .ConfigureAwait(false) is not { } store)
+        {
+            return;
+        }
+
+        IFormCollection form = context.Request.HasFormContentType
+            ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
+            : FormCollection.Empty;
+
+        string Value(string key) =>
+            form.TryGetValue(key, out Microsoft.Extensions.Primitives.StringValues posted) && posted.Count > 0
+                ? posted.ToString()
+                : context.Request.Query[key].ToString();
+
+        foreach (string narrowing in (string[])["definitionExpression", "globalIds", "attachmentsWhere", "keywords", "size"])
+        {
+            if (Value(narrowing).Trim().Length > 0)
+            {
+                await Refuse(context, 400,
+                    $"'{narrowing}' is not supported by queryAttachments here, and it is refused rather "
+                    + "than ignored, because it narrows the answer. Pass 'objectIds' — a query with "
+                    + "returnIdsOnly=true turns a where clause into them.").ConfigureAwait(false);
+                return;
+            }
+        }
+
+        List<long> ids = [];
+
+        foreach (string part in Value("objectIds").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!long.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out long id))
+            {
+                await Refuse(context, 400, $"'{part}' in 'objectIds' is not an object id.").ConfigureAwait(false);
+                return;
+            }
+
+            ids.Add(id);
+        }
+
+        if (ids.Count == 0)
+        {
+            await Refuse(context, 400, "'objectIds' is required, comma separated.").ConfigureAwait(false);
+            return;
+        }
+
+        if (ids.Count > MostQueriedFeatures)
+        {
+            await Refuse(context, 400,
+                $"'objectIds' names {ids.Count} features and one request reads the attachments of at most "
+                + $"{MostQueriedFeatures}. Ask in pages.").ConfigureAwait(false);
+            return;
+        }
+
+        string[] types = Value("attachmentTypes")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        bool urls = string.Equals(Value("returnUrl"), "true", StringComparison.OrdinalIgnoreCase);
+        string layerUrl = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}"
+            + context.Request.Path.Value![..context.Request.Path.Value!.LastIndexOf('/')];
+
+        List<object> groups = [];
+
+        foreach (long id in ids.Distinct())
+        {
+            IReadOnlyList<AttachmentInfo> attachments =
+                await store.ListAsync(id, cancellation).ConfigureAwait(false);
+
+            object[] infos =
+            [
+                .. attachments
+                    .Where(a => types.Length == 0 || types.Any(t => Matches(a.ContentType, t)))
+                    .Select(a => (object)new
+                    {
+                        id = a.Id,
+                        globalId = (string?)null,
+                        name = a.Name,
+                        contentType = a.ContentType,
+                        size = a.Size,
+                        keywords = string.Empty,
+                        exifInfo = (object?)null,
+                        url = urls ? $"{layerUrl}/{id}/attachments/{a.Id}" : null,
+                    }),
+            ];
+
+            if (infos.Length > 0)
+            {
+                groups.Add(new { parentObjectId = id, parentGlobalId = (string?)null, attachmentInfos = infos });
+            }
+        }
+
+        await Results.Json(new { attachmentGroups = groups }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Whether a stored type is one a caller named — a full type, or a family such as <c>image/*</c>
+    /// or ArcGIS's bare <c>image</c>.
+    /// </summary>
+    private static bool Matches(string stored, string asked)
+    {
+        string family = asked.EndsWith("/*", StringComparison.Ordinal) ? asked[..^2] : asked;
+
+        return string.Equals(stored, asked, StringComparison.OrdinalIgnoreCase)
+            || (!family.Contains('/', StringComparison.Ordinal)
+                && stored.StartsWith(family + "/", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---------- replace ----------
+
+    /// <summary>
+    /// Replaces an attachment's bytes, keeping its id — <c>updateAttachment</c>.
+    /// </summary>
+    /// <remarks>
+    /// <b>The id comes before the file, and is required to.</b> The body is read as it arrives, as
+    /// <see cref="AddAsync"/> reads it, so the attachment the bytes are for has to be known by the
+    /// time they start; the Maps SDK and Survey123 send <c>attachmentId</c> first.
+    /// </remarks>
+    private static async Task UpdateAsync(
+        HttpContext context,
+        string serviceName,
+        int layerId,
+        long objectId,
+        CatalogFallback catalog,
+        LayerConnections connections,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (await ResolveAsync(context, serviceName, layerId, catalog, connections, write: true, cancellation)
+                .ConfigureAwait(false) is not { } store)
+        {
+            return;
+        }
+
+        if (context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()
+            is { IsReadOnly: false } limit)
+        {
+            limit.MaxRequestBodySize = MaximumBytes;
+        }
+
+        string? boundary = Boundary(context.Request.ContentType);
+
+        if (boundary is null)
+        {
+            await Refuse(context, 400,
+                "Post the file as multipart/form-data with 'attachmentId' and a part named "
+                + "'attachment', which is what ArcGIS clients send.").ConfigureAwait(false);
+            return;
+        }
+
+        int? attachmentId = null;
+        MultipartReader reader = new(boundary, context.Request.Body, bufferSize: 1024 * 1024);
+        MultipartSection? section;
+
+        while ((section = await reader.ReadNextSectionAsync(cancellation).ConfigureAwait(false)) is not null)
+        {
+            if (!ContentDispositionHeaderValue.TryParse(
+                    section.ContentDisposition, out ContentDispositionHeaderValue? disposition))
+            {
+                continue;
+            }
+
+            if (!disposition.IsFileDisposition())
+            {
+                if (string.Equals(disposition.Name.Value, "attachmentId", StringComparison.OrdinalIgnoreCase))
+                {
+                    using StreamReader text = new(section.Body);
+                    string raw = (await text.ReadToEndAsync(cancellation).ConfigureAwait(false)).Trim();
+
+                    if (!int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+                    {
+                        await Refuse(context, 400, $"'{raw}' is not an attachment id.").ConfigureAwait(false);
+                        return;
+                    }
+
+                    attachmentId = parsed;
+                }
+
+                continue;
+            }
+
+            if (attachmentId is not { } id)
+            {
+                await Refuse(context, 400,
+                    "'attachmentId' must be sent before the file, so the bytes can be written as they "
+                    + "arrive. Nothing was replaced.").ConfigureAwait(false);
+                return;
+            }
+
+            string name = SafeName(disposition.FileName.Value ?? disposition.Name.Value);
+
+            (string sniffed, Stream content) = await ContentSniffer
+                .SniffAsync(section.Body, cancellation).ConfigureAwait(false);
+
+            await using LimitedStream limited = new(content, MaximumBytes);
+
+            try
+            {
+                if (!await store.UpdateAsync(objectId, id, name, sniffed, section.ContentType, limited, cancellation)
+                        .ConfigureAwait(false))
+                {
+                    await Refuse(context, 404, $"No attachment {id} on feature {objectId}. Nothing was replaced.")
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                await AuditAsync(
+                    context, audit, $"{serviceName}/{layerId}", objectId, name, sniffed, cancellation)
+                    .ConfigureAwait(false);
+
+                await Results.Json(new
+                {
+                    updateAttachmentResult = new { objectId = id, globalId = (string?)null, success = true },
+                }).ExecuteAsync(context).ConfigureAwait(false);
+            }
+            catch (AttachmentTooLargeException)
+            {
+                await Refuse(context, 413,
+                    $"An attachment may be at most {MaximumBytes / 1048576} MB. Nothing was replaced.")
+                    .ConfigureAwait(false);
+            }
+            catch (AttachmentQuotaExceededException e)
+            {
+                await Refuse(context, 507, e.Message).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
+        await Refuse(context, 400, "No file part was found in the request.").ConfigureAwait(false);
     }
 
     // ---------- download ----------
@@ -369,12 +638,17 @@ internal static class AttachmentEndpoints
 
         await Results.Json(new
         {
-            deleteAttachmentResults = ids.Select(id => new
-            {
-                objectId = id,
-                globalId = (string?)null,
-                success = removed.Contains(id),
-            }),
+            // <b>A failure says why — 2026-09-15.</b> It said `success: false` and nothing else, so a
+            // client that shows the reason had none to show.
+            deleteAttachmentResults = ids.Select(id => removed.Contains(id)
+                ? (object)new { objectId = id, globalId = (string?)null, success = true }
+                : new
+                {
+                    objectId = id,
+                    globalId = (string?)null,
+                    success = false,
+                    error = new { code = 404, description = $"No attachment {id} on feature {objectId}." },
+                }),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

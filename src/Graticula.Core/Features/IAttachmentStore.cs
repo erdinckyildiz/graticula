@@ -100,6 +100,30 @@ public interface IAttachmentStore
         Stream content,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Replaces an attachment's bytes, name and type, keeping its id.
+    /// </summary>
+    /// <param name="featureId">The feature it must belong to.</param>
+    /// <param name="attachmentId">Which one.</param>
+    /// <param name="name">The uploader's name for the new bytes.</param>
+    /// <param name="contentType">What the new bytes were determined to be.</param>
+    /// <param name="declaredContentType">What the uploader claimed.</param>
+    /// <param name="content">The new bytes.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>False when the feature has no such attachment, and nothing was written.</returns>
+    /// <remarks>
+    /// <b>In one transaction with the same quota rule as <see cref="AddAsync"/></b>, so a
+    /// replacement that would pass the quota leaves the old bytes where they were.
+    /// </remarks>
+    Task<bool> UpdateAsync(
+        long featureId,
+        int attachmentId,
+        string name,
+        string contentType,
+        string? declaredContentType,
+        Stream content,
+        CancellationToken cancellationToken);
+
     /// <summary>Removes attachments by id.</summary>
     /// <param name="attachmentIds">Which ones.</param>
     /// <param name="cancellationToken">Cancellation.</param>
