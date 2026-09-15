@@ -340,15 +340,34 @@ public sealed class PostGisImporter
         _ => "text",
     };
 
-    /// <summary>Drops a hosted table.</summary>
+    /// <summary>Drops a hosted table, and its attachment tables with it.</summary>
     /// <param name="schemaName">Its schema.</param>
     /// <param name="tableName">Its name.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <remarks>
+    /// <para>
     /// <b>Refuses to touch anything outside the hosted schema.</b> The caller
     /// passes a schema because the catalogue stores one, and the one thing this
     /// must never do is drop a table in a registered customer database because a
     /// row said so.
+    /// </para>
+    /// <para>
+    /// <b>The attachment tables go first, in the same transaction.</b>
+    /// <see cref="PostGisAttachmentStore"/> creates <c>{table}__attach</c> with a
+    /// foreign key to the layer and <c>{table}__attach_chunk</c> with one to that,
+    /// so a layer that had ever taken an attachment could not be dropped on its
+    /// own: PostgreSQL refused with <c>2BP01</c>, the service delete reported
+    /// <c>removed: true, dropped: false</c> with a 200, and three tables stayed in
+    /// the datastore with nothing left that could name them. Found 2026-09-15 by
+    /// deleting a probe service on the showcase that had taken three attachments —
+    /// the case a Survey123 or Field Maps layer is in almost always.
+    /// </para>
+    /// <para>
+    /// <b>By name, not <c>cascade</c>.</b> <c>cascade</c> would also drop whatever
+    /// else happened to depend on the table — a view somebody made over it — and
+    /// the error that refuses that is the one worth seeing. The two names are the
+    /// only dependants this server creates.
+    /// </para>
     /// </remarks>
     public async Task DropAsync(string schemaName, string tableName, CancellationToken cancellationToken)
     {
@@ -357,9 +376,19 @@ public sealed class PostGisImporter
         await using NpgsqlConnection connection =
             await OpenAsync(cancellationToken).ConfigureAwait(false);
 
-        await ExecuteAsync(
-            connection, null, $"drop table if exists {Qualified(tableName)}", cancellationToken)
-            .ConfigureAwait(false);
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        string attachments = tableName + PostGisAttachmentStore.Suffix;
+
+        foreach (string table in (string[])[attachments + PostGisAttachmentStore.ChunkSuffix, attachments, tableName])
+        {
+            await ExecuteAsync(
+                connection, transaction, $"drop table if exists {Qualified(table)}", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>How long an <c>ALTER TABLE</c> here waits for its lock before refusing.</summary>

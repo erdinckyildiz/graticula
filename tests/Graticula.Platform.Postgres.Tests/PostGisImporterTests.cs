@@ -98,6 +98,67 @@ public sealed class PostGisImporterTests : PostgresFixture
         Assert.Contains(PostGisImporter.HostedSchema, refused.Message, StringComparison.Ordinal);
     }
 
+    // ---------- dropping a layer that has taken attachments ----------
+
+    /// <summary>
+    /// A hosted layer that has taken an attachment is dropped whole — the layer and both of the
+    /// tables the attachment store made beside it.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15. The drop was a single <c>drop table</c>, which PostgreSQL refuses while
+    /// <c>__attach</c> holds a foreign key to the layer, so deleting a service whose layer had ever
+    /// taken a photo answered 200 and left three tables behind on the showcase.
+    /// </remarks>
+    [Fact]
+    public async Task A_layer_with_attachments_is_dropped_with_its_attachment_tables()
+    {
+        PostGisImporter importer = new(DataSource);
+
+        ImportResult made = await importer.DefineAsync(
+            [new Graticula.Features.FieldDescription("note", Graticula.Features.FieldType.Text, true, null)],
+            Graticula.Geometries.GeometryKind.Point,
+            3857,
+            "zzz_attach_drop_" + Guid.NewGuid().ToString("N")[..8],
+            CancellationToken.None);
+
+        string attachments = made.TableName + PostGisAttachmentStore.Suffix;
+
+        try
+        {
+            await using (NpgsqlCommand insert = DataSource.CreateCommand(
+                $"insert into {made.SchemaName}.\"{made.TableName}\" (note) values ('one')"))
+            {
+                await insert.ExecuteNonQueryAsync();
+            }
+
+            PostGisAttachmentStore store = new(
+                DataSource,
+                new Graticula.Catalog.LayerDefinition(
+                    made.TableName, made.SchemaName, made.TableName, "geom", 3857, "objectid", "objectid", isHosted: true),
+                1024 * 1024);
+
+            await store.EnsureTableAsync(CancellationToken.None);
+            await store.AddAsync(
+                1, "photo.png", "image/png", "image/png", new System.IO.MemoryStream([1, 2, 3]), CancellationToken.None);
+
+            await importer.DropAsync(made.SchemaName, made.TableName, CancellationToken.None);
+
+            foreach (string table in (string[])[made.TableName, attachments, attachments + PostGisAttachmentStore.ChunkSuffix])
+            {
+                Assert.True(
+                    await ScalarAsync<bool>($"select to_regclass('{made.SchemaName}.\"{table}\"') is null"),
+                    $"{made.SchemaName}.{table} is still there after the layer was dropped.");
+            }
+        }
+        finally
+        {
+            await using NpgsqlCommand cleanup = DataSource.CreateCommand(
+                $"drop table if exists {made.SchemaName}.\"{attachments}_chunk\", "
+                + $"{made.SchemaName}.\"{attachments}\", {made.SchemaName}.\"{made.TableName}\"");
+            await cleanup.ExecuteNonQueryAsync();
+        }
+    }
+
     // ---------- the happy path ----------
 
     [Fact]

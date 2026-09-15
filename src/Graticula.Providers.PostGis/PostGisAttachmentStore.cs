@@ -60,6 +60,15 @@ public sealed class PostGisAttachmentStore : IAttachmentStore
     public const string Suffix = "__attach";
 
     /// <summary>
+    /// What follows <see cref="Suffix"/> in the name of the table that holds an attachment's bytes.
+    /// </summary>
+    /// <remarks>
+    /// Public so that <see cref="PostGisImporter.DropAsync"/> removes the same table this store
+    /// creates, rather than a second spelling of the name.
+    /// </remarks>
+    public const string ChunkSuffix = "_chunk";
+
+    /// <summary>
     /// How many bytes go in one chunk.
     /// </summary>
     /// <remarks>
@@ -101,7 +110,7 @@ public sealed class PostGisAttachmentStore : IAttachmentStore
         $"{LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(TableName)}";
 
     private string QualifiedChunks =>
-        $"{LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(TableName + "_chunk")}";
+        $"{LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(TableName + ChunkSuffix)}";
 
     /// <summary>
     /// Creates the companion table if it is not there.
