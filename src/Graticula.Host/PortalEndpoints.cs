@@ -878,6 +878,8 @@ internal static class PortalEndpoints
     private static async Task<IResult> ItemAsync(
         HttpContext context,
         CatalogFallback catalog,
+        ServiceContexts contexts,
+        Graticula.Geometries.IProjector projector,
         string id,
         CancellationToken cancellation)
     {
@@ -891,11 +893,15 @@ internal static class PortalEndpoints
 
         foreach (PublishedService service in visible)
         {
-            foreach ((string itemId, object item) in ItemsOf(context, service))
+            foreach ((string itemId, object _) in ItemsOf(context, service))
             {
                 if (string.Equals(itemId, id, StringComparison.OrdinalIgnoreCase))
                 {
-                    return Results.Ok(item);
+                    double[][] extent = await ExtentAsync(service, contexts, projector, cancellation)
+                        .ConfigureAwait(false);
+
+                    return Results.Ok(ItemsOf(context, service, extent)
+                        .First(face => string.Equals(face.Id, id, StringComparison.OrdinalIgnoreCase)).Item);
                 }
             }
         }
@@ -1007,22 +1013,83 @@ internal static class PortalEndpoints
     /// </remarks>
     /// <param name="context">The request.</param>
     /// <param name="service">The service.</param>
+    /// <param name="extent">The service's WGS 84 extent for the item document, or null on a listing.</param>
     /// <returns>Each item's id with the item.</returns>
-    internal static IEnumerable<(string Id, object Item)> ItemsOf(HttpContext context, PublishedService service)
+    internal static IEnumerable<(string Id, object Item)> ItemsOf(
+        HttpContext context, PublishedService service, double[][]? extent = null)
     {
         string primary = PrimaryFace(service);
 
-        yield return (ItemId(service), Item(context, service, primary));
+        yield return (ItemId(service), Item(context, service, primary, extent));
 
         if (primary != "MapServer" && ServiceFaces.Drawable(service))
         {
-            yield return (FaceItemId(service, "MapServer"), Item(context, service, "MapServer"));
+            yield return (FaceItemId(service, "MapServer"), Item(context, service, "MapServer", extent));
         }
 
         if (primary != "VectorTileServer" && ServiceFaces.Tileable(service))
         {
-            yield return (FaceItemId(service, "VectorTileServer"), Item(context, service, "VectorTileServer"));
+            yield return (FaceItemId(service, "VectorTileServer"), Item(context, service, "VectorTileServer", extent));
         }
+    }
+
+    /// <summary>
+    /// A service's extent in WGS 84, as a portal item carries it: <c>[[xmin, ymin], [xmax, ymax]]</c>, or
+    /// empty when no layer's extent is known.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>On the item document and not on a search, deliberately.</b> Each layer's extent comes from its
+    /// described shape, which a cold cache reads from the source; a search listing every item would pay
+    /// that for every layer on the server to fill a field the listing does not draw. The item document
+    /// is what a client reads before adding the layer and zooming to it, so that is where it is paid.
+    /// Search results carry <c>[]</c>, which is what ArcGIS sends for an extent it does not have.
+    /// </para>
+    /// <para>
+    /// <b>The four corners projected, the same approximation WMS and WFS publish</b>
+    /// (<see cref="Graticula.Geometries.GeographicExtents"/>), and a layer whose source cannot be read
+    /// costs its own box and not the item.
+    /// </para>
+    /// </remarks>
+    private static async Task<double[][]> ExtentAsync(
+        PublishedService service,
+        ServiceContexts contexts,
+        Graticula.Geometries.IProjector projector,
+        CancellationToken cancellation)
+    {
+        List<(int Srid, Graticula.Geometries.Envelope? Extent)> extents = [];
+
+        foreach (PublishedLayer layer in service.Layers)
+        {
+            try
+            {
+                (_, Graticula.Features.LayerDescription described) =
+                    await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+                extents.Add((layer.Definition.Srid, described.Extent));
+            }
+            catch (Exception unreadable) when (unreadable is not OperationCanceledException)
+            {
+                extents.Add((layer.Definition.Srid, null));
+            }
+        }
+
+        IReadOnlyList<Graticula.Geometries.Envelope?> geographic = await Graticula.Geometries.GeographicExtents
+            .InWgs84Async(projector, extents, cancellation)
+            .ConfigureAwait(false);
+
+        Graticula.Geometries.Envelope?[] known = [.. geographic.Where(e => e is not null)];
+
+        if (known.Length == 0)
+        {
+            return [];
+        }
+
+        return
+        [
+            [known.Min(e => e!.Value.MinX), known.Min(e => e!.Value.MinY)],
+            [known.Max(e => e!.Value.MaxX), known.Max(e => e!.Value.MaxY)],
+        ];
     }
 
     private static string PrimaryFace(PublishedService service) =>
@@ -1036,7 +1103,7 @@ internal static class PortalEndpoints
         Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
             System.Text.Encoding.UTF8.GetBytes($"{service.Id:N}/{face}")))[..32];
 
-    private static object Item(HttpContext context, PublishedService service, string face)
+    private static object Item(HttpContext context, PublishedService service, string face, double[][]? extent = null)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
@@ -1085,6 +1152,9 @@ internal static class PortalEndpoints
             url = $"{Origin(context)}/rest/services/{service.QualifiedName}/{face}",
             access = Access(service.Sharing),
             spatialReference = (string?)null,
+
+            // [[xmin, ymin], [xmax, ymax]] in WGS 84 on the item document, [] on a listing (ExtentAsync).
+            extent = extent ?? [],
             numViews = 0,
             size = -1,
 

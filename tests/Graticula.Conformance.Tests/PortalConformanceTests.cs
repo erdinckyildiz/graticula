@@ -287,6 +287,17 @@ public sealed class PortalConformanceTests : ArcGisClient
 
             JsonElement read = await GetJsonAsync($"/sharing/rest/content/items/{item.GetProperty("id").GetString()}?token={token}");
             Assert.Equal(type, read.GetProperty("type").GetString());
+
+            // <b>The item document carries the extent in WGS 84</b> — [[xmin, ymin], [xmax, ymax]] — which a
+            // client zooms to when it adds the layer; a listing carries [] (PortalEndpoints.ExtentAsync).
+            JsonElement extent = read.GetProperty("extent");
+            Assert.True(extent.GetArrayLength() == 2, $"The {type} item's extent is {extent}.");
+            double xmin = extent[0][0].GetDouble(), ymin = extent[0][1].GetDouble();
+            double xmax = extent[1][0].GetDouble(), ymax = extent[1][1].GetDouble();
+            Assert.True(
+                xmin <= xmax && ymin <= ymax && xmin >= -180.0001 && xmax <= 180.0001 && ymin >= -90.0001 && ymax <= 90.0001,
+                $"The {type} item's extent is not a WGS 84 box: {extent}.");
+            Assert.Equal(JsonValueKind.Array, item.GetProperty("extent").ValueKind);
         }
     }
 
