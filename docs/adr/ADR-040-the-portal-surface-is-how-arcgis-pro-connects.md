@@ -241,6 +241,30 @@ member's listing reports **4** items where they published **1**. Its cleanup is
 a first version deleted a `/admin/services/{name}` route that does not exist and left a
 member behind that made every later run fail before asserting anything.
 
+### 4c. Amended 2026-09-15 — a service is an item per face, an item carries its extent, and the server names its portal
+
+Three changes from a review from an ArcGIS user's side, each to something a client reads.
+
+**An item per face.** A service answers as a FeatureServer, a MapServer where a layer draws and a
+VectorTileServer where every layer tiles, and the directory lists all three; the portal listed one
+*Feature Service* item, so Pro's portal pane had no map image or vector tile layer to add. Each further
+face is an item of its own, with an id derived from the service id and the face; the primary item keeps
+the service's id, so every item a client holds still resolves. Which faces a service has is one rule,
+`ServiceFaces`, read by the directory and the portal.
+
+**The extent on the item document**, `[[xmin, ymin], [xmax, ymax]]` in WGS 84 from the layers' described
+extents, projected by corners as WMS and WFS publish them. A search listing carries `[]` — ArcGIS's value
+for an unknown extent — so that a listing does not read every layer's shape.
+
+**`owningSystemUrl` on `/rest/info`, with the exchange it implies.** The portal is this same origin. The
+ArcGIS Maps SDK 4.30, signed in to a portal and refused by a server that names it, was measured posting
+`request=getToken`, `serverUrl` (the refused resource's URL) and the portal `token`, with no username, to
+the `tokenServicesUrl` that `/rest/info` names. Both `/rest/generateToken` and `/sharing/rest/generateToken`
+now answer that request with the same token — one process, one session store, and an exchange must not
+widen the token's expiry, binding or scope — refuse a `serverUrl` on another host with 400, and answer a
+token that is expired, revoked or used outside its binding with 498. The field was not named before the
+exchange existed, because an SDK that reads it and meets a refusal stops signing in at all.
+
 ## 5. Consequences
 
 **Positive.** A Pro user gets the browse workflow the owner asked for. Every other ArcGIS client

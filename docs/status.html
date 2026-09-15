@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>66373b8</code> · 2026-09-15 17:58</p>
+<p class="stamp">Generated from commit <code>d8194d8</code> · 2026-09-15 19:32</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">73</div><div class="kpi-l">ADRs</div><div class="kpi-n">16 accepted outright</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi "><div class="kpi-v">6</div><div class="kpi-l">open debts</div><div class="kpi-n">250 repaid · 8 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">3197</div><div class="kpi-l">tests</div><div class="kpi-n">324 source files, 137,700 lines</div></div>
+<div class="kpi good"><div class="kpi-v">3198</div><div class="kpi-l">tests</div><div class="kpi-n">324 source files, 137,905 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -381,7 +381,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">862</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:61.4%"></div></div><div class="bar-n">529</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:59.0%"></div></div><div class="bar-n">509</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:59.2%"></div></div><div class="bar-n">510</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:49.3%"></div></div><div class="bar-n">425</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:21.8%"></div></div><div class="bar-n">188</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.3%"></div></div><div class="bar-n">175</div></div>
@@ -394,6 +394,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>d8194d8</code><time>2026-09-15</time><span>A portal item document carries its service&#x27;s extent in WGS 84</span></li>
+<li><code>3e95935</code><time>2026-09-15</time><span>An ArcGIS token opens the ArcGIS surfaces and not the native /admin API</span></li>
 <li><code>66373b8</code><time>2026-09-15</time><span>My Content counts a caller&#x27;s services by address, now that a service is several items</span></li>
 <li><code>ab3d8ea</code><time>2026-09-15</time><span>A service&#x27;s MapServer and VectorTileServer are portal items of their own</span></li>
 <li><code>2d9e3c8</code><time>2026-09-15</time><span>An ArcGIS token lives sixty minutes unless its client asks for longer</span></li>
@@ -406,8 +408,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>28eefc7</code><time>2026-09-15</time><span>Revert the console half of v1.0.81: it shipped unverified</span></li>
 <li><code>886e1ed</code><time>2026-09-15</time><span>The services directory lists a GeoParquet service&#x27;s VectorTileServer</span></li>
 <li><code>2d43ec2</code><time>2026-09-15</time><span>The Maps SDK reads this server&#x27;s pbf in the right place: ADR-073 accepted</span></li>
-<li><code>3246db9</code><time>2026-09-15</time><span>A FeatureServer query answers in PBF, on the grid the caller names</span></li>
-<li><code>8655955</code><time>2026-09-15</time><span>calculate, validateSQL and queryDomains answer</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

@@ -1710,9 +1710,15 @@ public static class Program
         // wants `name`, so the client's sign-in failed with a credential error
         // about a credential that was correct. ArcGIS Pro found it in one attempt.
         // The endpoint it names now exists and speaks the client's vocabulary.
+        //
+        // <b>`owningSystemUrl` since 2026-09-15</b>: the portal at /sharing/rest is this same origin, and a
+        // client signed in to it exchanges its token at /rest/generateToken (AuthEndpoints.TryExchangeAsync)
+        // rather than prompting again. Named only with the exchange in place: without it, an SDK that reads
+        // the field asks for an exchange the server refuses, and sign-in that worked would stop working.
         app.MapGet("/rest/info", (HttpContext context) => Results.Ok(
             FeatureServerMetadataWriter.ServerInfo(
-                $"{context.Request.Scheme}://{context.Request.Host}/rest/generateToken")));
+                $"{context.Request.Scheme}://{context.Request.Host}/rest/generateToken",
+                $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}")));
 
         // <b>The origin itself answers, and until 2026-08-17 it did not.</b> Nothing
         // was mapped to "/", so typing the server's address produced an empty 404 —

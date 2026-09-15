@@ -109,6 +109,24 @@ internal static class AuthEndpoints
         LoginService login,
         CancellationToken cancellation)
     {
+        // A portal token exchanged for this server's — owningSystemUrl, 2026-09-15.
+        if (await TryExchangeAsync(context, cancellation).ConfigureAwait(false) is { Asked: true } exchanged)
+        {
+            if (exchanged.Error is { } refusal)
+            {
+                await EsriTokenError(context, exchanged.Status, refusal).ConfigureAwait(false);
+                return;
+            }
+
+            await Results.Json(new
+            {
+                token = exchanged.Token,
+                expires = exchanged.Expires.ToUnixTimeMilliseconds(),
+                ssl = context.RequestServices.GetRequiredService<HostSettings>().RequireHttps,
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         string? name = null;
         string? password = null;
 
@@ -889,6 +907,93 @@ internal static class AuthEndpoints
             Read("client"), Read("referer"), Read("ip"), CallerAddress.Of(context), out string? bound, out string? error);
 
         return (ok, bound, error);
+    }
+
+    /// <summary>The outcome of a token exchange: whether one was asked for, and its answer.</summary>
+    /// <param name="Asked">Whether the request carried a token to exchange rather than a password.</param>
+    /// <param name="Status">The status to answer a refusal with.</param>
+    /// <param name="Error">Why it was refused, or null.</param>
+    /// <param name="Token">The token for the server.</param>
+    /// <param name="Expires">When it ends.</param>
+    internal readonly record struct Exchange(bool Asked, int Status, string? Error, string? Token, DateTimeOffset Expires);
+
+    /// <summary>
+    /// A token for this server in exchange for a token this portal issued — what an ArcGIS client asks for
+    /// once <c>/rest/info</c> names an <c>owningSystemUrl</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The request, as the ArcGIS Maps SDK 4.30 sends it</b> — measured 2026-09-15 against a probe that
+    /// logged it: <c>POST {tokenServicesUrl}</c> with <c>request=getToken</c>, <c>serverUrl</c> naming the
+    /// resource it was refused (a layer's URL, not the server's root), the portal <c>token</c>, and no
+    /// username. The SDK sends it to the <c>tokenServicesUrl</c> <c>/rest/info</c> advertises.
+    /// </para>
+    /// <para>
+    /// <b>The answer is the same token.</b> The portal and the server here are one process with one session
+    /// store, so the portal's token already opens the server; minting a second session would double what
+    /// a sign-out has to revoke and what a leak exposes. Its expiry, binding and scope go with it unchanged,
+    /// which is what an exchange must not widen.
+    /// </para>
+    /// <para>
+    /// <b>Refused for a server that is not this one</b>: a portal that answered for another host would be
+    /// vouching for a server it does not run. And a token that is expired, revoked or used from outside its
+    /// binding is 498, the answer an ArcGIS client already reads as <i>sign in again</i>.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The exchange, or <c>Asked = false</c> when the request is an ordinary sign-in.</returns>
+    internal static async Task<Exchange> TryExchangeAsync(HttpContext context, CancellationToken cancellation)
+    {
+        IFormCollection? form = context.Request.HasFormContentType
+            ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
+            : null;
+
+        string Read(string name)
+        {
+            string? value = form?[name].ToString();
+            return string.IsNullOrWhiteSpace(value) ? context.Request.Query[name].ToString() : value;
+        }
+
+        string presented = Read("token").Trim();
+
+        if (presented.Length == 0 || Read("username").Trim().Length > 0)
+        {
+            return new Exchange(false, 0, null, null, default);
+        }
+
+        string serverUrl = Read("serverUrl").Trim();
+        string origin = $"{context.Request.Scheme}://{context.Request.Host}";
+
+        if (!Uri.TryCreate(serverUrl, UriKind.Absolute, out Uri? server)
+            || !string.Equals(server.GetLeftPart(UriPartial.Authority), origin, StringComparison.OrdinalIgnoreCase))
+        {
+            return new Exchange(
+                true, StatusCodes.Status400BadRequest,
+                serverUrl.Length == 0
+                    ? "A token is exchanged for a server named in 'serverUrl', and none was named."
+                    : $"'{serverUrl}' is not a server this portal runs, so it issues no token for it.",
+                null, default);
+        }
+
+        IIdentityStore store = context.RequestServices.GetRequiredService<IIdentityStore>();
+        TimeProvider time = context.RequestServices.GetRequiredService<TimeProvider>();
+
+        AuthenticatedSession? session = await store
+            .FindSessionAsync(SessionToken.HashOf(presented), time.GetUtcNow(), cancellation)
+            .ConfigureAwait(false);
+
+        if (session is not { } found
+            || !TokenBinding.Admits(
+                found.BoundTo,
+                CallerAddress.Of(context),
+                context.Request.Headers.Referer.ToString(),
+                context.Request.Headers.Origin.ToString()))
+        {
+            return new Exchange(true, 498, "Invalid token.", null, default);
+        }
+
+        return new Exchange(true, 0, null, presented, found.ExpiresAt);
     }
 
     private static Task Refuse(HttpContext context, int status, string message) =>

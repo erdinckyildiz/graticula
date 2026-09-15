@@ -89,11 +89,17 @@ public static class FeatureServerMetadataWriter
 
     /// <summary>The <c>/rest/info</c> document.</summary>
     /// <param name="tokenServicesUrl">Where a client obtains a token.</param>
+    /// <param name="owningSystemUrl">
+    /// The portal this server belongs to, or null. Named since 2026-09-15: an ArcGIS client that is signed
+    /// in to the portal reads it, and exchanges its portal token for this server's at
+    /// <paramref name="tokenServicesUrl"/> instead of asking its user to sign in a second time.
+    /// </param>
     /// <returns>An object ready for JSON serialisation.</returns>
-    public static object ServerInfo(string tokenServicesUrl) => new
+    public static object ServerInfo(string tokenServicesUrl, string? owningSystemUrl = null) => new
     {
         currentVersion = CurrentVersion,
         fullVersion = $"{CurrentVersion}.0",
+        owningSystemUrl,
 
         // Declared so a client knows to authenticate rather than to guess from a
         // 401. isTokenBasedSecurity is what makes Pro prompt for credentials.

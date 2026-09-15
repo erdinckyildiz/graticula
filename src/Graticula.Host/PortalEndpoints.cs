@@ -246,6 +246,24 @@ internal static class PortalEndpoints
     private static async Task TokenAsync(
         HttpContext context, LoginService login, CancellationToken cancellation)
     {
+        // The exchange a federated server's client asks for — AuthEndpoints.TryExchangeAsync.
+        if (await AuthEndpoints.TryExchangeAsync(context, cancellation).ConfigureAwait(false) is { Asked: true } exchanged)
+        {
+            if (exchanged.Error is { } refusal)
+            {
+                await PortalError(context, exchanged.Status, refusal).ConfigureAwait(false);
+                return;
+            }
+
+            await Results.Json(new
+            {
+                token = exchanged.Token,
+                expires = exchanged.Expires.ToUnixTimeMilliseconds(),
+                ssl = context.RequestServices.GetRequiredService<HostSettings>().RequireHttps,
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         (string? name, string? password) = await CredentialsAsync(context, cancellation)
             .ConfigureAwait(false);
 
