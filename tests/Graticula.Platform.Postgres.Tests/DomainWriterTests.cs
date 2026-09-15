@@ -157,6 +157,41 @@ public sealed class DomainWriterTests : PostgresFixture
         Assert.True(moved.Updates[0].Succeeded, moved.Updates[0].Error);
     }
 
+    /// <summary>
+    /// Moving a feature to a subtype that does not allow a value it keeps is refused, naming the field to send.
+    /// </summary>
+    /// <remarks>Q-152, owner decision 2026-09-15: the edit is what would make the row invalid.</remarks>
+    [Fact]
+    public async Task A_move_to_a_subtype_that_disallows_a_kept_value_is_refused_by_name()
+    {
+        PostGisFeatureWriter writer = await WriterAsync("dm_subtype_moves", withSubtypes: true);
+
+        long lateral = await RowAsync("dm_subtype_moves", kind: 2, material: "PVC", diameter: 300);
+
+        EditOutcome refused = await writer.ApplyAsync(
+            new EditBatch([], [Change(lateral, ("kind", (short)1))], []),
+            CancellationToken.None);
+
+        Assert.False(refused.Updates[0].Succeeded);
+        Assert.Contains("'material'", refused.Updates[0].Error!, StringComparison.Ordinal);
+        Assert.Contains("Send 'material'", refused.Updates[0].Error!, StringComparison.Ordinal);
+
+        // Sending an allowed value with the move is the edit that works.
+        EditOutcome moved = await writer.ApplyAsync(
+            new EditBatch([], [Change(lateral, ("kind", (short)1), ("material", "CU"))], []),
+            CancellationToken.None);
+
+        Assert.True(moved.Updates[0].Succeeded, moved.Updates[0].Error);
+
+        // And staying in the subtype a feature already has is not re-judged for values it already had.
+        long legacy = await RowAsync("dm_subtype_moves", kind: 1, material: "PVC", diameter: 300);
+        EditOutcome same = await writer.ApplyAsync(
+            new EditBatch([], [Change(legacy, ("kind", (short)1), ("diameter", 400))], []),
+            CancellationToken.None);
+
+        Assert.True(same.Updates[0].Succeeded, same.Updates[0].Error);
+    }
+
     [Fact]
     public async Task A_refused_value_in_an_all_or_nothing_batch_takes_the_batch_with_it()
     {

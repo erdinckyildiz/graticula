@@ -293,4 +293,40 @@ public sealed class ArcGisGeometryReaderTests
             Assert.Contains("102100", error!, StringComparison.Ordinal);
         }
     }
+
+    // ---------- what an edit accepts that a filter does not (Q-153, owner decision 2026-09-15) ----------
+
+    [Fact]
+    public void An_edit_in_another_reference_is_read_with_that_reference_for_the_writer_to_project()
+    {
+        Assert.True(ArcGisGeometryReader.TryReadForEdit(
+            Json("""{"x":29,"y":41,"spatialReference":{"wkid":4326}}"""), Srid, out Geometry? geometry, out int? source, out string? error), error);
+
+        Assert.Equal(4326, source);
+        Assert.Equal(29, ((Point)geometry!).X);
+
+        // Esri's own code for the layer's projection is the layer's, not a projection to make.
+        Assert.True(ArcGisGeometryReader.TryReadForEdit(
+            Json("""{"x":1,"y":2,"spatialReference":{"wkid":102100}}"""), Srid, out _, out source, out _));
+        Assert.Null(source);
+    }
+
+    [Fact]
+    public void An_edit_whose_first_ring_is_counter_clockwise_is_wound_the_GeoJSON_way()
+    {
+        // Shell counter-clockwise, hole clockwise: what a script building Esri JSON from GeoJSON sends.
+        Assert.True(ArcGisGeometryReader.TryReadForEdit(
+            Json("""{"rings":[[[0,0],[10,0],[10,10],[0,10],[0,0]],[[2,2],[2,4],[4,4],[4,2],[2,2]]]}"""),
+            Srid, out Geometry? geometry, out _, out string? error), error);
+
+        Polygon polygon = Assert.IsType<Polygon>(geometry);
+        Assert.Single(polygon.Holes);
+    }
+
+    [Fact]
+    public void A_filter_still_refuses_both()
+    {
+        Assert.Contains("before the shell", Refuse("""{"rings":[[[0,0],[10,0],[10,10],[0,10],[0,0]]]}"""), StringComparison.Ordinal);
+        Assert.Contains("does not reproject", Refuse("""{"x":1,"y":2,"spatialReference":{"wkid":4326}}"""), StringComparison.Ordinal);
+    }
 }

@@ -25,9 +25,10 @@ namespace Graticula.Api.ArcGis;
 /// </para>
 /// <para>
 /// <b>Nothing here is lenient about losing data.</b> Z and M are refused rather
-/// than dropped (ADR-008 §4.5a), and a spatial reference that disagrees with the
-/// layer is refused rather than assumed. The one leniency is closing an unclosed
-/// ring, which adds the vertex the format already implies and loses nothing.
+/// than dropped (ADR-008 §4.5a). A spatial reference that disagrees with the layer is
+/// refused on a filter and, since 2026-09-15, carried to the writer to project on an edit
+/// (<see cref="TryReadForEdit"/>, Q-153). Closing an unclosed ring adds the vertex the
+/// format already implies and loses nothing.
 /// </para>
 /// </remarks>
 public static class ArcGisGeometryReader
@@ -38,9 +39,45 @@ public static class ArcGisGeometryReader
     /// <param name="geometry">The geometry, on success.</param>
     /// <param name="error">Why not, on failure.</param>
     public static bool TryRead(
-        JsonElement json, int layerSrid, out Geometry? geometry, out string? error)
+        JsonElement json, int layerSrid, out Geometry? geometry, out string? error) =>
+        TryRead(json, layerSrid, forEdit: false, out geometry, out _, out error);
+
+    /// <summary>
+    /// Reads a geometry sent to be stored — by <c>applyEdits</c> — which may be in another spatial
+    /// reference and may wind its polygon rings the GeoJSON way.
+    /// </summary>
+    /// <param name="json">The <c>geometry</c> member of an ArcGIS feature.</param>
+    /// <param name="layerSrid">The layer's SRID.</param>
+    /// <param name="geometry">The geometry, on success.</param>
+    /// <param name="sourceSrid">
+    /// The reference the geometry declares, when it is not the layer's, for the writer to project from;
+    /// null when it is the layer's or declares none.
+    /// </param>
+    /// <param name="error">Why not, on failure.</param>
+    /// <returns>Whether it could be read.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Q-153, owner decision 2026-09-15: project and normalise on write.</b> A client declares its
+    /// reference, so projecting it is not a side effect it cannot know about — and a form that sends 4326
+    /// to a 3857 layer failed outright. A query filter still refuses a mismatched reference, because a
+    /// filter projected in silence searches somewhere else; this overload is the edit's.
+    /// </para>
+    /// <para>
+    /// <b>A polygon whose first ring is counter-clockwise is read the other way round</b>: counter-clockwise
+    /// rings are shells and clockwise ones their holes, which is how GeoJSON winds a polygon and what a
+    /// script building Esri JSON from it sends. The alternative was refusing it, and a hole before any shell
+    /// has no other reading.
+    /// </para>
+    /// </remarks>
+    public static bool TryReadForEdit(
+        JsonElement json, int layerSrid, out Geometry? geometry, out int? sourceSrid, out string? error) =>
+        TryRead(json, layerSrid, forEdit: true, out geometry, out sourceSrid, out error);
+
+    private static bool TryRead(
+        JsonElement json, int layerSrid, bool forEdit, out Geometry? geometry, out int? sourceSrid, out string? error)
     {
         geometry = null;
+        sourceSrid = null;
         error = null;
 
         if (json.ValueKind != JsonValueKind.Object)
@@ -49,7 +86,11 @@ public static class ArcGisGeometryReader
             return false;
         }
 
-        if (!SpatialReferenceMatches(json, layerSrid, out error))
+        if (forEdit)
+        {
+            sourceSrid = DeclaredOther(json, layerSrid);
+        }
+        else if (!SpatialReferenceMatches(json, layerSrid, out error))
         {
             return false;
         }
@@ -69,7 +110,7 @@ public static class ArcGisGeometryReader
 
         if (json.TryGetProperty("rings", out JsonElement rings))
         {
-            return TryReadPolygon(rings, out geometry, out error);
+            return TryReadPolygon(rings, forEdit, out geometry, out error);
         }
 
         if (json.TryGetProperty("paths", out JsonElement paths))
@@ -184,7 +225,7 @@ public static class ArcGisGeometryReader
     /// something — and guessing would produce a feature the client did not send.
     /// </para>
     /// </remarks>
-    private static bool TryReadPolygon(JsonElement rings, out Geometry? geometry, out string? error)
+    private static bool TryReadPolygon(JsonElement rings, bool shellsMayBeCounterClockwise, out Geometry? geometry, out string? error)
     {
         geometry = null;
         error = null;
@@ -197,6 +238,9 @@ public static class ArcGisGeometryReader
 
         List<(LinearRing Shell, List<LinearRing> Holes)> polygons = [];
 
+        // Which winding is a shell: ArcGIS's clockwise, unless an edit's first ring says otherwise (Q-153).
+        bool? shellIsCounterClockwise = shellsMayBeCounterClockwise ? null : false;
+
         foreach (JsonElement ring in rings.EnumerateArray())
         {
             if (!TryReadSequence(ring, minimum: 4, out XySequence coordinates, out error))
@@ -205,8 +249,9 @@ public static class ArcGisGeometryReader
             }
 
             LinearRing linear = new(Close(coordinates));
+            shellIsCounterClockwise ??= linear.IsCounterClockwise;
 
-            if (!linear.IsCounterClockwise)
+            if (linear.IsCounterClockwise == shellIsCounterClockwise)
             {
                 polygons.Add((linear, []));
                 continue;
@@ -355,6 +400,25 @@ public static class ArcGisGeometryReader
         }
 
         return true;
+    }
+
+    /// <summary>The reference a geometry declares when it is not the layer's, canonicalised; otherwise null.</summary>
+    private static int? DeclaredOther(JsonElement json, int layerSrid)
+    {
+        if (!json.TryGetProperty("spatialReference", out JsonElement reference)
+            || reference.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        int? wkid = reference.TryGetProperty("latestWkid", out JsonElement latest)
+                && latest.TryGetInt32(out int latestValue)
+            ? latestValue
+            : reference.TryGetProperty("wkid", out JsonElement plain) && plain.TryGetInt32(out int value)
+                ? value
+                : null;
+
+        return wkid is { } declared && Canonical(declared) != Canonical(layerSrid) ? Canonical(declared) : null;
     }
 
     private static bool SpatialReferenceMatches(JsonElement json, int layerSrid, out string? error)

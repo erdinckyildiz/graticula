@@ -93,6 +93,16 @@ the capability report states it per ADR-008 §2 — never degrade silently.
 
 ---
 
+### 2b. Amended 2026-09-15 — a geometry is projected and normalised on write
+
+By owner decision on [Q-153](../open-questions.md). `applyEdits` used to refuse a geometry in another spatial
+reference, refuse a polygon whose first ring is counter-clockwise, and store a self-intersecting polygon as sent.
+Now the reader's edit path (`ArcGisGeometryReader.TryReadForEdit`) keeps the declared reference for the writer, which
+projects with `ST_Transform`; a counter-clockwise first ring means the polygon is wound the GeoJSON way; and the writer
+stores an invalid polygon as `ST_CollectionExtract(ST_MakeValid(…), 3)`, shaped to the column's kind, reporting
+`geometryRepaired: true` on that result. A repair that leaves several parts on a single-polygon column fails that
+feature rather than dropping a part. A query filter keeps refusing both, for the reason the reader states.
+
 ## 3. Decision — relationships are declared, not reverse-engineered (Q-58a)
 
 **Rejected:** reading relationship classes out of the source geodatabase's

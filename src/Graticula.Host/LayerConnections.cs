@@ -451,7 +451,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
         IFeatureWriter writer = new PostGisFeatureWriter(
             PoolFor(layer.ConnectionString), layer.Definition, fields,
-            tracking ?? Graticula.Catalog.EditorTracking.None, subtypes);
+            tracking ?? Graticula.Catalog.EditorTracking.None, subtypes, layer.GeometryType);
 
         // <b>Here, so every face that edits empties the tiles — not at each face.</b> ADR-069
         // said `ITileCache` is told to drop a layer's entries on an edit, and nothing told it:

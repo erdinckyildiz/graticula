@@ -68,12 +68,17 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
     /// The layer's subtypes — ADR-065 — or null for a layer with none. Last and optional for the
     /// same reason. The columns' own domains ride on <paramref name="fields"/>.
     /// </param>
+    /// <param name="geometryKind">
+    /// The layer's geometry kind, so a repaired polygon is stored as the column's kind; null leaves polygons
+    /// as they are made (Q-153).
+    /// </param>
     public PostGisFeatureWriter(
         NpgsqlDataSource dataSource,
         LayerDefinition layer,
         IReadOnlyList<FieldDescription> fields,
         EditorTracking? tracking = null,
-        LayerSubtypes? subtypes = null)
+        LayerSubtypes? subtypes = null,
+        GeometryKind? geometryKind = null)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(layer);
@@ -96,10 +101,14 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         _tracking = tracking ?? EditorTracking.None;
         _subtypes = subtypes;
         _globalId = GlobalIds.FieldOf(fields);
+        _geometryKind = geometryKind;
     }
 
     /// <summary>The layer's GlobalID column, which this server fills, or null.</summary>
     private readonly string? _globalId;
+
+    /// <summary>The layer's declared geometry kind, when the caller knows it; null when it does not.</summary>
+    private readonly GeometryKind? _geometryKind;
 
     /// <summary>
     /// <c>returning</c> the object id, and the GlobalID beside it where the layer has one, so an edit
@@ -109,8 +118,46 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         $" returning {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)}"
         + (_globalId is null ? string.Empty : $", {LayerDefinition.Quote(_globalId)}");
 
-    /// <summary>Runs a write that returns a row, and reads its object id and GlobalID.</summary>
-    private async Task<(long Id, Guid? GlobalId)?> ReturnedAsync(NpgsqlCommand command, CancellationToken cancellationToken)
+    /// <summary>
+    /// The SQL a sent geometry is stored as, and the SQL that says whether it had to be repaired.
+    /// </summary>
+    /// <param name="sourceSrid">The reference it was sent in, when not the layer's.</param>
+    /// <returns>The stored expression, and a boolean expression for <c>returning</c>.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Q-153, owner decision 2026-09-15: project and normalise on write.</b> A geometry sent in another
+    /// reference is transformed into the layer's by PostGIS, the engine every other projection here uses.
+    /// </para>
+    /// <para>
+    /// <b>A polygon that is not valid is stored as the valid polygon made of it</b> —
+    /// <c>ST_MakeValid</c>, keeping only its areas — and the edit says so, because a bow-tie kept as sent
+    /// breaks every later spatial query on it. A valid polygon passes through untouched; <c>ST_IsValid</c> is
+    /// asked first so the repair is paid only by a shape that needs it. A repair that leaves several parts
+    /// on a single-polygon column fails that feature with the database's refusal rather than dropping a part.
+    /// </para>
+    /// </remarks>
+    private (string Stored, string Repaired) GeometrySql(int? sourceSrid)
+    {
+        string sent = sourceSrid is { } from && from != _layer.Srid
+            ? $"st_transform(st_geomfromwkb(@geom, {from}), {_layer.Srid})"
+            : $"st_geomfromwkb(@geom, {_layer.Srid})";
+
+        if (_geometryKind is not (GeometryKind.Polygon or GeometryKind.MultiPolygon))
+        {
+            return (sent, "false");
+        }
+
+        string valid = $"(case when st_isvalid({sent}) then {sent} else st_collectionextract(st_makevalid({sent}), 3) end)";
+
+        string stored = _geometryKind == GeometryKind.MultiPolygon
+            ? $"st_multi({valid})"
+            : $"(case when st_numgeometries({valid}) = 1 then st_geometryn({valid}, 1) else {valid} end)";
+
+        return (stored, $"not st_isvalid({sent})");
+    }
+
+    /// <summary>Runs a write that returns a row, and reads its object id, GlobalID and whether its shape was repaired.</summary>
+    private async Task<(long Id, Guid? GlobalId, bool Repaired)?> ReturnedAsync(NpgsqlCommand command, CancellationToken cancellationToken)
     {
         await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
@@ -121,8 +168,10 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
 
         long id = Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture);
         Guid? global = _globalId is not null && !reader.IsDBNull(1) ? reader.GetGuid(1) : null;
+        int repairedAt = _globalId is null ? 1 : 2;
+        bool repaired = reader.FieldCount > repairedAt && !reader.IsDBNull(repairedAt) && reader.GetBoolean(repairedAt);
 
-        return (id, global);
+        return (id, global, repaired);
     }
 
     /// <inheritdoc/>
@@ -356,10 +405,13 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         List<string> columns = [.. bound.Select(b => LayerDefinition.Quote(b.Column))];
         List<string> values = [.. bound.Select((_, i) => $"@v{i}")];
 
+        string repairedSql = "false";
+
         if (add.Geometry is { IsEmpty: false })
         {
+            (string stored, repairedSql) = GeometrySql(add.GeometrySrid);
             columns.Add(LayerDefinition.Quote(_layer.GeometryColumn));
-            values.Add($"st_geomfromwkb(@geom, {_layer.Srid})");
+            values.Add(stored);
         }
 
         // Asked before signing, so a feature that carries nothing but what this server would
@@ -396,7 +448,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         string sql =
             $"insert into {_layer.QuotedTable} ({string.Join(", ", columns)}) "
             + $"values ({string.Join(", ", values)})"
-            + Returning;
+            + Returning + $", {repairedSql}";
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
         Bind(command, bound, add.Geometry);
@@ -408,8 +460,8 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
 
         try
         {
-            (long Id, Guid? GlobalId) row = (await ReturnedAsync(command, cancellationToken).ConfigureAwait(false))!.Value;
-            return EditResult.Ok(row.Id) with { GlobalId = row.GlobalId };
+            (long Id, Guid? GlobalId, bool Repaired) row = (await ReturnedAsync(command, cancellationToken).ConfigureAwait(false))!.Value;
+            return EditResult.Ok(row.Id) with { GlobalId = row.GlobalId, GeometryRepaired = row.Repaired };
         }
         catch (PostgresException e)
         {
@@ -526,13 +578,21 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             return EditResult.Failed(update.Identity, error!);
         }
 
+        if (await LeftOutsideItsNewSubtypeAsync(connection, transaction, update, batch, cancellationToken)
+                .ConfigureAwait(false) is { } outside)
+        {
+            return EditResult.Failed(update.Identity, outside);
+        }
+
         List<string> assignments =
             [.. bound.Select((b, i) => $"{LayerDefinition.Quote(b.Column)} = @v{i}")];
 
+        string repairedSql = "false";
+
         if (update.Geometry is not null)
         {
-            assignments.Add(
-                $"{LayerDefinition.Quote(_layer.GeometryColumn)} = st_geomfromwkb(@geom, {_layer.Srid})");
+            (string stored, repairedSql) = GeometrySql(update.GeometrySrid);
+            assignments.Add($"{LayerDefinition.Quote(_layer.GeometryColumn)} = {stored}");
         }
 
         string? owner = OwnerFilter(batch);
@@ -600,7 +660,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id"
             + (expected is null ? string.Empty : " and xmin::text = any(@expected)")
             + OwnerClause(owner)
-            + Returning;
+            + Returning + $", {repairedSql}";
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
         command.Parameters.AddWithValue("id", update.Identity);
@@ -626,7 +686,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         {
             if (await ReturnedAsync(command, cancellationToken).ConfigureAwait(false) is { } changed)
             {
-                return EditResult.Ok(update.Identity) with { GlobalId = changed.GlobalId };
+                return EditResult.Ok(update.Identity) with { GlobalId = changed.GlobalId, GeometryRepaired = changed.Repaired };
             }
 
             // Nothing changed. That is a missing row, somebody else's row, or a version that
@@ -696,6 +756,88 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
     /// <summary>
     /// The name a row's creator must equal for this batch to change it, or null for any row — ADR-064.
     /// </summary>
+    /// <summary>
+    /// Why an update that moves a feature to another subtype leaves a value it did not send outside the new
+    /// subtype's domain — or null when it does not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Q-152, owner decision 2026-09-15: refuse, and name the field.</b> ADR-065 checked what is written
+    /// and not the row, so <c>kind</c> 2 → 1 with <c>pressure</c> left at 80 was accepted although subtype 1
+    /// allows 0–50 — the edit made the row invalid and nothing said so. Now it is refused, and the refusal
+    /// says which field to send with the change.
+    /// </para>
+    /// <para>
+    /// <b>Only when the subtype changes, and only the columns the new subtype governs and the edit did not
+    /// send</b>, so the ordinary update pays nothing: the stored values are read in one statement for the
+    /// one feature, and a feature already of that subtype is not re-judged for values it already had.
+    /// Ownership is applied to the read, so a caller who may not change the row learns nothing of it here.
+    /// </para>
+    /// </remarks>
+    private async Task<string?> LeftOutsideItsNewSubtypeAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        FeatureUpdate update,
+        EditBatch batch,
+        CancellationToken cancellationToken)
+    {
+        if (_subtypes is not { } subtypes
+            || !update.Attributes.TryGetValue(subtypes.Field, out object? sent)
+            || !DomainRules.TryCode(sent, out long code)
+            || subtypes.Find(code) is not { } target)
+        {
+            return null;
+        }
+
+        FieldDescription[] unsent = [.. _fields.Where(f =>
+            target.Domains.ContainsKey(f.Name) && !update.Attributes.ContainsKey(f.Name))];
+
+        if (unsent.Length == 0)
+        {
+            return null;
+        }
+
+        string? owner = OwnerFilter(batch);
+
+        await using NpgsqlCommand command = new(
+            $"select {LayerDefinition.Quote(subtypes.Field)}::bigint, "
+            + string.Join(", ", unsent.Select(f => LayerDefinition.Quote(f.Name)))
+            + $" from {_layer.QuotedTable} where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id"
+            + OwnerClause(owner),
+            connection,
+            transaction);
+
+        command.Parameters.AddWithValue("id", update.Identity);
+
+        if (owner is not null)
+        {
+            command.Parameters.AddWithValue("owner", owner);
+        }
+
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        // No row, or not the caller's: the update itself answers that, in its own words.
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+            || (!reader.IsDBNull(0) && reader.GetInt64(0) == code))
+        {
+            return null;
+        }
+
+        for (int i = 0; i < unsent.Length; i++)
+        {
+            object? stored = reader.IsDBNull(i + 1) ? null : reader.GetValue(i + 1);
+
+            if (DomainRules.Refusal(unsent[i], stored, target.Domains[unsent[i].Name], target) is { } refusal)
+            {
+                return $"{refusal} This edit moves the feature to subtype {target.Code} ({target.Name}) and leaves "
+                    + $"'{unsent[i].Name}' as it was, which the new subtype does not allow. Send '{unsent[i].Name}' "
+                    + "with a value it allows, in the same edit.";
+            }
+        }
+
+        return null;
+    }
+
     private static string? OwnerFilter(EditBatch batch) =>
         batch.OwnOnly ? batch.Editor ?? string.Empty : null;
 

@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED` |
 | **Confidence** | `MEDIUM` |
-| **Decided** | 2026-09-15. The owner asked for the gaps an experienced ArcGIS user would see to be worked through (*"kalandan devam et"*), and this was on that list as *CORS yok*. **That cross-origin reads should work is the owner's, through that instruction. The default of every origin, the refusal of credentials and the closed administrative paths are `INFERRED`** and are listed for confirmation as [Q-151](../open-questions.md) |
+| **Decided** | 2026-09-15. The owner asked for the gaps an experienced ArcGIS user would see to be worked through (*"kalandan devam et"*), and this was on that list as *CORS yok*. **That cross-origin reads should work is the owner's, through that instruction. The default of every origin, the refusal of credentials and the closed administrative paths were `INFERRED`** and were confirmed by the owner the same day on [Q-151](../open-questions.md) |
 | **Supersedes** | — |
 | **Superseded by** | — |
 

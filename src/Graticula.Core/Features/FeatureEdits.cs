@@ -9,13 +9,21 @@ namespace Graticula.Features;
 /// <summary>A feature to insert.</summary>
 /// <param name="Attributes">Column values, by column name. The object id is not among them.</param>
 /// <param name="Geometry">Its shape, or null for an attribute-only row.</param>
-public sealed record FeatureAdd(IReadOnlyDictionary<string, object?> Attributes, Geometry? Geometry);
+/// <param name="GeometrySrid">
+/// The spatial reference the shape was sent in, when it is not the layer's; the writer projects it into
+/// the layer's (Q-153, owner decision 2026-09-15). Null is the layer's own.
+/// </param>
+public sealed record FeatureAdd(
+    IReadOnlyDictionary<string, object?> Attributes, Geometry? Geometry, int? GeometrySrid = null);
 
 /// <summary>A feature to change.</summary>
 /// <param name="Identity">Which row, by its integer identity.</param>
 /// <param name="Attributes">The columns to change. Absent columns are left alone.</param>
 /// <param name="Geometry">
 /// The new shape, or null to leave the existing one untouched.
+/// </param>
+/// <param name="GeometrySrid">
+/// The spatial reference the shape was sent in, when it is not the layer's (Q-153). Null is the layer's own.
 /// </param>
 /// <remarks>
 /// <b>Null geometry means "unchanged", not "clear it".</b> ArcGIS clients
@@ -25,7 +33,7 @@ public sealed record FeatureAdd(IReadOnlyDictionary<string, object?> Attributes,
 /// it needs an explicit operation rather than an omission.
 /// </remarks>
 public sealed record FeatureUpdate(
-    long Identity, IReadOnlyDictionary<string, object?> Attributes, Geometry? Geometry);
+    long Identity, IReadOnlyDictionary<string, object?> Attributes, Geometry? Geometry, int? GeometrySrid = null);
 
 /// <summary>What happened to one feature.</summary>
 /// <param name="Identity">Its integer identity, or -1 when it never got one.</param>
@@ -54,6 +62,10 @@ public sealed record FeatureUpdate(
 /// there, so an OGC API Features verb answers <c>403</c> rather than 400 or 404.
 /// </param>
 /// <param name="GlobalId">The row's GlobalID, on a layer that has them; null otherwise.</param>
+/// <param name="GeometryRepaired">
+/// Whether the polygon sent was not valid — self-intersecting, typically — and was stored as the valid
+/// polygon PostGIS makes of it (Q-153). A success still, and said so the client can re-read the shape.
+/// </param>
 public readonly record struct EditResult(
     long Identity,
     bool Succeeded,
@@ -61,7 +73,8 @@ public readonly record struct EditResult(
     bool NoSuchFeature = false,
     bool VersionMoved = false,
     bool NotYours = false,
-    Guid? GlobalId = null)
+    Guid? GlobalId = null,
+    bool GeometryRepaired = false)
 {
     /// <summary>A success.</summary>
     public static EditResult Ok(long objectId) => new(objectId, true, null);

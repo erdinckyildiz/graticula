@@ -182,7 +182,7 @@ public static class ApplyEditsResponse
                 ? Failure(result.Identity, result.Error ?? "The edit failed.")
                 : rolledBack
                     ? Failure(adds ? -1 : result.Identity, RolledBackDescription)
-                    : Success(result.Identity, result.GlobalId);
+                    : Success(result.Identity, result.GlobalId, result.GeometryRepaired);
         }
 
         for (int i = 0; i < results.Length; i++)
@@ -193,12 +193,25 @@ public static class ApplyEditsResponse
         return results;
     }
 
-    private static object Success(long objectId, Guid? globalId = null) => new
-    {
-        objectId,
-        globalId = globalId is { } value ? GlobalIds.Braced(value) : null,
-        success = true,
-    };
+    private static object Success(long objectId, Guid? globalId = null, bool geometryRepaired = false) =>
+        geometryRepaired
+            ? new
+            {
+                objectId,
+                globalId = globalId is { } value ? GlobalIds.Braced(value) : null,
+                success = true,
+
+                // <b>Not in ArcGIS's result, and added only when true (Q-153).</b> The polygon sent was
+                // not valid and was stored as the valid polygon made of it; a client that ignores the field
+                // loses nothing, and one that reads it knows to fetch the shape it now has.
+                geometryRepaired = true,
+            }
+            : new
+            {
+                objectId,
+                globalId = globalId is { } value2 ? GlobalIds.Braced(value2) : null,
+                success = true,
+            };
 
     /// <summary>A failed edit, in the shape ArcGIS clients read.</summary>
     /// <remarks>

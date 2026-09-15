@@ -86,9 +86,9 @@ public static class ApplyEditsRequest
         {
             if (TryFeature(feature, layer, fields, requireObjectId: false,
                     out long _, out Dictionary<string, object?>? attributes,
-                    out Geometry? geometry, out string? why))
+                    out Geometry? geometry, out int? sourceSrid, out string? why))
             {
-                parsedAdds.Add(new FeatureAdd(attributes!, geometry));
+                parsedAdds.Add(new FeatureAdd(attributes!, geometry, sourceSrid));
             }
             else
             {
@@ -104,9 +104,9 @@ public static class ApplyEditsRequest
         {
             if (TryFeature(feature, layer, fields, requireObjectId: true,
                     out long objectId, out Dictionary<string, object?>? attributes,
-                    out Geometry? geometry, out string? why))
+                    out Geometry? geometry, out int? sourceSrid, out string? why))
             {
-                parsedUpdates.Add(new FeatureUpdate(objectId, attributes!, geometry));
+                parsedUpdates.Add(new FeatureUpdate(objectId, attributes!, geometry, sourceSrid));
             }
             else
             {
@@ -253,11 +253,13 @@ public static class ApplyEditsRequest
         out long objectId,
         out Dictionary<string, object?>? attributes,
         out Geometry? geometry,
+        out int? sourceSrid,
         out string? error)
     {
         objectId = -1;
         attributes = null;
         geometry = null;
+        sourceSrid = null;
         error = null;
 
         if (feature.ValueKind != JsonValueKind.Object)
@@ -304,7 +306,7 @@ public static class ApplyEditsRequest
         if (feature.TryGetProperty("geometry", out JsonElement shape)
             && shape.ValueKind != JsonValueKind.Null)
         {
-            if (!ArcGisGeometryReader.TryRead(shape, layer.Srid, out geometry, out error))
+            if (!ArcGisGeometryReader.TryReadForEdit(shape, layer.Srid, out geometry, out sourceSrid, out error))
             {
                 return false;
             }

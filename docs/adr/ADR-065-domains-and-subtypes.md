@@ -88,8 +88,11 @@ instances of a setting stored and not honoured (D-67). It is still a behaviour d
 operator migrating data with known out-of-list values will meet, and the refusal is written to tell
 them which value and which domain.
 
-**What is checked is what is written, not the row.** An update that moves a feature to a subtype
-whose list excludes a value already in the row, without sending that column, is accepted. Checking
+~~**What is checked is what is written, not the row.** An update that moves a feature to a subtype
+whose list excludes a value already in the row, without sending that column, is accepted.~~
+*(Reversed 2026-09-15 by owner decision on [Q-152](../open-questions.md): such an update is refused, and the
+refusal names the field to send with the change — the edit is what makes the row invalid. A feature that stays
+in its subtype is still not re-judged for values it already had, so the rest of this paragraph holds for it.)* Checking
 the row would refuse an edit for something the client never sent. The consequence is that a table
 can hold values no current domain allows — which it already could, since A-027 says a write that
 bypasses this server is not seen by it.
