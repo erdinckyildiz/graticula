@@ -564,6 +564,25 @@ public sealed class PostGisFeatureSource
 
         if (spatial.Distance > 0)
         {
+            if (Graticula.Geometries.AxisOrder.IsGeographic(_layer.Srid))
+            {
+                // <b>On the ellipsoid, for a layer stored in degrees — 2026-09-15.</b> The distance
+                // is metres and the layer's units are degrees, so the comparison is made in
+                // `geography`, where PostGIS measures in metres. The cast defeats the geometry
+                // index, so a box test goes in front of it: the filter widened by the distance in
+                // degrees of latitude, and by that divided by the cosine of the furthest latitude
+                // the widened box reaches, which is never narrower than the circle it has to hold.
+                // Near a pole the cosine goes to nothing, the box to the whole band, and the query
+                // to a scan — correct, and slower, where hardly anybody asks.
+                const string DegreesOfLatitude = "(@distance / 111000.0)";
+
+                string widened =
+                    $"st_expand({filter}, {DegreesOfLatitude} / greatest(cos(radians(least(89.9, "
+                    + $"greatest(abs(st_ymin({filter})), abs(st_ymax({filter}))) + {DegreesOfLatitude}))), 0.001))";
+
+                return $"{column} && {widened} and st_dwithin({column}::geography, {filter}::geography, @distance)";
+            }
+
             return $"st_dwithin({column}, {filter}, @distance)";
         }
 

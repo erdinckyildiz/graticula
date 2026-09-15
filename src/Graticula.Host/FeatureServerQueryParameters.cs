@@ -1007,15 +1007,24 @@ internal static class FeatureServerQueryParameters
     }
 
     /// <summary>
-    /// The buffer distance, converted into the layer's own units.
+    /// The buffer distance, in metres.
     /// </summary>
     /// <remarks>
-    /// <b>Refused on a geographic layer, and this is the interesting case.</b>
-    /// A distance in metres against degrees is not a unit conversion — the
-    /// number of metres in a degree of longitude depends on where you are — so
-    /// there is no factor to apply. Doing it properly means a geography cast or
-    /// a projected intermediate, and guessing would put the buffer in the wrong
-    /// place by hundreds of kilometres at high latitudes.
+    /// <para>
+    /// <b>A geographic layer was refused, and now its provider measures on the ellipsoid.</b> A
+    /// distance in metres against degrees is not a unit conversion — the number of metres in a
+    /// degree of longitude depends on where you are — so there is no factor to apply here. Until
+    /// 2026-09-15 that was answered by refusing, which on the showcase refused every *near me*
+    /// query against most of its layers, all of them stored in 4326. The provider now casts to
+    /// <c>geography</c> for a geographic layer, which is the doing-it-properly this sentence used
+    /// to say was missing.
+    /// </para>
+    /// <para>
+    /// <b>And the refusal only ever caught 4326.</b> A layer in any other geographic reference —
+    /// 4258, 4674 — was sent the metres as though they were its own units, which is degrees, so a
+    /// ten-kilometre search was a ten-thousand-degree one. The provider asks
+    /// <c>AxisOrder.IsGeographic</c> rather than comparing with one code.
+    /// </para>
     /// </remarks>
     private static bool TryDistance(
         IQueryCollection parameters, int layerSrid, out double distance, out string? error)
@@ -1040,17 +1049,6 @@ internal static class FeatureServerQueryParameters
         if (value == 0)
         {
             return true;
-        }
-
-        if (layerSrid == 4326)
-        {
-            error =
-                "'distance' is not supported on a layer stored in degrees (EPSG:4326). A distance "
-                + "in metres has no fixed size in degrees — it depends on latitude — so there is "
-                + "no conversion to apply and a guess would be wrong by hundreds of kilometres "
-                + "near the poles. Publish the layer in a projected reference, or use a filter "
-                + "geometry you have already buffered.";
-            return false;
         }
 
         string units = First(parameters, "units");

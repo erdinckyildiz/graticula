@@ -312,6 +312,28 @@ public sealed class FeatureServerQueryParametersTests
         Assert.Equal(5, query.Spatial!.Distance);
     }
 
+    /// <summary>
+    /// A distance is accepted on a layer stored in degrees, in metres, for its provider to measure
+    /// on the ellipsoid.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15: it was refused on 4326, which on the showcase refused a *near me* query
+    /// against most layers.
+    /// </remarks>
+    [Fact]
+    public void A_distance_on_a_geographic_layer_is_accepted_in_metres()
+    {
+        Assert.True(
+            FeatureServerQueryParameters.TryParse(
+                Query(("geometry", "29,41"), ("geometryType", "esriGeometryPoint"), ("inSR", "4326"),
+                    ("distance", "10"), ("units", "esriSRUnit_Kilometer")),
+                "objectid", 4326, Fields,
+                out FeatureQuery? query, out _, out string? error),
+            error);
+
+        Assert.Equal(10_000, query!.Spatial!.Distance);
+    }
+
     [Fact]
     public void The_short_syntax_is_only_defined_for_envelopes_and_points()
     {
