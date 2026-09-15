@@ -202,6 +202,12 @@ public sealed class EditAliasConformanceTests : ArcGisClient
         Assert.Equal(2, results.Length);
         Assert.False(results[0].GetProperty("success").GetBoolean());
         Assert.True(response.GetProperty("rolledBack").GetBoolean());
+
+        // The good feature was rolled back with the bad one, so it is not a success either:
+        // a client reads addResults[i].success, not rolledBack.
+        Assert.False(
+            results[1].GetProperty("success").GetBoolean(),
+            $"A feature in a rolled-back batch was reported as added: {results[1]}");
     }
 
     // ---------- what is refused ----------

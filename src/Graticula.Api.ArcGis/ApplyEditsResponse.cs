@@ -34,14 +34,12 @@ public static class ApplyEditsResponse
 
         return new
         {
-            addResults = Merge(outcome.Adds, parsed.RejectedAdds),
-            updateResults = Merge(outcome.Updates, parsed.RejectedUpdates),
-            deleteResults = Merge(outcome.Deletes, parsed.RejectedDeletes),
+            addResults = Merge(outcome.Adds, parsed.RejectedAdds, outcome.RolledBack, adds: true),
+            updateResults = Merge(outcome.Updates, parsed.RejectedUpdates, outcome.RolledBack, adds: false),
+            deleteResults = Merge(outcome.Deletes, parsed.RejectedDeletes, outcome.RolledBack, adds: false),
 
-            // Not part of Esri's shape, and included anyway. A client that asked
-            // for all-or-nothing and got a response full of successes alongside
-            // one failure has no other way to learn that none of the successes
-            // were kept — every result would say true.
+            // Not part of Esri's shape, and included anyway: the per-feature results
+            // already say nothing was kept, and this says why in one place.
             rolledBack = outcome.RolledBack,
         };
     }
@@ -93,9 +91,9 @@ public static class ApplyEditsResponse
 
         (string name, object[] results) = kind switch
         {
-            EditKind.Add => ("addResults", Merge(outcome.Adds, parsed.RejectedAdds)),
-            EditKind.Update => ("updateResults", Merge(outcome.Updates, parsed.RejectedUpdates)),
-            _ => ("deleteResults", Merge(outcome.Deletes, parsed.RejectedDeletes)),
+            EditKind.Add => ("addResults", Merge(outcome.Adds, parsed.RejectedAdds, outcome.RolledBack, adds: true)),
+            EditKind.Update => ("updateResults", Merge(outcome.Updates, parsed.RejectedUpdates, outcome.RolledBack, adds: false)),
+            _ => ("deleteResults", Merge(outcome.Deletes, parsed.RejectedDeletes, outcome.RolledBack, adds: false)),
         };
 
         return new Dictionary<string, object>
@@ -105,8 +103,30 @@ public static class ApplyEditsResponse
         };
     }
 
+    /// <summary>
+    /// What a feature that succeeded is told when the batch it was in was rolled back.
+    /// </summary>
+    internal const string RolledBackDescription =
+        "Not applied: another edit in this request failed and rollbackOnFailure was set, so "
+        + "nothing in the request was kept. Fix the edit that failed and send the request again.";
+
+    /// <summary>Puts applied results and parser rejections back in submitted order.</summary>
+    /// <remarks>
+    /// <b>A rolled-back batch has no successes, whatever each edit did on its own.</b> Until
+    /// 2026-09-15 an edit that ran cleanly inside a batch that was then rolled back answered
+    /// <c>success: true</c> with an object id, and only the extra <c>rolledBack</c> flag said
+    /// otherwise. No ArcGIS client reads that flag: the JS SDK and Runtime read
+    /// <c>addResults[i].success</c>, so they recorded a feature that did not exist and then tried
+    /// to attach to it or update it. Found against the showcase with one good add and one out of
+    /// its domain — the good one came back as object id 4, and there was no feature 4. Each such
+    /// edit is now a failure that says it was not kept and why; an add carries <c>-1</c>, since the
+    /// id it was given was rolled back with it, and an update or delete keeps the id it named.
+    /// </remarks>
     private static object[] Merge(
-        IReadOnlyList<EditResult> applied, IReadOnlyList<ApplyEditsRequest.Rejected> rejected)
+        IReadOnlyList<EditResult> applied,
+        IReadOnlyList<ApplyEditsRequest.Rejected> rejected,
+        bool rolledBack,
+        bool adds)
     {
         object[] results = new object[applied.Count + rejected.Count];
 
@@ -134,9 +154,11 @@ public static class ApplyEditsResponse
                 break;
             }
 
-            results[at] = result.Succeeded
-                ? Success(result.Identity)
-                : Failure(result.Identity, result.Error ?? "The edit failed.");
+            results[at] = !result.Succeeded
+                ? Failure(result.Identity, result.Error ?? "The edit failed.")
+                : rolledBack
+                    ? Failure(adds ? -1 : result.Identity, RolledBackDescription)
+                    : Success(result.Identity);
         }
 
         for (int i = 0; i < results.Length; i++)
