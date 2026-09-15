@@ -299,9 +299,9 @@ public sealed class OurGroupsAreThePortalsGroupsTests
     [Fact]
     public void Only_a_hosted_service_is_described_as_one()
     {
-        Assert.Contains("Hosted Service", PortalEndpoints.Keywords(tiles: false, hosted: true));
-        Assert.DoesNotContain("Hosted Service", PortalEndpoints.Keywords(tiles: false, hosted: false));
-        Assert.DoesNotContain("Hosted Service", PortalEndpoints.Keywords(tiles: true, hosted: false));
-        Assert.Contains("Feature Access", PortalEndpoints.Keywords(tiles: false, hosted: false));
+        Assert.Contains("Hosted Service", PortalEndpoints.Keywords("FeatureServer", hosted: true));
+        Assert.DoesNotContain("Hosted Service", PortalEndpoints.Keywords("FeatureServer", hosted: false));
+        Assert.DoesNotContain("Hosted Service", PortalEndpoints.Keywords("VectorTileServer", hosted: false));
+        Assert.Contains("Feature Access", PortalEndpoints.Keywords("FeatureServer", hosted: false));
     }
 }

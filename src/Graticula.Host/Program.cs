@@ -2258,8 +2258,7 @@ public static class Program
         // client browsing for it could not find what a client holding the URL could use.
         List<PublishedService> tileable =
         [
-            .. visible.Where(s =>
-                s.Layers.Count > 0 && s.Layers.All(VectorTileEndpoints.Tileable)),
+            .. visible.Where(ServiceFaces.Tileable),
         ];
 
         // <b>Every service with a drawable layer also has a MapServer</b>, added
@@ -2268,8 +2267,7 @@ public static class Program
         // argument the WFS link on a service page made three commits earlier.
         List<PublishedService> drawable =
         [
-            .. visible.Where(s =>
-                s.Layers.Any(l => l.Definition.GeometryColumn is { Length: > 0 })),
+            .. visible.Where(ServiceFaces.Drawable),
         ];
 
         /*

@@ -771,7 +771,7 @@ internal static class PortalEndpoints
         [
             .. visible
                 .Where(service => service.Owner is { } owner && owner == current.Principal.Id)
-                .Select(service => Item(context, service)),
+                .SelectMany(service => ItemsOf(context, service).Select(face => face.Item)),
         ];
 
         return Results.Ok(new
@@ -851,11 +851,12 @@ internal static class PortalEndpoints
 
         foreach (PublishedService service in visible)
         {
-            object item = Item(context, service);
-
-            if (PortalQuery.Matches(item, query, service.SharedWith))
+            foreach ((_, object item) in ItemsOf(context, service))
             {
-                results.Add(item);
+                if (PortalQuery.Matches(item, query, service.SharedWith))
+                {
+                    results.Add(item);
+                }
             }
         }
 
@@ -890,9 +891,12 @@ internal static class PortalEndpoints
 
         foreach (PublishedService service in visible)
         {
-            if (string.Equals(ItemId(service), id, StringComparison.OrdinalIgnoreCase))
+            foreach ((string itemId, object item) in ItemsOf(context, service))
             {
-                return Results.Ok(Item(context, service));
+                if (string.Equals(itemId, id, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Results.Ok(item);
+                }
             }
         }
 
@@ -936,7 +940,7 @@ internal static class PortalEndpoints
 
         foreach (PublishedService service in visible)
         {
-            if (string.Equals(ItemId(service), id, StringComparison.OrdinalIgnoreCase))
+            if (ItemsOf(context, service).Any(face => string.Equals(face.Id, id, StringComparison.OrdinalIgnoreCase)))
             {
                 return Results.Ok(new { });
             }
@@ -984,7 +988,55 @@ internal static class PortalEndpoints
         ];
     }
 
-    private static object Item(HttpContext context, PublishedService service)
+    /// <summary>
+    /// Every item a service is in the portal: its own, and one per further face it answers.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One item per face since 2026-09-15, as ArcGIS lists a hosted feature layer, its map image
+    /// layer and its vector tile layer as three items.</b> A service here answers as a FeatureServer,
+    /// a MapServer where it has a drawable layer and a VectorTileServer where every layer tiles — the
+    /// directory has listed all three — and the portal offered only the first, so Pro's portal pane had
+    /// no vector tile layer or map image layer to add.
+    /// </para>
+    /// <para>
+    /// <b>The service's own id is its primary item's, unchanged</b>, so every item a client already
+    /// holds still resolves. A further face's id is derived from the service id and the face name, so it
+    /// is the same on every request and on every node, and nothing new is stored.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="service">The service.</param>
+    /// <returns>Each item's id with the item.</returns>
+    internal static IEnumerable<(string Id, object Item)> ItemsOf(HttpContext context, PublishedService service)
+    {
+        string primary = PrimaryFace(service);
+
+        yield return (ItemId(service), Item(context, service, primary));
+
+        if (primary != "MapServer" && ServiceFaces.Drawable(service))
+        {
+            yield return (FaceItemId(service, "MapServer"), Item(context, service, "MapServer"));
+        }
+
+        if (primary != "VectorTileServer" && ServiceFaces.Tileable(service))
+        {
+            yield return (FaceItemId(service, "VectorTileServer"), Item(context, service, "VectorTileServer"));
+        }
+    }
+
+    private static string PrimaryFace(PublishedService service) =>
+        string.Equals(service.Kind, "VectorTileServer", StringComparison.OrdinalIgnoreCase) ? "VectorTileServer" : "FeatureServer";
+
+    /// <summary>A further face's item id: 32 hex characters derived from the service id and the face.</summary>
+    /// <param name="service">The service.</param>
+    /// <param name="face">The face.</param>
+    /// <returns>The id.</returns>
+    internal static string FaceItemId(PublishedService service, string face) =>
+        Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes($"{service.Id:N}/{face}")))[..32];
+
+    private static object Item(HttpContext context, PublishedService service, string face)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
@@ -1006,17 +1058,18 @@ internal static class PortalEndpoints
             ? current.Principal.Name
             : "graticula";
 
-        bool tiles = string.Equals(service.Kind, "VectorTileServer", StringComparison.OrdinalIgnoreCase);
-
-        string face = tiles ? "VectorTileServer" : "FeatureServer";
-
         return new
         {
-            id = ItemId(service),
+            id = face == PrimaryFace(service) ? ItemId(service) : FaceItemId(service, face),
             owner,
             title = service.Name,
             name = service.Name,
-            type = tiles ? "Vector Tile Service" : "Feature Service",
+            type = face switch
+            {
+                "VectorTileServer" => "Vector Tile Service",
+                "MapServer" => "Map Service",
+                _ => "Feature Service",
+            },
 
             // <b>Pro reads these to decide what an item is before it opens it.</b>
             // An item with no type keywords is one it will not offer to add.
@@ -1025,7 +1078,7 @@ internal static class PortalEndpoints
             // It was on every item, so a service over a registered PostGIS table or a GeoParquet
             // file was offered to Pro as hosted, and Pro's hosted-only actions (overwrite, append,
             // delete data with the item) pointed at somebody else's database or at a file.
-            typeKeywords = Keywords(tiles, service.Layers.Count > 0 && service.Layers.All(l => l.Definition.IsHosted)),
+            typeKeywords = Keywords(face, service.Layers.Count > 0 && service.Layers.All(l => l.Definition.IsHosted)),
             description = service.Description,
             snippet = service.Description,
             tags = service.Folder is null ? Array.Empty<string>() : new[] { service.Folder },
@@ -1043,14 +1096,17 @@ internal static class PortalEndpoints
     }
 
     /// <summary>The type keywords for an item, with <c>Hosted Service</c> only where it is true.</summary>
-    /// <param name="tiles">Whether the item is a vector tile service.</param>
+    /// <param name="face">The face the item is: FeatureServer, MapServer or VectorTileServer.</param>
     /// <param name="hosted">Whether every layer in it is hosted.</param>
     /// <returns>The keywords.</returns>
-    internal static string[] Keywords(bool tiles, bool hosted)
+    internal static string[] Keywords(string face, bool hosted)
     {
-        string[] keywords = tiles
-            ? ["ArcGIS Server", "Data", "Service", "Vector Tile Service"]
-            : ["ArcGIS Server", "Data", "Feature Access", "Feature Service", "Service"];
+        string[] keywords = face switch
+        {
+            "VectorTileServer" => ["ArcGIS Server", "Data", "Service", "Vector Tile Service"],
+            "MapServer" => ["ArcGIS Server", "Data", "Map Service", "Service"],
+            _ => ["ArcGIS Server", "Data", "Feature Access", "Feature Service", "Service"],
+        };
 
         return hosted ? [.. keywords, "Hosted Service"] : keywords;
     }

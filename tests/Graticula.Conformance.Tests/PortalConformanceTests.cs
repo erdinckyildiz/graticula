@@ -254,6 +254,42 @@ public sealed class PortalConformanceTests : ArcGisClient
         }
     }
 
+    /// <summary>
+    /// A service's MapServer and VectorTileServer are items of their own, each opening at its own url.
+    /// </summary>
+    /// <remarks>Written 2026-09-15: the portal listed one Feature Service item per service, so Pro's
+    /// portal pane had no map image layer or vector tile layer to add although the directory listed both.</remarks>
+    [Fact]
+    public async Task Every_face_the_directory_lists_is_an_item_that_opens()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(string.IsNullOrWhiteSpace(token));
+
+        JsonElement[] items = [.. (await GetJsonAsync($"/sharing/rest/search?q=&f=json&token={token}"))
+            .GetProperty("results").EnumerateArray()];
+
+        Assert.Equal(items.Length, items.Select(i => i.GetProperty("id").GetString()).Distinct().Count());
+
+        foreach (string type in (string[])["Map Service", "Vector Tile Service"])
+        {
+            JsonElement item = items.FirstOrDefault(i => i.GetProperty("type").GetString() == type);
+
+            Assert.True(item.ValueKind == JsonValueKind.Object, $"No '{type}' item among {items.Length}, although the fixture publishes drawable, tileable layers.");
+
+            string face = type == "Map Service" ? "/MapServer" : "/VectorTileServer";
+            string url = item.GetProperty("url").GetString()!;
+            Assert.EndsWith(face, url, StringComparison.Ordinal);
+
+            using HttpResponseMessage opened = await Http.GetAsync(new Uri($"{url}?f=json&token={token}"));
+            Assert.True(opened.IsSuccessStatusCode, $"The {type} item's url answered {(int)opened.StatusCode}.");
+
+            JsonElement read = await GetJsonAsync($"/sharing/rest/content/items/{item.GetProperty("id").GetString()}?token={token}");
+            Assert.Equal(type, read.GetProperty("type").GetString());
+        }
+    }
+
     [Fact]
     public async Task An_item_can_be_opened_the_way_pro_opens_it()
     {
