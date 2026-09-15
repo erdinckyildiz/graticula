@@ -2237,10 +2237,14 @@ public static class Program
                 statusCode: 404);
         }
 
+        // <b>The tile face's own rule, not a copy of it.</b> This read `IsHosted` until 2026-09-13,
+        // which was the same rule until GeoParquet layers gained tiles that day (ADR-066 §9,
+        // amended): their VectorTileServer answered and the directory never listed it, so a
+        // client browsing for it could not find what a client holding the URL could use.
         List<PublishedService> tileable =
         [
             .. visible.Where(s =>
-                s.Layers.Count > 0 && s.Layers.All(l => l.Definition.IsHosted)),
+                s.Layers.Count > 0 && s.Layers.All(VectorTileEndpoints.Tileable)),
         ];
 
         // <b>Every service with a drawable layer also has a MapServer</b>, added

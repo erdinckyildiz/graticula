@@ -2077,9 +2077,9 @@ async function loadEsri() {
     require([
       "esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer",
       "esri/layers/VectorTileLayer", "esri/layers/GeoJSONLayer",
-      "esri/layers/WebTileLayer", "esri/Basemap", "esri/config",
+      "esri/layers/WebTileLayer", "esri/Basemap", "esri/config", "esri/core/reactiveUtils",
     ], (Map, MapView, FeatureLayer, VectorTileLayer, GeoJSONLayer, WebTileLayer, Basemap,
-        config) => {
+        config, reactiveUtils) => {
       config.request.interceptors.push({
         urls: location.origin,
         before: params => {
@@ -2092,6 +2092,7 @@ async function loadEsri() {
 
       esri = {
         Map, MapView, FeatureLayer, VectorTileLayer, GeoJSONLayer, WebTileLayer, Basemap,
+        reactiveUtils,
       };
       resolve(esri);
     }, reject);
@@ -2245,6 +2246,13 @@ async function buildMap() {
         + "height, or WebGL being unavailable in this browser.")),
       15000)),
   ]);
+
+  // <b>After `when()`, not beside `new MapView`.</b> The first version of this line sat before the
+  // wait and called `popup.watch`; the UX review found every Map click then failed with
+  // *mapView.popup.watch is not a function* — on FeatureLayer previews too, because it broke the
+  // view rather than a layer. `watch` is gone from this SDK's widgets, and the popup is not built
+  // until the view is.
+  wirePopupKeyboard(view, (await loadEsri()).reactiveUtils);
 
   return view;
 }
@@ -2509,6 +2517,34 @@ async function offersTiles(root) {
 }
 
 /**
+ * Puts keyboard focus into a popup when it opens, and lets Escape close it.
+ *
+ * <b>For both popups, because the UX review found neither had it.</b> A popup opened by a click
+ * kept focus on the map, so the next Tab reached the zoom buttons and a keyboard user had no route
+ * into the attributes at all; and Escape did nothing. Wired on the view once, when it is built,
+ * so it covers the FeatureLayer popup the SDK opens by itself as well as the tiled one opened here.
+ */
+function wirePopupKeyboard(mapView, reactiveUtils) {
+  reactiveUtils.watch(() => mapView.popup?.visible, visible => {
+    if (!visible) return;
+
+    // After the SDK has rendered the panel, not synchronously with the flag.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const panel = mapView.popup.container;
+      const target = panel && panel.querySelector(
+        "calcite-action, button, a[href], [tabindex]:not([tabindex='-1'])");
+      if (target) target.focus();
+    }));
+  });
+
+  mapView.container.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || !mapView.popup?.visible) return;
+    mapView.popup.close();
+    mapView.container.focus?.();
+  });
+}
+
+/**
  * Shows the attributes of whatever a click landed on, for a layer drawn as tiles.
  *
  * <b>Why this exists at all: a `VectorTileLayer` carries no `popupTemplate`.</b> It is
@@ -2540,15 +2576,21 @@ function wireTileIdentify(mapView) {
 
     if (!graphic) return;
 
-    const rows = Object.entries(graphic.attributes)
-      .map(([k, v]) => `<tr><td>${h(k)}</td><td>${h(String(v))}</td></tr>`)
-      .join("");
+    // <b>Opened as a feature, not as content.</b> The first version passed `title` and an HTML
+    // table, and the SDK drew that popup with no close button — the UX review found a mouse user
+    // on a tiled layer had no visible way to dismiss it, while the same popup for a FeatureLayer
+    // has one. Handing the SDK the graphic with a template is the path the FeatureLayer popup
+    // takes, so the two now look and close alike.
+    const fields = Object.keys(graphic.attributes);
 
-    mapView.popup.open({
-      location: event.mapPoint,
+    graphic.popupTemplate = {
       title: name,
-      content: rows ? `<table class="popuptbl">${rows}</table>` : "(no attributes on this tile)",
-    });
+      content: fields.length
+        ? [{ type: "fields", fieldInfos: fields.map(fieldName => ({ fieldName, label: fieldName })) }]
+        : "(no attributes on this tile)",
+    };
+
+    mapView.popup.open({ location: event.mapPoint, features: [graphic] });
   });
 }
 
@@ -4778,6 +4820,13 @@ async function drawVisNow() {
 
     await show(named, document_);
   } catch (e) {
+    // <b>And the previous layer off the map.</b> The UX review switched layer tabs while the
+    // service was being stopped: the new tab went bold, this caption changed, and the map went on
+    // drawing the old layer — data that no longer matched anything on the screen.
+    // clearMap() closes the panel when it removes the last layer, and this caption is inside it.
+    clearMap();
+    $("mapPanel").classList.add("on");
+
     // <b>Into the caption rather than a toast.</b> A toast fades while the reader is still looking at
     // an empty map wondering whether it is slow or broken.
     $("legend").innerHTML = `<span class="val">${h(e.message || String(e))}</span>`;

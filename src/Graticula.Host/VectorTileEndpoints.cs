@@ -213,7 +213,7 @@ internal static class VectorTileEndpoints
     /// from data this server owns as system of record or reads in place under its own control,
     /// never from a database that belongs to somebody else.
     /// </remarks>
-    private static bool Tileable(PublishedLayer layer) =>
+    internal static bool Tileable(PublishedLayer layer) =>
         layer.Definition.IsHosted || Graticula.Platform.Admin.GeoParquetLocator.Is(layer.ConnectionString);
 
     /// <summary>

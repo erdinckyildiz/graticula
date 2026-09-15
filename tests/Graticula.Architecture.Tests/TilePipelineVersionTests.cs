@@ -102,7 +102,12 @@ public sealed class TilePipelineVersionTests
         // encoded the same way, from the same key — so raising `TilePipeline.Version`
         // would have thrown away every cached tile in every deployment to describe them
         // more accurately, which is the wrong half of the choice this check forces.
-        "c1556a246f1ad1cab496e787651e75c7e2b8d5f38daf33691ef264cda7f846a6";
+        //
+        // <b>Moved 2026-09-15, and the version did not move.</b> `VectorTileEndpoints.Tileable`
+        // became `internal` so the services directory asks the tile face's own rule instead of a
+        // copy of it: the directory still read `IsHosted`, so a GeoParquet service answered on
+        // /VectorTileServer and was never listed there. Visibility is not a byte of a tile.
+        "941eae078d495957df8de500a4745a0354a3845e9d5f36e4efc0094da8c3b311";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 1;
