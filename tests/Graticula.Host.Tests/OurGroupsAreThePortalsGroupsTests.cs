@@ -259,6 +259,14 @@ public sealed class OurGroupsAreThePortalsGroupsTests
         object portal = Portal(Group());
 
         Assert.True(PortalQuery.Matches(portal, string.Empty));
+
+        // `group:` finds what is shared with the group and nothing else — 2026-09-15.
+        Guid planning = Guid.NewGuid();
+        Assert.True(PortalQuery.Matches(portal, $"group:{planning:N}", [planning]));
+        Assert.True(PortalQuery.Matches(portal, $"group:{planning:D}", [planning]));
+        Assert.False(PortalQuery.Matches(portal, $"group:{Guid.NewGuid():N}", [planning]));
+        Assert.False(PortalQuery.Matches(portal, $"group:{planning:N}"));
+        Assert.False(PortalQuery.Matches(portal, "group:not-an-id", [planning]));
         Assert.True(PortalQuery.Matches(portal, "*"));
         Assert.True(PortalQuery.Matches(portal, "owner:root"));
         Assert.True(PortalQuery.Matches(portal, "access:private"));
@@ -279,5 +287,21 @@ public sealed class OurGroupsAreThePortalsGroupsTests
         Assert.False(PortalQuery.Matches(portal, "type:\"Feature Service\""));
         Assert.False(PortalQuery.Matches(
             portal, "url:https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer"));
+    }
+
+    /// <summary>
+    /// An item says it is a hosted service only when every layer in it is hosted.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15: every item carried <c>Hosted Service</c>, including services over a
+    /// registered PostGIS table and a GeoParquet file, which Pro treats as data it may overwrite.
+    /// </remarks>
+    [Fact]
+    public void Only_a_hosted_service_is_described_as_one()
+    {
+        Assert.Contains("Hosted Service", PortalEndpoints.Keywords(tiles: false, hosted: true));
+        Assert.DoesNotContain("Hosted Service", PortalEndpoints.Keywords(tiles: false, hosted: false));
+        Assert.DoesNotContain("Hosted Service", PortalEndpoints.Keywords(tiles: true, hosted: false));
+        Assert.Contains("Feature Access", PortalEndpoints.Keywords(tiles: false, hosted: false));
     }
 }

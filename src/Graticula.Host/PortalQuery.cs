@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 
@@ -37,14 +38,23 @@ internal static class PortalQuery
     /// <summary>Clauses that are understood, and one that is deliberately ignored.</summary>
     private static readonly HashSet<string> Known = new(StringComparer.OrdinalIgnoreCase)
     {
-        "type", "owner", "url", "title", "tags", "ownerfolder", "orgid", "access",
+        "type", "owner", "url", "title", "tags", "ownerfolder", "orgid", "access", "group",
     };
 
     /// <summary>Whether an item satisfies a query.</summary>
     /// <param name="item">The item, as it will be written.</param>
     /// <param name="query">The <c>q</c> parameter, as the client wrote it.</param>
+    /// <param name="groups">
+    /// The groups the item is shared with, for a <c>group:</c> clause; null for something that is not
+    /// shared into groups, which no <c>group:</c> clause matches.
+    /// </param>
     /// <returns>Whether it matches.</returns>
-    public static bool Matches(object item, string? query)
+    /// <remarks>
+    /// <b><c>group:</c> since 2026-09-15.</b> ArcGIS Pro's portal pane and the Python API find a
+    /// group's content with <c>q=group:&lt;id&gt;</c>, and this answered no clause it did not know
+    /// with nothing, so a service shared with a group was found by nobody who looked for it there.
+    /// </remarks>
+    public static bool Matches(object item, string? query, IReadOnlyCollection<Guid>? groups = null)
     {
         ArgumentNullException.ThrowIfNull(item);
 
@@ -99,6 +109,20 @@ internal static class PortalQuery
 
             if (string.Equals(field, "ownerfolder", StringComparison.OrdinalIgnoreCase))
             {
+                continue;
+            }
+
+            if (string.Equals(field, "group", StringComparison.OrdinalIgnoreCase))
+            {
+                bool shared = Guid.TryParse(value, out Guid group)
+                    && groups is not null
+                    && groups.Contains(group);
+
+                if (shared == negated)
+                {
+                    return false;
+                }
+
                 continue;
             }
 

@@ -843,7 +843,7 @@ internal static class PortalEndpoints
         {
             object item = Item(context, service);
 
-            if (PortalQuery.Matches(item, query))
+            if (PortalQuery.Matches(item, query, service.SharedWith))
             {
                 results.Add(item);
             }
@@ -1010,9 +1010,12 @@ internal static class PortalEndpoints
 
             // <b>Pro reads these to decide what an item is before it opens it.</b>
             // An item with no type keywords is one it will not offer to add.
-            typeKeywords = tiles
-                ? new[] { "ArcGIS Server", "Data", "Service", "Vector Tile Service", "Hosted Service" }
-                : new[] { "ArcGIS Server", "Data", "Feature Access", "Feature Service", "Service", "Hosted Service" },
+            //
+            // <b>"Hosted Service" only for a service whose every layer this server made — 2026-09-15.</b>
+            // It was on every item, so a service over a registered PostGIS table or a GeoParquet
+            // file was offered to Pro as hosted, and Pro's hosted-only actions (overwrite, append,
+            // delete data with the item) pointed at somebody else's database or at a file.
+            typeKeywords = Keywords(tiles, service.Layers.Count > 0 && service.Layers.All(l => l.Definition.IsHosted)),
             description = service.Description,
             snippet = service.Description,
             tags = service.Folder is null ? Array.Empty<string>() : new[] { service.Folder },
@@ -1022,6 +1025,19 @@ internal static class PortalEndpoints
             numViews = 0,
             size = -1,
         };
+    }
+
+    /// <summary>The type keywords for an item, with <c>Hosted Service</c> only where it is true.</summary>
+    /// <param name="tiles">Whether the item is a vector tile service.</param>
+    /// <param name="hosted">Whether every layer in it is hosted.</param>
+    /// <returns>The keywords.</returns>
+    internal static string[] Keywords(bool tiles, bool hosted)
+    {
+        string[] keywords = tiles
+            ? ["ArcGIS Server", "Data", "Service", "Vector Tile Service"]
+            : ["ArcGIS Server", "Data", "Feature Access", "Feature Service", "Service"];
+
+        return hosted ? [.. keywords, "Hosted Service"] : keywords;
     }
 
     /// <summary>
