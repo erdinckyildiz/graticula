@@ -125,9 +125,9 @@ internal sealed partial class ThumbnailWarmer : BackgroundService
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Thumbnails were not listed at start; they are drawn as they are asked for.")]
+    [LoggerMessage(EventId = 1063, Level = LogLevel.Information, Message = "Thumbnails were not listed at start; they are drawn as they are asked for.")]
     private partial void LogListingFailed(Exception failure);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "The thumbnail of layer {Layer} was not drawn ahead of time.")]
+    [LoggerMessage(EventId = 1064, Level = LogLevel.Information, Message = "The thumbnail of layer {Layer} was not drawn ahead of time.")]
     private partial void LogDrawFailed(Guid layer, Exception failure);
 }
