@@ -132,7 +132,11 @@ nothing, and turns the feature off without telling anybody.
 **Node-local, deliberately.** Across nodes the herd arrives once per node, and
 the answer there is a caching reverse proxy: tiles already carry
 `Cache-Control: public, max-age=3600`, and every real deployment has a proxy in
-front for TLS. A distributed lock would be a dependency bought for the smaller
+front for TLS. *(Corrected 2026-09-15: `public` only for an anonymous caller and a tile
+whose every layer is public. The face wrote `public` for every tile, private layers
+included, which handed a shared proxy exactly the case §4 keeps the cache from — a hit
+that goes around the sharing rule. The proxy still absorbs the herd for public tiles,
+which are the ones a herd arrives for.)* A distributed lock would be a dependency bought for the smaller
 half of the problem — see
 [ADR-029](ADR-029-affinity-routing-is-not-the-default.md), where the same
 reasoning refused Redis.

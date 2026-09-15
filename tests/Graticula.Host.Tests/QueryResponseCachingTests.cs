@@ -147,6 +147,60 @@ public sealed class QueryResponseCachingTests
         Assert.StartsWith("private", context.Response.Headers.CacheControl.ToString(), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A vector tile carries every layer of its service, so a shared cache may keep it only when
+    /// every one of those layers is public and nobody signed in to fetch it.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15: the tile face wrote <c>public</c> for every tile, and a private layer's
+    /// tile fetched with a token came back <c>public, max-age=3600</c> on the showcase.
+    /// </remarks>
+    [Fact]
+    public void A_tile_with_one_private_layer_is_private_even_for_an_anonymous_caller()
+    {
+        DefaultHttpContext context = Request();
+
+        string header = QueryResponseCaching.CacheControlFor(
+            context,
+            [Layer(SharingScope.Public), Layer(SharingScope.Private)],
+            TimeSpan.FromHours(1));
+
+        Assert.Equal("private, max-age=3600", header);
+    }
+
+    [Fact]
+    public void A_tile_whose_every_layer_is_public_is_public_for_an_anonymous_caller()
+    {
+        DefaultHttpContext context = Request();
+
+        string header = QueryResponseCaching.CacheControlFor(
+            context,
+            [Layer(SharingScope.Public), Layer(SharingScope.Public)],
+            TimeSpan.FromHours(1));
+
+        Assert.Equal("public, max-age=3600", header);
+    }
+
+    [Fact]
+    public void A_tile_fetched_by_a_signed_in_caller_is_private_even_when_every_layer_is_public()
+    {
+        DefaultHttpContext context = Request(principal: SignedIn());
+
+        string header = QueryResponseCaching.CacheControlFor(
+            context, [Layer(SharingScope.Public)], TimeSpan.FromHours(1));
+
+        Assert.Equal("private, max-age=3600", header);
+    }
+
+    [Fact]
+    public void A_zero_lifetime_tile_is_no_store_whoever_asks()
+    {
+        Assert.Equal(
+            "no-store",
+            QueryResponseCaching.CacheControlFor(
+                Request(principal: SignedIn()), [Layer(SharingScope.Private)], TimeSpan.Zero));
+    }
+
     [Fact]
     public async Task Zero_lifetime_is_no_store_and_nothing_else_is_written()
     {

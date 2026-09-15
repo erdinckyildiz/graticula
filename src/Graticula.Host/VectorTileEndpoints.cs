@@ -785,7 +785,10 @@ internal static class VectorTileEndpoints
             context,
             Concatenate(parts),
             disposition,
-            shortest == TimeSpan.MaxValue ? defaultLifetime : shortest,
+            QueryResponseCaching.CacheControlFor(
+                context,
+                service.Layers,
+                shortest == TimeSpan.MaxValue ? defaultLifetime : shortest),
             oldest,
             cancellation)
             .ConfigureAwait(false);
@@ -857,7 +860,7 @@ internal static class VectorTileEndpoints
         HttpContext context,
         byte[] tile,
         string cacheState,
-        TimeSpan lifetime,
+        string cacheControl,
         DateTimeOffset oldest,
         CancellationToken cancellation)
     {
@@ -891,11 +894,11 @@ internal static class VectorTileEndpoints
         // policy. Sending the layer's own volatility means one setting governs
         // every cache in the chain, which is the only way they can agree.
         //
-        // Zero means never cache, and no-store says that in the vocabulary an
-        // intermediary already understands.
-        context.Response.Headers.CacheControl = lifetime <= TimeSpan.Zero
-            ? "no-store"
-            : $"public, max-age={((long)lifetime.TotalSeconds).ToString(CultureInfo.InvariantCulture)}";
+        // <b>Public only for an anonymous caller and a tile whose every layer is
+        // public</b> — `QueryResponseCaching.CacheControlFor`, the rule the query
+        // face already applied. This wrote `public` for every tile until
+        // 2026-09-15, private layers included.
+        context.Response.Headers.CacheControl = cacheControl;
 
         if (tile.Length == 0)
         {

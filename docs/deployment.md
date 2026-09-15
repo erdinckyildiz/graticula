@@ -175,7 +175,11 @@ TLS termination unless the server terminates it itself
 shaped for it:
 
 - `Cache-Control: public, max-age=<the layer's own lifetime>` — per layer, set by
-  whoever knows how volatile the data is (D-25).
+  whoever knows how volatile the data is (D-25). **`public` only when the caller is
+  anonymous and every layer in the tile is shared with everyone**; any other tile goes
+  out `private`, which a shared proxy cache does not keep. Until 2026-09-15 every tile
+  said `public`, private layers included — if your proxy ignores `private`, it was
+  holding those tiles for other callers.
 - `ETag`, strong, computed from the bytes. After expiry a revalidation costs a
   header rather than a tile.
 - `X-Tile-Cache: HIT | MISS | COALESCED` — what the *origin* did, for diagnosis.

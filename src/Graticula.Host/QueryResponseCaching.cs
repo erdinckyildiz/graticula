@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
@@ -50,6 +51,56 @@ namespace Graticula.Host;
 internal static class QueryResponseCaching
 {
     /// <summary>
+    /// The <c>Cache-Control</c> value for a response built from <paramref name="layers"/>: <c>no-store</c>
+    /// for a zero lifetime, <c>public</c> only when nobody is signed in and every layer is public, and
+    /// <c>private</c> otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Private unless every layer is public and nobody is signed in — never the reverse.</b>
+    /// ADR-018 §3b's read check already ran before any handler that calls this, so what is decided
+    /// here is only whether a <i>shared</i> cache — a CDN, a corporate proxy — may hold the bytes for
+    /// a second caller. <c>LayerAccess.Evaluate</c> can answer <c>Public</c> for an anonymous caller
+    /// and something else for everyone else the same service admits (owner, organisation, group,
+    /// administrative override), and a shared cache cannot tell those apart from the response alone
+    /// — it would hand the owner's or the group's copy to the next anonymous caller who asks. Marking
+    /// every authenticated read <c>private</c>, including a signed-in caller reading a service that
+    /// happens to be public, costs nothing but a second lookup per client cache and is the only rule
+    /// that cannot leak.
+    /// </para>
+    /// <para>
+    /// <b>One rule for both faces that serve a layer's data under its cache lifetime.</b> Until
+    /// 2026-09-15 this lived inline in <see cref="ApplyAsync"/> and the vector tile face wrote
+    /// <c>public</c> for every tile, so a private layer's tiles, fetched with a token, told every
+    /// proxy in front of the server it could keep them for an hour and hand them on. Found by an
+    /// authenticated review against the showcase; a tile is several layers at once, which is why this
+    /// takes a list and asks that <i>all</i> of them be public.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request, for its principal.</param>
+    /// <param name="layers">Every layer whose data is in the response.</param>
+    /// <param name="lifetime">The response's lifetime.</param>
+    /// <returns>The header value.</returns>
+    internal static string CacheControlFor(
+        HttpContext context, IEnumerable<PublishedLayer> layers, TimeSpan lifetime)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(layers);
+
+        if (lifetime <= TimeSpan.Zero)
+        {
+            return "no-store";
+        }
+
+        RequestPrincipal? current = context.Features.Get<RequestPrincipal>();
+        bool anonymous = current is null || current.Principal.IsAnonymous;
+        bool sharable = anonymous && layers.All(layer => layer.Sharing == SharingScope.Public);
+        string seconds = ((long)lifetime.TotalSeconds).ToString(CultureInfo.InvariantCulture);
+
+        return sharable ? $"public, max-age={seconds}" : $"private, max-age={seconds}";
+    }
+
+    /// <summary>
     /// Decides the response's privacy and freshness, sets <c>Cache-Control</c> and, where a cheap
     /// validator is available, <c>ETag</c> — answering <c>304</c> without the caller running the
     /// query at all when the caller already holds a matching tag.
@@ -84,32 +135,14 @@ internal static class QueryResponseCaching
 
         TimeSpan lifetime = layer.CacheLifetime ?? defaultLifetime;
 
-        // <b>Zero means never cache, and no-store says that to every cache in the chain — the
-        // same rule <c>VectorTileEndpoints.WriteTileAsync</c> applies to a tile.</b> There is
-        // nothing to validate for a response nobody may keep, so no ETag work happens below.
+        context.Response.Headers.CacheControl = CacheControlFor(context, [layer], lifetime);
+
+        // <b>Zero means never cache — the same rule the tile face applies.</b> There is nothing to
+        // validate for a response nobody may keep, so no ETag work happens below.
         if (lifetime <= TimeSpan.Zero)
         {
-            context.Response.Headers.CacheControl = "no-store";
             return false;
         }
-
-        // <b>Private unless the layer is public and nobody is signed in — never the reverse.</b>
-        // ADR-018 §3b's read check already ran in `ServiceLookup` to reach this handler at all;
-        // what is decided here is only whether a *shared* cache — a CDN, a corporate proxy — may
-        // hold the bytes for a second caller. `LayerAccess.Evaluate` can answer `Public` for an
-        // anonymous caller and something else for everyone else the same service admits (owner,
-        // organisation, group, administrative override), and a shared cache cannot tell those
-        // apart from the response alone — it would hand the owner's or the group's copy to the
-        // next anonymous caller who asks. Marking every authenticated read `private`, including a
-        // signed-in caller reading a service that happens to be public, costs nothing but a
-        // second lookup per client cache and is the only rule that cannot leak.
-        RequestPrincipal? current = context.Features.Get<RequestPrincipal>();
-        bool anonymous = current is null || current.Principal.IsAnonymous;
-        bool sharable = anonymous && layer.Sharing == SharingScope.Public;
-
-        context.Response.Headers.CacheControl = sharable
-            ? $"public, max-age={((long)lifetime.TotalSeconds).ToString(CultureInfo.InvariantCulture)}"
-            : $"private, max-age={((long)lifetime.TotalSeconds).ToString(CultureInfo.InvariantCulture)}";
 
         // <b>Only where a validator can be had before the query runs — ADR-069.</b> A GeoParquet
         // layer answers from a file stat; a registered PostGIS layer has no cheap answer (see

@@ -232,6 +232,44 @@ public sealed class TileValidatorConformanceTests : ArcGisClient
     }
 
     /// <summary>
+    /// A tile fetched by a signed-in caller tells shared caches not to keep it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Written 2026-09-15, after a private layer's tile came back
+    /// <c>public, max-age=3600</c> on the showcase.</b> The query face already
+    /// marked every authenticated read <c>private</c>; the tile face wrote
+    /// <c>public</c> for everything, so a corporate proxy or a CDN in front of the
+    /// server was told it could hand a private layer's tile to the next caller.
+    /// The fixture's tile service is readable anonymously, which is why the rule
+    /// is tested from the signed-in side: whatever the layer's sharing, a response
+    /// to a token is not one a shared cache may keep.
+    /// </remarks>
+    [Fact]
+    public async Task A_tile_fetched_with_a_token_is_never_marked_public()
+    {
+        string root = await RequireServerAsync();
+        Uri tile = await PopulatedTileAsync();
+
+        using HttpClient http = Client();
+        using HttpRequestMessage request = new(HttpMethod.Get, tile);
+        await AuthenticateAsync(request, root);
+
+        Assert.True(
+            request.Headers.Authorization is not null,
+            "No token could be had, so this test cannot say anything about a signed-in fetch.");
+
+        using HttpResponseMessage response = await http.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        CacheControlHeaderValue? caching = response.Headers.CacheControl;
+
+        Assert.NotNull(caching);
+        Assert.False(caching!.Public, $"Cache-Control was '{caching}' for a signed-in fetch.");
+        Assert.True(caching.Private || caching.NoStore, $"Cache-Control was '{caching}' for a signed-in fetch.");
+    }
+
+    /// <summary>
     /// An empty tile carries no validator, because it has nothing to validate.
     /// </summary>
     /// <remarks>
