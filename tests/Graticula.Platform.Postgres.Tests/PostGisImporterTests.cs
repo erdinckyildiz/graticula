@@ -187,6 +187,16 @@ public sealed class PostGisImporterTests : PostgresFixture
 
         try
         {
+            // A defined layer is created with GlobalIDs since 2026-09-15; take them away to test that adding
+            // them to a table that already has rows fills those rows.
+            Assert.False(await importer.AddGlobalIdsAsync(made.SchemaName, made.TableName, CancellationToken.None));
+
+            await using (NpgsqlCommand strip = DataSource.CreateCommand(
+                $"alter table {made.SchemaName}.\"{made.TableName}\" drop column globalid"))
+            {
+                await strip.ExecuteNonQueryAsync();
+            }
+
             await using (NpgsqlCommand before = DataSource.CreateCommand(
                 $"insert into {made.SchemaName}.\"{made.TableName}\" (note) values ('before')"))
             {
@@ -686,7 +696,7 @@ public sealed class PostGisImporterTests : PostgresFixture
                  select count(*) from information_schema.columns
                  where table_schema = '{result.SchemaName}'
                    and table_name = '{result.TableName}'
-                   and column_name not in ('objectid', 'geom')
+                   and column_name not in ('objectid', 'geom', 'globalid')
                  """);
 
             Assert.Equal(2L, columns);

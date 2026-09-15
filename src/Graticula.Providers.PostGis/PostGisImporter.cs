@@ -229,6 +229,10 @@ public sealed class PostGisImporter
             $"create index on {Qualified(table)} using gist (geom)",
             cancellationToken).ConfigureAwait(false);
 
+        // After the rows, like the spatial index: one build is cheaper than keeping it through the copy.
+        await IndexGlobalIdsAsync(connection, transaction, table, dataset.Columns.Select(c => c.Name), cancellationToken)
+            .ConfigureAwait(false);
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
         // ANALYZE cannot run inside a transaction block that is still open, and
@@ -325,6 +329,7 @@ public sealed class PostGisImporter
                .Append(field.Nullable ? string.Empty : " not null");
         }
 
+        sql.Append(GlobalIdColumn(fields.Select(f => f.Name)));
         sql.Append(')');
 
         await using NpgsqlConnection connection =
@@ -345,6 +350,9 @@ public sealed class PostGisImporter
                 connection, transaction,
                 $"create index on {Qualified(table)} using gist (geom)",
                 cancellationToken).ConfigureAwait(false);
+
+            await IndexGlobalIdsAsync(connection, transaction, table, fields.Select(f => f.Name), cancellationToken)
+                .ConfigureAwait(false);
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -714,6 +722,46 @@ public sealed class PostGisImporter
         return $"{stem}_{Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture)[..8]}";
     }
 
+    /// <summary>
+    /// The GlobalID column a new hosted table is created with, or nothing when a field of the source
+    /// already takes the name — ADR-013 §2.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>At creation since 2026-09-15</b>, as ArcGIS gives every hosted feature layer one. Until then a
+    /// layer had a GlobalID only when an administrator asked for it, so a client that works offline or
+    /// edits with <c>useGlobalIds=true</c> met a layer it could not use. Created with the table rather
+    /// than added after, because a volatile default added to a loaded table rewrites every row.
+    /// </para>
+    /// <para>
+    /// <b>A source field that becomes <c>globalid</c> keeps the name</b> — a geodatabase's own GlobalID,
+    /// typically, read as text. That layer is created without a server GlobalID, as it was before, and
+    /// <c>POST /admin/hosted/{layer}/global-ids</c> says why it cannot be given one.
+    /// </para>
+    /// </remarks>
+    private static string GlobalIdColumn(IEnumerable<string> fieldNames) =>
+        fieldNames.Any(n => string.Equals(ColumnNameFor(n), Graticula.Features.GlobalIds.Column, StringComparison.Ordinal))
+            ? string.Empty
+            : $", {LayerDefinition.Quote(Graticula.Features.GlobalIds.Column)} uuid not null default gen_random_uuid()";
+
+    private static async Task IndexGlobalIdsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string table,
+        IEnumerable<string> fieldNames,
+        CancellationToken cancellationToken)
+    {
+        if (GlobalIdColumn(fieldNames).Length == 0)
+        {
+            return;
+        }
+
+        await ExecuteAsync(
+            connection, transaction,
+            $"create unique index on {Qualified(table)} ({LayerDefinition.Quote(Graticula.Features.GlobalIds.Column)})",
+            cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>The DDL, with every column type decided by the inference pass.</summary>
     private static string CreateTable(string table, ImportedDataset dataset)
     {
@@ -734,6 +782,7 @@ public sealed class PostGisImporter
                .Append(SqlTypeFor(column));
         }
 
+        sql.Append(GlobalIdColumn(dataset.Columns.Select(c => c.Name)));
         sql.Append("\n)");
         return sql.ToString();
     }

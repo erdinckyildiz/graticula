@@ -463,6 +463,23 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         return _tiles is null ? writer : new TilePurgingWriter(writer, _tiles, layer.Id);
     }
 
+    /// <summary>The object ids of the features carrying these GlobalIDs — <c>useGlobalIds=true</c>.</summary>
+    /// <param name="layer">The layer.</param>
+    /// <param name="globalIdColumn">Its GlobalID column.</param>
+    /// <param name="globalIds">The GlobalIDs.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Each GlobalID found, with its object id.</returns>
+    public Task<IReadOnlyDictionary<Guid, long>> ObjectIdsOfAsync(
+        PublishedLayer layer, string globalIdColumn, IReadOnlyCollection<Guid> globalIds, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(layer);
+        RefuseIfFile(layer, "edited");
+
+        return PostGisFeatureWriter.ObjectIdsOfAsync(
+            PoolFor(layer.ConnectionString), layer.Definition, globalIdColumn, globalIds, cancellationToken);
+    }
+
     /// <summary>One layer's part of an edit that spans several.</summary>
     /// <param name="Layer">The layer.</param>
     /// <param name="Description">Its columns, tracking and subtypes.</param>

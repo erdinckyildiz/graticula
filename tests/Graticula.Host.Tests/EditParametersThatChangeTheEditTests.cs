@@ -14,7 +14,9 @@ namespace Graticula.Host.Tests;
 /// </remarks>
 public sealed class EditParametersThatChangeTheEditTests
 {
-    private static string? Refusal(params (string Key, string Value)[] fields)
+    private static string? Refusal(params (string Key, string Value)[] fields) => Refusal(false, fields);
+
+    private static string? Refusal(bool globalIdsHonoured, params (string Key, string Value)[] fields)
     {
         Dictionary<string, StringValues> values = [];
 
@@ -23,13 +25,18 @@ public sealed class EditParametersThatChangeTheEditTests
             values[key] = value;
         }
 
-        return Program.EditParameterRefusal(new FormCollection(values), new DefaultHttpContext());
+        return Program.EditParameterRefusal(new FormCollection(values), new DefaultHttpContext(), globalIdsHonoured);
     }
 
+    /// <summary>
+    /// <c>useGlobalIds=true</c> is honoured by applyEdits since 2026-09-15 and refused by the single
+    /// operations, which address features by object id.
+    /// </summary>
     [Fact]
-    public void Matching_by_GlobalID_is_refused_because_there_are_none()
+    public void Matching_by_GlobalID_is_applyEdits_own_and_refused_elsewhere()
     {
-        Assert.Contains("GlobalID", Refusal(("useGlobalIds", "true")), System.StringComparison.Ordinal);
+        Assert.Contains("applyEdits", Refusal(("useGlobalIds", "true")), System.StringComparison.Ordinal);
+        Assert.Null(Refusal(true, ("useGlobalIds", "true")));
     }
 
     [Fact]

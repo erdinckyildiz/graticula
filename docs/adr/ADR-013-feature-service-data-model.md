@@ -58,8 +58,13 @@ integer for ArcGIS compatibility. Both are ours, both are stable. *(Corrected 20
 hosted layer had the `globalid` column, and every document said `globalIdField: ""`. It is now
 added per layer with `POST /admin/hosted/{layer}/global-ids` — ArcGIS's own *Add GlobalIDs* — as a
 `uuid not null default gen_random_uuid()` with a unique index that fills existing rows too, and a
-layer with such a column reports it in its document, its queries and its edit results. It is not yet
-added by default at import or design time, and `useGlobalIds=true` is still refused.)*
+layer with such a column reports it in its document, its queries and its edit results. The same day
+**every new hosted table is created with it** — defined, imported or unpacked from a geodatabase —
+unless a source field already becomes `globalid`; layers made before keep needing the endpoint.
+And **`applyEdits` honours `useGlobalIds=true`**, at the layer and the service: an add keeps the
+GlobalID its client minted, and updates and deletes name features by GlobalID, resolved to object ids
+before the edit so every check on the edit path applies unchanged. A GlobalID no feature has refuses
+the request by name; the single-feature operations still address features by object id.)*
 
 **Registered layers.** We do not own the schema and
 [A-017](../architecture-assumptions.md) says we may not have DDL rights. The

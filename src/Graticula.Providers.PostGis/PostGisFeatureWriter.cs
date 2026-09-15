@@ -290,6 +290,56 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         return result;
     }
 
+    /// <summary>
+    /// The object ids of the features carrying these GlobalIDs — what <c>useGlobalIds=true</c> edits
+    /// are addressed by.
+    /// </summary>
+    /// <param name="dataSource">The layer's pool.</param>
+    /// <param name="layer">The layer.</param>
+    /// <param name="globalIdColumn">Its GlobalID column.</param>
+    /// <param name="globalIds">The ids to find.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Each GlobalID found, with its object id; an id not in the table is absent.</returns>
+    /// <remarks>
+    /// <b>Read before the edit rather than inside it, and that is safe for this pair.</b> A GlobalID
+    /// is never written after the row is made and an object id is an identity, so the mapping cannot
+    /// change under the edit; a row deleted in between is answered by the edit itself as missing.
+    /// </remarks>
+    public static async Task<IReadOnlyDictionary<Guid, long>> ObjectIdsOfAsync(
+        NpgsqlDataSource dataSource,
+        LayerDefinition layer,
+        string globalIdColumn,
+        IReadOnlyCollection<Guid> globalIds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dataSource);
+        ArgumentNullException.ThrowIfNull(layer);
+        ArgumentNullException.ThrowIfNull(globalIds);
+
+        Dictionary<Guid, long> found = [];
+
+        if (globalIds.Count == 0)
+        {
+            return found;
+        }
+
+        await using NpgsqlCommand command = dataSource.CreateCommand(
+            $"select {LayerDefinition.Quote(globalIdColumn)}, {LayerDefinition.Quote(layer.IntegerIdentityColumn!)}::bigint "
+            + $"from {LayerDefinition.Quote(layer.SchemaName)}.{LayerDefinition.Quote(layer.TableName)} "
+            + $"where {LayerDefinition.Quote(globalIdColumn)} = any(@ids)");
+        command.Parameters.AddWithValue("ids", globalIds.ToArray());
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            found[reader.GetGuid(0)] = reader.GetInt64(1);
+        }
+
+        return found;
+    }
+
     private async Task<EditResult> AddAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -298,7 +348,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         CancellationToken cancellationToken)
     {
         // A new feature has no stored subtype: the one it is given is the one it is.
-        if (!TryBindColumns(add.Attributes, null, out List<(string Column, object? Value)> bound, out string? error))
+        if (!TryBindColumns(add.Attributes, null, out List<(string Column, object? Value)> bound, out string? error, keepGlobalId: batch.KeepsGlobalIds))
         {
             return EditResult.Failed(-1, error!);
         }
@@ -865,7 +915,8 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         IReadOnlyDictionary<string, object?> attributes,
         long? storedSubtype,
         out List<(string Column, object? Value)> bound,
-        out string? error)
+        out string? error,
+        bool keepGlobalId = false)
     {
         bound = [];
         error = null;
@@ -928,7 +979,11 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             // <b>The GlobalID is this server's to write, like a tracked column</b> — dropped rather
             // than refused, because a client echoes it back on every update. The column's default
             // gives a new row its value.
-            if (string.Equals(attribute.Key, _globalId, StringComparison.Ordinal))
+            //
+            // <b>Except on an add under `useGlobalIds=true`</b>, where the client minted it and will
+            // refer to the feature by it. A null is still the column's default's to fill.
+            if (string.Equals(attribute.Key, _globalId, StringComparison.Ordinal)
+                && !(keepGlobalId && attribute.Value is Guid))
             {
                 continue;
             }

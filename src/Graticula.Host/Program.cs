@@ -3546,7 +3546,7 @@ public static class Program
         // accepted and ignored, so the caller was told its edits succeeded as a different edit than
         // the one it sent. `query` has refused a parameter it could not honour since 2026-08-15
         // and this route had never been held to the same rule.
-        if (EditParameterRefusal(form, context) is { } refusedParameter)
+        if (EditParameterRefusal(form, context, globalIdsHonoured: operation == EditOperation.Apply) is { } refusedParameter)
         {
             await Results.Json(
                 new { error = new { code = 400, message = refusedParameter } },
@@ -3608,7 +3608,8 @@ public static class Program
         // answer is the same for everybody and there is no reason to make an administrator
         // pass a privilege test to be told the service is refusing.
         if (await PrepareEditAsync(
-                context, layer, adds, updates, deletes, RollbackOnFailure(form, context), contexts, cancellation)
+                context, layer, adds, updates, deletes, RollbackOnFailure(form, context), contexts, cancellation,
+                UsesGlobalIds(form, context) ? connections : null)
             .ConfigureAwait(false) is not { } prepared)
         {
             return;
@@ -3656,12 +3657,15 @@ public static class Program
     /// they describe is the one applied to the only version there is, so ignoring them loses
     /// nothing. <c>useGlobalIds=false</c> and an empty <c>attachments</c> ask for nothing extra.
     /// </remarks>
-    internal static string? EditParameterRefusal(IFormCollection form, HttpContext context)
+    internal static string? EditParameterRefusal(IFormCollection form, HttpContext context, bool globalIdsHonoured = false)
     {
-        if (string.Equals(Field(form, context, "useGlobalIds"), "true", StringComparison.OrdinalIgnoreCase))
+        // <b>Honoured by applyEdits since 2026-09-15</b> (<see cref="GlobalIdEdits"/>); the single
+        // operations take object ids by definition — deleteFeatures names its parameter objectIds.
+        if (!globalIdsHonoured
+            && string.Equals(Field(form, context, "useGlobalIds"), "true", StringComparison.OrdinalIgnoreCase))
         {
-            return "useGlobalIds=true is refused: this server does not keep GlobalIDs, so features "
-                + "cannot be matched by one. Identify them by objectId and send useGlobalIds=false.";
+            return "useGlobalIds=true is honoured by applyEdits, not by this operation, which addresses "
+                + "features by objectId. Send the edit to applyEdits, or identify the features by objectId.";
         }
 
         string? attachments = Field(form, context, "attachments")?.Trim();
@@ -3675,6 +3679,10 @@ public static class Program
 
         return null;
     }
+
+    /// <summary>Whether an applyEdits request addresses its features by GlobalID.</summary>
+    private static bool UsesGlobalIds(IFormCollection form, HttpContext context) =>
+        string.Equals(Field(form, context, "useGlobalIds"), "true", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Reads a field from the form, falling back to the query string.</summary>
     /// <remarks>
@@ -4031,7 +4039,7 @@ public static class Program
             ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
             : FormCollection.Empty;
 
-        if (EditParameterRefusal(form, context) is { } refusedParameter)
+        if (EditParameterRefusal(form, context, globalIdsHonoured: true) is { } refusedParameter)
         {
             await Results.Json(
                 new { error = new { code = 400, message = refusedParameter } },
@@ -4115,7 +4123,9 @@ public static class Program
                 return;
             }
 
-            if (await PrepareEditAsync(context, layer, adds, updates, deletes, rollbackOnFailure, contexts, cancellation)
+            if (await PrepareEditAsync(
+                        context, layer, adds, updates, deletes, rollbackOnFailure, contexts, cancellation,
+                        UsesGlobalIds(form, context) ? connections : null)
                     .ConfigureAwait(false) is not { } ready)
             {
                 return;
@@ -4211,7 +4221,8 @@ public static class Program
         string? deletes,
         bool rollbackOnFailure,
         ServiceContexts contexts,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        LayerConnections? byGlobalId = null)
     {
         if (await RefusedByCeilingAsync(context, layer, adds, updates, deletes)
             .ConfigureAwait(false))
@@ -4248,6 +4259,43 @@ public static class Program
             }
 
             ownOnly = scope == Authorize.ChangeScope.Own;
+        }
+
+        // <b>`useGlobalIds=true`: resolved to object ids after the privileges and before the parse</b>,
+        // so the edit that is checked and written is the one every other door writes (GlobalIdEdits).
+        if (byGlobalId is not null)
+        {
+            Task Refuse(string message) =>
+                Results.Json(new { error = new { code = 400, message } }, statusCode: StatusCodes.Status400BadRequest)
+                    .ExecuteAsync(context);
+
+            if (GlobalIds.FieldOf(description.Fields) is not { } globalIdField)
+            {
+                await Refuse(
+                    $"useGlobalIds=true: layer '{layer.Definition.Name}' has no GlobalID field, so no feature can be "
+                    + $"named by one. An administrator adds it with POST /admin/hosted/{layer.Definition.Name}/global-ids.")
+                    .ConfigureAwait(false);
+                return null;
+            }
+
+            if (!GlobalIdEdits.TryCollect(updates, deletes, globalIdField, out HashSet<Guid> referenced, out string? unreadable))
+            {
+                await Refuse(unreadable!).ConfigureAwait(false);
+                return null;
+            }
+
+            IReadOnlyDictionary<Guid, long> objectIds = await byGlobalId
+                .ObjectIdsOfAsync(layer, globalIdField, referenced, cancellation)
+                .ConfigureAwait(false);
+
+            (updates, deletes) = GlobalIdEdits.Rewrite(
+                updates, deletes, globalIdField, layer.Definition.IntegerIdentityColumn!, objectIds, out List<Guid> missing);
+
+            if (missing.Count > 0)
+            {
+                await Refuse(GlobalIdEdits.Unknown(missing)).ConfigureAwait(false);
+                return null;
+            }
         }
 
         ApplyEditsRequest.Parsed? parsed = ApplyEditsRequest.TryParse(
@@ -4306,6 +4354,7 @@ public static class Program
         {
             Editor = context.Features.Get<RequestPrincipal>()!.Principal.Name,
             OwnOnly = ownOnly,
+            KeepsGlobalIds = byGlobalId is not null,
         });
     }
 

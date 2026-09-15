@@ -193,6 +193,11 @@ public readonly record struct EditResult(
 /// written before this means what it meant: the authorisation decided who may change what, and
 /// the writer changes it.
 /// </param>
+/// <param name="KeepsGlobalIds">
+/// Whether an add keeps the GlobalID its client sent — ArcGIS's <c>useGlobalIds=true</c>, where the
+/// client mints the id so that it can refer to the feature (an attachment, a related row, a replica)
+/// before the server has answered. False drops a sent GlobalID and the column's default gives one.
+/// </param>
 public sealed record EditBatch(
     IReadOnlyList<FeatureAdd> Adds,
     IReadOnlyList<FeatureUpdate> Updates,
@@ -201,7 +206,8 @@ public sealed record EditBatch(
     int AlreadyFailed = 0,
     IReadOnlyDictionary<long, IReadOnlyList<string>>? Expects = null,
     string? Editor = null,
-    bool OwnOnly = false)
+    bool OwnOnly = false,
+    bool KeepsGlobalIds = false)
 {
     /// <summary>How many features this batch touches.</summary>
     public int Count => Adds.Count + Updates.Count + Deletes.Count;
