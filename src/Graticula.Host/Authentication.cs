@@ -25,7 +25,10 @@ namespace Graticula.Host;
 /// to the endpoint: <c>/rest/services</c> on an open data portal is meant to work
 /// with no credential at all. The middleware answers <em>who</em>; whether that
 /// is enough is authorization's question. Since a bad token and no token both
-/// mean "not authenticated", they resolve the same way.
+/// mean "not authenticated", they resolve the same way. <b>They are no longer
+/// indistinguishable</b> — ADR-015 §4a, 2026-09-15: a token the caller sent that finds no
+/// session sets <see cref="RequestPrincipal.TokenWasRejected"/>, and the ArcGIS surface answers
+/// it 498 so a client knows to sign in again.
 /// </para>
 /// <para>
 /// <b>The ArcGIS <c>token=</c> query parameter is accepted, and the sentence here
@@ -160,6 +163,17 @@ internal sealed class Authentication
             AuthenticatedSession? session =
                 await FindSessionAsync(context, cancellationToken).ConfigureAwait(false);
 
+            // <b>A token the caller chose to send, and the store did not recognise — ADR-015 §4a.</b>
+            // Still anonymous, as the remarks above say; what is added is that it is remembered, so
+            // the ArcGIS surface can answer 498 rather than serve the caller as though it had sent
+            // nothing. The cookie is not a token the caller sent in this sense: the console handles
+            // its own expired session, and a browser attaches the cookie whether or not anybody meant
+            // it to.
+            //
+            // The caller keeps the anonymous grants, so a face that does not answer 498 serves it
+            // what it served before.
+            bool rejected = session is null && (BearerToken(context) ?? EsriToken(context)) is { Length: > 0 };
+
             Principal principal = session?.Principal ?? Principal.Anonymous;
 
             // <b>An anonymous caller's grants come from memory while the store's announcements
@@ -182,7 +196,10 @@ internal sealed class Authentication
                     principal,
                     null,
                     Authorization.Resolve(
-                        held!.UserType, held.Roles, _grants, held.Groups, held.EditableGroups));
+                        held!.UserType, held.Roles, _grants, held.Groups, held.EditableGroups))
+                {
+                    TokenWasRejected = rejected,
+                };
             }
 
             long readUnder = _anonymous?.Generation ?? 0;
@@ -214,7 +231,10 @@ internal sealed class Authentication
                 principal,
                 session?.SessionId,
                 Authorization.Resolve(userType, roles, _grants, groups, editableGroups),
-                session?.MustChangePassword ?? false);
+                session?.MustChangePassword ?? false)
+            {
+                TokenWasRejected = rejected,
+            };
         }
         catch (Npgsql.NpgsqlException unreachable)
         {
@@ -442,6 +462,17 @@ internal sealed class RequestPrincipal
     /// </para>
     /// </remarks>
     public bool StoreWasUnreachable { get; init; }
+
+    /// <summary>
+    /// Whether the caller sent a token — as a header or as <c>token=</c> — that resolved to no
+    /// session: expired, revoked, or never issued.
+    /// </summary>
+    /// <remarks>
+    /// <b>Never set when the store could not be asked</b>, because an outage says nothing about the
+    /// token, and answering 498 then would sign every client out for a condition signing in again
+    /// cannot fix. <see cref="StoreWasUnreachable"/> is that case.
+    /// </remarks>
+    public bool TokenWasRejected { get; init; }
 
     /// <summary>What they may do, resolved once for the request.</summary>
     public Authorization Authorization { get; }

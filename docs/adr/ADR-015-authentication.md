@@ -187,6 +187,33 @@ for the migration path**, and it belongs in the record rather than in a footnote
 If §2's *never degrade silently* applies to capabilities, the same honesty
 applies to security trade-offs.
 
+## 4a. Amended 2026-09-15 — a token the store does not recognise answers 498 on the ArcGIS surface
+
+§3 resolves an unresolvable token to anonymous, and that stays: the middleware answers *who*, and a
+bad token and no token are both *not authenticated*. What it cost was found by an authenticated
+review against the showcase. A token was revoked by signing out; the same request with it answered
+404 on a private layer and 200 on the folder listing, without the layer in it. The ArcGIS Maps SDK's
+identity manager and ArcGIS Pro prompt for sign-in when a response says **498 Invalid token**, and
+not otherwise — so a dashboard whose token ran out went quietly empty, and what reached an
+administrator was that a service had been deleted.
+
+**The decision.** `Authentication` still resolves such a caller to anonymous, with the anonymous
+grants, and marks the principal `TokenWasRejected` — only for a token the caller chose to send as a
+header or as `token=`, never for the console's cookie, and never when the store could not be asked.
+On `/rest` and `/sharing/rest` a rejected token is answered `498` with `{"error":{"code":498,…}}`,
+except on the routes a client uses to recover: `generateToken`, `/rest/auth`, `/rest/info`,
+`/rest/whoami` and `/sharing/rest/info`. Every other surface serves the caller as anonymous, as it
+did.
+
+**What it does not change.** A private resource asked for with *no* token is still 404, not 499, so
+that the answer does not say the resource exists. 498 says something about the caller's token and
+nothing about any resource — the same answer for a public layer, a private one and a path that does
+not exist — which is why it could be added without reopening that choice. The cost that remains is
+the one 499 would have fixed: a person opening a private layer's URL with no session at all is told
+it is not there rather than asked to sign in.
+
+**State.** None new: the flag lives on the request's principal and is gone when the request is.
+
 ---
 
 ## 5. Decision — identity sources

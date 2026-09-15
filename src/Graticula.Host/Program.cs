@@ -1077,6 +1077,12 @@ public static class Program
 
             context.Features.Set(current);
 
+            if (current.TokenWasRejected && InvalidToken.Applies(context.Request.Path))
+            {
+                await InvalidToken.WriteAsync(context).ConfigureAwait(false);
+                return;
+            }
+
             // <b>Set per request and cleared after it.</b> The directory's
             // banner needs to know who is browsing, and threading that through
             // eight renderers would be ceremony — but a thread-static left set

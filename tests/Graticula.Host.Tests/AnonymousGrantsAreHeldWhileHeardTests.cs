@@ -150,6 +150,55 @@ public sealed class AnonymousGrantsAreHeldWhileHeardTests
     }
 
     /// <summary>A request with the one service resolving a principal reads: the settings.</summary>
+    /// <summary>
+    /// A token the store does not recognise is remembered as rejected, and the caller keeps the
+    /// anonymous grants — ADR-015 §4a.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15. A revoked token was served as anonymous with nothing to say so, and the
+    /// ArcGIS surface could not answer 498 because it could not tell that case from no token.
+    /// </remarks>
+    [Fact]
+    public async Task A_token_the_store_does_not_know_is_rejected_and_the_caller_stays_anonymous()
+    {
+        Store store = new() { KnowsTokens = false, Roles = [Roles.Viewer] };
+        Authentication authentication = new(store, TimeProvider.System);
+
+        DefaultHttpContext context = Context();
+        context.Request.Headers.Authorization = "Bearer revoked-yesterday";
+
+        RequestPrincipal resolved = await authentication.ResolveAsync(context, CancellationToken.None);
+
+        Assert.True(resolved.TokenWasRejected);
+        Assert.True(resolved.Principal.IsAnonymous);
+        Assert.Equal(1, store.Reads);
+    }
+
+    [Fact]
+    public async Task No_token_is_not_a_rejected_token()
+    {
+        Store store = new() { KnowsTokens = false };
+        Authentication authentication = new(store, TimeProvider.System);
+
+        RequestPrincipal resolved = await authentication.ResolveAsync(Context(), CancellationToken.None);
+
+        Assert.False(resolved.TokenWasRejected);
+    }
+
+    [Theory]
+    [InlineData("/rest/services/hosted/x/FeatureServer/0", true)]
+    [InlineData("/sharing/rest/content/items/abc", true)]
+    [InlineData("/rest/generateToken", false)]
+    [InlineData("/sharing/rest/generateToken", false)]
+    [InlineData("/rest/auth/logout", false)]
+    [InlineData("/rest/whoami", false)]
+    [InlineData("/admin/services", false)]
+    [InlineData("/ogc/collections", false)]
+    public void Only_the_ArcGIS_surface_answers_a_rejected_token_with_498(string path, bool answers)
+    {
+        Assert.Equal(answers, InvalidToken.Applies(new PathString(path)));
+    }
+
     private static DefaultHttpContext Context()
     {
         Dictionary<string, string?> values = new()
@@ -179,6 +228,9 @@ public sealed class AnonymousGrantsAreHeldWhileHeardTests
 
         public Action? DuringRead { get; set; }
 
+        /// <summary>Whether a token finds a session; false is a token the store has never seen.</summary>
+        public bool KnowsTokens { get; set; } = true;
+
         public Task<(string UserType, IReadOnlyList<string> Roles, IReadOnlyList<Guid> Groups,
                      IReadOnlyList<Guid> EditableGroups)>
             GrantsOfAsync(Guid principalId, CancellationToken cancellationToken)
@@ -196,7 +248,7 @@ public sealed class AnonymousGrantsAreHeldWhileHeardTests
         public Task<AuthenticatedSession?> FindSessionAsync(
             byte[] tokenHash, DateTimeOffset now, CancellationToken cancellationToken) =>
             Task.FromResult<AuthenticatedSession?>(
-                new AuthenticatedSession(Guid.NewGuid(), Ada, now.AddHours(1)));
+                KnowsTokens ? new AuthenticatedSession(Guid.NewGuid(), Ada, now.AddHours(1)) : null);
 
         public Task<bool> AnyPrincipalHoldingAsync(
             string role, CancellationToken cancellationToken) => throw Not();
