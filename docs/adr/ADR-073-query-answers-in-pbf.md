@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `MEDIUM` |
+| **Status** | `ACCEPTED` |
+| **Confidence** | `HIGH` |
 | **Decided** | 2026-09-15. The owner asked for the gaps an experienced ArcGIS user would see to be worked through (*"kalandan devam et"*), and this was on that list as *PBF çıktısı ve koordinat nicemleme yok*. **That `f=pbf` should be answered is the owner's, through that instruction. The default grid when a request names none, the refusal of statistics in pbf and the refusal of an extent in another reference are this ADR's choices** |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -63,10 +63,8 @@ draws every layer here more slowly than it draws the same data from ArcGIS, and 
 polygon example starts its second ring at `56, 56` rather than at the difference from the first
 ring's last vertex, and its polyline example does the same, so each part here begins with an
 absolute vertex. The independent decoder used as a control (`arcgis-pbf-parser`) reads it the same
-way. **No ArcGIS client has yet drawn a multi-part geometry from this server**; if the Maps SDK reads
-differences across parts, every multi-part shape past its first part would be drawn displaced, with
-no error. Single-part shapes and points do not depend on the rule. That is condition 1, and why
-confidence is `MEDIUM`.
+way. Whether an ArcGIS client does was condition 1, and it was checked the same day: see §4 and the
+condition's discharge note.
 
 **Buffering reverses a streaming decision for one format.** The bound is the response byte ceiling
 (Q-113), checked after each feature exactly as the JSON writer checks it, and the encoding is several
@@ -89,6 +87,7 @@ the grid's resolution — it is sometimes larger than it needs to be.
 | The server's bytes decode to the input coordinates, holes, parts and attributes | A two-polygon, one-hole feature on a 0.5 grid with an upper-left origin, written by `FeatureCollectionPbfWriter` and decoded by `arcgis-pbf-parser` 0.0.4: coordinates exact, rings and parts as written | Scratchpad control, 2026-09-15; the parser is not shipped or referenced |
 | Rings are wound as the JSON writer winds them; view mode drops cells and collapsed parts; the ceiling truncates after a feature | `FeatureCollectionPbfTests`, decoding with `tests/shared/PbfReader.cs`, written from the proto and not from `/src`. Falsified: carrying deltas across parts fails the per-part test | `tests/Graticula.Api.ArcGis.Tests` |
 | pbf and json answer the same rows, columns, ids, counts and coordinates on a live server | `APbfAnswerIsTheJsonAnswerTests` | `tests/Graticula.Conformance.Tests`, CI |
+| **The ArcGIS Maps SDK for JavaScript asks for pbf on its own and places every part correctly** | SDK 4.30 (loaded from Esri's CDN, run in headless Edge) given a layer document saying `JSON, PBF`: `FeatureLayer.queryFeatures` sent `f=pbf` unprompted, and decoded this writer's bytes for a three-part multipolygon with a hole — second part at `40.123456789, 36.5`, third at `33, 41` — exactly where they were written, rings wound as ArcGIS winds them. Carrying deltas across parts would have put both displaced | Scratchpad control against a probe server serving the writer's output, 2026-09-15 |
 
 ## 5. Decision
 
@@ -112,9 +111,12 @@ Values follow the JSON writer: the object id as `uint_value` (or `sint64_value` 
 
 **Conditions.**
 
-1. **An ArcGIS Maps SDK for JavaScript client draws a multi-part polygon layer from this server in
-   the right place** — the check §3 says is missing — before this is `ACCEPTED`. If it does not, the
-   per-part rule is wrong and the flags go back to `JSON` until it is repaired.
+1. **An ArcGIS Maps SDK for JavaScript client reads a multi-part polygon layer from this server in
+   the right place** before this is `ACCEPTED`. If it does not, the per-part rule is wrong and the
+   flags go back to `JSON` until it is repaired. **DISCHARGED 2026-09-15:** SDK 4.30 requested `f=pbf`
+   by itself and decoded a three-part multipolygon with a hole to its written coordinates (§4). What
+   it exercised is `queryFeatures`, which is the SDK's pbf decoder; the drawing path sends a view-mode
+   grid through the same message and was not screenshotted.
 
 ## 6. Consequences
 
