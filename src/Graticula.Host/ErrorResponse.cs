@@ -520,6 +520,19 @@ internal static class ErrorResponse
             stopped.Message,
             TookTooLong),
 
+        // <b>A reference to a row that is not there is not an outage either — 2026-09-15.</b>
+        // 23503 is a foreign-key violation, and the one this server can raise is an attachment
+        // added to a feature that does not exist: `__attach.rel_objectid` references the layer.
+        // It fell to the general branch and was answered *a database this server depends on is
+        // unreachable* — the seventh mistaken connectivity failure in this file. The attachment
+        // face now refuses that case by name before it gets here; this arm is for whichever
+        // write reaches the same constraint next.
+        PostgresException { SqlState: "23503" } => new(
+            StatusCodes.Status409Conflict,
+            "This write refers to a row that is not there — most often a feature that was deleted or "
+            + "never existed. The database is healthy; it refused a reference to nothing.",
+            "This write refers to something that is not there. Check the id it names."),
+
         PostgresException { SqlState: "23505" } => new(
             StatusCodes.Status409Conflict,
             "Something with that name or location is already registered here. The database is "

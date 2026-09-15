@@ -38,6 +38,37 @@ public sealed class ResponseOutcomeTests
         return context;
     }
 
+    /// <summary>
+    /// An exception that escaped the endpoint is logged with the status the handler will answer.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15. The access log runs inside the exception handler, so it logged a
+    /// thrown request while its status was still the default 200 — an upload answered 503 on the
+    /// wire and 200 on the Logs screen.
+    /// </remarks>
+    [Fact]
+    public void A_request_whose_endpoint_threw_is_logged_with_the_status_it_is_answered_with()
+    {
+        HttpContext context = Request(200, CancellationToken.None);
+        Npgsql.NpgsqlException unreachable = new("connection refused");
+
+        ResponseOutcome.Threw(context, unreachable);
+
+        Assert.Equal(ErrorResponse.Classify(unreachable).Status, ResponseOutcome.StatusFor(context));
+        Assert.Equal(503, ResponseOutcome.StatusFor(context));
+    }
+
+    [Fact]
+    public void A_throw_after_the_response_started_keeps_what_the_writer_recorded()
+    {
+        HttpContext context = Request(200, CancellationToken.None);
+        ResponseOutcome.Truncated(context, new InvalidOperationException("mid-write"));
+
+        ResponseOutcome.Threw(context, new Npgsql.NpgsqlException("later"));
+
+        Assert.Equal(ResponseOutcome.ServerBroke, ResponseOutcome.StatusFor(context));
+    }
+
     [Fact]
     public void An_untroubled_request_keeps_its_own_status()
     {

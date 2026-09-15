@@ -194,6 +194,17 @@ public sealed class ErrorResponseTests
     }
 
     [Fact]
+    public void A_reference_to_a_missing_row_is_a_conflict_not_an_outage()
+    {
+        // Found 2026-09-15: an attachment added to a feature that did not exist answered
+        // *a database this server depends on is unreachable*.
+        (int status, string message) = ErrorResponse.Classify(WithSqlState("23503"));
+
+        Assert.Equal(409, status);
+        Assert.DoesNotContain("unreachable", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void An_unknown_postgres_error_is_503_rather_than_falling_through_to_500()
     {
         // <b>The example moved on 2026-08-21, and the reason is the point of the

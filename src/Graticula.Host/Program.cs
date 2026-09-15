@@ -906,6 +906,15 @@ public static class Program
             {
                 await next().ConfigureAwait(false);
             }
+            catch (Exception thrown)
+            {
+                // <b>The status the handler outside this is about to write, recorded before this
+                // line is.</b> The exception handler is registered in front of this middleware, so
+                // it answers after `finally` below has already logged — and until 2026-09-15 every
+                // failure it answered was logged as the 200 the response still carried.
+                ResponseOutcome.Threw(context, thrown);
+                throw;
+            }
             finally
             {
                 Access(context, started, requests, requestLog, settings.RequestLog);

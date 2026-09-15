@@ -80,6 +80,45 @@ internal static class ResponseOutcome
     }
 
     /// <summary>
+    /// Records the status an exception that escaped the endpoint will be answered with, while the
+    /// response has not started.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="exception">What escaped.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>The access log sits inside the exception handler, so it ran before the answer was
+    /// written.</b> An endpoint that threw unwound through the log's <c>finally</c> while
+    /// <c>Response.StatusCode</c> was still its default 200, and only then did
+    /// <c>ErrorResponse</c> turn the exception into a 503 on the wire. Every failure that reached
+    /// the handler was stored as 200: found 2026-09-15 when an attachment upload that answered 503
+    /// showed as 200 on the Logs screen, whose newest 503 was three weeks old.
+    /// </para>
+    /// <para>
+    /// <b>Asked of the same classification the handler uses</b> — <c>ErrorResponse.Classify</c>
+    /// and the deadline check in front of it — so the log and the wire cannot disagree about the
+    /// number. A response that had already started keeps whatever <see cref="Truncated"/>
+    /// recorded, and one with nothing recorded is left to <see cref="StatusFor"/>.
+    /// </para>
+    /// </remarks>
+    public static void Threw(HttpContext context, Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(exception);
+
+        if (context.Response.HasStarted || context.Items.ContainsKey(Key))
+        {
+            return;
+        }
+
+        context.Items[Key] = exception is OperationCanceledException && RequestDeadline.Expired(context)
+            ? StatusCodes.Status504GatewayTimeout
+            : exception is OperationCanceledException && context.RequestAborted.IsCancellationRequested
+                ? ClientLeft
+                : ErrorResponse.Classify(exception).Status;
+    }
+
+    /// <summary>
     /// The status the access log should record for this request.
     /// </summary>
     /// <param name="context">The request.</param>

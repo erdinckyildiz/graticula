@@ -290,6 +290,17 @@ internal static class AttachmentEndpoints
             {
                 await Refuse(context, 507, e.Message).ConfigureAwait(false);
             }
+            catch (Npgsql.PostgresException missing)
+                when (missing.SqlState == Npgsql.PostgresErrorCodes.ForeignKeyViolation)
+            {
+                // <b>The feature is not there, and saying so is the whole answer.</b> The companion
+                // table references the layer, so the insert is refused by the database; until
+                // 2026-09-15 that reached the exception handler as *a database this server depends
+                // on is unreachable*, and the access log recorded it as 200.
+                await Refuse(context, 404,
+                    $"There is no feature {objectId} in this layer, so nothing was attached.")
+                    .ConfigureAwait(false);
+            }
 
             return;
         }
