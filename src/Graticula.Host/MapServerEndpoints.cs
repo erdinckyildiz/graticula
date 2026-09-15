@@ -42,16 +42,20 @@ internal static class MapServerEndpoints
     /// What this face offers, in ArcGIS's own vocabulary.
     /// </summary>
     /// <remarks>
-    /// <b>"Map" alone, and it used to say "Map,Query,Data".</b> There is no
-    /// <c>/MapServer/{id}/query</c> route on this server — ADR-041 §5.5 scoped this
-    /// face to export, identify and legend — so the document was promising an
-    /// operation that answered 404, which the correctness gate found by reading the
-    /// claim and then trying it. A claimed capability is a contract a client checks
-    /// before it acts; the one thing it must never be is untrue. Querying the same
-    /// data works at <c>/FeatureServer/{id}/query</c>, which is where the layer
-    /// document's own links point.
+    /// <para>
+    /// <b>"Map" alone for a while, and it used to say "Map,Query,Data".</b> There was no
+    /// <c>/MapServer/{id}/query</c> route — ADR-041 §5.5 scoped this face to export, identify
+    /// and legend — so the document promised an operation that answered 404, which the
+    /// correctness gate found by reading the claim and then trying it.
+    /// </para>
+    /// <para>
+    /// <b>"Map,Query,Data" again since 2026-09-15, because the route now exists.</b> The Maps
+    /// SDK's MapImageLayer queries a sublayer at that address for pop-ups, so the omission cost
+    /// every click on a drawn map. <c>Program</c> maps it onto the FeatureServer query handler;
+    /// <c>GateFindingsTests</c> still asserts that the claim and the route agree.
+    /// </para>
     /// </remarks>
-    private const string Capabilities = "Map";
+    private const string Capabilities = "Map,Query,Data";
 
     /// <summary>How many features one identify may return per layer.</summary>
     private const int MaximumIdentifyResults = 20;
@@ -248,7 +252,8 @@ internal static class MapServerEndpoints
                 length = f.MaxLength,
             })],
             drawingInfo,
-            described.Fields.Count > 0 ? described.Fields[0].Name : null,
+            // The FeatureServer face's own rule, so the two documents of one layer name one field.
+            FeatureServerMetadataWriter.DisplayField(layer.Definition, described),
             settings.MaximumRecordCount,
             Labels(layer),
             Capabilities);
@@ -443,7 +448,11 @@ internal static class MapServerEndpoints
                 outSrid: asked.Srid == layer.Definition.Srid ? null : asked.Srid,
                 filterSrid: asked.Srid == layer.Definition.Srid ? null : asked.Srid);
 
-            string display = described.Fields.Count > 0 ? described.Fields[0].Name : string.Empty;
+            // <b>The field the layer document names, not the first column — 2026-09-15.</b> This
+            // took `Fields[0]`, which is the object id on nearly every table, so an identify on
+            // Turkey's provinces answered `displayFieldName: objectid, value: 108` while the layer
+            // document said `displayField: il`. A pop-up titled with a row number is the result.
+            string display = FeatureServerMetadataWriter.DisplayField(layer.Definition, described);
 
             await foreach (Feature feature in
                 source.ReadAsync(query, cancellation).ConfigureAwait(false))

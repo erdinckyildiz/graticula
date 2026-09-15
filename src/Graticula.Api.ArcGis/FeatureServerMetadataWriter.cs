@@ -1194,7 +1194,10 @@ public static class FeatureServerMetadataWriter
     /// labelled with row numbers, which is unhelpful but honest — and better
     /// than an empty string, which some clients render as a blank callout.
     /// </remarks>
-    private static string DisplayField(LayerDefinition layer, LayerDescription description)
+    /// <param name="layer">The layer.</param>
+    /// <param name="description">Its columns.</param>
+    /// <returns>The field's name.</returns>
+    public static string DisplayField(LayerDefinition layer, LayerDescription description)
     {
         foreach (FieldDescription field in description.Fields)
         {

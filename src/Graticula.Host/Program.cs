@@ -1798,6 +1798,17 @@ public static class Program
             app.MapPost($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/query", QueryAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // <b>The same query under the map face's address — 2026-09-15.</b> The Maps SDK's
+            // MapImageLayer sends a sublayer's pop-up and table queries to
+            // `MapServer/{id}/query`, and that was a 404, so a map drawn by `export` could not be
+            // clicked on. The layer number means the same layer on both faces, so this is the one
+            // handler under a second route rather than a second implementation of it.
+            app.MapGet($"{prefix}/{{serviceName}}/MapServer/{{layerId:int}}/query", QueryAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
+            app.MapPost($"{prefix}/{{serviceName}}/MapServer/{{layerId:int}}/query", QueryAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
             // <b>ADR-052 §3.13.</b> Turns a field, a method and a class count into a renderer,
             // which is the half of symbology this server could read and not author.
             GenerateRendererEndpoints.Map(app, prefix);

@@ -139,6 +139,37 @@ public sealed class MapServerConformanceTests : ArcGisClient
         Assert.True(document.GetProperty("layers").GetArrayLength() > 0);
     }
 
+    /// <summary>
+    /// A sublayer is queried at the map face's own address, and both faces name the same display
+    /// field.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15: <c>MapServer/0/query</c> was a 404, so the Maps SDK's MapImageLayer could
+    /// not open a pop-up, and the MapServer layer document and identify named the first column —
+    /// the object id — as the display field while the FeatureServer document named the first text
+    /// field.
+    /// </remarks>
+    [Fact]
+    public async Task A_sublayer_is_queried_at_the_map_address_and_named_by_the_same_field()
+    {
+        (string Service, string Bbox, int Srid)? drawable = await DrawableAsync();
+        Assert.NotNull(drawable);
+
+        string service = drawable!.Value.Service;
+
+        JsonElement counted = await GetJsonAsync(
+            $"/rest/services/{service}/MapServer/0/query?where=1%3D1&returnCountOnly=true");
+
+        Assert.True(counted.GetProperty("count").GetInt64() >= 0);
+
+        string? mapField = (await GetJsonAsync($"/rest/services/{service}/MapServer/0"))
+            .GetProperty("displayField").GetString();
+        string? featureField = (await GetJsonAsync($"/rest/services/{service}/FeatureServer/0"))
+            .GetProperty("displayField").GetString();
+
+        Assert.Equal(featureField, mapField);
+    }
+
     // ---------- export ----------
 
     [Fact]

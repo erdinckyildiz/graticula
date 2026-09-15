@@ -247,7 +247,10 @@ looks broken rather than minimal.
 ### 5.5 The ArcGIS face
 
 `MapServer/export`, `MapServer/identify` and `MapServer/legend`, plus the service and
-layer documents the directory already knows how to render. This is the shape the
+layer documents the directory already knows how to render. *(Amended 2026-09-15:
+`MapServer/{id}/query` too, as the FeatureServer query handler under a second route, because
+the Maps SDK's MapImageLayer sends a sublayer's pop-up queries there and every click on a drawn
+map was a 404. The capabilities say `Map,Query,Data` again.)* This is the shape the
 owner preferred on 2026-08-13 and it costs almost nothing once the renderer exists:
 a different spelling of extent, size, format and layer list.
 
