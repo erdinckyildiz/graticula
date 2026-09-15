@@ -420,6 +420,61 @@ public sealed class PostGisImporter
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Empties a hosted table and its attachments, or only the attachments, in one transaction.
+    /// </summary>
+    /// <param name="schemaName">Its schema, which must be the hosted one.</param>
+    /// <param name="tableName">The table.</param>
+    /// <param name="attachmentsOnly">Whether the features stay and only the attachments go.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <remarks>
+    /// <b>No <c>restart identity</c></b>: an object id a client has seen is never given to another
+    /// feature. The attachment tables are named with the layer's and may not exist; only those that
+    /// do are named, because <c>truncate</c> refuses a missing relation outright.
+    /// </remarks>
+    public async Task TruncateAsync(
+        string schemaName, string tableName, bool attachmentsOnly, CancellationToken cancellationToken)
+    {
+        RefuseOutsideHosted(schemaName, tableName, "truncate");
+
+        await using NpgsqlConnection connection =
+            await OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        await ExecuteAsync(connection, transaction, LockTimeout, cancellationToken)
+            .ConfigureAwait(false);
+
+        string attachments = tableName + PostGisAttachmentStore.Suffix;
+        List<string> targets = [];
+
+        foreach (string table in (string[])[attachments + PostGisAttachmentStore.ChunkSuffix, attachments])
+        {
+            await using NpgsqlCommand exists = new("select to_regclass(@name) is not null", connection, transaction);
+            exists.Parameters.AddWithValue("name", Qualified(table));
+
+            if (await exists.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is true)
+            {
+                targets.Add(Qualified(table));
+            }
+        }
+
+        if (!attachmentsOnly)
+        {
+            targets.Add(Qualified(tableName));
+        }
+
+        if (targets.Count > 0)
+        {
+            await ExecuteAsync(
+                connection, transaction, $"truncate table {string.Join(", ", targets)}", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>How long an <c>ALTER TABLE</c> here waits for its lock before refusing.</summary>
     /// <remarks>
     /// <para>

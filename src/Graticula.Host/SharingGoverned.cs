@@ -47,6 +47,12 @@ internal static class SharingGovernedExtensions
     /// <summary>Deliberately open to everyone, with the reason recorded.</summary>
     public const string Public = "public by design";
 
+    /// <summary>
+    /// An administrative operation on a data address, decided by the caller's privilege rather than by
+    /// the service's sharing — ArcGIS's <c>/rest/admin/services</c> operations.
+    /// </summary>
+    public const string ByPrivilege = "an administrative privilege, whatever the service's sharing";
+
     /// <summary>Records what governs this route.</summary>
     /// <typeparam name="T">The builder type.</typeparam>
     /// <param name="builder">The route or group.</param>

@@ -187,6 +187,18 @@ too, for now. It is provably safe in PostgreSQL and it is a real need — but
 nobody has asked, and §82 says a capability with no stated problem does not go
 in. §9's first trigger is somebody asking.
 
+*(Amended 2026-09-15: **the same two operations also answer at ArcGIS's own admin addresses**,
+`/rest/admin/services/[{folder}/]{service}/FeatureServer/{id}/addToDefinition` and
+`…/deleteFromDefinition`, in both the ArcGIS Online and the `{service}.FeatureServer` Enterprise
+spelling, because the ArcGIS API for Python and Pro compute those addresses and got a 404. They are
+doors onto §5b's two operations — the same privilege, the same dependency check, the same refusals —
+and not a third: a definition carrying anything but `fields` (indexes, types, templates), a field
+with a domain or a default, or a type §5b does not add is refused whole rather than half applied.
+Beside them, **`truncate`** empties a hosted layer, or only its attachments, in one statement with
+§5g's lock wait and without restarting object ids — also at `POST /admin/hosted/{layer}/truncate`.
+It is not DDL, and it lives here because it is the same kind of act: irreversible, on a table this
+server created, and refused on a registered one.)*
+
 ### 5c. A field something depends on is not deleted, and the refusal names what
 
 Delete is refused when the column is:

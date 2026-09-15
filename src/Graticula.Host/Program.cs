@@ -1883,6 +1883,7 @@ public static class Program
         RelationshipEndpoints.Map(app);
         GeometryServerEndpoints.Map(app);
         HostedDataEndpoints.Map(app);
+        ArcGisAdminEndpoints.Map(app);
 
         // <b>Outside /rest/services, deliberately.</b> Every surface above is
         // ArcGIS-shaped and lives under that prefix; WFS is a different protocol

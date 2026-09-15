@@ -109,6 +109,9 @@ internal static class HostedDataEndpoints
         // ADR-013 §2's GlobalID column, which no hosted layer had until 2026-09-15.
         app.MapPost("/admin/hosted/{layer}/global-ids", AddGlobalIdsAsync);
 
+        // ArcGIS's truncate: every feature, or every attachment, in one statement — 2026-09-15.
+        app.MapPost("/admin/hosted/{layer}/truncate", TruncateAsync);
+
         // The original path, kept working. It was only ever the import, and
         // moving it silently would break the one thing already built against it.
         app.MapPost("/admin/hosted", ImportAsync).DisableAntiforgery();
@@ -1646,64 +1649,11 @@ internal static class HostedDataEndpoints
             return;
         }
 
-        if (field is null || string.IsNullOrWhiteSpace(field.Name))
+        if (await AddFieldToAsync(context, found, field, importer, contexts, tiles, catalog, audit, cancellation)
+            .ConfigureAwait(false) is not { } column)
         {
-            await Fail(context, 400, "`name` is required: it is what the column is called.")
-                .ConfigureAwait(false);
-
             return;
         }
-
-        if (!TryFields([field], out List<FieldDescription> read, out string? unreadable))
-        {
-            await Fail(context, 400, unreadable!).ConfigureAwait(false);
-            return;
-        }
-
-        (_, LayerDescription shape) = await contexts.GetAsync(found, cancellation)
-            .ConfigureAwait(false);
-
-        // <b>Asked before the DDL, so the refusal names the column rather than a constraint.</b>
-        // PostgreSQL would refuse a duplicate anyway, with a message about a relation.
-        if (shape.Find(field.Name) is not null)
-        {
-            await Fail(
-                context, 409,
-                $"'{found.Definition.Name}' already has a field called '{field.Name}'.")
-                .ConfigureAwait(false);
-
-            return;
-        }
-
-        string column;
-
-        try
-        {
-            column = await importer.AddFieldAsync(
-                found.Definition.SchemaName, found.Definition.TableName, read[0], cancellation)
-                .ConfigureAwait(false);
-        }
-        catch (Npgsql.PostgresException blocked) when (blocked.SqlState == "55P03")
-        {
-            // §5g and condition 1: a table somebody is reading refuses quickly rather than
-            // taking ACCESS EXCLUSIVE and queueing every request behind the waiting DDL — which
-            // D-08 measured at 30.30 s against 0.296 s unblocked.
-            await Fail(
-                context, 409,
-                $"'{found.Definition.Name}' is being read right now, so its table could not be "
-                + "altered — the change was abandoned rather than made to wait, because a "
-                + "waiting ALTER holds up every request that arrives after it. Try again.")
-                .ConfigureAwait(false);
-
-            return;
-        }
-
-        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation)
-            .ConfigureAwait(false);
-
-        await RecordAsync(
-            context, audit, "layer.field.add", found.Definition.Name,
-            new { column, type = field.Type }, cancellation).ConfigureAwait(false);
 
         await Results.Json(
             new
@@ -1715,7 +1665,7 @@ internal static class HostedDataEndpoints
                 // was made.</b> `ColumnNameFor` is the import path's rule and it lower-cases and
                 // rewrites what it must; a screen that went on showing what somebody typed would
                 // be showing a column that does not exist.
-                asked = field.Name,
+                asked = field!.Name,
                 nullable = true,
                 note = "Every existing row has this field empty. A column added to a table that "
                      + "already holds rows cannot be required without a default, and a default "
@@ -1769,6 +1719,138 @@ internal static class HostedDataEndpoints
             return;
         }
 
+        if (await DropFieldFromAsync(context, found, field, importer, contexts, tiles, catalog, audit, cancellation)
+            .ConfigureAwait(false) is not { } dropped)
+        {
+            return;
+        }
+
+        await Results.Json(new
+        {
+            layer = found.Definition.Name,
+            field = dropped,
+            dropped = true,
+            note = "The data that was in this field is gone and cannot be recovered.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Adds one column to a hosted layer already found and admitted, or writes the refusal.
+    /// </summary>
+    /// <remarks>
+    /// <b>Shared by <c>POST /admin/hosted/{layer}/fields</c> and ArcGIS's <c>addToDefinition</c></b>,
+    /// so the two doors refuse the same things in the same words and differ only in what they
+    /// answer on success.
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="found">The layer, already through <see cref="HostedLayerAsync"/>.</param>
+    /// <param name="field">The column to add.</param>
+    /// <param name="importer">What runs the DDL.</param>
+    /// <param name="contexts">The remembered shapes.</param>
+    /// <param name="tiles">The tile cache.</param>
+    /// <param name="catalog">The catalogue, for the change stamp.</param>
+    /// <param name="audit">The log.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The column as the table spells it, or null when a refusal was written.</returns>
+    internal static async Task<string?> AddFieldToAsync(
+        HttpContext context,
+        PublishedLayer found,
+        FieldDesign? field,
+        PostGisImporter importer,
+        ServiceContexts contexts,
+        ITileCache tiles,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (field is null || string.IsNullOrWhiteSpace(field.Name))
+        {
+            await Fail(context, 400, "`name` is required: it is what the column is called.")
+                .ConfigureAwait(false);
+
+            return null;
+        }
+
+        if (!TryFields([field], out List<FieldDescription> read, out string? unreadable))
+        {
+            await Fail(context, 400, unreadable!).ConfigureAwait(false);
+            return null;
+        }
+
+        (_, LayerDescription shape) = await contexts.GetAsync(found, cancellation)
+            .ConfigureAwait(false);
+
+        // <b>Asked before the DDL, so the refusal names the column rather than a constraint.</b>
+        // PostgreSQL would refuse a duplicate anyway, with a message about a relation.
+        if (shape.Find(field.Name) is not null)
+        {
+            await Fail(
+                context, 409,
+                $"'{found.Definition.Name}' already has a field called '{field.Name}'.")
+                .ConfigureAwait(false);
+
+            return null;
+        }
+
+        string column;
+
+        try
+        {
+            column = await importer.AddFieldAsync(
+                found.Definition.SchemaName, found.Definition.TableName, read[0], cancellation)
+                .ConfigureAwait(false);
+        }
+        catch (Npgsql.PostgresException blocked) when (blocked.SqlState == "55P03")
+        {
+            // §5g and condition 1: a table somebody is reading refuses quickly rather than
+            // taking ACCESS EXCLUSIVE and queueing every request behind the waiting DDL — which
+            // D-08 measured at 30.30 s against 0.296 s unblocked.
+            await Fail(
+                context, 409,
+                $"'{found.Definition.Name}' is being read right now, so its table could not be "
+                + "altered — the change was abandoned rather than made to wait, because a "
+                + "waiting ALTER holds up every request that arrives after it. Try again.")
+                .ConfigureAwait(false);
+
+            return null;
+        }
+
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation)
+            .ConfigureAwait(false);
+
+        await RecordAsync(
+            context, audit, "layer.field.add", found.Definition.Name,
+            new { column, type = field.Type }, cancellation).ConfigureAwait(false);
+
+        return column;
+    }
+
+    /// <summary>
+    /// Drops one column from a hosted layer already found and admitted, or writes the refusal.
+    /// </summary>
+    /// <remarks>Shared by <c>DELETE /admin/hosted/{layer}/fields/{field}</c> and ArcGIS's
+    /// <c>deleteFromDefinition</c>, for the reason <see cref="AddFieldToAsync"/> is.</remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="found">The layer, already through <see cref="HostedLayerAsync"/>.</param>
+    /// <param name="field">The column.</param>
+    /// <param name="importer">What runs the DDL.</param>
+    /// <param name="contexts">The remembered shapes.</param>
+    /// <param name="tiles">The tile cache.</param>
+    /// <param name="catalog">The catalogue, for the change stamp.</param>
+    /// <param name="audit">The log.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The column dropped, or null when a refusal was written.</returns>
+    internal static async Task<string?> DropFieldFromAsync(
+        HttpContext context,
+        PublishedLayer found,
+        string field,
+        PostGisImporter importer,
+        ServiceContexts contexts,
+        ITileCache tiles,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
         (_, LayerDescription shape) = await contexts.GetAsync(found, cancellation)
             .ConfigureAwait(false);
 
@@ -1789,7 +1871,7 @@ internal static class HostedDataEndpoints
             if (HoldingOn(found, field) is { } system)
             {
                 await Fail(context, 409, system).ConfigureAwait(false);
-                return;
+                return null;
             }
 
             await Fail(
@@ -1797,13 +1879,13 @@ internal static class HostedDataEndpoints
                 $"'{found.Definition.Name}' has no field called '{field}'.")
                 .ConfigureAwait(false);
 
-            return;
+            return null;
         }
 
         if (HoldingOn(found, column.Name) is { } holder)
         {
             await Fail(context, 409, holder).ConfigureAwait(false);
-            return;
+            return null;
         }
 
         try
@@ -1820,7 +1902,7 @@ internal static class HostedDataEndpoints
                 + "altered — the change was abandoned rather than made to wait. Try again.")
                 .ConfigureAwait(false);
 
-            return;
+            return null;
         }
 
         await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation)
@@ -1830,12 +1912,122 @@ internal static class HostedDataEndpoints
             context, audit, "layer.field.drop", found.Definition.Name,
             new { column = column.Name }, cancellation).ConfigureAwait(false);
 
+        return column.Name;
+    }
+
+    /// <summary>
+    /// Deletes every feature of a hosted layer, or only its attachments — ArcGIS's
+    /// <c>truncate</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One statement rather than a delete per row</b>, because the case this exists for is the
+    /// nightly reload: empty the layer, then append the new data. <c>deleteFeatures where=1=1</c>
+    /// is refused on this server (ADR-008), and a million deletes through the edit path would
+    /// hold the table for minutes.
+    /// </para>
+    /// <para>
+    /// <b>Object ids keep counting</b>, as ArcGIS's truncate documents: a client that cached an id
+    /// must not find it pointing at a different feature tomorrow. <b>The same two-second lock wait
+    /// as a schema change</b> (ADR-058 §5g) applies, because <c>TRUNCATE</c> takes the same lock.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="found">The layer, already through <see cref="HostedLayerAsync"/>.</param>
+    /// <param name="attachmentsOnly">Whether only the attachments go.</param>
+    /// <param name="importer">What runs the statement.</param>
+    /// <param name="contexts">The remembered shapes.</param>
+    /// <param name="tiles">The tile cache.</param>
+    /// <param name="catalog">The catalogue, for the change stamp.</param>
+    /// <param name="audit">The log.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>Whether it was done; false when a refusal was written.</returns>
+    internal static async Task<bool> TruncateHostedAsync(
+        HttpContext context,
+        PublishedLayer found,
+        bool attachmentsOnly,
+        PostGisImporter importer,
+        ServiceContexts contexts,
+        ITileCache tiles,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        try
+        {
+            await importer.TruncateAsync(
+                found.Definition.SchemaName, found.Definition.TableName, attachmentsOnly, cancellation)
+                .ConfigureAwait(false);
+        }
+        catch (Npgsql.PostgresException blocked) when (blocked.SqlState == "55P03")
+        {
+            await Fail(
+                context, 409,
+                $"'{found.Definition.Name}' is being read right now, so it could not be emptied — the "
+                + "truncate was abandoned rather than made to wait. Try again.")
+                .ConfigureAwait(false);
+
+            return false;
+        }
+
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation)
+            .ConfigureAwait(false);
+
+        await RecordAsync(
+            context, audit, attachmentsOnly ? "layer.attachments.truncate" : "layer.truncate",
+            found.Definition.Name, new { attachmentsOnly }, cancellation).ConfigureAwait(false);
+
+        return true;
+    }
+
+    /// <summary>
+    /// <c>POST /admin/hosted/{layer}/truncate</c>: see <see cref="TruncateHostedAsync"/>.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layer">The layer's name.</param>
+    /// <param name="attachmentsOnly">Whether only the attachments go.</param>
+    /// <param name="layers">The published layers, for the lookup.</param>
+    /// <param name="importer">What runs the statement.</param>
+    /// <param name="contexts">The remembered shapes.</param>
+    /// <param name="tiles">The tile cache.</param>
+    /// <param name="catalog">The catalogue, for the change stamp.</param>
+    /// <param name="audit">The log.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The task.</returns>
+    private static async Task TruncateAsync(
+        HttpContext context,
+        string layer,
+        bool? attachmentsOnly,
+        PostgresLayerCatalog layers,
+        PostGisImporter importer,
+        ServiceContexts contexts,
+        ITileCache tiles,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (await HostedLayerAsync(context, layers, layer, "empty", cancellation)
+            .ConfigureAwait(false) is not { } found)
+        {
+            return;
+        }
+
+        bool only = attachmentsOnly ?? false;
+
+        if (!await TruncateHostedAsync(context, found, only, importer, contexts, tiles, catalog, audit, cancellation)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
         await Results.Json(new
         {
             layer = found.Definition.Name,
-            field = column.Name,
-            dropped = true,
-            note = "The data that was in this field is gone and cannot be recovered.",
+            truncated = true,
+            attachmentsOnly = only,
+            note = only
+                ? "Every attachment of this layer is gone and cannot be recovered; its features are untouched."
+                : "Every feature of this layer, and every attachment, is gone and cannot be recovered. Object ids keep counting from where they were.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -1854,7 +2046,7 @@ internal static class HostedDataEndpoints
     /// seconds of a DBA altering it and does not alter it itself. Saying so beats a 404 that
     /// leaves an operator wondering whether the layer exists.
     /// </remarks>
-    private static async Task<PublishedLayer?> HostedLayerAsync(
+    internal static async Task<PublishedLayer?> HostedLayerAsync(
         HttpContext context,
         PostgresLayerCatalog layers,
         string name,

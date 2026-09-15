@@ -98,6 +98,72 @@ public sealed class PostGisImporterTests : PostgresFixture
         Assert.Contains(PostGisImporter.HostedSchema, refused.Message, StringComparison.Ordinal);
     }
 
+    // ---------- truncate ----------
+
+    /// <summary>
+    /// Truncate empties the attachments alone or the whole layer, and object ids keep counting.
+    /// </summary>
+    /// <remarks>Written 2026-09-15, with ArcGIS's <c>truncate</c>.</remarks>
+    [Fact]
+    public async Task Truncate_empties_attachments_or_everything_and_ids_keep_counting()
+    {
+        PostGisImporter importer = new(DataSource);
+
+        ImportResult made = await importer.DefineAsync(
+            [new Graticula.Features.FieldDescription("note", Graticula.Features.FieldType.Text, true, null)],
+            Graticula.Geometries.GeometryKind.Point,
+            3857,
+            "zzz_truncate_" + Guid.NewGuid().ToString("N")[..8],
+            CancellationToken.None);
+
+        string table = $"{made.SchemaName}.\"{made.TableName}\"";
+
+        try
+        {
+            // No attachment table exists yet, and truncate must not trip over its absence.
+            await importer.TruncateAsync(made.SchemaName, made.TableName, attachmentsOnly: true, CancellationToken.None);
+
+            await using (NpgsqlCommand insert = DataSource.CreateCommand($"insert into {table} (note) values ('one'), ('two')"))
+            {
+                await insert.ExecuteNonQueryAsync();
+            }
+
+            PostGisAttachmentStore attachments = new(
+                DataSource,
+                new Graticula.Catalog.LayerDefinition(
+                    name: made.TableName, schemaName: made.SchemaName, tableName: made.TableName,
+                    geometryColumn: "geom", srid: 3857, identityColumn: "objectid",
+                    integerIdentityColumn: "objectid", isHosted: true),
+                1024 * 1024);
+
+            await attachments.AddAsync(1, "a.txt", "text/plain", null, new System.IO.MemoryStream([1, 2, 3]), CancellationToken.None);
+            Assert.Single(await attachments.ListAsync(1, CancellationToken.None));
+
+            await importer.TruncateAsync(made.SchemaName, made.TableName, attachmentsOnly: true, CancellationToken.None);
+
+            Assert.Empty(await attachments.ListAsync(1, CancellationToken.None));
+            Assert.Equal(2L, await ScalarAsync<long>($"select count(*) from {table}"));
+
+            await importer.TruncateAsync(made.SchemaName, made.TableName, attachmentsOnly: false, CancellationToken.None);
+            Assert.Equal(0L, await ScalarAsync<long>($"select count(*) from {table}"));
+
+            Assert.Equal(3, await ScalarAsync<int>($"insert into {table} (note) values ('three') returning objectid"));
+        }
+        finally
+        {
+            await importer.DropAsync(made.SchemaName, made.TableName, CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Truncate_refuses_a_table_outside_the_hosted_schema()
+    {
+        InvalidOperationException refused = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new PostGisImporter(DataSource).TruncateAsync("public", "anything", false, CancellationToken.None));
+
+        Assert.Contains("truncate", refused.Message, StringComparison.Ordinal);
+    }
+
     // ---------- GlobalIDs ----------
 
     /// <summary>
