@@ -153,6 +153,25 @@ tables have a stated retention cap enforced by a sweeper. The console gains a **
 with a source selector, shared filters for time and principal and free text, and
 source-specific filters beside them.
 
+## 5a. Amended 2026-09-15 — the server's own warnings and errors, in memory
+
+A review from an ArcGIS user's side asked where the equivalent of ArcGIS Server Manager's
+SEVERE and WARNING log was. There was none: the three logs above record what callers did and what
+the studio saw, and what the server itself warned about went to standard output only. The same day
+an attachment upload failed with a 503 whose cause was in that output and nowhere an administrator
+could reach from the console.
+
+**`/admin/logs/server` reads the last 2,000 warnings and errors this process logged**, with the
+same filters as the other sources plus `level`. **They are kept in memory, per process, and lost at
+restart — not in a fourth table.** §5's argument about write load is strongest for this source,
+because a flood of warnings is exactly when a write per line to the database would hurt, and the
+last hours of the process that wrote them are what these are for. The answer says both limits, so
+an empty page is not read as a server that never complained. `INFERRED`: that memory rather than
+the store is the right home is this session's judgement, and a deployment that wants retention
+still has standard output for a collector.
+
+**State.** None in the catalogue; a bounded queue per node.
+
 ## 6. Consequences
 
 **Positive.** *Who deleted that service, and from what address* becomes answerable on the

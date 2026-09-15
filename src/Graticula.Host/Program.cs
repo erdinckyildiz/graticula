@@ -646,6 +646,11 @@ public static class Program
 
         QuietTheFramework(builder.Logging, builder.Configuration);
 
+        // <b>What the server itself warned about, readable at /admin/logs/server — ADR-045 §5a.</b>
+        ServerLogBuffer serverLog = new(TimeProvider.System);
+        builder.Services.AddSingleton(serverLog);
+        builder.Logging.AddProvider(serverLog);
+
         WebApplication app = builder.Build();
         ILogger logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("startup");
 

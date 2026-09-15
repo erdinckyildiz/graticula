@@ -11,6 +11,7 @@ using Graticula.Platform.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
 
 namespace Graticula.Host;
 
@@ -109,7 +110,7 @@ internal static class LogEndpoints
     private static readonly IngestThrottle Throttle = new();
 
     /// <summary>The three logs this server keeps, in the order a screen offers them.</summary>
-    private static readonly string[] Sources = ["audit", "requests", "studio"];
+    private static readonly string[] Sources = ["audit", "requests", "studio", "server"];
 
     /// <summary>The largest event body this server will read.</summary>
     /// <remarks>
@@ -169,11 +170,18 @@ internal static class LogEndpoints
         HttpContext context,
         string source,
         ILogReader logs,
+        ServerLogBuffer serverLog,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer)
             .ConfigureAwait(false))
         {
+            return;
+        }
+
+        if (source == "server")
+        {
+            await ServerAsync(context, serverLog).ConfigureAwait(false);
             return;
         }
 
@@ -205,7 +213,7 @@ internal static class LogEndpoints
                 {
                     code = 400,
                     message = $"`{source}` is not a log this server keeps. It keeps audit, "
-                        + "requests and studio.",
+                        + "requests, studio and server.",
                 },
             }).ExecuteAsync(context).ConfigureAwait(false);
 
@@ -232,6 +240,58 @@ internal static class LogEndpoints
             // changes while they read.
             next = rows.Count > 0 ? rows[^1].Cursor : (long?)null,
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The server's own warnings and errors, newest first — ADR-045 §5a.
+    /// </summary>
+    /// <remarks>
+    /// <b>Says what it is not.</b> The rows are this process's since it started and at most
+    /// <see cref="ServerLogBuffer.Capacity"/> of them, and another node's are on that node; both are
+    /// in the answer, so an empty page is not read as a server that never complained.
+    /// </remarks>
+    private static Task ServerAsync(HttpContext context, ServerLogBuffer serverLog)
+    {
+        LogLevel minimum = Text(context, "level")?.ToLowerInvariant() switch
+        {
+            "error" or "severe" => LogLevel.Error,
+            "critical" => LogLevel.Critical,
+            _ => LogLevel.Warning,
+        };
+
+        IReadOnlyList<ServerLogEntry> entries = serverLog.Read(
+            minimum,
+            Text(context, "q"),
+            Time(context, "from"),
+            Time(context, "to"),
+            Cursor(context),
+            Whole(context, "limit") ?? 100);
+
+        return Results.Ok(new
+        {
+            source = "server",
+            since = serverLog.Since,
+            kept = ServerLogBuffer.Capacity,
+            scope = "This process only, since it started; entries beyond the most recent "
+                + $"{ServerLogBuffer.Capacity} and entries from before a restart are not kept.",
+            rows = entries.Select(e => new
+            {
+                cursor = e.Cursor,
+                at = e.At,
+                who = (string?)null,
+                from = (string?)null,
+                what = e.Level switch
+                {
+                    LogLevel.Critical => "critical",
+                    LogLevel.Error => "error",
+                    _ => "warning",
+                },
+                resource = e.Category,
+                ok = e.Level < LogLevel.Error,
+                detail = new { message = e.Message, eventId = e.EventId, eventName = e.EventName, exception = e.Exception },
+            }),
+            next = entries.Count > 0 ? entries[^1].Cursor : (long?)null,
+        }).ExecuteAsync(context);
     }
 
     /// <summary>Takes one event from a browser.</summary>
