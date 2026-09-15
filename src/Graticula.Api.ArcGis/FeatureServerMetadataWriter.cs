@@ -102,9 +102,10 @@ public static class FeatureServerMetadataWriter
             isTokenBasedSecurity = true,
             tokenServicesUrl,
 
-            // Minutes. ADR-015 §4's compatibility tokens are not implemented, so
-            // this describes the session lifetime a client will actually get.
-            shortLivedTokenValidity = 720,
+            // Minutes: what a token from generateToken lives when its client does not ask for a
+            // lifetime (AuthEndpoints.CompatibilityTokenLifetime, ADR-015 §4). It said 720, the session
+            // lifetime, until 2026-09-15.
+            shortLivedTokenValidity = 60,
         },
     };
 

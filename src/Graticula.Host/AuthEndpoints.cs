@@ -817,14 +817,30 @@ internal static class AuthEndpoints
         CallerAddress.Of(context);
 
     /// <summary>
+    /// How long an ArcGIS token lives when its client does not say — sixty minutes, ArcGIS's own
+    /// default for <c>expiration</c>.
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-015 §4 mitigation 3: short-lived by default.</b> Until 2026-09-15 a token requested
+    /// without <c>expiration</c> lived the deployment's whole session lifetime, twelve hours by default,
+    /// so one that leaked into a log or a <c>Referer</c> stayed useful for a working day. The console's
+    /// own sign-in is not an ArcGIS token and keeps the session lifetime.
+    /// </remarks>
+    internal static readonly TimeSpan CompatibilityTokenLifetime = TimeSpan.FromMinutes(60);
+
+    /// <summary>
     /// The lifetime an ArcGIS client asks for with <c>expiration</c>, in minutes — from the form or
-    /// the query — or null when it asks for none or for something that is not a number.
+    /// the query — or <see cref="CompatibilityTokenLifetime"/> when it asks for none or for something
+    /// that is not a number.
     /// </summary>
     /// <remarks>
     /// <b>One reading for all three token doors</b> (<c>/rest</c>, <c>/sharing/rest</c>,
     /// <c>/admin</c>), so they cannot come to grant different lifetimes for the same request.
     /// <see cref="LoginService"/> keeps the deployment's lifetime as the ceiling.
     /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The lifetime to ask <see cref="LoginService"/> for.</returns>
     internal static async Task<TimeSpan?> RequestedLifetimeAsync(HttpContext context, CancellationToken cancellation)
     {
         string? value = null;
@@ -844,7 +860,7 @@ internal static class AuthEndpoints
             && double.IsFinite(minutes)
             && minutes < TimeSpan.MaxValue.TotalMinutes / 2
                 ? TimeSpan.FromMinutes(minutes)
-                : null;
+                : CompatibilityTokenLifetime;
     }
 
     /// <summary>

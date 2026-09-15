@@ -324,6 +324,13 @@ public sealed class PortalConformanceTests : ArcGisClient
 
             Assert.False(string.IsNullOrWhiteSpace(token), $"{endpoint} issued no token");
 
+            // No expiration asked for, so ArcGIS's default of sixty minutes — ADR-015 §4, D-268. Two
+            // minutes of slack for the clock between here and the server.
+            long expires = document.RootElement.GetProperty("expires").GetInt64();
+            Assert.True(
+                expires <= DateTimeOffset.UtcNow.AddMinutes(62).ToUnixTimeMilliseconds(),
+                $"a token from {endpoint} with no expiration asked for expires at {DateTimeOffset.FromUnixTimeMilliseconds(expires):u}");
+
             // The credential from each door has to work on a surface none of them
             // belongs to.
             using HttpRequestMessage request = new(
