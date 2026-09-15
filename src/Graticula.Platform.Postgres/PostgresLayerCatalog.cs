@@ -85,7 +85,11 @@ public sealed class PostgresLayerCatalog
         l.field_overrides::text as field_overrides,
 
         -- The scales the layer draws at (ADR-070, migration 48). On the end, read by name.
-        l.min_scale, l.max_scale
+        l.min_scale, l.max_scale,
+
+        -- When the service was published and last changed, for a portal item's created and
+        -- modified (2026-09-15). On the end, read by name.
+        s.created_at as service_created_at, s.updated_at as service_updated_at
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -712,7 +716,7 @@ public sealed class PostgresLayerCatalog
         Dictionary<Guid, (string Name, string? Folder, string Kind, string? Description,
             Guid? Owner, SharingScope Sharing, ServiceStatus Status, string? Style,
             ServiceCapabilityLimits Limits, Guid[] SharedWith, int? Srid,
-            string? SridWkt)> heads = [];
+            string? SridWkt, DateTimeOffset Created, DateTimeOffset Modified)> heads = [];
         List<Guid> order = [];
 
         // <b>Its own scope, so the reader is closed before the group query
@@ -766,7 +770,9 @@ public sealed class PostgresLayerCatalog
                         // which coordinates a client gets.
                         reader.IsDBNull(reader.GetOrdinal("service_srid_wkt"))
                             ? null
-                            : reader.GetString(reader.GetOrdinal("service_srid_wkt")));
+                            : reader.GetString(reader.GetOrdinal("service_srid_wkt")),
+                        reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("service_created_at")),
+                        reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("service_updated_at")));
                 }
 
                 // A left join, so a service with no layers arrives as one row of
@@ -824,7 +830,12 @@ public sealed class PostgresLayerCatalog
                 head.Style,
                 head.Limits,
                 head.SharedWith,
-                head.Srid));
+                head.Srid)
+            {
+                SridWkt = head.SridWkt,
+                Created = head.Created,
+                Modified = head.Modified,
+            });
         }
 
         return services;

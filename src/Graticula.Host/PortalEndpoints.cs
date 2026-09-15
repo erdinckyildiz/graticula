@@ -1024,6 +1024,11 @@ internal static class PortalEndpoints
             spatialReference = (string?)null,
             numViews = 0,
             size = -1,
+
+            // <b>Epoch milliseconds, as every portal date is.</b> Absent until 2026-09-15 although the
+            // catalogue has always stamped both, so Pro's *My Content* could not sort by date.
+            created = service.Created?.ToUnixTimeMilliseconds(),
+            modified = service.Modified?.ToUnixTimeMilliseconds(),
         };
     }
 

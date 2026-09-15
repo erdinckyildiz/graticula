@@ -161,6 +161,15 @@ public sealed class PublishedService
     /// </remarks>
     public string? SridWkt { get; init; }
 
+    /// <summary>When the service was first published, or null where the reader did not say.</summary>
+    /// <remarks>A portal item reports it as <c>created</c>; ArcGIS clients sort <i>My Content</i> by it.</remarks>
+    public DateTimeOffset? Created { get; init; }
+
+    /// <summary>When the service last changed, or null where the reader did not say.</summary>
+    /// <remarks>The service row's <c>updated_at</c>, which a publish, a schema change and a
+    /// settings change all move; reported as a portal item's <c>modified</c>.</remarks>
+    public DateTimeOffset? Modified { get; init; }
+
     /// <summary>What it is for, or null.</summary>
     public string? Description { get; }
 

@@ -143,6 +143,11 @@ public sealed class PortalConformanceTests : ArcGisClient
             Assert.Contains("Service", item.GetProperty("type").GetString()!, StringComparison.Ordinal);
             Assert.Contains("/rest/services/", item.GetProperty("url").GetString()!, StringComparison.Ordinal);
             Assert.False(item.GetProperty("typeKeywords").GetArrayLength() == 0);
+
+            // Dates as a portal writes them, epoch milliseconds — absent until 2026-09-15.
+            long created = item.GetProperty("created").GetInt64();
+            long modified = item.GetProperty("modified").GetInt64();
+            Assert.True(created > 1_600_000_000_000 && modified >= created, $"created {created}, modified {modified}");
         }
     }
 
