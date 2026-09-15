@@ -79,6 +79,36 @@ public sealed class PostGisFeatureWriterTests : PostgresFixture
 
     // ---------- the happy paths ----------
 
+    /// <summary>
+    /// A required field left empty is refused by name, and the refusal does not carry the table's
+    /// internal name.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15: the refusal appended PostgreSQL's own sentence, <i>null value in column
+    /// "req" of relation "veteran_probe_a5e96231"</i>, which told an editor the hosted table's name.
+    /// </remarks>
+    [Fact]
+    public async Task A_required_field_left_empty_is_named_and_the_table_is_not()
+    {
+        LayerDefinition layer = await FlatTableAsync("required_left_empty");
+        PostGisFeatureWriter writer = await WriterFor(layer);
+
+        EditOutcome outcome = await writer.ApplyAsync(
+            new EditBatch(
+                [new FeatureAdd(new Dictionary<string, object?> { ["label"] = "x", ["rating"] = null }, At(1, 2))],
+                [],
+                [],
+                RollbackOnFailure: false),
+            CancellationToken.None);
+
+        EditResult result = Assert.Single(outcome.Adds);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("'rating' is required", result.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("required_left_empty", result.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("relation", result.Error, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task An_add_inserts_the_row_and_returns_its_new_object_id()
     {

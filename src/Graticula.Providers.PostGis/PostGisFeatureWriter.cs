@@ -917,18 +917,26 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
     /// A database refusal in words the caller can act on.
     /// </summary>
     /// <remarks>
-    /// The SQL state is the reliable part and the message text is appended
-    /// rather than replaced — the provider's own error is often the only thing
-    /// that names the constraint.
+    /// <para>
+    /// <b>The column, not the database's sentence.</b> This appended PostgreSQL's message text
+    /// on the grounds that it is often the only thing naming the constraint, and it named more
+    /// than that: a missing required value came back as <i>null value in column "req" of relation
+    /// "veteran_probe_a5e96231"</i>, which hands every editor the hosted table's internal name —
+    /// found on the showcase 2026-09-15. What a caller can act on is which field, and
+    /// <see cref="PostgresException.ColumnName"/> carries it without the rest. The message stays
+    /// for the two type errors, whose text is about the value the caller sent and nothing else.
+    /// </para>
     /// </remarks>
     private static string Explain(PostgresException e) => e.SqlState switch
     {
-        "23502" => $"A column that cannot be null was not given a value: {e.MessageText}",
-        "23505" => $"This would duplicate a value that must be unique: {e.MessageText}",
-        "23503" => $"This references a row that does not exist: {e.MessageText}",
-        "23514" => $"A check constraint refused this value: {e.MessageText}",
+        "23502" => e.ColumnName is { Length: > 0 } column
+            ? $"'{column}' is required, and this edit leaves it without a value."
+            : "A required field is left without a value by this edit.",
+        "23505" => "This would duplicate a value that must be unique in this layer.",
+        "23503" => "This refers to a row that does not exist.",
+        "23514" => "A rule on this layer's table refused this value.",
         "22P02" or "22003" => $"A value is the wrong type or out of range: {e.MessageText}",
         "42501" => "The server's credential for this database may not write to this table.",
-        _ => $"The database refused this edit ({e.SqlState}): {e.MessageText}",
+        _ => $"The database refused this edit ({e.SqlState}).",
     };
 }
