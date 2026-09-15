@@ -53,13 +53,15 @@ public sealed record FeatureUpdate(
 /// third kind, because it is a third answer</b>: the request was well formed and the feature is
 /// there, so an OGC API Features verb answers <c>403</c> rather than 400 or 404.
 /// </param>
+/// <param name="GlobalId">The row's GlobalID, on a layer that has them; null otherwise.</param>
 public readonly record struct EditResult(
     long Identity,
     bool Succeeded,
     string? Error,
     bool NoSuchFeature = false,
     bool VersionMoved = false,
-    bool NotYours = false)
+    bool NotYours = false,
+    Guid? GlobalId = null)
 {
     /// <summary>A success.</summary>
     public static EditResult Ok(long objectId) => new(objectId, true, null);

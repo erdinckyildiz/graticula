@@ -182,7 +182,7 @@ public static class ApplyEditsResponse
                 ? Failure(result.Identity, result.Error ?? "The edit failed.")
                 : rolledBack
                     ? Failure(adds ? -1 : result.Identity, RolledBackDescription)
-                    : Success(result.Identity);
+                    : Success(result.Identity, result.GlobalId);
         }
 
         for (int i = 0; i < results.Length; i++)
@@ -193,10 +193,10 @@ public static class ApplyEditsResponse
         return results;
     }
 
-    private static object Success(long objectId) => new
+    private static object Success(long objectId, Guid? globalId = null) => new
     {
         objectId,
-        globalId = (string?)null,
+        globalId = globalId is { } value ? GlobalIds.Braced(value) : null,
         success = true,
     };
 

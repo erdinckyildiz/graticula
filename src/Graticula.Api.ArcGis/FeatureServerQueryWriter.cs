@@ -196,7 +196,7 @@ public sealed class FeatureServerQueryWriter
         // by object id cannot do either against a set of combinations.
         writer.WriteString(
             "objectIdFieldName", query.Distinct ? string.Empty : _layer.IntegerIdentityColumn);
-        writer.WriteString("globalIdFieldName", string.Empty);
+        writer.WriteString("globalIdFieldName", GlobalIds.FieldOf([.. _fields.Values]) ?? string.Empty);
         writer.WriteString("geometryType", ArcGisGeometryWriter.TypeName(geometryType));
 
         // <b>The reference the geometry is actually in, which is outSR when one
@@ -241,7 +241,11 @@ public sealed class FeatureServerQueryWriter
             }
             else if (_fields.TryGetValue(name, out FieldDescription field))
             {
-                WriteField(writer, name, FeatureServerMetadataWriter.TypeName(field.Type), field.Label, field.MaxLength);
+                string type = string.Equals(name, GlobalIds.FieldOf([.. _fields.Values]), StringComparison.Ordinal)
+                    ? "esriFieldTypeGlobalID"
+                    : FeatureServerMetadataWriter.TypeName(field.Type);
+
+                WriteField(writer, name, type, field.Label, field.MaxLength);
             }
             else
             {
@@ -393,6 +397,12 @@ public sealed class FeatureServerQueryWriter
                 break;
             case string text:
                 writer.WriteString(name, text);
+                break;
+
+            // ArcGIS writes a GUID upper case and in braces, and a client that matches a GlobalID
+            // compares the text — 2026-09-15.
+            case Guid guid:
+                writer.WriteString(name, GlobalIds.Braced(guid));
                 break;
             case bool flag:
                 writer.WriteNumber(name, flag ? 1 : 0);

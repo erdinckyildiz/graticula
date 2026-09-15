@@ -106,6 +106,9 @@ internal static class HostedDataEndpoints
         // ADR-064: Portal's four editor-tracking columns, added and given their roles at once.
         app.MapPost("/admin/hosted/{layer}/editor-tracking", TrackEditsAsync);
 
+        // ADR-013 §2's GlobalID column, which no hosted layer had until 2026-09-15.
+        app.MapPost("/admin/hosted/{layer}/global-ids", AddGlobalIdsAsync);
+
         // The original path, kept working. It was only ever the import, and
         // moving it silently would break the one thing already built against it.
         app.MapPost("/admin/hosted", ImportAsync).DisableAntiforgery();
@@ -2137,6 +2140,77 @@ internal static class HostedDataEndpoints
                 JsonSerializer.Serialize(detail),
                 true),
             cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Gives a hosted layer GlobalIDs — ArcGIS's <i>Add GlobalIDs</i>.
+    /// </summary>
+    /// <remarks>
+    /// <b>A column called <c>globalid</c> that is not a <c>uuid</c> is refused by name</b>, for the
+    /// reason editor tracking refuses a wrong-typed column: this server does not write identifiers into
+    /// somebody's text. Asking twice is not an error; the answer says it was already there.
+    /// </remarks>
+    private static async Task AddGlobalIdsAsync(
+        HttpContext context,
+        string layer,
+        PostgresLayerCatalog layers,
+        PostGisImporter importer,
+        ServiceContexts contexts,
+        ITileCache tiles,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (await HostedLayerAsync(context, layers, layer, "add GlobalIDs to", cancellation)
+            .ConfigureAwait(false) is not { } found)
+        {
+            return;
+        }
+
+        (_, LayerDescription table) = await contexts.TableAsync(found, cancellation).ConfigureAwait(false);
+
+        if (table.Find(GlobalIds.Column) is { } existing && existing.Type != FieldType.Guid)
+        {
+            await Fail(
+                context, 409,
+                $"'{found.Definition.Name}' already has a column called '{GlobalIds.Column}', and it is not "
+                + "a uuid column, so it cannot hold GlobalIDs. Rename it and ask again.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        bool added;
+
+        try
+        {
+            added = await importer
+                .AddGlobalIdsAsync(found.Definition.SchemaName, found.Definition.TableName, cancellation)
+                .ConfigureAwait(false);
+        }
+        catch (Npgsql.PostgresException blocked) when (blocked.SqlState == "55P03")
+        {
+            await Fail(
+                context, 409,
+                $"'{found.Definition.Name}' is being read right now, so its table could not be altered. Try again.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation).ConfigureAwait(false);
+
+        await RecordAsync(
+            context, audit, "layer.globalIds", found.Definition.Name, new { added }, cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            layer = found.Definition.Name,
+            globalIdField = GlobalIds.Column,
+            added,
+            note = added
+                ? "Every feature now has a GlobalID, the ones already there included, and every new one gets its own."
+                : "This layer already had GlobalIDs.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     private static Task Fail(HttpContext context, int code, string message) =>

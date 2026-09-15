@@ -54,7 +54,12 @@ definition may describe things the physical table does not have.
 
 **Hosted layers.** We own the schema, so identity exists by construction: a
 `globalid uuid` column, indexed and immutable, plus a monotonic `objectid`
-integer for ArcGIS compatibility. Both are ours, both are stable.
+integer for ArcGIS compatibility. Both are ours, both are stable. *(Corrected 2026-09-15: no
+hosted layer had the `globalid` column, and every document said `globalIdField: ""`. It is now
+added per layer with `POST /admin/hosted/{layer}/global-ids` — ArcGIS's own *Add GlobalIDs* — as a
+`uuid not null default gen_random_uuid()` with a unique index that fills existing rows too, and a
+layer with such a column reports it in its document, its queries and its edit results. It is not yet
+added by default at import or design time, and `useGlobalIds=true` is still refused.)*
 
 **Registered layers.** We do not own the schema and
 [A-017](../architecture-assumptions.md) says we may not have DDL rights. The

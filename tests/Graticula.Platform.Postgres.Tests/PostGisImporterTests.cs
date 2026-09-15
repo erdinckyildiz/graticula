@@ -98,6 +98,76 @@ public sealed class PostGisImporterTests : PostgresFixture
         Assert.Contains(PostGisImporter.HostedSchema, refused.Message, StringComparison.Ordinal);
     }
 
+    // ---------- GlobalIDs ----------
+
+    /// <summary>
+    /// A hosted layer given GlobalIDs has one on every row, old and new, and edits report it.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15: ADR-013 §2 said hosted layers carried a GlobalID and none did; every edit
+    /// result said <c>globalId: null</c>.
+    /// </remarks>
+    [Fact]
+    public async Task A_layer_given_GlobalIDs_fills_every_row_and_its_edits_report_them()
+    {
+        PostGisImporter importer = new(DataSource);
+
+        ImportResult made = await importer.DefineAsync(
+            [new Graticula.Features.FieldDescription("note", Graticula.Features.FieldType.Text, true, null)],
+            Graticula.Geometries.GeometryKind.Point,
+            3857,
+            "zzz_globalids_" + Guid.NewGuid().ToString("N")[..8],
+            CancellationToken.None);
+
+        try
+        {
+            await using (NpgsqlCommand before = DataSource.CreateCommand(
+                $"insert into {made.SchemaName}.\"{made.TableName}\" (note) values ('before')"))
+            {
+                await before.ExecuteNonQueryAsync();
+            }
+
+            Assert.True(await importer.AddGlobalIdsAsync(made.SchemaName, made.TableName, CancellationToken.None));
+            Assert.False(await importer.AddGlobalIdsAsync(made.SchemaName, made.TableName, CancellationToken.None));
+
+            Assert.Equal(0L, await ScalarAsync<long>(
+                $"select count(*) from {made.SchemaName}.\"{made.TableName}\" where globalid is null"));
+
+            Graticula.Catalog.LayerDefinition layer = new(
+                made.TableName, made.SchemaName, made.TableName, "geom", 3857, "objectid", "objectid", isHosted: true);
+
+            Graticula.Features.LayerDescription described =
+                await new PostGisFeatureSource(DataSource, layer).DescribeAsync(CancellationToken.None);
+
+            Assert.Equal("globalid", Graticula.Features.GlobalIds.FieldOf(described.Fields));
+
+            PostGisFeatureWriter writer = new(DataSource, layer, described.Fields);
+            Guid impostor = Guid.NewGuid();
+
+            Graticula.Features.EditOutcome added = await writer.ApplyAsync(
+                new Graticula.Features.EditBatch(
+                    [new Graticula.Features.FeatureAdd(
+                        new System.Collections.Generic.Dictionary<string, object?> { ["note"] = "new", ["globalid"] = impostor },
+                        new Graticula.Geometries.Point(1, 2))],
+                    [], []),
+                CancellationToken.None);
+
+            Graticula.Features.EditResult add = Assert.Single(added.Adds);
+            Assert.True(add.Succeeded, add.Error);
+            Assert.NotNull(add.GlobalId);
+            Assert.NotEqual(impostor, add.GlobalId);
+
+            Graticula.Features.EditOutcome removed = await writer.ApplyAsync(
+                new Graticula.Features.EditBatch([], [], [add.Identity]), CancellationToken.None);
+
+            Assert.Equal(add.GlobalId, Assert.Single(removed.Deletes).GlobalId);
+        }
+        finally
+        {
+            await DropAsync(made);
+        }
+    }
+
     // ---------- a designed layer's reference and text lengths ----------
 
     /// <summary>

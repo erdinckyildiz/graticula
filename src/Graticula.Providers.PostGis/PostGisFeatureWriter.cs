@@ -95,6 +95,34 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         _fields = fields;
         _tracking = tracking ?? EditorTracking.None;
         _subtypes = subtypes;
+        _globalId = GlobalIds.FieldOf(fields);
+    }
+
+    /// <summary>The layer's GlobalID column, which this server fills, or null.</summary>
+    private readonly string? _globalId;
+
+    /// <summary>
+    /// <c>returning</c> the object id, and the GlobalID beside it where the layer has one, so an edit
+    /// result can carry both — 2026-09-15.
+    /// </summary>
+    private string Returning =>
+        $" returning {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)}"
+        + (_globalId is null ? string.Empty : $", {LayerDefinition.Quote(_globalId)}");
+
+    /// <summary>Runs a write that returns a row, and reads its object id and GlobalID.</summary>
+    private async Task<(long Id, Guid? GlobalId)?> ReturnedAsync(NpgsqlCommand command, CancellationToken cancellationToken)
+    {
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        long id = Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture);
+        Guid? global = _globalId is not null && !reader.IsDBNull(1) ? reader.GetGuid(1) : null;
+
+        return (id, global);
     }
 
     /// <inheritdoc/>
@@ -317,8 +345,8 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
 
         string sql =
             $"insert into {_layer.QuotedTable} ({string.Join(", ", columns)}) "
-            + $"values ({string.Join(", ", values)}) "
-            + $"returning {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)}";
+            + $"values ({string.Join(", ", values)})"
+            + Returning;
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
         Bind(command, bound, add.Geometry);
@@ -330,8 +358,8 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
 
         try
         {
-            object? id = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-            return EditResult.Ok(Convert.ToInt64(id, CultureInfo.InvariantCulture));
+            (long Id, Guid? GlobalId) row = (await ReturnedAsync(command, cancellationToken).ConfigureAwait(false))!.Value;
+            return EditResult.Ok(row.Id) with { GlobalId = row.GlobalId };
         }
         catch (PostgresException e)
         {
@@ -521,7 +549,8 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             $"update {_layer.QuotedTable} set {string.Join(", ", assignments)} "
             + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id"
             + (expected is null ? string.Empty : " and xmin::text = any(@expected)")
-            + OwnerClause(owner);
+            + OwnerClause(owner)
+            + Returning;
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
         command.Parameters.AddWithValue("id", update.Identity);
@@ -545,11 +574,9 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
 
         try
         {
-            int affected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-
-            if (affected > 0)
+            if (await ReturnedAsync(command, cancellationToken).ConfigureAwait(false) is { } changed)
             {
-                return EditResult.Ok(update.Identity);
+                return EditResult.Ok(update.Identity) with { GlobalId = changed.GlobalId };
             }
 
             // Nothing changed. That is a missing row, somebody else's row, or a version that
@@ -578,7 +605,8 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             $"delete from {_layer.QuotedTable} "
             + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id"
             + (expected is null ? string.Empty : " and xmin::text = any(@expected)")
-            + OwnerClause(owner);
+            + OwnerClause(owner)
+            + Returning;
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
         command.Parameters.AddWithValue("id", objectId);
@@ -595,14 +623,12 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
 
         try
         {
-            int affected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-
             // Deleting something that is already gone is reported as a failure
             // rather than shrugged off, because the client believes it deleted a
             // feature it never saw. ArcGIS reports it the same way.
-            if (affected > 0)
+            if (await ReturnedAsync(command, cancellationToken).ConfigureAwait(false) is { } removed)
             {
-                return EditResult.Ok(objectId);
+                return EditResult.Ok(objectId) with { GlobalId = removed.GlobalId };
             }
 
             // A delete that removed nothing may have found the row and refused it -- D-186 for
@@ -895,6 +921,14 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             // anyway; refusing would fail an ordinary edit over a value the client never meant
             // to change. This server writes the column itself, after this.
             if (field.Value.Maintained)
+            {
+                continue;
+            }
+
+            // <b>The GlobalID is this server's to write, like a tracked column</b> — dropped rather
+            // than refused, because a client echoes it back on every update. The column's default
+            // gives a new row its value.
+            if (string.Equals(attribute.Key, _globalId, StringComparison.Ordinal))
             {
                 continue;
             }

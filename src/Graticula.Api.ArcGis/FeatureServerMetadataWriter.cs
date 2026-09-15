@@ -764,7 +764,9 @@ public static class FeatureServerMetadataWriter
             // document learns why before it tries.
             objectIdField = layer.IntegerIdentityColumn,
             displayField = DisplayField(layer, description),
-            globalIdField = string.Empty,
+            // <b>The layer's GlobalID column where it has one — 2026-09-15.</b> This was always
+            // empty, while ADR-013 §2 said hosted layers carried one. See `GlobalIds`.
+            globalIdField = GlobalIds.FieldOf(description.Fields) ?? string.Empty,
 
             fields = Fields(layer, description, capabilities),
 
@@ -1081,7 +1083,9 @@ public static class FeatureServerMetadataWriter
             name = field.Name,
             type = string.Equals(field.Name, layer.IntegerIdentityColumn, StringComparison.Ordinal)
                 ? "esriFieldTypeOID"
-                : TypeName(field.Type),
+                : string.Equals(field.Name, GlobalIds.FieldOf(description.Fields), StringComparison.Ordinal)
+                    ? "esriFieldTypeGlobalID"
+                    : TypeName(field.Type),
             // <b>The layer's label, and the column's own name when it has none — ADR-063.</b>
             // This sent the name as the alias for every field, which is not *no alias* but a
             // wrong one: a client shows it, and a geodatabase import that read the operator's
@@ -1099,7 +1103,10 @@ public static class FeatureServerMetadataWriter
                 // <b>ADR-064: who created or changed a row, and when, is this server's to
                 // write.</b> The writer replaces whatever a client sends for these, and the
                 // document says so here rather than letting a client find out.
-                && !field.Maintained,
+                && !field.Maintained
+
+                // The GlobalID is filled by this server and never changes, like the object id.
+                && !string.Equals(field.Name, GlobalIds.FieldOf(description.Fields), StringComparison.Ordinal),
             // <b>ADR-065: what values the column may hold, and null when any its type allows.</b>
             // The writer both faces share refuses a value outside it, so a drop-down here is not a
             // suggestion a hand-made applyEdits can ignore.

@@ -491,6 +491,62 @@ public sealed class PostGisImporter
     }
 
     /// <summary>
+    /// Gives a hosted table a GlobalID column: a <c>uuid</c> that every row has, that nothing repeats,
+    /// and that a new row gets without being told.
+    /// </summary>
+    /// <param name="schemaName">Its schema, which must be the hosted one.</param>
+    /// <param name="tableName">The table.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the column was added now; false when it was already there.</returns>
+    /// <remarks>
+    /// <b>One statement fills every existing row</b>, because a column added with a volatile default
+    /// is filled row by row — so the rows that were there before get GlobalIDs too, which is what
+    /// ArcGIS's <i>Add GlobalIDs</i> does. The unique index goes on in the same transaction, under the
+    /// same short lock wait as adding a field.
+    /// </remarks>
+    public async Task<bool> AddGlobalIdsAsync(string schemaName, string tableName, CancellationToken cancellationToken)
+    {
+        RefuseOutsideHosted(schemaName, tableName, "add GlobalIDs to");
+
+        await using NpgsqlConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using (NpgsqlCommand exists = new(
+            "select exists (select 1 from information_schema.columns "
+            + "where table_schema = @schema and table_name = @table and column_name = @column)",
+            connection, transaction))
+        {
+            exists.Parameters.AddWithValue("schema", HostedSchema);
+            exists.Parameters.AddWithValue("table", tableName);
+            exists.Parameters.AddWithValue("column", Graticula.Features.GlobalIds.Column);
+
+            if ((bool)(await exists.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!)
+            {
+                return false;
+            }
+        }
+
+        await ExecuteAsync(connection, transaction, LockTimeout, cancellationToken).ConfigureAwait(false);
+
+        await ExecuteAsync(
+            connection,
+            transaction,
+            $"alter table {Qualified(tableName)} add column {LayerDefinition.Quote(Graticula.Features.GlobalIds.Column)} "
+            + "uuid not null default gen_random_uuid()",
+            cancellationToken).ConfigureAwait(false);
+
+        await ExecuteAsync(
+            connection,
+            transaction,
+            $"create unique index on {Qualified(tableName)} ({LayerDefinition.Quote(Graticula.Features.GlobalIds.Column)})",
+            cancellationToken).ConfigureAwait(false);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
     /// Drops a column from a hosted table.
     /// </summary>
     /// <param name="schemaName">Its schema, which must be the hosted one.</param>

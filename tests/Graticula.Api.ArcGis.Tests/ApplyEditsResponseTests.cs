@@ -113,6 +113,17 @@ public sealed class ApplyEditsResponseTests
     }
 
     [Fact]
+    public void A_success_on_a_layer_with_GlobalIDs_carries_it_as_ArcGIS_writes_one()
+    {
+        Guid global = Guid.Parse("0b4c1a7e-3c2d-4e5f-8a9b-1c2d3e4f5a6b");
+        EditOutcome outcome = new([EditResult.Ok(4) with { GlobalId = global }], [], [], RolledBack: false);
+
+        JsonElement add = Json(ApplyEditsResponse.Build(outcome, NothingRejected())).GetProperty("addResults")[0];
+
+        Assert.Equal("{0B4C1A7E-3C2D-4E5F-8A9B-1C2D3E4F5A6B}", add.GetProperty("globalId").GetString());
+    }
+
+    [Fact]
     public void Without_a_rollback_a_success_is_a_success()
     {
         EditOutcome outcome = new(
