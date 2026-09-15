@@ -73,6 +73,15 @@ network. It must be an absolute `http`/`https` URL **ending in a slash**; the se
 start otherwise and says which key. Nothing else about the console needs it: the map is the only
 thing that does, and everything else works with the library unreachable.
 
+**`Graticula__CorsOrigins`** decides which web pages on other addresses may read the service
+responses — [ADR-072](adr/ADR-072-cross-origin-reads-without-credentials.md). The default is `*`,
+which is ArcGIS Server's default too, and it never allows credentials: a page on another origin
+reads what an anonymous caller reads, or what a token it holds reads. `/admin` and the console
+never answer across origins. Set it to `none` to turn it off, or to a comma-separated list of
+origins (`https://maps.example.org,https://intranet.example.org:8443`, no path and no trailing
+slash) to allow only those. **A server reachable only inside an organisation should consider a
+list**: with `*`, a public page can read its anonymous layers through a visitor's browser.
+
 **The former `GisServer__*` names still work**, and a server started on them warns once
 at startup naming the keys to move — ADR-032 §5. This is not politeness: `SecretKey`
 decrypts every stored data-source credential, so a rename that silently stopped reading

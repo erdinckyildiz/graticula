@@ -845,6 +845,11 @@ public static class Program
             await next(context).ConfigureAwait(false);
         });
 
+        // <b>Cross-origin reads — ADR-072.</b> Ahead of the exception handler so an error a page
+        // cannot read is still one it is allowed to read, and ahead of every endpoint so a preflight
+        // is answered instead of reaching the route table's 405.
+        CrossOriginReads.Use(app, settings.CorsOrigins ?? CrossOriginReads.Parse(null));
+
         // Before the endpoints, so it wraps them. ADR-017 §6: an unhandled
         // exception must still produce an answer that says what to do.
         app.UseExceptionHandler(handler => handler.Run(context =>

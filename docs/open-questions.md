@@ -49,6 +49,7 @@ reported was five questions blocking a phase that had ended.*
 
 | # | Question | Owner | Notes |
 |---|---|---|---|
+| Q-151 | **Should pages on other origins read this server by default?** | [OWNER] | **Open, and running as `INFERRED` until answered.** [ADR-072](adr/ADR-072-cross-origin-reads-without-credentials.md) made the default *every origin, never with credentials, administrative paths closed*, because ArcGIS Server allows every origin by default and a Maps SDK application on another address could read nothing here. The case against is an intranet server read through an employee's browser by a public page (ADR-072 §3); `Graticula__CorsOrigins=none` or a list answers it per deployment. Opened 2026-09-15. |
 
 ## Answered
 

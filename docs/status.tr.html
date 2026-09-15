@@ -110,21 +110,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>0fb4746</code> · 2026-09-14 10:04</p>
+<p class="stamp">Şu commit’ten üretildi: <code>bef989a</code> · 2026-09-15 10:32</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">71</div><div class="kpi-l">ADR</div><div class="kpi-n">14 koşulsuz kabul</div></div>
+<div class="kpi "><div class="kpi-v">72</div><div class="kpi-l">ADR</div><div class="kpi-n">15 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">207/257</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">48 canlı · 2 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">157 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">157 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">6</div><div class="kpi-l">açık borç</div><div class="kpi-n">248 ödendi · 8 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">2984</div><div class="kpi-l">test</div><div class="kpi-n">310 kaynak dosya, 131,337 satır</div></div>
+<div class="kpi good"><div class="kpi-v">3019</div><div class="kpi-l">test</div><div class="kpi-n">312 kaynak dosya, 131,813 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-151</b> — Should pages on other origins read this server by default?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">58 madde</span></div><p><b>48 ADR conditions</b> outstanding across 35 decisions — the largest commitment on this page.</p><p><b>6 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -255,10 +255,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">069</td><td>Query responses carry the layer&#x27;s cache lifetime</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
 <tr><td class="id">070</td><td>A layer has a visible scale range, and publishing measures one from the data</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/4</td></tr>
 <tr><td class="id">071</td><td>A layer&#x27;s thumbnail is drawn once and kept until somebody redraws it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
+<tr><td class="id">072</td><td>Pages on other origins may read service responses, never with credentials</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
+<article class="card"><div class="card-h"><span class="id">Q-151</span><span class="owner">[OWNER]</span></div><p>Should pages on other origins read this server by default?</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -374,35 +376,35 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">763</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.9%"></div></div><div class="bar-n">503</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:64.1%"></div></div><div class="bar-n">489</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:54.4%"></div></div><div class="bar-n">415</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:22.9%"></div></div><div class="bar-n">175</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:20.3%"></div></div><div class="bar-n">155</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:18.6%"></div></div><div class="bar-n">142</div></div>
-<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:15.3%"></div></div><div class="bar-n">117</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:14.8%"></div></div><div class="bar-n">113</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:5.9%"></div></div><div class="bar-n">45</div></div>
-<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.4%"></div></div><div class="bar-n">26</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">784</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.2%"></div></div><div class="bar-n">503</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:62.8%"></div></div><div class="bar-n">492</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:53.1%"></div></div><div class="bar-n">416</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:22.3%"></div></div><div class="bar-n">175</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:21.0%"></div></div><div class="bar-n">165</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:18.1%"></div></div><div class="bar-n">142</div></div>
+<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:14.9%"></div></div><div class="bar-n">117</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:14.4%"></div></div><div class="bar-n">113</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:5.7%"></div></div><div class="bar-n">45</div></div>
+<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">26</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.2%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>bef989a</code><time>2026-09-15</time><span>A failed request is logged with the status it was answered with</span></li>
+<li><code>e3b0c65</code><time>2026-09-15</time><span>The architecture suite agrees with the tile header and the query writer</span></li>
+<li><code>aa9e6fd</code><time>2026-09-15</time><span>A kept edit empties the edited layer&#x27;s cached tiles</span></li>
+<li><code>418be9f</code><time>2026-09-15</time><span>A query response&#x27;s fields carry the layer document&#x27;s types and aliases</span></li>
+<li><code>e052fdd</code><time>2026-09-15</time><span>A query&#x27;s geometries name the reference their coordinates are in</span></li>
+<li><code>d95f754</code><time>2026-09-15</time><span>An edit in a rolled-back batch is no longer reported as a success</span></li>
+<li><code>b658ae6</code><time>2026-09-15</time><span>Deleting a hosted layer drops its attachment tables with it</span></li>
+<li><code>f014b0e</code><time>2026-09-15</time><span>A private layer&#x27;s tiles are no longer marked for shared caches</span></li>
+<li><code>1030c4e</code><time>2026-09-15</time><span>The two thumbnail warmer messages get event ids of their own</span></li>
+<li><code>83cb587</code><time>2026-09-14</time><span>Thumbnails are drawn before anybody asks: at start, at publish, on redraw</span></li>
 <li><code>0fb4746</code><time>2026-09-14</time><span>A layer&#x27;s thumbnail is drawn once and kept until somebody redraws it</span></li>
 <li><code>26486f5</code><time>2026-09-14</time><span>A layer has a visible scale range, and publishing measures one from the data</span></li>
 <li><code>e2a9e0d</code><time>2026-09-14</time><span>A MotherDuck source asks its catalogue to catch up before listing tables</span></li>
 <li><code>da75595</code><time>2026-09-13</time><span>MotherDuck&#x27;s extension loads in the image: the server user has a home, and migrate no longer downloads</span></li>
-<li><code>4c5aeea</code><time>2026-09-13</time><span>MotherDuck&#x27;s extension installs: staged under the file name DuckDB requires, buffered and retried</span></li>
-<li><code>f4726be</code><time>2026-09-13</time><span>A DuckDB database file and a MotherDuck database serve their tables as read-only layers</span></li>
-<li><code>2563f0d</code><time>2026-09-13</time><span>The tile cache is written where the server may write: every image since the first rebuilt every tile</span></li>
-<li><code>27e311d</code><time>2026-09-13</time><span>A map draws from vector tiles and keeps what it downloaded: tiles for GeoParquet, cacheable queries, compressed responses</span></li>
-<li><code>f0df63a</code><time>2026-09-13</time><span>GeoParquet over https and in S3: a remote location registered like a folder, read by its own confined DuckDB</span></li>
-<li><code>38bc2a0</code><time>2026-09-13</time><span>A GeoParquet layer draws in the ArcGIS SDK: maxAllowableOffset is applied, as PostGIS applies it</span></li>
-<li><code>bcbdea8</code><time>2026-09-13</time><span>The front page says GeoParquet, and v1 rather than v0.1.0</span></li>
-<li><code>da8af35</code><time>2026-09-13</time><span>Point layers draw in the ArcGIS SDK: a count supersedes ids, as documented, and maxRecordCountFactor is accepted</span></li>
-<li><code>2d5479f</code><time>2026-09-13</time><span>Signed in on the directory, the console no longer asks again: a page here trades the cookie for a token</span></li>
-<li><code>be18ac8</code><time>2026-09-13</time><span>A GeoParquet layer&#x27;s box test runs on the shapes it reads, and a million features are measured</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

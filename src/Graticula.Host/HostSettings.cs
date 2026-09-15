@@ -188,7 +188,12 @@ internal sealed record HostSettings(
     // <b>Whether MotherDuck may be registered — ADR-067 §5.4 — and off by default.</b> On, the server downloads
     // MotherDuck's DuckDB extension into its state directory the first time a MotherDuck source is opened: the
     // image does not carry it, because MotherDuck's terms do not say anybody else may redistribute it.
-    bool MotherDuck = false)
+    bool MotherDuck = false,
+
+    // <b>Which web pages on other origins may read service responses — ADR-072.</b> `*` by default,
+    // which is ArcGIS Server's own default; never with credentials. `none` turns it off, and a list
+    // names origins. Parsed at startup so a mistyped origin refuses to start.
+    CrossOriginReads? CorsOrigins = null)
 {
 
     /// <summary>
@@ -561,7 +566,8 @@ internal sealed record HostSettings(
             Math.Max(1, keys.Value("GeoParquetThreads", 2)),
             keys.Text("DuckDbExtensions"),
             keys.Value("RemoteDataAllowPrivate", false),
-            keys.Value("MotherDuck", false));
+            keys.Value("MotherDuck", false),
+            CrossOriginReads.Parse(keys.Text("CorsOrigins")));
     }
 
     /// <summary>
