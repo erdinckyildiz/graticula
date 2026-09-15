@@ -49,7 +49,7 @@ public sealed class PostgresIdentityStore : IIdentityStore
         // identity provider has no local credential, and *no password* is not *a dirty password*.
         const string Sql = """
             select s.id, s.expires_at, p.id, p.kind, p.name, p.display_name,
-                   coalesce(c.must_change, false), s.bound_to
+                   coalesce(c.must_change, false), s.bound_to, s.scope
             from session s
             join principal p on p.id = s.principal_id
             left join local_credential c on c.principal_id = p.id
@@ -76,7 +76,8 @@ public sealed class PostgresIdentityStore : IIdentityStore
             ReadPrincipal(reader, idOrdinal: 2, isDisabled: false),
             reader.GetFieldValue<DateTimeOffset>(1),
             reader.GetBoolean(6),
-            reader.IsDBNull(7) ? null : reader.GetString(7));
+            reader.IsDBNull(7) ? null : reader.GetString(7),
+            reader.IsDBNull(8) ? null : reader.GetString(8));
     }
 
     /// <inheritdoc/>
@@ -175,13 +176,14 @@ public sealed class PostgresIdentityStore : IIdentityStore
         DateTimeOffset expiresAt,
         IPAddress? address,
         CancellationToken cancellationToken,
-        string? boundTo = null)
+        string? boundTo = null,
+        string? scope = null)
     {
         ArgumentNullException.ThrowIfNull(tokenHash);
 
         const string Sql = """
-            insert into session (id, principal_id, token_hash, expires_at, source_address, bound_to)
-            values (@id, @principal, @hash, @expires, @address, @bound)
+            insert into session (id, principal_id, token_hash, expires_at, source_address, bound_to, scope)
+            values (@id, @principal, @hash, @expires, @address, @bound, @scope)
             """;
 
         Guid id = Guid.NewGuid();
@@ -198,6 +200,10 @@ public sealed class PostgresIdentityStore : IIdentityStore
         command.Parameters.Add(new NpgsqlParameter("bound", NpgsqlDbType.Text)
         {
             Value = (object?)boundTo ?? DBNull.Value,
+        });
+        command.Parameters.Add(new NpgsqlParameter("scope", NpgsqlDbType.Text)
+        {
+            Value = (object?)scope ?? DBNull.Value,
         });
 
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);

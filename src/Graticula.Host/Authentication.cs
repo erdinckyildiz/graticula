@@ -176,6 +176,18 @@ internal sealed class Authentication
                 session = null;
             }
 
+            // <b>An ArcGIS token does not open the native administration API — ADR-015 §4, Q-154
+            // (owner decision 2026-09-15).</b> The caller is anonymous here and is told why, so a
+            // script holding a token from generateToken learns to sign in rather than that it lacks a
+            // privilege its account has.
+            bool outsideScope = session is { Scope: SessionScopes.ArcGis }
+                && SessionScopes.IsNativeAdministration(context.Request.Path.Value);
+
+            if (outsideScope)
+            {
+                session = null;
+            }
+
             // <b>A token the caller chose to send, and the store did not recognise — ADR-015 §4a.</b>
             // Still anonymous, as the remarks above say; what is added is that it is remembered, so
             // the ArcGIS surface can answer 498 rather than serve the caller as though it had sent
@@ -185,7 +197,7 @@ internal sealed class Authentication
             //
             // The caller keeps the anonymous grants, so a face that does not answer 498 serves it
             // what it served before.
-            bool rejected = session is null && (BearerToken(context) ?? EsriToken(context)) is { Length: > 0 };
+            bool rejected = !outsideScope && session is null && (BearerToken(context) ?? EsriToken(context)) is { Length: > 0 };
 
             Principal principal = session?.Principal ?? Principal.Anonymous;
 
@@ -212,6 +224,7 @@ internal sealed class Authentication
                         held!.UserType, held.Roles, _grants, held.Groups, held.EditableGroups))
                 {
                     TokenWasRejected = rejected,
+                    TokenOutsideScope = outsideScope,
                 };
             }
 
@@ -247,6 +260,7 @@ internal sealed class Authentication
                 session?.MustChangePassword ?? false)
             {
                 TokenWasRejected = rejected,
+                TokenOutsideScope = outsideScope,
             };
         }
         catch (Npgsql.NpgsqlException unreachable)
@@ -486,6 +500,12 @@ internal sealed class RequestPrincipal
     /// cannot fix. <see cref="StoreWasUnreachable"/> is that case.
     /// </remarks>
     public bool TokenWasRejected { get; init; }
+
+    /// <summary>
+    /// Whether the caller sent a token issued by an ArcGIS token endpoint to the native administration
+    /// API, which such a token does not open — ADR-015 §4, Q-154.
+    /// </summary>
+    public bool TokenOutsideScope { get; init; }
 
     /// <summary>What they may do, resolved once for the request.</summary>
     public Authorization Authorization { get; }

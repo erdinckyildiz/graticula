@@ -15,9 +15,12 @@ USER = os.environ.get("GRATICULA_DEV_USER", "root")
 PASSWORD = os.environ.get("GRATICULA_DEV_PASSWORD", "")
 
 def token():
-    body = urllib.parse.urlencode(
-        {"username": USER, "password": PASSWORD, "f": "json"}).encode()
-    with urllib.request.urlopen(BASE + "/rest/generateToken", body, context=CTX) as r:
+    # The console's sign-in, not generateToken: an ArcGIS token does not open /admin (ADR-015 §4,
+    # Q-154), and /admin/health only reports the runtime to an administrator.
+    body = json.dumps({"name": USER, "password": PASSWORD}).encode()
+    request = urllib.request.Request(BASE + "/rest/auth/login", body,
+                                     headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, context=CTX) as r:
         return json.load(r)["token"]
 
 TOKEN = token()

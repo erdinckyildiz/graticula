@@ -42,6 +42,25 @@ public sealed class LoginServiceTests
         Service().AuthenticateAsync(name, password, address ?? Address, CancellationToken.None);
 
     /// <summary>
+    /// A session remembers the scope it was issued with, so the next request can be refused outside it —
+    /// ADR-015 §4, Q-154.
+    /// </summary>
+    [Fact]
+    public async Task The_scope_a_session_is_issued_with_is_the_scope_it_is_found_with()
+    {
+        LoginResult scoped = await Service().AuthenticateAsync(
+            "alice", "correct horse battery", Address, CancellationToken.None, scope: SessionScopes.ArcGis);
+        LoginResult console = await Login("alice", "correct horse battery");
+
+        Assert.Equal(SessionScopes.ArcGis, scoped.Session!.Value.Scope);
+        Assert.Equal(
+            SessionScopes.ArcGis,
+            (await _store.FindSessionAsync(SessionToken.HashOf(scoped.Token!), _time.GetUtcNow(), CancellationToken.None))!.Value.Scope);
+        Assert.Null(
+            (await _store.FindSessionAsync(SessionToken.HashOf(console.Token!), _time.GetUtcNow(), CancellationToken.None))!.Value.Scope);
+    }
+
+    /// <summary>
     /// An unknown name does exactly the work a known one does, and no more.
     /// </summary>
     /// <remarks>

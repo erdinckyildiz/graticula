@@ -201,18 +201,38 @@ public sealed class ArcGisTokenTests : ArcGisClient
 
         Assert.False(string.IsNullOrWhiteSpace(token));
 
-        // <b>And it is a real credential, not a shape.</b> This server has one kind
-        // of session; what an ArcGIS client calls an administrative token is the
-        // token of whatever account signed in, and its privileges come from the
-        // account rather than from the door.
+        // <b>A real credential on the ArcGIS surface.</b>
         using HttpRequestMessage authorised = new(
-            HttpMethod.Get, new Uri($"{root}/admin/health"));
+            HttpMethod.Get, new Uri($"{root}/rest/services?f=json"));
 
         authorised.Headers.Add("Authorization", $"Bearer {token}");
 
-        using HttpResponseMessage health = await Http.SendAsync(authorised);
+        using HttpResponseMessage listed = await Http.SendAsync(authorised);
 
-        Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, listed.StatusCode);
+
+        // <b>And not a key to the administration API — ADR-015 §4, Q-154 (owner decision
+        // 2026-09-15).</b> This test asserted the opposite until that day: one kind of session, with
+        // privileges from the account whatever the door. A token from any generateToken is scoped to
+        // the ArcGIS surfaces, so a token that leaks from a client's log cannot administer the server;
+        // the refusal says where a token that can is issued.
+        using HttpRequestMessage administrative = new(
+            HttpMethod.Get, new Uri($"{root}/admin/layers"));
+
+        administrative.Headers.Add("Authorization", $"Bearer {token}");
+
+        using HttpResponseMessage refusedAdmin = await Http.SendAsync(administrative);
+        string why = await refusedAdmin.Content.ReadAsStringAsync();
+
+        Assert.True(refusedAdmin.StatusCode == HttpStatusCode.Forbidden, $"/admin/layers with an ArcGIS token answered {(int)refusedAdmin.StatusCode}: {why}");
+        Assert.Contains("/rest/auth/login", why, StringComparison.Ordinal);
+
+        // The console's own sign-in still opens it: the scope is the door's, not the account's.
+        string? console = await TokenAsync(root);
+        using HttpRequestMessage signedIn = new(HttpMethod.Get, new Uri($"{root}/admin/layers"));
+        signedIn.Headers.Add("Authorization", $"Bearer {console}");
+        using HttpResponseMessage opened = await Http.SendAsync(signedIn);
+        Assert.Equal(HttpStatusCode.OK, opened.StatusCode);
     }
 
     private async Task<int> ServiceCountAsync(string url)

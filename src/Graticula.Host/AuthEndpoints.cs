@@ -155,7 +155,7 @@ internal static class AuthEndpoints
             .AuthenticateAsync(
                 name, password, RemoteAddress(context), cancellation,
                 await RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false),
-                bound)
+                bound, SessionScopes.ArcGis)
             .ConfigureAwait(false);
 
         if (!result.Succeeded)

@@ -280,7 +280,8 @@ public sealed class AdminCreatorTests
         public Task<Guid> CreateSessionAsync(
             Guid principalId, byte[] tokenHash, DateTimeOffset expiresAt, IPAddress? address,
             CancellationToken cancellationToken,
-            string? boundTo = null) => throw Not();
+            string? boundTo = null,
+        string? scope = null) => throw Not();
 
         public Task RevokeSessionAsync(Guid sessionId, CancellationToken cancellationToken) =>
             throw Not();

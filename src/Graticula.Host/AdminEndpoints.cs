@@ -5850,12 +5850,12 @@ internal static partial class AdminEndpoints
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>The same token as everywhere else.</b> This server has one kind of
-    /// session and one place that checks a password; what an ArcGIS client calls
-    /// an *administrative* token is, here, the token of whatever account signed
-    /// in. Its privileges come from the account (ADR-018), not from the door it
-    /// came through, so nothing is elevated by asking at this path rather than at
-    /// <c>/rest/generateToken</c>.
+    /// <b>The same store and the same scope as the other two token doors.</b> One place checks a
+    /// password and one session store holds the result, and nothing is elevated by asking at this
+    /// path rather than at <c>/rest/generateToken</c>. <b>The token is scoped to the ArcGIS surfaces
+    /// since 2026-09-15</b> — ADR-015 §4, owner decision on Q-154 — so despite the path it does not
+    /// open the native administration API under <c>/admin</c>; that token comes from
+    /// <c>/rest/auth/login</c>.
     /// </para>
     /// <para>
     /// <b>The error shape is the admin API's, which is not the REST one.</b>
@@ -5935,7 +5935,7 @@ internal static partial class AdminEndpoints
             .AuthenticateAsync(
                 name, password, CallerAddress.Of(context), cancellation,
                 await AuthEndpoints.RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false),
-                bound)
+                bound, SessionScopes.ArcGis)
             .ConfigureAwait(false);
 
         if (!result.Succeeded)

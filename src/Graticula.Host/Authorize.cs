@@ -259,6 +259,14 @@ internal static class Authorize
             // a login route that also cannot work, at the moment an administrator most needs
             // to look -- which is the failure ADR-017 §6 is written to prevent. Found by
             // `tools/outage-rehearsal.sh`, which stopped the datastore and read the answer.
+            if (current.TokenOutsideScope)
+            {
+                return (StatusCodes.Status403Forbidden,
+                    $"This needs the '{name}' privilege, and the token sent was issued by an ArcGIS token "
+                    + "endpoint (generateToken), which opens the ArcGIS surfaces and not the administration "
+                    + "API under /admin (ADR-015 §4). Sign in at /rest/auth/login for a token that does.");
+            }
+
             if (current.StoreWasUnreachable)
             {
                 return (StatusCodes.Status401Unauthorized,

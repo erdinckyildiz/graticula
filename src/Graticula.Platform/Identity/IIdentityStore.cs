@@ -10,6 +10,9 @@ namespace Graticula.Platform.Identity;
 /// <param name="SessionId">The session's id, for revocation and audit.</param>
 /// <param name="Principal">Who it is.</param>
 /// <param name="ExpiresAt">When it stops working.</param>
+/// <param name="Scope">
+/// What the session may be used for (<see cref="SessionScopes"/>), or null for every surface.
+/// </param>
 /// <param name="BoundTo">
 /// What the token is bound to (<see cref="TokenBinding"/>), or null. Read per request with the session,
 /// so a bound token presented from elsewhere is refused on that request.
@@ -26,7 +29,8 @@ public readonly record struct AuthenticatedSession(
     Principal Principal,
     DateTimeOffset ExpiresAt,
     bool MustChangePassword = false,
-    string? BoundTo = null);
+    string? BoundTo = null,
+    string? Scope = null);
 
 /// <summary>
 /// Everything the login and authentication paths read and write.
@@ -90,13 +94,15 @@ public interface IIdentityStore
     /// <param name="address">Where the sign-in came from.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <param name="boundTo">What the token is bound to — <see cref="TokenBinding"/> — or null.</param>
+    /// <param name="scope">What the session may be used for — <see cref="SessionScopes"/> — or null.</param>
     Task<Guid> CreateSessionAsync(
         Guid principalId,
         byte[] tokenHash,
         DateTimeOffset expiresAt,
         IPAddress? address,
         CancellationToken cancellationToken,
-        string? boundTo = null);
+        string? boundTo = null,
+        string? scope = null);
 
     /// <summary>Revokes a session. Idempotent.</summary>
     Task RevokeSessionAsync(Guid sessionId, CancellationToken cancellationToken);

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(49);
+    public static SchemaVersion ComponentSchemaVersion => new(50);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -84,6 +84,7 @@ public static class PlatformMigrations
         DuckDbSourcesBeyondAFolderV47,
         ALayerHasAVisibleScaleRangeV48,
         ATokenMayBeBoundV49,
+        ASessionMayBeScopedV50,
     ]);
 
 
@@ -2744,6 +2745,27 @@ public static class PlatformMigrations
     /// they answer 500 until the newer build returns.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A session records what it may be used for — ADR-015 §4 mitigation 3, Q-154.
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand.</b> One nullable column; null is every surface, which every existing session is and
+    /// stays. <b>A rollback to a build before this one ignores the column</b> and lets an ArcGIS token
+    /// open <c>/admin</c> again — the restriction is lost, not the session.
+    /// </remarks>
+    private static Migration ASessionMayBeScopedV50 => Migration.Expand(
+        new SchemaVersion(50),
+        "A session may be scoped to the ArcGIS surfaces (ADR-015 §4, Q-154).",
+
+        "alter table session add column if not exists scope text",
+
+        "alter table session drop constraint if exists session_scope_known",
+
+        """
+        alter table session add constraint session_scope_known
+            check (scope is null or scope = 'arcgis')
+        """);
+
     /// <summary>
     /// A session records what its token is bound to — ADR-015 §4 mitigation 3, D-268.
     /// </summary>

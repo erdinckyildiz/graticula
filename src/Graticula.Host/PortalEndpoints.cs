@@ -272,7 +272,7 @@ internal static class PortalEndpoints
             .AuthenticateAsync(
                 name, password, CallerAddress.Of(context), cancellation,
                 await AuthEndpoints.RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false),
-                bound)
+                bound, SessionScopes.ArcGis)
             .ConfigureAwait(false);
 
         if (!result.Succeeded)
