@@ -82,13 +82,18 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// GeoParquet tiles, and <see cref="TileSourceFor"/> says so by name rather than reaching a
     /// null reference.
     /// </param>
+    /// <param name="tiles">
+    /// The tile cache a successful edit empties for its layer — ADR-069. Optional for the same
+    /// reason as the others: a process without one has no tiles to go stale.
+    /// </param>
     public LayerConnections(
         ConnectionBudget budget,
         SourceBreaker breaker,
         SourceQuiesce? quiesce = null,
         GeoParquetSources? geoParquet = null,
         Graticula.Geometries.IProjector? projector = null,
-        Graticula.Tiles.IMvtEncoder? mvtEncoder = null)
+        Graticula.Tiles.IMvtEncoder? mvtEncoder = null,
+        ITileCache? tiles = null)
     {
         ArgumentNullException.ThrowIfNull(budget);
         ArgumentNullException.ThrowIfNull(breaker);
@@ -99,7 +104,10 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         _geoParquet = geoParquet;
         _projector = projector;
         _mvtEncoder = mvtEncoder;
+        _tiles = tiles;
     }
+
+    private readonly ITileCache? _tiles;
 
     private readonly GeoParquetSources? _geoParquet;
     private readonly Graticula.Geometries.IProjector? _projector;
@@ -439,9 +447,18 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ArgumentNullException.ThrowIfNull(layer);
         RefuseIfFile(layer, "edited");
 
-        return new PostGisFeatureWriter(
+        IFeatureWriter writer = new PostGisFeatureWriter(
             PoolFor(layer.ConnectionString), layer.Definition, fields,
             tracking ?? Graticula.Catalog.EditorTracking.None, subtypes);
+
+        // <b>Here, so every face that edits empties the tiles — not at each face.</b> ADR-069
+        // said `ITileCache` is told to drop a layer's entries on an edit, and nothing told it:
+        // the cache had only a read and a write, and `Purge` was called on unpublish and schema
+        // change. A feature deleted through applyEdits went on being drawn from a cached tile for
+        // the layer's whole lifetime — an hour by default, measured on the showcase as the same
+        // ETag and the same bytes after the delete. The writer is the one object both editing
+        // faces (ArcGIS and OGC API Features) already get from here.
+        return _tiles is null ? writer : new TilePurgingWriter(writer, _tiles, layer.Id);
     }
 
     /// <summary>A tile source for one layer.</summary>

@@ -50,7 +50,7 @@ new to explain on the admin surface, and the two faces already agree that null m
 default and zero means never.
 
 **Argument against.** `CacheLifetime` was designed and named for a rendered tile pyramid a
-publish-time decision invalidates deliberately (`ITileCache` is told to drop entries on an edit).
+publish-time decision invalidates deliberately (`ITileCache` is told to drop entries on an edit). *(Corrected 2026-09-15: it was not. `Purge` ran on unpublish and schema change only, and a feature deleted through `applyEdits` stayed in cached tiles for the layer's lifetime. `LayerConnections.WriterFor` now hands every editing face a writer that empties the layer's tiles once an edit is kept — `TilePurgingWriter`.)*
 A `query` response is not a tile: it can carry arbitrary `where`, `outFields`, statistics — surface
 area the tile pyramid never had to reason about — and an editable layer's query answers change on
 every edit the same way a hosted layer's tiles do, which the mechanism handles, but nothing today
