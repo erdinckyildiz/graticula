@@ -70,7 +70,34 @@ public sealed class PostGisImporter
     public const string HostedSchema = "hosted";
 
     /// <summary>What tiles are served on, and therefore what hosted data is stored in.</summary>
+    /// <remarks>
+    /// The default for a designed layer, which may name another since 2026-09-15; an imported
+    /// layer keeps its own, as the remarks below record.
+    /// </remarks>
     public const int StoredSrid = 3857;
+
+    /// <summary>The longest length a designed text column may declare.</summary>
+    /// <remarks>PostgreSQL's own ceiling for <c>varchar(n)</c>.</remarks>
+    public const int LongestText = 10_485_760;
+
+    /// <summary>Whether the datastore knows a spatial reference by this code.</summary>
+    /// <param name="srid">The code.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether <c>spatial_ref_sys</c> has it.</returns>
+    /// <remarks>
+    /// <b>Asked before the table is made</b>, because a geometry column typed with a code PostGIS
+    /// does not know is refused as a database error, and the caller should hear which value was
+    /// wrong.
+    /// </remarks>
+    public async Task<bool> KnowsSridAsync(int srid, CancellationToken cancellationToken)
+    {
+        await using NpgsqlConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlCommand command = new(
+            "select exists (select 1 from spatial_ref_sys where srid = @srid)", connection);
+        command.Parameters.AddWithValue("srid", srid);
+
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
+    }
 
     /// <summary>
     /// Whether an imported layer keeps the reference it arrived in.
@@ -292,7 +319,9 @@ public sealed class PostGisImporter
             sql.Append(", ")
                .Append(LayerDefinition.Quote(ColumnNameFor(field.Name)))
                .Append(' ')
-               .Append(SqlTypeForField(field.Type))
+               .Append(field.Type == FieldType.Text && field.MaxLength is > 0 and <= LongestText
+                   ? string.Create(CultureInfo.InvariantCulture, $"varchar({field.MaxLength})")
+                   : SqlTypeForField(field.Type))
                .Append(field.Nullable ? string.Empty : " not null");
         }
 

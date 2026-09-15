@@ -682,6 +682,12 @@ internal static class HostedDataEndpoints
     /// shape the owner asked for on 2026-08-15. The layer keeps its own name;
     /// only its address changes.
     /// </param>
+    /// <param name="Srid">
+    /// The spatial reference the layer is stored in, as an EPSG code, or null for Web Mercator.
+    /// <b>Added 2026-09-15</b>: a designed layer was always 3857, while an imported one has kept
+    /// its own reference since the owner's correction of 2026-08-15 — so an organisation working
+    /// in TUREF/TM30 could import a layer in 5254 and could not design an empty one in it.
+    /// </param>
     internal sealed record LayerDesign(
         string? Name,
         string? GeometryType,
@@ -689,13 +695,20 @@ internal static class HostedDataEndpoints
         string? Sharing,
         string? ServiceName = null,
         int? ParentLayerId = null,
-        int? CacheSeconds = null);
+        int? CacheSeconds = null,
+        int? Srid = null);
 
     /// <summary>One designed column.</summary>
     /// <param name="Name">Its name.</param>
     /// <param name="Type">Its type.</param>
     /// <param name="Nullable">Whether it may be empty. True unless said otherwise.</param>
-    internal sealed record FieldDesign(string? Name, string? Type, bool? Nullable);
+    /// <param name="Length">
+    /// The most characters a text column holds, or null for no limit. <b>Added 2026-09-15</b>:
+    /// every designed text column was unbounded and its document said <c>length: null</c>, which
+    /// an ArcGIS form shows as a field that takes anything; a length here is a
+    /// <c>varchar(n)</c> the database enforces and the document reports.
+    /// </param>
+    internal sealed record FieldDesign(string? Name, string? Type, bool? Nullable, int? Length = null);
 
     /// <summary>
     /// Creates an empty hosted feature class from a schema.
@@ -769,8 +782,18 @@ internal static class HostedDataEndpoints
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
+        int srid = design.Srid ?? PostGisImporter.StoredSrid;
+
+        if (srid <= 0 || !await importer.KnowsSridAsync(srid, cancellation).ConfigureAwait(false))
+        {
+            await Fail(context, 400,
+                $"'srid' {srid} is not a spatial reference this datastore knows. Send an EPSG code "
+                + "— 3857, 4326, 5254 — or leave it out for Web Mercator.").ConfigureAwait(false);
+            return;
+        }
+
         ImportResult result = await importer.DefineAsync(
-            fields, kind, PostGisImporter.StoredSrid, design.Name, cancellation)
+            fields, kind, srid, design.Name, cancellation)
             .ConfigureAwait(false);
 
         PublishedLayerAddress published;
@@ -888,7 +911,15 @@ internal static class HostedDataEndpoints
                 return false;
             }
 
-            fields.Add(new FieldDescription(design.Name, type, design.Nullable ?? true, null));
+            if (design.Length is { } length && (type != FieldType.Text || length is < 1 or > PostGisImporter.LongestText))
+            {
+                error = type != FieldType.Text
+                    ? $"Field '{design.Name}' is {type}, and only a Text field takes a length."
+                    : $"Field '{design.Name}' has length {length}; a text length is 1 to {PostGisImporter.LongestText}, or leave it out for no limit.";
+                return false;
+            }
+
+            fields.Add(new FieldDescription(design.Name, type, design.Nullable ?? true, design.Length));
         }
 
         return true;

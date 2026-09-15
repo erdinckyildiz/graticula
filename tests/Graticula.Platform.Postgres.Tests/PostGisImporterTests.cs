@@ -98,6 +98,46 @@ public sealed class PostGisImporterTests : PostgresFixture
         Assert.Contains(PostGisImporter.HostedSchema, refused.Message, StringComparison.Ordinal);
     }
 
+    // ---------- a designed layer's reference and text lengths ----------
+
+    /// <summary>
+    /// A designed layer is stored in the reference it names, and a text field with a length is a
+    /// column that holds no more.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15: a designed layer was always Web Mercator and every designed text column
+    /// was unbounded, so a TUREF/TM30 organisation could import a layer in 5254 and not design one.
+    /// </remarks>
+    [Fact]
+    public async Task A_designed_layer_keeps_the_reference_and_the_text_length_it_names()
+    {
+        PostGisImporter importer = new(DataSource);
+
+        Assert.True(await importer.KnowsSridAsync(5254, CancellationToken.None));
+        Assert.False(await importer.KnowsSridAsync(987654, CancellationToken.None));
+
+        ImportResult made = await importer.DefineAsync(
+            [new Graticula.Features.FieldDescription("parsel_no", Graticula.Features.FieldType.Text, true, 40)],
+            Graticula.Geometries.GeometryKind.Polygon,
+            5254,
+            "zzz_designed_" + Guid.NewGuid().ToString("N")[..8],
+            CancellationToken.None);
+
+        try
+        {
+            Assert.Equal(5254, await ScalarAsync<int>(
+                $"select find_srid('{made.SchemaName}', '{made.TableName}', 'geom')"));
+
+            Assert.Equal("character varying(40)", await ScalarAsync<string>(
+                $"select format_type(atttypid, atttypmod) from pg_attribute "
+                + $"where attrelid = '{made.SchemaName}.\"{made.TableName}\"'::regclass and attname = 'parsel_no'"));
+        }
+        finally
+        {
+            await DropAsync(made);
+        }
+    }
+
     // ---------- dropping a layer that has taken attachments ----------
 
     /// <summary>
