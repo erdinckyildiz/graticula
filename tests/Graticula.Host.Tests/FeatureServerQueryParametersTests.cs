@@ -112,6 +112,26 @@ public sealed class FeatureServerQueryParametersTests
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// <c>returnZ</c>, <c>returnM</c> and <c>returnTrueCurves</c> are accepted when false and
+    /// refused, with the reason, when true.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15: <c>returnZ=false</c> was refused as a parameter the server did not
+    /// understand, so a client sending the ArcGIS defaults explicitly could not query at all.
+    /// </remarks>
+    [Theory]
+    [InlineData("returnZ")]
+    [InlineData("returnM")]
+    [InlineData("returnTrueCurves")]
+    public void A_parameter_that_asks_for_nothing_extra_when_false_is_accepted_when_false(string name)
+    {
+        Parse((name, "false"));
+        Parse((name, "FALSE"));
+
+        Assert.Contains($"'{name}=false' is accepted", Refuse((name, "true")), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_refusal_says_what_is_missing_rather_than_that_it_is_unsupported()
     {

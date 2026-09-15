@@ -75,6 +75,13 @@ public sealed class IgnoredParameterTests : ArcGisClient
         ["resultType"] = "standard",
         ["sqlFormat"] = "standard",
 
+        // <b>Accepted only when false</b>, and probed with false, which is the value that cannot
+        // change the answer — `FeatureServerQueryParameters.AcceptedWhenFalse`. Refused until
+        // 2026-09-15 as parameters the server did not understand.
+        ["returnZ"] = "false",
+        ["returnM"] = "false",
+        ["returnTrueCurves"] = "false",
+
         // <b>`token` is deliberately absent, and the absence is asserted below.</b> Its
         // recorded reason is that the token authenticates and the header form is
         // preferred, so the honest probe is a *valid* token compared against the header —

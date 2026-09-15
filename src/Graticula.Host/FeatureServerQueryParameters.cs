@@ -168,6 +168,31 @@ internal static class FeatureServerQueryParameters
         ["sqlFormat"] = "no SQL is exposed",
     };
 
+    /// <summary>
+    /// Parameters whose <c>false</c> is the answer this server gives anyway, and whose <c>true</c>
+    /// would ask for something it does not produce — each with the reason <c>true</c> is refused.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Written 2026-09-15, after a review from an ArcGIS user's side.</b> <c>returnZ=false</c>
+    /// was refused as a parameter this server did not understand, so a client or a script that
+    /// sends the ArcGIS defaults explicitly — <c>returnZ=false&amp;returnM=false</c> — could not
+    /// query at all, for asking for exactly what it would have got.
+    /// </para>
+    /// <para>
+    /// <b>Not on <see cref="IgnoredParameters"/>, because <c>true</c> is not harmless.</b> The
+    /// geometry writer puts out x and y and nothing else, so a layer whose table carries a Z would
+    /// silently lose it to a caller who asked for it — the degradation that table's remarks forbid.
+    /// Only the value that cannot change the answer is let through.
+    /// </para>
+    /// </remarks>
+    private static readonly Dictionary<string, string> AcceptedWhenFalse = new(StringComparer.Ordinal)
+    {
+        ["returnZ"] = "geometry is returned with x and y only, so a Z value cannot be returned",
+        ["returnM"] = "geometry is returned with x and y only, so an M value cannot be returned",
+        ["returnTrueCurves"] = "curves are returned as the vertices that approximate them",
+    };
+
     /// <summary>Parses, or explains why not.</summary>
     /// <param name="parameters">The query string.</param>
     /// <param name="objectIdColumn">
@@ -456,6 +481,19 @@ internal static class FeatureServerQueryParameters
                 || Array.IndexOf(RefusedParameters, name) >= 0)
             {
                 continue;
+            }
+
+            if (AcceptedWhenFalse.TryGetValue(name, out string? whenTrue))
+            {
+                string value = parameters[name].ToString().Trim();
+
+                if (value.Length == 0 || string.Equals(value, "false", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                error = $"'{name}={value}' is refused: {whenTrue}. '{name}=false' is accepted.";
+                return false;
             }
 
             error =

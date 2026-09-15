@@ -103,6 +103,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["LegendGraphic.Nothing"] = "fixed: the empty attribute set, shared and never written",
         ["CommonPasswords.Unleet"] = "fixed: the substitution table",
         ["FeatureServerQueryParameters.IgnoredParameters"] = "fixed: the parameters ArcGIS sends and we ignore",
+        ["FeatureServerQueryParameters.AcceptedWhenFalse"] = "fixed: three parameter names, built once",
         ["GeometryServerEndpoints.Blocked"] = "fixed: the operations this surface refuses",
         ["GeometryServerEndpoints.Notations"] = "fixed: the coordinate notations",
     };
