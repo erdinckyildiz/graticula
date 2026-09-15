@@ -352,6 +352,45 @@ public sealed class PostGisFeatureWriterTests : PostgresFixture
 
     // ---------- the transaction ----------
 
+    /// <summary>
+    /// Two writers share one transaction in turn, and discarding it discards both layers' edits.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15 for the service-level applyEdits, which splits apply from commit so several
+    /// layers can be kept or discarded together. The second writer reuses the first's savepoint names
+    /// after they are released, which is what this proves PostgreSQL allows.
+    /// </remarks>
+    [Fact]
+    public async Task Two_layers_in_one_transaction_are_rolled_back_together()
+    {
+        LayerDefinition first = await FlatTableAsync("together_a");
+        LayerDefinition second = await FlatTableAsync("together_b");
+        PostGisFeatureWriter a = await WriterFor(first);
+        PostGisFeatureWriter b = await WriterFor(second);
+
+        EditBatch good = new([Add("kept?", At(1, 1)), Add("kept?", At(2, 2))], [], []);
+        EditBatch bad = new(
+            [Add("fine", At(3, 3)), new FeatureAdd(new Dictionary<string, object?> { ["rating"] = null }, At(4, 4))],
+            [], []);
+
+        await using (NpgsqlConnection connection = await DataSource.OpenConnectionAsync())
+        await using (NpgsqlTransaction transaction = await connection.BeginTransactionAsync())
+        {
+            EditOutcome one = await a.ApplyWithinAsync(connection, transaction, good, CancellationToken.None);
+            EditOutcome two = await b.ApplyWithinAsync(connection, transaction, bad, CancellationToken.None);
+
+            Assert.True(one.AllSucceeded);
+            Assert.False(PostGisFeatureWriter.MustRollBack(good, one));
+            Assert.True(PostGisFeatureWriter.MustRollBack(bad, two));
+            Assert.True(two.Adds[0].Succeeded, "An edit before the failing one failed too, so the savepoints did not isolate it.");
+
+            await transaction.RollbackAsync();
+        }
+
+        Assert.Equal(0L, await CountAsync("together_a"));
+        Assert.Equal(0L, await CountAsync("together_b"));
+    }
+
     [Fact]
     public async Task RollbackOnFailure_abandons_the_whole_batch_and_still_says_which_one_failed()
     {

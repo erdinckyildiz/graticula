@@ -2,6 +2,8 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Graticula.Features;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
@@ -461,7 +463,101 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         return _tiles is null ? writer : new TilePurgingWriter(writer, _tiles, layer.Id);
     }
 
-    /// <summary>A tile source for one layer.</summary>
+    /// <summary>One layer's part of an edit that spans several.</summary>
+    /// <param name="Layer">The layer.</param>
+    /// <param name="Description">Its columns, tracking and subtypes.</param>
+    /// <param name="Batch">Its edits.</param>
+    internal sealed record LayerEdit(PublishedLayer Layer, LayerDescription Description, EditBatch Batch);
+
+    /// <summary>
+    /// Whether several layers' edits can be kept or discarded together: every one in the same
+    /// PostgreSQL database, none of them a file.
+    /// </summary>
+    /// <param name="edits">The layers' edits.</param>
+    /// <returns>Whether one transaction can hold them.</returns>
+    internal static bool OneTransactionHolds(IReadOnlyList<LayerEdit> edits) =>
+        edits.Count > 0
+        && edits.All(e => !GeoParquetLocator.Is(e.Layer.ConnectionString))
+        && edits.Select(e => e.Layer.ConnectionString).Distinct(StringComparer.Ordinal).Count() == 1;
+
+    /// <summary>
+    /// Applies several layers' edits in one transaction, and keeps all of them or none when any of
+    /// the batches asked for all or nothing.
+    /// </summary>
+    /// <param name="edits">The layers' edits, which must satisfy <see cref="OneTransactionHolds"/>.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>Each layer's outcome, in order, every one rolled back if any was.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Written 2026-09-15 for the service-level <c>applyEdits</c></b>, which ArcGIS Runtime and
+    /// Field Maps use to write a feature and its related records together. A request that asks for
+    /// all or nothing and gets the first layer committed and the second refused has been given a
+    /// half-applied edit, so the layers share one transaction or the request is not taken.
+    /// </para>
+    /// <para>
+    /// <b>The tile cache is emptied for every layer that kept something</b>, as
+    /// <see cref="TilePurgingWriter"/> does for one layer — once the transaction has committed, never
+    /// before.
+    /// </para>
+    /// </remarks>
+    internal async Task<IReadOnlyList<EditOutcome>> ApplyTogetherAsync(
+        IReadOnlyList<LayerEdit> edits, CancellationToken cancellation)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(edits);
+
+        if (!OneTransactionHolds(edits))
+        {
+            throw new InvalidOperationException("These layers are not in one database, so one transaction cannot hold their edits.");
+        }
+
+        NpgsqlDataSource pool = PoolFor(edits[0].Layer.ConnectionString);
+
+        await using NpgsqlConnection connection = await pool.OpenConnectionAsync(cancellation).ConfigureAwait(false);
+        await using NpgsqlTransaction transaction = await connection
+            .BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellation)
+            .ConfigureAwait(false);
+
+        List<EditOutcome> outcomes = [];
+        bool rollBack = false;
+
+        foreach (LayerEdit edit in edits)
+        {
+            PostGisFeatureWriter writer = new(
+                pool, edit.Layer.Definition, edit.Description.Fields,
+                edit.Description.Tracking, edit.Description.Subtypes);
+
+            EditOutcome outcome = await writer
+                .ApplyWithinAsync(connection, transaction, edit.Batch, cancellation)
+                .ConfigureAwait(false);
+
+            rollBack |= PostGisFeatureWriter.MustRollBack(edit.Batch, outcome);
+            outcomes.Add(outcome);
+        }
+
+        if (rollBack)
+        {
+            await transaction.RollbackAsync(cancellation).ConfigureAwait(false);
+            return [.. outcomes.Select(o => o with { RolledBack = true })];
+        }
+
+        await transaction.CommitAsync(cancellation).ConfigureAwait(false);
+
+        if (_tiles is not null)
+        {
+            for (int i = 0; i < edits.Count; i++)
+            {
+                if (outcomes[i].Adds.Concat(outcomes[i].Updates).Concat(outcomes[i].Deletes).Any(r => r.Succeeded))
+                {
+                    _tiles.Purge(edits[i].Layer.Id);
+                }
+            }
+        }
+
+        return outcomes;
+    }
+
+    /// <summary>A tile source for one layer.</summary>    /// <summary>A tile source for one layer.</summary>
     /// <param name="layer">The layer.</param>
     /// <param name="attributes">
     /// The columns to carry into the tile, with their types, already checked against the layer's

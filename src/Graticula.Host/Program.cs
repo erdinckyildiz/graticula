@@ -1818,6 +1818,13 @@ public static class Program
                 ApplyEditsAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // <b>The service's own applyEdits — 2026-09-15.</b> ArcGIS Runtime and Field Maps write a
+            // feature and its related records in one call to the service, and this was 405.
+            app.MapPost(
+                $"{prefix}/{{serviceName}}/FeatureServer/applyEdits",
+                ServiceApplyEditsAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
             // <b>The three single-operation endpoints ArcGIS also offers.</b>
             // applyEdits is the one a modern client uses and the only one that
             // can be transactional across operations, but plenty of tooling —
@@ -3550,100 +3557,14 @@ public static class Program
         // because a ceiling is a fact about the service rather than about the caller, so the
         // answer is the same for everybody and there is no reason to make an administrator
         // pass a privilege test to be told the service is refusing.
-        if (await RefusedByCeilingAsync(context, layer, adds, updates, deletes)
-            .ConfigureAwait(false))
+        if (await PrepareEditAsync(
+                context, layer, adds, updates, deletes, RollbackOnFailure(form, context), contexts, cancellation)
+            .ConfigureAwait(false) is not { } prepared)
         {
             return;
         }
 
-        // Adds need less than updates and deletes do; asking for the wider
-        // privilege on a batch that only adds would refuse a legitimate edit.
-        if (adds is not null
-            && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer)
-                .ConfigureAwait(false))
-        {
-            return;
-        }
-
-        (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
-            .ConfigureAwait(false);
-
-        // <b>Updates and deletes reach every feature or only the caller's own — ADR-064.</b>
-        // This asked for features:fullEdit outright until 2026-09-11, because without editor
-        // tracking the server could not tell whose a feature was (D-20). On a layer that records
-        // its creators, features:edit now reaches the caller's own, which is what it means in
-        // Portal; on one that does not, the refusal is the one this always gave. The description
-        // is read first because the answer depends on which of its columns record edits.
-        bool ownOnly = false;
-
-        if (updates is not null || deletes is not null)
-        {
-            if (await Authorize.RequireChangeAsync(context, layer, description.Tracking)
-                    .ConfigureAwait(false) is not { } scope)
-            {
-                return;
-            }
-
-            ownOnly = scope == Authorize.ChangeScope.Own;
-        }
-
-        ApplyEditsRequest.Parsed? parsed = ApplyEditsRequest.TryParse(
-            adds, updates, deletes,
-            RollbackOnFailure(form, context),
-            layer.Definition, description.Fields,
-            out string? malformed);
-
-        if (parsed is null)
-        {
-            await Results.Json(
-                new { error = new { code = 400, message = malformed } },
-                statusCode: StatusCodes.Status400BadRequest)
-                .ExecuteAsync(context).ConfigureAwait(false);
-            return;
-        }
-
-        // <b>The edit ceiling, after parsing and before writing</b> — Q-113. It has
-        // to be here: the count is only known once the batch has parsed, and the
-        // thing being bounded is the transaction, not the parse. A batch refused at
-        // this point has cost memory and no database work, which is the cheaper half
-        // of the two.
-        //
-        // <b>Refused rather than truncated, and this is the one ceiling in Q-113 that
-        // must not truncate.</b> Shortening a response is a smaller answer to the
-        // same question; shortening a transaction is a *different edit* than the one
-        // the caller asked for, applied silently. `rollbackOnFailure` exists so a
-        // caller can insist on all-or-nothing, and a server that quietly applied
-        // half would break that guarantee while reporting success.
-        if (layer.Cost.MaximumEditsPerTransaction is { } maximumEdits
-            && parsed.Batch.Count > maximumEdits)
-        {
-            await Results.Json(
-                new
-                {
-                    error = new
-                    {
-                        code = 400,
-                        message =
-                            $"This batch carries {parsed.Batch.Count} edits and this service "
-                            + $"accepts at most {maximumEdits} in one transaction. It is refused "
-                            + "rather than trimmed: applying part of a batch would be a different "
-                            + "edit than the one requested, and rollbackOnFailure exists so a "
-                            + "caller can require all or nothing.",
-                    },
-                },
-                statusCode: StatusCodes.Status400BadRequest)
-                .ExecuteAsync(context).ConfigureAwait(false);
-            return;
-        }
-
-        // <b>The account signs what it writes, and own-only rides on the batch — ADR-064.</b> The
-        // writer fills a tracked layer's creator and editor columns with this name and, for a
-        // features:edit caller, changes only rows whose creator it is.
-        EditBatch batch = parsed.Batch with
-        {
-            Editor = context.Features.Get<RequestPrincipal>()!.Principal.Name,
-            OwnOnly = ownOnly,
-        };
+        (LayerDescription description, ApplyEditsRequest.Parsed parsed, EditBatch batch) = prepared;
 
         EditOutcome outcome = await connections
             .WriterFor(layer, description.Fields, description.Tracking, description.Subtypes)
@@ -3722,6 +3643,319 @@ public static class Program
         return context.Request.Query.TryGetValue(name, out value) && !string.IsNullOrWhiteSpace(value)
             ? value.ToString()
             : null;
+    }
+
+    /// <summary>
+    /// <c>FeatureServer/applyEdits</c>: several layers' edits in one request.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Written 2026-09-15, after a review from an ArcGIS user's side found it answered 405.</b>
+    /// Runtime's service geodatabase and Field Maps send a feature and its related records here
+    /// together, as <c>edits=[{"id":0,"adds":[…]},{"id":1,"updates":[…]}]</c>.
+    /// </para>
+    /// <para>
+    /// <b>Every layer passes the same checks the layer's own applyEdits makes</b>
+    /// (<see cref="PrepareEditAsync"/>) before anything is written, so one refused layer refuses the
+    /// request rather than half of it.
+    /// </para>
+    /// <para>
+    /// <b>All or nothing is kept across layers, or the request is not taken.</b> With
+    /// <c>rollbackOnFailure</c> true — the default — the layers are written in one transaction, which
+    /// needs them to be in one database; layers in two databases are refused with that reason, because
+    /// committing the first and failing the second is exactly the half-applied edit the flag forbids.
+    /// With it false each layer is its own transaction, which is what the caller asked for.
+    /// </para>
+    /// </remarks>
+    private static async Task ServiceApplyEditsAsync(
+        HttpContext context,
+        string serviceName,
+        CatalogFallback catalog,
+        LayerConnections connections,
+        ServiceContexts contexts,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        IFormCollection form = context.Request.HasFormContentType
+            ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
+            : FormCollection.Empty;
+
+        if (EditParameterRefusal(form, context) is { } refusedParameter)
+        {
+            await Results.Json(
+                new { error = new { code = 400, message = refusedParameter } },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        List<(int Id, string? Adds, string? Updates, string? Deletes)> entries = [];
+
+        try
+        {
+            string raw = Field(form, context, "edits") ?? string.Empty;
+
+            if (raw.Trim().Length == 0)
+            {
+                throw new JsonException("empty");
+            }
+
+            foreach (JsonElement entry in JsonDocument.Parse(raw).RootElement.EnumerateArray())
+            {
+                if (!entry.TryGetProperty("id", out JsonElement id) || !id.TryGetInt32(out int layerId))
+                {
+                    throw new JsonException("no id");
+                }
+
+                string? Part(string name) =>
+                    entry.TryGetProperty(name, out JsonElement part) && part.ValueKind is not JsonValueKind.Null
+                        ? part.GetRawText()
+                        : null;
+
+                entries.Add((layerId, Part("adds"), Part("updates"), Part("deletes")));
+            }
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message = "'edits' must be a JSON array of {\"id\": layer id, \"adds\", \"updates\", "
+                            + "\"deletes\"}, one entry per layer.",
+                    },
+                },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        if (entries.Select(e => e.Id).Distinct().Count() != entries.Count)
+        {
+            await Results.Json(
+                new { error = new { code = 400, message = "'edits' names a layer more than once; send one entry per layer." } },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        bool rollbackOnFailure = RollbackOnFailure(form, context);
+        List<(int Id, PublishedLayer Layer, LayerDescription Description, ApplyEditsRequest.Parsed Parsed, EditBatch Batch)> prepared = [];
+
+        foreach ((int id, string? adds, string? updates, string? deletes) in entries)
+        {
+            PublishedLayer? layer = await ServiceLookup
+                .LayerAsync(context, catalog, serviceName, id, cancellation)
+                .ConfigureAwait(false);
+
+            if (layer is null)
+            {
+                return;
+            }
+
+            if (!layer.Definition.HasIntegerIdentity)
+            {
+                await Results.Json(
+                    new { error = new { code = 400, message = $"Layer {id} has no integer object-id column, so its features cannot be addressed for update or delete (ADR-013 §2a)." } },
+                    statusCode: StatusCodes.Status400BadRequest)
+                    .ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+
+            if (await PrepareEditAsync(context, layer, adds, updates, deletes, rollbackOnFailure, contexts, cancellation)
+                    .ConfigureAwait(false) is not { } ready)
+            {
+                return;
+            }
+
+            prepared.Add((id, layer, ready.Description, ready.Parsed, ready.Batch));
+        }
+
+        List<LayerConnections.LayerEdit> edits =
+            [.. prepared.Select(p => new LayerConnections.LayerEdit(p.Layer, p.Description, p.Batch))];
+
+        IReadOnlyList<EditOutcome> outcomes;
+
+        if (rollbackOnFailure && edits.Count > 1)
+        {
+            if (!LayerConnections.OneTransactionHolds(edits))
+            {
+                await Results.Json(
+                    new
+                    {
+                        error = new
+                        {
+                            code = 400,
+                            message = "These layers are not in one database, so their edits cannot be kept or "
+                                + "discarded together, and rollbackOnFailure asks for exactly that. Send "
+                                + "rollbackOnFailure=false to write each layer on its own, or send the layers "
+                                + "in separate requests.",
+                        },
+                    },
+                    statusCode: StatusCodes.Status400BadRequest)
+                    .ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+
+            outcomes = await connections.ApplyTogetherAsync(edits, cancellation).ConfigureAwait(false);
+        }
+        else
+        {
+            List<EditOutcome> each = [];
+
+            foreach (LayerConnections.LayerEdit edit in edits)
+            {
+                each.Add(await connections
+                    .WriterFor(edit.Layer, edit.Description.Fields, edit.Description.Tracking, edit.Description.Subtypes)
+                    .ApplyAsync(edit.Batch, cancellation)
+                    .ConfigureAwait(false));
+            }
+
+            outcomes = each;
+        }
+
+        DateTimeOffset? editMoment = string.Equals(
+                Field(form, context, "returnEditMoment"), "true", StringComparison.OrdinalIgnoreCase)
+            ? context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow()
+            : null;
+
+        List<object> response = [];
+
+        for (int i = 0; i < prepared.Count; i++)
+        {
+            await AuditEditsAsync(
+                context, audit, $"{serviceName}/{prepared[i].Id}", prepared[i].Parsed, outcomes[i], cancellation)
+                .ConfigureAwait(false);
+
+            Dictionary<string, object> one = new() { ["id"] = prepared[i].Id };
+
+            foreach ((string key, object value) in (Dictionary<string, object>)ApplyEditsResponse.Build(outcomes[i], prepared[i].Parsed, editMoment))
+            {
+                one[key] = value;
+            }
+
+            response.Add(one);
+        }
+
+        await Results.Json(response).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Everything one layer's edits have to pass before they are written: the capability ceiling,
+    /// the edit privileges, the parse and the transaction size — or null when a refusal has been
+    /// written.
+    /// </summary>
+    /// <remarks>
+    /// <b>Extracted 2026-09-15 for the service-level <c>applyEdits</c></b>, which asks the same
+    /// questions of every layer it names. A second copy of these checks is how one surface comes
+    /// to allow an edit the other refuses.
+    /// </remarks>
+    private static async Task<(LayerDescription Description, ApplyEditsRequest.Parsed Parsed, EditBatch Batch)?> PrepareEditAsync(
+        HttpContext context,
+        PublishedLayer layer,
+        string? adds,
+        string? updates,
+        string? deletes,
+        bool rollbackOnFailure,
+        ServiceContexts contexts,
+        CancellationToken cancellation)
+    {
+        if (await RefusedByCeilingAsync(context, layer, adds, updates, deletes)
+            .ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        // Adds need less than updates and deletes do; asking for the wider
+        // privilege on a batch that only adds would refuse a legitimate edit.
+        if (adds is not null
+            && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer)
+                .ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
+            .ConfigureAwait(false);
+
+        // <b>Updates and deletes reach every feature or only the caller's own — ADR-064.</b>
+        // This asked for features:fullEdit outright until 2026-09-11, because without editor
+        // tracking the server could not tell whose a feature was (D-20). On a layer that records
+        // its creators, features:edit now reaches the caller's own, which is what it means in
+        // Portal; on one that does not, the refusal is the one this always gave. The description
+        // is read first because the answer depends on which of its columns record edits.
+        bool ownOnly = false;
+
+        if (updates is not null || deletes is not null)
+        {
+            if (await Authorize.RequireChangeAsync(context, layer, description.Tracking)
+                    .ConfigureAwait(false) is not { } scope)
+            {
+                return null;
+            }
+
+            ownOnly = scope == Authorize.ChangeScope.Own;
+        }
+
+        ApplyEditsRequest.Parsed? parsed = ApplyEditsRequest.TryParse(
+            adds, updates, deletes,
+            rollbackOnFailure,
+            layer.Definition, description.Fields,
+            out string? malformed);
+
+        if (parsed is null)
+        {
+            await Results.Json(
+                new { error = new { code = 400, message = malformed } },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return null;
+        }
+
+        // <b>The edit ceiling, after parsing and before writing</b> — Q-113. It has
+        // to be here: the count is only known once the batch has parsed, and the
+        // thing being bounded is the transaction, not the parse. A batch refused at
+        // this point has cost memory and no database work, which is the cheaper half
+        // of the two.
+        //
+        // <b>Refused rather than truncated, and this is the one ceiling in Q-113 that
+        // must not truncate.</b> Shortening a response is a smaller answer to the
+        // same question; shortening a transaction is a *different edit* than the one
+        // the caller asked for, applied silently. `rollbackOnFailure` exists so a
+        // caller can insist on all-or-nothing, and a server that quietly applied
+        // half would break that guarantee while reporting success.
+        if (layer.Cost.MaximumEditsPerTransaction is { } maximumEdits
+            && parsed.Batch.Count > maximumEdits)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message =
+                            $"This batch carries {parsed.Batch.Count} edits and this service "
+                            + $"accepts at most {maximumEdits} in one transaction. It is refused "
+                            + "rather than trimmed: applying part of a batch would be a different "
+                            + "edit than the one requested, and rollbackOnFailure exists so a "
+                            + "caller can require all or nothing.",
+                    },
+                },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return null;
+        }
+
+        // <b>The account signs what it writes, and own-only rides on the batch — ADR-064.</b> The
+        // writer fills a tracked layer's creator and editor columns with this name and, for a
+        // features:edit caller, changes only rows whose creator it is.
+        return (description, parsed, parsed.Batch with
+        {
+            Editor = context.Features.Get<RequestPrincipal>()!.Principal.Name,
+            OwnOnly = ownOnly,
+        });
     }
 
     /// <summary>

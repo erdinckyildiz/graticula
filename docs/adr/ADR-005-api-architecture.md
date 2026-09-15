@@ -292,7 +292,10 @@ a discovered one: `updateAttachment` (add and delete exist), `globalId` (always
 null), ~~editor tracking, domains and subtypes ([Q-58c](../open-questions.md)),~~
 and versioned or disconnected editing. *(Editor tracking built 2026-09-11,
 [ADR-064](ADR-064-editor-tracking-and-what-features-edit-means.md); domains and subtypes
-2026-09-12, [ADR-065](ADR-065-domains-and-subtypes.md).)*
+2026-09-12, [ADR-065](ADR-065-domains-and-subtypes.md). `updateAttachment`, `queryAttachments` and
+the service-level `FeatureServer/applyEdits` built 2026-09-15 — the last writes several layers in one
+transaction when all or nothing is asked for, and refuses layers in two databases rather than
+committing half.)*
 
 ## 2. Alternatives
 

@@ -102,16 +102,72 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
     {
         ArgumentNullException.ThrowIfNull(batch);
 
-        List<EditResult> adds = [];
-        List<EditResult> updates = [];
-        List<EditResult> deletes = [];
-
         await using NpgsqlConnection connection =
             await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlTransaction transaction = await connection
             .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
             .ConfigureAwait(false);
+
+        EditOutcome outcome = await ApplyWithinAsync(connection, transaction, batch, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (MustRollBack(batch, outcome))
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+
+            // The per-feature results are kept, not discarded. A client whose
+            // batch was rolled back still needs to know which feature caused it,
+            // and "the batch failed" is not an answer anybody can act on.
+            return outcome with { RolledBack = true };
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return outcome;
+    }
+
+    /// <summary>
+    /// Whether a batch that asked for all or nothing has to be rolled back after this outcome.
+    /// </summary>
+    /// <param name="batch">The batch.</param>
+    /// <param name="outcome">What applying it did.</param>
+    /// <returns>Whether nothing of it may be kept.</returns>
+    public static bool MustRollBack(EditBatch batch, EditOutcome outcome)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        ArgumentNullException.ThrowIfNull(outcome);
+
+        return batch.RollbackOnFailure && (!outcome.AllSucceeded || batch.AnythingAlreadyFailed);
+    }
+
+    /// <summary>
+    /// Applies a batch inside a transaction the caller owns, and neither commits nor rolls back.
+    /// </summary>
+    /// <param name="connection">The open connection, which must be one of this writer's source.</param>
+    /// <param name="transaction">The caller's transaction.</param>
+    /// <param name="batch">The edits.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What happened to each edit, with <c>RolledBack</c> false; the caller decides.</returns>
+    /// <remarks>
+    /// <b>Split from <see cref="ApplyAsync"/> on 2026-09-15 for the service-level
+    /// <c>applyEdits</c></b>, which edits several layers and, when all or nothing is asked for, has
+    /// to keep or discard them together. Each edit still runs in its own savepoint, so one failure
+    /// does not abort the others' statements, and savepoint names are reused only after they are
+    /// released — which PostgreSQL allows — so two writers can share one transaction in turn.
+    /// </remarks>
+    public async Task<EditOutcome> ApplyWithinAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        EditBatch batch,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentNullException.ThrowIfNull(batch);
+
+        List<EditResult> adds = [];
+        List<EditResult> updates = [];
+        List<EditResult> deletes = [];
 
         // Read the dimensionality of every row an update targets, once, before
         // touching anything. Doing it per row would be a query per feature; doing
@@ -157,20 +213,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
                 cancellationToken).ConfigureAwait(false));
         }
 
-        EditOutcome outcome = new(adds, updates, deletes, RolledBack: false);
-
-        if (batch.RollbackOnFailure && (!outcome.AllSucceeded || batch.AnythingAlreadyFailed))
-        {
-            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
-
-            // The per-feature results are kept, not discarded. A client whose
-            // batch was rolled back still needs to know which feature caused it,
-            // and "the batch failed" is not an answer anybody can act on.
-            return outcome with { RolledBack = true };
-        }
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return outcome;
+        return new EditOutcome(adds, updates, deletes, RolledBack: false);
     }
 
     /// <summary>
