@@ -486,15 +486,22 @@ internal static class FeatureServerQueryParameters
     {
         error = null;
 
-        string format = parameters["f"].ToString().Trim();
-
-        if (format.Length > 0 && !Formats.Contains(format, StringComparer.OrdinalIgnoreCase))
+        // <b>Every value, not the joined string.</b> A client that repeats `f` — the conformance
+        // suite's own helper does — sends `f=json&f=json`, which reads as `json,json` when joined,
+        // and the first version of this refused it: CI caught it on 2026-09-15, forty requests
+        // later.
+        foreach (string? given in parameters["f"])
         {
-            error =
-                $"'f={format}' is not produced here: a query is answered as json or html "
-                + "(supportedQueryFormats says JSON). It is refused rather than answered as json, "
-                + "which a client asking for another format would parse as the wrong document.";
-            return false;
+            string format = (given ?? string.Empty).Trim();
+
+            if (format.Length > 0 && !Formats.Contains(format, StringComparer.OrdinalIgnoreCase))
+            {
+                error =
+                    $"'f={format}' is not produced here: a query is answered as json or html "
+                    + "(supportedQueryFormats says JSON). It is refused rather than answered as json, "
+                    + "which a client asking for another format would parse as the wrong document.";
+                return false;
+            }
         }
 
         foreach (string name in parameters.Keys)

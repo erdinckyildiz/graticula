@@ -158,6 +158,20 @@ public sealed class FeatureServerQueryParametersTests
     }
 
     [Fact]
+    public void A_format_sent_twice_is_read_value_by_value()
+    {
+        Dictionary<string, Microsoft.Extensions.Primitives.StringValues> values = new()
+        {
+            ["f"] = new Microsoft.Extensions.Primitives.StringValues(["json", "json"]),
+        };
+
+        Assert.True(
+            FeatureServerQueryParameters.TryParse(
+                new QueryCollection(values), "objectid", Srid, Fields, out _, out _, out string? error),
+            error);
+    }
+
+    [Fact]
     public void A_refusal_says_what_is_missing_rather_than_that_it_is_unsupported()
     {
         // "Not supported" sends somebody to file an issue. Naming the thing that

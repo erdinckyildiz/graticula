@@ -345,7 +345,9 @@ public sealed class PostGisFeatureWriterTests : PostgresFixture
             CancellationToken.None);
 
         Assert.False(outcome.Adds[0].Succeeded);
-        Assert.Contains("cannot be null", outcome.Adds[0].Error!, StringComparison.Ordinal);
+
+        // The field by name, since 2026-09-15; the database's own sentence carried the table's.
+        Assert.Contains("'rating' is required", outcome.Adds[0].Error!, StringComparison.Ordinal);
     }
 
     // ---------- the transaction ----------
