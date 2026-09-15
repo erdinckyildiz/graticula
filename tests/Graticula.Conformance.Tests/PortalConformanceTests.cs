@@ -86,6 +86,23 @@ public sealed class PortalConformanceTests : ArcGisClient
             .GetProperty("helperServices").GetProperty("geometry").GetProperty("url").GetString()!;
 
         Assert.Contains("GeometryServer", geometry, StringComparison.Ordinal);
+
+        // <b>And an anonymous caller is sent only somewhere that answers it — 2026-09-15.</b> The
+        // link was given to everybody, and where the geometry service is not shared with everyone an
+        // anonymous client followed it to a 404.
+        (HttpStatusCode status, string body) = await AnonymousAsync("/sharing/rest/portals/self");
+        Assert.Equal(HttpStatusCode.OK, status);
+
+        if (JsonDocument.Parse(body).RootElement.GetProperty("helperServices")
+                .TryGetProperty("geometry", out JsonElement offered))
+        {
+            string path = new Uri(offered.GetProperty("url").GetString()!).AbsolutePath;
+            (HttpStatusCode reached, _) = await AnonymousAsync(path);
+
+            Assert.True(
+                reached == HttpStatusCode.OK,
+                $"portals/self offers an anonymous caller {path}, which answers it {(int)reached}.");
+        }
     }
 
     [Fact]

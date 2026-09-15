@@ -321,6 +321,19 @@ internal static class PortalEndpoints
         IReadOnlyList<object> groups =
             await MineAsync(context, directory, cancellation).ConfigureAwait(false);
 
+        // <b>The geometry service is offered only to a caller it would answer — 2026-09-15.</b> This
+        // named it for everybody, and on a deployment where it is not shared with everyone an
+        // anonymous client followed the link to a 404: the Maps SDK's measure and project tools
+        // take their geometry service from here, and failed with nothing to say why. The same
+        // sharing rule the service applies to itself decides, so the link and the service agree.
+        SystemService? geometry = await context.RequestServices
+            .GetRequiredService<Graticula.Platform.Postgres.PostgresSystemServices>()
+            .FindAsync(GeometryServerEndpoints.ServiceName, cancellation)
+            .ConfigureAwait(false);
+
+        bool geometryOffered = geometry is { Status: not ServiceStatus.Stopped } found
+            && LayerAccess.Evaluate(found.Sharing, null, current.Principal, current.Authorization).IsAllowed();
+
         return Results.Ok(new
         {
             // <b>Sixteen characters, because that is what a portal's id is.</b>
@@ -357,13 +370,15 @@ internal static class PortalEndpoints
             // <b>Pro asks where the geometry service is rather than assuming.</b>
             // We have one (ADR-022) and it is at the address every ArcGIS client
             // looks for, so naming it here is free.
-            helperServices = new
-            {
-                geometry = new
+            helperServices = geometryOffered
+                ? (object)new
                 {
-                    url = $"{Origin(context)}/rest/services/Utilities/Geometry/GeometryServer",
-                },
-            },
+                    geometry = new
+                    {
+                        url = $"{Origin(context)}/rest/services/Utilities/Geometry/GeometryServer",
+                    },
+                }
+                : new { },
         });
     }
 
