@@ -81,9 +81,9 @@ public sealed class EditAliasConformanceTests : ArcGisClient
 
     /// <summary>The layer's own spatial reference, and a point inside it.</summary>
     /// <remarks>
-    /// <b>Read from the layer rather than assumed.</b> This server refuses to
-    /// reproject on write, deliberately, so a hardcoded 4326 point would test
-    /// that refusal instead of the endpoint.
+    /// <b>Read from the layer rather than assumed.</b> An edit in another reference is
+    /// projected since 2026-09-15 (Q-153), and a point in the layer's own keeps these
+    /// tests about the endpoints rather than about projection.
     /// </remarks>
     private async Task<(int Srid, double X, double Y, string Field)> TargetAsync()
     {
@@ -190,7 +190,10 @@ public sealed class EditAliasConformanceTests : ArcGisClient
         (int srid, double x, double y, string field) = await TargetAsync();
 
         string good = Feature(srid, x, y, field, "good").Trim('[', ']');
-        string bad = Feature(4326, 1, 2, field, "wrong reference").Trim('[', ']');
+        // A geometry that declares Z, which the parser refuses. This sent 4326 until 2026-09-15, when an edit
+        // in another reference began to be projected rather than refused (Q-153).
+        string bad = Feature(srid, 1, 2, field, "declares Z").Trim('[', ']')
+            .Replace("\"geometry\":{", "\"geometry\":{\"hasZ\":true,", StringComparison.Ordinal);
 
         JsonElement response = await PostAsync(
             "addFeatures",

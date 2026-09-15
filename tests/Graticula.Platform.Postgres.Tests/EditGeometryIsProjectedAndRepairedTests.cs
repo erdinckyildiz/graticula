@@ -54,7 +54,8 @@ public sealed class EditGeometryIsProjectedAndRepairedTests : PostgresFixture
         Assert.True(outcome.Adds[0].Succeeded, outcome.Adds[0].Error);
 
         double x = await ScalarAsync<double>($"select st_x(geom) from \"{SchemaName}\".geo_projected");
-        Assert.Equal(3228251.4, x, 1);
+        // 29 degrees east is 29 / 180 of Web Mercator's half circumference, 20,037,508.34 m.
+        Assert.Equal(3228265.2, x, 1);
     }
 
     [Fact]
