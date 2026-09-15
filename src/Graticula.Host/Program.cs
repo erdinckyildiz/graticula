@@ -1830,6 +1830,17 @@ public static class Program
                 ServiceApplyEditsAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // <b>Three of the ArcGIS layer and service operations a client calls around editing —
+            // 2026-09-15.</b> All three were 404: Pro's field calculator and scripts use
+            // `calculate`, a where builder checks its clause with `validateSQL`, and a form reads
+            // every domain of a service at once with `queryDomains`.
+            app.MapMethods($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/validateSQL", ["GET", "POST"], ValidateSqlAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+            app.MapMethods($"{prefix}/{{serviceName}}/FeatureServer/queryDomains", ["GET", "POST"], QueryDomainsAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+            app.MapPost($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/calculate", CalculateAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
             // <b>The three single-operation endpoints ArcGIS also offers.</b>
             // applyEdits is the one a modern client uses and the only one that
             // can be transactional across operations, but plenty of tooling —
@@ -3648,6 +3659,307 @@ public static class Program
         return context.Request.Query.TryGetValue(name, out value) && !string.IsNullOrWhiteSpace(value)
             ? value.ToString()
             : null;
+    }
+
+    /// <summary>
+    /// <c>validateSQL</c>: whether a where clause would be accepted by this layer's query, and why not.
+    /// </summary>
+    /// <remarks>
+    /// <b>The same parser the query uses, against the same columns</b>, so a clause this calls valid
+    /// is one the query accepts. Only <c>sqlType=where</c> exists here; the other kinds name SQL this
+    /// server never takes from a caller.
+    /// </remarks>
+    private static async Task ValidateSqlAsync(
+        HttpContext context,
+        string serviceName,
+        int layerId,
+        CatalogFallback catalog,
+        ServiceContexts contexts,
+        CancellationToken cancellation)
+    {
+        PublishedLayer? layer = await ServiceLookup
+            .LayerAsync(context, catalog, serviceName, layerId, cancellation)
+            .ConfigureAwait(false);
+
+        if (layer is null)
+        {
+            return;
+        }
+
+        IFormCollection form = context.Request.HasFormContentType
+            ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
+            : FormCollection.Empty;
+
+        string sqlType = Field(form, context, "sqlType") ?? "where";
+
+        if (!string.Equals(sqlType, "where", StringComparison.OrdinalIgnoreCase))
+        {
+            await Results.Json(
+                new { error = new { code = 400, message = $"sqlType '{sqlType}' is not validated here: only 'where' is, because a where clause is the only SQL this server takes from a caller." } },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+        Dictionary<string, FieldType> types = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (FieldDescription field in described.Fields)
+        {
+            types[field.Name] = field.Type;
+        }
+
+        bool valid = WhereClause.TryParse(
+            Field(form, context, "sql") ?? string.Empty,
+            [.. described.Fields.Select(f => f.Name)],
+            Graticula.Catalog.LayerDefinition.Quote,
+            out _,
+            out string? error,
+            types);
+
+        await Results.Json(new
+        {
+            isValidSQL = valid,
+            validationErrors = valid
+                ? Array.Empty<object>()
+                : [new { errorCode = 400, description = error }],
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <c>queryDomains</c>: the domains of the named layers — or of every layer — once each by name.
+    /// </summary>
+    private static async Task QueryDomainsAsync(
+        HttpContext context,
+        string serviceName,
+        CatalogFallback catalog,
+        ServiceContexts contexts,
+        CancellationToken cancellation)
+    {
+        IFormCollection form = context.Request.HasFormContentType
+            ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
+            : FormCollection.Empty;
+
+        List<int> asked = [];
+        string raw = (Field(form, context, "layers") ?? string.Empty).Trim().Trim('[', ']');
+
+        foreach (string part in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!int.TryParse(part, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int id))
+            {
+                await Results.Json(
+                    new { error = new { code = 400, message = $"'{part}' in 'layers' is not a layer id." } },
+                    statusCode: StatusCodes.Status400BadRequest)
+                    .ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+
+            asked.Add(id);
+        }
+
+        if (asked.Count == 0)
+        {
+            PublishedService? service = await ServiceLookup.FeatureServiceAsync(context, catalog, serviceName, cancellation).ConfigureAwait(false);
+
+            if (service is null)
+            {
+                return;
+            }
+
+            asked = [.. service.Layers.Select(l => l.LayerIndex)];
+        }
+
+        Dictionary<string, object> domains = new(StringComparer.Ordinal);
+
+        foreach (int id in asked)
+        {
+            PublishedLayer? layer = await ServiceLookup
+                .LayerAsync(context, catalog, serviceName, id, cancellation)
+                .ConfigureAwait(false);
+
+            if (layer is null)
+            {
+                return;
+            }
+
+            (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+            IEnumerable<Graticula.Catalog.FieldDomain> found = described.Fields
+                .Select(f => f.Domain)
+                .Concat(described.Subtypes?.Types.SelectMany(t => t.Domains.Values) ?? [])
+                .OfType<Graticula.Catalog.FieldDomain>();
+
+            foreach (Graticula.Catalog.FieldDomain domain in found)
+            {
+                domains.TryAdd(domain.Name, FeatureServerMetadataWriter.Domain(domain));
+            }
+        }
+
+        await Results.Json(new { domains = domains.Values }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <c>calculate</c>: sets fields to values on every feature a where clause selects, as one edit.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A value, never an expression.</b> <c>calcExpression</c> may carry <c>sqlExpression</c>, which
+    /// is SQL written by the caller and run against the table; it is refused, for the reason the where
+    /// grammar exists. <c>{"field": …, "value": …}</c> is what a field calculator's constant is.
+    /// </para>
+    /// <para>
+    /// <b>Through the edit path, not beside it.</b> The selected ids become an update batch and go
+    /// through <see cref="PrepareEditAsync"/> and the layer's writer, so domains, editor tracking,
+    /// ownership, the capability ceiling and the transaction size apply exactly as they do to
+    /// <c>applyEdits</c>, and the edit is all or nothing.
+    /// </para>
+    /// </remarks>
+    private static async Task CalculateAsync(
+        HttpContext context,
+        string serviceName,
+        int layerId,
+        CatalogFallback catalog,
+        LayerConnections connections,
+        ServiceContexts contexts,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        PublishedLayer? layer = await ServiceLookup
+            .LayerAsync(context, catalog, serviceName, layerId, cancellation)
+            .ConfigureAwait(false);
+
+        if (layer is null)
+        {
+            return;
+        }
+
+        IFormCollection form = context.Request.HasFormContentType
+            ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
+            : FormCollection.Empty;
+
+        Task Refuse(string message) =>
+            Results.Json(new { error = new { code = 400, message } }, statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context);
+
+        if (!layer.Definition.HasIntegerIdentity)
+        {
+            await Refuse($"Layer {layerId} has no integer object-id column, so its features cannot be addressed (ADR-013 §2a).").ConfigureAwait(false);
+            return;
+        }
+
+        Dictionary<string, JsonElement> values = new(StringComparer.Ordinal);
+
+        try
+        {
+            foreach (JsonElement expression in JsonDocument.Parse(Field(form, context, "calcExpression") ?? "[]").RootElement.EnumerateArray())
+            {
+                string? name = expression.TryGetProperty("field", out JsonElement f) ? f.GetString() : null;
+
+                if (expression.TryGetProperty("sqlExpression", out _))
+                {
+                    await Refuse("'sqlExpression' is refused: it is SQL written by the caller and run against the table. Send the value to set as 'value'.").ConfigureAwait(false);
+                    return;
+                }
+
+                if (name is null || !expression.TryGetProperty("value", out JsonElement value))
+                {
+                    await Refuse("Each 'calcExpression' entry needs 'field' and 'value'.").ConfigureAwait(false);
+                    return;
+                }
+
+                values[name] = value.Clone();
+            }
+        }
+        catch (JsonException)
+        {
+            await Refuse("'calcExpression' must be a JSON array of {\"field\", \"value\"}.").ConfigureAwait(false);
+            return;
+        }
+
+        if (values.Count == 0)
+        {
+            await Refuse("'calcExpression' names no field to set.").ConfigureAwait(false);
+            return;
+        }
+
+        (IFeatureSource source, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+        Dictionary<string, FieldType> types = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (FieldDescription field in described.Fields)
+        {
+            types[field.Name] = field.Type;
+        }
+
+        if (!WhereClause.TryParse(
+                Field(form, context, "where") ?? "1=1",
+                [.. described.Fields.Select(f => f.Name)],
+                Graticula.Catalog.LayerDefinition.Quote,
+                out ParsedWhere where,
+                out string? whereError,
+                types))
+        {
+            await Refuse($"'where' could not be parsed. {whereError}").ConfigureAwait(false);
+            return;
+        }
+
+        int ceiling = Math.Min(layer.Cost.MaximumEditsPerTransaction ?? FeatureQuery.MaximumLimit, FeatureQuery.MaximumLimit);
+        string oid = layer.Definition.IntegerIdentityColumn!;
+        List<long> ids = [];
+
+        await foreach (Feature feature in source
+            .ReadAsync(new FeatureQuery(Math.Min(ceiling + 1, FeatureQuery.MaximumLimit), fields: [oid], includeGeometry: false, where: where), cancellation)
+            .ConfigureAwait(false))
+        {
+            ids.Add(Convert.ToInt64(feature[oid], System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        if (ids.Count > ceiling)
+        {
+            await Refuse($"More than {ceiling} features match, and one calculate is one transaction of at most that many. Narrow the where clause and calculate in parts.").ConfigureAwait(false);
+            return;
+        }
+
+        string updates = JsonSerializer.Serialize(ids.Select(id =>
+        {
+            Dictionary<string, object> attributes = new(StringComparer.Ordinal) { [oid] = id };
+
+            foreach ((string name, JsonElement value) in values)
+            {
+                attributes[name] = value;
+            }
+
+            return new { attributes };
+        }));
+
+        if (await PrepareEditAsync(context, layer, null, ids.Count == 0 ? null : updates, null, rollbackOnFailure: true, contexts, cancellation)
+                .ConfigureAwait(false) is not { } prepared)
+        {
+            return;
+        }
+
+        EditOutcome outcome = ids.Count == 0
+            ? new EditOutcome([], [], [], RolledBack: false)
+            : await connections
+                .WriterFor(layer, prepared.Description.Fields, prepared.Description.Tracking, prepared.Description.Subtypes)
+                .ApplyAsync(prepared.Batch, cancellation)
+                .ConfigureAwait(false);
+
+        await AuditEditsAsync(context, audit, $"{serviceName}/{layerId}", prepared.Parsed, outcome, cancellation).ConfigureAwait(false);
+
+        EditResult? failed = outcome.Updates.Where(u => !u.Succeeded).Cast<EditResult?>().FirstOrDefault();
+
+        await Results.Json(
+            outcome.RolledBack
+                ? (object)new
+                {
+                    success = false,
+                    updatedFeatureCount = 0,
+                    error = new { code = 400, description = $"Nothing was changed: feature {failed?.Identity} refused the value. {failed?.Error}" },
+                }
+                : new { success = true, updatedFeatureCount = outcome.Updates.Count(u => u.Succeeded) })
+            .ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>
