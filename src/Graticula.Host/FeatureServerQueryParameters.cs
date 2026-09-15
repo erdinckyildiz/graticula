@@ -152,9 +152,6 @@ internal static class FeatureServerQueryParameters
             + "client that names one",
         ["gdbVersion"] = "there is no version tree",
         ["historicMoment"] = "there is no history",
-        // f=html renders the query page (ADR-023 §4b). Anything else — pbf,
-        // geojson, kmz — is still ignored, and this is where that is said.
-        ["f"] = "only json and html are produced; any other format returns json",
         // <b>It is not ignored, and saying so was wrong for a day.</b> This read
         // *authentication is by header* until 2026-08-20, and by then `?token=`
         // authenticated on every route — which is what the security gate proved by
@@ -449,7 +446,22 @@ internal static class FeatureServerQueryParameters
         "resultRecordCount", "resultOffset",
         "returnCountOnly", "returnIdsOnly", "returnExtentOnly", "returnDistinctValues",
         "outStatistics", "groupByFieldsForStatistics", "havingClause",
+
+        // Checked for its value in `TryUnknown`, which is the one parameter here whose name is
+        // always sent and whose value decides whether the answer is the one asked for.
+        "f",
     };
+
+    /// <summary>The formats a query is answered in.</summary>
+    /// <remarks>
+    /// <b>Refused otherwise since 2026-09-15.</b> <c>f</c> sat on the ignored list with the reason
+    /// <i>any other format returns json</i>, so <c>f=geojson</c> came back as Esri JSON under
+    /// <c>application/json</c> and a caller found out only when its parser did — the silent
+    /// substitution the refusal rule above exists to prevent, on the parameter every client sends.
+    /// <c>pjson</c> is ArcGIS's pretty-printed JSON, and the same document without the whitespace is
+    /// the same answer.
+    /// </remarks>
+    private static readonly string[] Formats = ["json", "pjson", "html"];
 
     /// <summary>
     /// Refuses a parameter this class has never heard of.
@@ -473,6 +485,17 @@ internal static class FeatureServerQueryParameters
     private static bool TryUnknown(IQueryCollection parameters, out string? error)
     {
         error = null;
+
+        string format = parameters["f"].ToString().Trim();
+
+        if (format.Length > 0 && !Formats.Contains(format, StringComparer.OrdinalIgnoreCase))
+        {
+            error =
+                $"'f={format}' is not produced here: a query is answered as json or html "
+                + "(supportedQueryFormats says JSON). It is refused rather than answered as json, "
+                + "which a client asking for another format would parse as the wrong document.";
+            return false;
+        }
 
         foreach (string name in parameters.Keys)
         {

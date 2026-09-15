@@ -26,22 +26,45 @@ public static class ApplyEditsResponse
     /// <summary>Assembles the response.</summary>
     /// <param name="outcome">What the writer did.</param>
     /// <param name="parsed">What the parser rejected before the writer saw it.</param>
+    /// <param name="editMoment">
+    /// When the edits were kept, for a caller that asked with <c>returnEditMoment=true</c>; null
+    /// leaves it out, and so does a batch that was rolled back, which kept nothing to date.
+    /// </param>
     /// <returns>An object ready for JSON serialisation.</returns>
-    public static object Build(EditOutcome outcome, ApplyEditsRequest.Parsed parsed)
+    public static object Build(EditOutcome outcome, ApplyEditsRequest.Parsed parsed, DateTimeOffset? editMoment = null)
     {
         ArgumentNullException.ThrowIfNull(outcome);
         ArgumentNullException.ThrowIfNull(parsed);
 
-        return new
+        Dictionary<string, object> response = new()
         {
-            addResults = Merge(outcome.Adds, parsed.RejectedAdds, outcome.RolledBack, adds: true),
-            updateResults = Merge(outcome.Updates, parsed.RejectedUpdates, outcome.RolledBack, adds: false),
-            deleteResults = Merge(outcome.Deletes, parsed.RejectedDeletes, outcome.RolledBack, adds: false),
-
-            // Not part of Esri's shape, and included anyway: the per-feature results
-            // already say nothing was kept, and this says why in one place.
-            rolledBack = outcome.RolledBack,
+            ["addResults"] = Merge(outcome.Adds, parsed.RejectedAdds, outcome.RolledBack, adds: true),
+            ["updateResults"] = Merge(outcome.Updates, parsed.RejectedUpdates, outcome.RolledBack, adds: false),
+            ["deleteResults"] = Merge(outcome.Deletes, parsed.RejectedDeletes, outcome.RolledBack, adds: false),
         };
+
+        Moment(response, outcome, editMoment);
+
+        // Not part of Esri's shape, and included anyway: the per-feature results
+        // already say nothing was kept, and this says why in one place.
+        response["rolledBack"] = outcome.RolledBack;
+        return response;
+    }
+
+    /// <summary>
+    /// Adds <c>editMoment</c>, in epoch milliseconds, when it was asked for and something was kept.
+    /// </summary>
+    /// <remarks>
+    /// <b>Written 2026-09-15.</b> <c>returnEditMoment=true</c> was accepted and nothing came back,
+    /// so a client that reads changes by edit time, which is what the moment is for, had nothing to
+    /// start its next read from and no error to say why.
+    /// </remarks>
+    private static void Moment(Dictionary<string, object> response, EditOutcome outcome, DateTimeOffset? editMoment)
+    {
+        if (editMoment is { } moment && !outcome.RolledBack)
+        {
+            response["editMoment"] = moment.ToUnixTimeMilliseconds();
+        }
     }
 
     /// <summary>Which single operation a response is for.</summary>
@@ -83,8 +106,10 @@ public static class ApplyEditsResponse
     /// <param name="outcome">What the writer did.</param>
     /// <param name="parsed">What the parser rejected before the writer saw it.</param>
     /// <param name="kind">Which operation was asked for.</param>
+    /// <param name="editMoment">As for <see cref="Build"/>.</param>
     /// <returns>An object ready for JSON serialisation.</returns>
-    public static object One(EditOutcome outcome, ApplyEditsRequest.Parsed parsed, EditKind kind)
+    public static object One(
+        EditOutcome outcome, ApplyEditsRequest.Parsed parsed, EditKind kind, DateTimeOffset? editMoment = null)
     {
         ArgumentNullException.ThrowIfNull(outcome);
         ArgumentNullException.ThrowIfNull(parsed);
@@ -96,11 +121,10 @@ public static class ApplyEditsResponse
             _ => ("deleteResults", Merge(outcome.Deletes, parsed.RejectedDeletes, outcome.RolledBack, adds: false)),
         };
 
-        return new Dictionary<string, object>
-        {
-            [name] = results,
-            ["rolledBack"] = outcome.RolledBack,
-        };
+        Dictionary<string, object> response = new() { [name] = results };
+        Moment(response, outcome, editMoment);
+        response["rolledBack"] = outcome.RolledBack;
+        return response;
     }
 
     /// <summary>

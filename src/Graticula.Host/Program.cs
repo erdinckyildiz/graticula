@@ -3464,6 +3464,22 @@ public static class Program
             return;
         }
 
+        // <b>What would change the meaning of an edit is refused, not dropped — 2026-09-15.</b>
+        // `useGlobalIds=true` asks for features to be matched by a GlobalID this server does not
+        // keep, and `attachments` asks for files to be written in the same transaction; both were
+        // accepted and ignored, so the caller was told its edits succeeded as a different edit than
+        // the one it sent. `query` has refused a parameter it could not honour since 2026-08-15
+        // and this route had never been held to the same rule.
+        if (EditParameterRefusal(form, context) is { } refusedParameter)
+        {
+            await Results.Json(
+                new { error = new { code = 400, message = refusedParameter } },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
+
         // A single-operation endpoint called with nothing to do is a client
         // sending the wrong parameter name, not a request to do nothing.
         if (operation != EditOperation.Apply && adds is null && updates is null && deletes is null)
@@ -3615,6 +3631,11 @@ public static class Program
             .ApplyAsync(batch, cancellation)
             .ConfigureAwait(false);
 
+        DateTimeOffset? editMoment = string.Equals(
+                Field(form, context, "returnEditMoment"), "true", StringComparison.OrdinalIgnoreCase)
+            ? context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow()
+            : null;
+
         await AuditEditsAsync(
             context, audit, $"{serviceName}/{layerId}", parsed, outcome, cancellation)
             .ConfigureAwait(false);
@@ -3626,13 +3647,43 @@ public static class Program
         await Results.Json(operation switch
         {
             EditOperation.Add =>
-                ApplyEditsResponse.One(outcome, parsed, ApplyEditsResponse.EditKind.Add),
+                ApplyEditsResponse.One(outcome, parsed, ApplyEditsResponse.EditKind.Add, editMoment),
             EditOperation.Update =>
-                ApplyEditsResponse.One(outcome, parsed, ApplyEditsResponse.EditKind.Update),
+                ApplyEditsResponse.One(outcome, parsed, ApplyEditsResponse.EditKind.Update, editMoment),
             EditOperation.Delete =>
-                ApplyEditsResponse.One(outcome, parsed, ApplyEditsResponse.EditKind.Delete),
-            _ => ApplyEditsResponse.Build(outcome, parsed),
+                ApplyEditsResponse.One(outcome, parsed, ApplyEditsResponse.EditKind.Delete, editMoment),
+            _ => ApplyEditsResponse.Build(outcome, parsed, editMoment),
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Why an edit request carries a parameter this server cannot honour without changing the edit,
+    /// or null when it carries none.
+    /// </summary>
+    /// <remarks>
+    /// <b>Only the two whose omission changes what is written.</b> <c>gdbVersion</c> and
+    /// <c>sessionID</c> name a version and an edit session this server does not have, and the edit
+    /// they describe is the one applied to the only version there is, so ignoring them loses
+    /// nothing. <c>useGlobalIds=false</c> and an empty <c>attachments</c> ask for nothing extra.
+    /// </remarks>
+    internal static string? EditParameterRefusal(IFormCollection form, HttpContext context)
+    {
+        if (string.Equals(Field(form, context, "useGlobalIds"), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return "useGlobalIds=true is refused: this server does not keep GlobalIDs, so features "
+                + "cannot be matched by one. Identify them by objectId and send useGlobalIds=false.";
+        }
+
+        string? attachments = Field(form, context, "attachments")?.Trim();
+
+        if (attachments is not null && attachments != "{}" && attachments != "[]" && attachments != "null")
+        {
+            return "'attachments' in applyEdits is refused: attachments are written through "
+                + "addAttachment, and a file cannot join this edit's transaction. Nothing was "
+                + "applied; send the feature edits without it and add each file with addAttachment.";
+        }
+
+        return null;
     }
 
     /// <summary>Reads a field from the form, falling back to the query string.</summary>

@@ -594,8 +594,8 @@ const ground = basemap
 // --------------------------------------------------------------------- the data
 //
 // <b>Read straight off the FeatureServer with OpenLayers' own EsriJSON format.</b>
-// This server produces Esri JSON and ignores `f=geojson`, and it did not have to
-// change: the reader exists.
+// This server produces Esri JSON and refuses `f=geojson` (it answered it as Esri JSON until
+// 2026-09-15), and this page did not have to change: the reader exists.
 
 const ESRI = new ol.format.EsriJSON();
 const ACCENT = "#b8422e";

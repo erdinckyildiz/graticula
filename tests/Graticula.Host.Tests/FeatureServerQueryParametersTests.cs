@@ -132,6 +132,31 @@ public sealed class FeatureServerQueryParametersTests
         Assert.Contains($"'{name}=false' is accepted", Refuse((name, "true")), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A format this server does not produce is refused, not answered as JSON.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15: <c>f=geojson</c> and <c>f=pbf</c> came back as Esri JSON, which a caller
+    /// that asked for either parses as the wrong document.
+    /// </remarks>
+    [Theory]
+    [InlineData("geojson")]
+    [InlineData("pbf")]
+    [InlineData("kmz")]
+    public void A_format_that_is_not_produced_is_refused(string format)
+    {
+        Assert.Contains($"'f={format}' is not produced", Refuse(("f", format)), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("pjson")]
+    [InlineData("JSON")]
+    public void The_formats_that_are_produced_are_accepted(string format)
+    {
+        Parse(("f", format));
+    }
+
     [Fact]
     public void A_refusal_says_what_is_missing_rather_than_that_it_is_unsupported()
     {
@@ -600,7 +625,8 @@ public sealed class FeatureServerQueryParametersTests
     [InlineData("quantizationParameters")]
     [InlineData("cacheHint")]
     [InlineData("returnCentroid")]
-    [InlineData("f")]
+    // `f` left this set on 2026-09-15: a format other than json or html is refused rather than
+    // answered as json, which is `A_format_that_is_not_produced_is_refused`.
     public void A_parameter_that_cannot_lose_data_is_accepted_and_declares_itself_ignored(string name)
     {
         Parse((name, "whatever"));

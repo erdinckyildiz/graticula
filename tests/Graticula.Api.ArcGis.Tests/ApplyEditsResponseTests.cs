@@ -86,6 +86,33 @@ public sealed class ApplyEditsResponseTests
     }
 
     [Fact]
+    public void An_edit_moment_asked_for_is_returned_in_epoch_milliseconds()
+    {
+        DateTimeOffset moment = new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
+        EditOutcome outcome = new([EditResult.Ok(4)], [], [], RolledBack: false);
+
+        JsonElement full = Json(ApplyEditsResponse.Build(outcome, NothingRejected(), moment));
+        JsonElement one = Json(ApplyEditsResponse.One(outcome, NothingRejected(), ApplyEditsResponse.EditKind.Add, moment));
+
+        Assert.Equal(moment.ToUnixTimeMilliseconds(), full.GetProperty("editMoment").GetInt64());
+        Assert.Equal(moment.ToUnixTimeMilliseconds(), one.GetProperty("editMoment").GetInt64());
+    }
+
+    [Fact]
+    public void A_rolled_back_batch_has_no_edit_moment_and_one_not_asked_for_has_none_either()
+    {
+        DateTimeOffset moment = new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
+
+        JsonElement rolledBack = Json(ApplyEditsResponse.Build(
+            new EditOutcome([EditResult.Failed(-1, "bad")], [], [], RolledBack: true), NothingRejected(), moment));
+        JsonElement notAsked = Json(ApplyEditsResponse.Build(
+            new EditOutcome([EditResult.Ok(4)], [], [], RolledBack: false), NothingRejected()));
+
+        Assert.False(rolledBack.TryGetProperty("editMoment", out _));
+        Assert.False(notAsked.TryGetProperty("editMoment", out _));
+    }
+
+    [Fact]
     public void Without_a_rollback_a_success_is_a_success()
     {
         EditOutcome outcome = new(
