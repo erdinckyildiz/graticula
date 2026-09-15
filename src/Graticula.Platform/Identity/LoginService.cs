@@ -125,6 +125,10 @@ public sealed class LoginService
     /// <param name="password">The password offered.</param>
     /// <param name="address">The source address, or null if it cannot be determined.</param>
     /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="lifetime">
+    /// How long the caller asks the session to last — ArcGIS's <c>expiration</c>. Granted up to the
+    /// deployment's own lifetime and no further, and never under a minute; null is the deployment's.
+    /// </param>
     /// <remarks>
     /// <para>
     /// <b>The order of the four steps is the security design</b>, not an
@@ -153,7 +157,11 @@ public sealed class LoginService
     /// </list>
     /// </remarks>
     public async Task<LoginResult> AuthenticateAsync(
-        string name, string password, IPAddress? address, CancellationToken cancellationToken)
+        string name,
+        string password,
+        IPAddress? address,
+        CancellationToken cancellationToken,
+        TimeSpan? lifetime = null)
     {
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(password);
@@ -231,7 +239,17 @@ public sealed class LoginService
         }
 
         string token = SessionToken.Generate();
-        DateTimeOffset expiresAt = now + _sessionLifetime;
+        // <b>Shorter when the caller asks, never longer — ADR-015 §4 mitigation 3.</b> An ArcGIS
+        // client asks for a lifetime with `expiration`, and the three token doors ignored it: one
+        // and 120 minutes both came back about twelve hours, measured on the showcase 2026-09-15,
+        // while §4 had promised tokens that expire before a leaked one is useful. The deployment's
+        // own lifetime stays the ceiling, and a minute is the floor so a zero or a negative is not
+        // a token that is dead on arrival.
+        TimeSpan granted = lifetime is { } asked
+            ? TimeSpan.FromTicks(Math.Clamp(asked.Ticks, TimeSpan.FromMinutes(1).Ticks, _sessionLifetime.Ticks))
+            : _sessionLifetime;
+
+        DateTimeOffset expiresAt = now + granted;
 
         Guid sessionId = await _store
             .CreateSessionAsync(principal.Id, SessionToken.HashOf(token), expiresAt, address, cancellationToken)

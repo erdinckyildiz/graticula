@@ -5922,7 +5922,9 @@ internal static partial class AdminEndpoints
         }
 
         LoginResult result = await login
-            .AuthenticateAsync(name, password, CallerAddress.Of(context), cancellation)
+            .AuthenticateAsync(
+                name, password, CallerAddress.Of(context), cancellation,
+                await AuthEndpoints.RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false))
             .ConfigureAwait(false);
 
         if (!result.Succeeded)

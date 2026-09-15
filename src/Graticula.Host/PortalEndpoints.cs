@@ -9,6 +9,7 @@ using Graticula.Platform.Identity;
 using Graticula.Platform.Postgres;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Routing;
 
 namespace Graticula.Host;
@@ -256,8 +257,12 @@ internal static class PortalEndpoints
             return;
         }
 
+        // <b>`CallerAddress`, as the other two doors use — D-12.</b> This read the socket address, so
+        // behind a proxy every portal sign-in was throttled as the proxy's.
         LoginResult result = await login
-            .AuthenticateAsync(name, password, context.Connection.RemoteIpAddress, cancellation)
+            .AuthenticateAsync(
+                name, password, CallerAddress.Of(context), cancellation,
+                await AuthEndpoints.RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false))
             .ConfigureAwait(false);
 
         if (!result.Succeeded)
@@ -286,7 +291,7 @@ internal static class PortalEndpoints
         {
             token = result.Token!,
             expires = session.ExpiresAt.ToUnixTimeMilliseconds(),
-            ssl = true,
+            ssl = context.RequestServices.GetRequiredService<HostSettings>().RequireHttps,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -333,7 +338,9 @@ internal static class PortalEndpoints
             customBaseUrl = string.Empty,
             portalHostname = context.Request.Host.Value,
             isPortal = true,
-            allSSL = true,
+            // <b>`RequireHttps`, the same fact every token response now reports as `ssl`.</b> True on
+            // every deployment that did not turn HTTPS off, which is the value this always had.
+            allSSL = context.RequestServices.GetRequiredService<HostSettings>().RequireHttps,
 
             // <b>False, and it has to stay false until it is true.</b> This server
             // has no OAuth. Claiming it would repeat exactly the mistake that cost

@@ -175,7 +175,10 @@ Four mitigations, all required:
 2. **Header form is preferred and advertised.** Clients that can send
    `X-Esri-Authorization: Bearer …` are told to, in documentation and in the
    capability report.
-3. **ArcGIS-issued tokens are short-lived by default and separately scoped.** A
+3. *(Not implemented as written — [D-268](../architecture-debt.md), found 2026-09-15: tokens
+   lived twelve hours whatever was asked and were not scoped. `expiration` is honoured since that
+   day; the default, `requestip`/`referer` binding and the scope are still owed.)*
+   **ArcGIS-issued tokens are short-lived by default and separately scoped.** A
    token that leaks into a `Referer` should expire before it is useful, and it
    should not be usable against the admin API. Compatibility tokens grant the
    compatibility surface.

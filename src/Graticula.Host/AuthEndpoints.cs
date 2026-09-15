@@ -7,6 +7,7 @@ using Graticula.Platform.Admin;
 using Graticula.Platform.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Routing;
 
 namespace Graticula.Host;
@@ -142,7 +143,9 @@ internal static class AuthEndpoints
         }
 
         LoginResult result = await login
-            .AuthenticateAsync(name, password, RemoteAddress(context), cancellation)
+            .AuthenticateAsync(
+                name, password, RemoteAddress(context), cancellation,
+                await RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false))
             .ConfigureAwait(false);
 
         if (!result.Succeeded)
@@ -174,10 +177,11 @@ internal static class AuthEndpoints
             // Milliseconds since the epoch, which is what an Esri client reads.
             expires = session.ExpiresAt.ToUnixTimeMilliseconds(),
 
-            // <b>Always false, and stated rather than omitted.</b> This server
-            // issues no SSL-only tokens, so a client that reads the field gets an
-            // answer instead of a default it has to guess at.
-            ssl = false,
+            // <b>Whether this server answers only over HTTPS, which is what an ArcGIS client
+            // reads the field as.</b> This said `false` always while `/sharing/rest/generateToken`
+            // said `true` always and `portals/self` said `allSSL: true` — three answers to one
+            // question. It is now the one fact that decides it: `RequireHttps`.
+            ssl = context.RequestServices.GetRequiredService<HostSettings>().RequireHttps,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -801,6 +805,37 @@ internal static class AuthEndpoints
     /// </remarks>
     private static IPAddress? RemoteAddress(HttpContext context) =>
         CallerAddress.Of(context);
+
+    /// <summary>
+    /// The lifetime an ArcGIS client asks for with <c>expiration</c>, in minutes — from the form or
+    /// the query — or null when it asks for none or for something that is not a number.
+    /// </summary>
+    /// <remarks>
+    /// <b>One reading for all three token doors</b> (<c>/rest</c>, <c>/sharing/rest</c>,
+    /// <c>/admin</c>), so they cannot come to grant different lifetimes for the same request.
+    /// <see cref="LoginService"/> keeps the deployment's lifetime as the ceiling.
+    /// </remarks>
+    internal static async Task<TimeSpan?> RequestedLifetimeAsync(HttpContext context, CancellationToken cancellation)
+    {
+        string? value = null;
+
+        if (context.Request.HasFormContentType)
+        {
+            IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
+            value = form["expiration"].ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            value = context.Request.Query["expiration"].ToString();
+        }
+
+        return double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double minutes)
+            && double.IsFinite(minutes)
+            && minutes < TimeSpan.MaxValue.TotalMinutes / 2
+                ? TimeSpan.FromMinutes(minutes)
+                : null;
+    }
 
     private static Task Refuse(HttpContext context, int status, string message) =>
         Results.Json(new { error = new { code = status, message } }, statusCode: status)

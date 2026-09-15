@@ -156,6 +156,29 @@ public sealed class LoginServiceTests
         Assert.Equal(_time.GetUtcNow().AddHours(12), result.Session.Value.ExpiresAt);
     }
 
+    /// <summary>
+    /// A client that asks for a shorter lifetime gets it; one that asks for longer does not.
+    /// </summary>
+    /// <remarks>
+    /// Written 2026-09-15. <c>generateToken</c> ignored <c>expiration</c>: one minute and 120 both
+    /// came back about twelve hours on the showcase, while ADR-015 §4 promised ArcGIS tokens short
+    /// enough that a leaked one expires before it is useful.
+    /// </remarks>
+    [Theory]
+    [InlineData(60.0, 60.0)]
+    [InlineData(1.0, 1.0)]
+    [InlineData(0.0, 1.0)]
+    [InlineData(-5.0, 1.0)]
+    [InlineData(100000.0, 720.0)]
+    public async Task A_requested_lifetime_is_granted_up_to_the_deployments_own(double askedMinutes, double grantedMinutes)
+    {
+        LoginResult result = await Service().AuthenticateAsync(
+            "alice", "correct horse battery", Address, CancellationToken.None, TimeSpan.FromMinutes(askedMinutes));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(_time.GetUtcNow().AddMinutes(grantedMinutes), result.Session!.Value.ExpiresAt);
+    }
+
     [Fact]
     public async Task The_issued_token_resolves_to_the_session_and_is_not_stored_in_the_clear()
     {

@@ -111,6 +111,13 @@ public sealed class ArcGisTokenTests : ArcGisClient
 
         Assert.True(expires > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
 
+        // <b>And no later than the sixty minutes asked for</b> — ADR-015 §4 mitigation 3. Until
+        // 2026-09-15 `expiration` was ignored and every token lived about twelve hours. Two minutes
+        // of slack for the clock between here and the server.
+        Assert.True(
+            expires <= DateTimeOffset.UtcNow.AddMinutes(62).ToUnixTimeMilliseconds(),
+            $"A token asked for 60 minutes expires at {DateTimeOffset.FromUnixTimeMilliseconds(expires):u}.");
+
         // <b>The token has to do something, and "200 OK" does not show that.</b>
         // The catalogue filters by who is asking, so an authenticated caller sees
         // at least what an anonymous one sees, and the test is that the credential
