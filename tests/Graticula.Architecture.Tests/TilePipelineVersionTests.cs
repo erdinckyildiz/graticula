@@ -68,6 +68,12 @@ public sealed class TilePipelineVersionTests
     /// its own question.
     /// </remarks>
     private const string RecordedHash =
+        // <b>Moved 2026-09-15 for a header, and the version deliberately did not move.</b>
+        // `VectorTileEndpoints.WriteTileAsync` stopped writing `Cache-Control: public` for every
+        // tile and takes the value from `QueryResponseCaching.CacheControlFor` — private unless the
+        // caller is anonymous and every layer is public. Which caches may keep a tile changed; not
+        // one byte of the tile did. CI was red on this for one push, because the architecture suite
+        // was not among those run before it.
         // <b>Moved 2026-09-14 for two changes, and the version deliberately did not move.</b>
         // 27e311d made GeoParquet layers tileable: their tiles are new, and a hosted layer's key is
         // unchanged because the file version it adds is null for one. ADR-070 leaves a layer out of a
@@ -96,7 +102,7 @@ public sealed class TilePipelineVersionTests
         // encoded the same way, from the same key — so raising `TilePipeline.Version`
         // would have thrown away every cached tile in every deployment to describe them
         // more accurately, which is the wrong half of the choice this check forces.
-        "491c32e315707af67cec6a74813aa16adfd8586eb170d241ca61412b3cde47f3";
+        "c1556a246f1ad1cab496e787651e75c7e2b8d5f38daf33691ef264cda7f846a6";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 1;
