@@ -567,10 +567,12 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         {
             return EditResult.Failed(
                 update.Identity,
-                $"This feature's stored geometry carries {Ordinates(zmFlag)}, and this server "
-                + "reads and writes two dimensions. Overwriting it would silently discard "
-                + $"{(zmFlag == 3 ? "them" : "it")}, so the edit is refused. Attribute-only "
-                + "updates to this feature are still accepted.");
+                $"This feature's stored geometry carries "
+                + $"{Ordinates.Name((GeometryOrdinates)zmFlag)}, and {Ordinates.TwoDimensional}. "
+                + $"Overwriting it would silently discard {(zmFlag == 3 ? "them" : "it")}, so the "
+                + "edit is refused. Attribute-only updates to this feature are still accepted, "
+                + "and the layer document reports allowGeometryUpdates false for the same reason "
+                + "(ADR-074).");
         }
 
         if (!TryBindColumns(update.Attributes, storedSubtype, out List<(string Column, object? Value)> bound, out string? error))
@@ -1179,13 +1181,6 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
                 "geom", NpgsqlDbType.Bytea, WkbWriter.ToArray(geometry));
         }
     }
-
-    private static string Ordinates(int zmFlag) => zmFlag switch
-    {
-        1 => "an M ordinate",
-        2 => "a Z ordinate",
-        _ => "Z and M ordinates",
-    };
 
     /// <summary>
     /// A database refusal in words the caller can act on.

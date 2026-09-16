@@ -8448,6 +8448,20 @@ internal static partial class AdminEndpoints
                             note = validity.Explanation,
                         },
 
+                    // <b>ADR-074: what happens to an elevation, said at publish time.</b> The
+                    // loss was reported by the geodatabase import job and nowhere else, so a
+                    // table registered from somebody's own database was published 3D and served
+                    // 2D with nothing said at any point. Null on the ordinary layer rather than
+                    // a sentence saying nothing happened.
+                    elevation = Ordinates.OfTypeName(request.GeometryType) is var declared
+                        && declared != GeometryOrdinates.None
+                            ? $"This table's geometry column declares {Ordinates.Name(declared)}, "
+                              + $"and {Ordinates.TwoDimensional}. The layer is published and "
+                              + "serves x and y; the ordinate stays in your table, is never "
+                              + "returned, and geometry editing is not offered on this layer "
+                              + "because overwriting a row would discard it."
+                            : null,
+
                     // ADR-013 §2a, said at publish time rather than discovered
                     // at the first query by somebody who cannot fix it.
                     note = publication.ObjectIdColumn is null
@@ -10192,6 +10206,12 @@ internal static partial class AdminEndpoints
             t.GeometryColumn,
             t.Srid,
             geometryType = t.GeometryType,
+
+            // <b>What the column declares beyond x and y, named for the console — ADR-074.</b>
+            // The type name already carries it (`POINTZ`), and a person reading a table list
+            // does not parse suffixes; a publisher deciding whether this server is the right
+            // home for their contours is exactly who needs to see it before publishing.
+            ordinates = Ordinates.Name(Ordinates.OfTypeName(t.GeometryType)),
             objectIdColumn = t.CandidateObjectIdColumn,
 
             // <b>D-50: the nomination is a choice among named candidates.</b> `POST
@@ -10230,11 +10250,20 @@ internal static partial class AdminEndpoints
             return false;
         }
 
-        if (!Enum.TryParse(request.GeometryType, ignoreCase: true, out GeometryKind kind))
+        // <b>A declared Z or M is read off the name and does not refuse the publish — ADR-074
+        // §4.</b> The registration probe reports the column's declared type and the console hands
+        // it straight back, so a column typed `geometry(PointZ, 4326)` arrived here as `POINTZ`
+        // and was refused with *not one of: Point, MultiPoint, …* — which reads as *this is not a
+        // geometry type* rather than as *the elevation is not what will be served*. The layer is
+        // published as the two-dimensional kind every surface here answers with, and the response
+        // says in words what happens to the ordinate.
+        if (!Enum.TryParse(Ordinates.WithoutOrdinates(request.GeometryType), ignoreCase: true, out GeometryKind kind))
         {
             error =
                 $"geometryType '{request.GeometryType}' is not one of: "
-                + string.Join(", ", Enum.GetNames<GeometryKind>()) + ".";
+                + string.Join(", ", Enum.GetNames<GeometryKind>())
+                + " — each of which may carry a Z, M or ZM suffix, which is read and reported "
+                + "rather than served.";
             return false;
         }
 

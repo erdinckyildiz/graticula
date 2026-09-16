@@ -102,9 +102,10 @@ public static class ArcGisGeometryReader
         if (Declares(json, "hasZ") || Declares(json, "hasM"))
         {
             error =
-                "This geometry declares Z or M ordinates, and this server stores two dimensions. "
-                + "Accepting it would silently discard the third, so it is refused instead. "
-                + "Send 2D geometry, or use a layer whose provider carries Z.";
+                $"This geometry declares Z or M ordinates, and {Ordinates.TwoDimensional}. "
+                + "Accepting it would silently discard them, so it is refused instead. Send the "
+                + "geometry with x and y alone; there is no layer here that would keep the rest "
+                + "(ADR-074).";
             return false;
         }
 
@@ -388,8 +389,8 @@ public static class ArcGisGeometryReader
         {
             error =
                 "A position carries more than two numbers, so it has a Z or M ordinate that "
-                + "'hasZ' and 'hasM' did not declare. This server stores two dimensions and will "
-                + "not silently discard the rest.";
+                + $"'hasZ' and 'hasM' did not declare. Since {Ordinates.TwoDimensional}, the rest "
+                + "would be discarded silently, and that is refused rather than done (ADR-074).";
             return false;
         }
 

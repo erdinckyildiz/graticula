@@ -946,10 +946,27 @@ public static class FeatureServerMetadataWriter
                 supportsPercentileStatistics = true,
             },
 
-            // Said out loud because a client uses them to decide whether to
-            // offer a z/m toggle at all.
+            // <b>Said out loud because a client uses them to decide whether to offer a z/m
+            // toggle at all, and false is the true answer rather than a placeholder —
+            // [ADR-074](../../docs/adr/ADR-074-z-and-m-ordinates.md).</b> The geometry model
+            // here holds x and y; a layer whose column declares `PointZ` still answers
+            // two-dimensional features, so turning this true on the strength of the column
+            // would offer an elevation this document's own `query` never returns. What that
+            // layer's stored ordinates do change is the flag below.
             hasZ = false,
             hasM = false,
+
+            // <b>False on a layer whose geometry this server will not rewrite whole —
+            // ADR-074 §4.</b> The rule is otherwise *the capability set contains Update*, which
+            // is the specification's derivation and is what the service document computes. It
+            // over-claimed by one case: `PostGisFeatureWriter` refuses every geometry update to
+            // a feature whose stored geometry carries Z or M, because writing this server's flat
+            // shape over it discards an ordinate the client never saw (ADR-008 §4.5a) — so a
+            // three-dimensional layer offered an edit tool that answered *refused* on every
+            // save. Attribute editing is untouched, which is why `capabilities` still says
+            // `Update`.
+            allowGeometryUpdates = capabilities.Contains("Update", StringComparison.Ordinal)
+                && description.StoredOrdinates == GeometryOrdinates.None,
             // <b>True since f=pbf is answered — ADR-073.</b> `quantizationParameters` names the
             // integer grid a pbf geometry is written on; a json answer stays at full precision.
             supportsCoordinatesQuantization = true,

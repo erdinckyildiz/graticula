@@ -222,6 +222,28 @@ public sealed record LayerDescription(
     /// </remarks>
     public bool AnswersDistance { get; init; } = true;
 
+    /// <summary>
+    /// Which ordinates beyond x and y the layer's geometry column declares — ADR-074.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>What the data has, which is not what this server serves.</b> Every surface here
+    /// answers two dimensions, so this never turns a layer document's <c>hasZ</c> true; it is
+    /// read so that the places where the difference is felt can say so — the layer document
+    /// stops advertising geometry editing on a layer whose every geometry update the writer
+    /// refuses, and a publish says in words what will happen to the elevation.
+    /// </para>
+    /// <para>
+    /// <b>The declaration, not the rows.</b> A column typed as bare <c>geometry</c> may hold a
+    /// three-dimensional shape and reports <see cref="GeometryOrdinates.None"/> here, because
+    /// the alternative is reading every geometry in the table to describe a layer. Nothing
+    /// over-claims on the strength of it: the write path asks each row it is about to overwrite
+    /// what that row actually carries, and refuses there. Understating here costs an editor a
+    /// refusal they can read; overstating would cost them the elevation.
+    /// </para>
+    /// </remarks>
+    public Graticula.Geometries.GeometryOrdinates StoredOrdinates { get; init; }
+
     /// <summary>Finds a field by name, or null.</summary>
     public FieldDescription? Find(string name)
     {

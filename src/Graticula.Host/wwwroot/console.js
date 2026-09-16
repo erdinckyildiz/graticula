@@ -15580,7 +15580,8 @@ function drawProbeRows() {
     : pageOf("probeRows", shown).map(t => `<tr>
         <td class="val">${h(t.schemaName)}</td>
         <td class="name">${h(t.tableName)}</td>
-        <td class="val">${h(t.geometryType)} · ${h(t.geometryColumn)}</td>
+        <td class="val">${h(t.geometryType)} · ${h(t.geometryColumn)}${t.ordinates
+          ? ` <span class="bad-inline">${h(t.ordinates)}, served flat</span>` : ""}</td>
         <td class="num">${h(t.srid)}</td>
         <td class="val">${h(t.objectIdColumn || "—")}</td>
         <td>${t.writable ? "yes" : "read only"}</td>
@@ -16430,7 +16431,9 @@ function showChosenTable() {
 
   facts.style.display = "";
   facts.innerHTML = `<dl class="facts">
-      <dt>Geometry</dt><dd>${h(t.geometryType)} in <code>${h(t.geometryColumn)}</code></dd>
+      <dt>Geometry</dt><dd>${h(t.geometryType)} in <code>${h(t.geometryColumn)}</code>${t.ordinates
+        ? ` — carries ${h(t.ordinates)}, served flat`
+        : ""}</dd>
       <dt>SRID</dt><dd>${h(t.srid)}</dd>
       <dt>Object id</dt><dd>${t.objectIdColumn
         ? `<code>${h(t.objectIdColumn)}</code>`
@@ -16489,6 +16492,10 @@ async function publishRegistered(event) {
           target="_blank" rel="noreferrer">the layer document</a>`
       : `<span class="bad-inline">Not servable through the ArcGIS surface.</span>`,
     created.note ? `<span class="val">${h(created.note)}</span>` : "",
+
+    // ADR-074: what happened to the elevation, in the report of the publish that
+    // did it — the one moment the person deciding where this data lives is looking.
+    created.elevation ? `<span class="val">${h(created.elevation)}</span>` : "",
   ]);
 
   await section("layers", loadLayers, "layers");

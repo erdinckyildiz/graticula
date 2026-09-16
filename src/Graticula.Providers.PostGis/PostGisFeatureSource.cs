@@ -1202,13 +1202,16 @@ public sealed class PostGisFeatureSource
     /// <inheritdoc/>
     public async Task<LayerDescription> DescribeAsync(CancellationToken cancellationToken)
     {
-        (IReadOnlyList<FieldDescription> fields, bool? writable) =
+        (IReadOnlyList<FieldDescription> fields, bool? writable, GeometryOrdinates ordinates) =
             await ReadShapeAsync(cancellationToken).ConfigureAwait(false);
 
         return new LayerDescription(
             fields,
             await ReadExtentAsync(cancellationToken).ConfigureAwait(false),
-            writable);
+            writable)
+        {
+            StoredOrdinates = ordinates,
+        };
     }
 
     /// <summary>
@@ -1325,7 +1328,7 @@ public sealed class PostGisFeatureSource
     /// The fields, and whether the relation takes writes — null when there is no such
     /// relation to ask about.
     /// </returns>
-    private async Task<(IReadOnlyList<FieldDescription> Fields, bool? Writable)> ReadShapeAsync(
+    private async Task<(IReadOnlyList<FieldDescription> Fields, bool? Writable, GeometryOrdinates Ordinates)> ReadShapeAsync(
         CancellationToken cancellationToken)
     {
         const string Sql = """
@@ -1349,7 +1352,23 @@ public sealed class PostGisFeatureSource
                     ),
                     -- No such geometry column: the layer is misregistered and every write
                     -- to it will fail, so the honest answer is no rather than unknown.
-                    false) as writable
+                    false) as writable,
+                -- <b>What the geometry column declares, for ADR-074's half of the answer.</b>
+                -- `postgis_typmod_type` is where a modern PostGIS geometry keeps its type, and
+                -- it answers `PointZ`, `MultiLineStringZM` and so on; a bare `geometry` column
+                -- answers `Geometry`, which declares nothing and is read as two-dimensional.
+                -- Read from the catalogue rather than from `geometry_columns` for the reason
+                -- `PostgresDataSourceProbe` gives at length: that view can be poisoned by
+                -- somebody else's check constraint, and a registered source is somebody
+                -- else's database.
+                (
+                  select postgis_typmod_type(g.atttypmod)
+                  from pg_attribute g
+                  where g.attrelid = c.oid
+                    and g.attname = @geometry
+                    and g.attnum > 0
+                    and not g.attisdropped
+                ) as declared_geometry
               from pg_class c
               join pg_namespace n on n.oid = c.relnamespace
               where n.nspname = @schema
@@ -1366,7 +1385,8 @@ public sealed class PostGisFeatureSource
               information_schema._pg_char_max_length(
                 coalesce(nullif(t.typbasetype, 0), a.atttypid),
                 case when t.typtype = 'd' then t.typtypmod else a.atttypmod end),
-              r.writable
+              r.writable,
+              r.declared_geometry
             from relation r
             -- <b>Left, so the relation answers even with no column this credential may read.</b>
             -- The privilege filter moves into the join condition with it and keeps doing what
@@ -1389,6 +1409,7 @@ public sealed class PostGisFeatureSource
 
         List<FieldDescription> fields = [];
         bool? writable = null;
+        GeometryOrdinates ordinates = GeometryOrdinates.None;
 
         await using NpgsqlDataReader reader =
             await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -1399,6 +1420,12 @@ public sealed class PostGisFeatureSource
             // No row at all means no such relation, and that stays null rather than false:
             // a layer we cannot find is not a layer we know to be read-only.
             writable = reader.IsDBNull(4) ? null : reader.GetBoolean(4);
+
+            // Rides on every row for the same reason `writable` does, including the
+            // placeholder row of a relation whose columns this credential cannot read.
+            ordinates = reader.IsDBNull(5)
+                ? GeometryOrdinates.None
+                : Ordinates.OfTypeName(reader.GetString(5));
 
             if (reader.IsDBNull(0))
             {
@@ -1422,7 +1449,7 @@ public sealed class PostGisFeatureSource
                 reader.IsDBNull(3) ? null : reader.GetInt32(3)));
         }
 
-        return (fields, writable);
+        return (fields, writable, ordinates);
     }
 
     /// <summary>
