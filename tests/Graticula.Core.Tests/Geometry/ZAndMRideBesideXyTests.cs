@@ -128,4 +128,22 @@ public sealed class ZAndMRideBesideXyTests
         Assert.Equal(300, p.Z);
         Assert.Equal(42, p.M);
     }
+
+    [Fact]
+    public void A_mask_keeps_what_was_asked_for_and_reports_the_rest()
+    {
+        // `returnZ=true` without `returnM` on an XYZM column: Z comes back, M is dropped and said to be.
+        LineString line = (LineString)WkbReader.Read(Wkb(3002, 0, 0, 5, 7, 1, 1, 6, 8), GeometryOrdinates.Z, out bool dropped);
+        Assert.True(dropped);
+        Assert.Equal(GeometryOrdinates.Z, line.Coordinates.Ordinates);
+        Assert.Equal([5.0, 6.0], line.Coordinates.ZSpan().ToArray());
+
+        Point p = (Point)WkbReader.Read(Wkb(3001, 1, 2, 300, 42), GeometryOrdinates.M, out _);
+        Assert.Null(p.Z);
+        Assert.Equal(42, p.M);
+
+        // Asking for more than the column has is not a loss.
+        WkbReader.Read(Wkb(1002, 0, 0, 5, 1, 1, 6), GeometryOrdinates.Z | GeometryOrdinates.M, out bool none);
+        Assert.False(none);
+    }
 }

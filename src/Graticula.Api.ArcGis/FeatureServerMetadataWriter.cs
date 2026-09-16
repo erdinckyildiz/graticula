@@ -946,15 +946,13 @@ public static class FeatureServerMetadataWriter
                 supportsPercentileStatistics = true,
             },
 
-            // <b>Said out loud because a client uses them to decide whether to offer a z/m
-            // toggle at all, and false is the true answer rather than a placeholder —
-            // [ADR-074](../../docs/adr/ADR-074-z-and-m-ordinates.md).</b> The geometry model
-            // here holds x and y; a layer whose column declares `PointZ` still answers
-            // two-dimensional features, so turning this true on the strength of the column
-            // would offer an elevation this document's own `query` never returns. What that
-            // layer's stored ordinates do change is the flag below.
-            hasZ = false,
-            hasM = false,
+            // <b>What the column declares, since `query` returns it — ADR-077, step 3.</b> These were false
+            // as literals while the model could hold x and y only, and ADR-074 argued that true would offer
+            // an elevation `query` never returned. It returns it now to a caller who sends `returnZ=true`,
+            // which is what a client reads `hasZ` to decide to do. A bare `geometry` column declares
+            // nothing and stays false (ADR-074 §4.1).
+            hasZ = (description.StoredOrdinates & GeometryOrdinates.Z) != 0,
+            hasM = (description.StoredOrdinates & GeometryOrdinates.M) != 0,
 
             // <b>False on a layer whose geometry this server will not rewrite whole —
             // ADR-074 §4.</b> The rule is otherwise *the capability set contains Update*, which

@@ -126,6 +126,25 @@ public sealed class TheLayerDocumentDoesNotOfferAnEditTheDatabaseRefusesTests
         Assert.Equal("Query", capabilities);
     }
 
+    /// <summary>
+    /// A layer whose column carries Z or M does not offer <c>Create</c> — ADR-077, step 3.
+    /// </summary>
+    /// <remarks>
+    /// <b>Because `hasZ` is now true.</b> A client that reads it sends new features with an elevation,
+    /// and <c>applyEdits</c> cannot yet write one; offering <c>Create</c> beside that flag invites an
+    /// edit the server would take and flatten. Update and Delete stay: attribute edits and deletes do not
+    /// touch the geometry, and <c>allowGeometryUpdates</c> already says the shape cannot be changed. `Editing`
+    /// goes with `Create`, because it means all three.
+    /// </remarks>
+    [Fact]
+    public void A_layer_that_cannot_take_a_new_shape_does_not_offer_create()
+    {
+        string capabilities = Program.CapabilitiesFor(
+            Editing(), Layer(), ServiceCapabilityLimits.Unset, writable: true, creatable: false);
+
+        Assert.Equal("Query,Update,Delete", capabilities);
+    }
+
     /// <summary>A request from somebody who may edit anything.</summary>
     /// <returns>The context, with the principal feature the capability code reads.</returns>
     private static DefaultHttpContext Editing()

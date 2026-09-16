@@ -90,7 +90,8 @@ nothing at all, is what this ADR is about.
 Restated here rather than decided: `XySequence` has stride two, every surface answers x and y, and
 [v1-scope](../v1-scope.md) is where that comes from. `hasZ` and `hasM` in a layer document are
 false, and they are the true answer rather than a placeholder, because they describe what `query`
-returns.
+returns. *(Amended 2026-09-16: `query` returns Z and M on request since
+[ADR-077](ADR-077-z-and-m-ride-beside-x-and-y.md) §8, so the flags now follow the column's declaration.)*
 
 ## 4. Decision — what the data holds is read and said
 
@@ -138,7 +139,8 @@ If 3D is taken up, this is the sequence, and each step is its own ADR:
    rendering pipeline drop to 2D at its edge* (it should: a tile is a picture), and *may a hosted
    layer be defined 3D*.
 3. **Surfaces, one at a time** — `query` returning Z, then `applyEdits` accepting it, then WFS and
-   OGC API Features. Each is a place `hasZ` becomes conditional rather than false.
+   OGC API Features. Each is a place `hasZ` becomes conditional rather than false. *(`query` in `f=json`
+   done 2026-09-16 — ADR-077 §8.)*
 4. **Storage and import** — hosted tables defined `PointZ`, imports keeping the ordinate they
    currently count, which is what closes [D-107](../architecture-debt.md).
 

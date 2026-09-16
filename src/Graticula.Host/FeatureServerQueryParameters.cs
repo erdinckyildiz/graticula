@@ -185,8 +185,6 @@ internal static class FeatureServerQueryParameters
     /// </remarks>
     private static readonly Dictionary<string, string> AcceptedWhenFalse = new(StringComparer.Ordinal)
     {
-        ["returnZ"] = "geometry is returned with x and y only, so a Z value cannot be returned",
-        ["returnM"] = "geometry is returned with x and y only, so an M value cannot be returned",
         ["returnTrueCurves"] = "curves are returned as the vertices that approximate them",
     };
 
@@ -348,6 +346,25 @@ internal static class FeatureServerQueryParameters
             return false;
         }
 
+        // <b>`returnZ` and `returnM` — ADR-077, step 3.</b> Refused as true until the model could carry them;
+        // now a layer whose geometry has an elevation or a measure returns it to a caller who asks.
+        GeometryOrdinates keep =
+            (Flag(parameters, "returnZ", defaultValue: false) ? GeometryOrdinates.Z : GeometryOrdinates.None)
+            | (Flag(parameters, "returnM", defaultValue: false) ? GeometryOrdinates.M : GeometryOrdinates.None);
+
+        // <b>M through a generalization is refused, because PostGIS drops it there and says nothing.</b>
+        // Measured 2026-09-16 on PostGIS 3.4.3 / GEOS 3.11.1: ST_SimplifyPreserveTopology and
+        // ST_ReducePrecision keep Z and return no M. The owner's rule is that a vertex an operation keeps
+        // keeps its M (ADR-077 §5), and a measure that vanished because a map asked for fewer vertices is
+        // the silent loss that rule exists to prevent.
+        if ((keep & GeometryOrdinates.M) != 0 && (precision is not null || tolerance is not null))
+        {
+            error = "'returnM=true' is refused with 'maxAllowableOffset' or 'geometryPrecision': simplifying "
+                + "or rounding a geometry discards its measures in the database, so the answer would carry no "
+                + "M while claiming to. Ask for M without them, or for the generalized shape without M.";
+            return false;
+        }
+
         query = new FeatureQuery(
             limit,
             box,
@@ -372,6 +389,8 @@ internal static class FeatureServerQueryParameters
             where,
             filterSrid)
         {
+            KeepOrdinates = keep,
+
             // <b>Only when the caller did not name a reference of their own.</b> `outSR` is the
             // client asking for a code; a service served in a written definition still has to
             // honour that, because a client that asked for 4326 and got a national grid has no
@@ -451,7 +470,7 @@ internal static class FeatureServerQueryParameters
         "geometry", "geometryType", "spatialRel", "relationParam", "distance", "units",
         "inSR", "outSR", "defaultSR",
         "outFields", "orderByFields", "returnGeometry", "returnCentroid",
-        "maxAllowableOffset", "geometryPrecision",
+        "maxAllowableOffset", "geometryPrecision", "returnZ", "returnM",
         "resultRecordCount", "resultOffset",
         "returnCountOnly", "returnIdsOnly", "returnExtentOnly", "returnDistinctValues",
         "outStatistics", "groupByFieldsForStatistics", "havingClause",

@@ -121,8 +121,6 @@ public sealed class FeatureServerQueryParametersTests
     /// understand, so a client sending the ArcGIS defaults explicitly could not query at all.
     /// </remarks>
     [Theory]
-    [InlineData("returnZ")]
-    [InlineData("returnM")]
     [InlineData("returnTrueCurves")]
     public void A_parameter_that_asks_for_nothing_extra_when_false_is_accepted_when_false(string name)
     {
@@ -130,6 +128,38 @@ public sealed class FeatureServerQueryParametersTests
         Parse((name, "FALSE"));
 
         Assert.Contains($"'{name}=false' is accepted", Refuse((name, "true")), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <c>returnZ</c> and <c>returnM</c> ask for the ordinates the model can carry now — ADR-077, step 3.
+    /// </summary>
+    [Fact]
+    public void ReturnZ_and_returnM_are_carried_to_the_source()
+    {
+        Assert.Equal(GeometryOrdinates.None, Parse(("returnZ", "false"), ("returnM", "false")).KeepOrdinates);
+        Assert.Equal(GeometryOrdinates.Z, Parse(("returnZ", "true")).KeepOrdinates);
+        Assert.Equal(GeometryOrdinates.Z | GeometryOrdinates.M, Parse(("returnZ", "true"), ("returnM", "true")).KeepOrdinates);
+
+        // Z survives simplifying and rounding in PostGIS, so they combine.
+        Assert.Equal(GeometryOrdinates.Z, Parse(("returnZ", "true"), ("maxAllowableOffset", "10")).KeepOrdinates);
+    }
+
+    /// <summary>
+    /// A measure through a generalization is refused, because PostGIS drops it there in silence.
+    /// </summary>
+    /// <remarks>
+    /// Measured 2026-09-16 on PostGIS 3.4.3 / GEOS 3.11.1: ST_SimplifyPreserveTopology and ST_ReducePrecision
+    /// keep Z and return no M.
+    /// </remarks>
+    [Theory]
+    [InlineData("maxAllowableOffset", "10")]
+    [InlineData("geometryPrecision", "2")]
+    public void ReturnM_with_a_generalization_is_refused(string name, string value)
+    {
+        Assert.Contains(
+            "discards its measures",
+            Refuse(("returnM", "true"), (name, value)),
+            StringComparison.Ordinal);
     }
 
     /// <summary>

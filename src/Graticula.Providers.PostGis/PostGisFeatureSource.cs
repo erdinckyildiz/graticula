@@ -208,7 +208,7 @@ public sealed class PostGisFeatureSource
                 // A row with no shape is allowed; dropping it would quietly
                 // change the answer to a count.
                 byte[] wkb = (byte[])reader.GetValue(geometryOrdinal);
-                geometry = WkbReader.Read(wkb);
+                geometry = WkbReader.Read(wkb, query.KeepOrdinates, out _);
             }
 
             // <b>Everything since the row arrived is decode.</b> IsDBNull and

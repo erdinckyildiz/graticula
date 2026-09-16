@@ -289,6 +289,17 @@ public sealed class FeatureQuery
     public bool IncludeGeometry { get; }
 
     /// <summary>
+    /// Which ordinates beyond x and y the caller asked to have returned — ArcGIS's <c>returnZ</c> and
+    /// <c>returnM</c> (ADR-077, step 3).
+    /// </summary>
+    /// <remarks>
+    /// <b>Asked for, not promised.</b> A source keeps what the stored geometry carries and the caller
+    /// asked for, and nothing it does not carry. None — every surface but ArcGIS <c>query</c> today — reads
+    /// flat shapes exactly as before.
+    /// </remarks>
+    public Graticula.Geometries.GeometryOrdinates KeepOrdinates { get; init; }
+
+    /// <summary>
     /// How to order results, outermost key first.
     /// </summary>
     /// <remarks>

@@ -154,4 +154,56 @@ public sealed class ArcGisGeometryWriterTests
         Assert.Equal(2, json.GetProperty("points").GetArrayLength());
         Assert.Equal((3d, 4d), At(json.GetProperty("points"), 1));
     }
+
+    /// <summary>A flat geometry writes no <c>hasZ</c>, <c>hasM</c>, <c>z</c> or <c>m</c> — ADR-077.</summary>
+    [Fact]
+    public void A_flat_geometry_writes_nothing_about_z_or_m()
+    {
+        JsonElement point = Write(new Point(3, 4));
+        JsonElement line = Write(new LineString(XySequence.Wrap([0, 0, 1, 1])));
+
+        Assert.False(point.TryGetProperty("z", out _));
+        Assert.False(point.TryGetProperty("m", out _));
+        Assert.False(line.TryGetProperty("hasZ", out _));
+        Assert.False(line.TryGetProperty("hasM", out _));
+        Assert.Equal(2, line.GetProperty("paths")[0][0].GetArrayLength());
+    }
+
+    /// <summary>A point carries <c>z</c> and <c>m</c> beside <c>x</c> and <c>y</c>.</summary>
+    [Fact]
+    public void A_point_with_z_and_m_writes_them_as_fields()
+    {
+        JsonElement json = Write(Point.Create(3, 4, 120.5, 7));
+
+        Assert.Equal(120.5, json.GetProperty("z").GetDouble());
+        Assert.Equal(7, json.GetProperty("m").GetDouble());
+        Assert.False(json.TryGetProperty("hasZ", out _));
+    }
+
+    /// <summary>
+    /// A multipart shape says <c>hasZ</c>/<c>hasM</c> and writes each vertex as <c>[x, y, z, m]</c>, in that
+    /// order, which is the order the ArcGIS REST geometry objects define.
+    /// </summary>
+    [Fact]
+    public void A_line_with_z_and_m_writes_flags_and_four_numbers_a_vertex()
+    {
+        JsonElement json = Write(new LineString(XySequence.Wrap([0, 0, 1, 1], z: [10, 11], m: [0, 5])));
+
+        Assert.True(json.GetProperty("hasZ").GetBoolean());
+        Assert.True(json.GetProperty("hasM").GetBoolean());
+        JsonElement vertex = json.GetProperty("paths")[0][1];
+        Assert.Equal([1d, 1d, 11d, 5d], [vertex[0].GetDouble(), vertex[1].GetDouble(), vertex[2].GetDouble(), vertex[3].GetDouble()]);
+    }
+
+    /// <summary>M without Z is three numbers, and <c>hasM</c> alone says which the third is.</summary>
+    [Fact]
+    public void A_line_with_m_only_writes_three_numbers_and_says_which()
+    {
+        JsonElement json = Write(new LineString(XySequence.Wrap([0, 0, 1, 1], z: null, m: [0, 5])));
+
+        Assert.False(json.TryGetProperty("hasZ", out _));
+        Assert.True(json.GetProperty("hasM").GetBoolean());
+        Assert.Equal(3, json.GetProperty("paths")[0][1].GetArrayLength());
+        Assert.Equal(5, json.GetProperty("paths")[0][1][2].GetDouble());
+    }
 }

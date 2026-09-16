@@ -715,7 +715,9 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
 
         // `time` left this list on 2026-09-15: it is enabled on a layer with a time field and
         // disabled on one without, so whether it is greyed out is the layer's answer, not the server's.
-        foreach (string refused in (string[]) ["gdbVersion", "historicMoment", "returnZ"])
+        // `returnZ` left this list on 2026-09-16 for the reason `time` did: `query` returns Z where the
+        // layer's column declares it (ADR-077), so the control is the layer's answer, not the server's.
+        foreach (string refused in (string[]) ["gdbVersion", "historicMoment"])
         {
             int at = page.IndexOf($"name=\"{refused}\"", StringComparison.Ordinal);
 

@@ -577,11 +577,18 @@ internal static class QueryPage
             "[{\"statisticType\":\"count\",\"onStatisticField\":\"objectid\","
             + "\"outStatisticFieldName\":\"n\"}]");
 
+        // <b>The layer's answer, not the server's — ADR-077, step 3</b>, as `time` became above: `query`
+        // returns an elevation and a measure where the column declares them, so the control is offered
+        // there and greyed out, with the reason, where it does not.
         Radio(body, "Return Z:", "returnZ", q["returnZ"], defaultTrue: false,
-            disabled: "Geometry is stored without z and m values.");
+            disabled: (description.StoredOrdinates & Graticula.Geometries.GeometryOrdinates.Z) != 0
+                ? null
+                : "This layer's geometry is stored without z values.");
 
         Radio(body, "Return M:", "returnM", q["returnM"], defaultTrue: false,
-            disabled: "Geometry is stored without z and m values.");
+            disabled: (description.StoredOrdinates & Graticula.Geometries.GeometryOrdinates.M) != 0
+                ? null
+                : "This layer's geometry is stored without m values.");
 
         Text(body, "gdbVersion:", "gdbVersion", q["gdbVersion"], string.Empty, 20,
             disabled: "There is no version tree.");

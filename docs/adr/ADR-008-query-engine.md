@@ -685,7 +685,9 @@ and `uniqueIds`. *(Amended 2026-09-15: `time` is answered on a layer with a time
 one WMS already used, now reported as `timeInfo` — and refused on a layer without one;
 `returnZ`/`returnM` are accepted when false; `gdbVersion` and `historicMoment` are ignored with
 a reason, as they had been for a while. `quantizationParameters` is honoured for `f=pbf` and ignored with a
-reason for json — [ADR-073](ADR-073-query-answers-in-pbf.md).)*
+reason for json — [ADR-073](ADR-073-query-answers-in-pbf.md). Amended again 2026-09-16:
+`returnZ`/`returnM` are answered in `f=json` on a layer whose column declares them, and refused
+with `f=pbf` and, for M, with a generalization — [ADR-077](ADR-077-z-and-m-ride-beside-x-and-y.md) §8.)*
 
 **Percentile statistics left that list on 2026-09-04** and are now served:
 `PERCENTILE_CONT` and `PERCENTILE_DISC`, with the fraction in

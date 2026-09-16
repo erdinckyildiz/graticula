@@ -96,15 +96,43 @@ the binding constraint (A-037). Times overlap the baseline's.
    **DISCHARGED** 2026-09-16 — `ZAndMRideBesideXyTests`.
 3. **Each step-3 surface that starts returning Z turns `keepOrdinates` on for itself and makes its own
    `hasZ` / `hasM` true in the same change**, with a test that reads a 3D row back through that surface.
-   *(Open — step 3.)*
+   **PARTLY DISCHARGED** 2026-09-16 — ArcGIS `query` in `f=json`, §8. Open for `f=pbf`, `applyEdits`, WFS
+   and OGC API Features.
 4. **The in-process operations follow §5 before any surface feeds them a 3D geometry** — `Densify`
    interpolates, `ConvexHull` returns 2D and reports it. *(Open — step 3.)*
 
 ## 7. Consequences
 
-- The model can hold elevations and measures; nothing serves them yet.
+- The model can hold elevations and measures; ArcGIS `query` in `f=json` serves them (§8), and every other
+  surface still answers x and y.
 - `Point` is unsealed, which a derived class outside Core could now exploit; the subclass that exists is
   private, and nothing constructs points by reflection.
 - The plan's next benchmark is the query path's, and the harness for it is in the repository.
+
+## 8. Step 3, first surface — ArcGIS `query` (2026-09-16)
+
+1. **`returnZ` and `returnM` are honoured.** They ask for ordinates rather than switch a surface on:
+   `FeatureQuery.KeepOrdinates` carries them to the source, and the reader keeps what was asked and the
+   column has — `WkbReader.Read` takes a mask rather than a boolean, so `returnZ` alone on an XYZM column
+   returns Z and not M. Nothing asked is byte-for-byte the answer before this step.
+2. **The layer document says `hasZ` / `hasM` from the column's declaration.** ADR-074 §3 kept them false
+   because they describe what `query` returns; `query` now returns them to a caller who asks, which is
+   what a client reads these flags to decide to do. The query answer says `hasZ` / `hasM` beside
+   `geometryType` when its features carry them, and each geometry says so on itself — `z` and `m` fields
+   on a point, `[x, y, z, m]` vertices elsewhere.
+3. **Z survives an output reference and a generalization; M does not survive a generalization, so that
+   combination is refused.** Measured on PostGIS 3.4.3 / GEOS 3.11.1: `ST_Transform` keeps Z and M,
+   `ST_SnapToGrid` keeps both, `ST_SimplifyPreserveTopology` and `ST_ReducePrecision` keep Z and return no
+   M. §5.1 says a kept vertex keeps its measure, so `returnM=true` with `maxAllowableOffset` or
+   `geometryPrecision` is refused with the reason rather than answered without the M it claims.
+   `AQueryReturnsTheOrdinatesItAskedForTests` holds the Z half against a real column.
+4. **`f=pbf` refuses `returnZ` / `returnM` for now.** The PBF feature collection carries Z and M in its own
+   dimension fields; writing them is its own change, and answering flat while the caller asked is the
+   silent loss ADR-074 exists to end.
+5. **A layer with Z or M stops offering `Create`, and with it `Editing`.** A client that reads
+   `hasZ: true` sends an elevation with every new feature, which `applyEdits` cannot yet write, and a flat
+   shape was already refused by the typed column. `Update` and `Delete` stay for attributes;
+   `allowGeometryUpdates` stays false. The `applyEdits` step turns `Create` back on.
+6. **The HTML query form offers Return Z and Return M per layer**, as it does `time`.
 
 **State.** None.

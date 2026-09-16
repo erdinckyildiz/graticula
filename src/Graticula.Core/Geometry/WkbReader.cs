@@ -67,9 +67,21 @@ public static class WkbReader
     /// <param name="droppedOrdinates"><see langword="true"/> when Z or M values were present and discarded.</param>
     /// <returns>The geometry.</returns>
     /// <exception cref="WkbFormatException">The bytes are not readable as WKB.</exception>
-    public static Geometry Read(ReadOnlySpan<byte> wkb, bool keepOrdinates, out bool droppedOrdinates)
+    public static Geometry Read(ReadOnlySpan<byte> wkb, bool keepOrdinates, out bool droppedOrdinates) =>
+        Read(wkb, keepOrdinates ? GeometryOrdinates.Z | GeometryOrdinates.M : GeometryOrdinates.None, out droppedOrdinates);
+
+    /// <summary>
+    /// Reads a geometry, keeping only the ordinates in <paramref name="keep"/> — a query that asked for Z and
+    /// not M gets Z and not M.
+    /// </summary>
+    /// <param name="wkb">OGC WKB or PostGIS EWKB.</param>
+    /// <param name="keep">Which of Z and M to keep; the rest are discarded and reported.</param>
+    /// <param name="droppedOrdinates"><see langword="true"/> when an ordinate was present and discarded.</param>
+    /// <returns>The geometry.</returns>
+    /// <exception cref="WkbFormatException">The bytes are not readable as WKB.</exception>
+    public static Geometry Read(ReadOnlySpan<byte> wkb, GeometryOrdinates keep, out bool droppedOrdinates)
     {
-        Cursor cursor = new(wkb) { KeepOrdinates = keepOrdinates };
+        Cursor cursor = new(wkb) { Keep = keep };
         Geometry geometry = ReadGeometry(ref cursor);
         droppedOrdinates = cursor.DroppedOrdinates;
 
@@ -116,7 +128,7 @@ public static class WkbReader
         GeometryOrdinates ordinates = (hasZ ? GeometryOrdinates.Z : GeometryOrdinates.None)
             | (hasM ? GeometryOrdinates.M : GeometryOrdinates.None);
 
-        if (ordinates != GeometryOrdinates.None && !cursor.KeepOrdinates)
+        if ((ordinates & ~cursor.Keep) != GeometryOrdinates.None)
         {
             cursor.DroppedOrdinates = true;
         }
@@ -155,7 +167,8 @@ public static class WkbReader
             return Point.Empty;
         }
 
-        return cursor.KeepOrdinates ? Point.Create(x, y, z, m) : new Point(x, y);
+        return Point.Create(
+            x, y, (cursor.Keep & GeometryOrdinates.Z) != 0 ? z : null, (cursor.Keep & GeometryOrdinates.M) != 0 ? m : null);
     }
 
     private static XySequence ReadSequence(ref Cursor cursor, bool littleEndian, GeometryOrdinates ordinates)
@@ -174,8 +187,8 @@ public static class WkbReader
         double[] xy = new double[count * 2];
 
         // Allocated only when kept, so a flat read costs what it did.
-        double[]? zs = z && cursor.KeepOrdinates ? new double[count] : null;
-        double[]? ms = m && cursor.KeepOrdinates ? new double[count] : null;
+        double[]? zs = z && (cursor.Keep & GeometryOrdinates.Z) != 0 ? new double[count] : null;
+        double[]? ms = m && (cursor.Keep & GeometryOrdinates.M) != 0 ? new double[count] : null;
 
         for (int i = 0; i < count; i++)
         {
@@ -268,7 +281,7 @@ public static class WkbReader
 
         public bool DroppedOrdinates { get; set; }
 
-        public bool KeepOrdinates { get; init; }
+        public GeometryOrdinates Keep { get; init; }
 
         public readonly bool AtEnd => _position == _buffer.Length;
 

@@ -66,10 +66,10 @@ public sealed class ThreeDimensionalLayerDocumentTests
         // layers, so removing `Update` would understate by as much as the old answer overstated.
         Assert.Contains("Update", document.GetProperty("capabilities").GetString()!, StringComparison.Ordinal);
 
-        // <b>`hasZ` stays false, which is the other half of the honest answer.</b> The column
-        // carries an elevation; `query` returns x and y, and this flag describes the answer.
-        Assert.False(document.GetProperty("hasZ").GetBoolean());
-        Assert.False(document.GetProperty("hasM").GetBoolean());
+        // <b>`hasZ` and `hasM` say what the column declares, since ADR-077 step 3</b>: `query` returns them to a
+        // caller who asks, which is what a client reads these flags to decide to do.
+        Assert.Equal((ordinates & GeometryOrdinates.Z) != 0, document.GetProperty("hasZ").GetBoolean());
+        Assert.Equal((ordinates & GeometryOrdinates.M) != 0, document.GetProperty("hasM").GetBoolean());
     }
 
     /// <summary>

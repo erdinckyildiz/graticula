@@ -63,6 +63,22 @@ public static class ArcGisGeometryWriter
 
         writer.WriteStartObject();
 
+        // <b>Z and M are written when the geometry carries them, and only then — ADR-077.</b> A geometry
+        // carries them only when the query that read it asked (`returnZ`, `returnM`), so every other
+        // caller of this writer produces exactly what it did. A multipart shape says so with `hasZ` and
+        // `hasM`, as the ArcGIS REST geometry objects do; a point writes `z` and `m` beside `x` and `y`.
+        GeometryOrdinates ordinates = geometry is Point ? GeometryOrdinates.None : OrdinatesOf(geometry);
+
+        if ((ordinates & GeometryOrdinates.Z) != 0)
+        {
+            writer.WriteBoolean("hasZ", true);
+        }
+
+        if ((ordinates & GeometryOrdinates.M) != 0)
+        {
+            writer.WriteBoolean("hasM", true);
+        }
+
         switch (geometry)
         {
             case Point point:
@@ -73,7 +89,21 @@ public static class ArcGisGeometryWriter
                 writer.WriteStartArray("points");
                 foreach (Point part in multiPoint.Parts)
                 {
-                    WriteCoordinate(writer, part.X, part.Y);
+                    writer.WriteStartArray();
+                    writer.WriteNumberValue(part.X);
+                    writer.WriteNumberValue(part.Y);
+
+                    if (part.Z is { } z)
+                    {
+                        writer.WriteNumberValue(z);
+                    }
+
+                    if (part.M is { } m)
+                    {
+                        writer.WriteNumberValue(m);
+                    }
+
+                    writer.WriteEndArray();
                 }
 
                 writer.WriteEndArray();
@@ -147,7 +177,35 @@ public static class ArcGisGeometryWriter
 
         writer.WriteNumber("x", point.X);
         writer.WriteNumber("y", point.Y);
+
+        if (point.Z is { } z)
+        {
+            writer.WriteNumber("z", z);
+        }
+
+        if (point.M is { } m)
+        {
+            writer.WriteNumber("m", m);
+        }
     }
+
+    /// <summary>Which ordinates beyond x and y a geometry carries, read from its first non-empty part.</summary>
+    /// <remarks>
+    /// <b>The first part speaks for all of them</b>, because a PostGIS column declares one dimensionality
+    /// and every row read from it by one query was read with one mask.
+    /// </remarks>
+    internal static GeometryOrdinates OrdinatesOf(Geometry geometry) => geometry switch
+    {
+        Point point => point.Ordinates,
+        LineString line => line.Coordinates.Ordinates,
+        Polygon polygon => polygon.IsEmpty ? GeometryOrdinates.None : polygon.Shell.Coordinates.Ordinates,
+        MultiPoint many => many.Parts.Count == 0 ? GeometryOrdinates.None : many.Parts[0].Ordinates,
+        MultiLineString many => many.Parts.Count == 0 ? GeometryOrdinates.None : many.Parts[0].Coordinates.Ordinates,
+        MultiPolygon many => many.Parts.Count == 0 || many.Parts[0].IsEmpty
+            ? GeometryOrdinates.None
+            : many.Parts[0].Shell.Coordinates.Ordinates,
+        _ => GeometryOrdinates.None,
+    };
 
     /// <summary>
     /// Writes a polygon's rings with ArcGIS winding: shell clockwise, holes
@@ -178,15 +236,41 @@ public static class ArcGisGeometryWriter
             // about, incurred for nothing.
             for (int i = coordinates.Count - 1; i >= 0; i--)
             {
-                WriteCoordinate(writer, coordinates.X(i), coordinates.Y(i));
+                WriteCoordinate(writer, coordinates, i);
             }
         }
         else
         {
             for (int i = 0; i < coordinates.Count; i++)
             {
-                WriteCoordinate(writer, coordinates.X(i), coordinates.Y(i));
+                WriteCoordinate(writer, coordinates, i);
             }
+        }
+
+        writer.WriteEndArray();
+    }
+
+    /// <summary>One coordinate of a sequence: <c>[x, y]</c>, with <c>z</c> then <c>m</c> when it carries them.</summary>
+    private static void WriteCoordinate(Utf8JsonWriter writer, XySequence coordinates, int i)
+    {
+        if (coordinates.Ordinates == GeometryOrdinates.None)
+        {
+            WriteCoordinate(writer, coordinates.X(i), coordinates.Y(i));
+            return;
+        }
+
+        writer.WriteStartArray();
+        writer.WriteNumberValue(coordinates.X(i));
+        writer.WriteNumberValue(coordinates.Y(i));
+
+        if (coordinates.HasZ)
+        {
+            writer.WriteNumberValue(coordinates.Z(i));
+        }
+
+        if (coordinates.HasM)
+        {
+            writer.WriteNumberValue(coordinates.M(i));
         }
 
         writer.WriteEndArray();

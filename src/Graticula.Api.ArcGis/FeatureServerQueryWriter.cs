@@ -199,6 +199,24 @@ public sealed class FeatureServerQueryWriter
         writer.WriteString("globalIdFieldName", GlobalIds.FieldOf([.. _fields.Values]) ?? string.Empty);
         writer.WriteString("geometryType", ArcGisGeometryWriter.TypeName(geometryType));
 
+        // <b>`hasZ` and `hasM` from what the answer carries — ADR-077, step 3.</b> The first row is in hand
+        // before a byte is written, so the header says what its geometry has rather than what was asked:
+        // a caller who sent `returnZ=true` to a flat layer gets a flat answer and no claim otherwise.
+        if (hasFirst && features.Current.Geometry is { } first)
+        {
+            GeometryOrdinates carried = ArcGisGeometryWriter.OrdinatesOf(first);
+
+            if ((carried & GeometryOrdinates.Z) != 0)
+            {
+                writer.WriteBoolean("hasZ", true);
+            }
+
+            if ((carried & GeometryOrdinates.M) != 0)
+            {
+                writer.WriteBoolean("hasM", true);
+            }
+        }
+
         // <b>The reference the geometry is actually in, which is outSR when one
         // was asked for.</b> Reporting the layer's after transforming would
         // label metres as degrees, and a client would place the features
