@@ -126,8 +126,13 @@ whose provider carries Z*. There is no such provider and there was none when tha
 If 3D is taken up, this is the sequence, and each step is its own ADR:
 
 1. **Honesty** — this ADR.
-2. **The geometry model** — `XySequence` becomes stride-aware (2, 3 or 4) with behaviour unchanged
-   at every existing call site, and the tile benchmark is re-run before anything depends on it.
+2. **The geometry model** — ~~`XySequence` becomes stride-aware (2, 3 or 4) with behaviour unchanged
+   at every existing call site, and the tile benchmark is re-run before anything depends on it.~~
+   **Done 2026-09-16 as [ADR-077](ADR-077-z-and-m-ride-beside-x-and-y.md), and both halves of the sentence
+   were wrong**: a stride would have made a dozen `AsSpan()` consumers misread a 3D shape silently, so Z
+   and M ride beside x and y instead; and production tiles are encoded by PostGIS, so the benchmark that
+   mattered was the query path's. A flat geometry costs nothing measurable. The three semantic questions
+   below were answered by the owner and are ADR-077 §5.
    Three semantics have to be answered there rather than discovered: *what does a 2D operation do
    to Z* (clip, simplify, buffer — interpolate, carry, or drop and say so), *does the tiling and
    rendering pipeline drop to 2D at its edge* (it should: a tile is a picture), and *may a hosted

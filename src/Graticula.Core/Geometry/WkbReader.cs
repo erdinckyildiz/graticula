@@ -50,9 +50,26 @@ public static class WkbReader
     /// geometry is then a lossy read and must not be written back.
     /// </param>
     /// <exception cref="WkbFormatException">The bytes are not readable as WKB.</exception>
-    public static Geometry Read(ReadOnlySpan<byte> wkb, out bool droppedOrdinates)
+    public static Geometry Read(ReadOnlySpan<byte> wkb, out bool droppedOrdinates) =>
+        Read(wkb, keepOrdinates: false, out droppedOrdinates);
+
+    /// <summary>
+    /// Reads a geometry, keeping Z and M in the model when asked — ADR-077.
+    /// </summary>
+    /// <remarks>
+    /// <b>Off everywhere today, and that is step 2 of ADR-074 §5 rather than an oversight.</b> The model
+    /// can hold an elevation and a measure; no surface returns one yet, so every caller still reads a flat
+    /// shape and <paramref name="droppedOrdinates"/> still says when that lost something. Step 3 turns this
+    /// on one surface at a time, each with its own `hasZ` to make true.
+    /// </remarks>
+    /// <param name="wkb">OGC WKB or PostGIS EWKB.</param>
+    /// <param name="keepOrdinates">Whether Z and M are kept rather than discarded.</param>
+    /// <param name="droppedOrdinates"><see langword="true"/> when Z or M values were present and discarded.</param>
+    /// <returns>The geometry.</returns>
+    /// <exception cref="WkbFormatException">The bytes are not readable as WKB.</exception>
+    public static Geometry Read(ReadOnlySpan<byte> wkb, bool keepOrdinates, out bool droppedOrdinates)
     {
-        Cursor cursor = new(wkb);
+        Cursor cursor = new(wkb) { KeepOrdinates = keepOrdinates };
         Geometry geometry = ReadGeometry(ref cursor);
         droppedOrdinates = cursor.DroppedOrdinates;
 
@@ -96,8 +113,10 @@ public static class WkbReader
             cursor.ReadUInt32(littleEndian);
         }
 
-        int ordinates = 2 + (hasZ ? 1 : 0) + (hasM ? 1 : 0);
-        if (ordinates > 2)
+        GeometryOrdinates ordinates = (hasZ ? GeometryOrdinates.Z : GeometryOrdinates.None)
+            | (hasM ? GeometryOrdinates.M : GeometryOrdinates.None);
+
+        if (ordinates != GeometryOrdinates.None && !cursor.KeepOrdinates)
         {
             cursor.DroppedOrdinates = true;
         }
@@ -121,23 +140,29 @@ public static class WkbReader
         };
     }
 
-    private static Point ReadPoint(ref Cursor cursor, bool littleEndian, int ordinates)
+    private static Point ReadPoint(ref Cursor cursor, bool littleEndian, GeometryOrdinates ordinates)
     {
         double x = cursor.ReadDouble(littleEndian);
         double y = cursor.ReadDouble(littleEndian);
 
-        for (int i = 2; i < ordinates; i++)
-        {
-            cursor.ReadDouble(littleEndian);
-        }
+        // WKB's order is x, y, then z when there is one, then m when there is one.
+        double? z = (ordinates & GeometryOrdinates.Z) != 0 ? cursor.ReadDouble(littleEndian) : null;
+        double? m = (ordinates & GeometryOrdinates.M) != 0 ? cursor.ReadDouble(littleEndian) : null;
 
         // WKB has no empty point; PostGIS emits NaN for one.
-        return double.IsNaN(x) && double.IsNaN(y) ? Point.Empty : new Point(x, y);
+        if (double.IsNaN(x) && double.IsNaN(y))
+        {
+            return Point.Empty;
+        }
+
+        return cursor.KeepOrdinates ? Point.Create(x, y, z, m) : new Point(x, y);
     }
 
-    private static XySequence ReadSequence(ref Cursor cursor, bool littleEndian, int ordinates)
+    private static XySequence ReadSequence(ref Cursor cursor, bool littleEndian, GeometryOrdinates ordinates)
     {
-        int count = cursor.ReadCount(littleEndian, ordinates);
+        bool z = (ordinates & GeometryOrdinates.Z) != 0;
+        bool m = (ordinates & GeometryOrdinates.M) != 0;
+        int count = cursor.ReadCount(littleEndian, 2 + (z ? 1 : 0) + (m ? 1 : 0));
 
         if (count == 0)
         {
@@ -148,21 +173,38 @@ public static class WkbReader
         // difference the benchmark measured: 404 MB to 204 MB on a z12 tile.
         double[] xy = new double[count * 2];
 
+        // Allocated only when kept, so a flat read costs what it did.
+        double[]? zs = z && cursor.KeepOrdinates ? new double[count] : null;
+        double[]? ms = m && cursor.KeepOrdinates ? new double[count] : null;
+
         for (int i = 0; i < count; i++)
         {
             xy[i * 2] = cursor.ReadDouble(littleEndian);
             xy[(i * 2) + 1] = cursor.ReadDouble(littleEndian);
 
-            for (int skipped = 2; skipped < ordinates; skipped++)
+            if (z)
             {
-                cursor.ReadDouble(littleEndian);
+                double value = cursor.ReadDouble(littleEndian);
+                if (zs is not null)
+                {
+                    zs[i] = value;
+                }
+            }
+
+            if (m)
+            {
+                double value = cursor.ReadDouble(littleEndian);
+                if (ms is not null)
+                {
+                    ms[i] = value;
+                }
             }
         }
 
-        return XySequence.Wrap(xy);
+        return XySequence.Wrap(xy, zs, ms);
     }
 
-    private static Polygon ReadPolygon(ref Cursor cursor, bool littleEndian, int ordinates)
+    private static Polygon ReadPolygon(ref Cursor cursor, bool littleEndian, GeometryOrdinates ordinates)
     {
         int ringCount = cursor.ReadUInt32AsCount(littleEndian);
 
@@ -225,6 +267,8 @@ public static class WkbReader
         private int _position;
 
         public bool DroppedOrdinates { get; set; }
+
+        public bool KeepOrdinates { get; init; }
 
         public readonly bool AtEnd => _position == _buffer.Length;
 

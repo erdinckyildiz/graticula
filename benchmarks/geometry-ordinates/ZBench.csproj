@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Measures the query path's geometry cost — WKB decode and ArcGIS JSON write — against one checkout.
+       Usage: dotnet run -c Release -p:Repo=C:/temp/wt-3d-base -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <TieredPGO>true</TieredPGO>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+    
+    
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Graticula.Core">
+      <HintPath>$(Repo)/src/Graticula.Api.ArcGis/bin/Release/net9.0/Graticula.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="Graticula.Api.ArcGis">
+      <HintPath>$(Repo)/src/Graticula.Api.ArcGis/bin/Release/net9.0/Graticula.Api.ArcGis.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>
