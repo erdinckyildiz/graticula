@@ -33,6 +33,8 @@ narrower and is marked as such in §5.
 
 ---
 
+> **Amended 2026-09-16 by owner decision — [ADR-075](ADR-075-a-layer-is-edited-by-its-owner.md).** §3b's *sharing governs reading* is unchanged. What moved is writing, which this ADR left to privileges: a layer is now written to by its owner (whose role still has to hold `features:edit`), an administrator, or a shared-update group — and an item's sharing, fields, style and contents are changed by its owner or an administrator only, whatever privilege the caller holds. The *data editor* role therefore edits through groups.
+
 ## 1. Why adopting it is right, beyond being asked
 
 Three independent reasons, and the first is the weakest:

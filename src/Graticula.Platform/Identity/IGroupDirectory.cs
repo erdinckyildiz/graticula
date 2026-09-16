@@ -259,6 +259,20 @@ public enum GroupChange
     /// <summary>Only the owner or an administrator may do this — deleting or transferring.</summary>
     OwnerOnly,
 
+    /// <summary>
+    /// The service being shared into the group is not the acting member's — ADR-075.
+    /// </summary>
+    /// <remarks>
+    /// <b>Owning or managing a group is not owning what goes into it.</b> Sharing asked only for
+    /// the group's standing, so any member who ran a group could put somebody else's
+    /// <c>group</c>-scoped service in it — and with the group set to shared update, give every
+    /// member, themselves included, both reading and editing a layer its owner had never offered
+    /// them. Found 2026-09-16 while applying the owner's rule that a layer is edited by its owner,
+    /// an administrator, and a group <em>its owner</em> shares it with. Taking an item out of a
+    /// group is not affected: that narrows access, and a group's owner may keep their group tidy.
+    /// </remarks>
+    ItemNotYours,
+
     /// <summary>The named member or service does not exist.</summary>
     NoSuchTarget,
 

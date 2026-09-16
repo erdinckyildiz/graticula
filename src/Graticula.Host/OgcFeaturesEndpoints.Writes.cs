@@ -592,12 +592,12 @@ internal static partial class OgcFeaturesEndpoints
           so a caller who could not previously discover a collection still cannot. What
           changed is only which of two identical-looking refusals arrives first.
         */
-        // <b>Every feature, or only the caller's own — ADR-064, as on the ArcGIS face.</b> This
-        // asked for `features:fullEdit` outright while D-20 was open, because without editor
-        // tracking *your own features* could not be told from everybody's.
-        if (await Authorize
-                .RequireChangeAsync(context, target.Layer, target.Described.Tracking)
-                .ConfigureAwait(false) is not { } scope)
+        // <b>Whose layer it is — ADR-075, as on the ArcGIS face.</b> Owner, administrator or a
+        // shared-update group; this asked for `features:fullEdit`, and then for the caller's own
+        // features on a tracked layer (ADR-064), and neither asked whose layer it was.
+        if (!await Authorize
+                .RequireEditAsync(context, Privilege.FeaturesEdit, target.Layer)
+                .ConfigureAwait(false))
         {
             return;
         }
@@ -649,8 +649,7 @@ internal static partial class OgcFeaturesEndpoints
                     [new FeatureUpdate(objectId, read.Attributes, read.Geometry)],
                     [],
                     Expects: expects,
-                    Editor: Editor(context),
-                    OwnOnly: scope == Authorize.ChangeScope.Own),
+                    Editor: Editor(context)),
                 cancellation)
             .ConfigureAwait(false);
 
@@ -693,9 +692,9 @@ internal static partial class OgcFeaturesEndpoints
           changed is only which of two identical-looking refusals arrives first.
         */
         // ADR-064: every feature, or only the caller's own — as for an update.
-        if (await Authorize
-                .RequireChangeAsync(context, target.Layer, target.Described.Tracking)
-                .ConfigureAwait(false) is not { } scope)
+        if (!await Authorize
+                .RequireEditAsync(context, Privilege.FeaturesEdit, target.Layer)
+                .ConfigureAwait(false))
         {
             return;
         }
@@ -731,8 +730,7 @@ internal static partial class OgcFeaturesEndpoints
                 new EditBatch(
                     [], [], [objectId],
                     Expects: expects,
-                    Editor: Editor(context),
-                    OwnOnly: scope == Authorize.ChangeScope.Own),
+                    Editor: Editor(context)),
                 cancellation)
             .ConfigureAwait(false);
 

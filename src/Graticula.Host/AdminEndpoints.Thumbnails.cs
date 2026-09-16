@@ -39,7 +39,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false) is not { } layer)
+        if (await ManagedLayerAsync(context, layers, name, "redraw the thumbnail of", cancellation).ConfigureAwait(false) is not { } layer)
         {
             return;
         }

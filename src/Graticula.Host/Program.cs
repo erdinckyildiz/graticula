@@ -3609,9 +3609,12 @@ public static class Program
           feature is whose — so *change your own* is unenforceable and updates ask for the
           wider grant. A group with `allItems` is the case where that distinction has no work
           to do: every member may change everything shared with the group, by the group's own
-          setting, so there is nothing for editor tracking to decide. Editor tracking exists
-          since ADR-064 and this still holds on a tracked layer: `RequireChangeAsync` below
-          answers *every feature* for a group's editing, not *the member's own*.
+          setting, so there is nothing for editor tracking to decide.
+
+          <b>And since 2026-09-16 it is one of three grounds, and the privilege is no longer one
+          of them — [ADR-075](../../docs/adr/ADR-075-a-layer-is-edited-by-its-owner.md).</b> A
+          layer is written to by its owner, by an administrator, or by a shared-update group;
+          `Authorize.RequireEditAsync` asks that once for adds, updates and deletes.
 
           <b>Read access was settled long before this line.</b> `ServiceLookup` answered 404
           for a layer this caller cannot see, so nothing here can widen reading — and
@@ -4248,9 +4251,11 @@ public static class Program
             return null;
         }
 
-        // Adds need less than updates and deletes do; asking for the wider
-        // privilege on a batch that only adds would refuse a legitimate edit.
-        if (adds is not null
+        // <b>Whose layer it is, for adds, updates and deletes alike — ADR-075.</b> Adds used to ask
+        // for features:edit and changes for features:fullEdit or, on a tracked layer, the caller's
+        // own features (ADR-064); none of it asked whose layer this was. Owner, administrator or a
+        // shared-update group now, and one question for all three kinds of edit.
+        if ((adds is not null || updates is not null || deletes is not null)
             && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer)
                 .ConfigureAwait(false))
         {
@@ -4259,25 +4264,6 @@ public static class Program
 
         (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
             .ConfigureAwait(false);
-
-        // <b>Updates and deletes reach every feature or only the caller's own — ADR-064.</b>
-        // This asked for features:fullEdit outright until 2026-09-11, because without editor
-        // tracking the server could not tell whose a feature was (D-20). On a layer that records
-        // its creators, features:edit now reaches the caller's own, which is what it means in
-        // Portal; on one that does not, the refusal is the one this always gave. The description
-        // is read first because the answer depends on which of its columns record edits.
-        bool ownOnly = false;
-
-        if (updates is not null || deletes is not null)
-        {
-            if (await Authorize.RequireChangeAsync(context, layer, description.Tracking)
-                    .ConfigureAwait(false) is not { } scope)
-            {
-                return null;
-            }
-
-            ownOnly = scope == Authorize.ChangeScope.Own;
-        }
 
         // <b>`useGlobalIds=true`: resolved to object ids after the privileges and before the parse</b>,
         // so the edit that is checked and written is the one every other door writes (GlobalIdEdits).
@@ -4371,7 +4357,6 @@ public static class Program
         return (description, parsed, parsed.Batch with
         {
             Editor = context.Features.Get<RequestPrincipal>()!.Principal.Name,
-            OwnOnly = ownOnly,
             KeepsGlobalIds = byGlobalId is not null,
         });
     }
@@ -4655,9 +4640,8 @@ public static class Program
             return Join(limits.Restrict(["Query"]));
         }
 
-        // ADR-064: on a layer that records its creators, features:edit may change its own.
-        return Join(limits.Restrict(PrivilegedCapabilities(
-            context, Graticula.Catalog.EditorTracking.From(layer.FieldOverrides).IsOn)));
+        // ADR-075: whose layer it is, asked exactly as the write path asks it.
+        return Join(limits.Restrict(PrivilegedCapabilities(context, layer)));
     }
 
     /// <summary>
@@ -4776,32 +4760,34 @@ public static class Program
         return true;
     }
 
-    /// <summary>What the caller's privileges alone would allow.</summary>
+    /// <summary>What this caller may do to this layer, before the service and the data narrow it.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Whose layer it is — owner decision 2026-09-16,
+    /// [ADR-075](../../docs/adr/ADR-075-a-layer-is-edited-by-its-owner.md).</b> The owner, an
+    /// administrator and a shared-update group are offered <c>Create</c>, <c>Update</c> and
+    /// <c>Delete</c>; everybody else is offered <c>Query</c>. The answer is
+    /// <see cref="Authorize.EditRightOf"/>, the same call the write path makes, because an
+    /// advertisement that follows a second copy of the rule is how a client is offered an edit
+    /// button that answers 403 (ADR-008 §2).
+    /// </para>
+    /// <para>
+    /// <b>It was privileges alone before</b>: <c>features:edit</c> offered <c>Create</c> on every
+    /// readable layer, and <c>features:fullEdit</c> — or <c>features:edit</c> on a layer that
+    /// records its creators (ADR-064) — offered <c>Update</c> and <c>Delete</c>. And a shared-update
+    /// group, which the write path honoured, was offered nothing here, so its members were refused
+    /// by the document and admitted by the endpoint.
+    /// </para>
+    /// </remarks>
     /// <param name="context">The request.</param>
-    /// <param name="tracked">
-    /// Whether the layer records who created each feature — ADR-064. On such a layer
-    /// <c>features:edit</c> may update and delete the caller's own features, so the document
-    /// offers it <c>Update</c> and <c>Delete</c>, and ownership decides feature by feature.
-    /// </param>
-    private static List<string> PrivilegedCapabilities(HttpContext context, bool tracked = false)
+    /// <param name="layer">The layer.</param>
+    private static List<string> PrivilegedCapabilities(HttpContext context, PublishedLayer layer)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
-        List<string> capabilities = ["Query"];
-
-        if (current.Authorization.Allows(Privilege.FeaturesEdit))
-        {
-            capabilities.Add("Create");
-        }
-
-        if (current.Authorization.Allows(Privilege.FeaturesFullEdit)
-            || (tracked && current.Authorization.Allows(Privilege.FeaturesEdit)))
-        {
-            capabilities.Add("Update");
-            capabilities.Add("Delete");
-        }
-
-        return capabilities;
+        return Authorize.EditRightOf(current, layer) == LayerAccess.EditRight.None
+            ? ["Query"]
+            : ["Query", "Create", "Update", "Delete"];
     }
 
     /// <summary>

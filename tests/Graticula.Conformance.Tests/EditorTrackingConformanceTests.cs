@@ -40,7 +40,7 @@ public sealed class EditorTrackingConformanceTests : ArcGisClient
     private const string MergePatch = "application/merge-patch+json";
 
     [Fact]
-    public async Task An_editor_changes_its_own_features_and_nobody_else_s()
+    public async Task A_layer_is_written_to_by_its_owner_and_the_group_it_is_shared_with_for_editing()
     {
         string root = await RequireServerAsync();
         string? token = await TokenAsync(root);
@@ -71,6 +71,8 @@ public sealed class EditorTrackingConformanceTests : ArcGisClient
         string folder = parts[2];
         string service = parts[3];
 
+        string group = "zz_adr075_" + Guid.NewGuid().ToString("N")[..8];
+
         try
         {
             // ---- a feature from before tracking, which has no creator and so is nobody's ----
@@ -91,10 +93,13 @@ public sealed class EditorTrackingConformanceTests : ArcGisClient
                 "created_user",
                 document.GetProperty("editFieldsInfo").GetProperty("creatorField").GetString());
 
-            JsonElement ownership = document.GetProperty("ownershipBasedAccessControlForFeatures");
-
-            Assert.False(ownership.GetProperty("allowOthersToUpdate").GetBoolean());
-            Assert.False(ownership.GetProperty("allowOthersToDelete").GetBoolean());
+            // <b>ADR-075: no per-feature ownership is advertised, because none is enforced.</b>
+            // A layer is written to by its owner, an administrator or a shared-update group, and
+            // each of those reaches every feature — so *others may not update* would be false.
+            Assert.True(
+                !document.TryGetProperty("ownershipBasedAccessControlForFeatures", out JsonElement ownership)
+                    || ownership.ValueKind == JsonValueKind.Null,
+                $"ownershipBasedAccessControlForFeatures is advertised and nothing enforces it: {ownership}");
 
             JsonElement creatorField = document.GetProperty("fields").EnumerateArray()
                 .Single(f => f.GetProperty("name").GetString() == "created_user");
@@ -104,113 +109,104 @@ public sealed class EditorTrackingConformanceTests : ArcGisClient
                 "created_user is advertised editable, and this server replaces whatever a client "
                 + "writes to it.");
 
-            // ---- a second account that may edit and may not full-edit ----
+            // ---- a second account whose role edits, and which does not own this layer ----
             string editor = await EditorAsync(root, token!);
 
             long theirs = Assert.Single(Ids(await EditAsync(
                 root, token!, feature, "addFeatures", ("features", Point("the administrator's")))));
 
-            long mine = Assert.Single(Ids(await EditAsync(
-                root, editor, feature, "addFeatures", ("features", Point("the editor's")))));
+            // <b>The layer document offers it nothing</b> — the same answer the write path gives.
+            string offered = (await GetJsonWithTokenAsync($"{root}{feature}?f=json", editor))
+                .GetProperty("capabilities").GetString()!;
 
-            // ---- its own: changed, and the creator it sends is not the creator written ----
-            JsonElement own = Result(await EditAsync(
-                root, editor, feature, "updateFeatures",
-                ("features", Change(mine, "changed by its owner", impostor: true))));
+            Assert.Equal("Query", offered);
 
-            Assert.True(own.GetProperty("success").GetBoolean(), $"An editor could not change its own feature: {own}");
+            // <b>Refused on every kind of edit, and on both faces — ADR-075.</b> Until 2026-09-16
+            // this account's role added to this layer and changed its own features in it.
+            foreach ((string operation, (string Key, string Value) field) in ((string, (string, string))[])
+            [
+                ("addFeatures", ("features", Point("not my layer"))),
+                ("updateFeatures", ("features", Change(theirs, "not my layer"))),
+                ("deleteFeatures", ("objectIds", Id(theirs))),
+            ])
+            {
+                JsonElement refused = await EditAsync(root, editor, feature, operation, field);
 
-            // ---- somebody else's: refused ----
-            JsonElement other = Result(await EditAsync(
-                root, editor, feature, "updateFeatures", ("features", Change(theirs, "not mine to change"))));
+                Assert.True(
+                    refused.TryGetProperty("error", out JsonElement error)
+                    && error.GetProperty("code").GetInt32() == 403,
+                    $"{operation} by an editor who does not own the layer was not refused: {refused}");
 
-            Assert.False(
-                other.GetProperty("success").GetBoolean(),
-                "An account with features:edit changed a feature somebody else created. That is "
-                + "D-20's opposite defect: the narrowing removed, and nothing put in its place.");
+                Assert.Contains("edited by its owner", error.ToString(), StringComparison.Ordinal);
+            }
 
-            Assert.Contains("somebody else", other.ToString(), StringComparison.Ordinal);
-
-            // ---- nobody's: refused too, because *probably yours* is the guess D-20 refused ----
-            JsonElement unowned = Result(await EditAsync(
-                root, editor, feature, "updateFeatures", ("features", Change(nobodys, "claimed"))));
-
-            Assert.False(
-                unowned.GetProperty("success").GetBoolean(),
-                "An editor changed a feature with no creator recorded. A row nobody created is "
-                + "nobody's, and changing it needs features:fullEdit.");
-
-            Assert.Contains("no creator", unowned.ToString(), StringComparison.Ordinal);
-
-            // ---- and the administrator is refused nothing ----
-            JsonElement full = Result(await EditAsync(
-                root, token!, feature, "updateFeatures", ("features", Change(mine, "changed by the administrator"))));
-
-            Assert.True(full.GetProperty("success").GetBoolean(), $"features:fullEdit was refused: {full}");
-
-            // ---- the server wrote who did it, whatever the client sent ----
-            JsonElement attributes = await AttributesAsync(feature, mine);
-
-            Assert.Equal(Member, attributes.GetProperty("created_user").GetString());
-            Assert.NotEqual(Member, attributes.GetProperty("last_edited_user").GetString());
-
-            // ---- deletes follow the same rule ----
-            JsonElement refused = Result(await EditAsync(
-                root, editor, feature, "deleteFeatures", ("objectIds", Id(theirs))));
-
-            Assert.False(refused.GetProperty("success").GetBoolean(), $"An editor deleted somebody else's feature: {refused}");
-
-            JsonElement deleted = Result(await EditAsync(
-                root, editor, feature, "deleteFeatures", ("objectIds", Id(mine))));
-
-            Assert.True(deleted.GetProperty("success").GetBoolean(), $"An editor could not delete its own feature: {deleted}");
-
-            // ---- the OGC API Features face: the same rule, in HTTP's words ----
             string items = $"{root}/ogc/features/v1/collections/{Uri.EscapeDataString(layer)}/items";
 
-            (HttpStatusCode created, string createdBody, string? location) = await OgcAsync(
-                HttpMethod.Post,
-                items,
-                editor,
+            const string AnOgcPoint =
                 "{\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\",\"coordinates\":[32.87,39.96]},"
-                + "\"properties\":{\"label\":\"the editor's, over OGC\",\"created_user\":\"an impostor\"}}",
-                "application/geo+json");
+                + "\"properties\":{\"label\":\"over OGC\",\"created_user\":\"an impostor\"}}";
 
-            Assert.True(created == HttpStatusCode.Created, $"An editor's OGC create answered {(int)created}: {createdBody}");
+            (HttpStatusCode notMine, string notMineBody, _) = await OgcAsync(
+                HttpMethod.Post, items, editor, AnOgcPoint, "application/geo+json");
 
-            string ogcMine = new Uri(location!).Segments[^1];
+            Assert.True(
+                notMine == HttpStatusCode.Forbidden,
+                $"An OGC create by an editor who does not own the layer answered {(int)notMine}: {notMineBody}");
 
-            Assert.Equal(
-                Member,
-                (await AttributesAsync(feature, long.Parse(ogcMine, CultureInfo.InvariantCulture)))
-                    .GetProperty("created_user").GetString());
-
-            const string Relabel = "{\"type\":\"Feature\",\"properties\":{\"label\":\"over OGC\"}}";
-
-            await ExpectAsync(HttpStatusCode.NoContent, "an editor patching its own feature",
-                HttpMethod.Patch, $"{items}/{ogcMine}", editor, Relabel);
-
-            string why = await ExpectAsync(HttpStatusCode.Forbidden, "an editor patching somebody else's feature",
-                HttpMethod.Patch, $"{items}/{Id(theirs)}", editor, Relabel);
-
-            Assert.Contains("somebody else", why, StringComparison.Ordinal);
-
-            await ExpectAsync(HttpStatusCode.Forbidden, "an editor patching a feature with no creator",
-                HttpMethod.Patch, $"{items}/{Id(nobodys)}", editor, Relabel);
-
-            await ExpectAsync(HttpStatusCode.Forbidden, "an editor deleting somebody else's feature",
-                HttpMethod.Delete, $"{items}/{Id(theirs)}", editor, json: null);
-
-            // The refusals changed nothing: 403 that had written anyway would be worse than none.
+            // The refusals changed nothing: a 403 that had written anyway would be worse than none.
             Assert.Equal(
                 "the administrator's",
                 (await AttributesAsync(feature, theirs)).GetProperty("label").GetString());
 
-            await ExpectAsync(HttpStatusCode.NoContent, "an editor deleting its own feature",
-                HttpMethod.Delete, $"{items}/{ogcMine}", editor, json: null);
+            // ---- the owner delegates: a shared-update group, and the editor in it ----
+            await ShareForEditingAsync(root, token!, group, folder, service);
+
+            long mine = Assert.Single(Ids(await EditAsync(
+                root, editor, feature, "addFeatures", ("features", Point("the editor's")))));
+
+            // The server wrote who did it, whatever the client sent.
+            Assert.Equal(Member, (await AttributesAsync(feature, mine)).GetProperty("created_user").GetString());
+
+            // <b>A group reaches every feature</b>, the owner's and nobody's alike.
+            foreach (long any in new[] { theirs, nobodys })
+            {
+                JsonElement changed = Result(await EditAsync(
+                    root, editor, feature, "updateFeatures",
+                    ("features", Change(any, "changed through the group", impostor: true))));
+
+                Assert.True(
+                    changed.GetProperty("success").GetBoolean(),
+                    $"A shared-update member could not change feature {any}: {changed}");
+            }
+
+            // The creator stays the creator, and the last editor is the member.
+            JsonElement relabelled = await AttributesAsync(feature, theirs);
+
+            Assert.NotEqual(Member, relabelled.GetProperty("created_user").GetString());
+            Assert.Equal(Member, relabelled.GetProperty("last_edited_user").GetString());
+
+            (HttpStatusCode created, string createdBody, string? location) = await OgcAsync(
+                HttpMethod.Post, items, editor, AnOgcPoint, "application/geo+json");
+
+            Assert.True(
+                created == HttpStatusCode.Created,
+                $"A shared-update member's OGC create answered {(int)created}: {createdBody}");
+
+            string ogcMine = new Uri(location!).Segments[^1];
+
+            await ExpectAsync(HttpStatusCode.NoContent, "a shared-update member deleting the owner's feature",
+                HttpMethod.Delete, $"{items}/{Id(theirs)}", editor, json: null);
 
             await ExpectAsync(HttpStatusCode.NoContent, "the administrator deleting anybody's feature",
-                HttpMethod.Delete, $"{items}/{Id(theirs)}", token!, json: null);
+                HttpMethod.Delete, $"{items}/{ogcMine}", token!, json: null);
+
+            // ---- and the group does not reach what the layer *is* ----
+            (HttpStatusCode emptied, string emptiedBody) = await RequestAsync(
+                HttpMethod.Post, $"{root}/admin/hosted/{layer}/truncate", editor, "{}");
+
+            Assert.True(
+                emptied is HttpStatusCode.Forbidden or HttpStatusCode.NotFound,
+                $"A shared-update member emptied a layer it does not own: {(int)emptied} {emptiedBody}");
 
             // ---- condition 3: a role is refused where it is set, not at the next edit ----
             foreach ((string overrides, string expected) in ((string, string)[])
@@ -240,6 +236,7 @@ public sealed class EditorTrackingConformanceTests : ArcGisClient
         }
         finally
         {
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/groups/{group}", token!, json: null);
             await RequestAsync(HttpMethod.Delete, $"{root}/admin/members/{Member}?deleteOwned=true", token!, json: null);
 
             await RequestAsync(
@@ -248,6 +245,43 @@ public sealed class EditorTrackingConformanceTests : ArcGisClient
                 token!,
                 json: null);
         }
+    }
+
+    /// <summary>
+    /// The owner's delegation: a shared-update group with the editor in it, the service shared with
+    /// it, and its scope set to <c>group</c> — ADR-036 §4a, which ADR-075 keeps.
+    /// </summary>
+    private async Task ShareForEditingAsync(
+        string root, string administrator, string group, string folder, string service)
+    {
+        foreach ((HttpMethod method, string path, string? body) in ((HttpMethod, string, string?)[])
+        [
+            (HttpMethod.Post, "/admin/groups",
+                JsonSerializer.Serialize(new { name = group, title = "ADR-075", description = "shared update", itemUpdate = "allItems" })),
+            (HttpMethod.Put, $"/admin/groups/{group}/members/{Member}", JsonSerializer.Serialize(new { manager = false })),
+            (HttpMethod.Put,
+                $"/admin/groups/{group}/items/{Uri.EscapeDataString(service)}?folder={Uri.EscapeDataString(folder)}",
+                null),
+            (HttpMethod.Put,
+                $"/admin/services/{Uri.EscapeDataString(service)}/sharing?folder={Uri.EscapeDataString(folder)}",
+                JsonSerializer.Serialize(new { sharing = "group" })),
+        ])
+        {
+            (HttpStatusCode status, string said) = await RequestAsync(method, $"{root}{path}", administrator, body);
+
+            Assert.True((int)status is >= 200 and < 300, $"{method} {path} answered {(int)status}: {said}");
+        }
+    }
+
+    /// <summary>A GET as a given account, parsed.</summary>
+    private async Task<JsonElement> GetJsonWithTokenAsync(string url, string token)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri(url));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.Clone();
     }
 
     /// <summary>Creates the editor account and signs it in.</summary>

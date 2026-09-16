@@ -683,7 +683,9 @@ internal static class AttachmentEndpoints
             return null;
         }
 
-        if (write && !await Authorize.RequireAsync(context, Privilege.FeaturesEdit)
+        // <b>Whose layer it is — ADR-075.</b> This asked for the privilege alone, so an attachment
+        // could be added to any layer the caller could read; it asks what every other write asks.
+        if (write && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer)
                 .ConfigureAwait(false))
         {
             return null;

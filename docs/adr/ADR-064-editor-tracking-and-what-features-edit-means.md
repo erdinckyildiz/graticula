@@ -14,6 +14,8 @@
 
 ---
 
+> **Amended 2026-09-16 by owner decision — [ADR-075](ADR-075-a-layer-is-edited-by-its-owner.md).** Which features an account may change is no longer a privilege's: a layer is written to by its owner, an administrator and a shared-update group, and each reaches every feature. *`features:edit` reaches the caller's own* (§2) is superseded, and `ownershipBasedAccessControlForFeatures` is no longer emitted. Editor tracking itself — which columns record who and when, and that the server writes them — is unchanged. The per-feature predicate is kept dormant, [D-270](../architecture-debt.md).
+
 ## 1. Context
 
 [D-20](../architecture-debt.md): `features:edit` is narrower here than in ArcGIS Portal. Portal's

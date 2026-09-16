@@ -66,7 +66,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false) is not { } layer)
+        if (await ManagedLayerAsync(context, layers, name, "set the visible range of", cancellation).ConfigureAwait(false) is not { } layer)
         {
             return;
         }
@@ -110,7 +110,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false) is not { } layer)
+        if (await ReadableLayerAsync(context, layers, name, cancellation).ConfigureAwait(false) is not { } layer)
         {
             return;
         }

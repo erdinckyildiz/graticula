@@ -432,15 +432,33 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         }
 
         await using NpgsqlCommand find = _dataSource.CreateCommand(
-            "select id from service where lower(name) = lower(@name) "
+            "select id, owner_principal_id from service where lower(name) = lower(@name) "
             + "and coalesce(lower(folder), '') = coalesce(lower(@folder), '')");
 
         find.Parameters.AddWithValue("name", service);
         find.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
 
-        if (await find.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not Guid item)
+        Guid item;
+        Guid? owner;
+
+        await using (NpgsqlDataReader found = await find.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
-            return GroupChange.NoSuchTarget;
+            if (!await found.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                return GroupChange.NoSuchTarget;
+            }
+
+            item = found.GetGuid(0);
+            owner = found.IsDBNull(1) ? null : found.GetGuid(1);
+        }
+
+        // <b>ADR-075: the service's owner or an administrator puts it in a group.</b> Running the
+        // group was the only question, so a group's owner could share a stranger's service into it
+        // and, with shared update, give themselves the right to edit it. Removing is not asked:
+        // it narrows access.
+        if (wanted && !administrator && owner != acting)
+        {
+            return GroupChange.ItemNotYours;
         }
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(wanted

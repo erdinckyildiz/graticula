@@ -9,6 +9,8 @@
 - **Depends on:** [ADR-035](ADR-035-role-privileges-are-editable.md) — every group operation is a
   privilege, and there was nowhere to put one until roles became editable.
 
+> **Amended 2026-09-16 — [ADR-075](ADR-075-a-layer-is-edited-by-its-owner.md).** Shared update (§4a) is kept by owner decision and is now one of three grounds for writing to a layer, beside its owner and an administrator; editing by privilege alone is gone. **Sharing an item into a group now requires owning the item** (`GroupChange.ItemNotYours`): running a group was the only question, so a group's owner could put somebody else's service into it and, with shared update, give themselves the right to edit it. A group still does not change what an item *is* — its sharing, fields, style or contents stay with the owner.
+
 ## 1. What the owner decided, and what they left to us
 
 Verbatim, 2026-08-18:

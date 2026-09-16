@@ -2679,6 +2679,7 @@ internal static partial class AdminEndpoints
         GroupLayerRequest request,
         IAdminCatalog catalog,
         IAuditLog audit,
+        PostgresLayerCatalog owners,
         CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -2692,6 +2693,14 @@ internal static partial class AdminEndpoints
         if (string.IsNullOrWhiteSpace(request.Name))
         {
             await Refuse(context, 400, "'name' is required.").ConfigureAwait(false);
+            return;
+        }
+
+        // ADR-075: whose service it is — the privilege above never asked.
+        if (!await ManagesServiceAsync(
+                context, owners, string.IsNullOrWhiteSpace(request.Folder) ? null : request.Folder.Trim(),
+                name, "add a group layer to", cancellation).ConfigureAwait(false))
+        {
             return;
         }
 
@@ -2771,12 +2780,19 @@ internal static partial class AdminEndpoints
         CacheLifetimeRequest request,
         IAdminCatalog catalog,
         IAuditLog audit,
+        PostgresLayerCatalog owners,
         CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishTiles)
             .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        // ADR-075: whose layer it is — the privilege above never asked.
+        if (await ManagedLayerAsync(context, owners, name, "set the cache lifetime of", cancellation).ConfigureAwait(false) is null)
         {
             return;
         }
@@ -2879,7 +2895,7 @@ internal static partial class AdminEndpoints
         }
 
         // D-109: an ambiguous name is refused rather than resolved by sort order.
-        if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
+        if (await ManagedLayerAsync(context, layers, name, "set the time field of", cancellation).ConfigureAwait(false)
             is not { } layer)
         {
             await AuditAsync(
@@ -2999,10 +3015,17 @@ internal static partial class AdminEndpoints
         HttpContext context,
         string name,
         IAdminCatalog catalog,
+        PostgresLayerCatalog owners,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
                 .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        // Sharing governs reading, on this surface too — ADR-018 §3b.
+        if (await ReadableLayerAsync(context, owners, name, cancellation).ConfigureAwait(false) is null)
         {
             return;
         }
@@ -3235,7 +3258,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
+        if (await ReadableLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
             is not { } layer)
         {
             return;
@@ -3490,7 +3513,7 @@ internal static partial class AdminEndpoints
             }
         }
 
-        if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
+        if (await ReadableLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
             is not { } layer)
         {
             return;
@@ -3728,6 +3751,12 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // ADR-075: whose layer it is — the privilege above never asked.
+        if (await ManagedLayerAsync(context, published, name, "restyle", cancellation).ConfigureAwait(false) is null)
+        {
+            return;
+        }
+
         if (await catalog.FindLayerForSymbologyAsync(name, cancellation).ConfigureAwait(false)
             is not { } layer)
         {
@@ -3894,6 +3923,12 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // ADR-075: whose layer it is — the privilege above never asked.
+        if (await ManagedLayerAsync(context, published, name, "reset the symbology of", cancellation).ConfigureAwait(false) is null)
+        {
+            return;
+        }
+
         if (await catalog.FindLayerForSymbologyAsync(name, cancellation).ConfigureAwait(false)
             is not { } layer)
         {
@@ -3932,6 +3967,7 @@ internal static partial class AdminEndpoints
         HttpContext context,
         string name,
         IAdminCatalog catalog,
+        PostgresLayerCatalog owners,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -3942,6 +3978,18 @@ internal static partial class AdminEndpoints
 
         if (await catalog.FindServiceForStyleAsync(name, cancellation).ConfigureAwait(false)
             is not { } service)
+        {
+            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        // Sharing governs reading, on this surface too — ADR-018 §3b.
+        if (await owners.FindServiceAsync(service.Folder, service.Name, cancellation).ConfigureAwait(false) is not { } readable
+            || !LayerAccess.Evaluate(
+                    readable.Sharing, readable.Owner,
+                    context.Features.Get<RequestPrincipal>()!.Principal,
+                    context.Features.Get<RequestPrincipal>()!.Authorization,
+                    readable.SharedWith).IsAllowed())
         {
             await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
             return;
@@ -3997,6 +4045,7 @@ internal static partial class AdminEndpoints
         string name,
         IAdminCatalog catalog,
         IAuditLog audit,
+        PostgresLayerCatalog owners,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -4009,6 +4058,12 @@ internal static partial class AdminEndpoints
             is not { } service)
         {
             await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        // ADR-075: whose service it is — the privilege above never asked.
+        if (!await ManagesServiceAsync(context, owners, service.Folder, service.Name, "restyle", cancellation).ConfigureAwait(false))
+        {
             return;
         }
 
@@ -4189,6 +4244,7 @@ internal static partial class AdminEndpoints
         string name,
         IAdminCatalog catalog,
         IAuditLog audit,
+        PostgresLayerCatalog owners,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -4201,6 +4257,12 @@ internal static partial class AdminEndpoints
             is not { } service)
         {
             await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        // ADR-075: whose service it is — the privilege above never asked.
+        if (!await ManagesServiceAsync(context, owners, service.Folder, service.Name, "reset the style of", cancellation).ConfigureAwait(false))
+        {
             return;
         }
 
@@ -4250,6 +4312,7 @@ internal static partial class AdminEndpoints
         PostgresSystemServices services,
         IAdminCatalog catalog,
         IAuditLog audit,
+        PostgresLayerCatalog owners,
         CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -4277,6 +4340,13 @@ internal static partial class AdminEndpoints
 
         if (before is null)
         {
+            // ADR-075: whose service it is. A system service is the administrator's and is
+            // answered below; a catalogue service is its owner's or an administrator's.
+            if (!await ManagesServiceAsync(context, owners, at, name, "share", cancellation).ConfigureAwait(false))
+            {
+                return;
+            }
+
             // An ordinary service. One statement, and it reports the scope it replaced.
             SharingScope? had = await catalog
                 .SetServiceSharingAsync(name, at, scope, cancellation).ConfigureAwait(false);
@@ -5782,6 +5852,10 @@ internal static partial class AdminEndpoints
             + "deleting and transferring stay with the owner, which is the difference between "
             + "delegating work and delegating control."),
 
+        GroupChange.ItemNotYours => Refuse(context, 403,
+            $"'{target}' is not yours, so it was not shared into '{name}'. A service goes into a group "
+            + "because its owner or an administrator put it there — running the group is not owning "
+            + "what is in it (ADR-075)."),
         GroupChange.NoSuchTarget => Refuse(context, 404,
             $"'{target}' is not something this server has, or is disabled."),
 
@@ -8604,6 +8678,7 @@ internal static partial class AdminEndpoints
         SharingRequest request,
         IAdminCatalog catalog,
         IAuditLog audit,
+        PostgresLayerCatalog owners,
         CancellationToken cancellation)
     {
         if (!TryReadScope(request.Sharing, out SharingScope scope, out string? error))
@@ -8617,6 +8692,12 @@ internal static partial class AdminEndpoints
             : Privilege.SharingShareToOrganization;
 
         if (!await Authorize.RequireAsync(context, needed).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        // ADR-075: whose layer it is — the privilege above never asked.
+        if (await ManagedLayerAsync(context, owners, name, "share", cancellation).ConfigureAwait(false) is null)
         {
             return;
         }
@@ -10868,6 +10949,148 @@ internal static partial class AdminEndpoints
                 detail,
                 succeeded),
             cancellation);
+    }
+
+    /// <summary>
+    /// Whether the caller may change what this item is; writes the refusal when not — ADR-075.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner or an administrator</b> (<see cref="LayerAccess.MayManage"/>). Called by every
+    /// <c>/admin/layers/{name}/…</c> and <c>/admin/services/{name}/…</c> handler that changes the
+    /// item — sharing, fields, symbology, style, time field, visible range, cache lifetime, group
+    /// layers, thumbnail — after its own privilege check and after the item is resolved. Until
+    /// 2026-09-16 none of them asked whose item it was, or whether the caller could even read it.
+    /// </para>
+    /// <para>
+    /// <b>404 to a caller who cannot read it, 403 to one who can</b> — the same pair every read
+    /// path answers, so an endpoint that manages an item is not a way to learn it exists.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="owner">The item's owner.</param>
+    /// <param name="sharing">Its sharing scope.</param>
+    /// <param name="sharedWith">The groups it is shared with.</param>
+    /// <param name="name">Its name, for the refusal.</param>
+    /// <param name="what">What was being attempted, for the refusal — "restyle", "share".</param>
+    /// <returns>Whether the caller may proceed.</returns>
+    internal static async Task<bool> ManagesAsync(
+        HttpContext context,
+        Guid? owner,
+        SharingScope sharing,
+        IReadOnlyCollection<Guid>? sharedWith,
+        string name,
+        string what)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (LayerAccess.MayManage(owner, current.Principal, current.Authorization))
+        {
+            return true;
+        }
+
+        if (!LayerAccess.Evaluate(sharing, owner, current.Principal, current.Authorization, sharedWith).IsAllowed())
+        {
+            await Refuse(context, 404, $"No layer or service '{name}'.").ConfigureAwait(false);
+            return false;
+        }
+
+        await Refuse(
+            context, 403,
+            $"'{name}' is not yours, so this server does not {what} it for you: an item is changed by "
+            + (owner is null
+                ? "its owner or an administrator, and this one has no owner — an administrator changes it."
+                : "its owner or by an administrator."))
+            .ConfigureAwait(false);
+
+        return false;
+    }
+
+    /// <summary>The named layer, if the caller may change it; the refusal is written when not.</summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layers">The catalogue.</param>
+    /// <param name="name">The layer's name.</param>
+    /// <param name="what">What is being attempted, for the refusal.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The layer, or null.</returns>
+    internal static async Task<PublishedLayer?> ManagedLayerAsync(
+        HttpContext context, PostgresLayerCatalog layers, string name, string what, CancellationToken cancellation)
+    {
+        if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false) is not { } layer)
+        {
+            return null;
+        }
+
+        return await ManagesAsync(context, layer.Owner, layer.Sharing, layer.SharedWith, layer.Definition.Name, what)
+            .ConfigureAwait(false)
+            ? layer
+            : null;
+    }
+
+    /// <summary>The named layer, if the caller may read it; a 404 is written when not.</summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layers">The catalogue.</param>
+    /// <param name="name">The layer's name.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The layer, or null.</returns>
+    internal static async Task<PublishedLayer?> ReadableLayerAsync(
+        HttpContext context, PostgresLayerCatalog layers, string name, CancellationToken cancellation)
+    {
+        if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false) is not { } layer)
+        {
+            return null;
+        }
+
+        return await ReadsAsync(context, layer).ConfigureAwait(false) ? layer : null;
+    }
+
+    /// <summary>Whether the caller may change this service; the refusal is written when not.</summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layers">The catalogue.</param>
+    /// <param name="folder">Its folder, or null.</param>
+    /// <param name="name">Its name.</param>
+    /// <param name="what">What is being attempted, for the refusal.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>Whether they may.</returns>
+    internal static async Task<bool> ManagesServiceAsync(
+        HttpContext context, PostgresLayerCatalog layers, string? folder, string name, string what, CancellationToken cancellation)
+    {
+        if (await layers.FindServiceAsync(folder, name, cancellation).ConfigureAwait(false) is not { } service)
+        {
+            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            return false;
+        }
+
+        return await ManagesAsync(context, service.Owner, service.Sharing, service.SharedWith, name, what)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Whether the caller may read this item's data through an administrative endpoint; writes a
+    /// 404 when not — ADR-018 §3b, which these endpoints did not apply.
+    /// </summary>
+    /// <remarks>
+    /// <b>Sharing governs reading, on this surface too.</b> Classifying a layer, previewing its
+    /// symbology or measuring a visible range reads the rows, and until 2026-09-16 those endpoints
+    /// asked for <c>content:publishFeatures</c> alone — so a publisher could read the value
+    /// distribution of a private layer they could not open. Found in the same sweep as
+    /// <see cref="ManagesAsync"/>.
+    /// </remarks>
+    /// <param name="context">The request.</param>
+    /// <param name="layer">The layer.</param>
+    /// <returns>Whether the caller may proceed.</returns>
+    internal static async Task<bool> ReadsAsync(HttpContext context, PublishedLayer layer)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (LayerAccess.Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization, layer.SharedWith)
+                .IsAllowed())
+        {
+            return true;
+        }
+
+        await Refuse(context, 404, $"No layer '{layer.Definition.Name}'.").ConfigureAwait(false);
+        return false;
     }
 
     private static Task Refuse(HttpContext context, int status, string message) =>

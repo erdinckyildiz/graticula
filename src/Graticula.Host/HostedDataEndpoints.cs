@@ -2065,6 +2065,34 @@ internal static class HostedDataEndpoints
             return null;
         }
 
+        /*
+          <b>Whose layer it is, and until 2026-09-16 nothing here asked —
+          [ADR-075](../../docs/adr/ADR-075-a-layer-is-edited-by-its-owner.md).</b> This resolves the
+          layer for adding a field, dropping one and emptying the table, through both the native
+          doors and ArcGIS's `/rest/admin/…/addToDefinition`, `deleteFromDefinition` and
+          `truncate`, and it asked for `content:publishFeatures` and nothing else: not whose layer
+          it was, and not even whether the caller could read it. So any publisher could drop a
+          column from, or truncate, another member's **private** layer by naming it — and a
+          truncate is not undone. Found while applying the owner's rule that a layer is edited by
+          its owner and administrators.
+
+          <b>Owner or administrator, and not a shared-update group.</b> A group the owner shares a
+          layer with for editing writes its features; changing what the layer *is*, or emptying
+          it, stays with the person answerable for it — which is ArcGIS's line too, where a
+          group's members edit data and only the owner or an administrator updates the
+          definition. A layer with no owner is an administrator's.
+
+          <b>404 to a caller who cannot read it, 403 to one who can.</b> The second learns nothing
+          new; the first must not learn the layer exists, and the registered-layer refusal below
+          would have told them its table's name.
+        */
+        if (!await AdminEndpoints.ManagesAsync(
+                context, found.Owner, found.Sharing, found.SharedWith, found.Definition.Name, what)
+            .ConfigureAwait(false))
+        {
+            return null;
+        }
+
         if (!found.Definition.IsHosted)
         {
             // <b>*Somebody else administers it* is what this said until it was read back on a

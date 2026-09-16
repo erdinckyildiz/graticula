@@ -29,34 +29,40 @@ namespace Graticula.Host;
 internal static class Authorize
 {
     /// <summary>
-    /// Requires a privilege, unless a group the caller belongs to confers editing this item.
+    /// Whether the caller may write to this layer — adding, changing or deleting features, or their
+    /// attachments; writes the refusal when not.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Shared update — owner decision 2026-08-25,
-    /// [ADR-036](../../docs/adr/ADR-036-groups.md) §4a as amended.</b> A layer shared with a
-    /// group whose <c>item_update</c> is <c>allItems</c> is editable by that group's members,
-    /// whatever privileges they hold. Everything else is unchanged: no group, or a group
-    /// without that setting, and this is <see cref="RequireAsync"/>.
+    /// <b>A layer is written to by its owner, by an administrator, and by a group its owner has
+    /// shared it with for editing — owner decision 2026-09-16,
+    /// [ADR-075](../../docs/adr/ADR-075-a-layer-is-edited-by-its-owner.md).</b> The rule is
+    /// <see cref="LayerAccess.MayEdit"/>, and this is the one door every writing face goes through:
+    /// ArcGIS <c>applyEdits</c> at both levels, the three OGC API Features writes, and attachments.
     /// </para>
     /// <para>
-    /// <b>One helper rather than the same three lines on each face.</b> ArcGIS
-    /// <c>applyEdits</c> and OGC API Features Part 4 write through one
-    /// <see cref="Graticula.Features.IFeatureWriter"/> (Q-44); they have to decide who may
-    /// write the same way too, or the same layer is editable through one face and refused
-    /// through the other — which is the kind of divergence a conformance run finds months
-    /// later, on whichever face nobody tested.
+    /// <b>What it replaced was two privileges and a scope.</b> Adding asked for <c>features:edit</c>
+    /// and changing asked for <c>features:fullEdit</c> — or, on a layer that records its creators,
+    /// <c>features:edit</c> reaching the caller's own features (ADR-064) — and neither asked whose
+    /// layer it was. So every member with an editor's role could write to every layer they could
+    /// read, public ones included. The owner's delegation survives: shared update, ADR-036 §4a.
     /// </para>
     /// <para>
-    /// <b>The refusal is still the privilege's.</b> When the group does not carry it, the
-    /// caller is told what privilege they lack and nothing about the item — D-03's rule is
-    /// unchanged, and mentioning the group would tell somebody who cannot edit that a group
-    /// exists which could.
+    /// <b>Adding and changing now have one answer</b>, because the question is no longer which
+    /// privilege but whose layer, and a layer's owner may do both to it. The privilege the caller
+    /// passes is still what a refusal names when a privilege is what is missing.
+    /// </para>
+    /// <para>
+    /// <b>The refusal is the privilege's where a privilege would fix it, and the layer's
+    /// otherwise.</b> Anonymous gets the privilege refusal, which asks for a token; an owner whose
+    /// role has lost <c>features:edit</c> is told that. Anybody else can already read the layer —
+    /// <c>ServiceLookup</c> answers 404 first for one they cannot — so naming the rule tells them
+    /// nothing they could not see, and it does not name the owner.
     /// </para>
     /// </remarks>
     /// <param name="context">The request.</param>
-    /// <param name="privilege">What is required when no group carries the edit.</param>
-    /// <param name="layer">The item being written to.</param>
+    /// <param name="privilege">What a refusal names when the caller's role is what is missing.</param>
+    /// <param name="layer">The layer being written to.</param>
     /// <returns>Whether the caller may proceed; a refusal has been written when false.</returns>
     public static async Task<bool> RequireEditAsync(
         HttpContext context, Privilege privilege, Graticula.Platform.Catalog.PublishedLayer layer)
@@ -70,77 +76,39 @@ internal static class Authorize
                 + "run before any endpoint, including for anonymous callers — 'no principal' is a "
                 + "wiring bug, not an unauthenticated request.");
 
-        if (LayerAccess.GroupConfersEditing(
-                layer.Sharing, current.Authorization, layer.SharedWith))
+        if (EditRightOf(current, layer) != LayerAccess.EditRight.None)
         {
             return true;
         }
 
-        return await RequireAsync(context, privilege).ConfigureAwait(false);
+        if (current.Principal.IsAnonymous
+            || (layer.Owner == current.Principal.Id && !current.Authorization.Allows(privilege)))
+        {
+            return await RequireAsync(context, privilege).ConfigureAwait(false);
+        }
+
+        string message =
+            $"Layer '{layer.Definition.Name}' is edited by its owner, by an administrator, and by a "
+            + "group its owner has shared it with for editing. "
+            + (layer.Owner is null
+                ? "It has no owner, so until an administrator assigns one only an administrator edits it."
+                : "You are none of these; ask its owner to share it with a group you belong to for editing.");
+
+        await Results.Json(new { error = new { code = 403, message } }, statusCode: 403)
+            .ExecuteAsync(context)
+            .ConfigureAwait(false);
+
+        return false;
     }
 
-    /// <summary>Which features a caller may update and delete on one layer — ADR-064.</summary>
-    public enum ChangeScope
-    {
-        /// <summary>Every feature: <c>features:fullEdit</c>, or editing a group confers.</summary>
-        Every,
-
-        /// <summary>The features whose creator is the caller: <c>features:edit</c> on a tracked layer.</summary>
-        Own,
-    }
-
-    /// <summary>
-    /// Whether the request may update and delete features on this layer, and which ones; writes
-    /// the refusal if it may change none — ADR-064, and what closes D-20.
-    /// </summary>
-    /// <param name="context">The request.</param>
+    /// <summary>The caller's right to write to a layer, from the request.</summary>
+    /// <param name="current">The caller.</param>
     /// <param name="layer">The layer.</param>
-    /// <param name="tracking">Which of its columns record edits, from its description.</param>
-    /// <returns>The scope, or null when the refusal has been written.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>One answer for both writing faces</b>, because the rule is about the layer and the
-    /// caller and not about which protocol asked. ArcGIS <c>applyEdits</c> and OGC API Features
-    /// used to each ask for <c>features:fullEdit</c> with a comment citing D-20; they ask this now.
-    /// </para>
-    /// <para>
-    /// <b>Group editing and <c>features:fullEdit</c> reach every feature, as before.</b> What is
-    /// new is the middle: on a layer that records who created each feature,
-    /// <c>features:edit</c> reaches the caller's own — Portal's meaning. On a layer that does
-    /// not, the server still cannot tell whose a feature is, and the refusal is the one this
-    /// returned before: it names <c>features:fullEdit</c>.
-    /// </para>
-    /// </remarks>
-    public static async Task<ChangeScope?> RequireChangeAsync(
-        HttpContext context,
-        Graticula.Platform.Catalog.PublishedLayer layer,
-        Graticula.Catalog.EditorTracking tracking)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(layer);
-        ArgumentNullException.ThrowIfNull(tracking);
-
-        RequestPrincipal current = context.Features.Get<RequestPrincipal>()
-            ?? throw new InvalidOperationException(
-                "No principal was resolved for this request. The authentication middleware must "
-                + "run before any endpoint, including for anonymous callers — 'no principal' is a "
-                + "wiring bug, not an unauthenticated request.");
-
-        if (LayerAccess.GroupConfersEditing(layer.Sharing, current.Authorization, layer.SharedWith)
-            || current.Authorization.Allows(Privilege.FeaturesFullEdit))
-        {
-            return ChangeScope.Every;
-        }
-
-        if (tracking.IsOn && current.Authorization.Allows(Privilege.FeaturesEdit))
-        {
-            return ChangeScope.Own;
-        }
-
-        return await RequireAsync(context, Privilege.FeaturesFullEdit).ConfigureAwait(false)
-            ? ChangeScope.Every
-            : null;
-    }
+    /// <returns>The ground it stands on, or none.</returns>
+    internal static LayerAccess.EditRight EditRightOf(
+        RequestPrincipal current, Graticula.Platform.Catalog.PublishedLayer layer) =>
+        LayerAccess.MayEdit(
+            layer.Owner, layer.Sharing, layer.SharedWith, current.Principal, current.Authorization);
 
     /// <summary>
     /// Whether the request may proceed; writes the refusal if not.

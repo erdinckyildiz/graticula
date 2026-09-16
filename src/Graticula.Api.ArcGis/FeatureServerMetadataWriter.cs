@@ -823,7 +823,7 @@ public static class FeatureServerMetadataWriter
 
             // <b>Editor tracking, as the ArcGIS REST reference names it — ADR-064.</b> Which
             // columns record who created and last changed a feature and when, and — once a
-            // creator is recorded — that an account may change only its own. Null on a layer
+            // creator is recorded — the creator field a client reads. Null on a layer
             // that records none, so a client is told there is no tracking rather than left to
             // guess from an absent key.
             editFieldsInfo = description.Tracking.Any
