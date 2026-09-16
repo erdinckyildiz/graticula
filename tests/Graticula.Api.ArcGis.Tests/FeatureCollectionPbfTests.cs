@@ -50,7 +50,8 @@ public sealed class FeatureCollectionPbfTests
         PbfQuantization? quantization = null,
         long ceiling = 0,
         int limit = 100,
-        GeometryKind kind = GeometryKind.Polygon)
+        GeometryKind kind = GeometryKind.Polygon,
+        GeometryOrdinates ordinates = GeometryOrdinates.None)
     {
         FeatureCollectionPbfWriter writer = new(Layer(), ceiling, Described);
         using MemoryStream stream = new();
@@ -61,7 +62,8 @@ public sealed class FeatureCollectionPbfTests
             new FeatureQuery(limit, fields: Names),
             kind,
             quantization ?? PbfQuantization.Default(3857),
-            CancellationToken.None);
+            CancellationToken.None,
+            ordinates);
 
         return (PbfReader.QueryResult(stream.ToArray()).One(1).Message, written);
     }
@@ -257,6 +259,95 @@ public sealed class FeatureCollectionPbfTests
         Assert.Equal((10d, 20d, false, false), (lower!.OriginX, lower.OriginY, lower.UpperLeft, lower.View));
         Assert.Equal(5, upper.Y(30));
         Assert.Equal(5, lower.Y(30));
+    }
+
+    /// <summary>A flat answer says nothing about Z or M, and its transform is the two-field one it was.</summary>
+    [Fact]
+    public async Task A_flat_answer_is_unchanged_by_the_ordinates_step()
+    {
+        (IReadOnlyList<Field> result, _) = await WriteAsync([new Point(1, 2)], kind: GeometryKind.Point);
+
+        Assert.Null(result.Find(f => f.Number == 10));
+        Assert.Null(result.Find(f => f.Number == 11));
+        Assert.Null(result.One(12).Message.One(2).Message.Find(f => f.Number == 4));
+        Assert.Equal(2, PbfReader.PackedSInt(result.One(15).Message.One(2).Message.One(3).Bytes).Count);
+    }
+
+    /// <summary>
+    /// A line with Z and M says so in the header and each vertex decodes to its own elevation and measure —
+    /// ADR-077 §9.
+    /// </summary>
+    [Fact]
+    public async Task A_line_with_z_and_m_decodes_each_vertex_s_own_values()
+    {
+        LineString line = new(XySequence.Wrap([0, 0, 100, 50, 200, 0], z: [110.25, 120.5, 130.75], m: [0, 5, 10]));
+
+        (IReadOnlyList<Field> result, _) = await WriteAsync(
+            [line], kind: GeometryKind.LineString, ordinates: GeometryOrdinates.Z | GeometryOrdinates.M);
+
+        Assert.True(result.One(10).Varint == 1);
+        Assert.True(result.One(11).Varint == 1);
+
+        List<(double X, double Y, double? Z, double? M)> part = PbfReader.PartsWithOrdinates(
+            result.One(15).Message.One(2).Message, result.One(12).Message, hasZ: true, hasM: true)[0];
+
+        Assert.Equal([110.25, 120.5, 130.75], part.Select(v => v.Z!.Value).Select(z => Math.Round(z, 4)));
+        Assert.Equal([0d, 5d, 10d], part.Select(v => v.M!.Value).Select(m => Math.Round(m, 4)));
+        Assert.Equal((100d, 50d), (Math.Round(part[1].X, 4), Math.Round(part[1].Y, 4)));
+    }
+
+    /// <summary>
+    /// Z and M are absolute on every vertex, not differences — the encoding the ArcGIS Maps SDK decodes.
+    /// </summary>
+    /// <remarks>
+    /// <b>Pinned on the bytes, because a decoder written by the same hand would agree with either choice.</b>
+    /// Measured 2026-09-17 against the Maps SDK for JavaScript 4.30: a delta-encoded Z came back as the first
+    /// vertex's value on every vertex.
+    /// </remarks>
+    [Fact]
+    public async Task Z_is_written_absolute_on_every_vertex()
+    {
+        LineString line = new(XySequence.Wrap([0, 0, 1, 1, 2, 2], z: [1, 2, 3], m: null));
+
+        (IReadOnlyList<Field> result, _) = await WriteAsync(
+            [line], kind: GeometryKind.LineString, ordinates: GeometryOrdinates.Z);
+
+        List<long> coords = PbfReader.PackedSInt(result.One(15).Message.One(2).Message.One(3).Bytes);
+
+        Assert.Equal([10_000L, 20_000L, 30_000L], [coords[2], coords[5], coords[8]]);
+    }
+
+    /// <summary>A point carries its Z and M after x and y; a multipoint carries each point's.</summary>
+    [Fact]
+    public async Task Points_and_multipoints_carry_their_own_ordinates()
+    {
+        (IReadOnlyList<Field> point, _) = await WriteAsync(
+            [Point.Create(1, 2, 300, null)], kind: GeometryKind.Point, ordinates: GeometryOrdinates.Z);
+
+        (double _, double _, double? z, double? _) = PbfReader.PartsWithOrdinates(
+            point.One(15).Message.One(2).Message, point.One(12).Message, hasZ: true, hasM: false)[0][0];
+        Assert.Equal(300, z!.Value, 1e-4);
+
+        (IReadOnlyList<Field> many, _) = await WriteAsync(
+            [new MultiPoint([Point.Create(1, 2, null, 7), Point.Create(3, 4, null, 8)])],
+            kind: GeometryKind.MultiPoint,
+            ordinates: GeometryOrdinates.M);
+
+        Assert.Equal([7d, 8d], PbfReader.PartsWithOrdinates(
+                many.One(15).Message.One(2).Message, many.One(12).Message, hasZ: false, hasM: true)[0]
+            .Select(v => Math.Round(v.M!.Value, 4)));
+    }
+
+    /// <summary>
+    /// A geometry without what the header promised stops the answer rather than misreading the rest of it.
+    /// </summary>
+    [Fact]
+    public async Task A_geometry_short_of_the_header_s_promise_is_an_error()
+    {
+        await Assert.ThrowsAsync<InvalidOperationException>(() => WriteAsync(
+            [new LineString(XySequence.Wrap([0, 0, 1, 1]))],
+            kind: GeometryKind.LineString,
+            ordinates: GeometryOrdinates.Z));
     }
 
     /// <summary>One feature per shape, with one value of every kind the header declares.</summary>

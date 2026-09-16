@@ -140,7 +140,7 @@ If 3D is taken up, this is the sequence, and each step is its own ADR:
    layer be defined 3D*.
 3. **Surfaces, one at a time** — `query` returning Z, then `applyEdits` accepting it, then WFS and
    OGC API Features. Each is a place `hasZ` becomes conditional rather than false. *(`query` in `f=json`
-   done 2026-09-16 — ADR-077 §8.)*
+   done 2026-09-16 and in `f=pbf` 2026-09-17 — ADR-077 §8–§9.)*
 4. **Storage and import** — hosted tables defined `PointZ`, imports keeping the ordinate they
    currently count, which is what closes [D-107](../architecture-debt.md).
 

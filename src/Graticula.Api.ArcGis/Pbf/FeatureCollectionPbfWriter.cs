@@ -72,6 +72,10 @@ public sealed class FeatureCollectionPbfWriter
     /// <param name="geometryType">The layer's declared geometry type.</param>
     /// <param name="quantization">The integer grid coordinates are written on.</param>
     /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="ordinates">
+    /// Which of Z and M every geometry carries — what the column declares and the query asked for. The
+    /// header says it before the features, and each vertex is written with exactly that many numbers.
+    /// </param>
     /// <returns>How many features were written.</returns>
     public async Task<int> WriteAsync(
         Stream output,
@@ -79,7 +83,8 @@ public sealed class FeatureCollectionPbfWriter
         FeatureQuery query,
         GeometryKind geometryType,
         PbfQuantization quantization,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        GeometryOrdinates ordinates = GeometryOrdinates.None)
     {
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(source);
@@ -110,17 +115,44 @@ public sealed class FeatureCollectionPbfWriter
         result.UInt(7, (ulong)GeometryTypeOf(geometryType));
         result.Message(8, Reference(srid, query.OutWkt));
 
+        // <b>`hasZ` and `hasM` — ADR-077 §9.</b> A reader takes the stride of every vertex from these two,
+        // so they are the promise each geometry below keeps.
+        if ((ordinates & GeometryOrdinates.Z) != 0)
+        {
+            result.Bool(10, true);
+        }
+
+        if ((ordinates & GeometryOrdinates.M) != 0)
+        {
+            result.Bool(11, true);
+        }
+
         ProtoBuffer transform = new();
         transform.UInt(1, quantization.UpperLeft ? 0UL : 1UL);
 
+        // The specification numbers them x, y, m, z — M is field 3 and Z is field 4, in both messages.
         ProtoBuffer scale = new();
         scale.Double(1, quantization.Tolerance);
         scale.Double(2, quantization.Tolerance);
+
+        if (ordinates != GeometryOrdinates.None)
+        {
+            scale.Double(3, quantization.OrdinateScale);
+            scale.Double(4, quantization.OrdinateScale);
+        }
+
         transform.Message(2, scale);
 
         ProtoBuffer translate = new();
         translate.Double(1, quantization.OriginX);
         translate.Double(2, quantization.OriginY);
+
+        if (ordinates != GeometryOrdinates.None)
+        {
+            translate.Double(3, 0);
+            translate.Double(4, 0);
+        }
+
         transform.Message(3, translate);
 
         result.Message(12, transform);
@@ -163,7 +195,7 @@ public sealed class FeatureCollectionPbfWriter
 
         await foreach (Feature feature in source.ReadAsync(query, cancellationToken).ConfigureAwait(false))
         {
-            result.Message(15, FeatureMessage(feature, schema, objectIdIndex, kinds, quantization));
+            result.Message(15, FeatureMessage(feature, schema, objectIdIndex, kinds, quantization, ordinates));
             written++;
 
             // After writing, so one feature is always returned and a paging loop advances — the
@@ -303,7 +335,12 @@ public sealed class FeatureCollectionPbfWriter
     };
 
     private static ProtoBuffer FeatureMessage(
-        Feature feature, FeatureSchema schema, int objectIdIndex, int[] kinds, PbfQuantization quantization)
+        Feature feature,
+        FeatureSchema schema,
+        int objectIdIndex,
+        int[] kinds,
+        PbfQuantization quantization,
+        GeometryOrdinates ordinates)
     {
         ProtoBuffer message = new();
 
@@ -312,7 +349,7 @@ public sealed class FeatureCollectionPbfWriter
             message.Message(1, Value(feature[i], i == objectIdIndex, kinds[i]));
         }
 
-        if (feature.Geometry is { IsEmpty: false } geometry && Geometry(geometry, quantization) is { } encoded)
+        if (feature.Geometry is { IsEmpty: false } geometry && Geometry(geometry, quantization, ordinates) is { } encoded)
         {
             message.Message(2, encoded);
         }
@@ -407,30 +444,48 @@ public sealed class FeatureCollectionPbfWriter
     /// counter-clockwise, in world coordinates, which an upper-left origin does not change.
     /// </para>
     /// </remarks>
-    internal static ProtoBuffer? Geometry(Geometry geometry, PbfQuantization quantization)
+    internal static ProtoBuffer? Geometry(
+        Geometry geometry, PbfQuantization quantization, GeometryOrdinates ordinates = GeometryOrdinates.None)
     {
         List<uint> lengths = [];
         List<long> coords = [];
+        bool withZ = (ordinates & GeometryOrdinates.Z) != 0;
+        bool withM = (ordinates & GeometryOrdinates.M) != 0;
 
         switch (geometry)
         {
             case Point point:
                 coords.Add(quantization.X(point.X));
                 coords.Add(quantization.Y(point.Y));
+                Ordinates(point.Z, point.M);
                 break;
 
             case MultiPoint multiPoint:
             {
-                double[] flat = new double[multiPoint.Parts.Count * 2];
+                int count = multiPoint.Parts.Count;
+                double[] flat = new double[count * 2];
+                double[]? zs = withZ ? new double[count] : null;
+                double[]? ms = withM ? new double[count] : null;
 
-                for (int i = 0; i < multiPoint.Parts.Count; i++)
+                for (int i = 0; i < count; i++)
                 {
-                    flat[i * 2] = multiPoint.Parts[i].X;
-                    flat[(i * 2) + 1] = multiPoint.Parts[i].Y;
+                    Point part = multiPoint.Parts[i];
+                    flat[i * 2] = part.X;
+                    flat[(i * 2) + 1] = part.Y;
+
+                    if (zs is not null)
+                    {
+                        zs[i] = part.Z ?? throw Unkept(GeometryOrdinates.Z);
+                    }
+
+                    if (ms is not null)
+                    {
+                        ms[i] = part.M ?? throw Unkept(GeometryOrdinates.M);
+                    }
                 }
 
                 // Every point is kept, in either mode: two points on one cell are still two points.
-                Part(XySequence.Wrap(flat), reversed: false, minimum: 1, keepDuplicates: true);
+                Part(XySequence.Wrap(flat, zs, ms), reversed: false, minimum: 1, keepDuplicates: true);
                 break;
             }
 
@@ -500,6 +555,11 @@ public sealed class FeatureCollectionPbfWriter
             long lastY = 0;
             int kept = 0;
 
+            if ((withZ && !sequence.HasZ) || (withM && !sequence.HasM))
+            {
+                throw Unkept(withZ && !sequence.HasZ ? GeometryOrdinates.Z : GeometryOrdinates.M);
+            }
+
             for (int n = 0; n < sequence.Count; n++)
             {
                 int i = reversed ? sequence.Count - 1 - n : n;
@@ -522,6 +582,8 @@ public sealed class FeatureCollectionPbfWriter
                     coords.Add(y - previousY);
                 }
 
+                Ordinates(withZ ? sequence.Z(i) : null, withM ? sequence.M(i) : null);
+
                 previousX = x;
                 previousY = y;
                 lastX = x;
@@ -540,5 +602,31 @@ public sealed class FeatureCollectionPbfWriter
             lengths.Add((uint)kept);
             return true;
         }
+
+        // <b>Z and M are absolute, not differences — measured, because the specification does not say.</b>
+        // The published proto has `zScale`, `mScale` and their translations and no word on how the numbers
+        // in `coords` use them. The ArcGIS Maps SDK for JavaScript 4.30, given one polyline written both
+        // ways on 2026-09-17, decoded x and y as differences and Z and M as `translate + scale * value`
+        // from each vertex's own number: the delta-encoded file came back with every vertex at the first
+        // vertex's elevation. So each vertex carries its own.
+        void Ordinates(double? z, double? m)
+        {
+            if (withZ)
+            {
+                coords.Add(quantization.Ordinate(z ?? throw Unkept(GeometryOrdinates.Z)));
+            }
+
+            if (withM)
+            {
+                coords.Add(quantization.Ordinate(m ?? throw Unkept(GeometryOrdinates.M)));
+            }
+        }
+
+        // <b>A geometry short of what the header promised is an error, not a zero.</b> The stride of every
+        // vertex after it comes from the header, so writing it short would misread the rest of the answer,
+        // and writing a zero would invent an elevation. The column's declaration and the reader's mask make
+        // this unreachable; it throws so that it stays so.
+        static InvalidOperationException Unkept(GeometryOrdinates missing) => new(
+            $"The answer's header promised {Graticula.Geometries.Ordinates.Name(missing)} on every geometry and one was read without it.");
     }
 }

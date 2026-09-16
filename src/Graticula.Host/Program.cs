@@ -5211,12 +5211,7 @@ public static class Program
         {
             string? refused = shape is QueryShape.Statistics
                 ? "outStatistics is answered as json only: f=pbf carries features, counts, ids and extents here."
-                // ADR-077, step 3: the pbf writer encodes x and y, so an elevation asked for there would be
-                // dropped in silence. Refused until it encodes them; the json answer carries Z and M.
-                : query!.KeepOrdinates != Graticula.Geometries.GeometryOrdinates.None
-                    ? "returnZ and returnM are answered in f=json only for now: f=pbf writes x and y, and "
-                      + "would drop the elevation or measure without saying so. Ask again with f=json."
-                    : null;
+                : null;
 
             if (refused is null
                 && !PbfQuantization.TryParse(
@@ -5388,7 +5383,15 @@ public static class Program
                 layer.Definition, cost.ResponseBytes(settings.MaximumResponseBytes), described.Fields);
 
             using MemoryStream buffer = new();
-            await encoded.WriteAsync(buffer, source, query!, layer.GeometryType, quantization, cancellation)
+            // ADR-077 §9: what the column declares and the caller asked for, said once in the header.
+            await encoded.WriteAsync(
+                    buffer,
+                    source,
+                    query!,
+                    layer.GeometryType,
+                    quantization,
+                    cancellation,
+                    described.StoredOrdinates & query!.KeepOrdinates)
                 .ConfigureAwait(false);
 
             context.Response.ContentType = FeatureCollectionPbfWriter.ContentType;

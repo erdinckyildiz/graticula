@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace Graticula.Testing;
@@ -109,7 +110,16 @@ public static class PbfReader
     /// <summary>
     /// A geometry's parts in world coordinates, undoing the transform and the per-part delta encoding.
     /// </summary>
-    public static List<List<(double X, double Y)>> Parts(IReadOnlyList<Field> geometry, IReadOnlyList<Field> transform)
+    public static List<List<(double X, double Y)>> Parts(IReadOnlyList<Field> geometry, IReadOnlyList<Field> transform) =>
+        [.. PartsWithOrdinates(geometry, transform, hasZ: false, hasM: false)
+            .Select(part => part.Select(v => (v.X, v.Y)).ToList())];
+
+    /// <summary>
+    /// The parts with Z and M, which follow each vertex's x and y as absolute numbers on the M and Z scale —
+    /// ADR-077 §9, as the ArcGIS Maps SDK decodes them.
+    /// </summary>
+    public static List<List<(double X, double Y, double? Z, double? M)>> PartsWithOrdinates(
+        IReadOnlyList<Field> geometry, IReadOnlyList<Field> transform, bool hasZ, bool hasM)
     {
         bool upperLeft = transform.OptionalVarint(1) == 0;
         IReadOnlyList<Field> scale = transform.One(2).Message;
@@ -118,16 +128,17 @@ public static class PbfReader
         double sy = scale.One(2).AsDouble;
         double tx = translate.One(1).AsDouble;
         double ty = translate.One(2).AsDouble;
+        int stride = 2 + (hasZ ? 1 : 0) + (hasM ? 1 : 0);
 
         List<long> coords = geometry.Find(f => f.Number == 3) is { } c ? PackedSInt(c.Bytes) : [];
-        List<ulong> lengths = geometry.Find(f => f.Number == 2) is { } l ? Packed(l.Bytes) : [(ulong)(coords.Count / 2)];
+        List<ulong> lengths = geometry.Find(f => f.Number == 2) is { } l ? Packed(l.Bytes) : [(ulong)(coords.Count / stride)];
 
-        List<List<(double, double)>> parts = [];
+        List<List<(double, double, double?, double?)>> parts = [];
         int at = 0;
 
         foreach (ulong length in lengths)
         {
-            List<(double, double)> part = [];
+            List<(double, double, double?, double?)> part = [];
             long x = 0;
             long y = 0;
 
@@ -135,9 +146,12 @@ public static class PbfReader
             {
                 x = n == 0 ? coords[at] : x + coords[at];
                 y = n == 0 ? coords[at + 1] : y + coords[at + 1];
-                at += 2;
+                int next = at + 2;
+                double? z = hasZ ? translate.One(4).AsDouble + (coords[next++] * scale.One(4).AsDouble) : null;
+                double? m = hasM ? translate.One(3).AsDouble + (coords[next] * scale.One(3).AsDouble) : null;
+                at += stride;
 
-                part.Add((tx + (x * sx), upperLeft ? ty - (y * sy) : ty + (y * sy)));
+                part.Add((tx + (x * sx), upperLeft ? ty - (y * sy) : ty + (y * sy), z, m));
             }
 
             parts.Add(part);

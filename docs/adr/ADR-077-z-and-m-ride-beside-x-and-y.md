@@ -96,15 +96,15 @@ the binding constraint (A-037). Times overlap the baseline's.
    **DISCHARGED** 2026-09-16 — `ZAndMRideBesideXyTests`.
 3. **Each step-3 surface that starts returning Z turns `keepOrdinates` on for itself and makes its own
    `hasZ` / `hasM` true in the same change**, with a test that reads a 3D row back through that surface.
-   **PARTLY DISCHARGED** 2026-09-16 — ArcGIS `query` in `f=json`, §8. Open for `f=pbf`, `applyEdits`, WFS
-   and OGC API Features.
+   **PARTLY DISCHARGED** 2026-09-16 — ArcGIS `query` in `f=json`, §8, and in `f=pbf` on 2026-09-17, §9.
+   Open for `applyEdits`, WFS and OGC API Features.
 4. **The in-process operations follow §5 before any surface feeds them a 3D geometry** — `Densify`
    interpolates, `ConvexHull` returns 2D and reports it. *(Open — step 3.)*
 
 ## 7. Consequences
 
-- The model can hold elevations and measures; ArcGIS `query` in `f=json` serves them (§8), and every other
-  surface still answers x and y.
+- The model can hold elevations and measures; ArcGIS `query` serves them in `f=json` (§8) and `f=pbf`
+  (§9), and every other surface still answers x and y.
 - `Point` is unsealed, which a derived class outside Core could now exploit; the subclass that exists is
   private, and nothing constructs points by reflection.
 - The plan's next benchmark is the query path's, and the harness for it is in the repository.
@@ -126,13 +126,31 @@ the binding constraint (A-037). Times overlap the baseline's.
    M. §5.1 says a kept vertex keeps its measure, so `returnM=true` with `maxAllowableOffset` or
    `geometryPrecision` is refused with the reason rather than answered without the M it claims.
    `AQueryReturnsTheOrdinatesItAskedForTests` holds the Z half against a real column.
-4. **`f=pbf` refuses `returnZ` / `returnM` for now.** The PBF feature collection carries Z and M in its own
-   dimension fields; writing them is its own change, and answering flat while the caller asked is the
-   silent loss ADR-074 exists to end.
+4. ~~**`f=pbf` refuses `returnZ` / `returnM` for now.**~~ *(Superseded 2026-09-17 by §9: `f=pbf` answers
+   them.)*
 5. **A layer with Z or M stops offering `Create`, and with it `Editing`.** A client that reads
    `hasZ: true` sends an elevation with every new feature, which `applyEdits` cannot yet write, and a flat
    shape was already refused by the typed column. `Update` and `Delete` stay for attributes;
    `allowGeometryUpdates` stays false. The `applyEdits` step turns `Create` back on.
 6. **The HTML query form offers Return Z and Return M per layer**, as it does `time`.
+
+## 9. Step 3, the same surface in `f=pbf` (2026-09-17)
+
+1. **The header says `hasZ` / `hasM` (fields 10 and 11) from what the column declares and the caller asked
+   for**, before any feature, because a reader takes every vertex's stride from them. A geometry short of
+   that promise throws rather than writing a short vertex or a zero.
+2. **Z and M are written after each vertex's x and y, as integers on their own grid — absolute on every
+   vertex, not differences.** **The specification does not say which; this was measured.** The published
+   proto defines `mScale`/`zScale` (fields 3 and 4 of `Scale`) and their translations and says nothing about
+   how `coords` uses them. One polyline with elevations 110, 120, 130 was written both ways and read by the
+   ArcGIS Maps SDK for JavaScript 4.30: the delta-encoded file decoded to 110 on every vertex, the absolute
+   one to 110, 120, 130. The writer's own bytes were then read by the same client and came back exact
+   (110.25, 120.5, 130.75 and M 11, 12, 13). `Z_is_written_absolute_on_every_vertex` pins it on the bytes,
+   because a decoder written beside the writer would agree with either choice.
+3. **The Z and M grid is a tenth of a millimetre from zero, whatever `quantizationParameters` says.** That
+   parameter's `tolerance` is in the output reference's units, which for a geographic reference are degrees;
+   an elevation rounded to one would be none.
+4. **A flat answer is byte-for-byte what it was**: no header flags, and a `Scale` / `Translate` with two
+   fields.
 
 **State.** None.

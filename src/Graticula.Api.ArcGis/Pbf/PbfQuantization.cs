@@ -47,6 +47,19 @@ public sealed record PbfQuantization
     /// <summary>Whether a vertex on the cell of the one before it is dropped.</summary>
     public required bool View { get; init; }
 
+    /// <summary>
+    /// The cell size for Z and M, which <c>quantizationParameters</c> has no field for — ADR-077 §9.
+    /// </summary>
+    /// <remarks>
+    /// <b>A tenth of a millimetre, from zero, whatever the request says about x and y.</b> The caller's
+    /// tolerance is in the output reference's units, which for a geographic reference are degrees, and an
+    /// elevation in metres rounded to a degree would be no elevation at all.
+    /// </remarks>
+    public double OrdinateScale { get; init; } = 1e-4;
+
+    /// <summary>The integer a Z or M value is written as, on <see cref="OrdinateScale"/>.</summary>
+    public long Ordinate(double value) => (long)Math.Round(value / OrdinateScale, MidpointRounding.AwayFromZero);
+
     /// <summary>The grid used when a request names none.</summary>
     /// <param name="srid">The reference the coordinates are written in.</param>
     public static PbfQuantization Default(int srid) => new()
