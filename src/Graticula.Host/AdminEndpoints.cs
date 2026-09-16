@@ -1155,6 +1155,9 @@ internal static partial class AdminEndpoints
                 layers = service.Layers.Count,
                 scope,
 
+                // ADR-075, D-271: whether this caller may change the item — share it, restyle it.
+                manages = LayerAccess.MayManage(service.Owner, current.Principal, current.Authorization),
+
                 // <b>Which group, not just *a* group.</b> `Evaluate` iterates the item's groups
                 // against the caller's and returns on the first hit, so the answer is in hand at the
                 // moment of the decision and was being discarded — leaving a screen able to group rows
@@ -1325,6 +1328,9 @@ internal static partial class AdminEndpoints
                 object entry = new
                 {
                     name = layer.Definition.Name,
+
+                    // ADR-075, D-271: whether this caller may change the layer's settings.
+                    manages = LayerAccess.MayManage(service.Owner, current.Principal, current.Authorization),
                     service = service.QualifiedName,
                     folder = service.Folder,
                     layerId = layer.LayerIndex,
@@ -8596,12 +8602,18 @@ internal static partial class AdminEndpoints
         IReadOnlyList<AdminLayer> layers =
             await catalog.ListLayersAsync(cancellation).ConfigureAwait(false);
 
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
         await Results.Json(new
         {
             layers = layers.Select(l => new
             {
                 l.Id,
                 l.Name,
+
+                // <b>Whether this caller may change it — ADR-075, D-271.</b> The server's answer, so the
+                // console does not keep a second copy of the rule and offer controls that answer 403.
+                manages = LayerAccess.MayManage(l.Owner, current.Principal, current.Authorization),
                 dataSource = l.DataSourceName,
                 table = l.Qualified,
                 sharing = PostgresSharing(l.Sharing),

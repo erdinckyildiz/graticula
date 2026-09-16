@@ -127,8 +127,14 @@ permanent decision by being forgotten.
 3. **Studio stops offering a publisher the pages of a layer it does not own.** The console decides
    which pages to show by surface and privilege, so a publisher who can read somebody else's layer
    may be shown Symbology and Fields pages that now answer 403. The refusal is clear; the offer is
-   still an over-claim. *(Open — [D-271](../architecture-debt.md). Not measured on a running console
-   in this change.)*
+   still an over-claim. **DISCHARGED 2026-09-16.** The three listings (`/admin/layers`, `/content/items`,
+   `/content/layers`) carry `manages`, computed by `LayerAccess.MayManage`, so the console keeps no copy
+   of the rule. A row the reader does not manage shows its sharing pill and not the Share button; a
+   layer's settings pages show a neutral note band and disable every control that changes something,
+   leaving tabs, the basemap switch, the map's zoom and show-on-map alone — `inert` was tried first and
+   killed the pages' own tabs while looking exactly like enabled. Pinned by
+   `SomebodyElsesLayerIsReadNotOfferedTests`, run against the VPS fixture; reviewed by ux-designer, whose
+   one defect — the band borrowed the amber that means *the override wins* on the same page — is fixed.
 
 ## 7. Consequences
 

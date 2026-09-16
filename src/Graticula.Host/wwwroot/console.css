@@ -3054,6 +3054,14 @@ input[type="color"].sw-point::-moz-color-swatch { border-radius: 50%; }
 }
 .symbanner .tiny { border-color: currentColor; color: inherit; background: none; }
 
+/* <b>Neutral, because nothing is wrong</b> — ADR-075, D-271. Reading somebody else's layer is an
+   ordinary state, and the amber above already means *what you see is not what a map draws* on this
+   same page; a design review read the ownership band as that warning. The surface the unauthored
+   note uses, which is the page saying a plain fact about itself. */
+.symbanner.note.ownership {
+  background: var(--surface-2); border-bottom-color: var(--rule); color: var(--muted);
+}
+
 #symUnauthored {
   flex: none; margin: 0;
   padding: 10px var(--gap-5);

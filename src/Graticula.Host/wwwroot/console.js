@@ -2973,8 +2973,13 @@ async function loadMyContent() {
 
             <!-- ADR-034 5l: the pill is the control, because it is already the thing that says who
                  can reach this and the reader is going to press it either way. -->
-            <td><button class="pillbtn" data-share="${h(i.name)}"
-                  title="Set who can reach this">${pill(i.sharing)}</button>${
+            <td>${i.manages === false
+              // ADR-075, D-271: somebody else's item. The pill still says who can reach it; it is
+              // not a control, because only the item's owner or an administrator changes that.
+              ? `<span title="Only its owner or an administrator changes who can reach this"
+                  >${pill(i.sharing)}</span>`
+              : `<button class="pillbtn" data-share="${h(i.name)}"
+                  title="Set who can reach this">${pill(i.sharing)}</button>`}${
               // `because` only where the scope pill does not already say it. On this server the two
               // used to read `public` and `Public` three inches apart, which is one fact twice.
               i.because === "administrativeoverride"
@@ -9608,6 +9613,66 @@ function rangeText(minScale, maxScale) {
   return `Saved: drawn between 1:${n(minScale)} and 1:${n(maxScale)}.`;
 }
 
+/** Watches the open editor of a layer this reader does not manage, so late-drawn controls stay locked. */
+let readerLock = null;
+
+/**
+ * Shows a layer this reader does not manage, and offers nothing that would change it — ADR-075, D-271.
+ *
+ * <b>`manages` is the server's answer</b> (`LayerAccess.MayManage`), from whichever listing this surface
+ * loaded — `known` on Server, `content` in Studio — so the console keeps no copy of the rule.
+ *
+ * <b>Disabled, not inert, and not everything.</b> A section made inert took its own tabs with it, so a
+ * reader could not even move to the next page; and inert looks exactly like enabled, so every press was
+ * silent. So the controls that change something are disabled — the browser's own dimmed look says so —
+ * and the ones that only move around are left alone: tabs, the page nav, the basemap switch, the map's
+ * zoom, a disclosure, and showing the layer on the map. Several pages draw their controls after a request, which
+ * a lock applied once would miss, hence the observer.
+ *
+ * <b>The note is a band inside each page</b>, the `symbanner note` the Symbology page already uses for a
+ * fact that qualifies the whole page, rather than an element beside the editor's grid.
+ */
+function lockForReader(name, l) {
+  if (readerLock) {
+    readerLock.disconnect();
+    readerLock = null;
+  }
+
+  const pages = $("editPages");
+  const manages = (content.get(name) || l).manages !== false;
+
+  if (manages) return;
+
+  const said = `${l.owner ? `This layer belongs to ${h(l.owner)}.` : "This layer belongs to somebody else."}
+    Its settings are shown for reading; only its owner or an administrator changes them.`;
+
+  for (const section of pages.querySelectorAll("section.page")) {
+    if (section.querySelector(":scope > .ownership")) continue;
+    const band = document.createElement("div");
+    band.className = "symbanner note ownership";
+    band.setAttribute("role", "note");
+    band.innerHTML = said;
+    const strip = section.querySelector(":scope > .symstrip");
+    if (strip) strip.after(band);
+    else section.prepend(band);
+  }
+
+  // `.ol-control`: the map's own zoom and attribution buttons, which move the view and change nothing.
+  const keeps = "nav, .tabs, .segmented, summary, .ol-control, [data-show], [data-tiles]";
+
+  const lock = () => {
+    for (const control of pages.querySelectorAll("button, input, select, textarea")) {
+      if (control.disabled || control.closest(keeps) || control.matches(keeps)) continue;
+      control.disabled = true;
+      control.title = "Only the layer's owner or an administrator changes this";
+    }
+  };
+
+  lock();
+  readerLock = new MutationObserver(lock);
+  readerLock.observe(pages, { childList: true, subtree: true });
+}
+
 /**
  * Opens a layer's settings page — or flips between its pages if it is already open.
  *
@@ -10359,6 +10424,8 @@ function showLayer(name, page, pending = null) {
 
   showEditPage(page);
   describeContents(name, l);
+
+  lockForReader(name, l);
 
   // A background refresh passes its own snapshot; otherwise anything left unsaved
   // from earlier in this session is the snapshot.
