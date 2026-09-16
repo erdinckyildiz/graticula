@@ -287,6 +287,17 @@ announce it. With a catalogue row whose table is missing:
 | `FeatureServer/0?f=json` | **200**, with `fields` empty and no extent — a missing relation returns *no rows* from `pg_class` rather than an error, and the extent probe catches and returns null |
 | `FeatureServer/0/query` | **503**, and this is the only place the truth appears |
 
+And for a GeoParquet or DuckDB layer whose file is not where the catalogue says
+it is — the restore-to-another-host case, measured 2026-09-16:
+
+| Surface | What it answers |
+|---|---|
+| `/healthz/ready` | **200 `ready`** |
+| `/rest/services` | lists the service normally |
+| `FeatureServer/0?f=json` | **500**, with a body that says the reason is in the log because the endpoint is anonymous |
+| `FeatureServer/0/query` | **500**, the same |
+| The server log | The exception, at startup as well, because the thumbnail warmer draws every layer |
+
 The 503 says it well — *the table behind this layer no longer exists. The
 registration and the database have diverged; this is a catalogue problem, not a
 transient one, and retrying will not help.* **But the first person to read it is a
@@ -342,11 +353,28 @@ That was true until 2026-09-16, when it was done** — against the showcase, a
 | Hosted data | 102 tables and 203 indexes both sides; row counts identical for the three largest, including the attachment chunk table — so attachments survive a plain dump, and ADR-013 §4e's worry about them is size rather than fidelity |
 | Fidelity | An `md5` over every row of a 25,280-row spatial table (geometry included) is the same string in both databases |
 
-**What is still owed is the half a database cannot answer: no server has been
-started against the restored database.** So *the data comes back byte for byte*
-is measured, and *the product comes up on it* is not. Until it is, treat §2.3 as
-the thing to check by hand after a restore: the service list, one layer document,
-one query, and signing in as the administrator.
+**And then a server was started against it**, on the same host, on a spare port,
+with the same secret key and no state volume:
+
+| Check | Result |
+|---|---|
+| Start | Came up against schema 50 with no migration and no refusal; `/healthz/ready` **200** |
+| Service list | Every folder and service, as on the original |
+| A hosted layer | `hosted/tr_il` answers `{"count":5433}` and returns features with geometry |
+| A **registered** layer | `turkiye/tr_ref` — whose source is a registered PostGIS server, not the datastore — answers `{"count":60}`, so the sealed credential was unsealed with the key that was supplied |
+| Signing in | A deliberately wrong password answers **401** *the name or password is incorrect*, from the restored credential store, rather than a 500 |
+| A GeoParquet layer | **500 on the layer document and on the query**, because the files were not mounted (§2.5) — and a 500 whose body says *the reason is in the server log* |
+| The log | 69 lines about the file-backed sources, thrown by the thumbnail warmer at startup |
+
+**So a restore is not all-or-nothing, and the part that fails is the part whose
+data is not in the database.** Everything the dump carried came back and served;
+the layers that read a file came back as catalogue entries with nothing behind
+them. That is the §2.3 story again with a different cause, and one surface worse:
+a missing hosted table leaves a layer document answering 200 with no fields,
+while a missing file answers 500 to the document itself.
+
+**A new certificate was generated**, because the probe had no state volume —
+§2.5's second row, seen rather than reasoned about.
 
 **And the dump is where the cost lands.** Six minutes to take and three to
 restore is a figure for 7 GB with one attachment table in it; §2.4's revisit

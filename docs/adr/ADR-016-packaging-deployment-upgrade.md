@@ -413,14 +413,21 @@ developer then runs what the customer runs.
    **start a server against it**, and check that the service list, one layer
    document, one query and signing in as the administrator all come back —
    plus one registered data source, which is the part the secret key decides.
-   **PARTLY DISCHARGED 2026-09-16.** The database half was run against the
-   showcase and is in [deployment.md §2.6](../deployment.md): 7 GB out in
-   5 m 44 s, back in 2 m 50 s with no errors, and the catalogue, the hosted
-   tables, the attachment chunks and a row-by-row `md5` of a 25,280-row spatial
-   table identical on both sides. **The server half was not run**, so what is
-   evidenced is that the data survives, not that the product starts on it —
-   and §3a's two new inventory rows were found by doing the first half rather
-   than by reading the code, which is the argument for finishing it.
+   **DISCHARGED 2026-09-16**, both halves, in [deployment.md §2.6](../deployment.md).
+   7 GB out in 5 m 44 s and back in 2 m 50 s with no errors; the catalogue, the
+   hosted tables, the attachment chunks and a row-by-row `md5` of a 25,280-row
+   spatial table identical on both sides. Then a server on the restored database:
+   up against schema 50 with no migration, `/healthz/ready` 200, the service list
+   whole, a hosted layer answering 5,433 features with geometry, **a registered
+   PostGIS layer answering 60 — so the sealed credential was unsealed** — and a
+   wrong password answering 401 from the restored credential store rather than a
+   500. **What failed is what §3a predicted**: the GeoParquet layers, whose files
+   were not there, answered 500 to their own layer document.
+
+   **Both new inventory rows came out of running this rather than reading the
+   code**, and so did [D-235](../architecture-debt.md)'s third repair: the probe
+   server's log said *the geometry overlay worker is not installed*, which every
+   published image had been saying since the first one was built.
 
 ## 11. Assumptions
 
