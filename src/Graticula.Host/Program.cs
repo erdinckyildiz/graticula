@@ -2909,8 +2909,7 @@ public static class Program
         // client to a page size that does not exist.
         object document = FeatureServerMetadataWriter.Service(
             layers,
-            CapabilitiesFor(context, service, WritabilityOf(shapes),
-                creatable: shapes.All(one => one.StoredOrdinates == Graticula.Geometries.GeometryOrdinates.None)),
+            CapabilitiesFor(context, service, WritabilityOf(shapes)),
             service.Description,
             groups,
             service.Limits.Cost.MaximumRecordCount,
@@ -3063,8 +3062,7 @@ public static class Program
             layers.Add(one);
         }
 
-        string serviceCapabilities = CapabilitiesFor(context, owning, WritabilityOf(shapes),
-            creatable: shapes.All(one => one.StoredOrdinates == Graticula.Geometries.GeometryOrdinates.None));
+        string serviceCapabilities = CapabilitiesFor(context, owning, WritabilityOf(shapes));
 
         // <b>In index order, which is the order the service document lists them in.</b> A client
         // matching this document against that one by position rather than by id is doing
@@ -3202,8 +3200,7 @@ public static class Program
             // [D-231](../../docs/architecture-debt.md). This document is what an ArcGIS client
             // reads before it shows an edit button, and it was offering one over relations
             // PostgreSQL refuses every write to.
-            CapabilitiesFor(context, layer, description.Writable,
-                creatable: description.StoredOrdinates == Graticula.Geometries.GeometryOrdinates.None),
+            CapabilitiesFor(context, layer, description.Writable),
             declared ?? [],
             layer.LayerIndex,
             layer.Cost.MaximumRecordCount,
@@ -4491,17 +4488,16 @@ public static class Program
     /// <see cref="WritabilityOf(System.Collections.Generic.IEnumerable{LayerDescription})"/>,
     /// or null where no layer was described.
     /// </param>
-    /// <param name="creatable">False when a layer's geometry carries Z or M, which no add can write yet — ADR-077.</param>
     /// <returns>The capability string.</returns>
     private static string CapabilitiesFor(
-        HttpContext context, PublishedService service, bool? writable, bool creatable = true)
+        HttpContext context, PublishedService service, bool? writable)
     {
         if (service.Layers.Count == 0 || service.Layers.Any(l => !l.Definition.HasIntegerIdentity))
         {
             return Join(service.Limits.Restrict(["Query"]));
         }
 
-        return CapabilitiesFor(context, service.Layers[0], service.Limits, writable, creatable);
+        return CapabilitiesFor(context, service.Layers[0], service.Limits, writable);
     }
 
     /// <summary>The service-wide answer, for a caller holding a service rather than its shapes.</summary>
@@ -4585,8 +4581,8 @@ public static class Program
     /// carried.
     /// </remarks>
     private static string CapabilitiesFor(
-        HttpContext context, PublishedLayer layer, bool? writable, bool creatable = true) =>
-        CapabilitiesFor(context, layer, CeilingOf(layer), writable, creatable);
+        HttpContext context, PublishedLayer layer, bool? writable) =>
+        CapabilitiesFor(context, layer, CeilingOf(layer), writable);
 
     /// <summary>The service's capability ceiling as limits, from a layer alone.</summary>
     private static ServiceCapabilityLimits CeilingOf(PublishedLayer layer) =>
@@ -4602,7 +4598,6 @@ public static class Program
     /// Whether the database will take writes to the relation behind it —
     /// <see cref="LayerDescription.Writable"/> — or null when nothing asked.
     /// </param>
-    /// <param name="creatable">False when a layer's geometry carries Z or M, which no add can write yet — ADR-077.</param>
     /// <returns>The capability string.</returns>
     /// <remarks>
     /// <para>
@@ -4614,7 +4609,7 @@ public static class Program
     /// </para>
     /// </remarks>
     internal static string CapabilitiesFor(
-        HttpContext context, PublishedLayer layer, ServiceCapabilityLimits limits, bool? writable, bool creatable = true)
+        HttpContext context, PublishedLayer layer, ServiceCapabilityLimits limits, bool? writable)
     {
         if (!layer.Definition.HasIntegerIdentity)
         {
@@ -4650,18 +4645,9 @@ public static class Program
             return Join(limits.Restrict(["Query"]));
         }
 
-        // ADR-075: whose layer it is, asked exactly as the write path asks it.
-        // <b>No `Create` on a layer whose geometry has Z or M, until editing carries them — ADR-077, step 3.</b>
-        // An add was already refused by the database there (a flat shape into a `PointZ` column), and since
-        // the layer document says `hasZ`, an ArcGIS client now sends the elevation, which the edit reader
-        // refuses. Offering an operation that fails either way is the over-claim ADR-008 §2 forbids; the
-        // edit step turns it back on. Update stays for attributes, `allowGeometryUpdates` says the rest.
+        // ADR-075: whose layer it is, asked exactly as the write path asks it. `Create` came off a layer with
+        // Z or M in v1.0.113 and back on when `applyEdits` learnt to store them — ADR-077 §10.
         List<string> offered = PrivilegedCapabilities(context, layer);
-
-        if (!creatable)
-        {
-            offered.Remove("Create");
-        }
 
         return Join(limits.Restrict(offered));
     }

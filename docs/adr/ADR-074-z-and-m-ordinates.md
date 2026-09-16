@@ -140,16 +140,18 @@ If 3D is taken up, this is the sequence, and each step is its own ADR:
    layer be defined 3D*.
 3. **Surfaces, one at a time** — `query` returning Z, then `applyEdits` accepting it, then WFS and
    OGC API Features. Each is a place `hasZ` becomes conditional rather than false. *(`query` in `f=json`
-   done 2026-09-16 and in `f=pbf` 2026-09-17 — ADR-077 §8–§9.)*
+   done 2026-09-16, in `f=pbf` and `applyEdits` 2026-09-17 — ADR-077 §8–§10.)*
 4. **Storage and import** — hosted tables defined `PointZ`, imports keeping the ordinate they
    currently count, which is what closes [D-107](../architecture-debt.md).
 
 ## 6. Conditions
 
 1. **A layer whose column declares Z is published on the showcase and opened in a real ArcGIS
-   client**, and the client does not offer a geometry edit tool for it. *(Open — the flag is pinned
-   by `ThreeDimensionalLayerDocumentTests` against the document, and what a client does with it is
-   the claim that matters.)*
+   client**, and the client does not offer a geometry edit tool for it. *(Deferred 2026-09-17 with the
+   decision it checked: [ADR-077](ADR-077-z-and-m-ride-beside-x-and-y.md) §10 offers geometry editing on
+   such a layer and stores the elevation, and ADR-077 condition 5 is the real-client check that replaces
+   this one.)* ~~Open — the flag is pinned by `ThreeDimensionalLayerDocumentTests` against the document,
+   and what a client does with it is the claim that matters.~~
 2. **The declaration is read from a real column, not a parsed string.**
    *(**DISCHARGED** 2026-09-16 — `TheDescribedShapeSaysWhatTheColumnCarriesTests` describes five
    declared columns and one bare column holding a `PointZ`, and asserts the bare one reports

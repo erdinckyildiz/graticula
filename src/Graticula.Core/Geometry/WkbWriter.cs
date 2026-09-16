@@ -93,10 +93,14 @@ public static class WkbWriter
         return buffer;
     }
 
+    /// <summary>Bytes per vertex: 8 for each of x, y and whichever of Z and M the sequence carries.</summary>
+    private static int VertexSize(GeometryOrdinates ordinates) =>
+        8 * (2 + ((ordinates & GeometryOrdinates.Z) != 0 ? 1 : 0) + ((ordinates & GeometryOrdinates.M) != 0 ? 1 : 0));
+
     private static int BodySize(Geometry geometry) => geometry switch
     {
-        Point => 16,
-        LineString line => 4 + (line.Coordinates.Count * 16),
+        Point point => VertexSize(point.Ordinates),
+        LineString line => 4 + (line.Coordinates.Count * VertexSize(line.Coordinates.Ordinates)),
         Polygon polygon => 4 + RingsSize(polygon),
         MultiPoint multi => 4 + Sum(multi.Parts),
         MultiLineString multi => 4 + Sum(multi.Parts),
@@ -107,11 +111,11 @@ public static class WkbWriter
 
     private static int RingsSize(Polygon polygon)
     {
-        int size = 4 + (polygon.Shell.Coordinates.Count * 16);
+        int size = 4 + (polygon.Shell.Coordinates.Count * VertexSize(polygon.Shell.Coordinates.Ordinates));
 
         foreach (LinearRing hole in polygon.Holes)
         {
-            size += 4 + (hole.Coordinates.Count * 16);
+            size += 4 + (hole.Coordinates.Count * VertexSize(hole.Coordinates.Ordinates));
         }
 
         return size;
@@ -141,6 +145,19 @@ public static class WkbWriter
         {
             case Point point:
                 at += WriteXy((point.X, point.Y), destination[at..]);
+
+                if (point.Z is { } z)
+                {
+                    BinaryPrimitives.WriteDoubleLittleEndian(destination[at..], z);
+                    at += 8;
+                }
+
+                if (point.M is { } m)
+                {
+                    BinaryPrimitives.WriteDoubleLittleEndian(destination[at..], m);
+                    at += 8;
+                }
+
                 break;
 
             case LineString line:
@@ -203,10 +220,35 @@ public static class WkbWriter
 
         ReadOnlySpan<double> ordinates = points.AsSpan();
 
-        for (int i = 0; i < ordinates.Length; i++)
+        if (points.Ordinates == GeometryOrdinates.None)
         {
-            BinaryPrimitives.WriteDoubleLittleEndian(destination[at..], ordinates[i]);
-            at += 8;
+            for (int i = 0; i < ordinates.Length; i++)
+            {
+                BinaryPrimitives.WriteDoubleLittleEndian(destination[at..], ordinates[i]);
+                at += 8;
+            }
+
+            return at;
+        }
+
+        // ADR-077: x, y, then Z, then M — the order ISO WKB and the reader use.
+        for (int i = 0; i < points.Count; i++)
+        {
+            BinaryPrimitives.WriteDoubleLittleEndian(destination[at..], ordinates[2 * i]);
+            BinaryPrimitives.WriteDoubleLittleEndian(destination[(at + 8)..], ordinates[(2 * i) + 1]);
+            at += 16;
+
+            if (points.HasZ)
+            {
+                BinaryPrimitives.WriteDoubleLittleEndian(destination[at..], points.Z(i));
+                at += 8;
+            }
+
+            if (points.HasM)
+            {
+                BinaryPrimitives.WriteDoubleLittleEndian(destination[at..], points.M(i));
+                at += 8;
+            }
         }
 
         return at;
@@ -219,20 +261,26 @@ public static class WkbWriter
         return 16;
     }
 
-    /// <summary>The ISO WKB type code, 2D.</summary>
+    /// <summary>The ISO WKB type code: the plain code, plus 1000 for Z, 2000 for M and 3000 for both.</summary>
     /// <remarks>
-    /// The plain codes, not the +1000 Z or +2000 M variants, because this writer
-    /// has no Z or M to describe. A reader seeing these knows exactly what it is
-    /// getting.
+    /// <b>The plain codes for a flat geometry, as before ADR-077</b>, so every existing caller writes the bytes
+    /// it did. A geometry that carries Z or M — one read for an edit that declared them — says so in its type,
+    /// which is how PostGIS's <c>st_geomfromwkb</c> knows the stride.
     /// </remarks>
-    private static uint TypeCodeOf(Geometry geometry) => geometry.Kind switch
+    private static uint TypeCodeOf(Geometry geometry) => Ordinates.Of(geometry) switch
     {
-        GeometryKind.Point => 1,
-        GeometryKind.LineString => 2,
-        GeometryKind.Polygon => 3,
-        GeometryKind.MultiPoint => 4,
-        GeometryKind.MultiLineString => 5,
-        GeometryKind.MultiPolygon => 6,
+        GeometryOrdinates.Z => 1000u,
+        GeometryOrdinates.M => 2000u,
+        GeometryOrdinates.Z | GeometryOrdinates.M => 3000u,
+        _ => 0u,
+    } + geometry.Kind switch
+    {
+        GeometryKind.Point => 1u,
+        GeometryKind.LineString => 2u,
+        GeometryKind.Polygon => 3u,
+        GeometryKind.MultiPoint => 4u,
+        GeometryKind.MultiLineString => 5u,
+        GeometryKind.MultiPolygon => 6u,
         _ => throw new NotSupportedException(
             $"{geometry.Kind} has no ISO WKB code in this writer."),
     };

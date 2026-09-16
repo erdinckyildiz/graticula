@@ -954,7 +954,7 @@ public static class FeatureServerMetadataWriter
             hasZ = (description.StoredOrdinates & GeometryOrdinates.Z) != 0,
             hasM = (description.StoredOrdinates & GeometryOrdinates.M) != 0,
 
-            // <b>False on a layer whose geometry this server will not rewrite whole —
+            // <b>Was false, 2026-09-13 to 2026-09-17, on a layer whose geometry this server would not rewrite whole —
             // ADR-074 §4.</b> The rule is otherwise *the capability set contains Update*, which
             // is the specification's derivation and is what the service document computes. It
             // over-claimed by one case: `PostGisFeatureWriter` refuses every geometry update to
@@ -963,8 +963,10 @@ public static class FeatureServerMetadataWriter
             // three-dimensional layer offered an edit tool that answered *refused* on every
             // save. Attribute editing is untouched, which is why `capabilities` still says
             // `Update`.
-            allowGeometryUpdates = capabilities.Contains("Update", StringComparison.Ordinal)
-                && description.StoredOrdinates == GeometryOrdinates.None,
+            // <b>And the case closed on 2026-09-17 — ADR-077 §10</b>: the writer now holds a geometry to the
+            // row's own ordinates in both directions, so an edit that carries what the row stores is written,
+            // and one that does not is refused with the reason.
+            allowGeometryUpdates = capabilities.Contains("Update", StringComparison.Ordinal),
             // <b>True since f=pbf is answered — ADR-073.</b> `quantizationParameters` names the
             // integer grid a pbf geometry is written on; a json answer stays at full precision.
             supportsCoordinatesQuantization = true,

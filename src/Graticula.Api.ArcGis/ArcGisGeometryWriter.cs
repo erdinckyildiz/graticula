@@ -189,23 +189,8 @@ public static class ArcGisGeometryWriter
         }
     }
 
-    /// <summary>Which ordinates beyond x and y a geometry carries, read from its first non-empty part.</summary>
-    /// <remarks>
-    /// <b>The first part speaks for all of them</b>, because a PostGIS column declares one dimensionality
-    /// and every row read from it by one query was read with one mask.
-    /// </remarks>
-    internal static GeometryOrdinates OrdinatesOf(Geometry geometry) => geometry switch
-    {
-        Point point => point.Ordinates,
-        LineString line => line.Coordinates.Ordinates,
-        Polygon polygon => polygon.IsEmpty ? GeometryOrdinates.None : polygon.Shell.Coordinates.Ordinates,
-        MultiPoint many => many.Parts.Count == 0 ? GeometryOrdinates.None : many.Parts[0].Ordinates,
-        MultiLineString many => many.Parts.Count == 0 ? GeometryOrdinates.None : many.Parts[0].Coordinates.Ordinates,
-        MultiPolygon many => many.Parts.Count == 0 || many.Parts[0].IsEmpty
-            ? GeometryOrdinates.None
-            : many.Parts[0].Shell.Coordinates.Ordinates,
-        _ => GeometryOrdinates.None,
-    };
+    /// <summary>Which ordinates beyond x and y a geometry carries — <see cref="Ordinates.Of"/>.</summary>
+    internal static GeometryOrdinates OrdinatesOf(Geometry geometry) => Ordinates.Of(geometry);
 
     /// <summary>
     /// Writes a polygon's rings with ArcGIS winding: shell clockwise, holes

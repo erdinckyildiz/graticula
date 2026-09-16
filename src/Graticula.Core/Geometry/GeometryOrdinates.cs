@@ -27,7 +27,7 @@ namespace Graticula.Geometries;
 [Flags]
 public enum GeometryOrdinates
 {
-    /// <summary>x and y, which is everything this server stores.</summary>
+    /// <summary>x and y alone.</summary>
     None = 0,
 
     /// <summary>A measure.</summary>
@@ -52,8 +52,13 @@ public static class Ordinates
     /// counted what it flattened. All four are true and each was phrased as though it were the
     /// only place it happened. ADR-074 §4 makes this clause the shared half.
     /// </remarks>
+    /// <remarks>
+    /// <b>Said of the path, not the server, since ADR-077.</b> It read <i>this server reads, stores and returns
+    /// two dimensions</i> until ArcGIS <c>query</c> and <c>applyEdits</c> began to carry Z and M; every place
+    /// that still uses it is a path that does not.
+    /// </remarks>
     public const string TwoDimensional =
-        "this server reads, stores and returns two dimensions";
+        "this path reads, stores and returns x and y only";
 
     /// <summary>What to call them in a message.</summary>
     /// <param name="ordinates">The ones a geometry carries.</param>
@@ -105,6 +110,26 @@ public static class Ordinates
 
         return GeometryOrdinates.None;
     }
+
+    /// <summary>Which ordinates beyond x and y a geometry carries, read from its first non-empty part.</summary>
+    /// <remarks>
+    /// <b>The first part speaks for all of them</b>: every reader here builds a geometry with one mask — a
+    /// PostGIS column declares one dimensionality, and an ArcGIS geometry declares <c>hasZ</c> once.
+    /// </remarks>
+    /// <param name="geometry">The geometry.</param>
+    /// <returns>What it carries.</returns>
+    public static GeometryOrdinates Of(Geometry geometry) => geometry switch
+    {
+        Point point => point.Ordinates,
+        LineString line => line.Coordinates.Ordinates,
+        Polygon polygon => polygon.IsEmpty ? GeometryOrdinates.None : polygon.Shell.Coordinates.Ordinates,
+        MultiPoint many => many.Parts.Count == 0 ? GeometryOrdinates.None : many.Parts[0].Ordinates,
+        MultiLineString many => many.Parts.Count == 0 ? GeometryOrdinates.None : many.Parts[0].Coordinates.Ordinates,
+        MultiPolygon many => many.Parts.Count == 0 || many.Parts[0].IsEmpty
+            ? GeometryOrdinates.None
+            : many.Parts[0].Shell.Coordinates.Ordinates,
+        _ => GeometryOrdinates.None,
+    };
 
     /// <summary>
     /// The same type name with its ordinate suffix removed — <c>PointZ</c> becomes <c>Point</c>.

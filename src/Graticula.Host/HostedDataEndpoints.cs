@@ -643,8 +643,8 @@ internal static class HostedDataEndpoints
             {
                 context.Items[WarningKey] =
                     $"This shapefile carries z or m values and they were not stored: "
-                    + $"{Ordinates.TwoDimensional}, the layer document reports hasZ false, and no "
-                    + "surface here could serve them — keep the original file (ADR-074).";
+                    + $"{Ordinates.TwoDimensional}, so the hosted table is two-dimensional and the layer "
+                    + "document reports hasZ false — keep the original file (ADR-074; storing them is ADR-074 §5 step 4).";
             }
 
             return (true, read);

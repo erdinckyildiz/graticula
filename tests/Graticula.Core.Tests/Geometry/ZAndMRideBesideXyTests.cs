@@ -130,6 +130,35 @@ public sealed class ZAndMRideBesideXyTests
     }
 
     [Fact]
+    public void The_writer_writes_what_the_reader_reads_and_a_flat_geometry_is_the_bytes_it_was()
+    {
+        Graticula.Geometries.Geometry[] shapes =
+        [
+            Point.Create(1, 2, 3, 4),
+            Point.Create(1, 2, null, 4),
+            new LineString(XySequence.Wrap([0, 0, 1, 1], z: [5, 6], m: null)),
+            new Polygon(new LinearRing(XySequence.Wrap([0, 0, 1, 0, 1, 1, 0, 0], z: [1, 2, 3, 1], m: [9, 8, 7, 9]))),
+            new MultiPoint([Point.Create(1, 2, 3, null), Point.Create(4, 5, 6, null)]),
+        ];
+
+        foreach (Graticula.Geometries.Geometry shape in shapes)
+        {
+            byte[] wkb = WkbWriter.ToArray(shape);
+            Graticula.Geometries.Geometry back = WkbReader.Read(wkb, GeometryOrdinates.Z | GeometryOrdinates.M, out bool dropped);
+
+            // Geometries compare by reference, so the round trip is asked of the bytes: what was read writes
+            // exactly what was written.
+            Assert.False(dropped);
+            Assert.Equal(wkb, WkbWriter.ToArray(back));
+            Assert.Equal(Ordinates.Of(shape), Ordinates.Of(back));
+        }
+
+        // ISO codes: 1001 for PointZ, 3002 for LineStringZM; a flat point is still 1.
+        Assert.Equal(3001u, System.BitConverter.ToUInt32(WkbWriter.ToArray(Point.Create(1, 2, 3, 4)), 1));
+        Assert.Equal(1u, System.BitConverter.ToUInt32(WkbWriter.ToArray(new Point(1, 2)), 1));
+    }
+
+    [Fact]
     public void A_mask_keeps_what_was_asked_for_and_reports_the_rest()
     {
         // `returnZ=true` without `returnM` on an XYZM column: Z comes back, M is dropped and said to be.

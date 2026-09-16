@@ -25,7 +25,8 @@ namespace Graticula.Api.ArcGis;
 /// </para>
 /// <para>
 /// <b>Nothing here is lenient about losing data.</b> Z and M are refused rather
-/// than dropped (ADR-008 §4.5a). A spatial reference that disagrees with the layer is
+/// than dropped (ADR-008 §4.5a) on a filter and a geometry operation, and read whole on an edit
+/// (<see cref="TryReadForEdit"/>, ADR-077 §10). A spatial reference that disagrees with the layer is
 /// refused on a filter and, since 2026-09-15, carried to the writer to project on an edit
 /// (<see cref="TryReadForEdit"/>, Q-153). Closing an unclosed ring adds the vertex the
 /// format already implies and loses nothing.
@@ -95,11 +96,16 @@ public static class ArcGisGeometryReader
             return false;
         }
 
-        // <b>Refused, not flattened.</b> Our model is two-dimensional, so
-        // accepting a geometry that declares Z or M would silently discard an
-        // ordinate the client believes it stored. ADR-008 §4.5a states the rule
-        // for the read direction; this is the same rule on the way in.
-        if (Declares(json, "hasZ") || Declares(json, "hasM"))
+        GeometryOrdinates declared =
+            (Declares(json, "hasZ") ? GeometryOrdinates.Z : GeometryOrdinates.None)
+            | (Declares(json, "hasM") ? GeometryOrdinates.M : GeometryOrdinates.None);
+
+        // <b>Refused, not flattened — on a filter and a geometry operation.</b> Those read x and y, so
+        // accepting a geometry that declares Z or M would silently discard an ordinate the client sent.
+        // ADR-008 §4.5a states the rule for the read direction; this is the same rule on the way in.
+        // <b>An edit reads them whole since ADR-077 §10</b>, and the writer decides whether the row can
+        // hold what was sent.
+        if (declared != GeometryOrdinates.None && !forEdit)
         {
             error =
                 $"This geometry declares Z or M ordinates, and {Ordinates.TwoDimensional}. "
@@ -111,22 +117,22 @@ public static class ArcGisGeometryReader
 
         if (json.TryGetProperty("rings", out JsonElement rings))
         {
-            return TryReadPolygon(rings, forEdit, out geometry, out error);
+            return TryReadPolygon(rings, forEdit, declared, out geometry, out error);
         }
 
         if (json.TryGetProperty("paths", out JsonElement paths))
         {
-            return TryReadPaths(paths, out geometry, out error);
+            return TryReadPaths(paths, declared, out geometry, out error);
         }
 
         if (json.TryGetProperty("points", out JsonElement points))
         {
-            return TryReadMultipoint(points, out geometry, out error);
+            return TryReadMultipoint(points, declared, out geometry, out error);
         }
 
         if (json.TryGetProperty("x", out JsonElement x))
         {
-            return TryReadPoint(x, json, out geometry, out error);
+            return TryReadPoint(x, json, forEdit, declared, out geometry, out error);
         }
 
         error =
@@ -137,7 +143,7 @@ public static class ArcGisGeometryReader
     }
 
     private static bool TryReadPoint(
-        JsonElement x, JsonElement json, out Geometry? geometry, out string? error)
+        JsonElement x, JsonElement json, bool forEdit, GeometryOrdinates declared, out Geometry? geometry, out string? error)
     {
         geometry = null;
         error = null;
@@ -162,16 +168,59 @@ public static class ArcGisGeometryReader
             return false;
         }
 
-        geometry = new Point(xv, yv);
+        if (!forEdit)
+        {
+            geometry = new Point(xv, yv);
+            return true;
+        }
+
+        // <b>A point says Z with a `z` member</b> — ArcGIS point JSON has no `hasZ` of its own, and a client
+        // that sends one also sends `z`. Either is a declaration, and one without the other is refused
+        // rather than read as half of it.
+        if (!TryPointOrdinate(json, "z", GeometryOrdinates.Z, declared, out double? z, out error)
+            || !TryPointOrdinate(json, "m", GeometryOrdinates.M, declared, out double? m, out error))
+        {
+            return false;
+        }
+
+        geometry = Point.Create(xv, yv, z, m);
+        return true;
+    }
+
+    private static bool TryPointOrdinate(
+        JsonElement json, string name, GeometryOrdinates which, GeometryOrdinates declared, out double? value, out string? error)
+    {
+        value = null;
+        error = null;
+        bool present = json.TryGetProperty(name, out JsonElement member) && member.ValueKind != JsonValueKind.Null;
+
+        if (!present)
+        {
+            if ((declared & which) != 0)
+            {
+                error = $"The point declares has{name.ToUpperInvariant()} and has no '{name}'.";
+                return false;
+            }
+
+            return true;
+        }
+
+        if (!TryNumber(member, out double number))
+        {
+            error = $"A point's '{name}' must be a number.";
+            return false;
+        }
+
+        value = number;
         return true;
     }
 
     private static bool TryReadMultipoint(
-        JsonElement points, out Geometry? geometry, out string? error)
+        JsonElement points, GeometryOrdinates declared, out Geometry? geometry, out string? error)
     {
         geometry = null;
 
-        if (!TryReadPositions(points, out List<Point>? parts, out error))
+        if (!TryReadPositions(points, declared, out List<Point>? parts, out error))
         {
             return false;
         }
@@ -180,7 +229,7 @@ public static class ArcGisGeometryReader
         return true;
     }
 
-    private static bool TryReadPaths(JsonElement paths, out Geometry? geometry, out string? error)
+    private static bool TryReadPaths(JsonElement paths, GeometryOrdinates declared, out Geometry? geometry, out string? error)
     {
         geometry = null;
         error = null;
@@ -195,7 +244,7 @@ public static class ArcGisGeometryReader
 
         foreach (JsonElement path in paths.EnumerateArray())
         {
-            if (!TryReadSequence(path, minimum: 2, out XySequence coordinates, out error))
+            if (!TryReadSequence(path, minimum: 2, declared, out XySequence coordinates, out error))
             {
                 return false;
             }
@@ -226,7 +275,8 @@ public static class ArcGisGeometryReader
     /// something — and guessing would produce a feature the client did not send.
     /// </para>
     /// </remarks>
-    private static bool TryReadPolygon(JsonElement rings, bool shellsMayBeCounterClockwise, out Geometry? geometry, out string? error)
+    private static bool TryReadPolygon(
+        JsonElement rings, bool shellsMayBeCounterClockwise, GeometryOrdinates declared, out Geometry? geometry, out string? error)
     {
         geometry = null;
         error = null;
@@ -244,7 +294,7 @@ public static class ArcGisGeometryReader
 
         foreach (JsonElement ring in rings.EnumerateArray())
         {
-            if (!TryReadSequence(ring, minimum: 4, out XySequence coordinates, out error))
+            if (!TryReadSequence(ring, minimum: 4, declared, out XySequence coordinates, out error))
             {
                 return false;
             }
@@ -300,11 +350,15 @@ public static class ArcGisGeometryReader
         closed[^2] = xy[0];
         closed[^1] = xy[1];
 
-        return XySequence.Wrap(closed);
+        // The implied vertex is the first one, so it carries the first one's Z and M.
+        return XySequence.Wrap(
+            closed,
+            coordinates.HasZ ? [.. coordinates.ZSpan(), coordinates.Z(0)] : null,
+            coordinates.HasM ? [.. coordinates.MSpan(), coordinates.M(0)] : null);
     }
 
     private static bool TryReadPositions(
-        JsonElement array, out List<Point>? points, out string? error)
+        JsonElement array, GeometryOrdinates declared, out List<Point>? points, out string? error)
     {
         points = null;
         error = null;
@@ -319,12 +373,13 @@ public static class ArcGisGeometryReader
 
         foreach (JsonElement position in array.EnumerateArray())
         {
-            if (!TryReadPosition(position, out double x, out double y, out error))
+            if (!TryReadPosition(position, declared, out double x, out double y, out double z, out double m, out error))
             {
                 return false;
             }
 
-            read.Add(new Point(x, y));
+            read.Add(Point.Create(
+                x, y, (declared & GeometryOrdinates.Z) != 0 ? z : null, (declared & GeometryOrdinates.M) != 0 ? m : null));
         }
 
         points = read;
@@ -332,7 +387,7 @@ public static class ArcGisGeometryReader
     }
 
     private static bool TryReadSequence(
-        JsonElement array, int minimum, out XySequence coordinates, out string? error)
+        JsonElement array, int minimum, GeometryOrdinates declared, out XySequence coordinates, out string? error)
     {
         coordinates = XySequence.Empty;
         error = null;
@@ -352,29 +407,50 @@ public static class ArcGisGeometryReader
         }
 
         double[] xy = new double[count * 2];
+        double[]? zs = (declared & GeometryOrdinates.Z) != 0 ? new double[count] : null;
+        double[]? ms = (declared & GeometryOrdinates.M) != 0 ? new double[count] : null;
         int at = 0;
+        int vertex = 0;
 
         foreach (JsonElement position in array.EnumerateArray())
         {
-            if (!TryReadPosition(position, out double x, out double y, out error))
+            if (!TryReadPosition(position, declared, out double x, out double y, out double z, out double m, out error))
             {
                 return false;
             }
 
             xy[at++] = x;
             xy[at++] = y;
+
+            if (zs is not null)
+            {
+                zs[vertex] = z;
+            }
+
+            if (ms is not null)
+            {
+                ms[vertex] = m;
+            }
+
+            vertex++;
         }
 
-        coordinates = XySequence.Wrap(xy);
+        coordinates = XySequence.Wrap(xy, zs, ms);
         return true;
     }
 
     private static bool TryReadPosition(
-        JsonElement position, out double x, out double y, out string? error)
+        JsonElement position, GeometryOrdinates declared, out double x, out double y, out double z, out double m, out string? error)
     {
         x = 0;
         y = 0;
+        z = 0;
+        m = 0;
         error = null;
+
+        bool withZ = (declared & GeometryOrdinates.Z) != 0;
+        bool withM = (declared & GeometryOrdinates.M) != 0;
+        int stride = 2 + (withZ ? 1 : 0) + (withM ? 1 : 0);
 
         if (position.ValueKind != JsonValueKind.Array || position.GetArrayLength() < 2)
         {
@@ -382,21 +458,40 @@ public static class ArcGisGeometryReader
             return false;
         }
 
-        // A third element is Z, and reaching here means hasZ was not declared —
-        // so the client is sending an ordinate it did not admit to. Refused for
-        // the same reason as a declared Z: accepting it drops data silently.
-        if (position.GetArrayLength() > 2)
+        // A number beyond what hasZ and hasM declared is an ordinate the client did not admit to, and
+        // accepting it drops data silently. With nothing declared this is the pre-ADR-077 refusal.
+        if (position.GetArrayLength() > stride)
         {
-            error =
-                "A position carries more than two numbers, so it has a Z or M ordinate that "
-                + $"'hasZ' and 'hasM' did not declare. Since {Ordinates.TwoDimensional}, the rest "
-                + "would be discarded silently, and that is refused rather than done (ADR-074).";
+            error = declared == GeometryOrdinates.None
+                ? "A position carries more than two numbers, so it has a Z or M ordinate that "
+                  + "'hasZ' and 'hasM' did not declare. Undeclared, it would be discarded silently, and that is "
+                  + "refused rather than done (ADR-074); an edit that declares them stores them (ADR-077)."
+                : $"A position carries {position.GetArrayLength()} numbers, and the geometry declares {stride}: "
+                  + "x, y" + (withZ ? ", z" : string.Empty) + (withM ? ", m" : string.Empty) + ". The rest would be "
+                  + "discarded silently, so it is refused (ADR-077).";
+            return false;
+        }
+
+        // <b>Short of what was declared is refused, not padded.</b> A missing Z is not zero metres, and a
+        // measure invented to fill a slot is a wrong measure nobody can tell from a right one.
+        if (position.GetArrayLength() < stride)
+        {
+            error = $"A position carries {position.GetArrayLength()} numbers, and the geometry declares "
+                + (withZ && withM ? "hasZ and hasM" : withZ ? "hasZ" : "hasM")
+                + $", so each needs {stride}: x, y" + (withZ ? ", z" : string.Empty) + (withM ? ", m" : string.Empty)
+                + ", in that order (ADR-077).";
             return false;
         }
 
         if (!TryNumber(position[0], out x) || !TryNumber(position[1], out y))
         {
             error = "A position's values must be numbers.";
+            return false;
+        }
+
+        if ((withZ && !TryNumber(position[2], out z)) || (withM && !TryNumber(position[withZ ? 3 : 2], out m)))
+        {
+            error = "A position's z and m must be numbers; a null is not an elevation or a measure (ADR-077).";
             return false;
         }
 

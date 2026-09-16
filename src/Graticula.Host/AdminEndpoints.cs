@@ -8545,11 +8545,10 @@ internal static partial class AdminEndpoints
                     // a sentence saying nothing happened.
                     elevation = Ordinates.OfTypeName(request.GeometryType) is var declared
                         && declared != GeometryOrdinates.None
-                            ? $"This table's geometry column declares {Ordinates.Name(declared)}, "
-                              + $"and {Ordinates.TwoDimensional}. The layer is published and "
-                              + "serves x and y; the ordinate stays in your table, is never "
-                              + "returned, and geometry editing is not offered on this layer "
-                              + "because overwriting a row would discard it."
+                            ? $"This table's geometry column declares {Ordinates.Name(declared)}. The "
+                              + "ArcGIS FeatureServer returns it to a query that asks (returnZ, returnM) and "
+                              + "stores it from an edit that sends it; WFS, OGC API Features, vector tiles "
+                              + "and map images serve x and y (ADR-077)."
                             : null,
 
                     // ADR-013 §2a, said at publish time rather than discovered

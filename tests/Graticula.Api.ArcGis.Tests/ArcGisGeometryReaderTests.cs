@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Text.Json;
 using Graticula.Api.ArcGis;
 using Graticula.Geometries;
@@ -321,6 +322,73 @@ public sealed class ArcGisGeometryReaderTests
 
         Polygon polygon = Assert.IsType<Polygon>(geometry);
         Assert.Single(polygon.Holes);
+    }
+
+    // ---------- Z and M on an edit (ADR-077 §10) ----------
+
+    private static Geometry ReadForEdit(string json)
+    {
+        Assert.True(ArcGisGeometryReader.TryReadForEdit(Json(json), Srid, out Geometry? geometry, out _, out string? error), error);
+        return geometry!;
+    }
+
+    private static string RefuseForEdit(string json)
+    {
+        Assert.False(ArcGisGeometryReader.TryReadForEdit(Json(json), Srid, out _, out _, out string? error));
+        return error!;
+    }
+
+    [Fact]
+    public void An_edit_reads_z_and_m_in_the_order_hasZ_and_hasM_declare()
+    {
+        LineString z = (LineString)ReadForEdit("""{"hasZ":true,"paths":[[[0,0,5],[1,1,6]]]}""");
+        Assert.Equal([5.0, 6.0], z.Coordinates.ZSpan().ToArray());
+        Assert.False(z.Coordinates.HasM);
+
+        LineString m = (LineString)ReadForEdit("""{"hasM":true,"paths":[[[0,0,7],[1,1,8]]]}""");
+        Assert.Equal([7.0, 8.0], m.Coordinates.MSpan().ToArray());
+
+        LineString zm = (LineString)ReadForEdit("""{"hasZ":true,"hasM":true,"paths":[[[0,0,5,7],[1,1,6,8]]]}""");
+        Assert.Equal([5.0, 6.0], zm.Coordinates.ZSpan().ToArray());
+        Assert.Equal([7.0, 8.0], zm.Coordinates.MSpan().ToArray());
+    }
+
+    [Fact]
+    public void An_edit_reads_a_point_s_z_and_m_members_and_a_multipoint_s_positions()
+    {
+        Point point = (Point)ReadForEdit("""{"x":1,"y":2,"z":300,"m":4}""");
+        Assert.Equal((300d, 4d), (point.Z!.Value, point.M!.Value));
+
+        Point flat = (Point)ReadForEdit("""{"x":1,"y":2}""");
+        Assert.Null(flat.Z);
+
+        MultiPoint many = (MultiPoint)ReadForEdit("""{"hasZ":true,"points":[[1,2,10],[3,4,11]]}""");
+        Assert.Equal([10d, 11d], many.Parts.Select(p => p.Z!.Value));
+    }
+
+    [Fact]
+    public void An_unclosed_ring_is_closed_with_the_first_vertex_s_z()
+    {
+        Polygon polygon = (Polygon)ReadForEdit("""{"hasZ":true,"rings":[[[0,0,1],[0,10,2],[10,10,3],[10,0,4]]]}""");
+
+        Assert.Equal([1.0, 2.0, 3.0, 4.0, 1.0], polygon.Shell.Coordinates.ZSpan().ToArray());
+    }
+
+    [Theory]
+    [InlineData("""{"hasZ":true,"paths":[[[0,0],[1,1]]]}""", "each needs 3")]
+    [InlineData("""{"hasZ":true,"paths":[[[0,0,1,2],[1,1,1,2]]]}""", "declares 3")]
+    [InlineData("""{"hasZ":true,"hasM":true,"paths":[[[0,0,1,null],[1,1,1,2]]]}""", "a null is not")]
+    [InlineData("""{"hasZ":true,"x":1,"y":2}""", "has no 'z'")]
+    [InlineData("""{"paths":[[[0,0,5],[1,1,6]]]}""", "did not declare")]
+    public void An_edit_short_of_or_beyond_what_it_declares_is_refused(string json, string reason)
+    {
+        Assert.Contains(reason, RefuseForEdit(json), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_filter_still_refuses_a_declared_z()
+    {
+        Assert.Contains("Z or M", Refuse("""{"hasZ":true,"paths":[[[0,0,5],[1,1,6]]]}"""), StringComparison.Ordinal);
     }
 
     [Fact]

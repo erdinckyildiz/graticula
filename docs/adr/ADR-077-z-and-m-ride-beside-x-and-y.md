@@ -96,15 +96,21 @@ the binding constraint (A-037). Times overlap the baseline's.
    **DISCHARGED** 2026-09-16 — `ZAndMRideBesideXyTests`.
 3. **Each step-3 surface that starts returning Z turns `keepOrdinates` on for itself and makes its own
    `hasZ` / `hasM` true in the same change**, with a test that reads a 3D row back through that surface.
-   **PARTLY DISCHARGED** 2026-09-16 — ArcGIS `query` in `f=json`, §8, and in `f=pbf` on 2026-09-17, §9.
-   Open for `applyEdits`, WFS and OGC API Features.
+   **PARTLY DISCHARGED** 2026-09-16 — ArcGIS `query` in `f=json`, §8, and in `f=pbf` on 2026-09-17, §9;
+   `applyEdits` on 2026-09-17, §10, whose test writes a 3D row and reads it back from the column. Open for
+   WFS and OGC API Features.
 4. **The in-process operations follow §5 before any surface feeds them a 3D geometry** — `Densify`
-   interpolates, `ConvexHull` returns 2D and reports it. *(Open — step 3.)*
+   interpolates, `ConvexHull` returns 2D and reports it. *(Open — step 3. Still not fed one: a filter and
+   every GeometryServer operation refuse a geometry that declares Z or M, and an edit's only operations —
+   projection and repair — run in PostGIS, §10.)*
+5. **A Z layer is edited from a real ArcGIS client and the elevation it sent is what the table holds.**
+   *(Open — the writer is tested against PostGIS and the reader against JSON written by hand; what Pro and
+   Field Maps actually send, `hasZ` on every geometry or `z` on a point without it, is the claim that matters.)*
 
 ## 7. Consequences
 
 - The model can hold elevations and measures; ArcGIS `query` serves them in `f=json` (§8) and `f=pbf`
-  (§9), and every other surface still answers x and y.
+  (§9), `applyEdits` stores them (§10), and every other surface still answers x and y.
 - `Point` is unsealed, which a derived class outside Core could now exploit; the subclass that exists is
   private, and nothing constructs points by reflection.
 - The plan's next benchmark is the query path's, and the harness for it is in the repository.
@@ -152,5 +158,33 @@ the binding constraint (A-037). Times overlap the baseline's.
    an elevation rounded to one would be none.
 4. **A flat answer is byte-for-byte what it was**: no header flags, and a `Scale` / `Translate` with two
    fields.
+
+## 10. Step 3, `applyEdits` (2026-09-17)
+
+1. **An edit's geometry is read with the Z and M it declares.** `hasZ` / `hasM` set the stride of every
+   position, and a point's `z` and `m` members are read with or without them. A position with fewer numbers
+   than declared, more, or a null among them is refused with the count — a missing Z is not zero metres. An
+   unclosed ring is closed with the first vertex's Z and M. **A filter and a GeometryServer operation still
+   refuse a declared Z**, because they read x and y and would drop it (condition 4).
+2. **WKB carries them.** `WkbWriter` writes ISO type codes plus 1000, 2000 or 3000 and the ordinates after
+   each x and y; a flat geometry is the bytes it was.
+3. **The writer holds a geometry to what the row stores, in both directions.** An update is compared with
+   the row's `ST_Zmflag`; an add, and an update into a row with no geometry, with the column's declared
+   type. A flat shape over an elevation is refused, and so is an elevation into a flat row: the first
+   discards a stored value, the second a sent one. A column typed as bare `geometry` declares nothing and
+   takes what it is sent. The refusal is this server's sentence, before PostGIS answers in typmods.
+4. **Projection and repair were measured, not assumed** — PostGIS 3.4.3 / GEOS 3.9.0 on CI's image, on a
+   branch that ran one SQL file: `ST_Transform`, `ST_Multi` and `ST_GeometryN` keep Z and M; ISO ZM WKB is
+   read; **`ST_MakeValid` keeps Z and gives the vertex it creates an elevation interpolated along the edge —
+   §5.2 exactly — and returns no M at all.** So an invalid polygon carrying Z is repaired as Q-153 decided,
+   and **an invalid polygon carrying M is refused**, with the reason, rather than stored without its measures.
+   `AnEditKeepsTheOrdinatesTheRowStoresTests` asserts the measurement too, so a PostGIS that starts keeping M
+   says so by failing.
+5. **`Create` and `allowGeometryUpdates` are offered on a layer with Z or M again.** §8.5 took `Create` away
+   for one release because a client reading `hasZ: true` would send what the writer could not store; it
+   can now.
+6. **The sentences that said *this server* is two-dimensional say *this path* now** — the shared clause, the
+   publish-time note on a registered 3D table, and the shapefile import's warning, whose table is still
+   two-dimensional until step 4.
 
 **State.** None.

@@ -30,11 +30,10 @@ namespace Graticula.Providers.PostGis;
 /// the only safe handling is to refuse anything not on the list.
 /// </para>
 /// <para>
-/// <b>ADR-008 §4.5a — lossy on read means not writable.</b> Our geometry model
-/// is two-dimensional, so a client that read a feature carrying Z read it flat.
-/// Letting it write back would silently drop the third ordinate. The target
-/// rows' dimensionality is checked before any update runs, and the ones that
-/// would lose an ordinate are refused individually.
+/// <b>ADR-008 §4.5a — a geometry is written only where nothing it carries or the row stores is lost.</b>
+/// Since ADR-077 §10 a geometry may carry Z and M. The target rows' dimensionality is read before any
+/// update runs, and the column's declaration before any add, and a geometry whose ordinates differ from
+/// either is refused individually — a flat shape over an elevation, and an elevation into a flat row.
 /// </para>
 /// <para>
 /// <b>One transaction, always.</b> Even when the caller allows partial
@@ -249,8 +248,16 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         // Read the dimensionality of every row an update targets, once, before
         // touching anything. Doing it per row would be a query per feature; doing
         // it not at all would flatten somebody's 3D data.
-        IReadOnlyDictionary<long, int> zmFlags = await ReadZmFlagsAsync(
+        IReadOnlyDictionary<long, int?> zmFlags = await ReadZmFlagsAsync(
             connection, transaction, batch.Updates, cancellationToken).ConfigureAwait(false);
+
+        // <b>What the column declares, once per batch that writes a shape</b> — for an add, and for an update
+        // into a row with no geometry yet. Null for a column typed as bare `geometry`, which declares nothing
+        // and holds whatever it is given.
+        GeometryOrdinates? declared =
+            batch.Adds.Any(add => add.Geometry is { IsEmpty: false }) || batch.Updates.Any(update => update.Geometry is not null)
+                ? await ReadDeclaredOrdinatesAsync(connection, transaction, cancellationToken).ConfigureAwait(false)
+                : null;
 
         // <b>ADR-065: the subtype a feature already is, for the updates that need it</b> — the
         // ones that write a column some subtype governs and do not say which subtype the feature
@@ -265,7 +272,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         {
             adds.Add(await IsolatedAsync(
                 transaction, savepoint++,
-                () => AddAsync(connection, transaction, add, batch, cancellationToken),
+                () => AddAsync(connection, transaction, add, declared, batch, cancellationToken),
                 cancellationToken).ConfigureAwait(false));
         }
 
@@ -274,7 +281,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             updates.Add(await IsolatedAsync(
                 transaction, savepoint++,
                 () => UpdateAsync(
-                    connection, transaction, update, zmFlags,
+                    connection, transaction, update, zmFlags, declared,
                     storedSubtypes.TryGetValue(update.Identity, out long? stored) ? stored : null,
                     Expected(batch, update.Identity), batch, cancellationToken),
                 cancellationToken).ConfigureAwait(false));
@@ -393,9 +400,16 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         FeatureAdd add,
+        GeometryOrdinates? declared,
         EditBatch batch,
         CancellationToken cancellationToken)
     {
+        if (add.Geometry is { IsEmpty: false } shape && declared is { } stores
+            && DimensionRefusal(shape, stores, "the layer's geometry column") is { } refused)
+        {
+            return EditResult.Failed(-1, refused);
+        }
+
         // A new feature has no stored subtype: the one it is given is the one it is.
         if (!TryBindColumns(add.Attributes, null, out List<(string Column, object? Value)> bound, out string? error, keepGlobalId: batch.KeepsGlobalIds))
         {
@@ -406,6 +420,12 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         List<string> values = [.. bound.Select((_, i) => $"@v{i}")];
 
         string repairedSql = "false";
+
+        if (add.Geometry is { IsEmpty: false } measured
+            && await UnrepairableMeasuresAsync(connection, transaction, measured, cancellationToken).ConfigureAwait(false) is { } unrepairable)
+        {
+            return EditResult.Failed(-1, unrepairable);
+        }
 
         if (add.Geometry is { IsEmpty: false })
         {
@@ -549,30 +569,29 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         FeatureUpdate update,
-        IReadOnlyDictionary<long, int> zmFlags,
+        IReadOnlyDictionary<long, int?> zmFlags,
+        GeometryOrdinates? declared,
         long? storedSubtype,
         string[]? expected,
         EditBatch batch,
         CancellationToken cancellationToken)
     {
-        if (!zmFlags.TryGetValue(update.Identity, out int zmFlag))
+        if (!zmFlags.TryGetValue(update.Identity, out int? zmFlag))
         {
             return EditResult.Missing(update.Identity);
         }
 
-        // ADR-008 §4.5a, made concrete. zmFlag is 0 for 2D, 1 for M, 2 for Z,
-        // 3 for ZM. Writing our flat geometry over anything else discards an
-        // ordinate the client never saw.
-        if (update.Geometry is not null && zmFlag != 0)
+        // ADR-008 §4.5a, made concrete. zmFlag is 0 for 2D, 1 for M, 2 for Z, 3 for ZM — ST_Zmflag's numbers,
+        // which are GeometryOrdinates'. A row with a shape is held to what that shape carries; an empty row to
+        // what its column declares, and to nothing when the column declares nothing.
+        if (update.Geometry is not null
+            && (zmFlag is { } flag ? (GeometryOrdinates)flag : declared) is { } stores
+            && DimensionRefusal(
+                update.Geometry,
+                stores,
+                zmFlag is null ? "the layer's geometry column" : "this feature's stored geometry") is { } lossy)
         {
-            return EditResult.Failed(
-                update.Identity,
-                $"This feature's stored geometry carries "
-                + $"{Ordinates.Name((GeometryOrdinates)zmFlag)}, and {Ordinates.TwoDimensional}. "
-                + $"Overwriting it would silently discard {(zmFlag == 3 ? "them" : "it")}, so the "
-                + "edit is refused. Attribute-only updates to this feature are still accepted, "
-                + "and the layer document reports allowGeometryUpdates false for the same reason "
-                + "(ADR-074).");
+            return EditResult.Failed(update.Identity, lossy);
         }
 
         if (!TryBindColumns(update.Attributes, storedSubtype, out List<(string Column, object? Value)> bound, out string? error))
@@ -590,6 +609,12 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
             [.. bound.Select((b, i) => $"{LayerDefinition.Quote(b.Column)} = @v{i}")];
 
         string repairedSql = "false";
+
+        if (update.Geometry is { } measured
+            && await UnrepairableMeasuresAsync(connection, transaction, measured, cancellationToken).ConfigureAwait(false) is { } unrepairable)
+        {
+            return EditResult.Failed(update.Identity, unrepairable);
+        }
 
         if (update.Geometry is not null)
         {
@@ -937,8 +962,106 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
                 + "feature needs features:fullEdit.");
     }
 
-    /// <summary>Reads the dimensionality of every row the updates target.</summary>
-    private async Task<IReadOnlyDictionary<long, int>> ReadZmFlagsAsync(
+    /// <summary>
+    /// Why a geometry may not be written where <paramref name="stores"/> is kept, or null when it may.
+    /// </summary>
+    /// <param name="sent">The geometry the edit carries.</param>
+    /// <param name="stores">What the row or column holds.</param>
+    /// <param name="where">What holds it, for the sentence.</param>
+    /// <remarks>
+    /// <b>Both directions are losses, so both are refused.</b> A flat shape over an elevation discards the
+    /// elevation; an elevation into a flat column is discarded by the column, or refused by PostGIS in words
+    /// about typmods. Padding a missing Z with zero is not an option either: zero metres is a value, and
+    /// nobody could tell it from a measured one (ADR-077 §10).
+    /// </remarks>
+    private static string? DimensionRefusal(Geometry sent, GeometryOrdinates stores, string where)
+    {
+        GeometryOrdinates carried = Ordinates.Of(sent);
+
+        if (carried == stores)
+        {
+            return null;
+        }
+
+        GeometryOrdinates missing = stores & ~carried;
+
+        if (missing != GeometryOrdinates.None)
+        {
+            return $"{char.ToUpperInvariant(where[0])}{where[1..]} carries {Ordinates.Name(missing)}, and the "
+                + "geometry sent has none. Writing it would discard the stored value or invent one, so the edit "
+                + $"is refused. Send the geometry with {(missing == (GeometryOrdinates.Z | GeometryOrdinates.M) ? "them" : "it")} "
+                + "— hasZ / hasM and a value on every vertex — or update the attributes alone (ADR-077).";
+        }
+
+        GeometryOrdinates extra = carried & ~stores;
+
+        return $"The geometry sent carries {Ordinates.Name(extra)}, and {where} stores "
+            + $"{Ordinates.Name(stores) ?? "x and y only"}. Storing it would discard "
+            + $"{(extra == (GeometryOrdinates.Z | GeometryOrdinates.M) ? "them" : "it")}, so the edit is refused (ADR-077).";
+    }
+
+    /// <summary>
+    /// Why an invalid polygon carrying M cannot be stored, or null when it can — ADR-077 §10.
+    /// </summary>
+    /// <remarks>
+    /// <b>Because the repair drops the measures, measured.</b> Q-153 stores an invalid polygon as the valid one
+    /// <c>ST_MakeValid</c> makes of it. On PostGIS 3.4.3 that keeps Z — and gives the vertex it creates an
+    /// elevation interpolated along its edge, which is ADR-077 §5.2 — and returns no M at all: a bow-tie with
+    /// measures 10 to 40 came back as two triangles with none. Storing that is the silent loss ADR-077 exists
+    /// to end, so the polygon is refused with the reason instead, and only a polygon that carries M and is
+    /// invalid pays the extra question.
+    /// </remarks>
+    private async Task<string?> UnrepairableMeasuresAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, Geometry geometry, CancellationToken cancellationToken)
+    {
+        if (_geometryKind is not (GeometryKind.Polygon or GeometryKind.MultiPolygon)
+            || (Ordinates.Of(geometry) & GeometryOrdinates.M) == 0)
+        {
+            return null;
+        }
+
+        await using NpgsqlCommand command = new("select st_isvalid(st_geomfromwkb(@geom))", connection, transaction);
+        command.Parameters.AddWithValue("geom", NpgsqlDbType.Bytea, WkbWriter.ToArray(geometry));
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is true
+            ? null
+            : "The polygon is not valid, and it carries M values. An invalid polygon is stored as the valid one "
+              + "the database makes of it, and that repair discards every measure, so it is refused rather than "
+              + "stored without them. Correct the rings — no self-intersection, holes inside their shell — and send "
+              + "it again (ADR-077).";
+    }
+
+    /// <summary>What the geometry column declares, or null when it is bare <c>geometry</c> and declares nothing.</summary>
+    private async Task<GeometryOrdinates?> ReadDeclaredOrdinatesAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        // The describe's query, cut to the one column: postgis_typmod_type answers `PointZ`, `MultiLineStringZM`,
+        // and `Geometry` for a column typed as bare geometry.
+        const string Sql =
+            """
+            select postgis_typmod_type(g.atttypmod)
+            from pg_attribute g
+            join pg_class c on c.oid = g.attrelid
+            join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname = @schema and c.relname = @table and g.attname = @geometry
+              and g.attnum > 0 and not g.attisdropped
+            """;
+
+        await using NpgsqlCommand command = new(Sql, connection, transaction);
+        command.Parameters.AddWithValue("schema", _layer.SchemaName);
+        command.Parameters.AddWithValue("table", _layer.TableName);
+        command.Parameters.AddWithValue("geometry", _layer.GeometryColumn);
+
+        object? type = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+
+        // `Geometry` alone declares nothing; `GeometryZ` declares an elevation on a column of any kind.
+        return type is string name && !string.Equals(name, "Geometry", StringComparison.OrdinalIgnoreCase)
+            ? Ordinates.OfTypeName(name)
+            : null;
+    }
+
+    /// <summary>Reads the dimensionality of every row the updates target; null for a row with no geometry.</summary>
+    private async Task<IReadOnlyDictionary<long, int?>> ReadZmFlagsAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         IReadOnlyList<FeatureUpdate> updates,
@@ -946,22 +1069,21 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
     {
         if (updates.Count == 0)
         {
-            return new Dictionary<long, int>();
+            return new Dictionary<long, int?>();
         }
 
-        // coalesce, because a row with a null geometry has no zmflag and is not
-        // therefore three-dimensional — it is empty, and writing a shape into it
-        // loses nothing.
+        // Null for a row with no geometry, which has no zmflag: writing a shape into it loses nothing it
+        // stores, and what it may hold is the column's declaration.
         string sql =
             $"select {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)}, "
-            + $"coalesce(st_zmflag({LayerDefinition.Quote(_layer.GeometryColumn)}), 0) "
+            + $"st_zmflag({LayerDefinition.Quote(_layer.GeometryColumn)}) "
             + $"from {_layer.QuotedTable} "
             + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = any(@ids)";
 
         await using NpgsqlCommand command = new(sql, connection, transaction);
         command.Parameters.AddWithValue("ids", updates.Select(u => u.Identity).Distinct().ToArray());
 
-        Dictionary<long, int> flags = [];
+        Dictionary<long, int?> flags = [];
 
         await using NpgsqlDataReader reader =
             await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -969,7 +1091,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
             flags[Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture)] =
-                Convert.ToInt32(reader.GetValue(1), CultureInfo.InvariantCulture);
+                reader.IsDBNull(1) ? null : Convert.ToInt32(reader.GetValue(1), CultureInfo.InvariantCulture);
         }
 
         return flags;

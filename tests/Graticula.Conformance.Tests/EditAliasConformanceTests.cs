@@ -190,7 +190,7 @@ public sealed class EditAliasConformanceTests : ArcGisClient
         (int srid, double x, double y, string field) = await TargetAsync();
 
         string good = Feature(srid, x, y, field, "good").Trim('[', ']');
-        // A geometry that declares Z, which the parser refuses. This sent 4326 until 2026-09-15, when an edit
+        // A geometry that declares Z and carries two numbers a position, which the parser refuses (ADR-077 §10). This sent 4326 until 2026-09-15, when an edit
         // in another reference began to be projected rather than refused (Q-153).
         string bad = Feature(srid, 1, 2, field, "declares Z").Trim('[', ']')
             .Replace("\"geometry\":{", "\"geometry\":{\"hasZ\":true,", StringComparison.Ordinal);

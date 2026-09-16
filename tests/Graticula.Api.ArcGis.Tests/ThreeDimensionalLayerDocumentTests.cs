@@ -8,14 +8,22 @@ using Xunit;
 namespace Graticula.Api.ArcGis.Tests;
 
 /// <summary>
-/// A layer whose column carries Z or M does not offer geometry editing — ADR-074 §4.
+/// A layer whose column carries Z or M says so, and offers geometry editing again — ADR-077 §10.
 /// </summary>
 /// <remarks>
+/// <para>
+/// <b>History, kept because the flag went false and came back.</b> From 2026-09-16 until ADR-077 §10 the
+/// document reported <c>allowGeometryUpdates</c> false here, for the reason below; the writer now stores a
+/// geometry that carries what the row stores and refuses one that does not, so the flag is the capability
+/// string's again.
+/// </para>
+/// <para>
 /// <c>PostGisFeatureWriter</c> refuses every geometry update to a feature whose stored geometry
 /// carries an ordinate this server does not read (ADR-008 §4.5a), and until 2026-09-16 the layer
 /// document computed <c>allowGeometryUpdates</c> from the capability string alone — so ArcGIS Pro
 /// put an edit tool in front of somebody whose every save came back refused. That is the
 /// over-claim ADR-008 §2 exists to refuse, one layer narrower than the capability string can say.
+/// </para>
 /// </remarks>
 public sealed class ThreeDimensionalLayerDocumentTests
 {
@@ -56,11 +64,11 @@ public sealed class ThreeDimensionalLayerDocumentTests
     [InlineData(GeometryOrdinates.Z)]
     [InlineData(GeometryOrdinates.M)]
     [InlineData(GeometryOrdinates.Z | GeometryOrdinates.M)]
-    public void A_layer_whose_column_carries_more_than_x_and_y_does_not(GeometryOrdinates ordinates)
+    public void A_layer_whose_column_carries_more_than_x_and_y_offers_it_too(GeometryOrdinates ordinates)
     {
         JsonElement document = Document(ordinates);
 
-        Assert.False(document.GetProperty("allowGeometryUpdates").GetBoolean());
+        Assert.True(document.GetProperty("allowGeometryUpdates").GetBoolean());
 
         // <b>And the capability string is untouched.</b> Attribute editing works on these
         // layers, so removing `Update` would understate by as much as the old answer overstated.
