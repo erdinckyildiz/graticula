@@ -430,6 +430,10 @@ public static class Program
         builder.Services.AddSingleton<IIdentityStore>(services =>
             new PostgresIdentityStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // ADR-076: registered apps, codes and refresh tokens, in the platform store beside sessions.
+        builder.Services.AddSingleton<IOAuthStore>(services =>
+            new PostgresOAuthStore(services.GetRequiredService<NpgsqlDataSource>()));
+
         // <b>What each role grants, read from the store — ADR-035.</b> A singleton because it holds
         // the answer between requests; registered as both the interface and the concrete type
         // because the authentication path calls `EnsureFreshAsync`, which is not on the interface:
@@ -1903,6 +1907,7 @@ public static class Program
         RelationshipEndpoints.Map(app);
         GeometryServerEndpoints.Map(app);
         HostedDataEndpoints.Map(app);
+        OAuthEndpoints.Map(app);
         ArcGisAdminEndpoints.Map(app);
 
         // <b>Outside /rest/services, deliberately.</b> Every surface above is

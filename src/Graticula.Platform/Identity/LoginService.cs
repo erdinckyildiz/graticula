@@ -172,6 +172,41 @@ public sealed class LoginService
         string? boundTo = null,
         string? scope = null)
     {
+        (LoginFailure failure, Principal? principal) =
+            await VerifyAsync(name, password, address, cancellationToken).ConfigureAwait(false);
+
+        if (failure != LoginFailure.None)
+        {
+            return new LoginResult(failure, null, null);
+        }
+
+        (string token, AuthenticatedSession session) = await IssueAsync(
+            principal!, address, cancellationToken, lifetime, boundTo, scope).ConfigureAwait(false);
+
+        return new LoginResult(LoginFailure.None, token, session);
+    }
+
+    /// <summary>
+    /// Verifies a password without issuing anything — ADR-076's sign-in page.
+    /// </summary>
+    /// <remarks>
+    /// <b>The four steps of <see cref="AuthenticateAsync"/>, all of them, and the attempt recorded
+    /// either way.</b> Split out because an OAuth sign-in proves the password now and issues its
+    /// access token later, at the code exchange; issuing a session here would leave one behind for
+    /// every sign-in, usable by nobody and revoked by nothing. The throttle, the timing equalisation
+    /// and the audit trail are this method's, so the new door cannot drift from the old one.
+    /// </remarks>
+    /// <param name="name">The principal name offered.</param>
+    /// <param name="password">The password offered.</param>
+    /// <param name="address">The source address, or null.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The failure, or <see cref="LoginFailure.None"/> and the principal.</returns>
+    public async Task<(LoginFailure Failure, Principal? Principal)> VerifyAsync(
+        string name,
+        string password,
+        IPAddress? address,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(password);
 
@@ -184,7 +219,7 @@ public sealed class LoginService
             await _store.RecordAttemptAsync(name, address, succeeded: false, cancellationToken)
                 .ConfigureAwait(false);
 
-            return new LoginResult(LoginFailure.InvalidCredentials, null, null);
+            return (LoginFailure.InvalidCredentials, null);
         }
 
         DateTimeOffset now = _time.GetUtcNow();
@@ -197,7 +232,7 @@ public sealed class LoginService
             // Not recorded as an attempt. Recording it would let a blocked
             // address extend its own block indefinitely, and worse, would let it
             // keep inflating the count for any account name it names.
-            return new LoginResult(LoginFailure.AddressThrottled, null, null);
+            return (LoginFailure.AddressThrottled, null);
         }
 
         (Principal Principal, PasswordHash? Credential)? found = await _store
@@ -228,11 +263,10 @@ public sealed class LoginService
             await _store.RecordAttemptAsync(name, address, succeeded: false, cancellationToken)
                 .ConfigureAwait(false);
 
-            return new LoginResult(
+            return (
                 _throttle.ThrottleAfterFailure(counts)
                     ? LoginFailure.AccountThrottled
                     : LoginFailure.InvalidCredentials,
-                null,
                 null);
         }
 
@@ -246,6 +280,41 @@ public sealed class LoginService
             await _store.SetPasswordAsync(principal.Id, _hasher.Hash(password), cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        await _store.RecordAttemptAsync(name, address, succeeded: true, cancellationToken)
+            .ConfigureAwait(false);
+
+        return (LoginFailure.None, principal);
+    }
+
+    /// <summary>
+    /// Issues a session to a principal whose right to one was established another way — an OAuth
+    /// code or refresh token (ADR-076).
+    /// </summary>
+    /// <remarks>
+    /// <b>The same lifetime rule as a password sign-in</b>: shorter when asked, never longer than the
+    /// deployment's, never under a minute. The caller is responsible for having checked that the
+    /// principal is still enabled — the OAuth store's lookups refuse a disabled account in their
+    /// <c>where</c> clause for exactly this reason.
+    /// </remarks>
+    /// <param name="principal">Who.</param>
+    /// <param name="address">Where from, or null.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="lifetime">The asked lifetime, or null for the deployment's.</param>
+    /// <param name="boundTo">A binding, or null.</param>
+    /// <param name="scope">A scope, or null for every surface.</param>
+    /// <returns>The token and its session.</returns>
+    public async Task<(string Token, AuthenticatedSession Session)> IssueAsync(
+        Principal principal,
+        IPAddress? address,
+        CancellationToken cancellationToken,
+        TimeSpan? lifetime = null,
+        string? boundTo = null,
+        string? scope = null)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+
+        DateTimeOffset now = _time.GetUtcNow();
 
         string token = SessionToken.Generate();
         // <b>Shorter when the caller asks, never longer — ADR-015 §4 mitigation 3.</b> An ArcGIS
@@ -264,11 +333,7 @@ public sealed class LoginService
             .CreateSessionAsync(principal.Id, SessionToken.HashOf(token), expiresAt, address, cancellationToken, boundTo, scope)
             .ConfigureAwait(false);
 
-        await _store.RecordAttemptAsync(name, address, succeeded: true, cancellationToken)
-            .ConfigureAwait(false);
-
-        return new LoginResult(
-            LoginFailure.None, token, new AuthenticatedSession(sessionId, principal, expiresAt, BoundTo: boundTo, Scope: scope));
+        return (token, new AuthenticatedSession(sessionId, principal, expiresAt, BoundTo: boundTo, Scope: scope));
     }
 
     /// <summary>

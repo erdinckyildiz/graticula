@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(50);
+    public static SchemaVersion ComponentSchemaVersion => new(51);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -85,6 +85,7 @@ public static class PlatformMigrations
         ALayerHasAVisibleScaleRangeV48,
         ATokenMayBeBoundV49,
         ASessionMayBeScopedV50,
+        OAuthV51,
     ]);
 
 
@@ -2745,6 +2746,78 @@ public static class PlatformMigrations
     /// they answer 500 until the newer build returns.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Registered apps, authorization codes and refresh tokens — ADR-076.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Expand: three new tables and nothing else touched.</b> A build before this one never reads
+    /// them, so a rollback leaves OAuth unusable and every other sign-in as it was; the rows wait.
+    /// </para>
+    /// <para>
+    /// <b>Hashes, as the session table keeps them.</b> A code and a refresh token are bearer
+    /// secrets; the catalogue holds their SHA-256 and a copy of it signs nobody in.
+    /// </para>
+    /// <para>
+    /// <b>Field Maps is registered here</b>, under the client id and redirects Esri's own published
+    /// script gives it (<c>Esri/field-maps-scripts</c>), because an Enterprise portal ships it that
+    /// way and the owner asked for the field apps. <c>on conflict do nothing</c>, so a deployment
+    /// that registered it by hand first keeps its own row.
+    /// </para>
+    /// </remarks>
+    private static Migration OAuthV51 => Migration.Expand(
+        new SchemaVersion(51),
+        "Registered apps, authorization codes and refresh tokens for OAuth (ADR-076).",
+
+        """
+        create table if not exists oauth_app (
+            client_id     text        not null primary key,
+            title         text        not null,
+            redirect_uris text[]      not null,
+            builtin       boolean     not null default false,
+            created_by    uuid        null references principal (id) on delete set null,
+            created_at    timestamptz not null default now(),
+            constraint oauth_app_client_id_shape check (client_id ~ '^[A-Za-z0-9._-]{1,128}$'),
+            constraint oauth_app_has_redirects check (cardinality(redirect_uris) > 0)
+        )
+        """,
+
+        """
+        create table if not exists oauth_code (
+            code_hash        bytea       not null primary key,
+            client_id        text        not null references oauth_app (client_id) on delete cascade,
+            principal_id     uuid        not null references principal (id) on delete cascade,
+            redirect_uri     text        not null,
+            challenge        text        null,
+            challenge_method text        null,
+            expires_at       timestamptz not null,
+            used_at          timestamptz null,
+            constraint oauth_code_method_known check (challenge_method is null or challenge_method in ('S256', 'plain'))
+        )
+        """,
+
+        """
+        create table if not exists oauth_refresh (
+            token_hash     bytea       not null primary key,
+            client_id      text        not null references oauth_app (client_id) on delete cascade,
+            principal_id   uuid        not null references principal (id) on delete cascade,
+            from_code_hash bytea       null,
+            created_at     timestamptz not null default now(),
+            expires_at     timestamptz not null,
+            revoked_at     timestamptz null
+        )
+        """,
+
+        "create index if not exists oauth_refresh_code_idx on oauth_refresh (from_code_hash)",
+
+        """
+        insert into oauth_app (client_id, title, redirect_uris, builtin)
+        values ('fieldmaps', 'ArcGIS Field Maps',
+                array['urn:ietf:wg:oauth:2.0:oob', 'arcgis-fieldmaps://auth/', 'arcgis-fieldmaps-beta://auth/'],
+                true)
+        on conflict (client_id) do nothing
+        """);
+
     /// <summary>
     /// A session records what it may be used for — ADR-015 §4 mitigation 3, Q-154.
     /// </summary>
