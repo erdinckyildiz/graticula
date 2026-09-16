@@ -11057,7 +11057,12 @@ internal static partial class AdminEndpoints
     {
         if (await layers.FindServiceAsync(folder, name, cancellation).ConfigureAwait(false) is not { } service)
         {
-            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            // The folder is named, as every other service refusal names it: a service that exists at
+            // the root and was asked for in the wrong folder is the mistake this message is for.
+            await Refuse(
+                context, 404,
+                $"No service '{name}'" + (folder is null ? " at the root." : $" in folder '{folder}'."))
+                .ConfigureAwait(false);
             return false;
         }
 

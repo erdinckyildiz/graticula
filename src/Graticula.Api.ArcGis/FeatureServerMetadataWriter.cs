@@ -838,14 +838,14 @@ public static class FeatureServerMetadataWriter
                     dateFieldsTimeReference = new { timeZone = "UTC", respectsDaylightSaving = false },
                 }
                 : null,
-            ownershipBasedAccessControlForFeatures = description.Tracking.IsOn
-                ? (object?)new
-                {
-                    allowOthersToQuery = true,
-                    allowOthersToUpdate = false,
-                    allowOthersToDelete = false,
-                }
-                : null,
+            // <b>Null always, since 2026-09-16 — ADR-075.</b> This said *others may not update or
+            // delete* on every tracked layer, which was true while `features:edit` reached only the
+            // caller's own features. The owner's rule replaced that: a layer is written to by its
+            // owner, an administrator or a shared-update group, and each of those reaches every
+            // feature — so the object would now tell a group's members they cannot change what the
+            // server lets them change. ArcGIS emits it only where ownership-based access is
+            // enforced, and nothing here enforces it any more.
+            ownershipBasedAccessControlForFeatures = (object?)null,
 
             // <b>What this layer looks like, which this document said nothing about until
             // 2026-08-17 (ADR-033).</b> An ArcGIS client with no `drawingInfo` invents a

@@ -71,4 +71,35 @@ public sealed class ThreeDimensionalLayerDocumentTests
         Assert.False(document.GetProperty("hasZ").GetBoolean());
         Assert.False(document.GetProperty("hasM").GetBoolean());
     }
+
+    /// <summary>
+    /// A tracked layer does not advertise per-feature ownership, because nothing enforces it — ADR-075.
+    /// </summary>
+    /// <remarks>
+    /// Kept beside the other layer-document claims rather than in a file of its own: it is the same
+    /// kind of assertion — a flag a client acts on, and what the server actually does. It was first
+    /// written only in the conformance run, and a local edit that never reached the disk passed every
+    /// test here while CI found the object still emitted.
+    /// </remarks>
+    [Fact]
+    public void A_tracked_layer_does_not_claim_ownership_based_access()
+    {
+        LayerDescription tracked =
+            new([new FieldDescription("objectid", FieldType.Integer, false, null)], null)
+            {
+                Tracking = new EditorTracking("created_user", "created_date", "last_edited_user", "last_edited_date"),
+            };
+
+        JsonElement document = JsonDocument.Parse(JsonSerializer.Serialize(FeatureServerMetadataWriter.Layer(
+            Layer(), GeometryKind.Point, tracked, "Query,Create,Update,Delete,Editing"))).RootElement;
+
+        Assert.Equal(
+            "created_user",
+            document.GetProperty("editFieldsInfo").GetProperty("creatorField").GetString());
+
+        Assert.True(
+            !document.TryGetProperty("ownershipBasedAccessControlForFeatures", out JsonElement ownership)
+                || ownership.ValueKind == JsonValueKind.Null,
+            $"ownershipBasedAccessControlForFeatures is advertised: {ownership}");
+    }
 }
