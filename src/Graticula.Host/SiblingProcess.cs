@@ -38,10 +38,25 @@ namespace Graticula.Host;
 internal static class SiblingProcess
 {
     /// <summary>The portable half of a sibling, beside its apphost.</summary>
+    /// <remarks>
+    /// <b>Not <see cref="Path.ChangeExtension(string, string)"/>, and that cost a release.</b>
+    /// These names carry dots — <c>Graticula.Overlay.Worker</c> — so on Linux, where an apphost
+    /// has no extension at all, <c>ChangeExtension</c> reads <c>.Worker</c> as the extension and
+    /// answers <c>Graticula.Overlay.dll</c>: a file that has never existed. Written that way and
+    /// tested on Windows, where the name ends in <c>.exe</c> and the same call is right, it
+    /// passed four tests and failed the first Linux image — caught by the quickstart rehearsal's
+    /// new check on the server's own startup log, in the release that added it.
+    /// </remarks>
     /// <param name="executable">The apphost path, as the sibling's own class names it.</param>
     /// <returns>The <c>.dll</c> path.</returns>
-    internal static string Portable(string executable) =>
-        Path.ChangeExtension(executable, ".dll");
+    internal static string Portable(string executable)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(executable);
+
+        return executable.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            ? string.Concat(executable.AsSpan(0, executable.Length - 4), ".dll")
+            : executable + ".dll";
+    }
 
     /// <summary>
     /// Whether this deployment can start the sibling at all, by either route.

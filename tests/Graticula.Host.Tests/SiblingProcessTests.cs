@@ -45,6 +45,25 @@ public sealed class SiblingProcessTests : IDisposable
     private string Executable(string name) =>
         Path.Combine(_folder, OperatingSystem.IsWindows() ? name + ".exe" : name);
 
+    /// <summary>
+    /// The assembly beside an apphost, for both shapes of name — and this is the case that shipped.
+    /// </summary>
+    /// <remarks>
+    /// <b>Named paths rather than the temporary directory, so both run on either operating
+    /// system.</b> The first version of this type used <c>Path.ChangeExtension</c>, which is right
+    /// for <c>Graticula.Import.Reader.exe</c> and wrong for <c>Graticula.Import.Reader</c>: the
+    /// dots in the name make <c>.Reader</c> look like an extension, so a Linux image looked for
+    /// <c>Graticula.Import.dll</c> and found nothing. Every test here passed on Windows while that
+    /// was true.
+    /// </remarks>
+    [Theory]
+    [InlineData("/app/overlay/Graticula.Overlay.Worker", "/app/overlay/Graticula.Overlay.Worker.dll")]
+    [InlineData("/app/importer/Graticula.Import.Reader", "/app/importer/Graticula.Import.Reader.dll")]
+    [InlineData(@"C:pp\overlay\Graticula.Overlay.Worker.exe", @"C:pp\overlay\Graticula.Overlay.Worker.dll")]
+    [InlineData("worker", "worker.dll")]
+    public void The_portable_half_keeps_the_whole_name(string executable, string expected) =>
+        Assert.Equal(expected, SiblingProcess.Portable(executable));
+
     [Fact]
     public void Nothing_there_is_not_installed_and_starts_nothing()
     {
