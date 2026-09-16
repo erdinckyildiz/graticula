@@ -144,7 +144,7 @@ internal sealed class GeodatabaseReader
     /// should refuse a geodatabase with a sentence about the deployment, rather than open a job that
     /// will fail in a minute with a message about a missing file.
     /// </remarks>
-    public bool Available => File.Exists(_executable);
+    public bool Available => SiblingProcess.Installed(_executable);
 
     /// <summary>
     /// Sends one request and returns the answer.
@@ -162,7 +162,7 @@ internal sealed class GeodatabaseReader
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        if (!Available)
+        if (SiblingProcess.StartInfo(_executable) is not { } start)
         {
             // <b>Rewritten 2026-09-09, because it was wrong twice.</b> It said the reader *is
             // built and copied beside the server by the solution, so a deployment missing it was
@@ -174,21 +174,19 @@ internal sealed class GeodatabaseReader
             throw new InvalidOperationException(
                 $"The import reader is not installed at '{_executable}'. A File Geodatabase and a "
                 + "zipped shapefile both need it; a GeoJSON FeatureCollection does not, and is "
-                + "unaffected. It is built beside the server but is not carried by `dotnet "
-                + "publish`, so an image built from the published output does not have it.");
+                + "unaffected. Neither it nor the portable "
+                + $"'{Path.GetFileName(SiblingProcess.Portable(_executable))}' beside it is "
+                + "there, so this deployment did not ship the reader at all.");
         }
 
-        ProcessStartInfo start = new(_executable)
-        {
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
+        start.RedirectStandardInput = true;
+        start.RedirectStandardOutput = true;
 
-            // Left attached, so GDAL's own diagnosis reaches this server's stderr rather than
-            // vanishing. The reader routes its warnings through the answer; a stack trace goes here.
-            RedirectStandardError = false,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
+        // Left attached, so GDAL's own diagnosis reaches this server's stderr rather than
+        // vanishing. The reader routes its warnings through the answer; a stack trace goes here.
+        start.RedirectStandardError = false;
+        start.UseShellExecute = false;
+        start.CreateNoWindow = true;
 
         start.Environment["DOTNET_GCHeapHardLimit"] =
             HeapLimitBytes.ToString("X", CultureInfo.InvariantCulture);
@@ -324,20 +322,18 @@ internal sealed class GeodatabaseReader
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(take);
 
-        if (!Available)
+        if (SiblingProcess.StartInfo(_executable) is not { } start)
         {
             throw new InvalidOperationException(
-                $"The geodatabase reader is not installed at '{_executable}'.");
+                $"The geodatabase reader is not installed at '{_executable}', and neither is the "
+                + $"portable '{Path.GetFileName(SiblingProcess.Portable(_executable))}' beside it.");
         }
 
-        ProcessStartInfo start = new(_executable)
-        {
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = false,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
+        start.RedirectStandardInput = true;
+        start.RedirectStandardOutput = true;
+        start.RedirectStandardError = false;
+        start.UseShellExecute = false;
+        start.CreateNoWindow = true;
 
         start.Environment["DOTNET_GCHeapHardLimit"] =
             HeapLimitBytes.ToString("X", CultureInfo.InvariantCulture);

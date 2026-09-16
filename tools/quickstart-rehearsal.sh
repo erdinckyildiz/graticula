@@ -308,4 +308,20 @@ fi
 
 printf '   a query asked for brotli answers brotli\n'
 
+# <b>And the image can run both of its siblings -- D-235, found on 2026-09-16.</b> The server says
+# so itself at startup, once, and every published image had been saying the opposite: *the geometry
+# overlay worker is not installed* and *the import reader is not installed*, so no shipped server
+# could answer a GeometryServer overlay or import a File Geodatabase or a shapefile. Every check
+# above passed throughout, because none of them asks for either. The Dockerfile asserts the files
+# are in the image; this asserts the running server found them, which is the claim that matters.
+missing=$($COMPOSE logs --no-log-prefix server 2>&1 | grep -c 'is not installed at' || true)
+
+if [ "${missing:-0}" != "0" ]; then
+  printf 'The server reported a sibling it cannot run:\n'
+  $COMPOSE logs --no-log-prefix server 2>&1 | grep -A1 'is not installed at' | head -8
+  exit 1
+fi
+
+printf '   the overlay worker and the import reader are both runnable from the image\n'
+
 printf '\nThe quickstart works, in the order the README gives it.\n'

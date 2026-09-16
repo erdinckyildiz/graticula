@@ -428,9 +428,9 @@ internal static partial class Log
         EventId = 1060,
         Level = LogLevel.Warning,
         Message = "{Component} is not installed at {Path}, so this deployment cannot "
-                + "{Cost}. It is built beside the server but is not carried by "
-                + "`dotnet publish`, so an image built from the published output does "
-                + "not have it.")]
+                + "{Cost}. Neither that file nor the portable assembly beside it is "
+                + "there — a deployment that shipped the sibling has one of the two, "
+                + "and the published image has the assembly (D-235).")]
     public static partial void SiblingMissing(
         ILogger logger, string component, string path, string cost);
 

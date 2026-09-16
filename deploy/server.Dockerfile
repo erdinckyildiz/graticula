@@ -84,6 +84,20 @@ RUN set -eu; \
       /p:UseAppHost=false \
       "$@"
 
+# <b>Both siblings have to be startable from this image, and for every release so far neither
+# was — [D-235](../docs/architecture-debt.md).</b> The publish above is deliberately portable
+# (`UseAppHost=false`, [D-262](../docs/architecture-debt.md)) so one compile serves amd64 and
+# arm64, and an apphost is native code for exactly one of them. `Directory.Build.targets` copies
+# each sibling's build output here and its own `Error` checks that the copy was not empty — which
+# it never was. What was missing is the one file the server launches, so every published image
+# logged *the geometry overlay worker is not installed* and refused every overlay operation,
+# every File Geodatabase and every shapefile, with the whole dependency closure sitting in the
+# directory beside it. The host now starts the portable assembly with its own .NET
+# (`SiblingProcess`), and this asserts that the assembly is there to start — the exact two paths
+# that code looks at.
+RUN test -f /app/overlay/Graticula.Overlay.Worker.dll \
+ && test -f /app/importer/Graticula.Import.Reader.dll
+
 # <b>DuckDB's native library for the two architectures this image is built for, and not the
 # other three — ADR-066.</b> The package carries it for linux-x64, linux-arm64, win-x64,
 # win-arm64 and osx, and a portable publish copies all five: 111 MB of macOS and Windows library

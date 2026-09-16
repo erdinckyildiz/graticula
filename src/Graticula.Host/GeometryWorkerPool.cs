@@ -361,7 +361,7 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
     /// mistake is a line in the log at boot instead of a 503 the first time
     /// somebody uses the feature.
     /// </remarks>
-    public bool Available => File.Exists(_executable);
+    public bool Available => SiblingProcess.Installed(_executable);
 
     /// <inheritdoc/>
     public async Task<EngineResult> ComputeAsync(
@@ -384,9 +384,10 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
             return new EngineResult(
                 [],
                 EngineRefusal.Unavailable,
-                $"The geometry worker is not installed at '{_executable}'. These operations "
-                + "run in a separate process so they can be killed on a deadline (Q-97), and "
-                + "without it they are not offered.",
+                $"The geometry worker is not installed at '{_executable}', and neither is the "
+                + $"portable '{Path.GetFileName(SiblingProcess.Portable(_executable))}' beside "
+                + "it. These operations run in a separate process so they can be killed on a "
+                + "deadline (Q-97), and without it they are not offered.",
                 0,
                 0);
         }
@@ -522,17 +523,21 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
 
         public static Worker Start(string executable, ILogger log)
         {
-            ProcessStartInfo start = new(executable)
-            {
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
+            // <b>D-235: the image has no apphost to launch, only the portable assembly.</b>
+            // `SiblingProcess` answers with whichever is there; a null here means neither, and
+            // `Available` has already been asked by every caller that could reach this.
+            ProcessStartInfo start = SiblingProcess.StartInfo(executable)
+                ?? throw new InvalidOperationException(
+                    $"The geometry worker is not installed at '{executable}'.");
 
-                // Left attached, so a stack trace from the worker reaches the
-                // server's own stderr instead of vanishing.
-                RedirectStandardError = false,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
+            start.RedirectStandardInput = true;
+            start.RedirectStandardOutput = true;
+
+            // Left attached, so a stack trace from the worker reaches the
+            // server's own stderr instead of vanishing.
+            start.RedirectStandardError = false;
+            start.UseShellExecute = false;
+            start.CreateNoWindow = true;
 
             // <b>The memory bound, and it is the runtime's rather than ours.</b>
             // GCHeapHardLimit makes the worker throw OutOfMemoryException at the
