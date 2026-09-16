@@ -107,7 +107,7 @@ public sealed partial class OAuthConformanceTests : ArcGisClient
                 code = query["code"];
             }
 
-            // ---- the wrong verifier is refused, and does not spend the code's one use on nothing ----
+            // ---- the wrong verifier is refused, and the code is spent by it ----
             JsonElement badVerifier = await TokenAsync(browser, root, ("client_id", clientId), ("grant_type", "authorization_code"),
                 ("code", code), ("redirect_uri", Redirect), ("code_verifier", Base64Url(RandomNumberGenerator.GetBytes(32))));
 
@@ -158,6 +158,22 @@ public sealed partial class OAuthConformanceTests : ArcGisClient
 
             JsonElement dead = await TokenAsync(browser, root, ("client_id", clientId), ("grant_type", "refresh_token"), ("refresh_token", refresh));
             Assert.Equal("invalid_grant", dead.GetProperty("error").GetProperty("error").GetString());
+
+            // ---- what the Maps SDK actually sends: the other prefix, and its page's own query ----
+            // Measured 2026-09-16 driving the SDK 4.30: it opens /sharing/oauth2/authorize, not
+            // /sharing/rest/oauth2/authorize, and sends the page it is on — query and all — as the
+            // redirect. Both have to be accepted, and the path and origin still have to match.
+            using (HttpResponseMessage sdkShaped = await browser.GetAsync(
+                Authorize(root, clientId, Redirect + "?portal=x&appId=y", challenge).Replace("/sharing/rest/oauth2/", "/sharing/oauth2/", StringComparison.Ordinal)))
+            {
+                Assert.Equal(HttpStatusCode.OK, sdkShaped.StatusCode);
+            }
+
+            using (HttpResponseMessage otherPath = await browser.GetAsync(Authorize(root, clientId, "https://app.example/callback/elsewhere", challenge)))
+            {
+                Assert.Equal(HttpStatusCode.BadRequest, otherPath.StatusCode);
+                Assert.Null(otherPath.Headers.Location);
+            }
 
             // ---- the implicit grant is sent back to the app, refused ----
             using (HttpResponseMessage implicitGrant = await browser.GetAsync(

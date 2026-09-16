@@ -38,6 +38,8 @@ internal static class OAuthEndpoints
 {
     private const string Root = "/sharing/rest/oauth2";
 
+    private const string LegacyRoot = "/sharing/oauth2";
+
     private const string FormCookie = "graticula_oauth_form";
 
     /// <summary>Maps the protocol and the administration of registered apps.</summary>
@@ -46,11 +48,20 @@ internal static class OAuthEndpoints
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        app.MapGet($"{Root}/authorize", AuthorizeAsync).Governed(SharingGovernedExtensions.Public);
+        // <b>Under both prefixes, because the Maps SDK asks the one the reference does not name.</b>
+        // Esri's REST reference documents `/sharing/rest/oauth2/…`; the ArcGIS Maps SDK for
+        // JavaScript 4.30, given a portal URL, sends its user to `/sharing/oauth2/authorize` —
+        // measured 2026-09-16 driving the SDK against a fixture, where the first attempt ended in a
+        // 404. An Enterprise portal answers both, so this does too.
+        foreach (string root in (string[])[Root, LegacyRoot])
+        {
+            app.MapGet($"{root}/authorize", AuthorizeAsync).Governed(SharingGovernedExtensions.Public);
+            app.MapPost($"{root}/token", TokenAsync).Governed(SharingGovernedExtensions.Public).DisableAntiforgery();
+            app.MapPost($"{root}/revokeToken", RevokeAsync).Governed(SharingGovernedExtensions.Public).DisableAntiforgery();
+        }
+
         app.MapPost($"{Root}/signin", SignInAsync).Governed(SharingGovernedExtensions.Public).DisableAntiforgery();
         app.MapGet($"{Root}/approval", Approval).Governed(SharingGovernedExtensions.Public);
-        app.MapPost($"{Root}/token", TokenAsync).Governed(SharingGovernedExtensions.Public).DisableAntiforgery();
-        app.MapPost($"{Root}/revokeToken", RevokeAsync).Governed(SharingGovernedExtensions.Public).DisableAntiforgery();
 
         app.MapGet("/admin/oauth/apps", ListAppsAsync);
         app.MapPost("/admin/oauth/apps", CreateAppAsync);
@@ -238,15 +249,44 @@ internal static class OAuthEndpoints
         return app;
     }
 
-    /// <summary>A registered redirect and a requested one are the same, allowing one trailing slash.</summary>
+    /// <summary>
+    /// A registered redirect and a requested one are the same address: allowing one trailing slash, and
+    /// the requested one's own query when the registered one has none.
+    /// </summary>
     /// <remarks>
-    /// <b>The slash, and nothing looser.</b> Esri's field apps are registered as <c>arcgis-fieldmaps://auth/</c>
-    /// and a client building the URL itself may drop the slash; a prefix match would let
-    /// <c>https://app.example/cb/../elsewhere</c> through.
+    /// <para>
+    /// <b>The query, because the Maps SDK sends the page it is on.</b> Measured 2026-09-16: an app at
+    /// <c>http://localhost:8767/app.html?portal=…</c> sent that whole URL as <c>redirect_uri</c>, and an
+    /// app cannot be expected to register every query string its page is ever opened with. The query is
+    /// the app's own business at an address the app registered; the scheme, host, port and path still
+    /// have to match exactly.
+    /// </para>
+    /// <para>
+    /// <b>The slash, and nothing looser.</b> Esri's field apps are registered as
+    /// <c>arcgis-fieldmaps://auth/</c> and a client building the URL itself may drop the slash; a path
+    /// prefix match would let <c>https://app.example/cb/../elsewhere</c> through.
+    /// </para>
     /// </remarks>
-    private static bool SameRedirect(string registered, string requested) =>
-        string.Equals(registered, requested, StringComparison.Ordinal)
-        || (requested.Length > 0 && string.Equals(registered.TrimEnd('/'), requested.TrimEnd('/'), StringComparison.Ordinal));
+    private static bool SameRedirect(string registered, string requested)
+    {
+        if (requested.Length == 0)
+        {
+            return false;
+        }
+
+        if (string.Equals(registered, requested, StringComparison.Ordinal)
+            || string.Equals(registered.TrimEnd('/'), requested.TrimEnd('/'), StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        int query = requested.IndexOf('?', StringComparison.Ordinal);
+
+        return query > 0
+            && !registered.Contains('?', StringComparison.Ordinal)
+            && !requested.Contains('#', StringComparison.Ordinal)
+            && string.Equals(registered.TrimEnd('/'), requested[..query].TrimEnd('/'), StringComparison.Ordinal);
+    }
 
     private static void Redirect(HttpContext context, Request request, params (string Key, string Value)[] values)
     {

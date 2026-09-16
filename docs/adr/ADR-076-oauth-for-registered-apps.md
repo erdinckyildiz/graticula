@@ -71,6 +71,14 @@ refused with a sentence rather than half-served.
    not registered for it is **shown as an error page and never redirected to**, because redirecting
    to an unverified address is the open redirect OAuth warns about. Anything else wrong is sent back
    to the registered redirect as `error=` with the `state`.
+
+   1a. **Measured against the Maps SDK, and not in the reference**: the same endpoints answer under
+   `/sharing/oauth2/…` as well as `/sharing/rest/oauth2/…`, because that is where the SDK sends its
+   user; and a requested redirect matches a registered one that has no query when the scheme, host,
+   port and path are identical and only the requested one carries a query — the SDK sends its own
+   page's URL. A path that merely starts with the registered one does not match.
+   **Opening the sign-in page twice invalidates the first form** — its token is matched against the
+   cookie the newer page set — and the refusal says to start again from the app.
 2. **The sign-in form posts to `/sharing/rest/oauth2/signin`**, carrying the request's parameters
    and a form token. The password goes through `LoginService.AuthenticateAsync`. On success
    a **code** is issued — 32 random bytes, stored hashed, **five minutes**, **one use** — and the
@@ -144,6 +152,15 @@ signing Pro in afterwards.
 1. **The ArcGIS Maps SDK for JavaScript completes the flow against this server**: an `OAuthInfo`
    with a registered `appId`, the sign-in page, the code back at the app, the token exchange with
    PKCE, and a query that spends the token — driven in a headless browser as ADR-073's PBF check was.
+   **DISCHARGED 2026-09-16**, against the VPS test fixture, with the SDK 4.30 in headless Edge:
+   `OAuthInfo({ popup: false, flowType: "authorization-code" })` → the sign-in page → a code back at
+   the app → `POST /sharing/rest/oauth2/token` with `code_verifier` → the SDK spent the token on
+   `/sharing/rest` and `portals/self`, which answered as the signed-in account. **The first attempt
+   failed twice, and both were facts about the client rather than about the reference**: the SDK
+   opens **`/sharing/oauth2/authorize`**, a prefix the REST reference does not name, which answered
+   404; and it sends **the page it is on, query string included,** as `redirect_uri`, which no app
+   can register in advance. Both are served now (§3.1a), and the conformance scenario asserts both.
+   It also sends `expiration=20160` to authorize, which §3.4 does not read.
 2. **The protocol's refusals are pinned by tests against PostgreSQL**: a code used twice (and the
    refresh token revoked with it), a wrong `code_verifier`, a redirect not registered, an expired
    code, a refresh token after its app is deleted, and an access token from this flow refused by
