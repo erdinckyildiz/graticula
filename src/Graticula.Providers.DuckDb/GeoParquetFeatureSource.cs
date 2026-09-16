@@ -84,6 +84,7 @@ public sealed class GeoParquetFeatureSource
     private readonly IProjector _projector;
     private readonly TimeSpan _timeout;
     private readonly int _mostMatched;
+    private readonly TimeProvider _time;
 
     /// <summary>Serves one file of a folder as a layer.</summary>
     /// <param name="folder">The folder's sandboxed DuckDB.</param>
@@ -96,8 +97,19 @@ public sealed class GeoParquetFeatureSource
     {
     }
 
+    /// <remarks>
+    /// <b><paramref name="time"/> is for the one test that needs the deadline to have passed</b> —
+    /// [D-272](../../docs/architecture-debt.md). With the system clock the test gave a query one
+    /// millisecond and relied on the machine being too slow to finish first, and a fast CI runner was
+    /// not. A clock whose timers are already due tests the mechanism rather than the machine.
+    /// </remarks>
     internal GeoParquetFeatureSource(
-        GeoParquetFolder folder, LayerDefinition layer, IProjector projector, TimeSpan? statementTimeout, int mostMatched)
+        GeoParquetFolder folder,
+        LayerDefinition layer,
+        IProjector projector,
+        TimeSpan? statementTimeout,
+        int mostMatched,
+        TimeProvider? time = null)
     {
         ArgumentNullException.ThrowIfNull(folder);
         ArgumentNullException.ThrowIfNull(layer);
@@ -114,6 +126,7 @@ public sealed class GeoParquetFeatureSource
         _projector = projector;
         _timeout = statementTimeout ?? DefaultStatementTimeout;
         _mostMatched = mostMatched;
+        _time = time ?? TimeProvider.System;
     }
 
     /// <summary>The relations a GeoParquet layer answers.</summary>
@@ -148,7 +161,7 @@ public sealed class GeoParquetFeatureSource
         // Refused before the deadline starts, so a refusal is a refusal and never a timeout.
         SchemaFor(query);
 
-        using CancellationTokenSource deadline = Deadline(cancellationToken);
+        using Deadline deadline = new(_timeout, _time, cancellationToken);
 
         await using IAsyncEnumerator<Feature> rows =
             ReadBoundedAsync(query, deadline.Token).GetAsyncEnumerator(deadline.Token);
@@ -659,16 +672,36 @@ public sealed class GeoParquetFeatureSource
         }
     }
 
-    private CancellationTokenSource Deadline(CancellationToken cancellationToken)
+    /// <summary>The caller's cancellation and this provider's statement timeout, as one token.</summary>
+    /// <remarks>
+    /// <b>Two sources, disposed together.</b> The timed one runs on <see cref="TimeProvider"/> so a test
+    /// can hand it a clock that is already past the deadline; the linked one is what the work observes.
+    /// </remarks>
+    private sealed class Deadline : IDisposable
     {
-        CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(_timeout);
-        return deadline;
+        private readonly CancellationTokenSource _timed;
+        private readonly CancellationTokenSource _linked;
+
+        public Deadline(TimeSpan timeout, TimeProvider time, CancellationToken caller)
+        {
+            _timed = new CancellationTokenSource(timeout, time);
+            _linked = CancellationTokenSource.CreateLinkedTokenSource(caller, _timed.Token);
+        }
+
+        public CancellationToken Token => _linked.Token;
+
+        public bool Passed => _timed.IsCancellationRequested;
+
+        public void Dispose()
+        {
+            _linked.Dispose();
+            _timed.Dispose();
+        }
     }
 
     private async Task<T> Bounded<T>(Func<CancellationToken, Task<T>> work, CancellationToken cancellationToken)
     {
-        using CancellationTokenSource deadline = Deadline(cancellationToken);
+        using Deadline deadline = new(_timeout, _time, cancellationToken);
 
         try
         {
@@ -686,8 +719,8 @@ public sealed class GeoParquetFeatureSource
     /// own exception rather than as a cancellation, depending on where in its pipeline the interrupt
     /// lands — and reporting that as a server fault would send an operator looking for a defect.
     /// </remarks>
-    private static bool TimedOut(Exception stopped, CancellationTokenSource deadline, CancellationToken caller) =>
-        deadline.IsCancellationRequested
+    private static bool TimedOut(Exception stopped, Deadline deadline, CancellationToken caller) =>
+        deadline.Passed
         && !caller.IsCancellationRequested
         && stopped is OperationCanceledException or DuckDBException;
 

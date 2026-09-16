@@ -49,9 +49,19 @@ public sealed class ThePoolSaysWhoItIsTests
         // The same two steps `LayerConnections.BuildPool` takes, in the same order. Named here
         // rather than referenced because this project does not see the host assembly; if that
         // changes, call the real one.
+        // <b>The same length as the real name, and not its prefix.</b> This used `graticula-layers:`,
+        // and `QuietDatabaseTests` refuses to trust a run while any connection named `graticula%` is
+        // on the database — so whenever the two ran at the same moment, this test's own connection
+        // was reported as a running server and the quiet check failed (CI, v1.0.106, passed on a
+        // rerun). What is measured here is the byte count against PostgreSQL's ceiling, which
+        // `testpool--layers:` has exactly as `graticula-layers:` does.
+        const string SameLengthPrefix = "testpool--layers:";
+
+        Assert.Equal("graticula-layers:".Length, SameLengthPrefix.Length);
+
         NpgsqlConnectionStringBuilder builder = new(configured)
         {
-            ApplicationName = "graticula-layers:"
+            ApplicationName = SameLengthPrefix
                 + Environment.MachineName + "/" + Environment.ProcessId,
         };
 

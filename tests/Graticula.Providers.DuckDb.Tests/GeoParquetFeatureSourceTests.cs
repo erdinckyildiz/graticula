@@ -528,11 +528,17 @@ public sealed class GeoParquetFeatureSourceTests : IDisposable
             Enumerable.Range(1, 200_000).Select(i => (new object?[] { (long)i }, (Geometry?)new Point(i % 1000, i / 1000))),
             srid: 3857);
 
+        // <b>A clock that is already past the deadline — D-272.</b> This gave the query one millisecond
+        // of the machine's own clock and relied on reading the rows taking longer; on 2026-09-16 a fast CI
+        // runner read them first and the assertion found no exception. The bound is what is under test,
+        // not the machine's speed.
         GeoParquetFeatureSource source = new(
             _folder,
             new LayerDefinition("many", "main", "many", "geom", 3857, "objectid", "objectid", false),
             _projector,
-            TimeSpan.FromMilliseconds(1));
+            TimeSpan.FromMilliseconds(1),
+            GeoParquetFeatureSource.DefaultMostMatched,
+            new AlreadyDue());
 
         TimeoutException extent = await Assert.ThrowsAsync<TimeoutException>(
             () => source.ExtentAsync(new FeatureQuery(1), CancellationToken.None));
@@ -550,6 +556,27 @@ public sealed class GeoParquetFeatureSourceTests : IDisposable
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => patient.ExtentAsync(new FeatureQuery(1), gone.Token));
+    }
+
+    /// <summary>A clock on which every timer is due the moment it is made.</summary>
+    private sealed class AlreadyDue : TimeProvider
+    {
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            callback(state);
+            return new Spent();
+        }
+
+        private sealed class Spent : ITimer
+        {
+            public bool Change(TimeSpan dueTime, TimeSpan period) => false;
+
+            public void Dispose()
+            {
+            }
+
+            public System.Threading.Tasks.ValueTask DisposeAsync() => default;
+        }
     }
 
     [Fact]
