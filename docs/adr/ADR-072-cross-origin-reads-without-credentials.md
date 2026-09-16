@@ -93,6 +93,25 @@ response, including errors. `Access-Control-Allow-Credentials` is never sent. `G
 is `*` by default; `none` turns it off; a comma-separated list of origins allows only those and adds
 `Vary: Origin`. A value that is not an origin refuses to start.
 
+### 5a. Amended 2026-09-16 — the policy in force is readable in the console
+
+By owner decision on [Q-151](../open-questions.md): the default stands, and *the console should
+show it*. `GET /admin/routes` — the governance audit, which already answers *what may reach this
+data and by what rule* — now also reports the cross-origin policy: whether it is on, which origins
+it names, that credentials are never allowed, which headers are exposed, which prefixes answer no
+origin at all, and the setting that changes it. The Operations screen prints it beside the route
+table as a metric and a sentence.
+
+**Reported, never set.** There is no console control for it, and that is the decision rather than
+work left over: who may read a server is a deployment's decision, made where the deployment is
+configured, and a switch on an administration screen puts it one mis-click away. Until this, the
+only way to learn which policy a server was running was to send a cross-origin request and read the
+response headers — an administrator could not answer a question about their own server.
+
+**One reader of the setting.** `CrossOriginReads.Of(HostSettings)` is where *unset means every
+origin* lives, and the pipeline and the audit both call it. A second copy of that default would be
+a console confidently reporting `none` for a server that allows everything.
+
 ## 6. Consequences
 
 **Positive.** A Maps SDK application, a Leaflet or OpenLayers page, or a notebook in a browser can
@@ -105,4 +124,5 @@ is intended and will surprise somebody who tries.
 
 **State.** None in the catalogue. The allowed origins are read from configuration at startup and
 held in memory on each node; nodes with different settings answer differently, which is the
-operator's to keep consistent.
+operator's to keep consistent — and §5a is what makes that difference visible, since the audit
+reports the policy of the node that answered it.

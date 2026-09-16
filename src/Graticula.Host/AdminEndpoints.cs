@@ -749,7 +749,10 @@ internal static partial class AdminEndpoints
     /// </para>
     /// </remarks>
     private static async Task ListRoutesAsync(
-        HttpContext context, EndpointDataSource endpoints, CancellationToken cancellation)
+        HttpContext context,
+        EndpointDataSource endpoints,
+        HostSettings settings,
+        CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
         {
@@ -812,6 +815,13 @@ internal static partial class AdminEndpoints
             // that does not publish its own scope cannot be checked against the
             // server it audits. [D-119](../../docs/architecture-debt.md).
             filteredOn = Served,
+
+            // <b>Who may read this server from a web page — ADR-072, owner decision on Q-151.</b>
+            // It belongs beside the governance audit rather than on a screen of its own: both
+            // answer *what can reach this data and by what rule*, and the cross-origin policy was
+            // the half an administrator could not see at all. Reported, never set: the setting is
+            // a deployment's, made where the deployment is configured.
+            crossOrigin = CrossOriginReads.Of(settings).Describe(),
         }).ExecuteAsync(context).ConfigureAwait(false);
 
         // <b>Every prefix that serves somebody's data.</b> Adding a protocol

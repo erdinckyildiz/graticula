@@ -15693,7 +15693,7 @@ async function loadOperations() {
       : "";
   }
 
-  const { routes, ungoverned } = await api("/admin/routes");
+  const { routes, ungoverned, crossOrigin } = await api("/admin/routes");
 
   // ADR-018 condition 5 is a number that is zero or is not, which is exactly what a dot can say.
   const routeDot = $("routeDot");
@@ -15708,7 +15708,24 @@ async function loadOperations() {
   $("routeMetrics").innerHTML =
     metric("Routes", num(routes.length)) +
     metric("Ungoverned", num(ungoverned),
-           ungoverned === 0 ? "ADR-018 condition 5 holds" : "ADR-018 condition 5 is failing");
+           ungoverned === 0 ? "ADR-018 condition 5 holds" : "ADR-018 condition 5 is failing") +
+
+    // ADR-072, Q-151: which origins may read, beside the audit of who may reach what.
+    metric("Cross-origin reads", crossOrigin ? crossOrigin.allows : "—",
+           crossOrigin ? `set by ${crossOrigin.setting}` : "");
+
+  const corsSays = $("corsSays");
+
+  if (corsSays) {
+    corsSays.textContent = crossOrigin
+      ? `${crossOrigin.anyOrigin
+          ? "Every origin may read this server's services"
+          : crossOrigin.on
+            ? `Only ${crossOrigin.allows} may read this server's services`
+            : "No other origin may read this server's services"}, never with credentials. `
+        + crossOrigin.note
+      : "";
+  }
   $("routes").innerHTML = routes.map(route => `<tr>
       <td class="val">${h(route.pattern)}</td>
       <td class="val">${h((route.methods || []).join(", "))}</td>

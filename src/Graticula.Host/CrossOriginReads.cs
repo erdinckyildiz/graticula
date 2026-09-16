@@ -53,6 +53,55 @@ internal sealed class CrossOriginReads
     public bool IsOn => _any || _origins.Count > 0;
 
     /// <summary>
+    /// The policy this deployment is running, from its settings — the one place that reads them.
+    /// </summary>
+    /// <remarks>
+    /// <b>Both the pipeline and the console read this.</b> The expression was written out where
+    /// the middleware is installed, and a second copy of *unset means every origin* is a second
+    /// place for the default to be wrong: a console reporting `none` for a server that allows
+    /// everything is worse than a console that reports nothing.
+    /// </remarks>
+    /// <param name="settings">The host's.</param>
+    /// <returns>The policy in force.</returns>
+    public static CrossOriginReads Of(HostSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        return settings.CorsOrigins ?? Parse(null);
+    }
+
+    /// <summary>
+    /// The policy in words, for an administrator reading it rather than a browser obeying it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner decision on [Q-151](../../docs/open-questions.md), 2026-09-15: visible in the
+    /// console, and read-only.</b> Every origin may read by default, which is ArcGIS Server's
+    /// behaviour and the answer the owner confirmed; what was missing is that an administrator
+    /// had no way to find out which policy their server was running short of sending a request
+    /// from another origin and watching the headers. The setting stays a setting — it is a
+    /// deployment's decision, made where the rest of the deployment is configured, and a
+    /// console switch would put *who may read this server* one mis-click away.
+    /// </para>
+    /// </remarks>
+    /// <returns>What is allowed, what is never allowed, and where it is set.</returns>
+    public object Describe() => new
+    {
+        on = IsOn,
+        allows = _any ? "every origin" : _origins.Count == 0 ? "no origin" : string.Join(", ", _origins.Order(StringComparer.OrdinalIgnoreCase)),
+        anyOrigin = _any,
+        credentials = false,
+        exposes = Exposed,
+        closed = Closed,
+        setting = "Graticula:CorsOrigins",
+        note = "A page on another origin reads what an anonymous caller reads, or what a token it "
+             + "holds reads: Access-Control-Allow-Credentials is never sent, so a browser does not "
+             + "attach this console's session cookie to a cross-origin request. The administrative "
+             + "surfaces answer no origin at all. Set Graticula__CorsOrigins to 'none' or to a "
+             + "comma-separated list of origins to narrow this — ADR-072.",
+    };
+
+    /// <summary>
     /// Reads <c>Graticula:CorsOrigins</c>: <c>*</c> for any origin, <c>none</c> for none, or a comma
     /// separated list of origins.
     /// </summary>

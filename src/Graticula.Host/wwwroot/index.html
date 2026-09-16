@@ -798,6 +798,15 @@
           <b>The number that matters is ungoverned</b>: ADR-018 condition 5 says it is zero, and
           this is where that claim is checked rather than asserted.</p>
         <div class="panel pad"><dl class="metrics" id="routeMetrics"></dl></div>
+
+        <!--
+          <b>Who may read this server from somebody else's web page — ADR-072, Q-151.</b>
+          Read-only by owner decision: every origin may read by default, which is what ArcGIS
+          Server does, and narrowing it is a deployment's decision made where the deployment is
+          configured. What was missing was any way to see which policy a server is running
+          without sending a cross-origin request and reading the headers.
+        -->
+        <p class="lede" id="corsSays"></p>
       </div>
 
       <!--
