@@ -245,9 +245,21 @@ property is being relied on and is worth stating where an operator reads.
 # Back up. One database, one file, one instant.
 pg_dump --format=custom --file=graticula-$(date +%F).dump "$GRATICULA_DB"
 
-# Restore, into an empty database.
-pg_restore --dbname="$GRATICULA_DB" graticula-2026-09-09.dump
+# The cluster's roles, which a database dump does not carry (§2.5).
+pg_dumpall --roles-only --file=graticula-roles-$(date +%F).sql
+
+# The three things that are not in any dump (§2.5): the key that seals every
+# registered credential, the serving identity, and files read in place.
+cp .env graticula-env-$(date +%F)                      # holds Graticula__SecretKey
+docker compose cp server:/var/lib/graticula/serving-certificate.pfx .
+tar -czf graticula-geoparquet-$(date +%F).tgz geoparquet/
+
+# Restore, into an empty database in a cluster that has the roles.
+psql --file=graticula-roles-2026-09-16.sql
+pg_restore --dbname="$GRATICULA_DB" --jobs=4 graticula-2026-09-16.dump
 ```
+
+*(Measured on 7 GB: six minutes to dump, three to restore — §2.6.)*
 
 ### 2.2 The one rule: back up the database, never a schema
 
@@ -298,10 +310,45 @@ the datastore *"is about to contain arbitrary user binaries, so its backup size
 stops being a function of feature count and grows without bound"* — because that
 is the day one dump stops being a comfortable answer.
 
-### 2.5 What has never been run
+### 2.5 A dump is not a deployment: what else has to be kept
 
-**Nobody has restored this product from a backup.** Everything above is derived
-from where the state is written and from reading what each surface answers, in
-the same way §1.1 is. Before relying on it, take a dump, restore it into an empty
-database, and check that the service list, one layer document and one query all
-come back — and that the administrator you sign in as still exists.
+**The database is the data and it is not the whole of what a deployment needs to
+come back.** Four things live outside it, and losing any one of them turns a
+restore that reported success into a server that is missing something an operator
+then has to find out about from a client.
+
+| What | Where it lives | What its loss costs |
+|---|---|---|
+| **The secret key** (`Graticula__SecretKey`) | Configuration — `.env`, a secret store, nowhere in the database | Every registered data source's credential is sealed with it (ADR-002 §4.7). Restored without it, the catalogue still lists each source and every one fails to open. The refusal says so in `SecretProtector.Unprotect`: *"a backup taken before a key rotation has been restored, or the wrong key was supplied at startup… every registered credential will fail the same way."* The hosted datastore is unaffected — its connection is the platform store's own — so a deployment that registers nothing loses nothing here |
+| **The serving certificate** | `server-state` volume, `/var/lib/graticula/serving-certificate.pfx` (2.4 KB) | ADR-016 §3 condition 4 calls it state rather than configuration: a replacement that generates a new identity breaks every client that trusted the old one, at the moment of the restore |
+| **Files read in place** | The GeoParquet folder (`Graticula__GeoParquetRoot`, mounted read-only) and any DuckDB database file | ADR-066 and ADR-067 layers hold no rows in the database. Their catalogue entries restore perfectly and answer nothing. On the showcase, two of six data sources are of this kind |
+| **PostgreSQL roles** | The cluster, not the database | `pg_dump` of one database carries neither roles nor their passwords. `pg_dumpall --roles-only` is the other half, and a restore into a cluster that has no `gis` role fails on ownership before it reaches any data |
+
+Everything else in the `server-state` volume is derivable and need not be kept:
+thumbnails are redrawn (ADR-071) and the DuckDB extension cache is re-downloaded
+or re-copied.
+
+### 2.6 What was measured, and what is still owed
+
+**This section used to say nobody had ever restored this product from a backup.
+That was true until 2026-09-16, when it was done** — against the showcase, a
+7,046 MB database holding 26 services, 28 layers and 102 hosted tables.
+
+| Step | Result |
+|---|---|
+| `pg_dump --format=custom` | 2.7 GB in **5 m 44 s**, no errors |
+| `createdb` + `pg_restore -j 4` into an empty database | **2 m 50 s**, no errors and no warnings |
+| Catalogue | Identical on both sides: 26 services, 28 layers, 6 data sources, 4 principals, 3 local credentials, `platform_schema.applied_version` 50 |
+| Hosted data | 102 tables and 203 indexes both sides; row counts identical for the three largest, including the attachment chunk table — so attachments survive a plain dump, and ADR-013 §4e's worry about them is size rather than fidelity |
+| Fidelity | An `md5` over every row of a 25,280-row spatial table (geometry included) is the same string in both databases |
+
+**What is still owed is the half a database cannot answer: no server has been
+started against the restored database.** So *the data comes back byte for byte*
+is measured, and *the product comes up on it* is not. Until it is, treat §2.3 as
+the thing to check by hand after a restore: the service list, one layer document,
+one query, and signing in as the administrator.
+
+**And the dump is where the cost lands.** Six minutes to take and three to
+restore is a figure for 7 GB with one attachment table in it; §2.4's revisit
+trigger is attachments precisely because that number grows with binaries rather
+than with features.

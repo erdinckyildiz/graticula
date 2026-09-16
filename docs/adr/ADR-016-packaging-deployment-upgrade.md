@@ -115,6 +115,29 @@ the with-datastore and without-datastore cases had to be designed. **Q-69 made i
 mandatory**, so only one case exists. That halves the storage design and removes
 a branch from every backup and restore path.
 
+### 3a. Amended 2026-09-16 — two more, found by taking a backup and restoring it
+
+The first restore of this product was run on 2026-09-16 against the showcase
+([deployment.md §2.6](../deployment.md)): 7 GB dumped in 5 m 44 s, restored into an
+empty database in 2 m 50 s, with the catalogue, every hosted table, the attachment
+chunks and an `md5` over every row of a 25,280-row spatial table identical on both
+sides. **The data came back whole. The inventory above is what it exposed as
+incomplete**, by two rows — both of them things a `pg_dump` cannot carry and
+neither of them obvious from inside the database:
+
+| State | Where | Note |
+|---|---|---|
+| **The secret key** (`Graticula__SecretKey`) | Configuration, never the database | It seals every registered data source credential ([ADR-002](ADR-002-primary-data-architecture.md) §4.7), so it is *configuration that a restore depends on*, which is a category this table did not have. Restored without it the catalogue is intact and every registered source fails to open, one by one, with `SecretProtector`'s own sentence about a backup and the wrong key. The hosted datastore is unaffected, because its connection is the platform store's |
+| **Files read in place** | The GeoParquet folder and any DuckDB database file | [ADR-066](ADR-066-geoparquet-layers-read-by-duckdb.md) and [ADR-067](ADR-067-duckdb-sources-beyond-a-local-folder.md) postdate this inventory. Those layers keep no rows in the database: their catalogue entries restore perfectly and answer nothing without the files. Two of the showcase's six data sources are of this kind |
+
+**And one that belongs to the cluster rather than to us**: `pg_dump` of a database
+carries no roles, so a restore into a fresh cluster needs
+`pg_dumpall --roles-only` first or it fails on ownership before reaching any data.
+
+**What is still not measured is the other half of a restore**: no server has been
+started against the restored database, so *the data comes back* is evidence and
+*the product comes up on it* is not. That is condition 5 below.
+
 ### Deliberately not persisted
 
 In-process caches, warm service contexts (ADR-007 §4.3), and connection pools.
@@ -385,6 +408,19 @@ developer then runs what the customer runs.
    documented first step impossible; and `restart: unless-stopped` turned
    §4b's deliberate, permanent refusal to start against an un-migrated store
    into a crash loop that scrolled its own explanation away five times a minute.
+
+5. **A restore is rehearsed end to end**: dump, restore into an empty database,
+   **start a server against it**, and check that the service list, one layer
+   document, one query and signing in as the administrator all come back —
+   plus one registered data source, which is the part the secret key decides.
+   **PARTLY DISCHARGED 2026-09-16.** The database half was run against the
+   showcase and is in [deployment.md §2.6](../deployment.md): 7 GB out in
+   5 m 44 s, back in 2 m 50 s with no errors, and the catalogue, the hosted
+   tables, the attachment chunks and a row-by-row `md5` of a 25,280-row spatial
+   table identical on both sides. **The server half was not run**, so what is
+   evidenced is that the data survives, not that the product starts on it —
+   and §3a's two new inventory rows were found by doing the first half rather
+   than by reading the code, which is the argument for finishing it.
 
 ## 11. Assumptions
 
