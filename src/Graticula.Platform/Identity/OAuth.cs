@@ -49,11 +49,8 @@ public static class OAuthRules
     /// <summary>An access token's lifetime when the request names none — Esri's documented default for this grant.</summary>
     public static readonly TimeSpan DefaultAccessLifetime = TimeSpan.FromMinutes(30);
 
-    /// <summary>A refresh token's lifetime when the request names none — two weeks, as documented.</summary>
+    /// <summary>A refresh token's lifetime — two weeks, Esri's documented default; the authorize request's `expiration` is not read (ADR-076 §3.4).</summary>
     public static readonly TimeSpan DefaultRefreshLifetime = TimeSpan.FromDays(14);
-
-    /// <summary>The longest refresh token issued — 90 days, as documented.</summary>
-    public static readonly TimeSpan MaximumRefreshLifetime = TimeSpan.FromDays(90);
 
     /// <summary>The out-of-band redirect the native SDKs use.</summary>
     public const string OutOfBand = "urn:ietf:wg:oauth:2.0:oob";
@@ -86,7 +83,11 @@ public static class OAuthRules
             return true;
         }
 
-        if (!Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsed))
+        // <b>A scheme is required before the parser is asked</b>, because .NET on Linux reads
+        // `/relative/path` as `file:///relative/path` — an absolute URI there and not on Windows —
+        // so the same input was refused for two different reasons on the two machines. Found by CI.
+        if (uri.IndexOf(':', StringComparison.Ordinal) <= 0
+            || !Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsed))
         {
             error = $"'{uri}' is not an absolute URI.";
             return false;
