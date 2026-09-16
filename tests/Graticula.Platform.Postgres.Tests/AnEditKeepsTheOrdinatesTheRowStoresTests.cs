@@ -31,10 +31,12 @@ public sealed class AnEditKeepsTheOrdinatesTheRowStoresTests : PostgresFixture
         await command.ExecuteNonQueryAsync();
     }
 
-    private async Task<PostGisFeatureWriter> TableAsync(string name, string type, GeometryKind kind)
+    private async Task<PostGisFeatureWriter> TableAsync(string name, string? type, GeometryKind kind)
     {
+        string column = type is null ? "geometry" : $"geometry({type}, {Srid})";
+
         await ExecuteAsync(
-            $"create table \"{SchemaName}\".\"{name}\" (objectid serial primary key, label text, geom geometry({type}, {Srid}))");
+            $"create table \"{SchemaName}\".\"{name}\" (objectid serial primary key, label text, geom {column})");
 
         LayerDefinition layer = new(
             name: name, schemaName: SchemaName, tableName: name, geometryColumn: "geom", srid: Srid,
@@ -118,12 +120,27 @@ public sealed class AnEditKeepsTheOrdinatesTheRowStoresTests : PostgresFixture
     [Fact]
     public async Task A_bare_column_takes_the_shape_as_sent()
     {
-        PostGisFeatureWriter writer = await TableAsync("e_bare", "Geometry", GeometryKind.Point);
+        PostGisFeatureWriter writer = await TableAsync("e_bare", null, GeometryKind.Point);
 
         EditResult added = await OneAddAsync(writer, Add(Point.Create(1, 2, 3, null)));
 
         Assert.True(added.Succeeded, added.Error);
         Assert.Equal("SRID=3857;POINT(1 2 3)", await StoredAsync("e_bare"));
+    }
+
+    /// <summary>
+    /// <c>geometry(Geometry, 3857)</c> is not bare: its typmod declares x and y, and an elevation is refused in
+    /// this server's words rather than PostGIS's 22023 — the case CI found when the name alone was read.
+    /// </summary>
+    [Fact]
+    public async Task A_generic_column_with_a_typmod_declares_two_dimensions()
+    {
+        PostGisFeatureWriter writer = await TableAsync("e_generic", "Geometry", GeometryKind.Point);
+
+        EditResult added = await OneAddAsync(writer, Add(Point.Create(1, 2, 3, null)));
+
+        Assert.False(added.Succeeded);
+        Assert.Contains("stores x and y only", added.Error!, StringComparison.Ordinal);
     }
 
     /// <summary>Projected on write, as Q-153 decided, and the elevation rides through the transform.</summary>

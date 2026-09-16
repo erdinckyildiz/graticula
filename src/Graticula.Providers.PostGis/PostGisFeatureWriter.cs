@@ -1036,10 +1036,12 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
     {
         // The describe's query, cut to the one column: postgis_typmod_type answers `PointZ`, `MultiLineStringZM`,
-        // and `Geometry` for a column typed as bare geometry.
+        // and `Geometry` both for a bare `geometry` column and for `geometry(Geometry, 3857)`. **Those differ, and
+        // only the typmod tells them apart** — the second declares two dimensions and PostGIS refuses a Z into
+        // it (22023), measured on CI's 3.4.3 when this read the name alone. A bare column has no typmod: -1.
         const string Sql =
             """
-            select postgis_typmod_type(g.atttypmod)
+            select case when g.atttypmod < 0 then null else postgis_typmod_type(g.atttypmod) end
             from pg_attribute g
             join pg_class c on c.oid = g.attrelid
             join pg_namespace n on n.oid = c.relnamespace
@@ -1054,10 +1056,8 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
 
         object? type = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
 
-        // `Geometry` alone declares nothing; `GeometryZ` declares an elevation on a column of any kind.
-        return type is string name && !string.Equals(name, "Geometry", StringComparison.OrdinalIgnoreCase)
-            ? Ordinates.OfTypeName(name)
-            : null;
+        // Null is a bare column, which declares nothing; `Geometry` with a typmod declares x and y.
+        return type is string name ? Ordinates.OfTypeName(name) : null;
     }
 
     /// <summary>Reads the dimensionality of every row the updates target; null for a row with no geometry.</summary>

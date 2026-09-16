@@ -172,7 +172,9 @@ the binding constraint (A-037). Times overlap the baseline's.
    the row's `ST_Zmflag`; an add, and an update into a row with no geometry, with the column's declared
    type. A flat shape over an elevation is refused, and so is an elevation into a flat row: the first
    discards a stored value, the second a sent one. A column typed as bare `geometry` declares nothing and
-   takes what it is sent. The refusal is this server's sentence, before PostGIS answers in typmods.
+   takes what it is sent. **`geometry(Geometry, 3857)` is not bare** — its typmod declares x and y, and
+   `postgis_typmod_type` names both `Geometry`; v1.0.115 read the name alone, took the second for the first,
+   and CI's datastore job caught PostGIS refusing the Z with 22023. Only `atttypmod < 0` is bare. The refusal is this server's sentence, before PostGIS answers in typmods.
 4. **Projection and repair were measured, not assumed** — PostGIS 3.4.3 / GEOS 3.9.0 on CI's image, on a
    branch that ran one SQL file: `ST_Transform`, `ST_Multi` and `ST_GeometryN` keep Z and M; ISO ZM WKB is
    read; **`ST_MakeValid` keeps Z and gives the vertex it creates an elevation interpolated along the edge —
