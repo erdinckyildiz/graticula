@@ -1273,6 +1273,34 @@ function recountRoleSections() {
   }
 }
 
+/**
+ * The apps registered to sign people in through OAuth — ADR-076.
+ *
+ * <b>Where each one returns people, in full.</b> The addresses are the security of the whole flow — a
+ * code is only ever sent to one of them — so they are listed rather than counted, and a built-in
+ * registration says so rather than looking like something an administrator typed.
+ */
+async function loadApps() {
+  const answer = await api("/admin/oauth/apps") || {};
+  const apps = answer.apps || [];
+
+  $("appCount").textContent = `${apps.length} app${apps.length === 1 ? "" : "s"}`;
+
+  $("appRows").innerHTML = apps.length === 0
+    ? `<tr><td colspan="4" class="empty">No app is registered, so nothing can sign people in through
+        OAuth. Signing in with a name and password is unaffected.</td></tr>`
+    : apps.map(a => `
+      <tr>
+        <td class="name"><b>${h(a.title)}</b>
+          <div class="rowmeta">${a.builtin ? "Came registered with this server" : `Registered ${day(a.createdAt)}`}</div></td>
+        <td class="val"><code>${h(a.clientId)}</code></td>
+        <td class="val">${(a.redirectUris || []).map(u => `<div><code>${h(u)}</code></div>`).join("")}</td>
+        <td style="text-align:right"><button class="ghost tiny" data-app-remove="${h(a.clientId)}"
+          data-app-title="${h(a.title)}" data-app-builtin="${a.builtin ? "1" : ""}"
+          data-app-redirects="${h((a.redirectUris || []).join(", "))}">Remove</button></td>
+      </tr>`).join("");
+}
+
 async function loadRoles() {
   const answer = await api("/admin/roles") || {};
   const roles = answer.roles || [];
@@ -1571,6 +1599,10 @@ const SURFACES = {
       // because *who is there* and *what they may do* are read together.
       ["roles", "Roles"],
 
+      // <b>Apps, needing `admin:manageSecurity` — ADR-076.</b> Beside Members and Roles because which
+      // apps may sign people in is the same question as who is here and what they may do.
+      ["apps", "Apps"],
+
       ["operations", "Operations"],
 
       // <b>Beside Operations, because they answer the same shift.</b> Operations says what
@@ -1656,6 +1688,7 @@ const SCREEN_SURFACE = {
   // no explanation, which is exactly the *"a screen asked for in the wrong surface is a navigation,
   // not a 404"* promise above, unkept for the two newest screens.
   roles: "server",
+  apps: "server",
   groups: "studio",
 };
 
@@ -2002,6 +2035,7 @@ function openScreen(surface, screen, folder) {
   }
   if (screen === "members") section("members", loadMembers, "members");
   if (screen === "roles") section("roles", loadRoles, "roleRows");
+  if (screen === "apps") section("apps", loadApps, "appRows");
   if (screen === "groups") section("groups", loadGroups, "groupRows");
   if (screen === "operations") section("operations", loadOperations);
   if (screen === "sources") section("data sources", loadSources, "sources");
@@ -18674,6 +18708,79 @@ async function handleClick(event) {
     } catch (e) { toast(e.message); }
 
     await section("roles", loadRoles, "roleRows");
+    return;
+  }
+
+  // ---- Apps (ADR-076) ----
+  if (t.id === "appNew") {
+    $("appForm").hidden = false;
+    $("appTitle").focus();
+    return;
+  }
+
+  if (t.id === "appCancel") {
+    $("appForm").hidden = true;
+    $("appNew").focus();
+    return;
+  }
+
+  if (t.id === "appSave") {
+    const title = $("appTitle").value.trim();
+    const redirectUris = $("appRedirects").value.split(/\r?\n/).map(u => u.trim()).filter(Boolean);
+    const clientId = $("appClientId").value.trim();
+
+    if (!title) { toast("An app needs a name: it is what people see before they type a password."); $("appTitle").focus(); return; }
+    if (redirectUris.length === 0) { toast("An app needs at least one address to return people to."); $("appRedirects").focus(); return; }
+
+    try {
+      // Kept on screen if refused, so the server's sentence can be acted on without typing it all again.
+      const made = await api("/admin/oauth/apps", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, redirectUris, clientId: clientId || null }),
+      });
+
+      for (const id of ["appTitle", "appRedirects", "appClientId"]) $(id).value = "";
+
+      // <b>Focus moves the moment the form is hidden</b>, not after the list is read again: in between,
+      // it sat on a field nobody could see — found by the console test on its first run.
+      $("appForm").hidden = true;
+      $("appNew").focus();
+      $("appSays").textContent = `${title} is registered. Its app ID is ${made && made.clientId ? made.clientId : "shown in the list"}.`;
+    } catch (e) {
+      toast(e.message);
+      return;
+    }
+
+    await section("apps", loadApps, "appRows");
+    return;
+  }
+
+  if (t.dataset.appRemove) {
+    const id = t.dataset.appRemove;
+    const title = t.dataset.appTitle || id;
+
+    // <b>A built-in registration says what it would take to put it back</b> — design review. Field Maps is
+    // the row every server starts with, and removing it by habit stops every field crew signing in; the
+    // app ID and addresses are fixed by Esri, so they are the two facts needed to register it again.
+    const cost = t.dataset.appBuiltin
+      ? `Remove ${title}? It came registered with this server, and everyone who signs in through it will be unable to until it is registered again — with the app ID ${id} and the addresses ${t.dataset.appRedirects}.`
+      : `Remove ${title}? People can no longer sign in through it, and its refresh tokens stop working. Access tokens it already gave out last at most thirty minutes.`;
+
+    if (!confirm(cost)) return;
+
+    try {
+      await api(`/admin/oauth/apps/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+      // The row that holds focus is about to be redrawn away; the next thing a reader does starts here.
+      $("appNew").focus();
+      $("appSays").textContent = `${title} is removed.`;
+    } catch (e) {
+      toast(e.message);
+      return;
+    }
+
+    await section("apps", loadApps, "appRows");
     return;
   }
 

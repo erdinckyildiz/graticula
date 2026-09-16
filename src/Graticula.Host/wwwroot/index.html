@@ -1327,6 +1327,60 @@
     </div>
   </section>
 
+  <section class="view" id="view-apps">
+    <!--
+      <b>ADR-076 condition 5: the apps that may sign people in, on a screen.</b> They were registered
+      through the admin API alone, which is a curl command an administrator has to know exists. Server's,
+      beside Members and Roles, because who may sign in — and through which app — is the same question
+      as who is here and what they may do. The one list and one form a registration needs, and nothing
+      the server does not do: there is no edit, because an app's redirects are its identity and
+      changing them in place would quietly redirect codes somewhere else.
+    -->
+    <div class="pagehead">
+      <div>
+        <h2>Apps</h2>
+        <p>Apps that sign people in to this server through OAuth — a web app with an app ID, or ArcGIS Field Maps. A person signs in on this server's own page, and the app receives a code only at an address registered here.</p>
+      </div>
+      <div class="right">
+        <span class="val" id="appCount"></span>
+        <button class="primary" id="appNew">Register an app</button>
+      </div>
+    </div>
+
+    <div id="appForm" hidden>
+      <div class="picker">
+        <label for="appTitle">Name <span class="val">shown on the sign-in page, so people can tell who is asking</span></label>
+        <input id="appTitle" type="text" placeholder="Inspections map" autocomplete="off">
+
+        <label for="appRedirects">Addresses it may be returned to <span class="val">one per line</span></label>
+        <textarea id="appRedirects" rows="3" spellcheck="false"
+          placeholder="https://maps.example.org/inspections/"></textarea>
+        <p class="hint">An address must be <code>https://</code>, <code>http://localhost</code>, a
+          custom scheme such as <code>my-app://auth/</code>, or
+          <code>urn:ietf:wg:oauth:2.0:oob</code>. A code is never sent anywhere else.</p>
+
+        <label for="appClientId">App ID <span class="val">optional — one is made when this is empty</span></label>
+        <input id="appClientId" type="text" autocomplete="off" spellcheck="false">
+
+        <div class="row">
+          <button class="primary" id="appSave">Register</button>
+          <button class="ghost" id="appCancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <p class="hint" id="appSays" role="status" aria-live="polite"></p>
+
+    <div class="panel">
+      <table>
+        <thead><tr>
+          <th>App</th><th>App ID</th><th>Returns to</th><th></th>
+        </tr></thead>
+        <tbody id="appRows"></tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="view" id="view-members">
     <!--
       Every screen names itself the same way, which is the brief's *same Graticula

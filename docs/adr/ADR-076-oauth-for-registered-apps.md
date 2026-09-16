@@ -169,7 +169,15 @@ signing Pro in afterwards.
 4. **Field Maps signs in on a device** against the showcase; and the owner supplies Survey123's
    client id, or confirms it, so it can ship registered too. *(Open — needs a device and the owner.)*
 5. **The console gets a screen for registered apps**, reviewed like every other screen. Until then
-   they are registered through the admin API. *(Open.)*
+   they are registered through the admin API. **DISCHARGED 2026-09-16**: Server › Apps lists every
+   registration with the addresses it returns people to in full, registers one (name, addresses one per
+   line, optional app ID) and removes one; there is no edit, because an app's addresses are its identity.
+   Pinned by `AppsScreenTests` — first-run state with Field Maps, nothing sent without a name, the
+   request, a polite live region for the result, focus moved the moment the form closes (the test's
+   first run found it left on a hidden field) — against the VPS fixture. Reviewed by ux-designer: its
+   finding that removing the built-in Field Maps row warned like any other is fixed, the confirmation
+   now names the app ID and addresses it would take to register it again; its finding that the console
+   is unreadable at phone width is real, shared by every screen, and is [D-273](../architecture-debt.md).
 
 ## 8. Consequences
 
