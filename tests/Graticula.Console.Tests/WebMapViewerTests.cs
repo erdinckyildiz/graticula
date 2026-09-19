@@ -128,11 +128,15 @@ public sealed class WebMapViewerTests : ConsoleTest
             // <b>Add keeps the keyboard</b> — the pressed button was disabled, and focus fell to <body>.
             await Browser.EvaluateAsync<string>("(() => { document.getElementById('addLayer').click(); return 'ok'; })()");
 
-            // <b>The first one on screen</b>, not the first in the document: a service whose features are
-            // already on the map offers its other kinds only inside a closed disclosure, and a button
-            // there cannot take focus — which CI's fixture reached first and this machine's did not.
+            // <b>The first one a person could press</b>, not the first in the document: a service whose
+            // features are already on the map offers its other kinds inside a closed disclosure, and a
+            // button there cannot take focus. CI's fixture put that service first; this machine's did not.
+            // <b>`offsetParent` does not say so</b> — measured 2026-09-19, a button inside a closed
+            // `<details>` still has one in Chrome, which is how the first repair of this test failed again
+            // in CI. Being outside every closed disclosure is the test that means *on screen*.
             const string VisibleAdd =
-                "[...document.querySelectorAll('#addList button[data-add]')].find(b => b.offsetParent)";
+                "[...document.querySelectorAll('#addList button[data-add]')]"
+                + ".find(b => !b.closest('details:not([open])') && b.getClientRects().length > 0)";
 
             await WaitForAsync(
                 $"!!{VisibleAdd}",
