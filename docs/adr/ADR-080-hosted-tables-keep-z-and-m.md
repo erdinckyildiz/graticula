@@ -94,8 +94,10 @@ that carries them.
 - A mixed layer still drops the ordinate that not every feature has. This is counted, not hidden.
 - Vector tiles, map images and GeoParquet layers stay two-dimensional (ADR-077 §5.4).
 - Every hosted 3D layer depends on how the editing path treats it: ADR-077 §10 refuses a flat edit on a Z
-  row. A 3D hosted layer therefore cannot be edited by a client that sends only x and y. That is the rule
-  working, but a client like the console's own map, which draws in 2D, will be refused.
+  row. A 3D hosted layer therefore cannot be edited by a client that sends only x and y, and that client is
+  told why in the edit's own result. *(Corrected the same day: this said "a client like the console's own
+  map" — the console, the map viewer and the HTML service pages edit no feature geometry at all, measured by
+  searching `wwwroot` and the page writers for `applyEdits`, `addFeatures` and `updateFeatures`.)*
 
 **Ports created.** None.
 
@@ -117,6 +119,9 @@ that carries them.
    `OHN_Watercourse` layer (3,659 features) is the case this decision was taken for. *(Open — the archive is the
    owner's and is not in this repository.)*
 2. **The console's map editor says why it cannot edit the geometry of a 3D hosted layer**, rather than
-   showing the writer's refusal as a failed save. *(Open.)*
+   showing the writer's refusal as a failed save. **DISCHARGED** 2026-09-19, by the premise failing rather
+   than by work: there is no such editor. Nothing this server serves sends a feature geometry — no
+   `applyEdits`, `addFeatures` or `updateFeatures` in `wwwroot` or in any HTML page writer — so the only
+   clients that can send a flat edit are external, and they get the writer's sentence in the edit result.
 
 **State.** None.
