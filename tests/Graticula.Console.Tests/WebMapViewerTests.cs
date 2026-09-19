@@ -128,12 +128,18 @@ public sealed class WebMapViewerTests : ConsoleTest
             // <b>Add keeps the keyboard</b> — the pressed button was disabled, and focus fell to <body>.
             await Browser.EvaluateAsync<string>("(() => { document.getElementById('addLayer').click(); return 'ok'; })()");
 
+            // <b>The first one on screen</b>, not the first in the document: a service whose features are
+            // already on the map offers its other kinds only inside a closed disclosure, and a button
+            // there cannot take focus — which CI's fixture reached first and this machine's did not.
+            const string VisibleAdd =
+                "[...document.querySelectorAll('#addList button[data-add]')].find(b => b.offsetParent)";
+
             await WaitForAsync(
-                "document.querySelector('#addList button[data-add]') !== null",
-                "The Add layer list never listed a service to add.");
+                $"!!{VisibleAdd}",
+                "The Add layer list never showed a service to add.");
 
             await Browser.EvaluateAsync<string>(
-                "(() => { const b = document.querySelector('#addList button[data-add]'); b.focus(); b.click(); return 'ok'; })()");
+                $"(() => {{ const b = {VisibleAdd}; b.focus(); b.click(); return 'ok'; }})()");
 
             await WaitForAsync(
                 "document.activeElement && document.activeElement !== document.body"

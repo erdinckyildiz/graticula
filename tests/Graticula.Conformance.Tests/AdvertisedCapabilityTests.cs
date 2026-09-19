@@ -162,6 +162,13 @@ public sealed class AdvertisedCapabilityTests : ArcGisClient
             + "%22onStatisticField%22%3A%22" + oid
             + "%22%2C%22outStatisticFieldName%22%3A%22p%22%7D%5D",
             "asking for a percentile"),
+
+        // ADR-078: true on a hosted layer that keeps its history, and the parameter is refused
+        // everywhere else — so the flag and the answer agree on either kind of layer.
+        new(
+            "supportsQueryWithHistoricMoment",
+            "historicMoment=1700000000000&returnCountOnly=true",
+            "asking for the layer as it was at a moment"),
     ];
 
     [Fact]
