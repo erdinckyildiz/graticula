@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Graticula.Geometries;
 
@@ -130,6 +132,85 @@ public static class Ordinates
             : many.Parts[0].Shell.Coordinates.Ordinates,
         _ => GeometryOrdinates.None,
     };
+
+    /// <summary>
+    /// The ordinates every one of these geometries carries — what a column holding all of them can declare.
+    /// </summary>
+    /// <remarks>
+    /// <b>The intersection, not the union — ADR-080.</b> A typed PostGIS column holds one dimensionality, so a
+    /// layer where some features carry Z and some do not can keep Z only by inventing it for the rest, and a
+    /// height nobody measured is worse than none. Empty and missing geometries have no say.
+    /// </remarks>
+    /// <param name="geometries">The geometries.</param>
+    /// <returns>What all of them carry; none when there are none.</returns>
+    public static GeometryOrdinates Common(IEnumerable<Geometry?> geometries)
+    {
+        ArgumentNullException.ThrowIfNull(geometries);
+
+        GeometryOrdinates? common = null;
+
+        foreach (Geometry? geometry in geometries)
+        {
+            if (geometry is null || geometry.IsEmpty)
+            {
+                continue;
+            }
+
+            common = (common ?? (GeometryOrdinates.Z | GeometryOrdinates.M)) & Of(geometry);
+
+            if (common == GeometryOrdinates.None)
+            {
+                break;
+            }
+        }
+
+        return common ?? GeometryOrdinates.None;
+    }
+
+    /// <summary>The same geometry with only the ordinates in <paramref name="keep"/>.</summary>
+    /// <param name="geometry">The geometry.</param>
+    /// <param name="keep">Which of Z and M to keep.</param>
+    /// <returns>The geometry itself when it carries nothing else, otherwise a copy without the rest.</returns>
+    public static Geometry Keep(Geometry geometry, GeometryOrdinates keep)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+
+        if ((Of(geometry) & ~keep) == GeometryOrdinates.None)
+        {
+            return geometry;
+        }
+
+        XySequence Sequence(XySequence sequence) => XySequence.Wrap(
+            sequence.AsSpan().ToArray(),
+            (keep & GeometryOrdinates.Z) != 0 && sequence.HasZ ? sequence.ZSpan().ToArray() : null,
+            (keep & GeometryOrdinates.M) != 0 && sequence.HasM ? sequence.MSpan().ToArray() : null);
+
+        Polygon Area(Polygon polygon) => polygon.IsEmpty
+            ? polygon
+            : new Polygon(
+                new LinearRing(Sequence(polygon.Shell.Coordinates)),
+                [.. polygon.Holes.Select(hole => new LinearRing(Sequence(hole.Coordinates)))]);
+
+        Point Position(Point point) => point.IsEmpty
+            ? point
+            : Point.Create(
+                point.X,
+                point.Y,
+                (keep & GeometryOrdinates.Z) != 0 ? point.Z : null,
+                (keep & GeometryOrdinates.M) != 0 ? point.M : null);
+
+        return geometry switch
+        {
+            Point point => Position(point),
+            LinearRing ring => new LinearRing(Sequence(ring.Coordinates)),
+            LineString line => new LineString(Sequence(line.Coordinates)),
+            Polygon polygon => Area(polygon),
+            MultiPoint many => new MultiPoint([.. many.Parts.Select(Position)]),
+            MultiLineString many => new MultiLineString([.. many.Parts.Select(part => new LineString(Sequence(part.Coordinates)))]),
+            MultiPolygon many => new MultiPolygon([.. many.Parts.Select(Area)]),
+            _ => geometry,
+        };
+    }
 
     /// <summary>
     /// The same type name with its ordinate suffix removed — <c>PointZ</c> becomes <c>Point</c>.

@@ -112,8 +112,9 @@ the binding constraint (A-037). Times overlap the baseline's.
 ## 7. Consequences
 
 - The model can hold elevations and measures; ArcGIS `query` serves them in `f=json` (§8) and `f=pbf`
-  (§9), `applyEdits` stores them (§10), OGC API Features and WFS return Z (§11); vector tiles, map images and
-  imports are two-dimensional.
+  (§9), `applyEdits` stores them (§10), OGC API Features and WFS return Z (§11), and since
+  [ADR-080](ADR-080-hosted-tables-keep-z-and-m.md) an import keeps them; vector tiles and map images are
+  two-dimensional.
 - `Point` is unsealed, which a derived class outside Core could now exploit; the subclass that exists is
   private, and nothing constructs points by reflection.
 - The plan's next benchmark is the query path's, and the harness for it is in the repository.

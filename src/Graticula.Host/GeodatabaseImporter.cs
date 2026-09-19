@@ -276,6 +276,17 @@ internal sealed class GeodatabaseImporter : BackgroundService
                         rows = made.Rows,
                         flattened = made.Flattened,
 
+                        // <b>What the table kept — ADR-080.</b> `Z`, `M`, `ZM`, or null for a layer that
+                        // is two-dimensional at the source; beside `flattened`, which is now only what a
+                        // layer could not keep because not every feature carried it.
+                        kept = made.Kept switch
+                        {
+                            GeometryOrdinates.Z => "Z",
+                            GeometryOrdinates.M => "M",
+                            GeometryOrdinates.Z | GeometryOrdinates.M => "ZM",
+                            _ => null,
+                        },
+
                         // <b>Only when it is the whole story.</b> A layer with rows says nothing about
                         // being schema-only; a layer with none needs to, because otherwise *published,
                         // 0 features* reads as a failure somebody should investigate.
@@ -415,7 +426,9 @@ internal sealed class GeodatabaseImporter : BackgroundService
 
     /// <summary>What one published layer turned out to be.</summary>
     /// <param name="Rows">How many features landed.</param>
-    /// <param name="Flattened">How many of them arrived with a Z this server does not store.</param>
+    /// <param name="Flattened">
+    /// How many of them carried a Z or M the table could not keep, because not every feature carried it — ADR-080.
+    /// </param>
     /// <param name="Declared">
     /// How many columns came from the archive's own declaration rather than from reading rows — zero
     /// unless the layer was empty, which is D-106's case and worth reporting because *published with no
@@ -425,6 +438,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
     /// <param name="Domains">The columns that carry the archive's own domain (ADR-065).</param>
     /// <param name="Subtypes">The subtype column, when the archive's subtypes came with the layer.</param>
     /// <param name="NotCarried">What the archive said about values and the layer does not, with why.</param>
+    /// <param name="Kept">The Z and M the table's column declares — ADR-080.</param>
     private readonly record struct Landed(
         int Rows,
         int Flattened,
@@ -432,7 +446,8 @@ internal sealed class GeodatabaseImporter : BackgroundService
         int Labelled = 0,
         IReadOnlyList<string>? Domains = null,
         string? Subtypes = null,
-        IReadOnlyList<string>? NotCarried = null);
+        IReadOnlyList<string>? NotCarried = null,
+        GeometryOrdinates Kept = GeometryOrdinates.None);
 
     /// <summary>What a layer's header said about values: each field's domain, and the table's subtypes.</summary>
     /// <param name="Domains">Each source field's domain, by the archive's own field name.</param>
@@ -623,12 +638,6 @@ internal sealed class GeodatabaseImporter : BackgroundService
         string? unread = null;
         int shapeless = 0;
 
-        // <b>How many features arrived with a Z this server does not store.</b> Six of the owner's
-        // eight layers are `25D`, so this is the common case rather than an oddity, and
-        // `docs/geometry-crs-policy.md` is explicit that a lossy read is a fact the layer has to
-        // carry: *lossy on read means not writable*. It is reported per layer in the job's detail —
-        // D-105 is the entry for what this server does not yet do with it.
-        int flattened = 0;
 
         (JsonDocument? header, JsonDocument? trailer) = await _reader.StreamAsync(
             new { op = "features", archive, layer },
@@ -654,14 +663,13 @@ internal sealed class GeodatabaseImporter : BackgroundService
                         // archive is EPSG:2952, so every feature in it was refused by a check that was
                         // doing its job. WKB has no opinion about the coordinate system; the header
                         // declares it, and the importer decides what to store.
+                        // <b>Z and M are kept — ADR-080, closing D-107.</b> Six of the owner's eight
+                        // layers are `25D`; their elevations were read, counted and dropped until hosted
+                        // tables could hold them. The importer decides what the column declares.
                         geometry = WkbReader.Read(
                             Convert.FromBase64String(shape.GetString() ?? string.Empty),
-                            out bool dropped);
-
-                        if (dropped)
-                        {
-                            flattened++;
-                        }
+                            GeometryOrdinates.Z | GeometryOrdinates.M,
+                            out _);
 
                         kind ??= geometry.Kind;
                     }
@@ -712,6 +720,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
         // branch keeps the lifetime of `header` in one place.
         List<FieldDescription> declared = [];
         GeometryKind? declaredKind = null;
+        GeometryOrdinates declaredOrdinates = GeometryOrdinates.None;
 
         // ADR-065: what the header says about values, cloned out of the document before it goes.
         Dictionary<string, JsonElement> declaredDomains = new(StringComparer.Ordinal);
@@ -758,10 +767,12 @@ internal sealed class GeodatabaseImporter : BackgroundService
                 }
             }
 
-            declaredKind = GeometryKindOf(
-                header.RootElement.TryGetProperty("geometry", out JsonElement geometry)
-                    ? geometry.GetString()
-                    : null);
+            string? headerType = header.RootElement.TryGetProperty("geometry", out JsonElement geometry)
+                ? geometry.GetString()
+                : null;
+
+            declaredKind = GeometryKindOf(headerType);
+            declaredOrdinates = OrdinatesOf(headerType);
 
             if (header.RootElement.TryGetProperty("subtypes", out JsonElement subtypes)
                 && subtypes.ValueKind == JsonValueKind.Object)
@@ -810,7 +821,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
             }
 
             ImportResult defined = await _importer
-                .DefineAsync(declared, declaredKind.Value, srid, layer, stopping)
+                .DefineAsync(declared, declaredKind.Value, srid, layer, declaredOrdinates, stopping)
                 .ConfigureAwait(false);
 
             PublishedLayerAddress emptyAt = await _catalog.PublishLayerAsync(
@@ -841,7 +852,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
                 null);
 
             return await OverridesAsync(
-                    emptyAt.Id, declared, definedColumns, values, new Landed(0, 0, Declared: declared.Count), stopping)
+                    emptyAt.Id, declared, definedColumns, values, new Landed(0, 0, Declared: declared.Count, Kept: defined.Stored), stopping)
                 .ConfigureAwait(false);
         }
 
@@ -897,7 +908,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
             ],
             null);
 
-        return await OverridesAsync(at.Id, declared, madeColumns, values, new Landed(features.Count, flattened), stopping)
+        return await OverridesAsync(at.Id, declared, madeColumns, values, new Landed(features.Count, made.Flattened, Kept: made.Stored), stopping)
             .ConfigureAwait(false);
     }
 
@@ -928,16 +939,15 @@ internal sealed class GeodatabaseImporter : BackgroundService
     /// A WKB geometry type name as this server's own geometry kind, or null when it stores none.
     /// </summary>
     /// <remarks>
-    /// <b>The `25D` suffix is dropped rather than refused</b>, because that is what the import does with
-    /// the geometry itself: `WkbReader` drops Z and says it did (D-107). A layer declared
-    /// `wkbMultiPolygon25D` becomes a 2D MultiPolygon column, which is the same answer the non-empty
-    /// path arrives at one feature at a time.
+    /// <b>The ordinate suffix is removed here and read by <see cref="OrdinatesOf"/></b> — `25D` and `Z` for an
+    /// elevation, `M`, `ZM`. An empty layer declared `wkbMultiPolygon25D` becomes a `MultiPolygonZ` column
+    /// (ADR-080), which is the answer the non-empty path reaches from its features.
     ///
     /// <b>`wkbNone` and anything unrecognised are null</b> — an attachment table, or a curve type
     /// ADR-005 §3.3c refuses. Null is a refusal with a sentence, not a guess.
     /// </remarks>
     private static GeometryKind? GeometryKindOf(string? wkb) =>
-        (wkb ?? string.Empty).Replace("25D", string.Empty, StringComparison.Ordinal) switch
+        Bare(wkb) switch
         {
             "wkbPoint" => GeometryKind.Point,
             "wkbMultiPoint" => GeometryKind.MultiPoint,
@@ -947,6 +957,27 @@ internal sealed class GeodatabaseImporter : BackgroundService
             "wkbMultiPolygon" => GeometryKind.MultiPolygon,
             _ => null,
         };
+
+    /// <summary>An OGR geometry type name without its ordinate suffix — `wkbPoint25D`, `wkbPointZM` → `wkbPoint`.</summary>
+    private static string Bare(string? wkb)
+    {
+        string name = (wkb ?? string.Empty).Replace("25D", string.Empty, StringComparison.Ordinal);
+
+        return name.EndsWith("ZM", StringComparison.Ordinal) ? name[..^2]
+            : name.EndsWith('Z') || name.EndsWith('M') ? name[..^1]
+            : name;
+    }
+
+    /// <summary>What an OGR geometry type name declares beyond x and y — ADR-080.</summary>
+    private static GeometryOrdinates OrdinatesOf(string? wkb)
+    {
+        string name = wkb ?? string.Empty;
+
+        return name.EndsWith("ZM", StringComparison.Ordinal) ? GeometryOrdinates.Z | GeometryOrdinates.M
+            : name.EndsWith("25D", StringComparison.Ordinal) || name.EndsWith('Z') ? GeometryOrdinates.Z
+            : name.EndsWith('M') ? GeometryOrdinates.M
+            : GeometryOrdinates.None;
+    }
 
     /// <summary>Waits for work, for as long as this worker's patience has grown to.</summary>
     /// <remarks>

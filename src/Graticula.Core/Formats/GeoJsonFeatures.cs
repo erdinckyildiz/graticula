@@ -357,7 +357,8 @@ public static class GeoJsonFeatures
             return true;
         }
 
-        return GeoJsonGeometry.TryRead(json, index, out geometry, out error);
+        // ADR-080: an elevation is kept; the importer decides what the column declares.
+        return GeoJsonGeometry.TryRead(json, index, keepZ: true, out geometry, out error);
     }
 
     /// <summary>

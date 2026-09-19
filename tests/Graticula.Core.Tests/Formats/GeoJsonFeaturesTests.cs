@@ -275,18 +275,19 @@ public sealed class GeoJsonFeaturesTests
     }
 
     [Fact]
-    public void A_third_ordinate_is_dropped_rather_than_refused()
+    public void A_third_ordinate_is_kept_as_the_elevation()
     {
-        // RFC 7946 allows elevation and our model is two-dimensional. Refusing
-        // would reject a large fraction of real files over an ordinate nothing
-        // in this product reads.
+        // RFC 7946 allows elevation. It was read and dropped while hosted tables were
+        // two-dimensional; since ADR-080 it is kept, and the importer decides what the
+        // column declares from what every feature carries.
         ImportedDataset dataset = Read(Collection(Feature(
             """{"type":"Point","coordinates":[28.9,41.0,120.5]}""")));
 
-        Point point = Assert.IsType<Point>(dataset.Features[0].Geometry);
+        Point point = Assert.IsAssignableFrom<Point>(dataset.Features[0].Geometry);
 
         Assert.Equal(28.9, point.X);
         Assert.Equal(41.0, point.Y);
+        Assert.Equal(120.5, point.Z);
     }
 
     // ---------- Z on an edit and on the way out (ADR-077 §11) ----------

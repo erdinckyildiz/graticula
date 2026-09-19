@@ -479,7 +479,7 @@ public sealed class GeodatabaseScreenTests : ConsoleTest
         // <b>The total, once.</b> Four rows are countable by eye; the owner's archive is not.
         await WaitForAsync(
             "(document.getElementById('addItemBody')?.innerText || '')"
-            + ".includes('3,659 features carried an elevation')",
+            + ".includes('3,659 features carried an elevation or a measure')",
             "The report gives no total, so an operator with an archive of eighty layers has to "
             + "add the column up themselves to learn what the import cost them.");
 

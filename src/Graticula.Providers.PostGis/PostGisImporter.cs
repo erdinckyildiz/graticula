@@ -22,13 +22,19 @@ namespace Graticula.Providers.PostGis;
 /// <param name="SourceSrid">What the file was in.</param>
 /// <param name="StoredSrid">What it is stored in.</param>
 /// <param name="ProjEngine">Which PROJ transformed it, when it was transformed.</param>
+/// <param name="Stored">The Z and M the table's geometry column declares — ADR-080.</param>
+/// <param name="Flattened">
+/// How many features carried an ordinate the column could not hold, because not every feature carried it.
+/// </param>
 public sealed record ImportResult(
     string SchemaName,
     string TableName,
     int Rows,
     int SourceSrid,
     int StoredSrid,
-    string? ProjEngine);
+    string? ProjEngine,
+    GeometryOrdinates Stored = GeometryOrdinates.None,
+    int Flattened = 0);
 
 /// <summary>
 /// Creates a table in the datastore and loads a parsed dataset into it.
@@ -202,6 +208,36 @@ public sealed class PostGisImporter
 
         string table = TableNameFor(requestedName);
 
+        // <b>The column keeps what every feature carries — ADR-080.</b> Until then a hosted table was always
+        // two-dimensional and every elevation was read, counted and discarded (D-107). A typed column holds one
+        // dimensionality, so a layer whose features all carry Z keeps it; one where some do and some do not
+        // keeps what they share and counts the rest as flattened, because padding the others would invent
+        // heights nobody measured.
+        GeometryOrdinates stored = Ordinates.Common(dataset.Features.Select(feature => feature.Geometry));
+        int flattened = 0;
+
+        if (dataset.Features.Any(feature => feature.Geometry is { IsEmpty: false } shape
+                && (Ordinates.Of(shape) & ~stored) != GeometryOrdinates.None))
+        {
+            dataset = dataset with
+            {
+                Features =
+                [
+                    .. dataset.Features.Select(feature =>
+                    {
+                        if (feature.Geometry is not { IsEmpty: false } shape
+                            || (Ordinates.Of(shape) & ~stored) == GeometryOrdinates.None)
+                        {
+                            return feature;
+                        }
+
+                        flattened++;
+                        return feature with { Geometry = Ordinates.Keep(shape, stored) };
+                    }),
+                ],
+            };
+        }
+
         await using NpgsqlConnection connection =
             await OpenAsync(cancellationToken).ConfigureAwait(false);
 
@@ -214,7 +250,7 @@ public sealed class PostGisImporter
             cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(
-            connection, transaction, CreateTable(table, dataset), cancellationToken)
+            connection, transaction, CreateTable(table, dataset, stored), cancellationToken)
             .ConfigureAwait(false);
 
         int rows = await InsertAsync(connection, transaction, table, dataset, cancellationToken)
@@ -243,7 +279,7 @@ public sealed class PostGisImporter
         // Nothing was transformed, so there is no engine to name and no
         // provenance to report. The reference in and the reference stored are
         // the same one.
-        return new ImportResult(HostedSchema, table, rows, dataset.Srid, dataset.Srid, null);
+        return new ImportResult(HostedSchema, table, rows, dataset.Srid, dataset.Srid, null, stored, flattened);
     }
 
     /// <summary>
@@ -298,11 +334,28 @@ public sealed class PostGisImporter
     /// editing.
     /// </para>
     /// </remarks>
+    public Task<ImportResult> DefineAsync(
+        IReadOnlyList<FieldDescription> fields,
+        GeometryKind geometryType,
+        int srid,
+        string requestedName,
+        CancellationToken cancellationToken) =>
+        DefineAsync(fields, geometryType, srid, requestedName, GeometryOrdinates.None, cancellationToken);
+
+    /// <summary>Creates an empty hosted table whose geometry column declares Z, M or both — ADR-080.</summary>
+    /// <param name="fields">The columns.</param>
+    /// <param name="geometryType">The geometry kind.</param>
+    /// <param name="srid">The reference system.</param>
+    /// <param name="requestedName">The layer's name, from which the table's is made.</param>
+    /// <param name="ordinates">Which of Z and M the column declares.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Where it was made.</returns>
     public async Task<ImportResult> DefineAsync(
         IReadOnlyList<FieldDescription> fields,
         GeometryKind geometryType,
         int srid,
         string requestedName,
+        GeometryOrdinates ordinates,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(fields);
@@ -316,7 +369,7 @@ public sealed class PostGisImporter
         sql.Append(CultureInfo.InvariantCulture, $"create table {Qualified(table)} (")
            .Append(" objectid integer generated always as identity primary key,")
            .Append(CultureInfo.InvariantCulture,
-               $" geom geometry({GeometryTypeName(geometryType)}, {srid})");
+               $" geom geometry({GeometryTypeName(geometryType, ordinates)}, {srid})");
 
         foreach (FieldDescription field in fields)
         {
@@ -361,7 +414,7 @@ public sealed class PostGisImporter
         // table would record statistics saying the layer is empty — which stay
         // recorded until autovacuum notices otherwise, so the first thousand
         // features would be queried against a plan built for none.
-        return new ImportResult(HostedSchema, table, 0, srid, srid, null);
+        return new ImportResult(HostedSchema, table, 0, srid, srid, null, ordinates);
     }
 
     private static string SqlTypeForField(FieldType type) => type switch
@@ -763,7 +816,7 @@ public sealed class PostGisImporter
     }
 
     /// <summary>The DDL, with every column type decided by the inference pass.</summary>
-    private static string CreateTable(string table, ImportedDataset dataset)
+    private static string CreateTable(string table, ImportedDataset dataset, GeometryOrdinates ordinates)
     {
         RefuseColliding(dataset.Columns.Select(c => c.Name));
 
@@ -772,7 +825,7 @@ public sealed class PostGisImporter
         sql.Append(CultureInfo.InvariantCulture, $"create table {Qualified(table)} (\n")
            .Append("  objectid integer generated always as identity primary key,\n")
            .Append(CultureInfo.InvariantCulture,
-               $"  geom geometry({GeometryTypeName(dataset.GeometryType)}, {dataset.Srid})");
+               $"  geom geometry({GeometryTypeName(dataset.GeometryType, ordinates)}, {dataset.Srid})");
 
         foreach (InferredColumn column in dataset.Columns)
         {
@@ -910,7 +963,8 @@ public sealed class PostGisImporter
         _ => "text",
     };
 
-    private static string GeometryTypeName(GeometryKind kind) => kind switch
+    /// <summary>The PostGIS type name: the kind, then <c>Z</c>, <c>M</c> or <c>ZM</c> — <c>MultiPolygonZ</c>.</summary>
+    private static string GeometryTypeName(GeometryKind kind, GeometryOrdinates ordinates) => (kind switch
     {
         GeometryKind.Point => "Point",
         GeometryKind.MultiPoint => "MultiPoint",
@@ -919,6 +973,12 @@ public sealed class PostGisImporter
         GeometryKind.Polygon => "Polygon",
         GeometryKind.MultiPolygon => "MultiPolygon",
         _ => "Geometry",
+    }) + ordinates switch
+    {
+        GeometryOrdinates.Z => "Z",
+        GeometryOrdinates.M => "M",
+        GeometryOrdinates.Z | GeometryOrdinates.M => "ZM",
+        _ => string.Empty,
     };
 
     /// <summary>Writes every row with the binary COPY protocol.</summary>

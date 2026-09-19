@@ -143,7 +143,8 @@ If 3D is taken up, this is the sequence, and each step is its own ADR:
    done 2026-09-16, in `f=pbf` and `applyEdits` 2026-09-17, OGC API Features and WFS 2026-09-19 — ADR-077
    §8–§11.)*
 4. **Storage and import** — hosted tables defined `PointZ`, imports keeping the ordinate they
-   currently count, which is what closes [D-107](../architecture-debt.md).
+   currently count, which is what closes [D-107](../architecture-debt.md). *(Done 2026-09-19 by owner
+   decision as [ADR-080](ADR-080-hosted-tables-keep-z-and-m.md); D-107 closed.)*
 
 ## 6. Conditions
 

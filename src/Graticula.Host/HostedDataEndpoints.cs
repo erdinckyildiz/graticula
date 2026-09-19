@@ -290,6 +290,18 @@ internal static class HostedDataEndpoints
             .ImportAsync(dataset!, name, cancellation)
             .ConfigureAwait(false);
 
+        // <b>What the table could not keep, said — ADR-080.</b> Every ordinate every feature carries is
+        // stored; one that only some carry is not, because a column holds one dimensionality and the rest
+        // would need an invented value. The count is the features that lost one.
+        if (result.Flattened > 0)
+        {
+            context.Items[WarningKey] =
+                $"{result.Flattened} feature{(result.Flattened == 1 ? "" : "s")} carried z or m values that "
+                + "other features in this file do not, and they were not stored: the table keeps "
+                + (Ordinates.Name(result.Stored) ?? "x and y")
+                + ", which every feature has. Keep the original file (ADR-080).";
+        }
+
         PublishedLayerAddress published;
 
         try
@@ -387,6 +399,10 @@ internal static class HostedDataEndpoints
             table = $"{result.SchemaName}.{result.TableName}",
             rows = result.Rows,
             geometryType = dataset!.GeometryType.ToString(),
+
+            // ADR-080: the ordinates the table declares, as the layer document will say them.
+            hasZ = (result.Stored & GeometryOrdinates.Z) != 0,
+            hasM = (result.Stored & GeometryOrdinates.M) != 0,
             fields = dataset.Columns.Select(c => new { c.Name, type = c.Type.ToString() }),
             sharing = sharing.ToString().ToLowerInvariant(),
 
@@ -624,7 +640,7 @@ internal static class HostedDataEndpoints
         {
             path = await scratch.KeepAsync(file, kept, cancellation).ConfigureAwait(false);
 
-            (ImportedDataset? read, bool dropped, string? readError) =
+            (ImportedDataset? read, string? readError) =
                 await ShapefileViaReader.ReadAsync(
                     reader,
                     path,
@@ -637,14 +653,6 @@ internal static class HostedDataEndpoints
             {
                 await Fail(context, 400, readError!).ConfigureAwait(false);
                 return (false, null!);
-            }
-
-            if (dropped)
-            {
-                context.Items[WarningKey] =
-                    $"This shapefile carries z or m values and they were not stored: "
-                    + $"{Ordinates.TwoDimensional}, so the hosted table is two-dimensional and the layer "
-                    + "document reports hasZ false — keep the original file (ADR-074; storing them is ADR-074 §5 step 4).";
             }
 
             return (true, read);
@@ -668,7 +676,7 @@ internal static class HostedDataEndpoints
 
     /// <summary>What a caller sends to design a feature class.</summary>
     /// <param name="Name">The service name.</param>
-    /// <param name="GeometryType">Point, LineString, Polygon, or their Multi forms.</param>
+    /// <param name="GeometryType">Point, LineString, Polygon, or their Multi forms, optionally with Z, M or ZM (ADR-080).</param>
     /// <param name="Fields">Its attribute columns.</param>
     /// <param name="Sharing">Who may read it. Private unless said otherwise.</param>
     /// <param name="CacheSeconds">
@@ -746,12 +754,17 @@ internal static class HostedDataEndpoints
             return;
         }
 
-        if (!Enum.TryParse(design.GeometryType, ignoreCase: true, out GeometryKind kind)
+        // <b>A Z, M or ZM suffix declares the column's ordinates — ADR-080.</b> `PointZ` makes a table that
+        // holds an elevation, which is what a surveyed layer defined before its first feature needs.
+        GeometryOrdinates ordinates = Ordinates.OfTypeName(design.GeometryType);
+
+        if (!Enum.TryParse(Ordinates.WithoutOrdinates(design.GeometryType), ignoreCase: true, out GeometryKind kind)
             || !Enum.IsDefined(kind))
         {
             await Fail(context, 400,
                 "'geometryType' must be one of Point, MultiPoint, LineString, MultiLineString, "
-                + "Polygon or MultiPolygon.").ConfigureAwait(false);
+                + "Polygon or MultiPolygon, optionally followed by Z, M or ZM for a layer that stores an "
+                + "elevation or a measure — PointZ, MultiLineStringZM.").ConfigureAwait(false);
             return;
         }
 
@@ -799,7 +812,7 @@ internal static class HostedDataEndpoints
         }
 
         ImportResult result = await importer.DefineAsync(
-            fields, kind, srid, design.Name, cancellation)
+            fields, kind, srid, design.Name, ordinates, cancellation)
             .ConfigureAwait(false);
 
         PublishedLayerAddress published;
@@ -1022,6 +1035,10 @@ internal static class HostedDataEndpoints
             result.SourceSrid,
             result.StoredSrid,
             invalidGeometries = validity?.Invalid,
+
+            // ADR-080: what the column kept, and how many features lost an ordinate not all of them had.
+            stored = Ordinates.Name(result.Stored),
+            result.Flattened,
         });
 
     /// <summary>

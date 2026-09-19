@@ -159,6 +159,29 @@ public sealed class ZAndMRideBesideXyTests
     }
 
     [Fact]
+    public void Common_is_what_every_geometry_carries_and_keep_removes_the_rest()
+    {
+        Graticula.Geometries.Geometry zm = Point.Create(1, 2, 3, 4);
+        Graticula.Geometries.Geometry z = new LineString(XySequence.Wrap([0, 0, 1, 1], z: [5, 6], m: null));
+
+        Assert.Equal(GeometryOrdinates.Z, Ordinates.Common([zm, z, null, Point.Empty]));
+        Assert.Equal(GeometryOrdinates.None, Ordinates.Common([zm, new Point(1, 2)]));
+        Assert.Equal(GeometryOrdinates.None, Ordinates.Common([]));
+
+        Point kept = (Point)Ordinates.Keep(zm, GeometryOrdinates.Z);
+        Assert.Equal((3d, (double?)null), (kept.Z!.Value, kept.M));
+
+        // A geometry with nothing to remove is returned as it is.
+        Assert.Same(z, Ordinates.Keep(z, GeometryOrdinates.Z | GeometryOrdinates.M));
+
+        Polygon flat = (Polygon)Ordinates.Keep(
+            new Polygon(new LinearRing(XySequence.Wrap([0, 0, 1, 0, 1, 1, 0, 0], z: [1, 2, 3, 1], m: [9, 8, 7, 9]))),
+            GeometryOrdinates.M);
+        Assert.Equal(GeometryOrdinates.M, flat.Shell.Coordinates.Ordinates);
+        Assert.Equal([9.0, 8.0, 7.0, 9.0], flat.Shell.Coordinates.MSpan().ToArray());
+    }
+
+    [Fact]
     public void A_mask_keeps_what_was_asked_for_and_reports_the_rest()
     {
         // `returnZ=true` without `returnM` on an XYZM column: Z comes back, M is dropped and said to be.

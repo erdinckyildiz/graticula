@@ -79,7 +79,7 @@ internal static class ShapefileViaReader
     /// <param name="limits">What may be built from it.</param>
     /// <param name="cancellation">Cancellation.</param>
     /// <returns>The dataset, or the sentence to refuse with.</returns>
-    public static async Task<(ImportedDataset? Dataset, bool DroppedZorM, string? Error)>
+    public static async Task<(ImportedDataset? Dataset, string? Error)>
         ReadAsync(
         GeodatabaseReader reader,
         string archive,
@@ -93,7 +93,7 @@ internal static class ShapefileViaReader
 
         if (!reader.Available)
         {
-            return (null, false, "This deployment did not ship the import reader, so a "
+            return (null, "This deployment did not ship the import reader, so a "
                 + "shapefile cannot be read. GeoJSON is unaffected.");
         }
 
@@ -107,12 +107,12 @@ internal static class ShapefileViaReader
         {
             if (!Ok(listed.RootElement, out string? listError))
             {
-                return (null, false, listError);
+                return (null, listError);
             }
 
             if (!Single(listed.RootElement, out layerName, out kind, out string? whichError))
             {
-                return (null, false, whichError);
+                return (null, whichError);
             }
         }
 
@@ -120,7 +120,6 @@ internal static class ShapefileViaReader
         Dictionary<string, InferredColumn> columns = new(StringComparer.Ordinal);
         List<string> order = [];
         long vertices = 0;
-        bool dropped = false;
         GeometryKind? seen = null;
         string? refusal = null;
 
@@ -158,17 +157,14 @@ internal static class ShapefileViaReader
                 {
                     try
                     {
-                        // <b>The dropped-ordinates flag replaces a second pass over the
-                        // .shp header.</b> The old path asked `ShapefileReader.DropsZOrM`
-                        // after reading, which meant parsing the file's header twice; the
-                        // reader answers it per geometry, which is also more precise — a
-                        // file whose header says z and whose geometries carry none no
-                        // longer produces a warning about data that is not there.
+                        // <b>Z and M are kept — ADR-080.</b> They were read and dropped until
+                        // hosted tables could hold them (D-107); the importer now decides what
+                        // the column declares from what every feature carries, and counts what
+                        // it could not keep.
                         geometry = WkbReader.Read(
                             Convert.FromBase64String(shape.GetString() ?? string.Empty),
-                            out bool droppedHere);
-
-                        dropped |= droppedHere;
+                            GeometryOrdinates.Z | GeometryOrdinates.M,
+                            out _);
                     }
                     catch (Exception broken)
                         when (broken is WkbFormatException or FormatException
@@ -256,35 +252,35 @@ internal static class ShapefileViaReader
         {
             if (refusal is not null)
             {
-                return (null, false, refusal);
+                return (null, refusal);
             }
 
             if (header is null)
             {
-                return (null, false, "The import reader produced no answer.");
+                return (null, "The import reader produced no answer.");
             }
 
             if (!Ok(header.RootElement, out string? headerError))
             {
-                return (null, false, headerError);
+                return (null, headerError);
             }
 
             if (trailer is null)
             {
-                return (null, false,
+                return (null,
                     "The import reader stopped part-way through this shapefile.");
             }
 
             if (!Ok(trailer.RootElement, out string? trailerError))
             {
-                return (null, false, trailerError);
+                return (null, trailerError);
             }
         }
 
         if (features.Count == 0)
         {
             return (
-            null, false,
+            null,
             "This shapefile holds no features, so there is nothing to publish.");
         }
 
@@ -294,7 +290,6 @@ internal static class ShapefileViaReader
                 [.. Ordered(order, columns)],
                 seen ?? kind!.Value,
                 srid),
-            dropped,
             null);
     }
 
