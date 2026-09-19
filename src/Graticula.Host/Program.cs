@@ -78,6 +78,17 @@ public static class Program
                                           Read-only. A token comes from
                                           GRATICULA_INVENTORY_TOKEN. Needs no configuration.
 
+          graticula tools migrate plan <https://host/arcgis> --to <https://graticula> --datasource <name> [--out <file>]
+          graticula tools migrate apply <plan.json> --to <https://graticula> [--sharing private|organization|public]
+                                          Publish an ArcGIS Server's layer definitions here,
+                                          over tables a registered data source already reads
+                                          (Q-16, ADR-081). plan matches layers to tables by
+                                          name and writes a file to read and correct; apply
+                                          publishes it, with each layer's drawing and field
+                                          aliases. The account comes from GRATICULA_USER and
+                                          GRATICULA_PASSWORD. Add --insecure for a
+                                          self-signed certificate.
+
           graticula tools admincreator [--name <name>] [--password <password>]
                                           Give a store that has accounts and no
                                           administrator one. Refuses if it already has
@@ -133,6 +144,13 @@ public static class Program
         if (args is ["tools", "inventory", ..])
         {
             return await Tools.InventoryScan.RunAsync(args, Console.Out, CancellationToken.None).ConfigureAwait(false);
+        }
+
+        // <b>Q-16's second step — ADR-081</b>: a plan written from the source and the target, then applied through the
+        // target's own admin API. It needs neither this process's store nor its key: it is a client of both servers.
+        if (args is ["tools", "migrate", ..])
+        {
+            return await Tools.MigrationPlan.RunAsync(args, Console.Out, CancellationToken.None).ConfigureAwait(false);
         }
 
         WebApplicationBuilder builder = WebApplication.CreateBuilder(args);

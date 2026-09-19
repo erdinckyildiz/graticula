@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>c0db05f</code> · 2026-09-19 16:13</p>
+<p class="stamp">Şu commit’ten üretildi: <code>306cbe7</code> · 2026-09-19 16:54</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">80</div><div class="kpi-l">ADR</div><div class="kpi-n">16 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">217/286</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">66 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">81</div><div class="kpi-l">ADR</div><div class="kpi-n">16 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">217/287</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">67 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">3</div><div class="kpi-l">açık soru</div><div class="kpi-n">157 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">8</div><div class="kpi-l">açık borç</div><div class="kpi-n">253 ödendi · 7 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">3369</div><div class="kpi-l">test</div><div class="kpi-n">334 kaynak dosya, 143,730 satır</div></div>
+<div class="kpi good"><div class="kpi-v">3381</div><div class="kpi-l">test</div><div class="kpi-n">335 kaynak dosya, 144,279 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-156</b> — Are ADR-079&#x27;s inferred choices the owner&#x27;s?</p><p><b>Q-155</b> — Are ADR-078&#x27;s inferred choices the owner&#x27;s?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">78 madde</span></div><p><b>66 ADR conditions</b> outstanding across 42 decisions — the largest commitment on this page.</p><p><b>8 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">79 madde</span></div><p><b>67 ADR conditions</b> outstanding across 43 decisions — the largest commitment on this page.</p><p><b>8 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -173,6 +173,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-074 · Z and M are read, said out loud, a</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-075 · A layer is edited by its owner, an</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-080 · Hosted tables keep the Z and M the</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-081 · Migration publishes an ArcGIS Serv</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -271,6 +272,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">078</td><td>A hosted layer can keep its history, and the database keeps it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH that the database keeps it · MEDIUM on the write cost, which is measured once on one…</td><td class="num">0/6</td></tr>
 <tr><td class="id">079</td><td>A web map is a saved document, and ArcGIS clients can open it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH on the format · MEDIUM on the viewer&#x27;s shape until the owner has used it</td><td class="num">0/4</td></tr>
 <tr><td class="id">080</td><td>Hosted tables keep the Z and M their data carries</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/2</td></tr>
+<tr><td class="id">081</td><td>Migration publishes an ArcGIS Server&#x27;s layer definitions over the tables they already read</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/1</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -394,22 +396,25 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">877</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.2%"></div></div><div class="bar-n">563</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:58.7%"></div></div><div class="bar-n">515</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:54.0%"></div></div><div class="bar-n">474</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:24.5%"></div></div><div class="bar-n">215</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:22.7%"></div></div><div class="bar-n">199</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.8%"></div></div><div class="bar-n">182</div></div>
-<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:13.3%"></div></div><div class="bar-n">117</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:13.1%"></div></div><div class="bar-n">115</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">888</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:63.4%"></div></div><div class="bar-n">563</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:58.0%"></div></div><div class="bar-n">515</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:53.4%"></div></div><div class="bar-n">474</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:24.2%"></div></div><div class="bar-n">215</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:22.4%"></div></div><div class="bar-n">199</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.6%"></div></div><div class="bar-n">183</div></div>
+<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:13.2%"></div></div><div class="bar-n">117</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:13.0%"></div></div><div class="bar-n">115</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:5.1%"></div></div><div class="bar-n">45</div></div>
-<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.0%"></div></div><div class="bar-n">26</div></div>
+<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:2.9%"></div></div><div class="bar-n">26</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:2.7%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
-<li><code>c0db05f</code><time>2026-09-19</time><span>A hosted layer can keep its history, and a user can save a web map</span></li>
+<li><code>306cbe7</code><time>2026-09-19</time><span>The Logs screen&#x27;s source tabs are one tab stop, and the arrows choose</span></li>
+<li><code>5e31b09</code><time>2026-09-19</time><span>The web map test picks an Add button a person could press</span></li>
+<li><code>1e32ab6</code><time>2026-09-19</time><span>CI&#x27;s two failures on v1.0.122 were the tests&#x27;, and one of them was owed</span></li>
+<li><code>e5b6e56</code><time>2026-09-19</time><span>A hosted layer can keep its history, and a user can save a web map</span></li>
 <li><code>baf17af</code><time>2026-09-19</time><span>The console&#x27;s Logs screen reads the server&#x27;s own warnings</span></li>
 <li><code>4dc0c1a</code><time>2026-09-19</time><span>ADR-080&#x27;s second condition rested on an editor this server does not have</span></li>
 <li><code>9a0d867</code><time>2026-09-19</time><span>Hosted tables keep the Z and M their data carries</span></li>
@@ -420,9 +425,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>5475f20</code><time>2026-09-17</time><span>f=pbf answers returnZ and returnM, with Z and M absolute on every vertex</span></li>
 <li><code>12979d4</code><time>2026-09-16</time><span>ArcGIS query returns Z and M on request, and the layer document says so</span></li>
 <li><code>a91b38f</code><time>2026-09-16</time><span>Z and M ride beside x and y, and a flat geometry pays nothing for it</span></li>
-<li><code>3f362d7</code><time>2026-09-16</time><span>Server › Apps: the apps that may sign people in, on a screen</span></li>
-<li><code>2bf8e99</code><time>2026-09-16</time><span>Studio shows somebody else&#x27;s layer and does not offer to change it</span></li>
-<li><code>ac276b9</code><time>2026-09-16</time><span>Two flaky tests with causes: a clock that was the machine, and a pool that looked like a server</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

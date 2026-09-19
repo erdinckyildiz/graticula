@@ -445,14 +445,14 @@ internal static class InventoryScan
         _ => throw new ArgumentOutOfRangeException(nameof(verdict), verdict, null),
     };
 
-    private static string ServicesRoot(Uri root)
+    internal static string ServicesRoot(Uri root)
     {
         string path = root.GetLeftPart(UriPartial.Path).TrimEnd('/');
 
         return path.EndsWith("/rest/services", StringComparison.OrdinalIgnoreCase) ? path : $"{path}/rest/services";
     }
 
-    private static async Task<JsonElement> GetAsync(HttpClient http, string address, string? token, CancellationToken cancellationToken)
+    internal static async Task<JsonElement> GetAsync(HttpClient http, string address, string? token, CancellationToken cancellationToken)
     {
         string url = $"{address}?f=json" + (token is { Length: > 0 } ? $"&token={Uri.EscapeDataString(token)}" : string.Empty);
 
