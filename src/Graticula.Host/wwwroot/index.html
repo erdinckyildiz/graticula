@@ -897,14 +897,16 @@
     </div>
 
     <!--
-      <b>Three sentences, because the three logs answer different questions and a reader
+      <b>Four sentences, because the four logs answer different questions and a reader
       choosing between them needs to know which.</b> The studio one is the least obvious and the
       most valuable: a viewer failure that never reached the server appears nowhere else.
     -->
     <p class="lede"><b>Administration</b> is the audit trail — every action that changed
       something, who did it, and from where. <b>Requests</b> is one row per HTTP request, with
       its status and how long it took. <b>Studio viewer</b> is what the map viewer reported
-      from a browser, which is where a failure that never reached the server shows up.</p>
+      from a browser, which is where a failure that never reached the server shows up.
+      <b>Server warnings</b> is what this server itself reported — a layer it could not read, a
+      source it could not reach — held in memory since it last started.</p>
 
     <div class="toolbar">
       <span id="logSources"></span>
@@ -935,7 +937,7 @@
         <option value="">All of it</option>
       </select>
       <!-- Filled per source: an action for the audit trail, a status for requests, a kind for
-           studio events. Empty for a source that has none. -->
+           studio events, a level for server warnings. Empty for a source that has none. -->
       <span id="logOwn"></span>
       <label><input type="checkbox" id="logFailed"> Only failures</label>
     </div>
@@ -946,10 +948,10 @@
       <table>
         <thead><tr>
           <th style="width:1%">When</th>
-          <th>What</th>
+          <th id="logColWhat">What</th>
           <th>Who</th>
           <th>From</th>
-          <th>Resource</th>
+          <th id="logColResource">Resource</th>
         </tr></thead>
         <tbody id="logRows"></tbody>
       </table>

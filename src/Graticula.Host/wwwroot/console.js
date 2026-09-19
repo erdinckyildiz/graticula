@@ -20296,7 +20296,7 @@ let logOwn = "";
 let logRead = 0;
 
 /**
- * The three logs, and what each one calls its own dimension.
+ * The four logs, and what each one calls its own dimension.
  *
  * <b>A table rather than three branches, because the screen differs in one field.</b> Every
  * log answers when, who, from where and what; each has exactly one filter of its own, and
@@ -20312,7 +20312,22 @@ const LOG_SOURCES = [
   // on one screen. The log is not everything Studio does — it is what its map viewer reported
   // from a browser — so the longer name is also the more accurate one.
   ["studio", "Studio viewer", "kind"],
+
+  // <b>The server's own warnings and errors — V-33, ADR-045 §5a.</b> `/admin/logs/server` has answered
+  // since 2026-09-15 and no screen read it, so an operator had to know the address to see why a layer
+  // stopped drawing. *Server warnings* rather than *Server*, because the console's own surface switch is
+  // already called Server — the reason *Studio viewer* is not *Studio*. It is a different kind of log from
+  // the three above: held in memory by this process,
+  // lost on a restart, and about the server rather than about a request or a person — which the note
+  // above the table says, from the server's own sentence.
+  ["server", "Server warnings", "level"],
 ];
+
+/** What the server log says it covers — when it started and how many it keeps — or null before it is read. */
+let logServerScope = null;
+
+/** When the server log began, as the reader's clock shows it. */
+let logServerSince = null;
 
 /**
  * Draws the source selector and the filter that belongs to the chosen source.
@@ -20321,11 +20336,45 @@ const LOG_SOURCES = [
  * this on every read is what made all three per-source filters inert — see `logOwn`.
  *
  * <b>`aria-selected` and `role="tab"`, because a row of buttons where one is a different
- * colour is a segmented control to a sighted reader and three unrelated buttons to a screen
+ * colour is a segmented control to a sighted reader and four unrelated buttons to a screen
  * reader.</b>
  */
 function drawLogControls() {
+  // <b>Focus survives the rebuild.</b> Choosing a level with the arrow keys fires `change`, the select is
+  // replaced, and focus fell to the page — the same fault the Action select had. Kept by id, or as *the
+  // selected tab* when a tab had it.
+  const focused = document.activeElement;
+  const refocus = focused?.dataset?.logSource ? "tab" : focused?.id || null;
+
+  try {
+    drawLogControlsNow();
+  } finally {
+    if (refocus === "tab") {
+      $("logSources")?.querySelector('[aria-selected="true"]')?.focus();
+    } else if (refocus && $(refocus) && document.activeElement !== $(refocus)) {
+      $(refocus).focus();
+    }
+  }
+}
+
+function drawLogControlsNow() {
   const sources = $("logSources");
+
+  // <b>What the server log cannot filter by is not offered on its tab.</b> It has no caller, so *Who*
+  // would be ignored silently; and *Only failures* is *Errors and above*, which Level already says. The
+  // columns that are always empty go too, and the two left say what they hold for this log.
+  const server = logSource === "server";
+
+  for (const id of ["logWho", "logFailed"]) {
+    const control = $(id);
+    const label = control?.closest("label") || document.querySelector(`label[for="${id}"]`);
+    if (control) control.hidden = server;
+    if (label) label.hidden = server;
+  }
+
+  $("logRows")?.closest("table")?.classList.toggle("logs-server", server);
+  if ($("logColWhat")) $("logColWhat").textContent = server ? "Message" : "What";
+  if ($("logColResource")) $("logColResource").textContent = server ? "Component" : "Resource";
 
   if (sources) {
     sources.setAttribute("role", "tablist");
@@ -20356,6 +20405,18 @@ function drawLogControls() {
         `<option value="${h(a.action)}"${a.action === logOwn ? " selected" : ""}
           >${h(a.action)} (${num(a.count)})</option>`).join("")
       + `</select>`;
+    return;
+  }
+
+  // <b>Three levels, chosen rather than typed.</b> The server keeps warnings and above; a text box would
+  // invite `info`, which it never holds, and answer it with an empty table.
+  if (logSource === "server") {
+    own.innerHTML = `<label for="logOwnValue">Level</label>
+      <select id="logOwnValue">
+        <option value=""${logOwn ? "" : " selected"}>Warnings and above</option>
+        <option value="error"${logOwn === "error" ? " selected" : ""}>Errors and above</option>
+        <option value="critical"${logOwn === "critical" ? " selected" : ""}>Critical only</option>
+      </select>`;
     return;
   }
 
@@ -20398,6 +20459,25 @@ function logQuery() {
 function logRow(row) {
   const when = new Date(row.at);
 
+  // <b>A server entry is its message</b> — the level as the pill, the text on the row, the full text on
+  // hover and in the detail. Its caller and address are always empty, and its table hides those columns.
+  if (logSource === "server") {
+    const message = String(row.detail?.message || "");
+    const pill = row.what === "warning" ? "p-refusing" : "p-unusable";
+
+    return `<tr class="logrow" tabindex="0" role="button" aria-expanded="false"
+        aria-label="Show the detail of this entry">
+      <td class="nowrap"><span class="val" title="${h(when.toISOString())}"
+        >${h(when.toLocaleString())}</span></td>
+      <td class="logmessage"><span class="pill ${pill}">${h(row.what)}</span>
+        <span title="${h(message)}">${h(message.split("\n")[0])}</span></td>
+      <td></td>
+      <td></td>
+      <td>${row.resource ? `<code>${h(row.resource)}</code>` : "—"}</td>
+    </tr>
+    <tr class="logdetail" hidden><td colspan="5"><pre>${h(logPretty(row.detail))}</pre></td></tr>`;
+  }
+
   // <b>`tabindex` and a role, because the row is the control.</b> Clicking anywhere on it
   // reveals the detail, which is right for a mouse and was unreachable without one: the
   // detail JSON — the only place a request's duration, query and face are shown — could not
@@ -20407,7 +20487,10 @@ function logRow(row) {
     <td class="nowrap"><span class="val" title="${h(when.toISOString())}"
       >${h(when.toLocaleString())}</span></td>
     <td>${row.ok ? "" : `<span class="pill p-unusable">failed</span> `}<code>${h(row.what)}</code></td>
-    <td>${row.who ? h(row.who) : `<span class="faint">anonymous</span>`}</td>
+    <td>${row.who
+      ? h(row.who)
+      // A server entry has no caller; *anonymous* would say somebody unsigned did it.
+      : `<span class="faint">${logSource === "server" ? "—" : "anonymous"}</span>`}</td>
     <td class="nowrap"><span class="faint">${row.from ? h(row.from) : "—"}</span></td>
     <td>${row.resource ? `<code>${h(row.resource)}</code>` : "—"}</td>
   </tr>
@@ -20421,6 +20504,11 @@ function logRow(row) {
 
 /** The detail JSON, indented, or the raw string when it is not JSON. */
 function logPretty(detail) {
+  // The server log's detail arrives as an object rather than as the JSON text the stored logs keep.
+  if (detail && typeof detail === "object") {
+    return JSON.stringify(detail, null, 2);
+  }
+
   try {
     return JSON.stringify(JSON.parse(detail || "{}"), null, 2);
   } catch (ignored) {
@@ -20494,6 +20582,17 @@ async function loadLogs(more = false) {
 
   const rows = answer.rows || [];
 
+  if (logSource === "server") {
+    const started = answer.since ? new Date(answer.since).toLocaleString() : null;
+
+    logServerScope = started
+      ? `Held in memory since this server started, ${started}. Only the most recent ${num(answer.kept || 0)} `
+        + `are kept, and a restart clears them.`
+      : answer.scope || null;
+    logServerSince = started;
+    drawLogWriter();
+  }
+
   if (!more) {
     body.innerHTML = "";
   }
@@ -20530,6 +20629,14 @@ function drawLogWriter() {
   const writer = $("logWriter");
   if (!writer) return;
 
+  // <b>The server log's limits, in its own words.</b> In memory, this process only, a fixed number of
+  // entries: a reader who does not know that takes an empty table after a restart for a quiet server.
+  if (logSource === "server") {
+    writer.hidden = !logServerScope;
+    writer.textContent = logServerScope || "";
+    return;
+  }
+
   if (logSource !== "requests" || !logWriterHealth) {
     writer.hidden = true;
     return;
@@ -20556,6 +20663,11 @@ function drawLogWriter() {
  * sentence saying so, an empty table reads as a feature that is broken.
  */
 function logEmpty() {
+  if (logSource === "server" && !logOwn && !($("logText") || {}).value) {
+    return `No warnings or errors in this window. This log starts empty each time the server
+      restarts${logServerSince ? `; this one started ${h(logServerSince)}` : ""}.`;
+  }
+
   if (logSource === "studio") {
     return `Nothing reported. The viewer sends a row only when something fails in a
       browser — a script error, or a layer that would not draw — so an empty list here is

@@ -170,6 +170,12 @@ an empty page is not read as a server that never complained. `INFERRED`: that me
 the store is the right home is this session's judgement, and a deployment that wants retention
 still has standard output for a collector.
 
+**On the console since 2026-09-19, as the Logs screen's *Server warnings* tab.** The address answered
+for four days before any screen read it, which left the 503 above exactly as unreachable from the
+console as it had been. The tab shows each entry's message on its row, offers Level rather than Who and
+*Only failures* (the log has no caller, and errors-and-above is a level), and says above the table when
+the process started and how many entries it keeps.
+
 **State.** None in the catalogue; a bounded queue per node.
 
 ## 6. Consequences

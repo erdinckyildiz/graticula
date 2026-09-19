@@ -109,7 +109,7 @@ internal static class LogEndpoints
 {
     private static readonly IngestThrottle Throttle = new();
 
-    /// <summary>The three logs this server keeps, in the order a screen offers them.</summary>
+    /// <summary>The four logs this server keeps, in the order a screen offers them.</summary>
     private static readonly string[] Sources = ["audit", "requests", "studio", "server"];
 
     /// <summary>The largest event body this server will read.</summary>
@@ -252,11 +252,15 @@ internal static class LogEndpoints
     /// </remarks>
     private static Task ServerAsync(HttpContext context, ServerLogBuffer serverLog)
     {
+        // `failed=true` is the screen's *Only failures*, which for this log means errors and above — the
+        // same reading `ok` gives each row below.
         LogLevel minimum = Text(context, "level")?.ToLowerInvariant() switch
         {
             "error" or "severe" => LogLevel.Error,
             "critical" => LogLevel.Critical,
-            _ => LogLevel.Warning,
+            _ => string.Equals(Text(context, "failed"), "true", StringComparison.OrdinalIgnoreCase)
+                ? LogLevel.Error
+                : LogLevel.Warning,
         };
 
         IReadOnlyList<ServerLogEntry> entries = serverLog.Read(

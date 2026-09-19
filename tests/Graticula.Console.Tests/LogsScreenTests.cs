@@ -48,9 +48,9 @@ public sealed class LogsScreenTests : ConsoleTest
         await OpenAsync("/server/#/logs", token);
 
         await WaitForAsync(
-            "document.querySelectorAll('#logSources button[data-log-source]').length === 3",
-            "The Logs screen drew no source selector, so there is no way to reach two of the "
-            + "three logs.");
+            "document.querySelectorAll('#logSources button[data-log-source]').length === 4",
+            "The Logs screen drew no source selector, so there is no way to reach three of the "
+            + "four logs.");
 
         // <b>Visible, not merely present.</b> `offsetParent` and a box, because the DOM is
         // not the screen.
@@ -72,6 +72,54 @@ public sealed class LogsScreenTests : ConsoleTest
             "Something on the Logs screen is in the markup and not on the screen. A control "
             + "that exists and cannot be seen is a control that does nothing, and this "
             + "console has shipped that three times.");
+    }
+
+    /// <summary>
+    /// The server's own log is a tab, with its limits said above the table — V-33.
+    /// </summary>
+    /// <remarks>
+    /// <b>The address answered for four days before any screen read it.</b> What is asserted is what a reader
+    /// of this tab needs and a stored log's tab does not: the level control, the sentence saying the log is in
+    /// memory, and no *anonymous* in the Who column, which would name a person for something the server did.
+    /// </remarks>
+    [Fact]
+    public async Task The_server_tab_says_what_it_keeps_and_filters_by_level()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/logs", token);
+
+        await WaitForAsync(
+            "!!document.querySelector('#logSources button[data-log-source=\"server\"]')",
+            "There is no Server tab, so the server's own warnings are reachable only by address.");
+
+        await Browser.EvaluateAsync<bool>(
+            "(document.querySelector('#logSources button[data-log-source=\"server\"]').click(), true)");
+
+        await WaitForAsync(
+            "(() => { const w = document.getElementById('logWriter');"
+            + " return !!w && !w.hidden && w.offsetParent !== null && /memory|restart|process/i.test(w.textContent); })()",
+            "The Server tab does not say that its log is held in memory for this process, so an empty table "
+            + "after a restart reads as a quiet server.");
+
+        await WaitForAsync(
+            "(() => { const s = document.getElementById('logOwnValue');"
+            + " return !!s && s.tagName === 'SELECT' && [...s.options].some(o => o.value === 'error'); })()",
+            "The Server tab has no level control.");
+
+        // Who is not a filter this log can apply, so it is not offered; a box that is ignored silently is
+        // worse than none.
+        bool whoShown = await Browser.EvaluateAsync<bool>(
+            "document.getElementById('logWho').offsetParent !== null");
+
+        Assert.False(whoShown, "The Server warnings tab offers a Who filter the server log ignores.");
+
+        bool anonymous = await Browser.EvaluateAsync<bool>(
+            "[...document.querySelectorAll('#logRows tr.logrow td:nth-child(3)')].some(c => /anonymous/.test(c.textContent))");
+
+        Assert.False(anonymous, "A server log row says *anonymous*, which names a person for something the server did.");
+
+        NothingWentWrong(await PageErrorsAsync());
     }
 
     [Fact]
@@ -193,7 +241,7 @@ public sealed class LogsScreenTests : ConsoleTest
         await OpenAsync("/server/#/logs", token);
 
         await WaitForAsync(
-            "document.querySelectorAll('#logSources button[data-log-source]').length === 3",
+            "document.querySelectorAll('#logSources button[data-log-source]').length === 4",
             "The Logs screen drew no source selector.");
 
         await WaitForAsync(
@@ -280,7 +328,7 @@ public sealed class LogsScreenTests : ConsoleTest
         await OpenAsync("/server/#/logs", token);
 
         await WaitForAsync(
-            "document.querySelectorAll('#logSources button[data-log-source]').length === 3",
+            "document.querySelectorAll('#logSources button[data-log-source]').length === 4",
             "The Logs screen drew no source selector.");
 
         await Browser.EvaluateAsync<bool>(

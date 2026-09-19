@@ -3922,3 +3922,10 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
 #dbconn #dcS3 summary { cursor: pointer; }
 .dcskipped { margin: var(--gap-2) 0 0; padding-left: 1.2em; }
 .dcskipped li { margin: 2px 0; }
+
+/* Server warnings (V-33): no caller and no address, so those two columns are not drawn, and the message
+   is one line with the whole of it on hover and in the detail row. */
+table.logs-server th:nth-child(3), table.logs-server th:nth-child(4),
+table.logs-server tr.logrow td:nth-child(3), table.logs-server tr.logrow td:nth-child(4) { display: none; }
+td.logmessage span[title] { display: inline-block; max-width: 60ch; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; vertical-align: bottom; }
