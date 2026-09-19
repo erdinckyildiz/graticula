@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `HIGH` on the format · `MEDIUM` on the viewer's shape until the owner has used it |
-| **Decided** | 2026-09-19, by owner decision, after the NextGIS Web comparison ([research/nextgis-web-comparison.md](../research/nextgis-web-comparison.md)) named an end-user web map as one of two things Graticula lacks that a user would notice: *"2. Kapsama alalım"*. **That a web map for the people who use the data, not the administrator, is in v1 is the owner's.** **The ArcGIS Web Map format, its own table, the three sharing scopes and the viewer's layout are `INFERRED`** and listed in §11 |
+| **Decided** | 2026-09-19, by owner decision, after the NextGIS Web comparison ([research/nextgis-web-comparison.md](../research/nextgis-web-comparison.md)) named an end-user web map as one of two things Graticula lacks that a user would notice: *"2. Kapsama alalım"*. **That a web map for the people who use the data, not the administrator, is in v1 is the owner's.** **The ArcGIS Web Map format, its own table, the three sharing scopes and the viewer's layout are `INFERRED`** and listed in §11 — *(Confirmed by the owner 2026-09-19, all of them, after each was put in plain words: *"onaylıyorum"* — Q-156.)* |
 | **Supersedes** | — |
 | **Superseded by** | — |
 
@@ -177,7 +177,9 @@ per-layer menu, as NextGIS Web and ArcGIS Map Viewer do; and a thumbnail and lay
 Studio's Maps list. Both are shape decisions the owner has not seen, and neither blocks making, saving or
 opening a map. They wait for the owner's first use of the viewer, which is condition 2's other half.
 
-## 11. Inferred, for confirmation
+## 11. Inferred, and confirmed
+
+*(Confirmed by the owner 2026-09-19, all of them, after each was put in plain words: *"onaylıyorum"* — Q-156.)* They are the owner's now:
 
 - **The ArcGIS Web Map format** rather than a Graticula document.
 - **Its own table** rather than building ADR-056's item table first.

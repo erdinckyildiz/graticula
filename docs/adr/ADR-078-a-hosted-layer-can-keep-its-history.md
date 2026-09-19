@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `HIGH` that the database keeps it · `MEDIUM` on the write cost, which is measured once on one machine (§4) |
-| **Decided** | 2026-09-19, by owner decision, after a comparison with NextGIS Web ([research/nextgis-web-comparison.md](../research/nextgis-web-comparison.md)), which keeps every version of a vector feature. The comparison named two things Graticula lacks that a user would notice, and the owner answered: *"2. Kapsama alalım"* — take them into scope. **That feature history is in v1 is the owner's.** **Opt-in per layer, the ArcGIS archiving shape, restore as a new edit, and hosted layers only are `INFERRED`** and listed in §11 |
+| **Decided** | 2026-09-19, by owner decision, after a comparison with NextGIS Web ([research/nextgis-web-comparison.md](../research/nextgis-web-comparison.md)), which keeps every version of a vector feature. The comparison named two things Graticula lacks that a user would notice, and the owner answered: *"2. Kapsama alalım"* — take them into scope. **That feature history is in v1 is the owner's.** **Opt-in per layer, the ArcGIS archiving shape, restore as a new edit, and hosted layers only are `INFERRED`** and listed in §11 — *(Confirmed by the owner 2026-09-19, all of them, after each was put in plain words: *"onaylıyorum"* — Q-155.)* |
 | **Supersedes** | — |
 | **Superseded by** | — |
 
@@ -225,10 +225,11 @@ degradation).
 
 None recorded. The case for *on by default* is written in §3 and was not adopted.
 
-## 11. Inferred, for confirmation
+## 11. Inferred, and confirmed
 
-The owner decided that feature history is in scope. These were chosen here and are listed so that they
-can be overturned:
+The owner decided that feature history is in scope. These were chosen here and listed so that they could be
+overturned; *(Confirmed by the owner 2026-09-19, all of them, after each was put in plain words: *"onaylıyorum"* — Q-155.)* They are the owner's now, and overturning one is a new decision
+rather than a correction:
 
 - **Opt-in per layer**, not on for every hosted layer.
 - **ArcGIS archiving's shape** (`gdb_from_date`/`gdb_to_date`, `historicMoment`) rather than NextGIS Web's
