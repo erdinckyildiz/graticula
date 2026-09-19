@@ -14353,6 +14353,25 @@ function pubTreeKey(event) {
 
 document.addEventListener("keydown", pubTreeKey);
 
+/**
+ * Left, Right, Home and End move between the Logs screen's source tabs and choose the one they land on —
+ * the ARIA tabs pattern with automatic activation, because choosing a log is only a read.
+ */
+document.addEventListener("keydown", event => {
+  const tab = event.target?.closest?.("#logSources [role=tab]");
+  if (!tab || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+
+  const tabs = [...document.querySelectorAll("#logSources [role=tab]")];
+  const at = tabs.indexOf(tab);
+  const next = event.key === "Home" ? 0
+    : event.key === "End" ? tabs.length - 1
+    : (at + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+
+  event.preventDefault();
+  tabs[next].focus();
+  tabs[next].click();
+});
+
 document.addEventListener("scroll", () => pubMenuShut(), true);
 
 /**
@@ -20869,8 +20888,12 @@ function drawLogControlsNow() {
     sources.setAttribute("role", "tablist");
     sources.setAttribute("aria-label", "Which log");
 
+    // <b>One tab stop, arrows between the tabs</b> — the ARIA tabs pattern. Every tab was its own stop and
+    // the arrows did nothing, so a keyboard reader crossed four buttons to reach the filters. Found by the
+    // ux review of the Server warnings tab; it predated that tab.
     sources.innerHTML = LOG_SOURCES.map(([key, label]) =>
-      `<button role="tab" aria-selected="${key === logSource}"
+      `<button role="tab" aria-selected="${key === logSource}" aria-controls="logRows"
+        tabindex="${key === logSource ? "0" : "-1"}"
         class="tiny${key === logSource ? "" : " ghost"}" data-log-source="${key}"
         >${h(label)}</button>`).join(" ");
   }

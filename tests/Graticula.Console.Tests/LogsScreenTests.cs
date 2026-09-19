@@ -122,6 +122,41 @@ public sealed class LogsScreenTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
+    /// <summary>The source tabs are one tab stop, and the arrow keys move between them.</summary>
+    [Fact]
+    public async Task The_source_tabs_are_one_stop_and_the_arrows_choose()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/logs", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#logSources [role=tab]').length === 4",
+            "The Logs screen drew no source tabs.");
+
+        int stops = await Browser.EvaluateAsync<int>(
+            "[...document.querySelectorAll('#logSources [role=tab]')].filter(t => t.tabIndex === 0).length");
+
+        Assert.Equal(1, stops);
+
+        await Browser.EvaluateAsync<bool>(
+            """
+            (() => {
+              const first = document.querySelector('#logSources [role=tab][aria-selected="true"]');
+              first.focus();
+              first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+              return true;
+            })()
+            """);
+
+        await WaitForAsync(
+            "(() => { const t = document.querySelector('#logSources [role=tab][aria-selected=\"true\"]');"
+            + " return !!t && t.dataset.logSource === 'requests' && document.activeElement === t; })()",
+            "ArrowRight on the first tab did not choose the second and keep focus on it.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
     [Fact]
     public async Task The_action_filter_actually_filters()
     {
