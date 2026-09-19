@@ -96,7 +96,7 @@ public sealed class EveryScreenTests : ConsoleTest
             // the one setting D-61's repair did not reach. Its absence is asserted at the end of
             // this method rather than left implicit, because *a page reappears on the wrong object*
             // is the regression this class exists for.
-            ["studio"] = ["symbology", "caching", "maintenance"],
+            ["studio"] = ["symbology", "history", "caching", "maintenance"],
         };
 
         foreach ((string surface, string[] names) in pages)

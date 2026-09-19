@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graticula — map</title>
+
+<!--
+  The web map viewer — ADR-079.
+
+  <b>A map a user keeps, where view.html is an operator's look at one service.</b> It opens a saved
+  ArcGIS Web Map document (`?id=`), or starts an unsaved one from a service (`?service=`), draws its
+  layers on the vendored OpenLayers (ADR-020 §4), and saves it back. The layout is NextGIS Web's web
+  map, which is what the owner compared against: the map, and a side panel with Layers, Search,
+  Measure and Map tabs.
+
+  <b>No inline script</b>, because the console's policy has no `'unsafe-inline'` and
+  `No_console_page_carries_an_inline_script` enforces it. The style block is allowed.
+-->
+
+<link rel="stylesheet" href="ol.css">
+<script src="ol.js"></script>
+
+<style>
+  :root {
+    --paper: #f5f8f6; --surface: #fff; --surface-2: #eef3f1; --ink: #0f1e1b; --muted: #576a66;
+    --faint: #5f716d; --rule: #d7e0dc; --accent: #0b6157; --alert: #a63a2b; --warn: #92620d;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font: 14px/1.45 system-ui, -apple-system, sans-serif;
+               color: var(--ink); background: var(--paper); }
+  #frame { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+
+  header { display: flex; align-items: center; gap: 12px; padding: 0 16px; min-width: 0; min-height: 54px;
+           background: var(--surface); border-bottom: 1px solid var(--rule); }
+  header h1 { margin: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden;
+              text-overflow: ellipsis; min-width: 0; }
+  .mark { width: 24px; height: 24px; flex: none; border-radius: 6px; display: grid;
+          place-items: center; color: #fff; font: 700 11px/1 system-ui, sans-serif;
+          background: linear-gradient(148deg, #57bda9, #0b6157 60%, #08463f); }
+  #saved { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  #saved.dirty { color: var(--warn); }
+  #headSave { flex: none; padding: 5px 14px; }
+  #headSave[aria-disabled="true"] { opacity: .45; cursor: default; }
+  #headSave[aria-disabled="true"]:hover { filter: none; }
+  a { color: var(--accent); }
+  #status { font-size: 12.5px; color: var(--muted); flex: 1 1 0; min-width: 0; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap; }
+  #studio { flex: none; font-size: 12.5px; color: var(--accent); text-decoration: none;
+            padding: 5px 12px; border: 1px solid var(--rule); border-radius: 3px; white-space: nowrap; }
+  #studio:hover { border-color: var(--accent); }
+
+  #body { display: grid; grid-template-columns: 340px 1fr; min-height: 0; }
+  #panel { display: flex; flex-direction: column; min-height: 0; background: var(--surface);
+           border-right: 1px solid var(--rule); }
+  #tabs { display: flex; border-bottom: 1px solid var(--rule); flex: none; }
+  #tabs button { flex: 1; border: 0; border-bottom: 2px solid transparent; background: none;
+                 padding: 10px 4px 8px; font: inherit; font-size: 13px; color: var(--muted);
+                 cursor: pointer; border-radius: 0; }
+  #tabs button[aria-selected="true"] { color: var(--ink); font-weight: 600;
+                                       border-bottom-color: var(--accent); }
+  .tabpanel { padding: 12px 14px 18px; overflow: auto; flex: 1; min-height: 0; }
+  .tabpanel[hidden] { display: none; }
+  .tabpanel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--faint);
+                 margin: 4px 0 8px; font-weight: 600; }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 6px 0 10px; }
+  .said { font-size: 12.5px; color: var(--muted); min-height: 1.2em; margin: 6px 0; }
+  .said.bad { color: var(--alert); }
+
+  button, select, input, textarea { font: inherit; font-size: 13px; }
+  button { padding: 4px 10px; cursor: pointer; border: 1px solid var(--rule); border-radius: 3px;
+           background: var(--surface); color: var(--ink); }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.1); }
+  button.danger { color: var(--alert); }
+  button.tiny { padding: 1px 7px; font-size: 12px; }
+  input[type="text"], input[type="search"], textarea, select {
+    border: 1px solid var(--rule); border-radius: 3px; padding: 5px 7px; background: var(--surface);
+    color: var(--ink); width: 100%; }
+  label.field { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+  /* The layer list: top of the list is top of the map. */
+  #layerList { list-style: none; margin: 0; padding: 0; }
+  #layerList > li { border: 1px solid var(--rule); border-radius: 4px; padding: 7px 9px; margin-bottom: 7px; }
+  #layerList > li.off { background: var(--surface-2); }
+  .lhead { display: flex; align-items: flex-start; gap: 7px; }
+  .lhead label { flex: 1; min-width: 0; overflow-wrap: anywhere; cursor: pointer; }
+  .lkind { font-size: 11px; color: var(--faint); white-space: nowrap; }
+  .lstate { font-size: 12px; color: var(--muted); margin: 3px 0 0 22px; }
+  .lstate.bad { color: var(--alert); }
+  .lstate.warn { color: var(--warn); }
+  /* The legend swatch before a layer's title, in the colours its renderer draws with. */
+  .swatch { flex: none; width: 14px; height: 14px; margin-top: 3px; border-radius: 2px;
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .25); }
+  .swatch.none { box-shadow: none; }
+  .lfields { margin-top: 5px; font-size: 12px; }
+  .lerr { color: var(--alert); font-size: 12px; margin: 4px 0 0; }
+  .lfilter input[aria-invalid="true"] { border-color: var(--alert); }
+  .warnnote { color: var(--warn); font-size: 12.5px; margin: 6px 0 0; }
+  #measureLive { font-family: var(--mono); font-size: 12.5px; min-height: 1.2em; margin: 6px 0 0; }
+  .lctl { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin: 6px 0 0 22px; }
+  .lctl input[type="range"] { width: 90px; }
+  .lfilter { margin: 7px 0 0 22px; }
+  .lfilter input { font-family: var(--mono); font-size: 12px; }
+  .lfilter .active { font-family: var(--mono); font-size: 11.5px; color: var(--accent);
+                     overflow-wrap: anywhere; }
+
+  #addBox { border: 1px solid var(--rule); border-radius: 4px; padding: 9px; margin: 8px 0 12px;
+            background: var(--surface-2); }
+  #addList { list-style: none; margin: 8px 0 0; padding: 0; max-height: 280px; overflow: auto; }
+  #addList li { padding: 4px 0;
+                border-top: 1px solid var(--rule); }
+  #addList li:first-child { border-top: 0; }
+  #addList .svcrow { display: flex; gap: 8px; align-items: center; }
+  #addList .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  #addList .onmap { font-size: 12px; color: var(--accent); white-space: nowrap; padding: 1px 4px; }
+  #addList details.kinds { margin: 2px 0 2px 12px; font-size: 12.5px; }
+  #addList details.kinds summary { color: var(--muted); cursor: pointer; }
+  #addList details.kinds .svcrow { padding: 2px 0; }
+  #addList .type { font-size: 11px; color: var(--faint); white-space: nowrap; }
+
+  #searchResults, #measureList { list-style: none; margin: 8px 0 0; padding: 0; }
+  #searchResults li.group { font-size: 11.5px; color: var(--faint); text-transform: uppercase;
+                            letter-spacing: .03em; margin: 10px 0 3px; }
+  #searchResults button { width: 100%; text-align: left; border-color: transparent; padding: 4px 6px; }
+  #searchResults button:hover { border-color: var(--rule); }
+  #measureList li { font-family: var(--mono); font-size: 12.5px; padding: 3px 0;
+                    border-top: 1px solid var(--rule); }
+  .tools button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  #mapWrap { position: relative; min-width: 0; min-height: 0; }
+  #map { position: absolute; inset: 0; background: #dce7ec; }
+  #map:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  /* What a click found, as a card over the map rather than a bubble: a card can hold many layers. */
+  #identify { position: absolute; z-index: 40; right: 12px; top: 12px; width: 320px; max-height: calc(100% - 24px);
+              overflow: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px;
+              box-shadow: 0 10px 28px -18px rgba(0,0,0,.45); font-size: 12.5px; }
+  #identify[hidden] { display: none; }
+  #identify .top { display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+                   border-bottom: 1px solid var(--rule); position: sticky; top: 0; background: var(--surface); }
+  #identify .top b { flex: 1; }
+  #identify h3 { font-size: 12px; margin: 10px 10px 4px; color: var(--accent); }
+  #identify table { border-collapse: collapse; width: 100%; margin-bottom: 4px; }
+  #identify th, #identify td { text-align: left; padding: 3px 10px; border-top: 1px solid var(--rule);
+                               vertical-align: top; }
+  #identify th { color: var(--faint); font-weight: 600; white-space: nowrap; width: 38%; }
+  #identify td { font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; }
+  #identify .feature { border-top: 2px solid var(--surface-2); }
+  #identify p { margin: 8px 10px; color: var(--muted); }
+
+  #strip { position: absolute; z-index: 30; left: 12px; bottom: 12px; display: flex; gap: 12px;
+           align-items: center; padding: 4px 10px; border-radius: 4px; background: rgba(255,255,255,.92);
+           box-shadow: 0 0 0 1px var(--rule); font-size: 11.5px; color: var(--muted); }
+  #strip .ol-scale-line, #strip .ol-mouse-position { position: static; background: none; padding: 0; margin: 0; }
+  #strip .ol-scale-line-inner { margin: 0; color: var(--ink); border-color: var(--muted); font-size: 11px; }
+  #stripWhere { font-family: var(--mono); }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  @media (max-width: 760px) {
+    #body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 46%) 1fr; }
+    #panel { border-right: 0; border-bottom: 1px solid var(--rule); }
+    /* The status line stays, on a row of its own: it is where every result on this page is said. */
+    header { flex-wrap: wrap; height: auto; padding: 6px 12px; row-gap: 2px; }
+    #status { order: 10; flex: 1 0 100%; }
+    #frame { grid-template-rows: auto 1fr; }
+    #studio { padding: 5px 8px; display: inline-flex; align-items: center; }
+    /* Touch targets of at least 44 px where a finger is the pointer (WCAG 2.5.5). */
+    button.tiny, #identify [data-close], .ol-zoom button, #tabs button, #headSave, #studio {
+      min-height: 44px; min-width: 44px; }
+    .lctl input[type="range"] { min-height: 44px; }
+  }
+</style>
+</head>
+<body>
+<div id="frame">
+  <header>
+    <span class="mark" aria-hidden="true">Gr</span>
+    <h1 id="title">Map</h1>
+    <span id="saved"></span>
+    <button class="primary" id="headSave" hidden>Save</button>
+    <!-- Every asynchronous sentence on the page is spoken as well as shown. -->
+    <span id="status" role="status" aria-live="polite">Loading the map&hellip;</span>
+    <a id="studio" href="/studio/#/content">My content</a>
+  </header>
+
+  <div id="body">
+    <aside id="panel" aria-label="Map panel">
+      <div class="tabpanel" id="notFound" hidden></div>
+      <div id="tabs" role="tablist" aria-label="Map tools">
+        <button role="tab" id="tab-layers" aria-controls="pane-layers" aria-selected="true">Layers</button>
+        <button role="tab" id="tab-search" aria-controls="pane-search" aria-selected="false" tabindex="-1">Search</button>
+        <button role="tab" id="tab-measure" aria-controls="pane-measure" aria-selected="false" tabindex="-1">Measure</button>
+        <button role="tab" id="tab-map" aria-controls="pane-map" aria-selected="false" tabindex="-1">Map</button>
+      </div>
+
+      <section class="tabpanel" id="pane-layers" role="tabpanel" aria-labelledby="tab-layers">
+        <div class="row">
+          <button id="addLayer" aria-expanded="false" aria-controls="addBox">Add layer</button>
+          <button id="frameAll" title="Zoom to every layer that says where it is">Zoom to all</button>
+        </div>
+        <div id="addBox" hidden>
+          <label class="field" for="addFilter" style="margin-top:0">Services you can read</label>
+          <input type="search" id="addFilter" placeholder="Filter by name&hellip;" autocomplete="off">
+          <p class="said" id="addStatus" role="status" aria-live="polite"></p>
+          <ul id="addList"></ul>
+        </div>
+        <p class="said" id="layersStatus" role="status" aria-live="polite"></p>
+        <ul id="layerList" aria-label="Layers, top of the map first"></ul>
+      </section>
+
+      <section class="tabpanel" id="pane-search" role="tabpanel" aria-labelledby="tab-search" hidden>
+        <form id="searchForm" class="row" role="search">
+          <label for="searchText" class="field" style="margin:0;width:100%">Find features by any text attribute</label>
+          <input type="search" id="searchText" autocomplete="off" style="flex:1;width:auto">
+          <button class="primary" type="submit">Search</button>
+        </form>
+        <p class="said" id="searchStatus" role="status" aria-live="polite"></p>
+        <ul id="searchResults"></ul>
+      </section>
+
+      <section class="tabpanel" id="pane-measure" role="tabpanel" aria-labelledby="tab-measure" hidden>
+        <p class="hint">Click on the map to add points; double-click to finish. Distances and areas are
+          measured on the sphere, not on the flat map, so they hold at any latitude.</p>
+        <div class="row tools">
+          <button id="measureLine" aria-pressed="false">Distance</button>
+          <button id="measureArea" aria-pressed="false">Area</button>
+          <button id="measureClear">Clear</button>
+        </div>
+        <!-- The running figure while drawing: shown, not announced. The result is announced below. -->
+        <p id="measureLive"></p>
+        <p class="said" id="measureStatus" role="status" aria-live="polite"></p>
+        <ul id="measureList" aria-label="Measurements"></ul>
+      </section>
+
+      <section class="tabpanel" id="pane-map" role="tabpanel" aria-labelledby="tab-map" hidden>
+        <form id="mapForm">
+          <label class="field" for="mapTitle" style="margin-top:0">Title</label>
+          <input type="text" id="mapTitle" maxlength="250" required>
+          <label class="field" for="mapSnippet">Description</label>
+          <textarea id="mapSnippet" rows="3" maxlength="2048"></textarea>
+          <div id="sharingField">
+            <label class="field" for="mapSharing">Who can open it</label>
+            <select id="mapSharing" aria-describedby="sharingNote">
+              <option value="private">Only you (private)</option>
+              <option value="organization">Everyone signed in (organization)</option>
+              <option value="public">Anyone with the link (public)</option>
+            </select>
+            <!-- Which layers the people it is shared with will not see: their services are narrower. -->
+            <p class="warnnote" id="sharingNote" hidden></p>
+          </div>
+          <label class="field" for="mapBasemap">Basemap</label>
+          <select id="mapBasemap">
+            <option value="osm">OpenStreetMap</option>
+            <option value="none">None</option>
+          </select>
+          <p class="hint" id="mapOwner"></p>
+          <p class="hint">Saving also keeps the current view — where the map is and how far in — as the
+            view it opens at. <b>Save as new map</b> makes a private copy.</p>
+          <div class="row" style="margin-top:12px">
+            <button class="primary" type="submit" id="mapSave">Save</button>
+            <button type="button" id="mapSaveAs">Save as new map</button>
+            <button type="button" class="danger" id="mapDelete">Delete</button>
+          </div>
+          <p class="said" id="mapStatus" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+    </aside>
+
+    <div id="mapWrap">
+      <div id="map" tabindex="0" aria-label="Map. Click a feature to see its attributes."></div>
+      <div id="identify" role="region" aria-label="What is here" hidden></div>
+      <div id="strip"><span id="stripScale"></span><span id="stripWhere"></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- First, so it is listening before anything else can throw. ADR-045. -->
+<script src="report.js"></script>
+<!-- For OSM_TILES and OSM_CREDIT, the one place the ground is decided. Declares those names, so
+     webmap.js must not. -->
+<script src="ground.js" defer></script>
+<script src="webmap.js" defer></script>
+</body>
+</html>

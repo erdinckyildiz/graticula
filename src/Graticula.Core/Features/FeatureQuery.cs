@@ -310,6 +310,16 @@ public sealed class FeatureQuery
     /// ArcGIS SDK does, and why it sends <c>orderByFields</c> on every request.
     /// </remarks>
     public IReadOnlyList<SortKey> OrderBy { get; }
+
+    /// <summary>
+    /// The moment to answer as of — ArcGIS's <c>historicMoment</c> (ADR-078) — or null for now.
+    /// </summary>
+    /// <remarks>
+    /// <b>Only a source that keeps history may be given one.</b> The HTTP boundary refuses the
+    /// parameter on a layer whose description is not <see cref="LayerDescription.Archived"/>, so a
+    /// source never receives a moment it would have to answer with the present.
+    /// </remarks>
+    public DateTimeOffset? HistoricMoment { get; init; }
 }
 
 /// <summary>One ordering key.</summary>

@@ -434,6 +434,10 @@ public static class Program
         builder.Services.AddSingleton<IOAuthStore>(services =>
             new PostgresOAuthStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // ADR-079: saved web maps, the first item with no service behind it.
+        builder.Services.AddSingleton<Graticula.Platform.Catalog.IWebMapStore>(services =>
+            new PostgresWebMapStore(services.GetRequiredService<NpgsqlDataSource>()));
+
         // <b>What each role grants, read from the store — ADR-035.</b> A singleton because it holds
         // the answer between requests; registered as both the interface and the concrete type
         // because the authentication path calls `EnsureFreshAsync`, which is not on the interface:
@@ -2942,6 +2946,11 @@ public static class Program
                     [
                         ("Map", "/studio/view.html"
                             + $"?service={Uri.EscapeDataString(service.QualifiedName)}"),
+
+                        // ADR-079: a new, unsaved web map with this service in it — the page a
+                        // user keeps, where `Map` is the operator's look at one service.
+                        ("Map Viewer", "/studio/webmap.html"
+                            + $"?service={Uri.EscapeDataString(service.QualifiedName)}"),
                         ("ArcGIS SDK", "/studio/map.html"
                             + $"?service={Uri.EscapeDataString(service.QualifiedName)}"),
                     ],
@@ -3365,6 +3374,9 @@ public static class Program
                     // to be both.
                     [
                         ("Map", "/studio/view.html"
+                            + $"?service={Uri.EscapeDataString(ServicePathOf(context.Request.Path))}"
+                            + $"&layer={layer.LayerIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)}"),
+                        ("Map Viewer", "/studio/webmap.html"
                             + $"?service={Uri.EscapeDataString(ServicePathOf(context.Request.Path))}"
                             + $"&layer={layer.LayerIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)}"),
                         ("ArcGIS SDK", "/studio/map.html"
@@ -5175,7 +5187,10 @@ public static class Program
                 layer.ServedWkt,
 
                 // The field `time=` filters on — the one the layer document reports as its time.
-                Graticula.Api.Wms.TimeDimension.FieldOf(described.Fields, layer.TimeField)))
+                Graticula.Api.Wms.TimeDimension.FieldOf(described.Fields, layer.TimeField),
+
+                // ADR-078: a moment in the past only where the database keeps one.
+                described.Archived))
         {
             await Results.Json(
                 new { error = new { code = 400, message = error } },

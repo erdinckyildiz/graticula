@@ -871,6 +871,9 @@ public static class FeatureServerMetadataWriter
             hasStaticData = IsStatic(capabilities),
             isDataVersioned = false,
 
+            // Every version of every feature kept by the database, with when it was true — ADR-078.
+            isDataArchived = description.Archived,
+
             // <b>Two of these were false while the query endpoint honoured
             // them, and that is the never-degrade-silently rule broken in the
             // direction nobody checks.</b> ADR-008 §2 is usually read as "do not
@@ -944,6 +947,11 @@ public static class FeatureServerMetadataWriter
                 // false for a day after `outStatistics` learned the two types, which is a
                 // capability report disagreeing with the capability.
                 supportsPercentileStatistics = true,
+
+                // <b>A layer that keeps its history answers `historicMoment` — ADR-078.</b> The
+                // parser refuses the parameter on every other layer, so this flag and that refusal
+                // are the same fact.
+                supportsQueryWithHistoricMoment = description.Archived,
             },
 
             // <b>What the column declares, since `query` returns it — ADR-077, step 3.</b> These were false

@@ -471,12 +471,21 @@ public sealed class PostGisImporter
 
         string attachments = tableName + PostGisAttachmentStore.Suffix;
 
-        foreach (string table in (string[])[attachments + PostGisAttachmentStore.ChunkSuffix, attachments, tableName])
+        // The history (ADR-078) goes with the layer: its trigger dies with the table, and a history of
+        // a layer that no longer exists is a table nothing would ever read or remove.
+        foreach (string table in (string[])[
+            attachments + PostGisAttachmentStore.ChunkSuffix, attachments, tableName + PostGisFeatureHistory.Suffix, tableName])
         {
             await ExecuteAsync(
                 connection, transaction, $"drop table if exists {Qualified(table)}", cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        // The history's trigger function is the table's own (ADR-078) and outlives the trigger unless named.
+        await ExecuteAsync(
+            connection, transaction,
+            $"drop function if exists {Qualified(tableName + PostGisFeatureHistory.FunctionSuffix)}()", cancellationToken)
+            .ConfigureAwait(false);
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }

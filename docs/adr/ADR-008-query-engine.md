@@ -688,7 +688,7 @@ a reason, as they had been for a while. `quantizationParameters` is honoured for
 reason for json — [ADR-073](ADR-073-query-answers-in-pbf.md). Amended again 2026-09-16:
 `returnZ`/`returnM` are answered on a layer whose column declares them, in `f=json` and, since
 2026-09-17, `f=pbf`, and M is refused with a generalization —
-[ADR-077](ADR-077-z-and-m-ride-beside-x-and-y.md) §8–§9.)*
+[ADR-077](ADR-077-z-and-m-ride-beside-x-and-y.md) §8–§9. Amended again 2026-09-19: `historicMoment` is answered on a hosted layer that keeps its history and **refused**, no longer ignored, on every other — ignoring it answered a question about the past with the present, which is the silent substitution this section forbids — [ADR-078](ADR-078-a-hosted-layer-can-keep-its-history.md).)*
 
 **Percentile statistics left that list on 2026-09-04** and are now served:
 `PERCENTILE_CONT` and `PERCENTILE_DISC`, with the fraction in

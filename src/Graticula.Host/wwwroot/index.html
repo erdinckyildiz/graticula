@@ -550,6 +550,30 @@
       </table>
     </div>
     <div id="contentRowsPager"></div>
+
+    <!--
+      <b>Maps, beside the services — ADR-079 §5.5.</b> A saved web map is an item with no service
+      behind it, so it is not a row of the table above (which is one row per service and draws a
+      thumbnail from a layer). Its own short list, with the one verb that makes one.
+    -->
+    <div class="pagehead" style="margin-top:22px">
+      <div>
+        <h2 style="font-size:16px">Maps</h2>
+        <p>Maps you saved, and maps other people shared with you. A map puts layers from several
+          services together, with filters, and anyone it is shared with opens it as you left it.</p>
+      </div>
+      <div class="right"><button class="primary" id="newMap"><span
+        class="plus" aria-hidden="true">+</span>New map</button></div>
+    </div>
+    <p class="hint" id="mapNote" role="status" aria-live="polite"></p>
+    <div class="panel widetable">
+      <table>
+        <thead><tr>
+          <th>Map</th><th>Owner</th><th>Sharing</th><th>Last change</th><th></th>
+        </tr></thead>
+        <tbody id="mapRows"></tbody>
+      </table>
+    </div>
   </section>
 
   <!-- ------------------------------------------------------------- sources -->

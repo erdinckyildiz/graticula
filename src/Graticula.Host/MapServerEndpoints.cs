@@ -181,6 +181,8 @@ internal static class MapServerEndpoints
                     [
                         ("Map", "/studio/view.html?face=mapserver"
                             + $"&service={Uri.EscapeDataString(service.QualifiedName)}"),
+                        ("Map Viewer", "/studio/webmap.html"
+                            + $"?service={Uri.EscapeDataString(service.QualifiedName)}"),
                         ("ArcGIS SDK", "/studio/map.html?face=mapserver"
                             + $"&service={Uri.EscapeDataString(service.QualifiedName)}"),
                         ("Export", $"{path}/export?{ExtentText(layers)}"

@@ -140,9 +140,20 @@ public sealed class PortalConformanceTests : ArcGisClient
         foreach (JsonElement item in authenticated.GetProperty("results").EnumerateArray())
         {
             Assert.Equal(32, item.GetProperty("id").GetString()!.Length);
-            Assert.Contains("Service", item.GetProperty("type").GetString()!, StringComparison.Ordinal);
-            Assert.Contains("/rest/services/", item.GetProperty("url").GetString()!, StringComparison.Ordinal);
             Assert.False(item.GetProperty("typeKeywords").GetArrayLength() == 0);
+
+            // <b>A saved web map is the one item with no service behind it — ADR-079.</b> A client opens
+            // it from its data document rather than from a URL, so that is what "one it can open" means
+            // for it; WebMapEndpointTests reads the document back.
+            if (item.GetProperty("type").GetString() == "Web Map")
+            {
+                Assert.Equal(JsonValueKind.Null, item.GetProperty("url").ValueKind);
+            }
+            else
+            {
+                Assert.Contains("Service", item.GetProperty("type").GetString()!, StringComparison.Ordinal);
+                Assert.Contains("/rest/services/", item.GetProperty("url").GetString()!, StringComparison.Ordinal);
+            }
 
             // Dates as a portal writes them, epoch milliseconds — absent until 2026-09-15.
             long created = item.GetProperty("created").GetInt64();

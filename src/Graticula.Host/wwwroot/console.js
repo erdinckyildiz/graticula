@@ -2031,7 +2031,11 @@ function openScreen(surface, screen, folder) {
   }
 
   if (screen === "content") {
-    section("your content", loadMyContent, "contentRows").then(paintPreviews);
+    const contentRead = section("your content", loadMyContent, "contentRows");
+    contentRead.then(paintPreviews);
+
+    // After the content, because the maps' first-run sentence depends on whether there is any.
+    contentRead.then(() => section("your maps", loadMyMaps, "mapRows"));
   }
   if (screen === "members") section("members", loadMembers, "members");
   if (screen === "roles") section("roles", loadRoles, "roleRows");
@@ -3031,6 +3035,8 @@ async function loadMyContent() {
                     ${(content.get(key) || {}).hosted && !stopped
                       ? `<button data-tiles="${h(key)}">${shown.has(tileKey(key))
                           ? "Hide its tiles" : "Draw its tiles"}</button>` : ""}
+                    ${stopped ? "" : `<a href="/studio/webmap.html?service=${encodeURIComponent(i.name)}"
+                      >Open in new map</a>`}
                     <a href="${h(i.cover.url)}?f=json" target="_blank" rel="noreferrer"
                       >The layer document</a>
                     <div class="note">${stopped
@@ -3045,6 +3051,97 @@ async function loadMyContent() {
 }
 
 
+
+/**
+ * The saved web maps this reader can open — ADR-079 §5.5, beside the services on *My content*.
+ *
+ * <b>Its own list rather than rows in the table above.</b> That table is one row per service, with a
+ * thumbnail drawn from a layer and a status a map does not have; forcing a map into it would leave four
+ * of its seven cells saying *not applicable*.
+ *
+ * <b>The first-run sentence depends on whether there is anything to put on a map.</b> *New map* with
+ * no services to add is a blank map and a dead end, so the empty state says what comes first.
+ */
+async function loadMyMaps() {
+  const answer = await api("/content/webmaps") || {};
+  const maps = answer.webMaps || [];
+  const button = $("newMap");
+
+  if (button) {
+    button.disabled = answer.mayCreate === false;
+    button.title = answer.mayCreate === false
+      ? "Your role cannot create content, so it cannot save a map. You can still open maps shared with you."
+      : "A new map, from the services you can read";
+  }
+
+  // Layers the content listing drew; none means there is nothing to put on a map yet.
+  const services = content.size;
+
+  // <b>One sentence, in the table.</b> The note above it said *No maps yet* and the empty row said it
+  // again; the row is where a reader looks for rows, so it carries the whole of it and the note is
+  // kept for what happens here (a deletion).
+  $("mapNote").textContent = "";
+
+  const empty = answer.mayCreate === false
+    ? "No maps shared with you yet. Your role cannot save maps; ones others share with you appear here."
+    : services === 0
+      ? "No maps yet, and nothing to put on one: a map is made of services, so publish one first "
+        + "(New item, above). Then New map puts it on a map you can save and share."
+      : "No maps yet. New map starts one: add layers from the services you can read, filter them, "
+        + "and save it.";
+
+  $("mapRows").innerHTML = maps.length === 0
+    ? `<tr><td colspan="5" class="empty">${h(empty)}</td></tr>`
+    : maps.map(m => `<tr>
+        <td class="name"><a href="/studio/webmap.html?id=${encodeURIComponent(m.id)}">${h(m.title)}</a>${
+          m.snippet ? `<div class="rowmeta">${h(m.snippet)}</div>` : ""}</td>
+        <td class="val">${m.mine ? "you" : h(m.owner)}</td>
+        <td>${pill(m.sharing)}</td>
+        <td class="val">${day(m.modified)}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <a class="tiny" href="/studio/webmap.html?id=${encodeURIComponent(m.id)}"
+            aria-label="Open ${h(m.title)}">Open</a>
+          ${m.manages
+            ? `<button class="tiny ghost" data-map-delete="${h(m.id)}" data-map-title="${h(m.title)}"
+                aria-label="Delete ${h(m.title)}">Delete</button>`
+            : ""}
+        </td>
+      </tr>`).join("");
+}
+
+// <b>Delegated once, for the rows `loadMyMaps` redraws.</b> Deleting moves focus to the list's own
+// status line, because the button that had it is gone with its row.
+document.addEventListener("click", async event => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) return;
+
+  if (target.closest("#newMap")) {
+    location.href = "/studio/webmap.html";
+    return;
+  }
+
+  const del = target.closest("[data-map-delete]");
+  if (!del) return;
+
+  const title = del.dataset.mapTitle || "this map";
+  if (!confirm(`Delete the map “${title}”? Anybody it is shared with loses it too. The layers in it are not touched.`)) {
+    return;
+  }
+
+  del.disabled = true;
+
+  try {
+    await api(`/content/webmaps/${encodeURIComponent(del.dataset.mapDelete)}`, { method: "DELETE" });
+    toast(`Deleted the map “${title}”.`, true);
+    await section("your maps", loadMyMaps, "mapRows");
+    $("mapNote").textContent = `Deleted the map “${title}”. ` + $("mapNote").textContent;
+    $("mapNote").tabIndex = -1;
+    $("mapNote").focus();
+  } catch (e) {
+    del.disabled = false;
+    toast(e.message || String(e));
+  }
+});
 
 /**
  * One service, and the layers it holds.
@@ -5221,6 +5318,8 @@ function showRemoveMember(name, held) {
   if (held.folders.length) list.push(`<li><b>${num(held.folders.length)}</b> folder(s): `
     + `${held.folders.map(h).join(", ")}</li>`);
   if (held.groups) list.push(`<li><b>${num(held.groups)}</b> group(s)</li>`);
+  // ADR-079: saved web maps are a fourth owned thing — moved by a transfer, deleted with the account.
+  if (held.webMaps) list.push(`<li><b>${num(held.webMaps)}</b> web map(s)</li>`);
 
   $("removeHolds").innerHTML = list.join("");
 
@@ -9560,6 +9659,11 @@ const LAYER_PAGES = {
   // privilege as the time field and the symbol.
   fields: "studio",
 
+  // <b>History is the publisher's too</b> (ADR-078): whether the datastore keeps every version of
+  // this layer's features is the owner's call, and what the page mostly shows — who changed what —
+  // is read by the people who edit it.
+  history: "studio",
+
   caching: "studio",
 };
 
@@ -9905,6 +10009,23 @@ function showLayer(name, page, pending = null) {
         ${l.hosted ? `<button type="button" class="ghost" id="fieldsTrack">Track who edits</button>` : ""}
       </div>
       <p class="hint" id="fieldsSays" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="page" id="page-history">
+      <h4>History</h4>
+      ${l.hosted ? `
+      <p class="hint" id="historyAbout" hidden>Every version of every feature, with who changed it and
+        when — kept by the database, so an edit made in QGIS or straight in SQL is here too. Any version
+        can be put back. Attachments are not kept. ArcGIS clients can ask this layer for a moment in the
+        past (<code>historicMoment</code>).</p>
+      <div class="row" style="align-items:center">
+        <p class="hint" id="historySays" role="status" aria-live="polite" style="margin:0;flex:1">Reading the history…</p>
+        <button type="button" id="historySwitch" hidden></button>
+      </div>
+      <div id="historyBody"></div>`
+      : `<p class="hint">History is kept by the database beside the layer's own table, and this server
+        makes that kind of change only in its own datastore. This layer's data lives in a database it
+        does not own, so it cannot keep a history here (ADR-002 §4.2).</p>`}
     </section>
 
     <section class="page" id="page-caching">
@@ -10571,6 +10692,374 @@ function showEditPage(page) {
   // Read on arrival for the reason symbology is: its whole value is knowing what is there now.
   if (page === "fields" && editing) {
     section("the fields", () => loadFields(editing.name), "fieldsRows");
+  }
+
+  if (page === "history" && editing && $("historySays")) {
+    section("the history", () => loadHistory(editing.name));
+  }
+}
+
+/**
+ * The History page — ADR-078.
+ *
+ * <b>Two halves, and the second answers the first.</b> The left is the layer's changes, newest
+ * first — when, what kind, which feature, by whom. Choosing one opens that feature's versions on the
+ * right, each with what changed from the one before it and a way to put it back. That is the shape
+ * of the question somebody arrives with: *what happened to this feature, and can I undo it?*
+ *
+ * <b>A write that did not come through this server says so.</b> Its author is the database role, and
+ * the row carries *database* beside the name rather than letting a role pass for a person.
+ *
+ * <b>Rows are not `data-pick`.</b> The document-wide handler sends a `tr[data-pick]` to a layer's
+ * page; these rows open a feature, so they carry their own attribute and their own listeners.
+ */
+const historyState = { name: null, on: false, changes: [], next: null, feature: null, focusChosen: false };
+
+// Short enough to sit on one line in a narrow column; the full moment is the cell's title.
+// The year only when it is not this one, and the hour unpadded; the full moment is the title.
+const HISTORY_TIME = new Intl.DateTimeFormat(undefined, {
+  month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit",
+});
+const HISTORY_TIME_YEAR = new Intl.DateTimeFormat(undefined, {
+  year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit",
+});
+const HISTORY_TIME_FULL = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "long" });
+
+function historyTime(at) {
+  return (at.getFullYear() === new Date().getFullYear() ? HISTORY_TIME : HISTORY_TIME_YEAR).format(at);
+}
+
+function historyWhen(iso) {
+  const at = new Date(iso);
+  return `<time datetime="${h(iso)}" title="${h(HISTORY_TIME_FULL.format(at))}">${h(historyTime(at))}</time>`;
+}
+
+async function loadHistory(name, older = false) {
+  const says = $("historySays");
+  const body = $("historyBody");
+  const button = $("historySwitch");
+  const about = $("historyAbout");
+  if (!says || !body || !button) return;
+
+  if (!older) {
+    historyState.name = name;
+    historyState.changes = [];
+    historyState.next = null;
+  }
+
+  const query = older && historyState.next ? `?before=${encodeURIComponent(historyState.next)}` : "";
+  let answer;
+
+  try {
+    answer = await api(`/admin/layers/${encodeURIComponent(name)}/history${query}`);
+  } catch (e) {
+    // <b>Said where the page is read, not only in a toast that goes.</b> The review found the line
+    // stuck on "Reading the history…" and the switch hidden, with the only word a vanishing toast.
+    if (historyState.name === name) {
+      says.textContent = `The history could not be read. ${e.message || e}`;
+      button.hidden = true;
+    }
+    return;
+  }
+
+  // The page may have moved to another layer while this was on its way.
+  if (historyState.name !== name) return;
+
+  if (!answer.available) {
+    says.textContent = answer.reason || "This layer cannot keep a history.";
+    button.hidden = true;
+    if (about) about.hidden = true;
+    body.innerHTML = "";
+    return;
+  }
+
+  historyState.on = !!answer.enabled;
+  button.hidden = false;
+  button.textContent = historyState.on ? "Turn history off" : "Turn history on";
+  button.className = historyState.on ? "danger" : "";
+  button.onclick = () => switchHistory(name, !historyState.on);
+
+  // <b>The long description only once there is something it describes.</b> The review found the
+  // first-run state saying "every version of every feature … is here" above "History is off" — two
+  // sentences disagreeing about the same page.
+  if (about) about.hidden = !historyState.on;
+
+  if (!historyState.on) {
+    says.textContent = "History is off. Turn it on to keep every change from now on; the features as "
+      + "they are now become their first versions. Edits to this layer get somewhat slower.";
+    body.innerHTML = "";
+    return;
+  }
+
+  historyState.changes = historyState.changes.concat(answer.changes || []);
+  historyState.next = answer.next || null;
+
+  if (historyState.feature !== null
+      && !historyState.changes.some(c => c.objectId === historyState.feature)) {
+    historyState.feature = null;
+  }
+
+  says.textContent = historyState.changes.length
+    ? `History is on. ${historyState.changes.length}${historyState.next ? "+" : ""} change`
+      + `${historyState.changes.length === 1 ? "" : "s"} since it began, newest first.`
+    : "History is on, and nothing has changed since it began.";
+
+  drawHistory();
+}
+
+const HISTORY_KIND = {
+  added: "Added",
+  updated: "Edited",
+  restored: "Put back",
+  deleted: "Deleted",
+  emptied: "Emptied",
+};
+
+const HISTORY_KIND_TITLE = {
+  restored: "An earlier version was put back from this page",
+  emptied: "Every feature was removed at once (the table was truncated)",
+};
+
+function historyWho(editor, direct) {
+  return `${h(editor || "—")}${direct ? ` <span class="tag">database</span>` : ""}`;
+}
+
+function drawHistory() {
+  const body = $("historyBody");
+  if (!body) return;
+
+  // Which row had the keyboard, kept by value: the rows are about to be replaced.
+  const focused = document.activeElement && document.activeElement.dataset
+    ? document.activeElement.dataset.histRow : undefined;
+
+  const direct = historyState.changes.some(c => c.direct);
+
+  const rows = historyState.changes.map((c, i) => {
+    const chosen = historyState.feature === c.objectId;
+    const kind = HISTORY_KIND[c.kind] || c.kind;
+    const title = HISTORY_KIND_TITLE[c.kind] ? ` title="${h(HISTORY_KIND_TITLE[c.kind])}"` : "";
+    return `<tr class="pick${chosen ? " on" : ""}" tabindex="0" data-hist-row="${i}"
+        data-hist-feature="${c.objectId}"${chosen ? ` aria-current="true"` : ""}>
+      <td>${historyWhen(c.at)}</td>
+      <td${title}>${h(kind)}</td>
+      <td class="num">${c.objectId}</td>
+      <td>${historyWho(c.editor, c.direct)}</td>
+    </tr>`;
+  }).join("");
+
+  body.innerHTML = `
+    <div class="histsplit">
+      <div class="histlist">
+        <table class="histgrid">
+          <caption class="sr-only">Changes to this layer, newest first. Choose one to see that feature's versions.</caption>
+          <thead><tr><th>When</th><th>Change</th><th class="num">Feature</th><th>By</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="4" class="empty">No changes yet.</td></tr>`}</tbody>
+        </table>
+        ${direct
+          ? `<p class="hint histlegend"><span class="tag">database</span> edited straight in the database — in
+               SQL or QGIS — not through Graticula. The name is the database role that made the change.</p>`
+          : ""}
+        ${historyState.next
+          ? `<div class="row" style="margin-top:8px"><button type="button" class="ghost" id="historyOlder">Older changes</button></div>`
+          : ""}
+      </div>
+      <div id="historyFeature" class="histfeature">${historyState.feature === null
+        ? (historyState.changes.length ? `<p class="hint">Choose a change to see that feature's versions.</p>` : "")
+        : `<p class="hint">Reading feature ${historyState.feature}…</p>`}</div>
+    </div>`;
+
+  for (const row of body.querySelectorAll("tr[data-hist-feature]")) {
+    const open = () => openFeatureHistory(Number(row.dataset.histFeature));
+    row.addEventListener("click", open);
+    row.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
+    });
+  }
+
+  const older = $("historyOlder");
+  if (older) {
+    older.addEventListener("click", () =>
+      section("older changes", () => loadHistory(historyState.name, true)));
+  }
+
+  if (focused !== undefined) {
+    const again = body.querySelector(`tr[data-hist-row="${CSS.escape(focused)}"]`);
+    if (again) again.focus();
+  } else if (historyState.focusChosen) {
+    // After a restore the button that had the keyboard is gone; the chosen row is where it was.
+    const chosen = body.querySelector("tr[data-hist-feature].on");
+    if (chosen) chosen.focus();
+  }
+  historyState.focusChosen = false;
+
+  if (historyState.feature !== null) {
+    section("the feature's versions", () => drawFeatureVersions(historyState.feature));
+  }
+}
+
+function openFeatureHistory(objectId) {
+  historyState.feature = objectId;
+
+  // Mark the chosen rows without redrawing the table, so the row just pressed keeps the focus.
+  for (const row of document.querySelectorAll("#historyBody tr[data-hist-feature]")) {
+    const chosen = Number(row.dataset.histFeature) === objectId;
+    row.classList.toggle("on", chosen);
+    if (chosen) row.setAttribute("aria-current", "true");
+    else row.removeAttribute("aria-current");
+  }
+
+  const box = $("historyFeature");
+  if (box) box.innerHTML = `<p class="hint">Reading feature ${objectId}…</p>`;
+
+  section("the feature's versions", () => drawFeatureVersions(objectId));
+}
+
+function historyValue(value) {
+  if (value === null || value === undefined) return `<span class="faint">null</span>`;
+  if (typeof value === "object") return h(JSON.stringify(value));
+  return h(String(value));
+}
+
+async function drawFeatureVersions(objectId) {
+  const name = historyState.name;
+  const answer = await api(`/admin/layers/${encodeURIComponent(name)}/history/${objectId}`);
+  const box = $("historyFeature");
+  if (!box || historyState.name !== name || historyState.feature !== objectId) return;
+
+  const versions = answer.versions || [];
+  const byId = new Map(versions.map(v => [v.version, v]));
+
+  // Each version compared with the one before it in time, then shown newest first.
+  const cards = versions.map((v, i) => {
+    const previous = i > 0 ? versions[i - 1] : null;
+    const now = v.attributes || {};
+    const then = previous ? previous.attributes || {} : {};
+    const keys = [...new Set([...Object.keys(now), ...Object.keys(then)])];
+
+    const changed = previous ? keys.filter(k => JSON.stringify(now[k]) !== JSON.stringify(then[k])) : [];
+    const moved = previous && JSON.stringify(v.geometry) !== JSON.stringify(previous.geometry);
+
+    const source = v.restoredFrom != null ? byId.get(v.restoredFrom) : null;
+    const opened = v.opened === "seed"
+      ? "Existed when history began"
+      : v.restoredFrom != null
+        ? `Put back by ${historyWho(v.editor, v.direct)} to ${
+            source ? `version ${versions.indexOf(source) + 1}, of ${historyWhen(source.from)}` : "an earlier version"}`
+        : previous ? `Edited by ${historyWho(v.editor, v.direct)}` : `Added by ${historyWho(v.editor, v.direct)}`;
+
+    const ended = v.to === null
+      ? `<span class="tag">current</span>`
+      : v.closed === "delete" || v.closed === "truncate"
+        ? `until ${historyWhen(v.to)} — ${v.closed === "truncate" ? "the layer was emptied" : "deleted"} by ${historyWho(v.endedBy, v.endedDirect)}`
+        : `until ${historyWhen(v.to)}`;
+
+    const what = !previous
+      ? `<table class="histattrs">${keys.map(k => `<tr><th scope="row">${h(k)}</th><td>${historyValue(now[k])}</td></tr>`).join("")}</table>`
+      : changed.length || moved
+        ? `<table class="histattrs">${changed.map(k => `<tr><th scope="row">${h(k)}</th>
+             <td><span class="sr-only">was </span><del>${historyValue(then[k])}</del>
+               <span aria-hidden="true">→</span><span class="sr-only">, now </span> ${historyValue(now[k])}</td></tr>`).join("")}
+             ${moved ? `<tr><th scope="row">shape</th><td>moved or reshaped</td></tr>` : ""}</table>`
+        : `<p class="hint" style="margin:0">Nothing a client reads changed.</p>`;
+
+    // Every version but the one the feature is in now can be put back.
+    const restorable = v.to !== null;
+
+    return `<article class="histversion">
+      <div class="vhead"><b>Version ${i + 1} of ${versions.length}</b> <b>${historyWhen(v.from)}</b><span class="until">${ended}</span></div>
+      <p class="hint" style="margin:2px 0 6px">${opened}</p>
+      ${what}
+      ${restorable
+        ? `<button type="button" data-hist-restore="${v.version}" data-hist-from="${h(v.from)}"
+             data-hist-number="${i + 1}">Put version ${i + 1} back</button>`
+        : ""}
+    </article>`;
+  }).reverse();
+
+  box.innerHTML = `
+    <h5>Feature ${objectId}${answer.current ? "" : ` <span class="tag">deleted</span>`}</h5>
+    <p class="sr-only" role="status">Feature ${objectId}: ${versions.length} version${versions.length === 1 ? "" : "s"}.</p>
+    ${cards.join("") || `<p class="hint">No versions.</p>`}
+    <p class="hint" id="historyRestoreSays" role="status" aria-live="polite"></p>`;
+
+  for (const button of box.querySelectorAll("[data-hist-restore]")) {
+    button.addEventListener("click", () =>
+      restoreVersion(objectId, Number(button.dataset.histRestore), button.dataset.histFrom, button,
+        button.dataset.histNumber));
+  }
+}
+
+async function restoreVersion(objectId, version, from, button, number) {
+  const name = historyState.name;
+  const moment = from ? `version ${number}, of ${historyTime(new Date(from))}` : "that version";
+
+  if (!confirm(`Put feature ${objectId} back to ${moment}? `
+      + "It is written as a new change, so the history keeps what it is now and you can undo this the same way.")) {
+    return;
+  }
+
+  // One request per press: a second press while the first is on its way would write a second restore.
+  for (const b of document.querySelectorAll("#historyFeature [data-hist-restore]")) b.disabled = true;
+  const says = $("historyRestoreSays");
+  if (says) says.textContent = "Putting it back…";
+
+  try {
+    const answer = await api(`/admin/layers/${encodeURIComponent(name)}/history/${objectId}/restore`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version }),
+    });
+
+    const done = answer.note || `Feature ${objectId} is back to ${moment}.`;
+    toast(done, true);
+
+    // Redrawn with the feature still chosen, and the sentence where it stays: the status line above
+    // the list, which the redraw keeps, rather than the one in the panel it replaces.
+    historyState.feature = objectId;
+    historyState.focusChosen = true;
+    await loadHistory(name);
+    const top = $("historySays");
+    if (top) top.textContent = `Feature ${objectId} is back to ${moment}. ${top.textContent}`;
+  } catch (e) {
+    const again = $("historyRestoreSays");
+    if (again) again.textContent = e.message || String(e);
+    for (const b of document.querySelectorAll("#historyFeature [data-hist-restore]")) b.disabled = false;
+    if (button && button.isConnected) button.focus();
+    toast(`Feature ${objectId}: ${e.message || e}`);
+  }
+}
+
+async function switchHistory(name, on) {
+  if (!on && !confirm(`Turn off the history of ${name}? Everything it has kept is deleted, and a `
+      + "client can no longer ask for a moment in the past. Turning it on again starts from nothing.")) {
+    return;
+  }
+
+  const button = $("historySwitch");
+  const says = $("historySays");
+  if (button) button.disabled = true;
+  if (says) says.textContent = on ? "Turning history on — the current features are copied once…" : "Turning history off…";
+
+  try {
+    const answer = await api(`/admin/layers/${encodeURIComponent(name)}/history`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: on }),
+    });
+    toast(answer.note || (on ? "History is on." : "History is off."), true);
+    await loadHistory(name);
+  } catch (e) {
+    if (says) says.textContent = e.message || String(e);
+    toast(`${name}: ${e.message || e}`);
+  } finally {
+    const again = $("historySwitch");
+    if (again) again.disabled = false;
+
+    // <b>Not back on the switch</b>, which has just become its opposite — after turning history on it
+    // is the red *Turn history off*, and a second Enter would be the destructive one. The sentence
+    // that says what happened is where the reader goes next.
+    const line = $("historySays");
+    if (line) { line.tabIndex = -1; line.focus(); }
   }
 }
 

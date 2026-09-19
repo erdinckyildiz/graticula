@@ -389,7 +389,7 @@ public sealed class PostGisFeatureSource
             sql.Append(", null::bytea");
         }
 
-        sql.Append(" from ").Append(_layer.QuotedTable);
+        sql.Append(" from ").Append(From(query));
 
         AppendWhere(sql, query);
 
@@ -739,8 +739,32 @@ public sealed class PostGisFeatureSource
     /// lists are the same list, read twice, and keeping them in step is what
     /// this method is for.
     /// </remarks>
+    /// <summary>
+    /// The relation a query reads: the table, or the table as it was at the query's historic moment.
+    /// </summary>
+    /// <remarks>
+    /// <b>One place, used by every read that takes a query</b> — features, counts, ids, extents and
+    /// statistics — so a moment cannot be honoured by the page and ignored by the count beside it.
+    /// ADR-078.
+    /// </remarks>
+    private string From(FeatureQuery query) =>
+        query.HistoricMoment is null
+            ? _layer.QuotedTable
+            : PostGisFeatureHistory.AtMoment(_layer, MomentParameter);
+
+    /// <summary>The name <see cref="From"/> binds the historic moment under.</summary>
+    private const string MomentParameter = "historic_moment";
+
     private static void BindFilters(NpgsqlCommand command, FeatureQuery query)
     {
+        if (query.HistoricMoment is { } moment)
+        {
+            command.Parameters.Add(new NpgsqlParameter(MomentParameter, NpgsqlTypes.NpgsqlDbType.TimestampTz)
+            {
+                Value = moment.ToUniversalTime(),
+            });
+        }
+
         if (query.BoundingBox is { } box)
         {
             command.Parameters.AddWithValue("minx", box.MinX);
@@ -849,7 +873,7 @@ public sealed class PostGisFeatureSource
                 sql.Append(LayerDefinition.Quote(query.Fields[i]));
             }
 
-            sql.Append(" from ").Append(_layer.QuotedTable);
+            sql.Append(" from ").Append(From(query));
 
             AppendWhere(sql, query);
 
@@ -857,7 +881,7 @@ public sealed class PostGisFeatureSource
         }
         else
         {
-            sql.Append("select count(*) from ").Append(_layer.QuotedTable);
+            sql.Append("select count(*) from ").Append(From(query));
 
             AppendWhere(sql, query);
         }
@@ -903,7 +927,7 @@ public sealed class PostGisFeatureSource
 
         StringBuilder sql = new("select count(*) from (select 1 from ");
 
-        sql.Append(_layer.QuotedTable);
+        sql.Append(From(query));
 
         AppendWhere(sql, query);
 
@@ -933,7 +957,7 @@ public sealed class PostGisFeatureSource
             + "select st_extent(");
 
         sql.Append(OutputGeometry(query)).Append(") as e, count(*) as n from ")
-           .Append(_layer.QuotedTable);
+           .Append(From(query));
 
         AppendWhere(sql, query);
 
@@ -985,7 +1009,7 @@ public sealed class PostGisFeatureSource
         string column = LayerDefinition.Quote(_layer.IntegerIdentityColumn ?? _layer.IdentityColumn);
 
         StringBuilder sql = new("select ");
-        sql.Append(column).Append(" from ").Append(_layer.QuotedTable);
+        sql.Append(column).Append(" from ").Append(From(query));
 
         AppendWhere(sql, query);
 
@@ -1056,7 +1080,7 @@ public sealed class PostGisFeatureSource
         }
 
         StringBuilder sql = new("select ");
-        sql.Append(string.Join(", ", select)).Append(" from ").Append(_layer.QuotedTable);
+        sql.Append(string.Join(", ", select)).Append(" from ").Append(From(query));
 
         AppendWhere(sql, query);
 
@@ -1211,7 +1235,30 @@ public sealed class PostGisFeatureSource
             writable)
         {
             StoredOrdinates = ordinates,
+            Archived = await ArchivedAsync(cancellationToken).ConfigureAwait(false),
         };
+    }
+
+    /// <summary>
+    /// Whether the table keeps its history — ADR-078 — asked of the database, not remembered.
+    /// </summary>
+    /// <remarks>
+    /// <b>Only a hosted table can.</b> History is DDL beside the table, which this server runs only in
+    /// the datastore (ADR-002 §4.2), so a registered table is not asked: the answer is no, and asking
+    /// would be a query per describe against somebody else's database for a fact that cannot be true.
+    /// </remarks>
+    private async Task<bool> ArchivedAsync(CancellationToken cancellationToken)
+    {
+        if (!string.Equals(_layer.SchemaName, PostGisImporter.HostedSchema, StringComparison.Ordinal)
+            || _layer.IntegerIdentityColumn is null)
+        {
+            return false;
+        }
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        return await PostGisFeatureHistory.IsOnAsync(connection, _layer, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

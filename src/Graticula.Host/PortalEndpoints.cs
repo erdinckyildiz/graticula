@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
@@ -35,6 +36,12 @@ namespace Graticula.Host;
 /// There is no second copy of the catalogue here, so there is nothing for the two
 /// to disagree about — which is the property that makes this surface cheap to keep
 /// and is the first thing that would be lost if an item ever held state of its own.
+/// </para>
+/// <para>
+/// <b>Since ADR-079 one kind of item does: a saved web map.</b> It is stored in its own
+/// table, authoritative for its own owner and scope, and listed here beside the services
+/// under the same <see cref="LayerAccess"/> rule — a second source for this listing, which
+/// ADR-079 condition 3 says the next item kind must not become a third of.
 /// </para>
 /// <para>
 /// <b>The same filtering as everywhere else.</b> `VisibleAsync` evaluates sharing
@@ -763,6 +770,7 @@ internal static class PortalEndpoints
     private static async Task<IResult> UserContentAsync(
         HttpContext context,
         CatalogFallback catalog,
+        IWebMapStore maps,
         string username,
         CancellationToken cancellation)
     {
@@ -790,6 +798,12 @@ internal static class PortalEndpoints
             .. visible
                 .Where(service => service.Owner is { } owner && owner == current.Principal.Id)
                 .SelectMany(service => ItemsOf(context, service).Select(face => face.Item)),
+
+            // <b>And the maps they saved — ADR-079</b>, which have an owner of their own and no
+            // service behind them.
+            .. (await ReadableMapsAsync(context, maps, cancellation).ConfigureAwait(false))
+                .Where(map => map.Owner == current.Principal.Id)
+                .Select(map => MapItem(context, map)),
         ];
 
         return Results.Ok(new
@@ -845,6 +859,7 @@ internal static class PortalEndpoints
     private static async Task<IResult> SearchAsync(
         HttpContext context,
         CatalogFallback catalog,
+        IWebMapStore maps,
         CancellationToken cancellation)
     {
         IReadOnlyList<PublishedService>? visible =
@@ -878,6 +893,17 @@ internal static class PortalEndpoints
             }
         }
 
+        // Saved web maps, under the same query and the same sharing rule (ADR-079 §5.3).
+        foreach (WebMap map in await ReadableMapsAsync(context, maps, cancellation).ConfigureAwait(false))
+        {
+            object item = MapItem(context, map);
+
+            if (PortalQuery.Matches(item, query))
+            {
+                results.Add(item);
+            }
+        }
+
         return Results.Ok(new
         {
             query,
@@ -898,9 +924,18 @@ internal static class PortalEndpoints
         CatalogFallback catalog,
         ServiceContexts contexts,
         Graticula.Geometries.IProjector projector,
+        IWebMapStore maps,
         string id,
         CancellationToken cancellation)
     {
+        // <b>A saved web map first, because it does not need the catalogue</b> — ADR-079. One the
+        // caller may not read falls through to the services and ends at the same refusal as an id
+        // that names nothing.
+        if (await ReadableMapAsync(context, maps, id, cancellation).ConfigureAwait(false) is { } map)
+        {
+            return Results.Ok(MapItem(context, map, MapExtent(map.Document)));
+        }
+
         IReadOnlyList<PublishedService>? visible =
             await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
 
@@ -951,9 +986,18 @@ internal static class PortalEndpoints
     private static async Task<IResult> ItemDataAsync(
         HttpContext context,
         CatalogFallback catalog,
+        IWebMapStore maps,
         string id,
         CancellationToken cancellation)
     {
+        // <b>A web map's data is its document, as it was saved</b> — which is what an ArcGIS client
+        // reads to open it (ADR-079 §5.3). Written as the stored text rather than re-serialised, so
+        // the fields this server does not read reach the client as they were saved.
+        if (await ReadableMapAsync(context, maps, id, cancellation).ConfigureAwait(false) is { } map)
+        {
+            return Results.Content(map.Document ?? "{}", "application/json; charset=utf-8");
+        }
+
         IReadOnlyList<PublishedService>? visible =
             await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
 
@@ -1010,6 +1054,150 @@ internal static class PortalEndpoints
                         service.SharedWith)
                     .IsAllowed()),
         ];
+    }
+
+    /// <summary>The type keywords ArcGIS gives a web map made in its own map viewer.</summary>
+    /// <remarks>
+    /// <b>Not <c>Offline</c>, <c>Collector</c> or <c>Data Editing</c></b>, which say the map was prepared
+    /// for a field app; nothing here prepares one, and a client reading them would offer what it cannot do.
+    /// </remarks>
+    internal static readonly string[] WebMapKeywords =
+        ["ArcGIS Online", "Explorer Web Map", "Map", "Online Map", "Web Map"];
+
+    /// <summary>Every saved web map this caller may read — ADR-079, under the rule services are read by.</summary>
+    private static async Task<IReadOnlyList<WebMap>> ReadableMapsAsync(
+        HttpContext context, IWebMapStore maps, CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        return
+        [
+            .. (await maps.ListAsync(cancellation).ConfigureAwait(false)).Where(map =>
+                LayerAccess.Evaluate(map.Sharing, map.Owner, current.Principal, current.Authorization).IsAllowed()),
+        ];
+    }
+
+    /// <summary>One saved web map with its document, if it exists and this caller may read it.</summary>
+    private static async Task<WebMap?> ReadableMapAsync(
+        HttpContext context, IWebMapStore maps, string id, CancellationToken cancellation)
+    {
+        string lower = (id ?? string.Empty).ToLowerInvariant();
+
+        if (!WebMaps.IsId(lower))
+        {
+            return null;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        return await maps.FindAsync(lower, cancellation).ConfigureAwait(false) is { } map
+            && LayerAccess.Evaluate(map.Sharing, map.Owner, current.Principal, current.Authorization).IsAllowed()
+                ? map
+                : null;
+    }
+
+    /// <summary>A saved web map as a portal item of type <c>Web Map</c> — ADR-079 §5.3.</summary>
+    /// <remarks>
+    /// <b>The owner is named by the same rule as a service's</b> (<see cref="Item"/>, Q-127): the
+    /// caller's own name on their own map, and the product's on anybody else's, so a public map does not
+    /// publish its author's account name to whoever opens it anonymously. <b>No <c>url</c></b>: a web map
+    /// is not a service, and its content is at <c>items/{id}/data</c>.
+    /// </remarks>
+    private static object MapItem(HttpContext context, WebMap map, double[][]? extent = null)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        return new
+        {
+            id = map.Id,
+            owner = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id
+                ? current.Principal.Name
+                : "graticula",
+            title = map.Title,
+            name = (string?)null,
+            type = "Web Map",
+            typeKeywords = WebMapKeywords,
+            description = map.Snippet,
+            snippet = map.Snippet,
+            tags = Array.Empty<string>(),
+            url = (string?)null,
+            access = Access(map.Sharing),
+            spatialReference = (string?)null,
+            extent = extent ?? [],
+            numViews = 0,
+            size = -1,
+            created = map.Created.ToUnixTimeMilliseconds(),
+            modified = map.Modified.ToUnixTimeMilliseconds(),
+        };
+    }
+
+    /// <summary>
+    /// A web map's initial view in WGS 84, as an item carries its extent, or empty when the document
+    /// does not say one in a reference this can read without a projector.
+    /// </summary>
+    /// <remarks>
+    /// <b>Only geographic and Web Mercator.</b> Those are what this viewer writes and what ArcGIS's own map
+    /// viewer writes; a map saved in another reference keeps its view in its document, where a client
+    /// reads it, and its item says <c>[]</c> as ArcGIS does for an extent it does not have.
+    /// </remarks>
+    /// <param name="document">The Web Map JSON.</param>
+    /// <returns><c>[[xmin, ymin], [xmax, ymax]]</c>, or empty.</returns>
+    internal static double[][] MapExtent(string? document)
+    {
+        if (string.IsNullOrEmpty(document))
+        {
+            return [];
+        }
+
+        try
+        {
+            using JsonDocument parsed = JsonDocument.Parse(document);
+
+            if (!parsed.RootElement.TryGetProperty("initialState", out JsonElement state)
+                || !state.TryGetProperty("viewpoint", out JsonElement viewpoint)
+                || !viewpoint.TryGetProperty("targetGeometry", out JsonElement box)
+                || !box.TryGetProperty("xmin", out JsonElement xmin)
+                || !box.TryGetProperty("ymin", out JsonElement ymin)
+                || !box.TryGetProperty("xmax", out JsonElement xmax)
+                || !box.TryGetProperty("ymax", out JsonElement ymax)
+                || xmin.ValueKind != JsonValueKind.Number)
+            {
+                return [];
+            }
+
+            int wkid = box.TryGetProperty("spatialReference", out JsonElement reference)
+                && (reference.TryGetProperty("latestWkid", out JsonElement w)
+                    || reference.TryGetProperty("wkid", out w))
+                && w.ValueKind == JsonValueKind.Number
+                    ? w.GetInt32()
+                    : 4326;
+
+            double[] corners = [xmin.GetDouble(), ymin.GetDouble(), xmax.GetDouble(), ymax.GetDouble()];
+
+            if (wkid is 3857 or 102100 or 102113 or 900913)
+            {
+                const double Radius = 6378137.0;
+
+                static double Longitude(double x) => x / Radius * 180.0 / Math.PI;
+                static double Latitude(double y) => ((2 * Math.Atan(Math.Exp(y / Radius))) - (Math.PI / 2)) * 180.0 / Math.PI;
+
+                corners = [Longitude(corners[0]), Latitude(corners[1]), Longitude(corners[2]), Latitude(corners[3])];
+            }
+            else if (wkid != 4326)
+            {
+                return [];
+            }
+
+            return
+            [
+                [Math.Max(-180, corners[0]), Math.Max(-90, corners[1])],
+                [Math.Min(180, corners[2]), Math.Min(90, corners[3])],
+            ];
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException)
+        {
+            return [];
+        }
     }
 
     /// <summary>

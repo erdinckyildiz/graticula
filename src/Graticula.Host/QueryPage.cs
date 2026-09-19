@@ -593,8 +593,12 @@ internal static class QueryPage
         Text(body, "gdbVersion:", "gdbVersion", q["gdbVersion"], string.Empty, 20,
             disabled: "There is no version tree.");
 
+        // The layer's answer too since 2026-09-19 — ADR-078: a hosted layer whose owner turned its
+        // history on answers a moment in the past, and every other layer refuses one.
         Text(body, "Historic Moment:", "historicMoment", q["historicMoment"], string.Empty, 20,
-            disabled: "There is no history to query.");
+            disabled: description.Archived
+                ? null
+                : "This layer does not keep its history.");
 
         Radio(body, "Return Distinct Values:", "returnDistinctValues", q["returnDistinctValues"],
             defaultTrue: false);

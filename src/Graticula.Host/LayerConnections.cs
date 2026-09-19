@@ -637,6 +637,22 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             [.. attributes.Select(a => a.Name)]);
     }
 
+    /// <summary>A layer's history — ADR-078 — over the layer's own pool.</summary>
+    /// <param name="layer">The layer.</param>
+    /// <returns>Its history.</returns>
+    /// <remarks>
+    /// The query pool rather than a pool of its own: reading a history is a query, and switching it on
+    /// is one administrator's transaction that lifts its own statement timeout.
+    /// </remarks>
+    public PostGisFeatureHistory HistoryFor(PublishedLayer layer)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(layer);
+        RefuseIfFile(layer, "given a history");
+
+        return new PostGisFeatureHistory(PoolFor(layer.ConnectionString), layer.Definition);
+    }
+
     /// <summary>
     /// An attachment store for one layer, over a pool of its own.
     /// </summary>

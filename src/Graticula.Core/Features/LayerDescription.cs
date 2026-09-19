@@ -244,6 +244,17 @@ public sealed record LayerDescription(
     /// </remarks>
     public Graticula.Geometries.GeometryOrdinates StoredOrdinates { get; init; }
 
+    /// <summary>
+    /// Whether the layer keeps its history, so a query may ask for a moment in the past — ADR-078.
+    /// </summary>
+    /// <remarks>
+    /// <b>Read from the database on every describe, like <see cref="Writable"/>, and for the same
+    /// reason:</b> the trigger is the history, and somebody can drop it in <c>psql</c>. The layer
+    /// document's <c>isDataArchived</c> is this, and <c>historicMoment</c> is refused when it is false
+    /// rather than answered with the present.
+    /// </remarks>
+    public bool Archived { get; init; }
+
     /// <summary>Finds a field by name, or null.</summary>
     public FieldDescription? Find(string name)
     {

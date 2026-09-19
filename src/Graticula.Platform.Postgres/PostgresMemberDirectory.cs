@@ -323,7 +323,9 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                    coalesce((select array_agg(f.name order by f.name)
                              from folder f where f.owner_principal_id = p.id), '{}'),
                    (select count(*) from sharing_group g
-                     where g.owner_principal_id = p.id)
+                     where g.owner_principal_id = p.id),
+                   (select count(*) from web_map m
+                     where m.owner_principal_id = p.id)
               from principal p
              where lower(p.name) = lower(@name)
             """;
@@ -342,7 +344,8 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         return new MemberHoldings(
             reader.GetFieldValue<string[]>(1),
             reader.GetFieldValue<string[]>(2),
-            (int)reader.GetInt64(3));
+            (int)reader.GetInt64(3),
+            (int)reader.GetInt64(4));
     }
 
     /// <inheritdoc/>
@@ -590,9 +593,15 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                         select g.id, (select id from taker), 'manager', (select id from taker)
                           from g
                         on conflict (group_id, principal_id) do update set membership = 'manager'
-                        returning 1)
+                        returning 1),
+
+                 -- <b>Saved web maps — ADR-079.</b> Their scope is untouched, so whoever could open
+                 -- one still can; only who may change it moves. The row cascades on the principal's
+                 -- delete, so a transfer that forgot this would have deleted them.
+                 m as (update web_map set owner_principal_id = (select id from taker)
+                        where owner_principal_id = (select id from giver) returning 1)
             select (select count(*) from s) + (select count(*) from f)
-                 + (select count(*) from g)
+                 + (select count(*) from g) + (select count(*) from m)
             """;
 
         await using NpgsqlCommand command = connection.CreateCommand();

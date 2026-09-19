@@ -3929,3 +3929,37 @@ table.logs-server th:nth-child(3), table.logs-server th:nth-child(4),
 table.logs-server tr.logrow td:nth-child(3), table.logs-server tr.logrow td:nth-child(4) { display: none; }
 td.logmessage span[title] { display: inline-block; max-width: 60ch; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; vertical-align: bottom; }
+
+/*
+  <b>The History page — ADR-078.</b> The changes, and under or beside them the chosen feature's versions.
+
+  <b>Side by side only when the page itself is wide enough, measured on the page and not the window.</b>
+  The first version switched at a 1100-pixel viewport; the review measured the page area at about 730
+  pixels in a 1280 window, once the shell and the editor's own navigation are taken, and the list spilled
+  under the versions and hid who made each change. A container query asks the page.
+*/
+#page-history { container-type: inline-size; }
+.histsplit { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-5);
+             align-items: start; margin-top: var(--gap-3); }
+@container (min-width: 1000px) {
+  .histsplit { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+}
+.histlist { overflow-x: auto; }
+.histgrid td:first-child { white-space: nowrap; }
+.histlegend { margin-top: var(--gap-2); }
+.histfeature h5 { margin: 0 0 var(--gap-2); font-size: var(--t-body); }
+.histversion { border: 1px solid var(--rule); border-radius: var(--round); padding: var(--gap-3);
+               margin-bottom: var(--gap-2); background: var(--surface); }
+.histversion .vhead { font-size: var(--t-small); display: flex; flex-wrap: wrap; gap: 2px var(--gap-3);
+                      align-items: baseline; }
+.histversion .vhead b, .histversion .vhead .until { white-space: nowrap; }
+.histversion button { margin-top: var(--gap-2); }
+.histattrs { font-size: var(--t-small); width: auto; }
+.histattrs th { text-align: left; font-weight: 500; color: var(--muted); width: 1%; white-space: nowrap;
+                padding: 2px var(--gap-3) 2px 0; vertical-align: top; text-transform: none;
+                letter-spacing: normal; background: none; border-radius: 0; font-size: var(--t-small); }
+.histattrs td { overflow-wrap: anywhere; padding: 2px 0; }
+.histattrs del { color: var(--muted); }
+#page-history .tag { display: inline-block; font-size: 11.5px; line-height: 1.5; padding: 0 6px;
+                     border: 1px solid var(--rule-strong); border-radius: 999px; color: var(--muted);
+                     vertical-align: 1px; white-space: nowrap; }

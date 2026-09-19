@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(51);
+    public static SchemaVersion ComponentSchemaVersion => new(52);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -86,8 +86,55 @@ public static class PlatformMigrations
         ATokenMayBeBoundV49,
         ASessionMayBeScopedV50,
         OAuthV51,
+        AWebMapIsASavedDocumentV52,
     ]);
 
+
+    /// <summary>
+    /// A saved web map — ADR-079: an ArcGIS Web Map document with an owner and a sharing scope.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Its own table, and the first item with no service behind it.</b> ADR-056 describes a
+    /// generic item table that services would move into; ADR-079 §2 alternative D records why a web
+    /// map did not wait for it. This row is authoritative for the map's own ownership and sharing,
+    /// which is what ADR-056 §5 asks of an item.
+    /// </para>
+    /// <para>
+    /// <b><c>jsonb</c>, and nothing about its content is checked here.</b> A map saved by ArcGIS Pro
+    /// carries fields this server never reads, and they are kept; the only rule is that the
+    /// document is an object, which the check states so a hand-written insert cannot store an
+    /// array. <c>jsonb</c> keeps every field and value and normalises key order and whitespace,
+    /// which no reader of the format depends on.
+    /// </para>
+    /// <para>
+    /// <b>Three scopes and not <c>group</c></b> — ADR-079 condition 4 is where groups are decided.
+    /// <b>The owner cascades</b>: removing a member removes their maps unless the removal
+    /// transferred them first, which the member directory does alongside services and folders.
+    /// </para>
+    /// </remarks>
+    private static Migration AWebMapIsASavedDocumentV52 => Migration.Expand(
+        new SchemaVersion(52),
+        "Saved web maps: an ArcGIS Web Map document with an owner and a sharing scope (ADR-079).",
+
+        """
+        create table if not exists web_map (
+            id                 text        not null primary key,
+            title              text        not null,
+            snippet            text        null,
+            owner_principal_id uuid        not null references principal (id) on delete cascade,
+            sharing            text        not null default 'private',
+            document           jsonb       not null,
+            created_at         timestamptz not null default now(),
+            modified_at        timestamptz not null default now(),
+            constraint web_map_id_shape check (id ~ '^[0-9a-f]{32}$'),
+            constraint web_map_title_present check (length(btrim(title)) > 0),
+            constraint web_map_sharing_known check (sharing in ('private', 'organization', 'public')),
+            constraint web_map_document_is_object check (jsonb_typeof(document) = 'object')
+        )
+        """,
+
+        "create index if not exists web_map_owner_idx on web_map (owner_principal_id)");
 
     /// <summary>
     /// A coverage: imagery registered where it lives, rather than a table.

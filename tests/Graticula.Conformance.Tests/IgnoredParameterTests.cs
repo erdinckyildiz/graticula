@@ -70,7 +70,6 @@ public sealed class IgnoredParameterTests : ArcGisClient
         ["cacheHint"] = "true",
         ["datumTransformation"] = "108001",
         ["gdbVersion"] = "sde.DEFAULT",
-        ["historicMoment"] = "1700000000000",
         ["f"] = "json",
         ["resultType"] = "standard",
         ["sqlFormat"] = "standard",

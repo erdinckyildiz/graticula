@@ -375,19 +375,29 @@ public sealed class RolesTests
     /// operator chose from a dropdown — and it survives the next widening without being edited,
     /// which is what a guard has to do to stay a guard.
     /// </para>
+    /// <para>
+    /// <b>The web map's own check is excluded here — ADR-079.</b> Migration 52 states
+    /// <c>sharing in (...)</c> for <c>web_map</c> with three scopes and not <c>group</c>, deliberately
+    /// (ADR-079 condition 4), and <c>WebMaps.Allows</c> is the code that agrees with it; the store
+    /// tests hold the table to that. Read as *the last migration that states the check*, it made this
+    /// test demand the service scopes of a table that is not a service.
+    /// </para>
     /// </remarks>
     [Fact]
     public void The_sharing_scopes_the_code_knows_are_the_ones_the_check_constraint_allows()
     {
+        static bool ServiceScopes(string statement) =>
+            statement.Contains("sharing in (", StringComparison.Ordinal)
+            && !statement.Contains("web_map", StringComparison.Ordinal);
+
         string sql = string.Join(
             "\n",
             PlatformMigrations.All.All
-                .Where(m => m.Statements.Any(
-                    x => x.Contains("sharing in (", StringComparison.Ordinal)))
+                .Where(m => m.Statements.Any(ServiceScopes))
                 .OrderByDescending(m => m.Version.Value)
                 .First()
                 .Statements
-                .Where(x => x.Contains("sharing in (", StringComparison.Ordinal)));
+                .Where(ServiceScopes));
 
         foreach (SharingScope scope in Enum.GetValues<SharingScope>())
         {

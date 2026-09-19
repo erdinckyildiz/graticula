@@ -368,7 +368,7 @@ internal static class InventoryScan
 
         if (True(layer, "isDataArchived"))
         {
-            Partly("It is archived; historic moments are not served here.");
+            Partly("It is archived; its history does not come with it. Once imported as a hosted layer, its owner can turn history on and historic moments are served from then (ADR-078).");
         }
 
         if (layer.TryGetProperty("relationships", out JsonElement relationships) && relationships.ValueKind == JsonValueKind.Array

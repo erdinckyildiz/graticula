@@ -717,7 +717,9 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         // disabled on one without, so whether it is greyed out is the layer's answer, not the server's.
         // `returnZ` left this list on 2026-09-16 for the reason `time` did: `query` returns Z where the
         // layer's column declares it (ADR-077), so the control is the layer's answer, not the server's.
-        foreach (string refused in (string[]) ["gdbVersion", "historicMoment"])
+        // `historicMoment` left it on 2026-09-19 for the same reason: a layer that keeps its history
+        // answers it (ADR-078).
+        foreach (string refused in (string[]) ["gdbVersion"])
         {
             int at = page.IndexOf($"name=\"{refused}\"", StringComparison.Ordinal);
 

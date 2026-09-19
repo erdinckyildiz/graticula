@@ -78,7 +78,8 @@ internal static class FeatureServerQueryParameters
         // does not have.
         //
         //   gdbVersion            — there is no version tree.
-        //   historicMoment        — there is no history.
+        //   historicMoment        — answered on a layer that keeps its history since
+        //                           2026-09-19 (ADR-078), refused on one that does not.
         //   fullText              — needs a tsvector column and an index nobody
         //                           has asked us to create on their table.
         //   uniqueIds /
@@ -151,7 +152,6 @@ internal static class FeatureServerQueryParameters
             + "default and cannot be chosen; coordinates may differ by a few metres from a "
             + "client that names one",
         ["gdbVersion"] = "there is no version tree",
-        ["historicMoment"] = "there is no history",
         // <b>It is not ignored, and saying so was wrong for a day.</b> This read
         // *authentication is by header* until 2026-08-20, and by then `?token=`
         // authenticated on every route — which is what the security gate proved by
@@ -227,6 +227,10 @@ internal static class FeatureServerQueryParameters
     /// The column <c>time</c> filters on — the layer's time field — or null for a layer without one,
     /// where <c>time</c> is refused.
     /// </param>
+    /// <param name="archived">
+    /// Whether the layer keeps its history — ADR-078. <c>historicMoment</c> is answered where it does and
+    /// refused where it does not.
+    /// </param>
     public static bool TryParse(
         IQueryCollection parameters,
         string objectIdColumn,
@@ -240,7 +244,8 @@ internal static class FeatureServerQueryParameters
         int serverMaximumRecordCount = FeatureQuery.MaximumLimit,
         int? servedSrid = null,
         string? servedWkt = null,
-        string? timeField = null)
+        string? timeField = null,
+        bool archived = false)
     {
         query = null;
         shape = QueryShape.Features;
@@ -311,6 +316,11 @@ internal static class FeatureServerQueryParameters
         }
 
         if (!TryObjectIds(parameters, out List<long> objectIds, out error))
+        {
+            return Fail(out error, error);
+        }
+
+        if (!TryHistoricMoment(parameters, archived, out DateTimeOffset? moment, out error))
         {
             return Fail(out error, error);
         }
@@ -390,6 +400,7 @@ internal static class FeatureServerQueryParameters
             filterSrid)
         {
             KeepOrdinates = keep,
+            HistoricMoment = moment,
 
             // <b>Only when the caller did not name a reference of their own.</b> `outSR` is the
             // client asking for a code; a service served in a written definition still has to
@@ -481,6 +492,9 @@ internal static class FeatureServerQueryParameters
 
         // Filtered on the layer's time field since 2026-09-15, and refused on a layer without one.
         "time",
+
+        // The layer as it was, on a layer that keeps its history — ADR-078 — and refused on one that does not.
+        "historicMoment",
     };
 
     /// <summary>The formats a query is answered in.</summary>
@@ -1927,6 +1941,53 @@ internal static class FeatureServerQueryParameters
     /// is what the ArcGIS SDKs send. Supporting one is a compatibility surface
     /// that works for half of them.
     /// </remarks>
+    /// <summary>
+    /// <c>historicMoment</c> — the layer as it was at that instant, epoch milliseconds (ADR-078).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Refused on a layer that keeps no history, and it used to be ignored there.</b> Until
+    /// 2026-09-19 it sat on the ignored list with <i>"there is no history"</i>, and ignoring it
+    /// answered <i>now</i> to a question about <i>then</i> — a different answer, which that list
+    /// exists to never contain (ADR-008 §2). A layer document without <c>isDataArchived</c> is the
+    /// client's warning; this is the server keeping to it.
+    /// </para>
+    /// <para>
+    /// <b>An empty value is no moment</b>, which is how the query form sends a field left blank.
+    /// </para>
+    /// </remarks>
+    private static bool TryHistoricMoment(
+        IQueryCollection parameters, bool archived, out DateTimeOffset? moment, [NotNullWhen(false)] out string? error)
+    {
+        moment = null;
+        error = null;
+
+        string? raw = parameters["historicMoment"].ToString();
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return true;
+        }
+
+        if (!archived)
+        {
+            error = "'historicMoment' is refused: this layer does not keep its history (its document says "
+                + "isDataArchived=false), so the only answer available is the present, which is not what was asked. "
+                + "History is turned on per hosted layer by its owner.";
+            return false;
+        }
+
+        if (!long.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out long milliseconds)
+            || milliseconds < -62135596800000L || milliseconds > 253402300799999L)
+        {
+            error = $"'historicMoment' must be milliseconds since 1970-01-01 UTC; '{raw}' is not.";
+            return false;
+        }
+
+        moment = DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
+        return true;
+    }
+
     private static bool TryParseEnvelope(
         string value, int layerSrid, out Envelope? envelope, out int? declaredSrid)
     {

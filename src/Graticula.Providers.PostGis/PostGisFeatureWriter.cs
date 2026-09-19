@@ -245,6 +245,21 @@ public sealed class PostGisFeatureWriter : IFeatureWriter
         List<EditResult> updates = [];
         List<EditResult> deletes = [];
 
+        // <b>Who is editing, told to the database for the length of this transaction</b> — ADR-078.
+        // A layer that keeps its history records every version with a trigger, and the trigger
+        // cannot know the account on its own: the pool connects as one role for everybody. The
+        // third argument makes the setting local to the transaction, so it cannot outlive this
+        // batch on a pooled connection and sign somebody else's edit. Set on every batch, not only
+        // on archived layers: it costs one round trip and asking whether the layer is archived
+        // would cost the same.
+        if (!string.IsNullOrEmpty(batch.Editor))
+        {
+            await using NpgsqlCommand who = new(
+                $"select set_config('{PostGisFeatureHistory.EditorSetting}', @editor, true)", connection, transaction);
+            who.Parameters.AddWithValue("editor", batch.Editor);
+            await who.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         // Read the dimensionality of every row an update targets, once, before
         // touching anything. Doing it per row would be a query per feature; doing
         // it not at all would flatten somebody's 3D data.

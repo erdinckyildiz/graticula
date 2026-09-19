@@ -554,6 +554,7 @@ internal static partial class AdminEndpoints
         // with no privilege beyond being signed in.
         app.MapGet("/content/layers", ListMyContentAsync);
         app.MapGet("/content/items", ListContentItemsAsync);
+        MapWebMaps(app);         // ADR-079 — AdminEndpoints.WebMaps.cs
 
         // <b>ADR-037's surface, and it is a read only.</b> A job is created by the act that needs one —
         // an upload — and never by asking for one, so there is no POST here. Cancelling is absent for
@@ -568,6 +569,7 @@ internal static partial class AdminEndpoints
         MapFieldOverrides(app);  // ADR-063 — AdminEndpoints.FieldOverrides.cs
         MapVisibleRange(app);    // ADR-070 — AdminEndpoints.VisibleRange.cs
         MapThumbnails(app);      // ADR-071 — AdminEndpoints.Thumbnails.cs
+        MapHistory(app);         // ADR-078 — AdminEndpoints.History.cs
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
             SetStatusAsync(c, name, ServiceStatus.Started, a, l, t));
         app.MapPost("/admin/layers/{name}/stop", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
@@ -9381,6 +9383,7 @@ internal static partial class AdminEndpoints
             services = holdings.Services,
             folders = holdings.Folders,
             groups = holdings.Groups,
+            webMaps = holdings.WebMaps,
             owns = holdings.Any,
             note = holdings.Any
                 ? $"This member owns {holdings.Explanation}. Removing them needs a decision: "
@@ -9668,6 +9671,7 @@ internal static partial class AdminEndpoints
                 deletedOwned = deleteOwned,
                 services = holdings.Services.Count,
                 folders = holdings.Folders.Count,
+                webMaps = holdings.WebMaps,
                 unpublished,
             }),
             succeeded: true, cancellation).ConfigureAwait(false);
@@ -9682,8 +9686,8 @@ internal static partial class AdminEndpoints
                     + "was unpublished."
                 : holdings.Any
                     ? $"'{name}' is gone, with {unpublished} layer(s) unpublished and "
-                        + $"{holdings.Services.Count} service(s) and {holdings.Folders.Count} "
-                        + "folder(s) removed."
+                        + $"{holdings.Services.Count} service(s), {holdings.Folders.Count} "
+                        + $"folder(s) and {holdings.WebMaps} web map(s) removed."
                     : $"'{name}' is gone. They owned nothing.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
