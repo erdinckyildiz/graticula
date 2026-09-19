@@ -75,3 +75,17 @@ where not exists (select 1 from cifree.zz_free_three);
 insert into cifree.zz_free_two (name, shape)
 select 'free two', ST_SetSRID(ST_MakeEnvelope(3201000, 5001000, 3201500, 5001500), 3857)
 where not exists (select 1 from cifree.zz_free_two);
+
+-- <b>One row with an elevation and a measure, for `AThreeDimensionalRowComesBackWholeTests`</b> —
+-- ADR-077 condition 3, which asks for a 3D row read back through each surface that carries Z. There is
+-- no API that makes a 3D table: hosted tables are two-dimensional until ADR-074 step 4, so this is SQL
+-- like its neighbours. `FreeTableAsync` passes over it, because every other caller edits flat.
+create table if not exists cifree.zz_three_d (
+    objectid integer generated always as identity primary key,
+    name     text,
+    shape    geometry(PointZM, 4326)
+);
+
+insert into cifree.zz_three_d (name, shape)
+select 'three d', ST_SetSRID(ST_MakePoint(29, 41, 120.5, 7), 4326)
+where not exists (select 1 from cifree.zz_three_d);

@@ -308,7 +308,8 @@ internal static partial class OgcFeaturesEndpoints
 
         if (hasGeometry)
         {
-            if (!GeoJsonGeometry.TryRead(json, 0, out Geometry? read, out string? why))
+            // ADR-077 §11: a third element is the elevation, and the writer holds it to what the row stores.
+            if (!GeoJsonGeometry.TryRead(json, 0, keepZ: true, out Geometry? read, out string? why))
             {
                 await RefuseAsync(context, OgcProblem.BadRequest(why!)).ConfigureAwait(false);
                 return null;

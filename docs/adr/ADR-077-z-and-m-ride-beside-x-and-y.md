@@ -97,8 +97,10 @@ the binding constraint (A-037). Times overlap the baseline's.
 3. **Each step-3 surface that starts returning Z turns `keepOrdinates` on for itself and makes its own
    `hasZ` / `hasM` true in the same change**, with a test that reads a 3D row back through that surface.
    **PARTLY DISCHARGED** 2026-09-16 — ArcGIS `query` in `f=json`, §8, and in `f=pbf` on 2026-09-17, §9;
-   `applyEdits` on 2026-09-17, §10, whose test writes a 3D row and reads it back from the column. Open for
-   WFS and OGC API Features.
+   `applyEdits` on 2026-09-17, §10, whose test writes a 3D row and reads it back from the column; OGC API
+   Features and WFS on 2026-09-19, §11. **DISCHARGED** 2026-09-19 — `AThreeDimensionalRowComesBackWholeTests`
+   publishes a `PointZM` row and reads it back through ArcGIS `query`, OGC API Features and WFS GML, and writes
+   one through `applyEdits`, on the running server in CI.
 4. **The in-process operations follow §5 before any surface feeds them a 3D geometry** — `Densify`
    interpolates, `ConvexHull` returns 2D and reports it. *(Open — step 3. Still not fed one: a filter and
    every GeometryServer operation refuse a geometry that declares Z or M, and an edit's only operations —
@@ -110,7 +112,8 @@ the binding constraint (A-037). Times overlap the baseline's.
 ## 7. Consequences
 
 - The model can hold elevations and measures; ArcGIS `query` serves them in `f=json` (§8) and `f=pbf`
-  (§9), `applyEdits` stores them (§10), and every other surface still answers x and y.
+  (§9), `applyEdits` stores them (§10), OGC API Features and WFS return Z (§11); vector tiles, map images and
+  imports are two-dimensional.
 - `Point` is unsealed, which a derived class outside Core could now exploit; the subclass that exists is
   private, and nothing constructs points by reflection.
 - The plan's next benchmark is the query path's, and the harness for it is in the repository.
@@ -188,5 +191,23 @@ the binding constraint (A-037). Times overlap the baseline's.
 6. **The sentences that said *this server* is two-dimensional say *this path* now** — the shared clause, the
    publish-time note on a registered 3D table, and the shapefile import's warning, whose table is still
    two-dimensional until step 4.
+
+## 11. Step 3, OGC API Features and WFS (2026-09-19)
+
+1. **Both return the elevation the column declares, unasked.** Neither standard has a `returnZ`: a GeoJSON
+   position carries an optional altitude (RFC 7946 §3.1.1) and a GML `posList` says its `srsDimension`, and a
+   client reads what is there. So the query each builds keeps Z where `StoredOrdinates` has it.
+2. **Neither returns M, and that is the format's fact** — §5.4's rule for tiles. RFC 7946 says a position
+   SHOULD NOT have more than three elements, and GML has no measure. A layer's M stays in its table and is
+   served by the ArcGIS FeatureServer.
+3. **The axis swap moves two numbers, not three.** A latitude-first reference writes latitude, longitude,
+   elevation, in both formats.
+4. **An OGC API Features edit reads the third element as Z** (`GeoJsonGeometry.TryRead(keepZ: true)`), refuses a
+   fourth and a geometry whose positions disagree about having one, and meets the writer's rule from §10. **An
+   import still drops Z and says so** — hosted tables are two-dimensional until step 4.
+5. **The WFS GML reader is a filter's and stays two-dimensional**, as every filter here does (condition 4).
+6. **A fixture could not be made through the API**, because no API makes a 3D table yet; `cifree.zz_three_d` is
+   SQL beside the other free tables, and `FreeTableAsync` passes over any table whose type declares Z or M,
+   because every other caller of it edits flat.
 
 **State.** None.

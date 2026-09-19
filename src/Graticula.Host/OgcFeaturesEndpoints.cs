@@ -938,7 +938,13 @@ internal static partial class OgcFeaturesEndpoints
             spatial: spatial,
             outSrid: request.Srid == layer.Definition.Srid ? null : request.Srid,
             where: where,
-            filterSrid: filterSrid);
+            filterSrid: filterSrid)
+        {
+            // <b>The elevation the column declares, and never a measure — ADR-077 §11.</b> GeoJSON has an
+            // optional third element for altitude and no place for M (RFC 7946 §3.1.1). OGC API Features has
+            // no parameter for it: a position carries what the data has.
+            KeepOrdinates = described.StoredOrdinates & Graticula.Geometries.GeometryOrdinates.Z,
+        };
 
         return true;
     }

@@ -61,6 +61,36 @@ public sealed class WriterTests
 
     // ---------- GML geometry ----------
 
+    /// <summary>A geometry with an elevation is written with srsDimension 3 — ADR-077 §11.</summary>
+    [Fact]
+    public async Task An_elevation_is_the_third_number_of_every_position()
+    {
+        Polygon polygon = new(new LinearRing(XySequence.Wrap([0, 0, 10, 0, 10, 10, 0, 0], z: [1, 2, 3, 1], m: [9, 9, 9, 9])));
+
+        XElement root = await WriteAsync(stream => new GmlFeatureCollectionWriter(Type(), 3857, "https://example/wfs")
+            .WriteAsync(stream, One(Feature("1", polygon, 1, "Ankara")), 1, 1,
+                DateTimeOffset.UnixEpoch, CancellationToken.None));
+
+        XElement list = root.Descendants(Gml + "posList").Single();
+
+        // GML has no measure, so M is not written even when the geometry carries one.
+        Assert.Equal("3", (string?)list.Attribute("srsDimension"));
+        Assert.Equal("0 0 1 10 0 2 10 10 3 0 0 1", list.Value);
+    }
+
+    [Fact]
+    public async Task A_point_s_elevation_follows_the_swapped_axes()
+    {
+        XElement root = await WriteAsync(stream => new GmlFeatureCollectionWriter(Type(4326, GeometryKind.Point), 4326, "https://example/wfs")
+            .WriteAsync(stream, One(Feature("1", Point.Create(29, 41, 120.5, null), 1, "Istanbul")), 1, 1,
+                DateTimeOffset.UnixEpoch, CancellationToken.None));
+
+        XElement pos = root.Descendants(Gml + "pos").Single();
+
+        Assert.Equal("3", (string?)pos.Attribute("srsDimension"));
+        Assert.Equal("41 29 120.5", pos.Value);
+    }
+
     [Fact]
     public async Task A_polygon_is_written_as_gml_32_with_an_id()
     {

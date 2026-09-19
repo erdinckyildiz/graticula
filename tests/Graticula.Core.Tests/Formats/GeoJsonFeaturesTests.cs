@@ -289,6 +289,65 @@ public sealed class GeoJsonFeaturesTests
         Assert.Equal(41.0, point.Y);
     }
 
+    // ---------- Z on an edit and on the way out (ADR-077 §11) ----------
+
+    private static Graticula.Geometries.Geometry ReadForEdit(string json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        Assert.True(GeoJsonGeometry.TryRead(document.RootElement, 0, keepZ: true, out Graticula.Geometries.Geometry? geometry, out string? error), error);
+        return geometry!;
+    }
+
+    private static string RefuseForEdit(string json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        Assert.False(GeoJsonGeometry.TryRead(document.RootElement, 0, keepZ: true, out _, out string? error));
+        return error!;
+    }
+
+    [Fact]
+    public void An_edit_keeps_the_third_element_as_the_elevation()
+    {
+        Point point = (Point)ReadForEdit("""{"type":"Point","coordinates":[28.9,41.0,120.5]}""");
+        Assert.Equal(120.5, point.Z);
+
+        Polygon polygon = (Polygon)ReadForEdit("""{"type":"Polygon","coordinates":[[[0,0,1],[1,0,2],[1,1,3]]]}""");
+        Assert.Equal([1.0, 2.0, 3.0, 1.0], polygon.Shell.Coordinates.ZSpan().ToArray());
+
+        Point flat = (Point)ReadForEdit("""{"type":"Point","coordinates":[28.9,41.0]}""");
+        Assert.Null(flat.Z);
+    }
+
+    [Theory]
+    [InlineData("""{"type":"LineString","coordinates":[[0,0,1],[1,1]]}""", "some positions carry an elevation")]
+    [InlineData("""{"type":"MultiPoint","coordinates":[[0,0,1],[1,1]]}""", "some positions carry an elevation")]
+    [InlineData("""{"type":"Point","coordinates":[0,0,1,2]}""", "more than three numbers")]
+    public void An_edit_with_mixed_or_extra_ordinates_is_refused(string json, string reason)
+    {
+        Assert.Contains(reason, RefuseForEdit(json), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_writer_puts_the_elevation_third_and_never_writes_a_measure()
+    {
+        using System.IO.MemoryStream stream = new();
+
+        using (Utf8JsonWriter json = new(stream))
+        {
+            json.WriteStartArray();
+            GeoJsonWriter.WriteGeometry(json, Graticula.Geometries.Point.Create(29, 41, 120.5, 7));
+            GeoJsonWriter.WriteGeometry(json, new LineString(XySequence.Wrap([29, 41, 30, 42], z: [1, 2], m: null)), latitudeFirst: true);
+            GeoJsonWriter.WriteGeometry(json, new Point(29, 41));
+            json.WriteEndArray();
+        }
+
+        JsonElement[] written = [.. JsonDocument.Parse(stream.ToArray()).RootElement.EnumerateArray()];
+
+        Assert.Equal("[29,41,120.5]", written[0].GetProperty("coordinates").GetRawText());
+        Assert.Equal("[[41,29,1],[42,30,2]]", written[1].GetProperty("coordinates").GetRawText());
+        Assert.Equal("[29,41]", written[2].GetProperty("coordinates").GetRawText());
+    }
+
     [Fact]
     public void A_non_finite_coordinate_is_refused()
     {

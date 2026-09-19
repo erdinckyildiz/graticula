@@ -167,8 +167,15 @@ public sealed class GmlGeometryWriter
         {
             await xml.WriteStartElementAsync("gml", "pos", WfsNames.Gml).ConfigureAwait(false);
 
+            // ADR-077 §11: a point with an elevation says srsDimension 3, as a posList does.
+            if (point.Z is not null)
+            {
+                await xml.WriteAttributeStringAsync(null, "srsDimension", null, "3").ConfigureAwait(false);
+            }
+
             _coordinates.Clear();
             Append(_coordinates, point.X, point.Y);
+            AppendZ(_coordinates, point.Z);
 
             await xml.WriteStringAsync(_coordinates.ToString()).ConfigureAwait(false);
             await xml.WriteEndElementAsync().ConfigureAwait(false);
@@ -221,7 +228,11 @@ public sealed class GmlGeometryWriter
 
         await xml.WriteStartElementAsync("gml", "posList", WfsNames.Gml).ConfigureAwait(false);
 
-        await xml.WriteAttributeStringAsync(null, "srsDimension", null, "2").ConfigureAwait(false);
+        // <b>3 where the geometry carries an elevation — ADR-077 §11.</b> GML has no measure, which is the format's
+        // fact, so M is never written and never asked for by this surface.
+        bool withZ = coordinates.HasZ;
+
+        await xml.WriteAttributeStringAsync(null, "srsDimension", null, withZ ? "3" : "2").ConfigureAwait(false);
 
         _coordinates.Clear();
 
@@ -233,6 +244,7 @@ public sealed class GmlGeometryWriter
             }
 
             Append(_coordinates, coordinates.X(i), coordinates.Y(i));
+            AppendZ(_coordinates, withZ ? coordinates.Z(i) : null);
         }
 
         await xml.WriteStringAsync(_coordinates.ToString()).ConfigureAwait(false);
@@ -247,5 +259,14 @@ public sealed class GmlGeometryWriter
         into.Append(first.ToString(CultureInfo.InvariantCulture))
             .Append(' ')
             .Append(second.ToString(CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>The elevation after the two axes, when there is one; the axis swap does not move it.</summary>
+    private static void AppendZ(StringBuilder into, double? z)
+    {
+        if (z is { } elevation)
+        {
+            into.Append(' ').Append(elevation.ToString(CultureInfo.InvariantCulture));
+        }
     }
 }

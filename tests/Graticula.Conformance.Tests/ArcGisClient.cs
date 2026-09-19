@@ -782,6 +782,16 @@ public abstract class ArcGisClient : IDisposable
             string schema = table.GetProperty("schemaName").GetString()!;
             string named = table.GetProperty("tableName").GetString()!;
 
+            // <b>A flat table only.</b> `cifree.zz_three_d` is `PointZM` and belongs to
+            // `AThreeDimensionalRowComesBackWholeTests`; every other caller publishes and edits as if
+            // a free table had two dimensions, and a flat add into it is refused (ADR-077 §10).
+            if (table.TryGetProperty("geometryType", out JsonElement declared)
+                && declared.GetString() is { Length: > 1 } typeName
+                && (typeName.EndsWith('Z') || typeName.EndsWith('z') || typeName.EndsWith('M') || typeName.EndsWith('m')))
+            {
+                continue;
+            }
+
             if (taken.Contains($"{schema}.{named}"))
             {
                 continue;

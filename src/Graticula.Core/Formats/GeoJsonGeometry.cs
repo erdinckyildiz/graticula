@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using Graticula.Geometries;
 
@@ -18,10 +19,10 @@ namespace Graticula.Formats;
 /// case where the swap makes the numbers impossible.
 /// </para>
 /// <para>
-/// <b>Z is dropped and M is not read.</b> Our model is two-dimensional
-/// (ADR-008 §4.5a), and RFC 7946 allows a third element. Dropping it silently
-/// would lose an ordinate the caller believes they uploaded — so it is dropped
-/// loudly, by the importer reporting it, rather than here.
+/// <b>Z is dropped for an import and kept for an edit.</b> RFC 7946 allows a third element. An import stores
+/// two dimensions until ADR-074 step 4, so there it is dropped loudly — the importer reports it. An OGC API
+/// Features edit asks for it (<c>keepZ</c>, ADR-077 §11), and the writer then holds it to what the row stores.
+/// A fourth element is not GeoJSON and is refused on an edit rather than dropped.
 /// </para>
 /// </remarks>
 public static class GeoJsonGeometry
@@ -33,7 +34,18 @@ public static class GeoJsonGeometry
     /// <param name="error">Why not, on failure.</param>
     /// <returns>Whether it was read.</returns>
     public static bool TryRead(
-        JsonElement json, int index, out Geometry? geometry, out string? error)
+        JsonElement json, int index, out Geometry? geometry, out string? error) =>
+        TryRead(json, index, keepZ: false, out geometry, out error);
+
+    /// <summary>Reads one geometry, keeping a third element as its elevation when asked.</summary>
+    /// <param name="json">The geometry object.</param>
+    /// <param name="index">Which feature it came from, for the message.</param>
+    /// <param name="keepZ">Whether a position's third element is kept as Z — an edit's, ADR-077 §11.</param>
+    /// <param name="geometry">The geometry, on success.</param>
+    /// <param name="error">Why not, on failure.</param>
+    /// <returns>Whether it was read.</returns>
+    public static bool TryRead(
+        JsonElement json, int index, bool keepZ, out Geometry? geometry, out string? error)
     {
         geometry = null;
         error = null;
@@ -65,15 +77,25 @@ public static class GeoJsonGeometry
         {
             geometry = type switch
             {
-                "Point" => ReadPoint(coordinates),
-                "MultiPoint" => new MultiPoint([.. Each(coordinates, ReadPoint)]),
-                "LineString" => new LineString(ReadSequence(coordinates, minimum: 2)),
+                "Point" => ReadPoint(coordinates, keepZ),
+                "MultiPoint" => new MultiPoint([.. Each(coordinates, c => ReadPoint(c, keepZ))]),
+                "LineString" => new LineString(ReadSequence(coordinates, minimum: 2, keepZ)),
                 "MultiLineString" => new MultiLineString(
-                    [.. Each(coordinates, c => new LineString(ReadSequence(c, minimum: 2)))]),
-                "Polygon" => ReadPolygon(coordinates),
-                "MultiPolygon" => new MultiPolygon([.. Each(coordinates, ReadPolygon)]),
+                    [.. Each(coordinates, c => new LineString(ReadSequence(c, minimum: 2, keepZ)))]),
+                "Polygon" => ReadPolygon(coordinates, keepZ),
+                "MultiPolygon" => new MultiPolygon([.. Each(coordinates, c => ReadPolygon(c, keepZ))]),
                 _ => throw new FormatException($"'{type}' is not a GeoJSON geometry type."),
             };
+
+            // <b>One dimensionality per geometry.</b> A shape with an elevation on some vertices and not others
+            // has no WKB, and padding the rest would invent heights.
+            if (keepZ && Mixed(geometry))
+            {
+                geometry = null;
+                error = $"Feature {index}: some positions carry an elevation and some do not. Send all of them "
+                    + "with three numbers or all with two (ADR-077).";
+                return false;
+            }
 
             return true;
         }
@@ -84,10 +106,32 @@ public static class GeoJsonGeometry
         }
     }
 
-    private static Point ReadPoint(JsonElement coordinates)
+    private static Point ReadPoint(JsonElement coordinates, bool keepZ)
     {
-        (double x, double y) = ReadPosition(coordinates);
-        return new Point(x, y);
+        (double x, double y, double? z) = ReadPosition(coordinates, keepZ);
+        return Point.Create(x, y, z, null);
+    }
+
+    /// <summary>Whether a geometry's parts disagree about carrying Z.</summary>
+    private static bool Mixed(Geometry geometry)
+    {
+        GeometryOrdinates? seen = null;
+
+        bool Differs(GeometryOrdinates ordinates)
+        {
+            seen ??= ordinates;
+            return seen != ordinates;
+        }
+
+        return geometry switch
+        {
+            MultiPoint many => many.Parts.Any(p => Differs(p.Ordinates)),
+            MultiLineString many => many.Parts.Any(p => Differs(p.Coordinates.Ordinates)),
+            Polygon polygon => polygon.Holes.Prepend(polygon.Shell).Any(r => Differs(r.Coordinates.Ordinates)),
+            MultiPolygon many => many.Parts
+                .SelectMany(p => p.Holes.Prepend(p.Shell)).Any(r => Differs(r.Coordinates.Ordinates)),
+            _ => false,
+        };
     }
 
     /// <summary>
@@ -101,7 +145,7 @@ public static class GeoJsonGeometry
     /// first ring is the shell because the format says so, whichever way it
     /// turns.
     /// </remarks>
-    private static Polygon ReadPolygon(JsonElement coordinates)
+    private static Polygon ReadPolygon(JsonElement coordinates, bool keepZ)
     {
         if (coordinates.ValueKind != JsonValueKind.Array || coordinates.GetArrayLength() == 0)
         {
@@ -112,7 +156,7 @@ public static class GeoJsonGeometry
 
         foreach (JsonElement ring in coordinates.EnumerateArray())
         {
-            rings.Add(new LinearRing(Close(ReadSequence(ring, minimum: 3))));
+            rings.Add(new LinearRing(Close(ReadSequence(ring, minimum: 3, keepZ))));
         }
 
         return rings.Count == 1 ? new Polygon(rings[0]) : new Polygon(rings[0], [.. rings[1..]]);
@@ -144,10 +188,11 @@ public static class GeoJsonGeometry
         closed[points.Count * 2] = points.X(0);
         closed[(points.Count * 2) + 1] = points.Y(0);
 
-        return XySequence.Wrap(closed);
+        // The implied vertex is the first one, elevation and all.
+        return XySequence.Wrap(closed, points.HasZ ? [.. points.ZSpan(), points.Z(0)] : null, null);
     }
 
-    private static XySequence ReadSequence(JsonElement coordinates, int minimum)
+    private static XySequence ReadSequence(JsonElement coordinates, int minimum, bool keepZ)
     {
         if (coordinates.ValueKind != JsonValueKind.Array)
         {
@@ -162,23 +207,45 @@ public static class GeoJsonGeometry
         }
 
         double[] interleaved = new double[count * 2];
+        double[] zs = new double[count];
+        int withZ = 0;
         int i = 0;
 
         foreach (JsonElement position in coordinates.EnumerateArray())
         {
-            (interleaved[i * 2], interleaved[(i * 2) + 1]) = ReadPosition(position);
+            (interleaved[i * 2], interleaved[(i * 2) + 1], double? z) = ReadPosition(position, keepZ);
+
+            if (z is { } elevation)
+            {
+                zs[i] = elevation;
+                withZ++;
+            }
+
             i++;
         }
 
-        return XySequence.Wrap(interleaved);
+        if (withZ != 0 && withZ != count)
+        {
+            throw new FormatException(
+                "some positions carry an elevation and some do not. Send all of them with three numbers or all with two (ADR-077).");
+        }
+
+        return XySequence.Wrap(interleaved, withZ == 0 ? null : zs, null);
     }
 
-    /// <summary>One position: longitude, then latitude, and any Z discarded.</summary>
-    private static (double X, double Y) ReadPosition(JsonElement position)
+    /// <summary>One position: longitude, then latitude, then — when kept — the elevation.</summary>
+    private static (double X, double Y, double? Z) ReadPosition(JsonElement position, bool keepZ)
     {
         if (position.ValueKind != JsonValueKind.Array || position.GetArrayLength() < 2)
         {
             throw new FormatException("a position needs at least a longitude and a latitude.");
+        }
+
+        if (keepZ && position.GetArrayLength() > 3)
+        {
+            throw new FormatException(
+                "a position has more than three numbers. GeoJSON is longitude, latitude and an optional "
+                + "elevation (RFC 7946 §3.1.1); a fourth would be discarded, so it is refused (ADR-077).");
         }
 
         double x = position[0].GetDouble();
@@ -204,7 +271,17 @@ public static class GeoJsonGeometry
                     + $"land in the wrong place."));
         }
 
-        return (x, y);
+        double? z = null;
+
+        if (keepZ && position.GetArrayLength() == 3)
+        {
+            z = position[2].ValueKind == JsonValueKind.Number && position[2].TryGetDouble(out double elevation)
+                && double.IsFinite(elevation)
+                ? elevation
+                : throw new FormatException("a position's third number, its elevation, must be a finite number.");
+        }
+
+        return (x, y, z);
     }
 
     private static IEnumerable<T> Each<T>(JsonElement array, Func<JsonElement, T> read)

@@ -1205,7 +1205,12 @@ internal static class WfsEndpoints
             spatial: spatial,
             outSrid: outputSrid == layer.Definition.Srid ? null : outputSrid,
             where: where,
-            filterSrid: filterSrid);
+            filterSrid: filterSrid)
+        {
+            // ADR-077 §11: the elevation the column declares, as srsDimension 3 in GML and a third element in
+            // GeoJSON. Neither format has a measure.
+            KeepOrdinates = described.StoredOrdinates & Graticula.Geometries.GeometryOrdinates.Z,
+        };
 
         return true;
     }

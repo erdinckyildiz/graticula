@@ -71,7 +71,7 @@ public static class GeoJsonWriter
 
                 if (!point.IsEmpty)
                 {
-                    WritePosition(json, point.X, point.Y, latitudeFirst);
+                    WritePosition(json, point.X, point.Y, latitudeFirst, point.Z);
                 }
 
                 json.WriteEndArray();
@@ -101,7 +101,7 @@ public static class GeoJsonWriter
 
                     if (!part.IsEmpty)
                     {
-                        WritePosition(json, part.X, part.Y, latitudeFirst);
+                        WritePosition(json, part.X, part.Y, latitudeFirst, part.Z);
                     }
 
                     json.WriteEndArray();
@@ -249,18 +249,31 @@ public static class GeoJsonWriter
     private static void WritePositions(
         Utf8JsonWriter json, XySequence coordinates, bool latitudeFirst)
     {
+        bool withZ = coordinates.HasZ;
+
         for (int i = 0; i < coordinates.Count; i++)
         {
             json.WriteStartArray();
-            WritePosition(json, coordinates.X(i), coordinates.Y(i), latitudeFirst);
+            WritePosition(json, coordinates.X(i), coordinates.Y(i), latitudeFirst, withZ ? coordinates.Z(i) : null);
             json.WriteEndArray();
         }
     }
 
-    /// <summary>One position, in the order the negotiated reference system defines.</summary>
-    private static void WritePosition(Utf8JsonWriter json, double x, double y, bool latitudeFirst)
+    /// <summary>One position, in the order the negotiated reference system defines, with its elevation last.</summary>
+    /// <remarks>
+    /// <b>Z is the third element when the geometry carries one, and M is never written</b> — ADR-077 §11. RFC 7946
+    /// §3.1.1 gives a position an optional altitude and says implementations SHOULD NOT extend it further, so a
+    /// measure has no place in GeoJSON; that is the format's fact, as a tile's lack of Z is. The axis swap for a
+    /// latitude-first reference moves the first two and leaves the elevation where it is.
+    /// </remarks>
+    private static void WritePosition(Utf8JsonWriter json, double x, double y, bool latitudeFirst, double? z = null)
     {
         json.WriteNumberValue(latitudeFirst ? y : x);
         json.WriteNumberValue(latitudeFirst ? x : y);
+
+        if (z is { } elevation)
+        {
+            json.WriteNumberValue(elevation);
+        }
     }
 }
