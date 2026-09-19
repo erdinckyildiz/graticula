@@ -46,7 +46,8 @@ public sealed class AThreeDimensionalRowComesBackWholeTests : ArcGisClient
             $$"""
             {"name":"{{Layer}}","dataSourceId":"{{datastore}}","schemaName":"cifree",
              "tableName":"zz_three_d","geometryColumn":"shape","geometryType":"Point",
-             "identityColumn":"objectid","srid":4326,"serviceName":"{{Service}}","folder":"hosted"}
+             "identityColumn":"objectid","objectIdColumn":"objectid","srid":4326,"serviceName":"{{Service}}",
+             "folder":"hosted"}
             """);
 
         Assert.True(
