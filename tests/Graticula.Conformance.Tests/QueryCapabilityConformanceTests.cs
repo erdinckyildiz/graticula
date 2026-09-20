@@ -310,6 +310,48 @@ public sealed class QueryCapabilityConformanceTests : ArcGisClient
         }
     }
 
+    /// <summary>
+    /// The same nine relations with the envelope written as JSON, which is what an SDK sends —
+    /// [D-265](../../docs/architecture-debt.md).
+    /// </summary>
+    /// <remarks>
+    /// <b>The test above passed while this was broken, and that is why this one exists.</b> It sends the
+    /// comma form, which parsed; the ArcGIS JS API sends `{"xmin":…,"spatialReference":{"wkid":…}}`, and with
+    /// any relation but `esriSpatialRelIntersects` that fell through to the feature-geometry reader and came
+    /// back 400: *the geometry has none of 'rings', 'paths', 'points' or 'x'*. Measured on the showcase
+    /// 2026-09-13 against both a PostGIS and a GeoParquet layer.
+    /// </remarks>
+    [Fact]
+    public async Task An_envelope_sent_as_json_is_read_for_every_relation()
+    {
+        (string path, _) = await LayerAsync();
+
+        JsonElement extent = (await QueryAsync("where=1%3D1&returnExtentOnly=true")).GetProperty("extent");
+
+        string box = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            xmin = extent.GetProperty("xmin").GetDouble(),
+            ymin = extent.GetProperty("ymin").GetDouble(),
+            xmax = extent.GetProperty("xmax").GetDouble(),
+            ymax = extent.GetProperty("ymax").GetDouble(),
+            spatialReference = new { wkid = extent.GetProperty("spatialReference").GetProperty("wkid").GetInt32() },
+        });
+
+        foreach (string relation in (string[])
+        [
+            "Intersects", "Contains", "Crosses", "EnvelopeIntersects", "IndexIntersects",
+            "Overlaps", "Touches", "Within",
+        ])
+        {
+            Assert.Equal(
+                200,
+                await StatusOfAsync(
+                    $"{path}/query?geometry={Uri.EscapeDataString(box)}"
+                    + "&geometryType=esriGeometryEnvelope"
+                    + $"&spatialRel=esriSpatialRel{relation}&returnCountOnly=true&f=json"));
+        }
+    }
+
     [Fact]
     public async Task Intersects_is_the_union_of_within_and_overlaps()
     {

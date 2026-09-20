@@ -405,6 +405,45 @@ public sealed class FeatureServerQueryParametersTests
         Assert.NotNull(query.BoundingBox);
     }
 
+    /// <summary>
+    /// An envelope filter is read for every relation ArcGIS allows with one — [D-265](../../docs/architecture-debt.md).
+    /// </summary>
+    /// <remarks>
+    /// <b>Measured on the showcase 2026-09-13 and refused.</b> `esriSpatialRelEnvelopeIntersects` is the cheapest
+    /// spatial question a client can ask, and with a JSON envelope it fell through to the feature-geometry reader,
+    /// which answered *the geometry has none of 'rings', 'paths', 'points' or 'x'* — a sentence about a request
+    /// nobody made.
+    /// </remarks>
+    [Theory]
+    [InlineData("esriSpatialRelEnvelopeIntersects")]
+    [InlineData("esriSpatialRelIndexIntersects")]
+    public void An_envelope_with_the_index_relations_is_the_bounding_box(string relation)
+    {
+        foreach (string geometry in (string[])["1,2,3,4", "{\"xmin\":1,\"ymin\":2,\"xmax\":3,\"ymax\":4}"])
+        {
+            FeatureQuery query = Parse(
+                ("geometry", geometry), ("geometryType", "esriGeometryEnvelope"), ("spatialRel", relation));
+
+            Assert.Null(query.Spatial);
+            Assert.Equal(new Envelope(1, 2, 3, 4), query.BoundingBox);
+        }
+    }
+
+    /// <summary>And with a relation that is not a rectangle test, the envelope becomes its rectangle.</summary>
+    [Fact]
+    public void An_envelope_with_another_relation_becomes_the_rectangle_it_describes()
+    {
+        FeatureQuery query = Parse(
+            ("geometry", "{\"xmin\":1,\"ymin\":2,\"xmax\":3,\"ymax\":4}"),
+            ("geometryType", "esriGeometryEnvelope"),
+            ("spatialRel", "esriSpatialRelContains"));
+
+        Assert.Equal(SpatialRelation.Contains, query.Spatial!.Relation);
+        Polygon rectangle = Assert.IsType<Polygon>(query.Spatial.Geometry);
+        Assert.Equal(5, rectangle.Shell.Coordinates.Count);
+        Assert.Null(query.BoundingBox);
+    }
+
     [Fact]
     public void The_geometrys_own_reference_wins_over_inSR()
     {

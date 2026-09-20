@@ -1004,9 +1004,16 @@ internal static class FeatureServerQueryParameters
 
         // The fast path, and the shape of it is the reason it is worth
         // detecting: a bare envelope-intersects is the index operator alone.
+        //
+        // <b>`esriSpatialRelEnvelopeIntersects` and `esriSpatialRelIndexIntersects` take it too —
+        // [D-265](../../docs/architecture-debt.md).</b> Against an envelope all three relations ask the same
+        // question: whether two rectangles meet. Only `esriSpatialRelIntersects` was listed here, so a client
+        // asking the cheapest spatial question ArcGIS has fell through to the feature-geometry reader, which
+        // refused an envelope in a sentence about rings and paths.
         bool plainEnvelope =
             distance == 0
-            && relation is SpatialRelation.Intersects
+            && relation is SpatialRelation.Intersects or SpatialRelation.EnvelopeIntersects
+                or SpatialRelation.IndexIntersects
             && (kind.Length == 0
                 || kind.Equals("esriGeometryEnvelope", StringComparison.OrdinalIgnoreCase));
 
@@ -1044,6 +1051,17 @@ internal static class FeatureServerQueryParameters
         error = null;
 
         bool json = raw.StartsWith('{');
+
+        // <b>An envelope is a filter geometry in every relation, not only in the fast path —
+        // [D-265](../../docs/architecture-debt.md).</b> `ArcGisGeometryReader` reads the shapes a feature
+        // has, and says so when handed an envelope; an envelope with `esriSpatialRelContains` is a
+        // legitimate ArcGIS query, so it becomes the rectangle it describes here rather than a refusal
+        // there.
+        if (json && TryParseEnvelope(raw, layerSrid, out Envelope? envelope, out _) && envelope is { } rectangle)
+        {
+            geometry = Rectangle(rectangle);
+            return true;
+        }
 
         if (!json)
         {
