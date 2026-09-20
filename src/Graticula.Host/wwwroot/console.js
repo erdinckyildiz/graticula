@@ -3032,9 +3032,11 @@ async function loadMyContent() {
                 <details class="menu">
                   <summary title="More" aria-label="More actions">⋯</summary>
                   <div class="sheet">
-                    ${(content.get(key) || {}).hosted && !stopped
-                      ? `<button data-tiles="${h(key)}">${shown.has(tileKey(key))
-                          ? "Hide its tiles" : "Draw its tiles"}</button>` : ""}
+                    ${(content.get(key) || {}).tileable && !stopped
+                      ? `<button data-tiles="${h(key)}"
+                           title="A tile style belongs to the whole service, so this draws every layer in it"
+                           >${shown.has(tileKey(key))
+                             ? "Hide the service's tiles" : "Draw the whole service's tiles"}</button>` : ""}
                     ${stopped ? "" : `<a href="/studio/webmap.html?service=${encodeURIComponent(i.name)}"
                       >Open in new map</a>`}
                     <a href="${h(i.cover.url)}?f=json" target="_blank" rel="noreferrer"
@@ -3242,6 +3244,9 @@ async function showService(qualified) {
   const { folder, name } = splitService(qualified);
 
   serviceOpen = { qualified, folder, name };
+
+  // A different service, so the previous answer about tiles is somebody else's.
+  visTiled = null;
 
   // <b>What the address asked for, if it asked.</b> The three redirected map controls land here with
   // `?tab=visualization&layer=&mode=`; pressing a tab by hand sets `serviceTab` and leaves this null.
@@ -3768,6 +3773,19 @@ async function fillLayerSymbologyStates(layers) {
 
 /** The layers in the open service, from its own FeatureServer document. */
 let serviceLayers = [];
+
+/**
+ * Whether the open service has a tile face — null until asked — [D-264](../../../docs/architecture-debt.md).
+ *
+ * <b>Asked of the server, like `offersTiles`' other caller.</b> The preview read the service's *folder*
+ * and offered a Tiles mode when it was literally named `hosted`, which is neither the question nor a
+ * reliable answer to it: a GeoParquet service in another folder has tiles, and a registered PostGIS
+ * service published into `hosted` does not.
+ */
+let visTiled = null;
+
+/** Which service the outstanding tile probe was asked about, so a late answer is not applied to another. */
+let visAsking = null;
 
 /**
  * Overview's list of what is in the service.
@@ -4935,17 +4953,47 @@ function drawServiceVis() {
 
   named(wanted);
 
-  // <b>Tiles only where the service has them.</b> A registered layer is served as features and has no
-  // vector tile service, so the mode would be a button that answers 404 — the row controls already make
-  // this distinction and this one inherits it.
-  const hosted = (serviceOpen?.folder || "") === "hosted";
+  // <b>Tiles only where the service has them, asked rather than guessed from the folder — D-264.</b>
+  // The mode is drawn without it on the first pass and the answer redraws this list; a folder called
+  // `hosted` was never the question, and since ADR-066 §9 it is not even close.
+  if (visTiled === null && serviceOpen && visAsking !== serviceOpen.qualified) {
+    // <b>Once per service, and the answer is stamped with who asked.</b> Every redraw of this panel — a
+    // layer picked, a mode pressed — came back through here, so an unguarded probe was a request per
+    // redraw; and opening one service after another gave the second the first's answer.
+    const asked = serviceOpen.qualified;
+    visAsking = asked;
 
-  if (!hosted && visMode === "tiles") visMode = "features";
+    offersTiles(`${location.origin}/rest/services/${asked.split("/").map(encodeURIComponent).join("/")}`)
+      .then(answer => {
+        if (serviceOpen?.qualified !== asked || visTiled === answer) return;
+        visTiled = answer;
+        drawServiceVis();
+      }, () => { if (serviceOpen?.qualified === asked) visTiled = false; });
+  }
 
-  modes.innerHTML = [["features", "Features"], ...(hosted ? [["tiles", "Tiles"]] : [])]
-    .map(([key, label]) =>
-      `<a href="#" data-vis-mode="${key}"${key === visMode ? ' aria-current="page"' : ""}>${label}</a>`)
-    .join("");
+  const tiled = visTiled === true;
+
+  if (!tiled && visMode === "tiles") visMode = "features";
+
+  // <b>Appended, not rewritten.</b> The list only ever gains Tiles, at the end, when the probe answers —
+  // and rewriting it took the focus off the Features link a keyboard reader was on, and swallowed a click
+  // that had already begun on it.
+  if (!modes.querySelector("[data-vis-mode]")) {
+    modes.innerHTML = `<a href="#" data-vis-mode="features"${
+      visMode === "features" ? ' aria-current="page"' : ""}>Features</a>`;
+  }
+
+  if (tiled && !modes.querySelector('[data-vis-mode="tiles"]')) {
+    modes.insertAdjacentHTML(
+      "beforeend",
+      `<a href="#" data-vis-mode="tiles"${visMode === "tiles" ? ' aria-current="page"' : ""}>Tiles</a>`);
+  }
+
+  for (const link of modes.querySelectorAll("[data-vis-mode]")) {
+    const current = link.dataset.visMode === visMode;
+    if (current) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
 
   drawVisNow();
 }
@@ -5209,7 +5257,9 @@ function serviceSettingsMarkup(name, folder) {
       <h4>Faces this service offers</h4>
       <div class="grid2">
         <label><input type="checkbox" id="capFeatures"> Feature access</label>
-        <label><input type="checkbox" id="capTiles"> Vector tiles <span class="val">hosted only</span></label>
+        <label title="A service offers tiles when its layers are in the datastore, or are GeoParquet">
+          <input type="checkbox" id="capTiles"> Vector tiles
+          <span class="val">datastore and GeoParquet layers</span></label>
       </div>
 
       <h4>Operations allowed</h4>
@@ -9917,9 +9967,10 @@ function showLayer(name, page, pending = null) {
           ${stopped ? "Start" : "Stop"}</button>
         <button data-show="${h(name)}" class="${isShown ? "on" : ""}" ${stopped ? "disabled" : ""}>
           ${isShown ? "Hide on map" : "Show on map"}</button>
-        ${l.hosted
-          ? `<button data-tiles="${h(name)}" class="${tilesShown ? "on" : ""}" ${stopped ? "disabled" : ""}>
-               ${tilesShown ? "Hide tiles" : "Show tiles"}</button>`
+        ${l.tileable
+          ? `<button data-tiles="${h(name)}" class="${tilesShown ? "on" : ""}" ${stopped ? "disabled" : ""}
+               title="A tile style belongs to the whole service, so this draws every layer in it">
+               ${tilesShown ? "Hide the service's tiles" : "Draw the whole service's tiles"}</button>`
           : ""}
         <button data-refresh="${h(name)}">Forget remembered shape</button>
       </div>
@@ -10030,14 +10081,18 @@ function showLayer(name, page, pending = null) {
 
     <section class="page" id="page-caching">
       <h4>Tile cache</h4>
-      ${l.hosted ? `
+      <!-- tileable, not hosted (D-264): a GeoParquet layer is tiled (ADR-066 section 9) and is never
+           hosted, so this page told its operator there was no cache while the tiles were being cached. -->
+      ${l.tileable ? `
       <div class="setting"><span class="q">How long a tile stays fresh:</span>
         <input type="number" id="ttl" min="0" step="1" placeholder="server default"><span class="u">seconds</span></div>
       <div class="row" style="margin-top:10px">
         <button data-cache="${h(name)}">Set</button>
         <button data-cache="${h(name)}" data-clear="1" class="ghost">Use the server's</button>
       </div>`
-      : `<p class="hint">Tiles come only from hosted data, so this layer has no tile cache.</p>`}
+      : `<p class="hint">No tile cache: this layer stays in its own database, and this server serves it as
+         features only. Tiles come from layers this server holds itself — data in its datastore, and
+         GeoParquet files it reads directly. To get tiles, publish a copy into the datastore.</p>`}
 
     </section>
 
@@ -12189,7 +12244,7 @@ function fillEndpoints(name, layer, place) {
       target="_blank" rel="noreferrer">FeatureServer/${place.id}</a></dd>
     <dt>Service</dt><dd><a href="${h(service)}/FeatureServer?f=json"
       target="_blank" rel="noreferrer">${h(place.service)}</a></dd>
-    ${layer.hosted ? `<dt>Tiles</dt><dd><a href="${h(service)}/VectorTileServer?f=json"
+    ${layer.tileable ? `<dt>Tiles</dt><dd><a href="${h(service)}/VectorTileServer?f=json"
       target="_blank" rel="noreferrer">VectorTileServer</a>${shared
         ? ` <span class="val">— the whole service, not this layer alone</span>` : ""}</dd>` : ""}
     <dt>Directory</dt><dd><a href="${h(service)}" target="_blank" rel="noreferrer">browse</a></dd>`;

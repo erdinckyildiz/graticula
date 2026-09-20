@@ -867,7 +867,12 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                    l.cache_seconds,
 
                    -- ADR-070: the scales it draws at, so the console shows what is set.
-                   l.min_scale, l.max_scale
+                   l.min_scale, l.max_scale,
+
+                   -- <b>D-264: whether the tile face answers, which is not `is_datastore` any more.</b>
+                   -- A DuckDB-served source — a GeoParquet folder or file, remote or local, or MotherDuck —
+                   -- is tiled too since ADR-066 §9, and is never the datastore.
+                   d.is_datastore or d.kind in ('geoparquet', 'geoparquet-remote', 'duckdb', 'motherduck')
             from layer l
             join data_source d on d.id = l.data_source_id
             join service s on s.id = l.service_id
@@ -900,7 +905,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 reader.IsDBNull(14) ? null : reader.GetString(14),
                 reader.IsDBNull(15) ? null : reader.GetInt32(15),
                 reader.IsDBNull(16) ? null : reader.GetDouble(16),
-                reader.IsDBNull(17) ? null : reader.GetDouble(17)));
+                reader.IsDBNull(17) ? null : reader.GetDouble(17),
+                reader.GetBoolean(18)));
         }
 
         return layers;

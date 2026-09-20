@@ -928,6 +928,44 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     }
 
     /// <summary>
+    /// The listing says which layers the tile face answers for, and it is not *hosted* —
+    /// [D-264](../../docs/architecture-debt.md).
+    /// </summary>
+    /// <remarks>
+    /// <b>Three sources, because one answer proves nothing here.</b> A GeoParquet layer is tiled and is
+    /// never hosted; a registered PostGIS layer is neither; the datastore is both. The console read
+    /// `hosted` for this question and told an operator their GeoParquet layer had no tile cache while its
+    /// tiles were being cached.
+    /// </remarks>
+    [Fact]
+    public async Task The_listing_says_which_layers_have_tiles()
+    {
+        (PostgresAdminCatalog admin, Guid registered, Guid owner) = await ReadyAsync();
+
+        Guid parquet = await admin.RegisterDataSourceAsync(
+            "test-parquet", "geoparquet", "geoparquet:/srv/parquet", CancellationToken.None);
+
+        Guid ducks = await admin.RegisterDataSourceAsync(
+            "test-motherduck", "motherduck", "motherduck:{\"database\":\"none\"}", CancellationToken.None);
+
+        foreach ((Guid source, string name) in ((Guid, string)[])
+            [(registered, "tiles_registered"), (parquet, "tiles_parquet"), (ducks, "tiles_ducks")])
+        {
+            await admin.PublishLayerAsync(Publication(source, name), owner, CancellationToken.None);
+        }
+
+        IReadOnlyList<AdminLayer> listed = await admin.ListLayersAsync(CancellationToken.None);
+        AdminLayer Of(string name) => listed.Single(l => l.Name == name);
+
+        Assert.False(Of("tiles_registered").Tileable, "A registered PostGIS layer has no tile service.");
+        Assert.True(Of("tiles_parquet").Tileable, "A GeoParquet layer is tiled — ADR-066 §9.");
+        Assert.True(Of("tiles_ducks").Tileable, "A DuckDB-served layer is tiled too.");
+
+        // And none of the three is hosted, which is why the question needed its own field.
+        Assert.All(listed, l => Assert.False(l.Hosted));
+    }
+
+    /// <summary>
     /// The administrative listing agrees with the serving catalogue about status and sharing.
     /// </summary>
     /// <remarks>

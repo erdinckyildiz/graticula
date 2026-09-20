@@ -1344,6 +1344,11 @@ internal static partial class AdminEndpoints
                     sharing = PostgresSharing(service.Sharing),
                     status = Wire(service.Status),
                     hosted = layer.Definition.IsHosted,
+
+                    // <b>Whether the tile face answers — D-264</b>, which is not *hosted* since ADR-066 §9.
+                    // The same rule the tile endpoint applies, asked of the same object rather than
+                    // written out a second time.
+                    tileable = VectorTileEndpoints.Tileable(layer),
                     geometry = layer.GeometryType.ToString(),
 
                     // Why it is visible, in the evaluator's own words: owner, organisation, or
@@ -8622,11 +8627,15 @@ internal static partial class AdminEndpoints
                 owner = l.OwnerName,
                 l.ArcGisServable,
 
-                // So the console can offer tiles only where they exist. Showing
-                // the control everywhere and letting it 400 teaches people that
-                // the button sometimes does not work, which is worse than not
-                // having it.
+                // <b>Whether the data is in the datastore</b> — which the console reads for the
+                // edit-and-alter controls, and no longer for tiles.
                 l.Hosted,
+
+                // <b>Whether the tile face answers — D-264.</b> *Hosted* was the tile question until
+                // ADR-066 §9, and a GeoParquet layer is tiled and never hosted: the tile-cache page said
+                // *this layer has no tile cache* over a layer whose tiles were being cached. Showing a
+                // control everywhere and letting it 400 is the other half of the same mistake.
+                l.Tileable,
 
                 // <b>Whether its schema may be edited — ADR-058, and it is not the same as
                 // hosted.</b> A datastore source can serve a schema this server did not create,

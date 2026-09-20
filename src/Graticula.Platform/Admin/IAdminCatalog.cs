@@ -175,6 +175,14 @@ public readonly record struct PublishedLayerAddress(
 /// <param name="CacheSeconds">How long its tiles stay fresh, or null for the server's own figure. <b>Zero is not null</b> — see D-159.</param>
 /// <param name="MinScale">The largest scale it draws at, 0 or null for no limit (ADR-070).</param>
 /// <param name="MaxScale">The smallest scale it draws at, 0 or null for no limit (ADR-070).</param>
+/// <param name="Tileable">
+/// Whether the tile face answers for it — [D-264](../../../docs/architecture-debt.md). <b>Not
+/// <paramref name="Hosted"/>, and that is the whole point of the field.</b> Tiles came only from the
+/// datastore until [ADR-066](../../../docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md) §9, and a
+/// GeoParquet layer is never hosted — so a console asking `hosted` told an operator their layer had no
+/// tile cache while its tiles were being cached. <c>VectorTileEndpoints.Tileable</c> is the same rule on
+/// the serving side.
+/// </param>
 public readonly record struct AdminLayer(
     Guid Id,
     string Name,
@@ -192,7 +200,8 @@ public readonly record struct AdminLayer(
     string? TimeField = null,
     int? CacheSeconds = null,
     double? MinScale = null,
-    double? MaxScale = null)
+    double? MaxScale = null,
+    bool Tileable = false)
 {
     /// <summary>Its address in the services directory, without the host.</summary>
     public string Address =>
