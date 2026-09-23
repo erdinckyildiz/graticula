@@ -173,4 +173,23 @@ public sealed class WhereClauseFunctionsAndDatesTests
     {
         public override DateTimeOffset GetUtcNow() => now;
     }
+
+    [Theory]
+    [InlineData("CAST(name AS INTEGER) = 1", "CAST")]
+    [InlineData("SUBSTRING (name, 1, 2) = 'ab'", "SUBSTRING")]
+    [InlineData("COALESCE(name, 'x') = 'x'", "COALESCE")]
+    public void A_function_it_does_not_evaluate_is_named_as_a_function(string clause, string function)
+    {
+        // V-75, the fourth ArcGIS review: these answered "'CAST' is not a field of this layer".
+        string refused = Refused(clause);
+
+        Assert.Contains($"'{function}' is not a function", refused, StringComparison.Ordinal);
+        Assert.Contains("UPPER", refused, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_name_without_a_parenthesis_is_still_a_field()
+    {
+        Assert.Contains("'nosuch' is not a field of this layer", Refused("nosuch = 1"), StringComparison.Ordinal);
+    }
 }

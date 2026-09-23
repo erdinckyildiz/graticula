@@ -982,9 +982,22 @@ public static class WhereClause
                 }
             }
 
-            error =
-                $"'{column}' is not a field of this layer. The where clause may only mention "
-                + "fields the layer document lists.";
+            // <b>A name followed by a parenthesis is a function, and saying *not a field* sent the reader looking
+            // for a column — V-75, the fourth ArcGIS review.</b> `CAST(…)` answered *'CAST' is not a field of this
+            // layer*. Which functions are evaluated is the grammar's to say, so it says it.
+            int look = _at;
+
+            while (look < text.Length && char.IsWhiteSpace(text[look]))
+            {
+                look++;
+            }
+
+            error = look < text.Length && text[look] == '('
+                ? $"'{column}' is not a function this server evaluates in a where clause. It evaluates UPPER and "
+                  + "LOWER, and CURRENT_TIMESTAMP, CURRENT_DATE, INTERVAL, DATE '…' and TIMESTAMP '…' for dates; "
+                  + "any other function is refused rather than passed to the database."
+                : $"'{column}' is not a field of this layer. The where clause may only mention "
+                  + "fields the layer document lists.";
 
             column = null;
             return false;
