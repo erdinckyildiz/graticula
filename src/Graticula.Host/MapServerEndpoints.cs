@@ -149,7 +149,7 @@ internal static class MapServerEndpoints
 
         object document = MapServerMetadataWriter.Service(
             layers,
-            Capabilities,
+            CapabilitiesOf(service),
             settings.MaximumImageWidth,
             settings.MaximumImageHeight,
             settings.MaximumRecordCount);
@@ -259,7 +259,7 @@ internal static class MapServerEndpoints
             FeatureServerMetadataWriter.DisplayField(layer.Definition, described),
             settings.MaximumRecordCount,
             Labels(layer),
-            Capabilities,
+            CapabilityCeilings.Refuses(layer, "Query") ? string.Empty : Capabilities,
             layer.Definition.IntegerIdentityColumn);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
@@ -353,6 +353,11 @@ internal static class MapServerEndpoints
             return;
         }
 
+        if (await ReadableAsync(context, asked.Layers).ConfigureAwait(false) is not { } drawn)
+        {
+            return;
+        }
+
         PixelTransform transform = new(asked.Extent, asked.Width, asked.Height);
 
         using IMapCanvas canvas = canvases.Create(asked.Width, asked.Height);
@@ -364,7 +369,7 @@ internal static class MapServerEndpoints
                 ? Rgba.Transparent
                 : Rgba.White);
 
-        foreach (PublishedLayer layer in asked.Layers)
+        foreach (PublishedLayer layer in drawn)
         {
             await WmsEndpoints
                 .DrawLayerAsync(
@@ -458,9 +463,14 @@ internal static class MapServerEndpoints
             return;
         }
 
+        if (await ReadableAsync(context, asked.Layers).ConfigureAwait(false) is not { } identified)
+        {
+            return;
+        }
+
         List<object> results = [];
 
-        foreach (PublishedLayer layer in asked.Layers)
+        foreach (PublishedLayer layer in identified)
         {
             (IFeatureSource source, LayerDescription described) =
                 await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
@@ -674,6 +684,36 @@ internal static class MapServerEndpoints
     /// is absent, not forbidden.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The asked layers this service answers <c>Query</c> on, or null with a 403 written when it answers it on
+    /// none of them — V-72, the fourth ArcGIS review.
+    /// </summary>
+    /// <remarks>
+    /// <b>Drawing and identifying are reads, and a ceiling without Query refuses reads.</b> WMS GetMap and
+    /// GetFeatureInfo already refused such a layer, as did the thumbnail and FeatureServer; this face drew it
+    /// and <c>identify</c> handed out its attributes, so a service an administrator had shut to reads during an
+    /// incident (ADR-031 §2a) went on answering here. A request naming several layers draws the ones it may.
+    /// </remarks>
+    private static async Task<IReadOnlyList<PublishedLayer>?> ReadableAsync(
+        HttpContext context, IReadOnlyList<PublishedLayer> asked)
+    {
+        List<PublishedLayer> readable = [.. asked.Where(layer => !CapabilityCeilings.Refuses(layer, "Query"))];
+
+        if (asked.Count > 0 && readable.Count == 0)
+        {
+            await RefuseAsync(context, 403, CapabilityCeilings.Explain(asked[0], "Query")).ConfigureAwait(false);
+            return null;
+        }
+
+        return readable;
+    }
+
+    /// <summary>What this face offers for a service: nothing to read when no layer answers Query.</summary>
+    private static string CapabilitiesOf(PublishedService service) =>
+        service.Layers.Count > 0 && service.Layers.All(layer => CapabilityCeilings.Refuses(layer, "Query"))
+            ? string.Empty
+            : Capabilities;
+
     private static async Task<bool> DrawableAsync(HttpContext context, PublishedService service)
     {
         if (service.Limits.AllowsFeatures(dataSupportsIt: true))

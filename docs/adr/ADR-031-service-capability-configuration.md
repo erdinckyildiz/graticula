@@ -76,6 +76,16 @@ showing it enabled would promise something the runtime refuses. This is the same
 ADR-020 §5h made about identity-column candidates: state the limit where the operator
 meets it.
 
+**Amended 2026-09-23 — the MapServer face honours it too (V-72).** The fourth ArcGIS review found a
+service with `Query` turned off answering `MapServer/identify` with attributes and `MapServer/export`
+with a drawing, while FeatureServer, WFS, WMS, OGC API Features and the thumbnail all refused. Both now
+refuse a layer whose ceiling excludes `Query`, as a 403 in the ArcGIS envelope; a request naming several
+layers draws the ones it may, and the MapServer document of a service that answers `Query` on none says
+`capabilities: ""`. **The listings are not narrowed**: a layer whose reads are off stays in WFS, WMS and
+OGC API Features capabilities, because this section's state is *running and refusing*, and a layer that
+vanished would be indistinguishable from one that was never published —
+`CeilingReachesEveryReadFaceTests` asserts both halves.
+
 ### 2b. What is *not* configurable, and why
 
 **Sharing is not a capability.** It answers *who may read*, is already a scope on the

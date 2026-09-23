@@ -168,6 +168,32 @@ public sealed class CeilingReachesEveryReadFaceTests : ArcGisClient
                 $"WMS GetFeatureInfo answered {(int)info} without LayerNotQueryable, which is "
                 + $"the code WMS 1.3.0 wrote for exactly this case: {Head(infoBody)}");
 
+            // ------------------------------------------------ MapServer, which did not — V-72
+            // <b>Measured on the showcase 2026-09-23</b>: a service offering nothing answered MapServer/identify
+            // with attributes and MapServer/export with a drawing, while every other read face refused.
+            (HttpStatusCode identify, string identifyBody, _) = await GetAsync(
+                $"{prefix}/{bare}/MapServer/identify?geometry=0,0&geometryType=esriGeometryPoint&tolerance=5"
+                + "&mapExtent=-180,-90,180,90&imageDisplay=400,400,96&layers=all&f=json");
+
+            // This face answers a refusal as a 200 carrying the envelope, which is its own recorded rule.
+            Assert.True(
+                RefusedWith403(identifyBody),
+                $"MapServer/identify answered {(int)identify} without a 403 refusal: {Head(identifyBody)}");
+
+            (HttpStatusCode export, string exportBody, _) = await GetAsync(
+                $"{prefix}/{bare}/MapServer/export?bbox=-180,-90,180,90&size=64,64&f=json");
+
+            Assert.True(
+                RefusedWith403(exportBody),
+                $"MapServer/export answered {(int)export} without a 403 refusal: {Head(exportBody)}");
+
+            (HttpStatusCode mapDocument, string mapDocumentBody, _) = await GetAsync($"{prefix}/{bare}/MapServer?f=json");
+
+            Assert.Equal(HttpStatusCode.OK, mapDocument);
+            Assert.Equal(
+                string.Empty,
+                JsonDocument.Parse(mapDocumentBody).RootElement.GetProperty("capabilities").GetString());
+
             // ------------------------------------ and the three doors that must stay open
             (HttpStatusCode stillListed, string stillCapabilities, _) =
                 await GetAsync("/wfs?service=WFS&version=2.0.0&request=GetCapabilities");
@@ -209,6 +235,19 @@ public sealed class CeilingReachesEveryReadFaceTests : ArcGisClient
         Assert.True(
             back == HttpStatusCode.OK,
             $"After restoring the ceiling, WFS GetFeature answered {(int)back}: {Head(backBody)}");
+    }
+
+    private static bool RefusedWith403(string body)
+    {
+        try
+        {
+            return JsonDocument.Parse(body).RootElement.TryGetProperty("error", out JsonElement error)
+                && error.GetProperty("code").GetInt32() == 403;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private static string Head(string body) =>
