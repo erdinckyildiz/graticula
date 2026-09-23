@@ -1887,6 +1887,31 @@ public static class Program
             app.MapPost($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/query", QueryAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // <b>The service's own query — V-82, 2026-09-23.</b> Several layers in one request, each
+            // answered by the layer query above on a request of its own (ServiceQuery), so there is one
+            // implementation of what a query means.
+            app.MapMethods(
+                $"{prefix}/{{serviceName}}/FeatureServer/query",
+                ["GET", "POST"],
+                (HttpContext context,
+                 string serviceName,
+                 CatalogFallback catalog,
+                 ServiceContexts contexts,
+                 ILoggerFactory loggerFactory,
+                 HostSettings settings,
+                 IProjector projector,
+                 DatumShiftNotices datumShifts,
+                 CancellationToken cancellation) =>
+                    ServiceQuery.RunAsync(
+                        context,
+                        serviceName,
+                        catalog,
+                        (layer, layerId) => QueryAsync(
+                            layer, serviceName, layerId, catalog, contexts, loggerFactory, settings,
+                            projector, datumShifts, cancellation),
+                        cancellation))
+                .Governed(SharingGovernedExtensions.ByService);
+
             // <b>The same query under the map face's address — 2026-09-15.</b> The Maps SDK's
             // MapImageLayer sends a sublayer's pop-up and table queries to
             // `MapServer/{id}/query`, and that was a 404, so a map drawn by `export` could not be
