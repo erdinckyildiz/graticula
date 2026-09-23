@@ -181,6 +181,17 @@ public sealed class ServiceSharingPageTests : ConsoleTest
         // 2026-09-04: `#capSharing` is the group rather than a `select`, so it has no `value` of
         // its own and asking for one would answer the empty string for every scope alike —
         // which is a test that passes by measuring nothing.
+        //
+        // <b>Waited for, because the cards arrive before the scope does.</b> CI read the group on
+        // 2026-09-23 (run for a29e5c8) with nothing checked and got the empty string, and the next
+        // run of the same code passed: the control is drawn first and checked when the service's
+        // settings come back. A service always has a scope, so a check that never arrives is still
+        // a failure — the wait's own message says which.
+        await WaitForAsync(
+            "!!document.querySelector('#capSharing input:checked')",
+            "The Sharing control never showed which scope the service has. Every service has one, so "
+            + "a control with nothing chosen tells whoever reads it nothing.");
+
         string chosen = await Browser.EvaluateAsync<string>(
             "document.querySelector('#capSharing input:checked')?.value || ''") ?? string.Empty;
 
