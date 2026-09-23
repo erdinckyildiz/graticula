@@ -399,13 +399,22 @@ internal static class ErrorResponse
     /// projection cannot represent it — Web Mercator at the pole. The match fails safe: any
     /// other <c>XX000</c> keeps the old answer.
     /// </para>
+    /// <para>
+    /// <b>And PROJ 8 says it a third way — V-47, the third ArcGIS review.</b> The two texts above are PROJ 7's,
+    /// which the CI image carries. From PROJ 8 the same refusal reads <i>transform: Invalid coordinate (2049)</i>
+    /// — measured 2026-09-23 on PostGIS 3.6.2 / PROJ 8.2.1 with a point of 3,658,000 by 4,863,000 declared as
+    /// degrees — so on the showcase's newer image a caller who sent metres under <c>inSR=4326</c> was told
+    /// the service was temporarily unavailable and to retry, which never helps and wakes somebody at night.
+    /// </para>
     /// </remarks>
     /// <returns>Whether it is a coordinate outside its reference.</returns>
     internal static bool IsOutsideItsReference(Exception exception) =>
         exception is PostgresException { SqlState: "XX000" } postgis
         && postgis.MessageText.Contains("transform", StringComparison.Ordinal)
         && (postgis.MessageText.Contains("exceeded limits", StringComparison.Ordinal)
-            || postgis.MessageText.Contains("tolerance condition", StringComparison.Ordinal));
+            || postgis.MessageText.Contains("tolerance condition", StringComparison.Ordinal)
+            || postgis.MessageText.Contains("Invalid coordinate", StringComparison.Ordinal)
+            || postgis.MessageText.Contains("outside of projection domain", StringComparison.Ordinal));
 
     internal static Refusal Explain(Exception exception) => exception switch
     {

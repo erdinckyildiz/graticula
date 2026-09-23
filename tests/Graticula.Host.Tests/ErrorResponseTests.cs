@@ -59,6 +59,29 @@ public sealed class ErrorResponseTests
         Assert.DoesNotContain("temporarily unavailable", message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// PROJ 8's words for the same refusal are the caller's mistake too — V-47.
+    /// </summary>
+    /// <remarks>
+    /// Measured 2026-09-23 on PostGIS 3.6.2 / PROJ 8.2.1: <c>st_transform</c> of 3,658,000 by 4,863,000 declared as
+    /// 4326 raises <i>transform: Invalid coordinate (2049)</i>. The third ArcGIS review met it on the showcase as
+    /// a 503 telling the caller to retry. The second text is PROJ's own for error 2050 and was not produced
+    /// here; it is included because it is the same refusal one step later in PROJ's own list.
+    /// </remarks>
+    [Theory]
+    [InlineData("transform: Invalid coordinate (2049)")]
+    [InlineData("transform: Point outside of projection domain (2050)")]
+    public void Newer_proj_wording_is_the_callers_mistake_too(string text)
+    {
+        PostgresException outside = new(
+            messageText: text, severity: "ERROR", invariantSeverity: "ERROR", sqlState: "XX000");
+
+        (int status, string message) = ErrorResponse.Classify(outside);
+
+        Assert.Equal(400, status);
+        Assert.DoesNotContain("temporarily unavailable", message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void The_older_reserved_srid_arm_still_wins_its_own_case()
     {
