@@ -706,8 +706,14 @@ internal static partial class OgcFeaturesEndpoints
 
         foreach (PublishedLayer layer in visible)
         {
-            collections.Add(
-                await DescribeAsync(contexts, projector, layer, cancellation).ConfigureAwait(false));
+            // V-43: one layer whose source fails is left out, not allowed to take `/collections` down.
+            if (await ListingGuard.DescribeOrLeaveOutAsync(
+                    context, "OGC API Features /collections", layer,
+                    () => DescribeAsync(contexts, projector, layer, cancellation), cancellation)
+                    .ConfigureAwait(false) is { } described)
+            {
+                collections.Add(described);
+            }
         }
 
         return collections;

@@ -32,7 +32,8 @@ internal static partial class Log
     // `LogEventIdTests`, not this comment** — the same lesson as the debt register, where a numbering
     // collision took three entries to notice and then got a tool.
     //
-    // The next id is 1033.
+    // The next id is 1066 — the sentence said 1033 long after 1064 was taken, so read the tail of this
+    // file rather than trusting a number in a comment.
 
     /// <summary>
     /// One request, with its query string redacted.
@@ -557,4 +558,20 @@ internal static partial class Log
                 + "and Graticula:WorkerConcurrency. D-196.")]
     public static partial void ConnectionCeilingExceedsTheDatabase(
         ILogger logger, int ceiling, int usable, int allowed);
+
+    /// <summary>A layer could not be described, so a listing document was written without it — V-43.</summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="layer">The layer, qualified by folder and service.</param>
+    /// <param name="face">The document it was left out of.</param>
+    /// <param name="kind">The exception's type.</param>
+    /// <param name="reason">The exception's message.</param>
+    [LoggerMessage(
+        EventId = 1065,
+        Level = LogLevel.Warning,
+        Message = "Layer '{Layer}' was left out of {Face} because it could not be described ({Kind}: {Reason}). "
+                + "The rest of the document was written; the layer's own address still answers with the error. "
+                + "One broken source used to take the whole document down, which from QGIS hid every layer on "
+                + "the server (V-43).")]
+    public static partial void LayerLeftOutOfListing(
+        ILogger logger, string layer, string face, string kind, string reason);
 }

@@ -382,9 +382,14 @@ internal static class WmsEndpoints
 
         foreach (PublishedLayer layer in visible)
         {
-            published.Add(
-                await DescribeAsync(contexts, canvases, layer, cancellation)
-                    .ConfigureAwait(false));
+            // V-43: one layer whose source fails is left out, not allowed to take GetCapabilities down.
+            if (await ListingGuard.DescribeOrLeaveOutAsync(
+                    context, "WMS GetCapabilities", layer,
+                    () => DescribeAsync(contexts, canvases, layer, cancellation), cancellation)
+                    .ConfigureAwait(false) is { } described)
+            {
+                published.Add(described);
+            }
         }
 
         await GeographicallyAsync(projector, published, cancellation).ConfigureAwait(false);

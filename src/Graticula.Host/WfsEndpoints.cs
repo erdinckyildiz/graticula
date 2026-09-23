@@ -404,8 +404,14 @@ internal static class WfsEndpoints
         // while projecting was believed to cost a round trip per layer.
         foreach (PublishedLayer layer in visible)
         {
-            types.Add(await TypeOfAsync(contexts, layer, describe: true, cancellation)
-                .ConfigureAwait(false));
+            // V-43: one layer whose source fails is left out, not allowed to take GetCapabilities down.
+            if (await ListingGuard.DescribeOrLeaveOutAsync(
+                    context, "WFS GetCapabilities", layer,
+                    () => TypeOfAsync(contexts, layer, describe: true, cancellation), cancellation)
+                    .ConfigureAwait(false) is { } type)
+            {
+                types.Add(type);
+            }
         }
 
         // <b>One call per distinct reference, not per layer.</b> The same routine WMS
