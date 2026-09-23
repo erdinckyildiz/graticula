@@ -1195,6 +1195,9 @@ internal static class PortalEndpoints
         return new
         {
             id = map.Id,
+
+            // V-66: the organisation an item belongs to, which `orgid:` and `accountid:` search by.
+            orgId = PortalId(context),
             owner = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id
                 ? current.Principal.Name
                 : "graticula",
@@ -1432,6 +1435,12 @@ internal static class PortalEndpoints
         {
             id = face == PrimaryFace(service) ? ItemId(service) : FaceItemId(service, face),
             owner,
+
+            // <b>The organisation it belongs to — V-66, the fourth ArcGIS review.</b> A portal item carries its
+            // `orgId`, and `orgid:<id>` — which Pro's *My Organization* and the Python API's default search
+            // add — matched nothing here, because the field was not on the item, so an organisation-scoped
+            // search answered an empty portal. This portal is one organisation, and its id is portals/self's.
+            orgId = PortalId(context),
             title = service.Name,
             name = service.Name,
             type = face switch

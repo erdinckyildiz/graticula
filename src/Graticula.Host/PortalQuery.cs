@@ -38,7 +38,7 @@ internal static class PortalQuery
     /// <summary>Clauses that are understood, and one that is deliberately ignored.</summary>
     private static readonly HashSet<string> Known = new(StringComparer.OrdinalIgnoreCase)
     {
-        "type", "owner", "url", "title", "tags", "ownerfolder", "orgid", "access", "group", "typekeywords", "id",
+        "type", "owner", "url", "title", "tags", "ownerfolder", "orgid", "accountid", "access", "group", "typekeywords", "id",
     };
 
     /// <summary>Whether an item satisfies a query.</summary>
@@ -341,12 +341,15 @@ internal static class PortalQuery
                 return Guid.TryParse(Value, out Guid group) && groups is not null && groups.Contains(group);
             }
 
+            // `accountid` is ArcGIS's other name for the organisation an item belongs to — V-66.
+            string field = string.Equals(Field, "accountid", StringComparison.OrdinalIgnoreCase) ? "orgid" : Field;
+
             bool prefix = Value.Length > 1 && Value[^1] == '*';
             string wanted = prefix ? Value[..^1] : Value;
 
-            return Field.ToLowerInvariant() is "tags" or "typekeywords"
-                ? ContainsAny(PortalQuery.Field(item, Field), wanted, prefix)
-                : Same(PortalQuery.Field(item, Field), wanted, prefix);
+            return field.ToLowerInvariant() is "tags" or "typekeywords"
+                ? ContainsAny(PortalQuery.Field(item, field), wanted, prefix)
+                : Same(PortalQuery.Field(item, field), wanted, prefix);
         }
     }
 

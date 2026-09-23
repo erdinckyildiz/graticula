@@ -161,6 +161,19 @@ public sealed class PortalQueryTests
     }
 
     [Theory]
+    [InlineData("orgid:ABC123", true)]
+    [InlineData("accountid:abc123", true)]
+    [InlineData("orgid:other", false)]
+    [InlineData("title:tr_il AND orgid:ABC123", true)]
+    public void An_organisation_search_finds_the_organisations_items(string query, bool expected)
+    {
+        // V-66, the fourth ArcGIS review: the item carried no orgId, so orgid: and accountid: matched nothing.
+        object item = new { title = "tr_il", type = "Feature Service", owner = "root", orgId = "ABC123" };
+
+        Assert.Equal(expected, PortalQuery.Matches(item, query));
+    }
+
+    [Theory]
     [InlineData("type:\"Feature Service\" OR categories:/Basemaps")]
     [InlineData("(owner:root")]
     [InlineData("owner:root)")]
