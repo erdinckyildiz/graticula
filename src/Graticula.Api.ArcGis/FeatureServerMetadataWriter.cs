@@ -495,7 +495,7 @@ public static class FeatureServerMetadataWriter
             supportsDisconnectedEditing = false,
             hasStaticData = IsStatic(capabilities),
             maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount, serverMaxRecordCount),
-            supportedQueryFormats = "JSON, PBF",
+            supportedQueryFormats = "JSON, geoJSON, PBF",
 
             // <b>Computed per caller, and saying so accurately is the point.</b>
             // ADR-008 §2's never-degrade-silently applies here before anywhere
@@ -857,7 +857,7 @@ public static class FeatureServerMetadataWriter
             drawingInfoGenerated = generated,
 
             maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount, serverMaxRecordCount),
-            supportedQueryFormats = "JSON, PBF",
+            supportedQueryFormats = "JSON, geoJSON, PBF",
             // Hosted layers only: ADR-013 §4c's registered cases are designed
             // and not built, and declaring a capability on a layer that refuses
             // it is worse than not declaring it.

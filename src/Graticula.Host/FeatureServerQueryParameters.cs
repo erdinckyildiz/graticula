@@ -506,7 +506,13 @@ internal static class FeatureServerQueryParameters
     /// <c>pjson</c> is ArcGIS's pretty-printed JSON, and the same document without the whitespace is
     /// the same answer.
     /// </remarks>
-    private static readonly string[] Formats = ["json", "pjson", "html", "pbf"];
+    private static readonly string[] Formats = ["json", "pjson", "html", "pbf", "geojson"];
+
+    /// <summary>Whether <c>f</c> asks for GeoJSON — V-55.</summary>
+    /// <param name="parameters">The request's parameters.</param>
+    /// <returns>True for <c>f=geojson</c>.</returns>
+    internal static bool WantsGeoJson(IQueryCollection parameters) =>
+        parameters["f"].Any(value => string.Equals(value?.Trim(), "geojson", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Refuses a parameter this class has never heard of.
@@ -542,8 +548,8 @@ internal static class FeatureServerQueryParameters
             if (format.Length > 0 && !Formats.Contains(format, StringComparer.OrdinalIgnoreCase))
             {
                 error =
-                    $"'f={format}' is not produced here: a query is answered as json, pbf or html "
-                    + "(supportedQueryFormats says JSON, PBF). It is refused rather than answered as json, "
+                    $"'f={format}' is not produced here: a query is answered as json, geojson, pbf or html "
+                    + "(supportedQueryFormats says JSON, geoJSON, PBF). It is refused rather than answered as json, "
                     + "which a client asking for another format would parse as the wrong document.";
                 return false;
             }
@@ -1298,6 +1304,14 @@ internal static class FeatureServerQueryParameters
         }
 
         outSrid ??= Wkid(First(parameters, "defaultSR"));
+
+        // <b>GeoJSON is WGS 84 unless the caller names another reference</b> — RFC 7946, and ArcGIS since
+        // 10.8. Ahead of the service's own reference, because that is a default for Esri JSON and a format
+        // with a reference of its own has already decided.
+        if (WantsGeoJson(parameters))
+        {
+            outSrid ??= Graticula.Formats.GeoJsonWriter.Srid;
+        }
 
         // <b>And then the service's, which is what makes it the service's reference.</b>
         // Held back for a day on a measurement: with this line alone the document still

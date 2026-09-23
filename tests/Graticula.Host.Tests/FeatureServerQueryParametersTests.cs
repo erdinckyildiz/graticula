@@ -167,11 +167,11 @@ public sealed class FeatureServerQueryParametersTests
     /// </summary>
     /// <remarks>
     /// Written 2026-09-15: <c>f=geojson</c> and <c>f=pbf</c> came back as Esri JSON, which a caller
-    /// that asked for either parses as the wrong document.
+    /// that asked for either parses as the wrong document. Both are produced now (ADR-073, V-55).
     /// </remarks>
     [Theory]
-    [InlineData("geojson")]
     [InlineData("kmz")]
+    [InlineData("csv")]
     public void A_format_that_is_not_produced_is_refused(string format)
     {
         Assert.Contains($"'f={format}' is not produced", Refuse(("f", format)), StringComparison.Ordinal);
@@ -182,6 +182,7 @@ public sealed class FeatureServerQueryParametersTests
     [InlineData("pjson")]
     [InlineData("JSON")]
     [InlineData("pbf")]
+    [InlineData("geojson")]
     public void The_formats_that_are_produced_are_accepted(string format)
     {
         Parse(("f", format));

@@ -5319,6 +5319,25 @@ public static class Program
             }
         }
 
+        // <b>`f=geojson` — V-55.</b> A feature collection, so the four other shapes are refused rather than
+        // answered in a format that has no place for them; and no M, which ArcGIS refuses with geoJSON too.
+        if (parameters.WantsGeoJson)
+        {
+            string? refused = shape is not QueryShape.Features
+                ? "f=geojson answers features. Counts, ids, extents and statistics are answered as json or pbf."
+                : parameters.All["returnM"].Any(value => string.Equals(value?.Trim(), "true", StringComparison.OrdinalIgnoreCase))
+                    ? "f=geojson is not produced with returnM=true: GeoJSON has no place for a measure."
+                    : null;
+
+            if (refused is not null)
+            {
+                await Results.Json(
+                    new { error = new { code = 400, message = refused, details = Array.Empty<string>() } },
+                    statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+        }
+
         // Parameters accepted and ignored are logged rather than left invisible.
         // Each is a claim that ignoring it cannot lose data, and a claim nobody
         // can see is one nobody checks.
@@ -5490,9 +5509,9 @@ public static class Program
         }
 
         FeatureServerQueryWriter writer = new(
-            layer.Definition, cost.ResponseBytes(settings.MaximumResponseBytes), described.Fields);
+            layer.Definition, cost.ResponseBytes(settings.MaximumResponseBytes), described.Fields, parameters.WantsGeoJson);
 
-        context.Response.ContentType = "application/json; charset=utf-8";
+        context.Response.ContentType = writer.ContentType;
 
         // <b>D-30. Nothing is timed unless the logger that would read it is
         // on</b> — no trace object, no timestamps, and no branch inside the row
@@ -5624,4 +5643,8 @@ internal sealed record ArgumentsForQuery(ArcGisParameters All)
     /// <summary>Whether <c>f</c> is <c>pbf</c> — ADR-073.</summary>
     public bool WantsPbf => All["f"].Any(
         value => string.Equals(value?.Trim(), "pbf", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Whether <c>f</c> is <c>geojson</c> — V-55.</summary>
+    public bool WantsGeoJson => All["f"].Any(
+        value => string.Equals(value?.Trim(), "geojson", StringComparison.OrdinalIgnoreCase));
 }

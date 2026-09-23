@@ -64,6 +64,8 @@ public sealed class FeatureServerQueryWriter
     /// <summary>The layer's columns as its document describes them, by name; empty when not given.</summary>
     private readonly Dictionary<string, FieldDescription> _fields;
 
+    private readonly bool _geoJson;
+
     /// <summary>Creates a writer for one layer.</summary>
     /// <param name="layer">The layer being written.</param>
     /// <param name="maximumBytes">
@@ -77,8 +79,12 @@ public sealed class FeatureServerQueryWriter
     /// column a string labelled with its own name, which is what a caller that has no description
     /// can honestly say.
     /// </param>
+    /// <param name="geoJson">Whether to write a GeoJSON FeatureCollection rather than Esri JSON — V-55.</param>
     public FeatureServerQueryWriter(
-        LayerDefinition layer, long maximumBytes = 0, IReadOnlyList<FieldDescription>? fields = null)
+        LayerDefinition layer,
+        long maximumBytes = 0,
+        IReadOnlyList<FieldDescription>? fields = null,
+        bool geoJson = false)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentOutOfRangeException.ThrowIfNegative(maximumBytes);
@@ -98,7 +104,11 @@ public sealed class FeatureServerQueryWriter
         _layer = layer;
         _maximumBytes = maximumBytes;
         _fields = (fields ?? []).ToDictionary(field => field.Name, StringComparer.Ordinal);
+        _geoJson = geoJson;
     }
+
+    /// <summary>The media type of what this writes.</summary>
+    public string ContentType => _geoJson ? "application/geo+json; charset=utf-8" : "application/json; charset=utf-8";
 
     /// <summary>
     /// Writes the whole response, reading features as it goes.
@@ -170,8 +180,11 @@ public sealed class FeatureServerQueryWriter
         {
             bool hasFirst = await features.MoveNextAsync().ConfigureAwait(false);
 
-            return await WriteBodyAsync(writer, features, hasFirst, schema, objectIdIndex, query, geometryType, cancellationToken)
-                .ConfigureAwait(false);
+            return _geoJson
+                ? await WriteGeoJsonBodyAsync(writer, features, hasFirst, schema, objectIdIndex, query, cancellationToken)
+                    .ConfigureAwait(false)
+                : await WriteBodyAsync(writer, features, hasFirst, schema, objectIdIndex, query, geometryType, cancellationToken)
+                    .ConfigureAwait(false);
         }
         finally
         {
@@ -330,6 +343,115 @@ public sealed class FeatureServerQueryWriter
         // full page is the only honest signal we have without asking the
         // database a second question.
         writer.WriteBoolean("exceededTransferLimit", truncatedBySize || written >= query.Limit);
+        writer.WriteEndObject();
+
+        await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+        return written;
+    }
+
+    /// <summary>
+    /// The same features as a GeoJSON FeatureCollection — <c>f=geojson</c>, V-55.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner's decision, 2026-09-23</b>, after the third ArcGIS review found it refused. ArcGIS has
+    /// answered <c>f=geojson</c> since 10.4, and since 10.8 in RFC 7946's WGS 84 when no <c>outSR</c> is named;
+    /// the parser supplies that default, so the reference here is whatever the query was answered in.
+    /// </para>
+    /// <para>
+    /// <b>The attributes are the json answer's, written by the same code</b>, so a date is epoch
+    /// milliseconds and an object id a number in both, and a client switching format does not also switch
+    /// what a value means. The object id is the feature's <c>id</c> as well as a property. A reference other
+    /// than 4326 is named in a <c>crs</c> member, which RFC 7946 retired and which is the only way a document
+    /// outside WGS 84 can still say what it is in; the paging flag sits in a top-level <c>properties</c>.
+    /// </para>
+    /// </remarks>
+    private async Task<int> WriteGeoJsonBodyAsync(
+        Utf8JsonWriter writer,
+        IAsyncEnumerator<Feature> features,
+        bool hasFirst,
+        FeatureSchema schema,
+        int objectIdIndex,
+        FeatureQuery query,
+        CancellationToken cancellationToken)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("type", "FeatureCollection");
+
+        int srid = query.OutSrid ?? _layer.Srid;
+
+        if (srid != Graticula.Formats.GeoJsonWriter.Srid)
+        {
+            writer.WriteStartObject("crs");
+            writer.WriteString("type", "name");
+            writer.WriteStartObject("properties");
+            writer.WriteString("name", $"EPSG:{srid.ToString(CultureInfo.InvariantCulture)}");
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+
+        writer.WriteStartArray("features");
+
+        int written = 0;
+        bool truncatedBySize = false;
+
+        for (bool more = hasFirst; more; more = await features.MoveNextAsync().ConfigureAwait(false))
+        {
+            Feature feature = features.Current;
+
+            writer.WriteStartObject();
+            writer.WriteString("type", "Feature");
+
+            if (objectIdIndex >= 0 && feature[objectIdIndex] is { } id)
+            {
+                WriteObjectId(writer, "id", id);
+            }
+
+            if (feature.Geometry is { } geometry)
+            {
+                writer.WritePropertyName("geometry");
+                Graticula.Formats.GeoJsonWriter.WriteGeometry(writer, geometry);
+            }
+            else
+            {
+                writer.WriteNull("geometry");
+            }
+
+            writer.WriteStartObject("properties");
+
+            for (int i = 0; i < schema.Count; i++)
+            {
+                if (i == objectIdIndex)
+                {
+                    WriteObjectId(writer, schema.Names[i], feature[i]);
+                    continue;
+                }
+
+                WriteAttribute(writer, schema.Names[i], feature[i]);
+            }
+
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+            written++;
+
+            if (_maximumBytes > 0 && writer.BytesCommitted + writer.BytesPending >= _maximumBytes)
+            {
+                truncatedBySize = true;
+                break;
+            }
+
+            if (writer.BytesPending > 32 * 1024)
+            {
+                await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        writer.WriteEndArray();
+
+        writer.WriteStartObject("properties");
+        writer.WriteBoolean("exceededTransferLimit", truncatedBySize || written >= query.Limit);
+        writer.WriteEndObject();
+
         writer.WriteEndObject();
 
         await writer.FlushAsync(cancellationToken).ConfigureAwait(false);

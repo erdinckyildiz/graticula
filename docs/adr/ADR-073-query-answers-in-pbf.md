@@ -118,6 +118,19 @@ Values follow the JSON writer: the object id as `uint_value` (or `sint64_value` 
    it exercised is `queryFeatures`, which is the SDK's pbf decoder; the drawing path sends a view-mode
    grid through the same message and was not screenshotted.
 
+### 5a. Amended 2026-09-23 — and in GeoJSON, by the owner's decision
+
+The third ArcGIS review (V-55) found `f=geojson` refused; ArcGIS has answered it since 10.4. Asked, the
+owner chose to add it. It is the json answer written by the same writer in a second shape — a
+FeatureCollection whose features carry the object id as `id`, the json answer's attributes as
+`properties` (written by the same code, so a date is epoch milliseconds in both), and a top-level
+`properties.exceededTransferLimit`. **With no `outSR` it is WGS 84**, which is RFC 7946 and ArcGIS
+since 10.8, ahead of a service's own reference; another `outSR` is honoured and named in a `crs`
+member. Counts, ids, extents and statistics are refused with `f=geojson`, as is `returnM=true`, which
+ArcGIS refuses with it too. `supportedQueryFormats` says `JSON, geoJSON, PBF` on both the FeatureServer
+and the MapServer layer, which share the handler. Tested against the json answer row for row
+(`AGeoJsonAnswerIsTheJsonAnswerTests`), not against a fixture.
+
 ## 6. Consequences
 
 **Positive.** The Maps SDK asks this server for pbf as it asks ArcGIS, and receives a smaller answer
