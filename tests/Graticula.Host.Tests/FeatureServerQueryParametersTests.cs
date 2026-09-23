@@ -284,6 +284,25 @@ public sealed class FeatureServerQueryParametersTests
         Assert.Equal(provider, query.Spatial!.RelatePattern);
     }
 
+    /// <summary>
+    /// A grouped statistic may be ordered by its own output name — V-71, the fourth ArcGIS review.
+    /// </summary>
+    [Fact]
+    public void A_statistic_is_ordered_by_its_output_name()
+    {
+        FeatureQuery query = Parse(
+            ("outStatistics", """[{"statisticType":"count","onStatisticField":"objectid","outStatisticFieldName":"value"}]"""),
+            ("groupByFieldsForStatistics", "name"),
+            ("orderByFields", "value DESC"));
+
+        Graticula.Features.SortKey key = Assert.Single(query.OrderBy);
+        Assert.Equal("value", key.Field);
+        Assert.True(key.Descending);
+
+        // Not without the statistic that names it: an unknown name is still refused.
+        Assert.Contains("Cannot order by 'value'", Refuse(("orderByFields", "value DESC")), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void An_invented_spatial_relationship_is_refused()
     {

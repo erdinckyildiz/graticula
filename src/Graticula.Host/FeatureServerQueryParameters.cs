@@ -300,11 +300,6 @@ internal static class FeatureServerQueryParameters
             return Fail(out error, error);
         }
 
-        if (!TryOrderBy(parameters, allFields, out List<Graticula.Features.SortKey> orderBy, out error))
-        {
-            return Fail(out error, error);
-        }
-
         if (!TryWhere(parameters, allFields, out ParsedWhere? where, out error))
         {
             return Fail(out error, error);
@@ -337,6 +332,17 @@ internal static class FeatureServerQueryParameters
 
         if (!TryStatistics(parameters, allFields, out List<StatisticRequest> statistics,
                 out List<string> groupBy, out string? having, out error))
+        {
+            return Fail(out error, error);
+        }
+
+        // <b>After the statistics, because their output names may be ordered by — V-71, the fourth ArcGIS
+        // review.</b> "The ten most common values" is a grouped count ordered by the count, and
+        // `orderByFields=value DESC` was refused as *not a field of this layer* while both providers already
+        // ordered by a statistic's name. The names come from the parsed statistics, which are identifiers
+        // checked there, so the whitelist is still the safety.
+        if (!TryOrderBy(parameters, allFields, statistics.Select(s => s.OutName),
+                out List<Graticula.Features.SortKey> orderBy, out error))
         {
             return Fail(out error, error);
         }
@@ -745,6 +751,7 @@ internal static class FeatureServerQueryParameters
     private static bool TryOrderBy(
         IQueryCollection parameters,
         IReadOnlyList<FieldDescription> allFields,
+        IEnumerable<string> computed,
         out List<Graticula.Features.SortKey> orderBy,
         out string? error)
     {
@@ -757,7 +764,7 @@ internal static class FeatureServerQueryParameters
             return true;
         }
 
-        HashSet<string> known = [.. allFields.Select(f => f.Name)];
+        HashSet<string> known = [.. allFields.Select(f => f.Name), .. computed];
 
         foreach (string clause in values[0]!.Split(
             ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
