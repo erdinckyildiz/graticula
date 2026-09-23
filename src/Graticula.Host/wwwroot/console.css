@@ -1774,6 +1774,151 @@ dialog { color: var(--ink); }
 #toast.bad { background: var(--alert); }
 #toast.good { background: var(--ok); }
 
+/* ═══════════════════════════════════════════════════════════════════════ a phone, D-273
+   <b>Below 760 pixels the sidebar is the rail, whatever the reader chose.</b> Measured 2026-09-16 at
+   390 px: the 232-pixel navigation column stayed, which left 158 pixels of work, and a page heading's
+   sentence broke after every word. The collapsed state already exists and is drawn — the toggle has
+   chosen it since the console was written — so this is that state made the only one where a wider one
+   does not fit, rather than a second narrow design nobody reviews.
+
+   <b>The toggle goes with it.</b> A control whose two states look identical is a control that teaches a
+   reader it does nothing; the rail is the only width here, so there is nothing to toggle.
+
+   <b>Everything else is the same screens.</b> The panes that give up a column already do so at 1,100 and
+   1,180; what is added here is the frame around them — the heading stacks, the toolbars wrap, the
+   toast spans the width instead of sitting under the thumb's corner, and the work's side padding drops
+   to the gutter these pages use everywhere else. */
+@media (max-width: 760px) {
+  #shell, #shell.tight { grid-template-columns: 56px 1fr; }
+
+  /* The rail's own furniture, in the state `#shell.tight` already defines for it. */
+  #brand h1, #railArt, #tabs .label, #tabs .count, #collapse { display: none; }
+  #tabs a[data-tab] { justify-content: center; padding: 10px 0; gap: 0; }
+
+  .wrap { padding: var(--gap-4) var(--gap-3); }
+
+  /* The heading and its controls are a column: side by side, the sentence broke after every word. */
+  .pagehead { flex-direction: column; gap: var(--gap-3); }
+  .pagehead .right { align-self: stretch; }
+  .pagehead .segmented { align-self: flex-start; }
+
+  /* A pair of fields is one field; `.grid2` is the form idiom these screens share. */
+  .grid2 { grid-template-columns: minmax(0, 1fr); max-width: none; }
+
+  /* The layer and service editors put their navigation above their page rather than beside it. */
+  #edit { grid-template-columns: minmax(0, 1fr); }
+  #editNav { border-right: 0; border-bottom: 1px solid var(--rule); display: flex; overflow-x: auto; }
+  #editNav a { border-left: 0; border-bottom: 3px solid transparent; white-space: nowrap; }
+  #editNav a[aria-current] { border-left-color: transparent; border-bottom-color: var(--accent); }
+  #editPages, #servicePages, #servicePagesBody { padding: var(--gap-4) var(--gap-3); }
+
+  /* Full width, because 480 pixels of toast beside a 16-pixel margin is the width of the screen. */
+  #toast { left: var(--gap-3); right: var(--gap-3); bottom: var(--gap-3); max-width: none; }
+
+  /* <b>The top bar wraps, and Sign out comes back on screen.</b> Both phone reviews found it first and
+     measured the same thing: `header` is a 58-pixel row that does not wrap, its content is 432 pixels
+     wide in a 334-pixel column, so `#who` and Sign out sat off the right edge — and the page scrolled
+     98 pixels sideways to reach them, which drags the rail off with it. The health line takes its own
+     row and truncates rather than wrapping to five lines over the breadcrumb. */
+  header { height: auto; min-height: 52px; flex-wrap: wrap; row-gap: 4px;
+           padding: var(--gap-2) var(--gap-3); gap: var(--gap-3); }
+  #healthLine { flex: 1 1 100%; order: 3; min-width: 0;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #who { max-width: 40vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #who b { display: inline; margin-right: 6px; }
+
+  /* A toolbar is a row of filters; at this width it is a column of them, and the search box takes the
+     line it needs. On Groups the New button drew over the row count — `no gro⟨button⟩`. */
+  .toolbar { flex-wrap: wrap; }
+  .toolbar input[type=search], .toolbar input[type=text] { flex: 1 1 100%; min-width: 0; }
+
+  /* <b>A tab strip scrolls rather than losing its last tab.</b> `.segmented` is `flex: none` and
+     `nowrap`, so `#serviceTabs` at 405 pixels in a 302-pixel column cut Settings off entirely, and
+     `#visModes` cut Tiles — the tile preview could not be chosen at all. */
+  .segmented { flex: 0 1 auto; min-width: 0; max-width: 100%;
+               overflow-x: auto; scrollbar-width: none; }
+  .pagehead .segmented { align-self: stretch; }
+
+  /* Two tables are not in `.widetable`, so they pushed their own card open instead of scrolling in it. */
+  #view-roles .panel, #view-sources .panel { overflow-x: auto; }
+  #view-roles .panel table, #view-sources .panel table { min-width: 460px; }
+
+  /* The basemap bar: Use and None were off the edge, so a basemap could be neither set nor cleared. */
+  #basemapBar { flex-wrap: wrap; }
+  #basemapBar .val, #basemapInput { flex: 1 1 100%; min-width: 0; }
+  #basemapSet, #basemapClear { flex: 1 1 auto; }
+
+  /* <b>Forty pixels for anything a finger presses.</b> Every row control was 20 to 28 pixels tall. This
+     is the touch target only — the type size and the spacing between rows are unchanged. */
+  .tiny, .pillbtn, .menu > summary, #surfaces a, .segmented a, .segmented button, #editNav a {
+    min-height: 40px; display: inline-flex; align-items: center; justify-content: center;
+  }
+  #editNav a { justify-content: flex-start; flex: 0 0 auto; }
+
+  /* The symbology strip keeps the page's gutter, and its state sentence is read rather than cut. */
+  .symstrip { padding: 0 var(--gap-3); }
+  .symstrip .symstate { white-space: normal; }
+
+  /* <b>A row menu is a sheet at the bottom.</b> It was absolutely positioned and 450 pixels wide inside
+     a 310-pixel scroller: opening it looked like nothing happening, with the sheet at x 461 and Delete
+     past the edge — the clipping `.menu .sheet`'s own comment predicted. The script stops positioning
+     it below this width, so these rules are the whole of it: across the bottom, where a thumb is, and
+     scrolling inside itself when it is tall. */
+  .menu[open] .sheet { position: fixed; left: var(--gap-3); right: var(--gap-3);
+                       top: auto; bottom: var(--gap-3); width: auto; min-width: 0;
+                       max-height: 60vh; overflow-y: auto; }
+  .menu .sheet button, .menu .sheet a { min-height: 40px; display: flex; align-items: center; }
+
+  /* The note under a destructive item is a sentence; held on one line it read *…never remove‸*. */
+  .menu .sheet .note { white-space: normal; }
+
+  /* <b>The actions stay where the thumb is.</b> Reaching the row menu on the services table cost a
+     550-pixel sideways swipe, and the column it is in is the one every row is opened from. The shadow
+     is the edge that says the other columns pass under this one rather than ending there. */
+  .widetable table td:last-child, .widetable table th:last-child {
+    position: sticky; right: 0; z-index: 1; background: var(--surface);
+    box-shadow: -10px 0 10px -10px rgba(16, 24, 38, .25);
+  }
+
+  /* <b>The open menu's own cell comes forward.</b> A sticky cell makes a stacking context, so the
+     fixed sheet is trapped inside the cell it is in and every later row's pinned cell paints over it —
+     measured with `elementFromPoint`: a *Map* button of the row below sat on top of *The layer
+     document*. Raising the sheet does nothing; raising its cell is what works. */
+  .widetable table td:last-child:has(.menu[open]) { z-index: 3; }
+
+  /* The row under the pointer keeps its highlight in the pinned column too, rather than showing a
+     white patch where the later rule wins. */
+  tr.pick:hover td:last-child { background: #f7fafc; }
+
+  /* <b>Not on the logs, where the last column is the resource and pinning it is a column of dashes.</b>
+     There is no row menu there, so there is nothing to keep in reach. */
+  #view-logs .widetable table td:last-child, #view-logs .widetable table th:last-child {
+    position: static; box-shadow: none;
+  }
+
+  /* Two more scope strips that are not `.segmented`, and two more tables that are not in `.widetable`. */
+  .tabstrip { overflow-x: auto; scrollbar-width: none; }
+  .tabstrip a { flex: 0 0 auto; white-space: nowrap; min-height: 40px;
+                display: inline-flex; align-items: center; }
+  #view-groups .panel, #view-anonymous .panel { overflow-x: auto; }
+  #view-groups .panel table, #view-anonymous .panel table { min-width: 460px; }
+
+  /* <b>An empty state is a sentence, not a table.</b> Dropping the minimum width was not enough: the
+     global `th { white-space: nowrap }` still sized the table from a header with nothing under it, so
+     the sentence was clipped at 504 pixels in a 308-pixel panel. With no rows to label, the header is
+     not a header. */
+  #view-groups .panel table:has(td.empty),
+  #view-anonymous .panel table:has(td.empty) { min-width: 0; }
+  #view-groups .panel table:has(td.empty) thead,
+  #view-anonymous .panel table:has(td.empty) thead { display: none; }
+
+  /* The controls the first pass missed, measured at 20 to 34 pixels. */
+  /* `td a:has(.pill)` is the visibility link, which is a pill inside a link and was 20 pixels tall; the
+     first version of this rule named a class the markup does not have. */
+  .rowname, #signout, #logMore, td a:has(.pill) { min-height: 40px;
+    display: inline-flex; align-items: center; }
+}
+
 /* ------------------------------------------------------------- the two card forms */
 
 /*

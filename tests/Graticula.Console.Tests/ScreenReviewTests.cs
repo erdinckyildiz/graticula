@@ -280,6 +280,68 @@ public sealed class ScreenReviewTests : ConsoleTest
     }
 
     /// <summary>
+    /// No screen scrolls sideways on a phone, and the sidebar is the rail there —
+    /// [D-273](../../docs/architecture-debt.md).
+    /// </summary>
+    /// <remarks>
+    /// <b>390 × 844, which is an iPhone's CSS viewport.</b> Measured 2026-09-16 at that width: the
+    /// 232-pixel sidebar stayed, leaving 158 pixels of work, and a heading's sentence broke after every
+    /// word. Nothing had ever asserted a width narrower than 1,024, so the console was neither usable on a
+    /// phone nor honestly desktop-only.
+    /// </remarks>
+    [Theory]
+    [InlineData("/server/#/services/hosted")]
+    [InlineData("/server/#/operations")]
+    [InlineData("/server/#/members")]
+    [InlineData("/studio/#/content")]
+    public async Task A_screen_fits_a_phone(string address)
+    {
+        (string token, _) = await SignInAsync();
+
+        await Browser.CallAsync("Emulation.setDeviceMetricsOverride", new
+        {
+            width = 390,
+            height = 844,
+            deviceScaleFactor = 1,
+            mobile = true,
+        });
+
+        try
+        {
+            await OpenAsync(address, token);
+
+            await WaitForAsync(
+                "document.querySelector('.view.on') !== null "
+                + "&& document.querySelector('.view.on').textContent.trim().length > 40",
+                $"'{address}' never rendered, so its width proves nothing.");
+
+            // <b>The rail, whatever the reader last chose.</b> The sidebar's open width is 232, which is
+            // 60 per cent of this screen.
+            await WaitForAsync(
+                "document.getElementById('rail').getBoundingClientRect().width <= 72",
+                $"The sidebar keeps its full width at 390 px on '{address}', so the work has what is left.");
+
+            await WaitForAsync(
+                "document.body.scrollWidth <= window.innerWidth + 1",
+                $"'{address}' scrolls sideways at 390 px. A table that needs the width scrolls inside its "
+                + "own container; the page must not, because it carries the navigation column out with it.");
+
+            // And the toggle is gone rather than drawn with nothing to do.
+            bool toggle = await Browser.EvaluateAsync<bool>(
+                "document.getElementById('collapse')?.offsetParent !== null");
+
+            Assert.False(toggle, "The Collapse control is drawn on a phone, where the rail is the only width.");
+
+            string[] errors = await PageErrorsAsync();
+            NothingWentWrong(errors);
+        }
+        finally
+        {
+            await Browser.CallAsync("Emulation.clearDeviceMetricsOverride");
+        }
+    }
+
+    /// <summary>
     /// A role can be reached and operated without a mouse.
     /// </summary>
     /// <remarks>

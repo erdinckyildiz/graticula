@@ -1871,6 +1871,20 @@ document.addEventListener("toggle", event => {
     if (other !== menu) other.open = false;
   }
 
+  // <b>On a phone the sheet is the stylesheet's, and this function gets out of the way — D-273.</b>
+  // Below 760 px the menu is a sheet across the bottom of the screen, which is where a thumb is and
+  // where nothing can push it off an edge. The inline styles below beat any rule in the stylesheet, so
+  // the media query was silently losing: measured at 390 px the sheet sat at x -89 with 89 pixels of
+  // it off the left edge, reading *…ervice* where it should say *Delete this service*. Cleared rather
+  // than left behind, because a window resized from desktop to phone would otherwise keep them.
+  if (window.matchMedia("(max-width: 760px)").matches) {
+    sheet.style.position = "";
+    sheet.style.top = "";
+    sheet.style.right = "";
+    sheet.style.left = "";
+    return;
+  }
+
   const at = (menu.querySelector("summary") || menu).getBoundingClientRect();
 
   // <b>Clamped into the window, because the summary can be scrolled out of it.</b> The table scrolls
