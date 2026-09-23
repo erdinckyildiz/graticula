@@ -80,6 +80,19 @@ public sealed class AttachmentsAreQueriedAndReplacedTests : ArcGisClient
 
             Assert.Equal(attachmentId, after.GetProperty("id").GetInt32());
             Assert.Equal("replaced.png", after.GetProperty("name").GetString());
+            // V-78, the fourth ArcGIS review: definitionExpression is what the Maps SDK sends for an
+            // AttachmentQuery.where, and it was refused. It is read as the query face reads where.
+            JsonElement byWhere = await GetJsonAsync(
+                $"{feature}/queryAttachments?definitionExpression={Uri.EscapeDataString("label = 'a'")}");
+            Assert.Equal(objectId, byWhere.GetProperty("attachmentGroups").EnumerateArray().Single().GetProperty("parentObjectId").GetInt64());
+
+            JsonElement none = await GetJsonAsync(
+                $"{feature}/queryAttachments?definitionExpression={Uri.EscapeDataString("label = 'nobody'")}");
+            Assert.Empty(none.GetProperty("attachmentGroups").EnumerateArray());
+
+            JsonElement both = await GetJsonAsync(
+                $"{feature}/queryAttachments?objectIds={objectId + 1000}&definitionExpression={Uri.EscapeDataString("label = 'a'")}");
+            Assert.Empty(both.GetProperty("attachmentGroups").EnumerateArray());
         }
         finally
         {

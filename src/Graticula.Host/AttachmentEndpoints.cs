@@ -139,9 +139,12 @@ internal static class AttachmentEndpoints
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>By <c>objectIds</c>, which is what a client that already drew the features has.</b>
-    /// <c>definitionExpression</c>, <c>globalIds</c>, <c>attachmentsWhere</c>, <c>keywords</c> and
-    /// <c>size</c> are refused rather than ignored: each narrows the answer, and a caller who sent
+    /// <b>By <c>objectIds</c>, which is what a client that already drew the features has, and by
+    /// <c>definitionExpression</c> since 2026-09-23</b> — V-78, the fourth ArcGIS review: the Maps SDK sends an
+    /// <c>AttachmentQuery.where</c> as that parameter, and it was refused. It is read by the query face's own
+    /// parser, so it accepts and refuses exactly what <c>where</c> does, and it is combined with
+    /// <c>objectIds</c> when both are sent. <c>globalIds</c>, <c>attachmentsWhere</c>, <c>keywords</c> and
+    /// <c>size</c> are still refused rather than ignored: each narrows the answer, and a caller who sent
     /// one and got every attachment would be answered a different question.
     /// </para>
     /// <para>
@@ -156,6 +159,8 @@ internal static class AttachmentEndpoints
         int layerId,
         CatalogFallback catalog,
         LayerConnections connections,
+        ServiceContexts contexts,
+        HostSettings settings,
         CancellationToken cancellation)
     {
         if (await ResolveAsync(context, serviceName, layerId, catalog, connections, write: false, cancellation)
@@ -173,7 +178,7 @@ internal static class AttachmentEndpoints
                 ? posted.ToString()
                 : context.Request.Query[key].ToString();
 
-        foreach (string narrowing in (string[])["definitionExpression", "globalIds", "attachmentsWhere", "keywords", "size"])
+        foreach (string narrowing in (string[])["globalIds", "attachmentsWhere", "keywords", "size"])
         {
             if (Value(narrowing).Trim().Length > 0)
             {
@@ -198,9 +203,28 @@ internal static class AttachmentEndpoints
             ids.Add(id);
         }
 
+        string definition = Value("definitionExpression").Trim();
+
+        if (definition.Length > 0)
+        {
+            if (await IdsMatchingAsync(context, serviceName, layerId, catalog, contexts, settings, definition, cancellation)
+                    .ConfigureAwait(false) is not { } matched)
+            {
+                return;
+            }
+
+            ids = ids.Count == 0 ? [.. matched] : [.. ids.Intersect(matched)];
+
+            if (ids.Count == 0)
+            {
+                await Results.Json(new { attachmentGroups = Array.Empty<object>() }).ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+        }
+
         if (ids.Count == 0)
         {
-            await Refuse(context, 400, "'objectIds' is required, comma separated.").ConfigureAwait(false);
+            await Refuse(context, 400, "'objectIds' or 'definitionExpression' is required.").ConfigureAwait(false);
             return;
         }
 
@@ -250,6 +274,77 @@ internal static class AttachmentEndpoints
         }
 
         await Results.Json(new { attachmentGroups = groups }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>The object ids a <c>definitionExpression</c> matches, or null with the refusal written.</summary>
+    private static async Task<IReadOnlyList<long>?> IdsMatchingAsync(
+        HttpContext context,
+        string serviceName,
+        int layerId,
+        CatalogFallback catalog,
+        ServiceContexts contexts,
+        HostSettings settings,
+        string definition,
+        CancellationToken cancellation)
+    {
+        PublishedLayer? layer = await ServiceLookup
+            .LayerAsync(context, catalog, serviceName, layerId, cancellation)
+            .ConfigureAwait(false);
+
+        if (layer is null)
+        {
+            return null;
+        }
+
+        (IFeatureSource source, LayerDescription described) =
+            await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+        QueryCollection asked = new(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues>
+        {
+            ["where"] = definition,
+            ["returnIdsOnly"] = "true",
+        });
+
+        if (!FeatureServerQueryParameters.TryParse(
+                asked,
+                layer.Definition.IntegerIdentityColumn!,
+                layer.Definition.Srid,
+                described.Fields,
+                out FeatureQuery? query,
+                out _,
+                out string? error,
+                serverDefaultRecordCount: settings.DefaultRecordCount,
+                serverMaximumRecordCount: settings.MaximumRecordCount))
+        {
+            await Refuse(context, 400, $"'definitionExpression': {error}").ConfigureAwait(false);
+            return null;
+        }
+
+        // The same lease the query face takes before a count or an id list, inside the same bound.
+        BudgetedFeatureSource? budgeted = source as BudgetedFeatureSource;
+
+        using ConnectionBudget.Lease lease = budgeted is not null
+            ? await budgeted.LeaseAsync(cancellation).ConfigureAwait(false)
+            : default;
+
+        if ((budgeted?.Inner ?? source) is not IFeatureSummaries summaries)
+        {
+            await Refuse(context, 400, "'definitionExpression' cannot be answered on this layer; pass 'objectIds'.")
+                .ConfigureAwait(false);
+            return null;
+        }
+
+        IReadOnlyList<long> matched = await summaries.ObjectIdsAsync(query, cancellation).ConfigureAwait(false);
+
+        if (matched.Count > MostQueriedFeatures)
+        {
+            await Refuse(context, 400,
+                $"'definitionExpression' matches {matched.Count} features and one request reads the attachments of "
+                + $"at most {MostQueriedFeatures}. Narrow it, or ask in pages by 'objectIds'.").ConfigureAwait(false);
+            return null;
+        }
+
+        return matched;
     }
 
     /// <summary>
