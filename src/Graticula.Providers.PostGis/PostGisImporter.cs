@@ -241,13 +241,10 @@ public sealed class PostGisImporter
         await using NpgsqlConnection connection =
             await OpenAsync(cancellationToken).ConfigureAwait(false);
 
+        await EnsureHostedSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
+
         await using NpgsqlTransaction transaction =
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-
-        await ExecuteAsync(
-            connection, transaction,
-            $"create schema if not exists {LayerDefinition.Quote(HostedSchema)}",
-            cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(
             connection, transaction, CreateTable(table, dataset, stored), cancellationToken)
@@ -388,14 +385,11 @@ public sealed class PostGisImporter
         await using NpgsqlConnection connection =
             await OpenAsync(cancellationToken).ConfigureAwait(false);
 
+        await EnsureHostedSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
+
         await using (NpgsqlTransaction transaction =
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false))
         {
-            await ExecuteAsync(
-                connection, transaction,
-                $"create schema if not exists {LayerDefinition.Quote(HostedSchema)}",
-                cancellationToken).ConfigureAwait(false);
-
             await ExecuteAsync(connection, transaction, sql.ToString(), cancellationToken)
                 .ConfigureAwait(false);
 
@@ -1130,6 +1124,36 @@ public sealed class PostGisImporter
                     NpgsqlDbType.Text,
                     cancellationToken).ConfigureAwait(false);
                 break;
+        }
+    }
+
+    /// <summary>Creates the hosted schema if it is not there, and does not mind a second caller doing the same.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Outside the import's transaction, and forgiving of the race — found by CI on 2026-09-23.</b>
+    /// <c>create schema if not exists</c> is not safe against itself: two sessions that both find the schema
+    /// missing both create it, and the second fails with <c>23505</c> on <c>pg_namespace_nspname_index</c>
+    /// (or <c>42P06</c>). Two importer test classes running side by side on a fresh database did exactly
+    /// that, and so would two first imports on a new datastore.
+    /// </para>
+    /// <para>
+    /// <b>Not a lock inside the transaction</b>, which would have closed the race by making every import
+    /// wait for the one before it to commit. Outside it, the statement commits on its own, the loser of the
+    /// race finds the schema it wanted, and the imports stay concurrent.
+    /// </para>
+    /// </remarks>
+    private static async Task EnsureHostedSchemaAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ExecuteAsync(
+                connection, null, $"create schema if not exists {LayerDefinition.Quote(HostedSchema)}", cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (PostgresException raced)
+            when (raced.SqlState is PostgresErrorCodes.UniqueViolation or PostgresErrorCodes.DuplicateSchema)
+        {
+            // Another session created it between our look and our create; it is there, which is all we wanted.
         }
     }
 
