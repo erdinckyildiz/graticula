@@ -484,7 +484,9 @@ public sealed class MapRenderer
         PlanLayer layer, Geometry geometry, MapSymbol.Label symbol,
         in StyleExpression.Context context)
     {
-        if (layer is not PlanLayer.Text text || text.TextOf(context) is not { } content)
+        // <b>An empty label is no label</b> — V-64, the fourth ArcGIS review. The canvas refuses to measure
+        // nothing, and a feature whose label field held an empty string would have failed the whole drawing.
+        if (layer is not PlanLayer.Text text || text.TextOf(context) is not { Length: > 0 } content)
         {
             return false;
         }

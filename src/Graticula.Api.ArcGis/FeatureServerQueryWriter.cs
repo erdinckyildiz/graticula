@@ -528,6 +528,23 @@ public sealed class FeatureServerQueryWriter
         }
     }
 
+    /// <summary>
+    /// A date as ArcGIS writes every date: milliseconds since the epoch, or null when the value is not a date.
+    /// </summary>
+    /// <remarks>
+    /// <b>Public so the statistics answer uses the same rule</b> — V-69, the fourth ArcGIS review: a
+    /// <c>max</c> of a date field came back as ISO text while the same field in a feature was a number, so a
+    /// Dashboards indicator reading the newest date got a string where it expected a number.
+    /// </remarks>
+    /// <param name="value">A value read from a row.</param>
+    /// <returns>The milliseconds, or null.</returns>
+    public static long? EpochMilliseconds(object? value) => value switch
+    {
+        DateTime timestamp => new DateTimeOffset(timestamp.ToUniversalTime()).ToUnixTimeMilliseconds(),
+        DateTimeOffset timestamp => timestamp.ToUnixTimeMilliseconds(),
+        _ => null,
+    };
+
     private static void WriteAttribute(Utf8JsonWriter writer, string name, object? value)
     {
         switch (value)
@@ -570,12 +587,8 @@ public sealed class FeatureServerQueryWriter
                 writer.WriteString(name, number.ToString(CultureInfo.InvariantCulture));
                 break;
 
-            case DateTime timestamp:
-                writer.WriteNumber(
-                    name, new DateTimeOffset(timestamp.ToUniversalTime()).ToUnixTimeMilliseconds());
-                break;
-            case DateTimeOffset timestamp:
-                writer.WriteNumber(name, timestamp.ToUnixTimeMilliseconds());
+            case DateTime or DateTimeOffset:
+                writer.WriteNumber(name, EpochMilliseconds(value)!.Value);
                 break;
 
             default:

@@ -191,6 +191,35 @@ public sealed class ClassifiedLegendTests
     }
 
     [Fact]
+    public void A_class_with_an_empty_value_is_a_swatch_with_no_label()
+    {
+        // V-64, the fourth ArcGIS review: a unique-value class whose value and label were both empty made the
+        // canvas refuse to measure nothing, the legend failed, and the layer left WMS GetCapabilities.
+        const string style = """
+        {
+          "version": 8,
+          "layers": [{
+            "id": "a", "type": "fill",
+            "paint": { "fill-color": ["match", ["get", "zoning"], "", "#ff0000", "park", "#00ff00", "#0000ff"] }
+          }]
+        }
+        """;
+
+        using IMapCanvas canvas = LegendGraphic.Draw(
+            new SkiaMapCanvasFactory(),
+            SymbologyPlan.Compile(style),
+            GeometryKind.Polygon,
+            (20, 20),
+            Rgba.White);
+
+        byte[] png = canvas.Encode(MapImageFormat.Png, 90);
+        int rowHeight = canvas.Height / 3;
+
+        Assert.Equal(new Rgba(255, 0, 0, 255), PixelAt(png, 12, rowHeight / 2));
+        Assert.Equal(new Rgba(0, 255, 0, 255), PixelAt(png, 12, rowHeight + (rowHeight / 2)));
+    }
+
+    [Fact]
     public void A_classified_legend_writes_its_labels_beside_the_swatches()
     {
         // <b>Ink to the right of the swatch, which is the half a swatch cannot say.</b>

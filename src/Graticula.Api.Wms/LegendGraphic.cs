@@ -238,6 +238,11 @@ public static class LegendGraphic
         {
             foreach ((string label, _) in rows)
             {
+                if (string.IsNullOrEmpty(label))
+                {
+                    continue;
+                }
+
                 PixelBox box = ruler.MeasureLabel(label, ink, 0, 0);
                 widest = Math.Max(widest, box.MaxX - box.MinX);
             }
@@ -289,6 +294,15 @@ public static class LegendGraphic
             }
 
             Swatch(canvas, plan, geometry, box, attributes);
+
+            // <b>A class with no label is a swatch with no text — V-64, the fourth ArcGIS review</b>, which is
+            // how ArcGIS draws it. The canvas refuses to measure nothing, so one unique-value class whose value
+            // and label were both empty failed the legend, and ListingGuard then took the whole layer out of
+            // WMS GetCapabilities: `istanbul_buildings_duckdb` was drawn by GetMap and listed nowhere.
+            if (string.IsNullOrEmpty(label))
+            {
+                continue;
+            }
 
             // <b>Centred text placed as if it were left-aligned.</b> The canvas port
             // draws labels centred on an anchor, because that is what a map label

@@ -2704,7 +2704,16 @@ public static class Program
                 {
                     displayFieldName = string.Empty,
                     fields = FieldsOf(rows),
-                    features = rows.Select(r => new { attributes = r }),
+                    // A date as a number, as in every other answer — V-69.
+                    features = rows.Select(r => new
+                    {
+                        attributes = r.ToDictionary(
+                            cell => cell.Key,
+                            cell => FeatureServerQueryWriter.EpochMilliseconds(cell.Value) is { } epoch
+                                ? (object?)epoch
+                                : cell.Value,
+                            StringComparer.Ordinal),
+                    }),
                 }).ExecuteAsync(context).ConfigureAwait(false);
                 return;
             }

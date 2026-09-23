@@ -69,4 +69,33 @@ public sealed class ALayerWithTimeSaysSoTests : ArcGisClient
 
         Assert.NotEqual(HttpStatusCode.OK, refused);
     }
+
+    [Fact]
+    public async Task A_date_statistic_is_a_number_like_every_other_date()
+    {
+        // V-69, the fourth ArcGIS review: max of a date field came back as ISO text, while the same field in a
+        // feature was epoch milliseconds, so a Dashboards indicator reading the newest date got a string.
+        await RequireServerAsync();
+        string? configured = Environment.GetEnvironmentVariable(TemporalVariable);
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(configured),
+            $"{TemporalVariable} is not set, so this test FAILS rather than skips.");
+
+        string service = configured!.Trim('/');
+        JsonElement timeInfo = (await GetJsonAsync($"/rest/services/{service}/FeatureServer/0")).GetProperty("timeInfo");
+        string field = timeInfo.GetProperty("startTimeField").GetString()!;
+        long until = timeInfo.GetProperty("timeExtent")[1].GetInt64();
+
+        string statistics = Uri.EscapeDataString(
+            $"[{{\"statisticType\":\"max\",\"onStatisticField\":\"{field}\",\"outStatisticFieldName\":\"newest\"}}]");
+
+        JsonElement answer = await GetJsonAsync(
+            $"/rest/services/{service}/FeatureServer/0/query?where=1%3D1&outStatistics={statistics}");
+
+        JsonElement newest = answer.GetProperty("features")[0].GetProperty("attributes").GetProperty("newest");
+
+        Assert.Equal(JsonValueKind.Number, newest.ValueKind);
+        Assert.Equal(until, newest.GetInt64());
+    }
 }
