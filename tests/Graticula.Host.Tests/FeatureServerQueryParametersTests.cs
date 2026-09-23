@@ -252,6 +252,38 @@ public sealed class FeatureServerQueryParametersTests
         Parse(("geometry", "0,0,1,1"), ("spatialRel", relation));
     }
 
+    /// <summary>
+    /// ArcGIS reads a relation with the query geometry first, and the providers with the feature first — V-68.
+    /// </summary>
+    [Theory]
+    [InlineData("esriSpatialRelContains", SpatialRelation.Within)]
+    [InlineData("esriSpatialRelWithin", SpatialRelation.Contains)]
+    [InlineData("esriSpatialRelIntersects", SpatialRelation.Intersects)]
+    [InlineData("esriSpatialRelTouches", SpatialRelation.Touches)]
+    public void Contains_and_within_are_read_from_the_query_geometrys_side(string arcgis, SpatialRelation provider)
+    {
+        FeatureQuery query = Parse(
+            ("geometry", "{\"rings\":[[[0,0],[0,1],[1,1],[1,0],[0,0]]]}"),
+            ("geometryType", "esriGeometryPolygon"),
+            ("spatialRel", arcgis));
+
+        Assert.Equal(provider, query.Spatial!.Relation);
+    }
+
+    [Theory]
+    [InlineData("T********", "T********")]
+    [InlineData("T*****FF*", "T*F**F***")]
+    [InlineData("012TF*012", "0T01F12*2")]
+    public void A_relation_pattern_is_transposed_to_the_features_side(string arcgis, string provider)
+    {
+        FeatureQuery query = Parse(
+            ("geometry", "0,0,1,1"),
+            ("spatialRel", "esriSpatialRelRelation"),
+            ("relationParam", arcgis));
+
+        Assert.Equal(provider, query.Spatial!.RelatePattern);
+    }
+
     [Fact]
     public void An_invented_spatial_relationship_is_refused()
     {
@@ -341,8 +373,9 @@ public sealed class FeatureServerQueryParametersTests
             ("geometryType", "esriGeometryPolygon"),
             ("spatialRel", "esriSpatialRelWithin"));
 
+        // ArcGIS's Within is the query geometry within the feature, which is the feature containing it — V-68.
         Assert.NotNull(query.Spatial);
-        Assert.Equal(SpatialRelation.Within, query.Spatial!.Relation);
+        Assert.Equal(SpatialRelation.Contains, query.Spatial!.Relation);
     }
 
     [Fact]
@@ -439,7 +472,7 @@ public sealed class FeatureServerQueryParametersTests
             ("geometryType", "esriGeometryEnvelope"),
             ("spatialRel", "esriSpatialRelContains"));
 
-        Assert.Equal(SpatialRelation.Contains, query.Spatial!.Relation);
+        Assert.Equal(SpatialRelation.Within, query.Spatial!.Relation);
         Polygon rectangle = Assert.IsType<Polygon>(query.Spatial.Geometry);
         Assert.Equal(5, rectangle.Shell.Coordinates.Count);
         Assert.Null(query.BoundingBox);

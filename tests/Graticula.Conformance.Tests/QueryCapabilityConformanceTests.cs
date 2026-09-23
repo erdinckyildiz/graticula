@@ -377,8 +377,11 @@ public sealed class QueryCapabilityConformanceTests : ArcGisClient
                 + $"&spatialRel=esriSpatialRel{relation}&returnCountOnly=true"))
                 .GetProperty("count").GetInt32();
 
+        // <b>`Contains` is the features inside the box — V-68.</b> ArcGIS reads a relation from the query
+        // geometry's side, so the box *contains* them; this asked for `Within` until 2026-09-23 and passed only
+        // because the server read the relation backwards too.
         int intersects = await CountAsync("Intersects");
-        int within = await CountAsync("Within");
+        int within = await CountAsync("Contains");
         int overlaps = await CountAsync("Overlaps");
 
         // Every feature inside the box, plus every one straddling its edge, is

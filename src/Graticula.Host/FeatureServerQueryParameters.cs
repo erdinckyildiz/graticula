@@ -1126,6 +1126,12 @@ internal static class FeatureServerQueryParameters
         }
     }
 
+    /// <summary>A DE-9IM pattern read from the other geometry's side: rows and columns exchanged.</summary>
+    /// <param name="pattern">Nine characters, row by row.</param>
+    /// <returns>The transpose.</returns>
+    internal static string Transposed(string pattern) =>
+        new([pattern[0], pattern[3], pattern[6], pattern[1], pattern[4], pattern[7], pattern[2], pattern[5], pattern[8]]);
+
     /// <summary>One of ArcGIS's nine relations.</summary>
     private static bool TryRelation(
         IQueryCollection parameters,
@@ -1141,16 +1147,23 @@ internal static class FeatureServerQueryParameters
 
         if (raw.Length > 0)
         {
+            // <b>ArcGIS reads a relation with the query geometry first — V-68, the fourth ArcGIS review.</b>
+            // `esriSpatialRelEnum`: *Contains — Query Geometry Contains Target Geometry*; *Within — Query
+            // Geometry is Within Target Geometry*. So "the features inside the polygon I drew" is
+            // `esriSpatialRelContains`, and it returned the features that contain the polygon instead — every
+            // selection-by-shape from Pro, the Maps SDK and Experience Builder came back as the other set,
+            // with a 200. `SpatialRelation` keeps the feature on the left, which is what WFS and OGC mean and
+            // what the providers compile, so the two are exchanged here, at the ArcGIS face, and nowhere else.
             relation = raw.ToLowerInvariant() switch
             {
                 "esrispatialrelintersects" => SpatialRelation.Intersects,
-                "esrispatialrelcontains" => SpatialRelation.Contains,
+                "esrispatialrelcontains" => SpatialRelation.Within,
                 "esrispatialrelcrosses" => SpatialRelation.Crosses,
                 "esrispatialrelenvelopeintersects" => SpatialRelation.EnvelopeIntersects,
                 "esrispatialrelindexintersects" => SpatialRelation.IndexIntersects,
                 "esrispatialreloverlaps" => SpatialRelation.Overlaps,
                 "esrispatialreltouches" => SpatialRelation.Touches,
-                "esrispatialrelwithin" => SpatialRelation.Within,
+                "esrispatialrelwithin" => SpatialRelation.Contains,
                 "esrispatialrelrelation" => SpatialRelation.Relate,
                 _ => (SpatialRelation)(-1),
             };
@@ -1193,6 +1206,14 @@ internal static class FeatureServerQueryParameters
                 "'relationParam' only means something with spatialRel=esriSpatialRelRelation. "
                 + "Accepting it here would let a caller believe a pattern was applied.";
             return false;
+        }
+
+        // <b>And a DE-9IM pattern names the query geometry's rows first, for the same reason</b>, so it is
+        // transposed to the feature-first order `ST_Relate(feature, filter, …)` reads: row and column swap,
+        // which is what reading the matrix from the other geometry's side is.
+        if (relation == SpatialRelation.Relate && pattern.Length == 9)
+        {
+            pattern = Transposed(pattern);
         }
 
         if (pattern.Length == 0)

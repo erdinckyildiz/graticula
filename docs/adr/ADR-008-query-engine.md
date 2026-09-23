@@ -645,8 +645,8 @@ The same pass implemented the rest of the parameters, each against PostGIS:
 | Parameter | How |
 |---|---|
 | `objectIds` | `= any(@ids)`, bound as an array, capped at 10,000 |
-| `spatialRel` × 9 | the PostGIS predicate, always behind an explicit `&&` — `ST_Relate` has no built-in index test and would otherwise scan the table |
-| `relationParam` | `ST_Relate` with a checked nine-character DE-9IM pattern |
+| `spatialRel` × 9 | the PostGIS predicate, always behind an explicit `&&` — `ST_Relate` has no built-in index test and would otherwise scan the table. **Corrected 2026-09-23 (V-68): ArcGIS reads a relation from the query geometry's side** — `esriSpatialRelEnum` defines *Contains* as *Query Geometry Contains Target Geometry* — so `esriSpatialRelContains` is the features inside the filter and compiles to `ST_Within(feature, filter)`, and `esriSpatialRelWithin` the reverse. This row's first version mapped each to the predicate of its own name, and every selection by shape came back as the other set with a 200. The exchange is made where the ArcGIS parameter is read; `SpatialRelation` keeps the feature on the left for WFS and OGC, which mean it that way |
+| `relationParam` | `ST_Relate` with a checked nine-character DE-9IM pattern, **transposed** from the query geometry's side to the feature's (V-68) |
 | `geometryType` × 5 | ArcGIS geometry JSON through the existing reader; the comma syntax only for envelopes and points, which is all it is defined for |
 | `distance` + `units` | `ST_DWithin` on the **filter**, six units converted to metres |
 | `returnIdsOnly` | ids of the whole answer set, deliberately not capped by the page size — capping it defeats the only reason to ask |
