@@ -326,9 +326,11 @@ public sealed class ScreenReviewTests : ConsoleTest
                 $"'{address}' scrolls sideways at 390 px. A table that needs the width scrolls inside its "
                 + "own container; the page must not, because it carries the navigation column out with it.");
 
-            // And the toggle is gone rather than drawn with nothing to do.
-            bool toggle = await Browser.EvaluateAsync<bool>(
-                "document.getElementById('collapse')?.offsetParent !== null");
+            // And the toggle is gone rather than drawn with nothing to do. `Shown` is the suite's own
+            // question — there and drawn. The architecture suite refuses the optional-chained
+            // `offsetParent` comparison this first used, because it is also true for a control that is
+            // not in the page at all, and it caught this one on CI.
+            bool toggle = await Browser.EvaluateAsync<bool>(Shown("#collapse"));
 
             Assert.False(toggle, "The Collapse control is drawn on a phone, where the rail is the only width.");
 
