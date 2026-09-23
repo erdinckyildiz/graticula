@@ -204,6 +204,9 @@ geocoding.**
   pipeline — the two engines `protocol-surface.md` said *"do not exist in any
   form"* — are not built.
 - **Q-84 defers** with the geocoder, including the reference-data question.
+- **Offline sync is out — [ADR-082](adr/ADR-082-offline-sync-is-not-in-v1.md), owner decision
+  2026-09-23.** `createReplica`, `synchronizeReplica`, `unRegisterReplica` and `extractChanges`
+  are not served, and every layer says `supportsDisconnectedEditing: false`.
 - **Q-86's §82 debt shrinks to the handful of things actually in v1.**
 
 ### 3e. Formats

@@ -294,6 +294,15 @@ join the fields. **The rule of this section is unchanged and now applies to the 
 field this server cannot evaluate, or a query that does not parse, answers nothing, so
 `type:"Feature Service" OR url:<a geocoder>` is not answered by the half it can read.
 
+### 4f. Decided 2026-09-23 — `portals/self/servers` stays unanswered
+
+The third ArcGIS review (V-59) found `portals/self/servers`, `portals/self/urls` and a few more
+answering 404, and Pro asks for the first after sign-in to find a hosting server. **The owner chose
+to leave them unanswered.** Naming this server as a federated hosting server would offer Pro its
+*Share as Web Layer* path, and publishing from Pro is not served ([v1-scope](../v1-scope.md)); an
+empty list would be quieter and would say the same thing less clearly. Revisit when publishing from
+Pro is.
+
 ## 5. Consequences
 
 **Positive.** A Pro user gets the browse workflow the owner asked for. Every other ArcGIS client
