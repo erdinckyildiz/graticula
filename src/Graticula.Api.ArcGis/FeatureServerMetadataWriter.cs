@@ -1000,23 +1000,7 @@ public static class FeatureServerMetadataWriter
             // tools never offered it, and `time=` on the query was refused. The extent is the one
             // WMS measures; an end field, a track field and an interval this server does not have
             // are said as absent rather than guessed.
-            timeInfo = time is { } declared
-                ? new
-                {
-                    startTimeField = declared.Field,
-                    endTimeField = (string?)null,
-                    trackIdField = (string?)null,
-                    timeExtent = new long?[]
-                    {
-                        declared.From?.ToUnixTimeMilliseconds(),
-                        declared.Until?.ToUnixTimeMilliseconds(),
-                    },
-                    timeReference = (object?)null,
-                    timeInterval = 0,
-                    timeIntervalUnits = "esriTimeUnitsUnknown",
-                    hasLiveData = false,
-                }
-                : null,
+            timeInfo = TimeInfo(time),
         };
 
         return relationshipsKnown ? document : RelationshipsUnknown(document);
@@ -1089,6 +1073,31 @@ public static class FeatureServerMetadataWriter
           || capabilities.Contains("Update", StringComparison.Ordinal)
           || capabilities.Contains("Delete", StringComparison.Ordinal)
           || capabilities.Contains("Editing", StringComparison.Ordinal));
+
+    /// <summary>
+    /// A layer's <c>timeInfo</c>, or null for a layer without time — one writer for the FeatureServer and
+    /// MapServer documents of one layer (V-73).
+    /// </summary>
+    /// <param name="time">The time field and its measured extent.</param>
+    /// <returns>The object, or null.</returns>
+    public static object? TimeInfo((string Field, DateTimeOffset? From, DateTimeOffset? Until)? time) =>
+        time is { } declared
+            ? new
+            {
+                startTimeField = declared.Field,
+                endTimeField = (string?)null,
+                trackIdField = (string?)null,
+                timeExtent = new long?[]
+                {
+                    declared.From?.ToUnixTimeMilliseconds(),
+                    declared.Until?.ToUnixTimeMilliseconds(),
+                },
+                timeReference = (object?)null,
+                timeInterval = 0,
+                timeIntervalUnits = "esriTimeUnitsUnknown",
+                hasLiveData = false,
+            }
+            : null;
 
     /// <summary>Maps our field types onto ArcGIS's.</summary>
     /// <remarks>

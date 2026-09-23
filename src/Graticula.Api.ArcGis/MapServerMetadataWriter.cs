@@ -53,13 +53,15 @@ public static class MapServerMetadataWriter
     /// <param name="maximumWidth">The widest image export will draw.</param>
     /// <param name="maximumHeight">The tallest image export will draw.</param>
     /// <param name="maxRecordCount">What a query may return.</param>
+    /// <param name="time">The union of the layers' time extents, or null when none has time.</param>
     /// <returns>The document.</returns>
     public static object Service(
         IReadOnlyList<FeatureServerMetadataWriter.ServiceLayer> layers,
         string capabilities,
         int maximumWidth,
         int maximumHeight,
-        int maxRecordCount)
+        int maxRecordCount,
+        (DateTimeOffset? From, DateTimeOffset? Until)? time = null)
     {
         ArgumentNullException.ThrowIfNull(layers);
         ArgumentNullException.ThrowIfNull(capabilities);
@@ -116,6 +118,21 @@ public static class MapServerMetadataWriter
             maxImageHeight = maximumHeight,
             maxImageWidth = maximumWidth,
             supportedExtensions = string.Empty,
+
+            // <b>The union of its layers' time — V-73.</b> The Maps SDK's MapImageLayer reads the service's
+            // timeInfo to offer a time slider; none was written, so a service whose layers had time was drawn
+            // as if it had none.
+            timeInfo = time is { } span
+                ? new
+                {
+                    timeExtent = new long?[] { span.From?.ToUnixTimeMilliseconds(), span.Until?.ToUnixTimeMilliseconds() },
+                    timeReference = (object?)null,
+                    timeRelation = "esriTimeRelationOverlaps",
+                    defaultTimeInterval = 0,
+                    defaultTimeIntervalUnits = "esriTimeUnitsUnknown",
+                    hasLiveData = false,
+                }
+                : null,
         };
     }
 
@@ -128,6 +145,7 @@ public static class MapServerMetadataWriter
     /// <param name="hasLabels">Whether its stored style labels features.</param>
     /// <param name="capabilities">What this layer offers, comma-separated.</param>
     /// <param name="objectIdField">The layer's object id column, or null when it has none.</param>
+    /// <param name="timeInfo">The layer's timeInfo, as the FeatureServer document writes it, or null.</param>
     /// <returns>The document.</returns>
     public static object Layer(
         FeatureServerMetadataWriter.ServiceLayer layer,
@@ -137,7 +155,8 @@ public static class MapServerMetadataWriter
         int maxRecordCount,
         bool hasLabels = false,
         string capabilities = "Map",
-        string? objectIdField = null)
+        string? objectIdField = null,
+        object? timeInfo = null)
     {
         ArgumentNullException.ThrowIfNull(fields);
 
@@ -180,6 +199,9 @@ public static class MapServerMetadataWriter
             supportsAdvancedQueries = true,
             supportedQueryFormats = "JSON, geoJSON, PBF",
             isDataVersioned = false,
+
+            // The FeatureServer document's own timeInfo for the same layer — V-73.
+            timeInfo,
         };
     }
 

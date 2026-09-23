@@ -98,4 +98,53 @@ public sealed class ALayerWithTimeSaysSoTests : ArcGisClient
         Assert.Equal(JsonValueKind.Number, newest.ValueKind);
         Assert.Equal(until, newest.GetInt64());
     }
+
+    [Fact]
+    public async Task The_map_face_knows_the_time_and_draws_by_it()
+    {
+        // V-73, the fourth ArcGIS review: the MapServer documents carried no timeInfo and export ignored time,
+        // drawing the same image byte for byte, while WMS TIME filtered the same layer.
+        string root = await RequireServerAsync();
+        string? configured = Environment.GetEnvironmentVariable(TemporalVariable);
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(configured),
+            $"{TemporalVariable} is not set, so this test FAILS rather than skips.");
+
+        string service = configured!.Trim('/');
+        JsonElement feature = (await GetJsonAsync($"/rest/services/{service}/FeatureServer/0")).GetProperty("timeInfo");
+        JsonElement map = (await GetJsonAsync($"/rest/services/{service}/MapServer/0")).GetProperty("timeInfo");
+        JsonElement whole = await GetJsonAsync($"/rest/services/{service}/MapServer");
+
+        Assert.Equal(feature.GetProperty("startTimeField").GetString(), map.GetProperty("startTimeField").GetString());
+        Assert.Equal(JsonValueKind.Object, whole.GetProperty("timeInfo").ValueKind);
+
+        long from = feature.GetProperty("timeExtent")[0].GetInt64();
+        long until = feature.GetProperty("timeExtent")[1].GetInt64();
+        JsonElement extent = whole.GetProperty("fullExtent");
+        string bbox = string.Join(",", extent.GetProperty("xmin").GetDouble(), extent.GetProperty("ymin").GetDouble(),
+            extent.GetProperty("xmax").GetDouble(), extent.GetProperty("ymax").GetDouble());
+
+        byte[] all = await ImageAsync(root, $"/rest/services/{service}/MapServer/export?bbox={bbox}&size=256,256&f=image");
+        byte[] first = await ImageAsync(root, $"/rest/services/{service}/MapServer/export?bbox={bbox}&size=256,256&f=image&time={from},{from}");
+
+        if (from < until)
+        {
+            Assert.False(all.AsSpan().SequenceEqual(first), "export drew the same image with a time window as without one.");
+        }
+
+        (HttpStatusCode _, string refused) = await AnonymousAsync(
+            $"/rest/services/{service}/MapServer/export?bbox={bbox}&size=64,64&f=json&time=yesterday");
+
+        Assert.Contains("epoch milliseconds", refused, StringComparison.Ordinal);
+    }
+
+    private async Task<byte[]> ImageAsync(string root, string path)
+    {
+        using System.Net.Http.HttpRequestMessage request = new(System.Net.Http.HttpMethod.Get, new Uri(root + path));
+        await AuthenticateAsync(request, root);
+        using System.Net.Http.HttpResponseMessage response = await Http.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await response.Content.ReadAsByteArrayAsync();
+    }
 }

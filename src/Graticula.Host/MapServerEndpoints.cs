@@ -152,7 +152,8 @@ internal static class MapServerEndpoints
             CapabilitiesOf(service),
             settings.MaximumImageWidth,
             settings.MaximumImageHeight,
-            settings.MaximumRecordCount);
+            settings.MaximumRecordCount,
+            await TimeOfServiceAsync(service, contexts, cancellation).ConfigureAwait(false));
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
@@ -219,8 +220,13 @@ internal static class MapServerEndpoints
             return;
         }
 
-        (_, LayerDescription described) =
+        (IFeatureSource layerSource, LayerDescription described) =
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+        // V-73: measured the way WMS and the FeatureServer measure it, and cached in the same place.
+        Graticula.Api.Wms.TimeDimension? time = await WmsEndpoints
+            .TimeOfAsync(layerSource, layer, described, contexts, cancellation)
+            .ConfigureAwait(false);
 
         (int servedSrid, Envelope? servedExtent) = await ServedAsync(
             layer, described.Extent, projector, cancellation).ConfigureAwait(false);
@@ -260,7 +266,8 @@ internal static class MapServerEndpoints
             settings.MaximumRecordCount,
             Labels(layer),
             CapabilityCeilings.Refuses(layer, "Query") ? string.Empty : Capabilities,
-            layer.Definition.IntegerIdentityColumn);
+            layer.Definition.IntegerIdentityColumn,
+            FeatureServerMetadataWriter.TimeInfo(time is null ? null : (time.Field, time.From, time.Until)));
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
@@ -332,14 +339,23 @@ internal static class MapServerEndpoints
             return;
         }
 
+        Func<string, string?> exportParameters =
+            await ArcGisParameters.LookupAsync(context, cancellation).ConfigureAwait(false);
+
         if (!MapServerExportParameters.TryParse(
-                await ArcGisParameters.LookupAsync(context, cancellation).ConfigureAwait(false),
+                exportParameters,
                 service.Layers,
                 new WidthHeight(settings.MaximumImageWidth, settings.MaximumImageHeight),
                 out MapServerExportParameters? asked,
                 out string? error))
         {
             await RefuseAsync(context, 400, error!).ConfigureAwait(false);
+            return;
+        }
+
+        if (!TryTime(exportParameters("time"), out Graticula.Api.Wms.TimeWindow? window, out string? timeError))
+        {
+            await RefuseAsync(context, 400, timeError!).ConfigureAwait(false);
             return;
         }
 
@@ -373,7 +389,7 @@ internal static class MapServerEndpoints
         {
             await WmsEndpoints
                 .DrawLayerAsync(
-                    contexts, renderer, transform, layer, asked.ImageSrid, null,
+                    contexts, renderer, transform, layer, asked.ImageSrid, window,
                     settings.MaximumRecordCount, cancellation, honourVisibleRange: true,
                     definition: definitions.GetValueOrDefault(layer.Id))
                 .ConfigureAwait(false);
@@ -706,6 +722,98 @@ internal static class MapServerEndpoints
         }
 
         return readable;
+    }
+
+    /// <summary>
+    /// ArcGIS's <c>time</c> — one instant or <c>start,end</c> in epoch milliseconds, either end <c>null</c> — as the
+    /// window WMS draws with; null when there is none. V-73, the fourth ArcGIS review.
+    /// </summary>
+    /// <remarks>
+    /// <b>It was ignored</b>: <c>export&amp;time=…</c> drew the same image as without it, byte for byte, while WMS
+    /// <c>TIME</c> filtered the same layer. A layer without a time field is drawn whole, which is what ArcGIS
+    /// does with a time the layer cannot apply.
+    /// </remarks>
+    internal static bool TryTime(string? raw, out Graticula.Api.Wms.TimeWindow? window, out string? error)
+    {
+        window = null;
+        error = null;
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return true;
+        }
+
+        string[] ends = raw.Split(',', StringSplitOptions.TrimEntries);
+
+        if (ends.Length > 2)
+        {
+            error = "'time' is one instant or 'start,end' in epoch milliseconds.";
+            return false;
+        }
+
+        DateTimeOffset?[] moments = new DateTimeOffset?[ends.Length];
+
+        for (int i = 0; i < ends.Length; i++)
+        {
+            if (ends[i].Length == 0 || ends[i].Equals("null", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!long.TryParse(ends[i], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out long ms)
+                || ms < DateTimeOffset.MinValue.ToUnixTimeMilliseconds()
+                || ms > DateTimeOffset.MaxValue.ToUnixTimeMilliseconds())
+            {
+                error = $"'time' has '{ends[i]}', which is not epoch milliseconds.";
+                return false;
+            }
+
+            moments[i] = DateTimeOffset.FromUnixTimeMilliseconds(ms);
+        }
+
+        DateTimeOffset from = moments[0] ?? DateTimeOffset.MinValue;
+        DateTimeOffset until = ends.Length == 1 ? from : moments[1] ?? DateTimeOffset.MaxValue;
+
+        if (ends.Length == 1 && moments[0] is null)
+        {
+            return true;
+        }
+
+        window = new Graticula.Api.Wms.TimeWindow(from, until);
+        return true;
+    }
+
+    /// <summary>The union of the time its layers carry, or null when none does.</summary>
+    private static async Task<(DateTimeOffset? From, DateTimeOffset? Until)?> TimeOfServiceAsync(
+        PublishedService service, ServiceContexts contexts, CancellationToken cancellation)
+    {
+        (DateTimeOffset? From, DateTimeOffset? Until)? span = null;
+
+        foreach (PublishedLayer layer in service.Layers)
+        {
+            if (layer.Definition.GeometryColumn is not { Length: > 0 })
+            {
+                continue;
+            }
+
+            (IFeatureSource source, LayerDescription described) =
+                await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+            if (await WmsEndpoints.TimeOfAsync(source, layer, described, contexts, cancellation).ConfigureAwait(false)
+                is not { } time)
+            {
+                continue;
+            }
+
+            span = span is not { } known
+                ? (time.From, time.Until)
+                : (Earlier(known.From, time.From), Later(known.Until, time.Until));
+        }
+
+        return span;
+
+        static DateTimeOffset? Earlier(DateTimeOffset? a, DateTimeOffset? b) => a is null ? b : b is null ? a : a < b ? a : b;
+        static DateTimeOffset? Later(DateTimeOffset? a, DateTimeOffset? b) => a is null ? b : b is null ? a : a > b ? a : b;
     }
 
     /// <summary>What this face offers for a service: nothing to read when no layer answers Query.</summary>
