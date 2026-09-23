@@ -99,6 +99,9 @@ public sealed class EveryLongLivedCacheIsBoundedTests
             + "than evicting, because eviction would let the same notice be logged twice "
             + "(Q-141)",
 
+        ["GeoParquetSources._failed"] =
+            "at most one entry per remote or attached locator that has failed to open, a short string "
+            + "each; replaced or removed when it is asked again after its cooling period (V-74)",
         // Fixed at class load. Not caches.
         ["FilterReader.Comparisons"] = "fixed: the comparison operators WFS defines",
         ["FilterReader.SpatialRelations"] = "fixed: the spatial relations WFS defines",
@@ -106,6 +109,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["CommonPasswords.Unleet"] = "fixed: the substitution table",
         ["FeatureServerQueryParameters.IgnoredParameters"] = "fixed: the parameters ArcGIS sends and we ignore",
         ["FeatureServerQueryParameters.AcceptedWhenFalse"] = "fixed: three parameter names, built once",
+        ["FeatureServerQueryParameters.AcceptedAtDefault"] = "fixed: the parameters accepted at their default, built once",
         ["GeometryServerEndpoints.Blocked"] = "fixed: the operations this surface refuses",
         ["GeometryServerEndpoints.Notations"] = "fixed: the coordinate notations",
     };
