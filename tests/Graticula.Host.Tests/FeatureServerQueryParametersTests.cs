@@ -540,6 +540,58 @@ public sealed class FeatureServerQueryParametersTests
     }
 
     /// <summary>
+    /// The idiom's joined form — <c>(1=1) AND (…)</c> — is the filter after it, and nothing else — V-45.
+    /// </summary>
+    /// <remarks>
+    /// <b>Measured on the showcase 2026-09-23</b>: <c>1=1</c> answered and <c>(1=1)</c>, <c>1=1 AND il='Ankara'</c>
+    /// and <c>il='Ankara' AND 1=1</c> were all refused with <em>'1' is not a field of this layer</em>. That joined
+    /// form is what a client writes when it combines a definition expression with a user's filter.
+    /// </remarks>
+    [Theory]
+    [InlineData("(1=1) AND (name = 'x')")]
+    [InlineData("1=1 AND name = 'x'")]
+    [InlineData("name = 'x' AND 1=1")]
+    [InlineData("name = 'x' and (1 = 1)")]
+    [InlineData("(1=1) AND name = 'x' AND 1=1")]
+    public void A_constant_conjunct_is_taken_off_and_the_rest_is_the_filter(string where)
+    {
+        ParsedWhere parsed = Parse(("where", where)).Where!.Value;
+
+        Assert.Contains("\"name\" = @w0", parsed.Sql, StringComparison.Ordinal);
+        Assert.Equal("x", Assert.Single(parsed.Parameters));
+    }
+
+    [Theory]
+    [InlineData("(1=1)", false)]
+    [InlineData("(1=0)", true)]
+    [InlineData("1=0 AND name = 'x'", true)]
+    public void A_constant_alone_or_a_false_one_decides_the_answer(string where, bool nothing)
+    {
+        ParsedWhere? parsed = Parse(("where", where)).Where;
+
+        if (nothing)
+        {
+            Assert.Equal("false", parsed!.Value.Sql);
+        }
+        else
+        {
+            Assert.Null(parsed);
+        }
+    }
+
+    /// <summary>
+    /// A constant inside a quoted value is the value, not a conjunct: the anchors keep the shape from reaching
+    /// into a string.
+    /// </summary>
+    [Fact]
+    public void A_constant_inside_a_string_is_left_alone()
+    {
+        ParsedWhere parsed = Parse(("where", "name = 'x AND 1=1'")).Where!.Value;
+
+        Assert.Equal("x AND 1=1", Assert.Single(parsed.Parameters));
+    }
+
+    /// <summary>
     /// The other half of the same idiom: two literals that do not match.
     /// </summary>
     /// <remarks>

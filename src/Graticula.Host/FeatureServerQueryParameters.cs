@@ -1416,13 +1416,13 @@ internal static class FeatureServerQueryParameters
             return true;
         }
 
-        if (ConstantPredicate(raw) is { } constant)
+        (bool? constant, raw) = Reduce(raw);
+
+        if (constant is { } decided)
         {
             // True is no filter at all. False is a predicate nothing satisfies, expressed
             // with no parameters, so it costs the database a constant-false plan.
-            where = constant
-                ? null
-                : new ParsedWhere("false", Array.Empty<object?>(), new AttributePredicate.MatchesNothing());
+            where = decided ? null : Nothing;
             return true;
         }
 
@@ -1493,6 +1493,121 @@ internal static class FeatureServerQueryParameters
                 out long right)
             ? left == right
             : null;
+    }
+
+    /// <summary>The predicate no row satisfies — a false constant, with no parameters.</summary>
+    internal static ParsedWhere Nothing { get; } =
+        new("false", Array.Empty<object?>(), new AttributePredicate.MatchesNothing());
+
+    /// <summary>
+    /// A where clause with the ArcGIS constant idioms answered: <c>true</c> for everything, <c>false</c> for
+    /// nothing, or <c>null</c> with the clause the grammar should parse — V-45.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One place, because four entry points take a where clause.</b> The query parameter, a MapServer
+    /// <c>layerDefs</c> clause, <c>calculate</c> and <c>validateSQL</c> all hand text to the grammar, and only
+    /// the first knew the idiom. <c>calculate</c> was the worst of it: with no <c>where</c> it defaulted to the
+    /// literal <c>1=1</c> and handed that to a grammar that refuses it.
+    /// </para>
+    /// <para>
+    /// <b>`(1=1) AND …`, found by the third ArcGIS review.</b> A client that joins a definition expression to a
+    /// user's filter writes <c>(1=1) AND (…)</c> or <c>… AND 1=1</c> — Dashboards, Experience Builder's filter
+    /// widget and the JS API's expression joining all do — and only the bare comparison was recognised. A constant
+    /// conjunct is taken off the front or the back and the rest is parsed as it always was; the grammar stays
+    /// closed, which is why this is a string of the same narrow shape and not a rule.
+    /// </para>
+    /// </remarks>
+    /// <param name="raw">The clause as the client sent it.</param>
+    /// <returns>What the constants decided, and what is left for the grammar.</returns>
+    internal static (bool? Constant, string Clause) Reduce(string raw)
+    {
+        string rest = WithoutConstantConjuncts(raw ?? string.Empty, out bool nothing);
+
+        if (nothing)
+        {
+            return (false, string.Empty);
+        }
+
+        if (rest.Length == 0)
+        {
+            return (true, string.Empty);
+        }
+
+        return ConstantPredicate(rest) is { } constant ? (constant, string.Empty) : (null, rest);
+    }
+
+    /// <summary>A constant comparison, bare or in its own parentheses, as a conjunct.</summary>
+    /// <remarks>
+    /// <b>Anchored to the clause's start or end and to an <c>AND</c> beside it</b>, so it cannot reach inside a
+    /// string: a quoted value that ends in <c>AND 1=1</c> ends in its closing quote, and one that begins with it
+    /// begins with its opening quote.
+    /// </remarks>
+    private static readonly System.Text.RegularExpressions.Regex LeadingConstant = new(
+        @"^\s*(?:\(\s*(?<l>\d+)\s*=\s*(?<r>\d+)\s*\)|(?<l>\d+)\s*=\s*(?<r>\d+))\s+AND\s+(?<rest>.+)$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline
+        | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+        TimeSpan.FromMilliseconds(200));
+
+    private static readonly System.Text.RegularExpressions.Regex TrailingConstant = new(
+        @"^(?<rest>.+?)\s+AND\s+(?:\(\s*(?<l>\d+)\s*=\s*(?<r>\d+)\s*\)|(?<l>\d+)\s*=\s*(?<r>\d+))\s*$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline
+        | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+        TimeSpan.FromMilliseconds(200));
+
+    private static readonly System.Text.RegularExpressions.Regex WrappedConstant = new(
+        @"^\s*\(\s*(?<l>\d+)\s*=\s*(?<r>\d+)\s*\)\s*$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+        TimeSpan.FromMilliseconds(200));
+
+    /// <summary>
+    /// A where clause with its constant conjuncts taken off — <c>(1=1) AND x</c> is <c>x</c>, and <c>(1=1)</c> is
+    /// nothing — V-45.
+    /// </summary>
+    /// <param name="raw">The clause as the client sent it.</param>
+    /// <param name="matchesNothing">Whether a conjunct was a false constant, so no row can match.</param>
+    /// <returns>The clause without them; the same string when there were none.</returns>
+    internal static string WithoutConstantConjuncts(string raw, out bool matchesNothing)
+    {
+        matchesNothing = false;
+        string clause = raw.Trim();
+
+        for (int rounds = 0; rounds < 8; rounds++)
+        {
+            System.Text.RegularExpressions.Match wrapped = WrappedConstant.Match(clause);
+
+            if (wrapped.Success)
+            {
+                // A number too long for a long is not an idiom anybody sends; leave it to the grammar.
+                if (!long.TryParse(wrapped.Groups["l"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long l)
+                    || !long.TryParse(wrapped.Groups["r"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long r))
+                {
+                    return clause;
+                }
+
+                matchesNothing |= l != r;
+                return string.Empty;
+            }
+
+            System.Text.RegularExpressions.Match found = LeadingConstant.Match(clause);
+
+            if (!found.Success)
+            {
+                found = TrailingConstant.Match(clause);
+            }
+
+            if (!found.Success
+                || !long.TryParse(found.Groups["l"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long left)
+                || !long.TryParse(found.Groups["r"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long right))
+            {
+                return clause;
+            }
+
+            matchesNothing |= left != right;
+            clause = found.Groups["rest"].Value.Trim();
+        }
+
+        return clause;
     }
 
     /// <summary>A comma-separated list of object ids.</summary>

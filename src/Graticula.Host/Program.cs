@@ -3808,13 +3808,18 @@ public static class Program
             types[field.Name] = field.Type;
         }
 
-        bool valid = WhereClause.TryParse(
-            Field(form, context, "sql") ?? string.Empty,
-            [.. described.Fields.Select(f => f.Name)],
-            Graticula.Catalog.LayerDefinition.Quote,
-            out _,
-            out string? error,
-            types);
+        // V-45: a clause the query would answer is a clause this says is valid — `1=1` and `(1=1) AND …` too.
+        (bool? constant, string rest) = FeatureServerQueryParameters.Reduce(Field(form, context, "sql") ?? string.Empty);
+        string? error = null;
+
+        bool valid = constant is not null
+            || WhereClause.TryParse(
+                rest,
+                [.. described.Fields.Select(f => f.Name)],
+                Graticula.Catalog.LayerDefinition.Quote,
+                out _,
+                out error,
+                types);
 
         await Results.Json(new
         {
@@ -3990,16 +3995,32 @@ public static class Program
             types[field.Name] = field.Type;
         }
 
-        if (!WhereClause.TryParse(
-                Field(form, context, "where") ?? "1=1",
-                [.. described.Fields.Select(f => f.Name)],
-                Graticula.Catalog.LayerDefinition.Quote,
-                out ParsedWhere where,
-                out string? whereError,
-                types))
+        // <b>V-45: the constant idioms first.</b> With no `where` this defaulted to the literal `1=1` and handed it
+        // straight to a grammar that refuses a comparison of two constants, so `calculate` without a where
+        // clause answered *'1' is not a field of this layer*.
+        (bool? constant, string rest) = FeatureServerQueryParameters.Reduce(Field(form, context, "where") ?? string.Empty);
+        ParsedWhere? where = constant switch
         {
-            await Refuse($"'where' could not be parsed. {whereError}").ConfigureAwait(false);
-            return;
+            true => null,
+            false => FeatureServerQueryParameters.Nothing,
+            _ => null,
+        };
+
+        if (constant is null)
+        {
+            if (!WhereClause.TryParse(
+                    rest,
+                    [.. described.Fields.Select(f => f.Name)],
+                    Graticula.Catalog.LayerDefinition.Quote,
+                    out ParsedWhere parsed,
+                    out string? whereError,
+                    types))
+            {
+                await Refuse($"'where' could not be parsed. {whereError}").ConfigureAwait(false);
+                return;
+            }
+
+            where = parsed;
         }
 
         int ceiling = Math.Min(layer.Cost.MaximumEditsPerTransaction ?? FeatureQuery.MaximumLimit, FeatureQuery.MaximumLimit);

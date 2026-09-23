@@ -161,8 +161,22 @@ internal static class LayerDefinitions
                 types[field.Name] = field.Type;
             }
 
+            // V-45: the constant idioms, answered as the query parameter answers them.
+            (bool? constant, string rest) = FeatureServerQueryParameters.Reduce(clause);
+
+            if (constant is true)
+            {
+                continue;
+            }
+
+            if (constant is false)
+            {
+                predicates[layer.Id] = new AttributePredicate.MatchesNothing();
+                continue;
+            }
+
             if (!WhereClause.TryParse(
-                    clause,
+                    rest,
                     [.. described.Fields.Select(f => f.Name)],
                     LayerDefinition.Quote,
                     out ParsedWhere parsed,
