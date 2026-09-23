@@ -88,8 +88,13 @@ public sealed class WebMapViewerTests : ConsoleTest
                 "The layer list never showed the map's two layers. The script either did not run or did "
                 + "not reach the document.");
 
+            // <b>Both of the viewer's waiting words, because it has two.</b> A layer that has not been
+            // asked for yet says *Waiting to load…* and one being read says *Loading…* — this waited for
+            // the second alone, so it returned while the first was still on the screen and the assertion
+            // below read a list nothing had resolved. Caught on CI 2026-09-23, and it is a wait that was
+            // passing for the wrong reason rather than a new defect.
             await WaitForAsync(
-                "!document.getElementById('layerList').innerText.includes('Loading')",
+                "!/Waiting to load|Loading/.test(document.getElementById('layerList').innerText)",
                 "A layer is still loading after the wait; its document was never read.");
 
             string[] names = await Browser.EvaluateAsync<string[]>(LayerNames) ?? [];
