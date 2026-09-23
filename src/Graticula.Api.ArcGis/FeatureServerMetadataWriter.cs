@@ -1110,16 +1110,38 @@ public static class FeatureServerMetadataWriter
         _ => "esriFieldTypeString",
     };
 
+    /// <summary>
+    /// A column's ArcGIS type as a layer document names it: the object id and the GlobalID by their role,
+    /// everything else by its data type.
+    /// </summary>
+    /// <remarks>
+    /// <b>Public because two faces write a field list</b> — this document and the MapServer layer. The MapServer
+    /// face called <see cref="TypeName"/> directly and so named the object id <c>esriFieldTypeInteger</c>,
+    /// which is how the third ArcGIS review found it (V-52): the same column, two types, on two documents about
+    /// one layer.
+    /// </remarks>
+    /// <param name="layer">The layer, for its object id column.</param>
+    /// <param name="description">Its columns, for the GlobalID.</param>
+    /// <param name="field">The column.</param>
+    /// <returns>The <c>esriFieldType…</c> name.</returns>
+    public static string FieldTypeOf(LayerDefinition layer, LayerDescription description, FieldDescription field)
+    {
+        ArgumentNullException.ThrowIfNull(layer);
+        ArgumentNullException.ThrowIfNull(description);
+
+        return string.Equals(field.Name, layer.IntegerIdentityColumn, StringComparison.Ordinal)
+            ? "esriFieldTypeOID"
+            : string.Equals(field.Name, GlobalIds.FieldOf(description.Fields), StringComparison.Ordinal)
+                ? "esriFieldTypeGlobalID"
+                : TypeName(field.Type);
+    }
+
     private static object[] Fields(
         LayerDefinition layer, LayerDescription description, string capabilities) =>
         [.. description.Fields.Select(field => new
         {
             name = field.Name,
-            type = string.Equals(field.Name, layer.IntegerIdentityColumn, StringComparison.Ordinal)
-                ? "esriFieldTypeOID"
-                : string.Equals(field.Name, GlobalIds.FieldOf(description.Fields), StringComparison.Ordinal)
-                    ? "esriFieldTypeGlobalID"
-                    : TypeName(field.Type),
+            type = FieldTypeOf(layer, description, field),
             // <b>The layer's label, and the column's own name when it has none — ADR-063.</b>
             // This sent the name as the alias for every field, which is not *no alias* but a
             // wrong one: a client shows it, and a geodatabase import that read the operator's

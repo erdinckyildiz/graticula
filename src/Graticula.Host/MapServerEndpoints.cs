@@ -246,7 +246,8 @@ internal static class MapServerEndpoints
             [.. described.Fields.Select(f => (object)new
             {
                 name = f.Name,
-                type = FeatureServerMetadataWriter.TypeName(f.Type),
+                // V-52: the object id and the GlobalID by their role, as the FeatureServer document names them.
+                type = FeatureServerMetadataWriter.FieldTypeOf(layer.Definition, described, f),
                 // The same label the FeatureServer face gives the same column (ADR-063); two
                 // faces over one layer disagreeing about a label is D-179's shape.
                 alias = f.Label,
@@ -258,7 +259,8 @@ internal static class MapServerEndpoints
             FeatureServerMetadataWriter.DisplayField(layer.Definition, described),
             settings.MaximumRecordCount,
             Labels(layer),
-            Capabilities);
+            Capabilities,
+            layer.Definition.IntegerIdentityColumn);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {

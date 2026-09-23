@@ -127,6 +127,7 @@ public static class MapServerMetadataWriter
     /// <param name="maxRecordCount">What a query may return.</param>
     /// <param name="hasLabels">Whether its stored style labels features.</param>
     /// <param name="capabilities">What this layer offers, comma-separated.</param>
+    /// <param name="objectIdField">The layer's object id column, or null when it has none.</param>
     /// <returns>The document.</returns>
     public static object Layer(
         FeatureServerMetadataWriter.ServiceLayer layer,
@@ -135,7 +136,8 @@ public static class MapServerMetadataWriter
         string? displayField,
         int maxRecordCount,
         bool hasLabels = false,
-        string capabilities = "Map")
+        string capabilities = "Map",
+        string? objectIdField = null)
     {
         ArgumentNullException.ThrowIfNull(fields);
 
@@ -158,6 +160,10 @@ public static class MapServerMetadataWriter
             hasAttachments = false,
             htmlPopupType = "esriServerHTMLPopupTypeNone",
             displayField = displayField ?? string.Empty,
+
+            // <b>V-52.</b> Absent until 2026-09-23 while the FeatureServer document of the same layer had it, so a
+            // MapImageLayer sublayer could not find the key its popups and selections join on.
+            objectIdField,
             typeIdField = (string?)null,
             fields,
             relationships = Array.Empty<object>(),

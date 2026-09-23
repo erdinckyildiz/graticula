@@ -905,6 +905,41 @@ public static class Program
                     ?? new InvalidOperationException("An error was reported with no exception."),
                 logger)));
 
+        // <b>An ArcGIS address that has no answer still answers in ArcGIS's envelope — V-53.</b> The route
+        // table's own 404 and 405 have no body, so `MapServer/find` (not implemented) and a GET to
+        // `applyEdits` (a POST operation) came back empty. An ArcGIS client parses every response as JSON and
+        // reads `error.message`; an empty body breaks the parser and reads as *the server is unreachable*.
+        // ADR-049 says a face refuses in its own vocabulary, and these two were outside it. Only when nothing
+        // has been written, so a refusal an endpoint composed itself is never replaced.
+        app.Use(async (context, next) =>
+        {
+            await next().ConfigureAwait(false);
+
+            PathString path = context.Request.Path;
+            int status = context.Response.StatusCode;
+
+            if (context.Response.HasStarted
+                || status is not (StatusCodes.Status404NotFound or StatusCodes.Status405MethodNotAllowed)
+                || !(path.StartsWithSegments("/rest/services") || path.StartsWithSegments("/sharing/rest")))
+            {
+                return;
+            }
+
+            string last = path.Value?.TrimEnd('/') is { } value ? value[(value.LastIndexOf('/') + 1)..] : string.Empty;
+
+            string message = status == StatusCodes.Status405MethodNotAllowed
+                ? $"'{last}' does not accept {context.Request.Method}. Operations that change data take POST; "
+                  + "resources and queries take GET or POST."
+                : path.Value?.EndsWith("/MapServer/find", StringComparison.OrdinalIgnoreCase) == true
+                    ? "'find' is not implemented by this server. Search a layer with its FeatureServer's 'query' "
+                      + "and a 'where' clause such as name LIKE '%value%'."
+                    : $"There is no '{last}' at this address. The services directory lists what this server offers.";
+
+            await Results.Json(
+                new { error = new { code = status, message, details = Array.Empty<string>() } },
+                statusCode: status).ExecuteAsync(context).ConfigureAwait(false);
+        });
+
         // BEFORE authentication, and it touches nothing. A liveness probe that
         // depends on the database tells an orchestrator to kill the container
         // during a database outage — turning an outage into a restart loop, and
