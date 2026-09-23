@@ -2828,10 +2828,15 @@ public static class Program
             PublishedLayer? other =
                 await layers.FindByIdAsync(otherId, cancellation).ConfigureAwait(false);
 
+            // <b>An integer id and the other side's layer id — V-46.</b> ArcGIS clients parse both as
+            // numbers; the uuid was the row's key and no client could use it. `relatedTableId` is only
+            // true inside one service, which is the only place ArcGIS has relationships at all, so a
+            // relationship to another service's layer names the table and leaves the id out.
             reported.Add(new
             {
-                id = relationship.Id,
+                id = relationship.Number is { } number ? number : (object)relationship.Id,
                 name = relationship.Name,
+                relatedTableId = other is not null && other.ServiceId == layer.ServiceId ? other.LayerIndex : (int?)null,
                 relatedTableName = other?.Definition.Name,
 
                 // ArcGIS names the direction from the reader's point of view.

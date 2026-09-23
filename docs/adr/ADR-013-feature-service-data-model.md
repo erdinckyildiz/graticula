@@ -144,6 +144,22 @@ Consequences:
 - A declared relationship can be **wrong** — nothing validates that the join
   keys correspond. Validation on publish is a condition in §7.
 
+### 3a. Amended 2026-09-23 — a relationship is numbered as ArcGIS numbers it
+
+Found by the third ArcGIS review (V-46), decided by the owner. A layer document's
+`relationships[].id` was the row's uuid and `relatedTableId` was absent, so an
+ArcGIS client — which parses both as integers — could not follow a relationship.
+Migration 53 gives every relationship an integer from an identity column: rows that
+exist are numbered when it is added, and a number is never reused, so a client
+that stored one never comes to mean another relationship. The document writes that
+number as `id` and the other side's layer id as `relatedTableId` **when both layers
+are in one service**, the only place ArcGIS has relationships; a relationship to
+another service's layer names the table and leaves the id out rather than naming a
+layer id that means something else in this service. `queryRelatedRecords` takes the
+number, and still takes the uuid a client may have stored, and answers with the
+number. The uuid stays the key `/admin/relationships` uses, and that listing now
+carries the number beside it.
+
 ---
 
 ## 4. Decision — attachments are stored in the database (Q-58b)

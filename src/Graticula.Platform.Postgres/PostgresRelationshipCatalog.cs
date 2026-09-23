@@ -20,7 +20,7 @@ public sealed class PostgresRelationshipCatalog
 {
     private const string Columns =
         "id, name, origin_layer_id, origin_key, related_layer_id, related_key, "
-        + "cardinality, composite";
+        + "cardinality, composite, number";
 
     private readonly NpgsqlDataSource _dataSource;
 
@@ -119,6 +119,23 @@ public sealed class PostgresRelationshipCatalog
         return found.Count == 0 ? null : found[0];
     }
 
+    /// <summary>Finds a relationship by its integer id, the one ArcGIS clients use — V-46.</summary>
+    /// <param name="number">The number.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The relationship, or null.</returns>
+    public async Task<LayerRelationship?> FindAsync(int number, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command =
+            _dataSource.CreateCommand($"select {Columns} from relationship where number = @number");
+
+        command.Parameters.AddWithValue("number", number);
+
+        IReadOnlyList<LayerRelationship> found =
+            await ReadAsync(command, cancellationToken).ConfigureAwait(false);
+
+        return found.Count == 0 ? null : found[0];
+    }
+
     /// <summary>Removes a relationship.</summary>
     /// <param name="id">Its id.</param>
     /// <param name="cancellationToken">Cancellation.</param>
@@ -158,7 +175,10 @@ public sealed class PostgresRelationshipCatalog
                 reader.GetGuid(4),
                 reader.GetString(5),
                 Enum.Parse<RelationshipCardinality>(reader.GetString(6)),
-                reader.GetBoolean(7)));
+                reader.GetBoolean(7))
+            {
+                Number = reader.IsDBNull(8) ? null : reader.GetInt32(8),
+            });
         }
 
         return relationships;

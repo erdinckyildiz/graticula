@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(52);
+    public static SchemaVersion ComponentSchemaVersion => new(53);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -87,7 +87,24 @@ public static class PlatformMigrations
         ASessionMayBeScopedV50,
         OAuthV51,
         AWebMapIsASavedDocumentV52,
+        ARelationshipHasANumberV53,
     ]);
+
+    /// <remarks>
+    /// <b>V-46, the third ArcGIS review, decided by the owner 2026-09-23.</b> ArcGIS names a relationship by an
+    /// integer — <c>relationships[].id</c> in a layer document and <c>relationshipId</c> on
+    /// <c>queryRelatedRecords</c> — and clients parse it as one. Ours was the row's uuid. An identity column
+    /// numbers the rows that exist when it is added and every one after, and a number is never reused, so a
+    /// client that stored one does not come to mean a different relationship. The uuid stays the key the
+    /// administration surface uses.
+    /// </remarks>
+    private static Migration ARelationshipHasANumberV53 => Migration.Expand(
+        new SchemaVersion(53),
+        "A relationship has an integer id, as ArcGIS's relationshipId is (V-46).",
+
+        "alter table relationship add column if not exists number integer generated always as identity",
+
+        "create unique index if not exists relationship_number on relationship (number)");
 
 
     /// <summary>

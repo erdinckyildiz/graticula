@@ -55,4 +55,11 @@ public sealed record LayerRelationship(
     Guid RelatedLayerId,
     string RelatedKey,
     RelationshipCardinality Cardinality,
-    bool Composite);
+    bool Composite)
+{
+    /// <summary>
+    /// The relationship's integer id, which ArcGIS clients read as <c>relationshipId</c> — V-46. Null only on a
+    /// declaration that has not been stored yet.
+    /// </summary>
+    public int? Number { get; init; }
+}

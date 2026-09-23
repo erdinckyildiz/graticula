@@ -239,9 +239,12 @@ internal static class RelationshipEndpoints
 
         context.Response.StatusCode = StatusCodes.Status201Created;
 
+        int? number = (await relationships.FindAsync(id, cancellation).ConfigureAwait(false))?.Number;
+
         await Results.Json(new
         {
             id,
+            number,
             name = request.Name,
             origin = new { layer = origin.Definition.Name, key = request.OriginKey },
             related = new { layer = related.Definition.Name, key = request.RelatedKey },
@@ -320,6 +323,7 @@ internal static class RelationshipEndpoints
                 .Select(r => new
                 {
                     r.Id,
+                    number = r.Number,
                     r.Name,
                     origin = new { layer = Named(r.OriginLayerId), key = r.OriginKey },
                     related = new { layer = Named(r.RelatedLayerId), key = r.RelatedKey },
@@ -412,16 +416,27 @@ internal static class RelationshipEndpoints
         string relationshipId = Value(context, "relationshipId");
         string objectIdsRaw = Value(context, "objectIds");
 
-        if (!Guid.TryParse(relationshipId, out Guid wanted))
+        // <b>The integer ArcGIS clients send, and the uuid this server used to publish — V-46.</b> A client
+        // that stored the old id keeps working; everything written since names the number.
+        LayerRelationship? relationship;
+
+        if (int.TryParse(relationshipId, NumberStyles.Integer, CultureInfo.InvariantCulture, out int number))
+        {
+            relationship = await relationships.FindAsync(number, cancellation).ConfigureAwait(false);
+        }
+        else if (Guid.TryParse(relationshipId, out Guid key))
+        {
+            relationship = await relationships.FindAsync(key, cancellation).ConfigureAwait(false);
+        }
+        else
         {
             await Fail(context, 400,
-                "'relationshipId' is required and is the id from /admin/relationships. It also "
-                + "appears in this layer's document under 'relationships'.").ConfigureAwait(false);
+                "'relationshipId' is required and is the id this layer's document gives under "
+                + "'relationships'.").ConfigureAwait(false);
             return;
         }
 
-        LayerRelationship? relationship =
-            await relationships.FindAsync(wanted, cancellation).ConfigureAwait(false);
+        string wanted = relationshipId.Trim();
 
         if (relationship is null
             || (relationship.OriginLayerId != layer.Id && relationship.RelatedLayerId != layer.Id))
@@ -501,7 +516,7 @@ internal static class RelationshipEndpoints
 
         await Results.Json(new
         {
-            relationshipId = wanted,
+            relationshipId = relationship.Number is { } answered ? answered : (object)relationship.Id,
             fields = description.Fields.Select(f => new
             {
                 name = f.Name,
