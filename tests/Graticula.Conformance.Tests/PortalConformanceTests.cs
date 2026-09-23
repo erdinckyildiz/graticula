@@ -266,7 +266,8 @@ public sealed class PortalConformanceTests : ArcGisClient
     }
 
     /// <summary>
-    /// A service's MapServer and VectorTileServer are items of their own, each opening at its own url.
+    /// A service's MapServer and VectorTileServer are items of their own, each opening at its own url, and
+    /// so is an image service.
     /// </summary>
     /// <remarks>Written 2026-09-15: the portal listed one Feature Service item per service, so Pro's
     /// portal pane had no map image layer or vector tile layer to add although the directory listed both.</remarks>
@@ -283,13 +284,21 @@ public sealed class PortalConformanceTests : ArcGisClient
 
         Assert.Equal(items.Length, items.Select(i => i.GetProperty("id").GetString()).Distinct().Count());
 
-        foreach (string type in (string[])["Map Service", "Vector Tile Service"])
+        // <b>And an Image Service — V-80, 2026-09-23.</b> Coverages live in their own catalogue and the
+        // portal listed only feature services, so the fixture's image service was in the directory and
+        // in no search.
+        foreach (string type in (string[])["Map Service", "Vector Tile Service", "Image Service"])
         {
             JsonElement item = items.FirstOrDefault(i => i.GetProperty("type").GetString() == type);
 
-            Assert.True(item.ValueKind == JsonValueKind.Object, $"No '{type}' item among {items.Length}, although the fixture publishes drawable, tileable layers.");
+            Assert.True(item.ValueKind == JsonValueKind.Object, $"No '{type}' item among {items.Length}, although the fixture publishes drawable, tileable layers and an image service.");
 
-            string face = type == "Map Service" ? "/MapServer" : "/VectorTileServer";
+            string face = type switch
+            {
+                "Map Service" => "/MapServer",
+                "Vector Tile Service" => "/VectorTileServer",
+                _ => "/ImageServer",
+            };
             string url = item.GetProperty("url").GetString()!;
             Assert.EndsWith(face, url, StringComparison.Ordinal);
 

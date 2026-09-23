@@ -46,6 +46,8 @@ public sealed class PublishedCoverage
     /// <param name="sharing">Who may see it.</param>
     /// <param name="status">Whether the service is started.</param>
     /// <param name="owner">Who published it.</param>
+    /// <param name="created">When its service was registered, or null when not read.</param>
+    /// <param name="modified">When its service last changed, or null when not read.</param>
     public PublishedCoverage(
         Guid id,
         Guid serviceId,
@@ -57,7 +59,9 @@ public sealed class PublishedCoverage
         string? style,
         SharingScope sharing,
         ServiceStatus status,
-        Guid? owner)
+        Guid? owner,
+        DateTimeOffset? created = null,
+        DateTimeOffset? modified = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -75,6 +79,8 @@ public sealed class PublishedCoverage
         Sharing = sharing;
         Status = status;
         Owner = owner;
+        Created = created;
+        Modified = modified;
     }
 
     /// <summary>Its own identifier.</summary>
@@ -118,6 +124,12 @@ public sealed class PublishedCoverage
 
     /// <summary>Who published it.</summary>
     public Guid? Owner { get; }
+
+    /// <summary>When its service was registered, as a portal item's <c>created</c> reads it; null when not read.</summary>
+    public DateTimeOffset? Created { get; }
+
+    /// <summary>When its service last changed, as a portal item's <c>modified</c> reads it; null when not read.</summary>
+    public DateTimeOffset? Modified { get; }
 
     /// <summary>The service's address, folder and all.</summary>
     public string QualifiedName =>

@@ -783,6 +783,7 @@ internal static class PortalEndpoints
         HttpContext context,
         CatalogFallback catalog,
         IWebMapStore maps,
+        ICoverageCatalog coverages,
         string username,
         CancellationToken cancellation)
     {
@@ -797,7 +798,10 @@ internal static class PortalEndpoints
         IReadOnlyList<PublishedService>? visible =
             await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
 
-        if (visible is null)
+        IReadOnlyList<PublishedCoverage>? images =
+            await VisibleCoveragesAsync(context, coverages, cancellation).ConfigureAwait(false);
+
+        if (visible is null || images is null)
         {
             return Unavailable();
         }
@@ -816,6 +820,11 @@ internal static class PortalEndpoints
             .. (await ReadableMapsAsync(context, maps, cancellation).ConfigureAwait(false))
                 .Where(map => map.Owner == current.Principal.Id)
                 .Select(map => MapItem(context, map)),
+
+            // And the image services they registered — V-80.
+            .. images
+                .Where(coverage => coverage.Owner is { } owner && owner == current.Principal.Id)
+                .Select(coverage => CoverageItem(context, coverage)),
         ];
 
         return Results.Ok(new
@@ -872,12 +881,16 @@ internal static class PortalEndpoints
         HttpContext context,
         CatalogFallback catalog,
         IWebMapStore maps,
+        ICoverageCatalog coverages,
         CancellationToken cancellation)
     {
         IReadOnlyList<PublishedService>? visible =
             await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
 
-        if (visible is null)
+        IReadOnlyList<PublishedCoverage>? images =
+            await VisibleCoveragesAsync(context, coverages, cancellation).ConfigureAwait(false);
+
+        if (visible is null || images is null)
         {
             return Unavailable();
         }
@@ -916,6 +929,17 @@ internal static class PortalEndpoints
             }
         }
 
+        // Image services, under the same query and the rule their own face reads by — V-80.
+        foreach (PublishedCoverage coverage in images)
+        {
+            object item = CoverageItem(context, coverage);
+
+            if (PortalQuery.Matches(item, query))
+            {
+                results.Add(item);
+            }
+        }
+
         return Results.Ok(new
         {
             query,
@@ -937,6 +961,7 @@ internal static class PortalEndpoints
         ServiceContexts contexts,
         Graticula.Geometries.IProjector projector,
         IWebMapStore maps,
+        ICoverageCatalog coverages,
         string id,
         CancellationToken cancellation)
     {
@@ -969,6 +994,21 @@ internal static class PortalEndpoints
                         .First(face => string.Equals(face.Id, id, StringComparison.OrdinalIgnoreCase)).Item);
                 }
             }
+        }
+
+        IReadOnlyList<PublishedCoverage>? images =
+            await VisibleCoveragesAsync(context, coverages, cancellation).ConfigureAwait(false);
+
+        if (images is null)
+        {
+            return Unavailable();
+        }
+
+        if (images.FirstOrDefault(coverage => string.Equals(CoverageItemId(coverage), id, StringComparison.OrdinalIgnoreCase))
+            is { } image)
+        {
+            return Results.Ok(CoverageItem(
+                context, image, await CoverageExtentAsync(image, projector, cancellation).ConfigureAwait(false)));
         }
 
         // <b>The same answer whether it does not exist or is not visible.</b> A
@@ -1072,6 +1112,7 @@ internal static class PortalEndpoints
         HttpContext context,
         CatalogFallback catalog,
         IWebMapStore maps,
+        ICoverageCatalog coverages,
         string id,
         CancellationToken cancellation)
     {
@@ -1097,6 +1138,19 @@ internal static class PortalEndpoints
             {
                 return Results.Ok(new { });
             }
+        }
+
+        IReadOnlyList<PublishedCoverage>? images =
+            await VisibleCoveragesAsync(context, coverages, cancellation).ConfigureAwait(false);
+
+        if (images is null)
+        {
+            return Unavailable();
+        }
+
+        if (images.Any(coverage => string.Equals(CoverageItemId(coverage), id, StringComparison.OrdinalIgnoreCase)))
+        {
+            return Results.Ok(new { });
         }
 
         return Unknown("Item");
@@ -1139,6 +1193,117 @@ internal static class PortalEndpoints
                         service.SharedWith)
                     .IsAllowed()),
         ];
+    }
+
+    /// <summary>
+    /// Every image service this caller may see, running unless the caller manages the server, or null when
+    /// the coverage catalogue cannot be read.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>V-80, the owner's decision of 2026-09-23: an image service is a portal item.</b> Coverages live in
+    /// their own catalogue (ADR-043), and this face listed only <see cref="PublishedService"/>, so Pro's
+    /// portal pane and the Python API's <c>search</c> could not find an ImageServer the directory listed.
+    /// </para>
+    /// <para>
+    /// <b>The rule <c>ImageServerEndpoints.FindAsync</c> reads by</b> — <see cref="LayerAccess.Evaluate"/>
+    /// over the coverage's sharing and owner — so an item is listed exactly when its service answers. A
+    /// coverage has no group shares, which is why nothing is passed for them.
+    /// </para>
+    /// <para>
+    /// <b>Null rather than empty, for the reason <see cref="VisibleAsync"/> gives</b> (D-127): a listing
+    /// that silently lost every image service during an outage would say they do not exist.
+    /// </para>
+    /// </remarks>
+    private static async Task<IReadOnlyList<PublishedCoverage>?> VisibleCoveragesAsync(
+        HttpContext context, ICoverageCatalog coverages, CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        bool seesStopped = current.Authorization.Allows(Privilege.AdminManageServer);
+
+        IReadOnlyList<PublishedCoverage> all;
+
+        try
+        {
+            all = await coverages.ListAsync(cancellation).ConfigureAwait(false);
+        }
+        catch (System.Data.Common.DbException)
+        {
+            return null;
+        }
+
+        return
+        [
+            .. all.Where(coverage =>
+                (coverage.Status == ServiceStatus.Started || seesStopped)
+                && LayerAccess
+                    .Evaluate(coverage.Sharing, coverage.Owner, current.Principal, current.Authorization)
+                    .IsAllowed()),
+        ];
+    }
+
+    /// <summary>An image service's item id: 32 hex characters derived from the coverage id.</summary>
+    /// <remarks>
+    /// <b>Derived rather than the coverage id itself</b>, as a further face's is (<see cref="FaceItemId"/>),
+    /// so it can never equal a feature service's item id whichever table minted the two GUIDs.
+    /// </remarks>
+    /// <param name="coverage">The coverage.</param>
+    /// <returns>The id.</returns>
+    internal static string CoverageItemId(PublishedCoverage coverage) =>
+        Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes($"{coverage.Id:N}/ImageServer")))[..32];
+
+    /// <summary>The type keywords an image service item carries.</summary>
+    internal static readonly string[] ImageServiceKeywords =
+        ["ArcGIS Server", "Data", "Image Service", "Service"];
+
+    /// <summary>One image service as a portal item.</summary>
+    /// <remarks>
+    /// <b>Owned by the same rule as a service's</b> (<see cref="Item"/>, Q-127), and with no thumbnail:
+    /// this server keeps pictures of vector layers, and an item that names no thumbnail is one a client
+    /// does not ask for.
+    /// </remarks>
+    private static object CoverageItem(HttpContext context, PublishedCoverage coverage, double[][]? extent = null)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        return new
+        {
+            id = CoverageItemId(coverage),
+            owner = !current.Principal.IsAnonymous && coverage.Owner == current.Principal.Id
+                ? current.Principal.Name
+                : "graticula",
+            orgId = PortalId(context),
+            title = coverage.ServiceName,
+            name = coverage.ServiceName,
+            type = "Image Service",
+            typeKeywords = ImageServiceKeywords,
+            description = (string?)null,
+            snippet = (string?)null,
+            tags = coverage.Folder is null ? Array.Empty<string>() : new[] { coverage.Folder },
+            url = $"{Origin(context)}/rest/services/{coverage.QualifiedName}/ImageServer",
+            thumbnail = (string?)null,
+            access = Access(coverage.Sharing),
+            spatialReference = (string?)null,
+            extent = extent ?? [],
+            numViews = 0,
+            size = -1,
+            created = coverage.Created?.ToUnixTimeMilliseconds(),
+            modified = coverage.Modified?.ToUnixTimeMilliseconds(),
+        };
+    }
+
+    /// <summary>An image service's extent in WGS 84, as an item document carries it, or empty.</summary>
+    private static async Task<double[][]> CoverageExtentAsync(
+        PublishedCoverage coverage, Graticula.Geometries.IProjector projector, CancellationToken cancellation)
+    {
+        IReadOnlyList<Graticula.Geometries.Envelope?> geographic = await Graticula.Geometries.GeographicExtents
+            .InWgs84Async(projector, [(coverage.Info.Srid, coverage.Info.Extent)], cancellation)
+            .ConfigureAwait(false);
+
+        return geographic is [{ } box]
+            ? [[box.MinX, box.MinY], [box.MaxX, box.MaxY]]
+            : [];
     }
 
     /// <summary>The type keywords ArcGIS gives a web map made in its own map viewer.</summary>

@@ -33,7 +33,8 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
         c.width, c.height, c.band_count, c.sample_kind, c.no_data,
         c.min_x, c.min_y, c.max_x, c.max_y,
         c.tile_width, c.tile_height, c.overview_count, c.style,
-        s.sharing, s.status, s.owner_principal_id
+        s.sharing, s.status, s.owner_principal_id,
+        s.created_at, s.updated_at
         """;
 
     private readonly NpgsqlDataSource _dataSource;
@@ -301,7 +302,9 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
             reader.IsDBNull(19) ? null : reader.GetString(19),
             ParseSharing(reader.GetString(20)),
             ParseStatus(reader.GetString(21)),
-            reader.IsDBNull(22) ? null : reader.GetGuid(22));
+            reader.IsDBNull(22) ? null : reader.GetGuid(22),
+            reader.GetFieldValue<DateTimeOffset>(23),
+            reader.GetFieldValue<DateTimeOffset>(24));
     }
 
     /// <summary>Reads the status, refusing an unknown one.</summary>
