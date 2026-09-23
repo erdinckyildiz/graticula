@@ -282,6 +282,18 @@ found in the list the item document searches — and a name other than the one t
 nobody may see and an item that does not exist are the same 404. A saved web map names none yet; it has
 no drawing of its own.
 
+### 4e. Amended 2026-09-23 — search reads the reference's grammar
+
+Found by the third ArcGIS review (V-48). `q` was read as a flat list of clauses joined by AND, so
+`AND` and `OR` were words looked for in a title and a parenthesis was part of a value: the Map
+Viewer's `(type:"Feature Service" OR type:"Map Service")`, the Python API's `owner:x AND title:y`, a
+field group `type:("A" "B")` and `title:ist*` each answered zero items, with nothing to say why. The
+search reference's grammar is now read — AND by default, `AND`/`OR`/`NOT` in capitals, a leading `-`
+or `+`, parentheses, `field:( … )`, and `*` only at the end of a term — and `typekeywords` and `id`
+join the fields. **The rule of this section is unchanged and now applies to the whole query**: one
+field this server cannot evaluate, or a query that does not parse, answers nothing, so
+`type:"Feature Service" OR url:<a geocoder>` is not answered by the half it can read.
+
 ## 5. Consequences
 
 **Positive.** A Pro user gets the browse workflow the owner asked for. Every other ArcGIS client

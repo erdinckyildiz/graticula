@@ -120,4 +120,63 @@ public sealed class PortalQueryTests
         Assert.False(PortalQuery.Matches(Item(), "owner:root type:\"Shapefile\""));
         Assert.False(PortalQuery.Matches(Item(), "owner:nobody type:\"Feature Service\""));
     }
+
+    /// <summary>
+    /// The search reference's operators, grouping and trailing wildcard — V-48, the third ArcGIS review.
+    /// </summary>
+    /// <remarks>
+    /// Each of these answered zero items before, because <c>AND</c> and <c>OR</c> were words looked for in the
+    /// title and a parenthesis was part of the value. The forms are the Map Viewer's, the Python API's and a
+    /// person's in Pro's search box.
+    /// </remarks>
+    [Theory]
+    [InlineData("owner:root AND type:\"Feature Service\"", true)]
+    [InlineData("(type:\"Map Service\" OR type:\"Feature Service\") AND owner:root", true)]
+    [InlineData("(type:\"Map Service\" OR type:\"Vector Tile Service\") AND owner:root", false)]
+    [InlineData("type:(\"Map Service\" OR \"Feature Service\")", true)]
+    [InlineData("type:(\"Map Service\" OR \"Vector Tile Service\")", false)]
+    [InlineData("owner:root NOT type:\"Feature Service\"", false)]
+    [InlineData("owner:root -(type:\"Shapefile\" OR type:\"CSV\")", true)]
+    [InlineData("title:tr*", true)]
+    [InlineData("title:il*", false)]
+    [InlineData("tags:host*", true)]
+    [InlineData("tr_*", true)]
+    [InlineData("typekeywords:\"Hosted Service\"", true)]
+    [InlineData("typekeywords:\"Hosted Service\" OR typekeywords:Data", true)]
+    [InlineData("-typekeywords:\"Table\"", true)]
+    [InlineData("owner:root or type:\"Shapefile\"", false)]
+    public void The_search_references_grammar_is_read(string query, bool expected)
+    {
+        object item = new
+        {
+            title = "tr_il",
+            type = "Feature Service",
+            owner = "root",
+            url = "https://example/rest/services/hosted/tr_il/FeatureServer",
+            tags = new[] { "hosted" },
+            typeKeywords = new[] { "Data", "Hosted Service" },
+        };
+
+        Assert.Equal(expected, PortalQuery.Matches(item, query));
+    }
+
+    [Theory]
+    [InlineData("type:\"Feature Service\" OR categories:/Basemaps")]
+    [InlineData("(owner:root")]
+    [InlineData("owner:root)")]
+    [InlineData("owner:root OR")]
+    [InlineData("NOT")]
+    public void A_query_this_cannot_read_whole_matches_nothing(string query)
+    {
+        // An unknown field anywhere, or a query that does not parse, is a question this cannot answer —
+        // and the half it can read does not get to answer it.
+        Assert.False(PortalQuery.Matches(Item(), query));
+    }
+
+    [Fact]
+    public void A_url_value_is_read_whole_despite_its_colons()
+    {
+        Assert.True(PortalQuery.Matches(Item(), "url:https://example/rest/services/hosted/tr_il/FeatureServer"));
+        Assert.False(PortalQuery.Matches(Item(), "url:https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer"));
+    }
 }
