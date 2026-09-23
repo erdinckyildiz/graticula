@@ -223,6 +223,17 @@ public sealed record LayerDescription(
     public bool AnswersDistance { get; init; } = true;
 
     /// <summary>
+    /// Whether a query may filter by contains, within, crosses, overlaps, touches and a DE-9IM pattern, as well
+    /// as by intersection — false for a GeoParquet layer on a server with no geometry engine (D-263).
+    /// </summary>
+    /// <remarks>
+    /// <b>Apart from <see cref="AnswersDistance"/> since 2026-09-23.</b> A GeoParquet layer answers every
+    /// relation through the geometry engine, and a distance only where its reference is projected, so the two
+    /// claims stopped being one.
+    /// </remarks>
+    public bool AnswersRelations { get; init; } = true;
+
+    /// <summary>
     /// Which ordinates beyond x and y the layer's geometry column declares — ADR-074.
     /// </summary>
     /// <remarks>

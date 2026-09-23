@@ -229,6 +229,36 @@ public sealed class GeometryWorkerPoolTests
     }
 
     /// <summary>
+    /// Which of the left lie within a distance of the right, as pairs — the exact half of a GeoParquet layer's
+    /// distance filter (D-263).
+    /// </summary>
+    [Fact]
+    public async Task WithinDistance_returns_the_pairs_near_enough_and_only_those()
+    {
+        RequireWorker();
+
+        await using GeometryWorkerPool pool = Pool();
+
+        // Square(x, y, s) spans [x, x+s]. From the right-hand square's corner at (20, 20): the first is 10
+        // units away along x and y (14.14), the second touches it, the third is 30 away.
+        EngineResult result = await pool.ComputeAsync(
+            new EngineRequest(
+                EngineOperation.WithinDistance,
+                [Square(0, 0, 10), Square(15, 15, 5), Square(50, 20, 10)],
+                [Square(20, 20, 5)],
+                3857)
+            {
+                Distance = 15,
+            },
+            CancellationToken.None);
+
+        Assert.Equal(EngineRefusal.None, result.Refusal);
+        Assert.Equal(
+            [[0, 0], [1, 0]],
+            result.Pairs!.Select(pair => new[] { pair[0], pair[1] }).ToArray());
+    }
+
+    /// <summary>
     /// The pre-flight, when an operator asks for one.
     /// </summary>
     /// <remarks>

@@ -204,6 +204,141 @@ public sealed class GeoParquetFeatureSourceTests : IDisposable
         await Assert.ThrowsAsync<QueryNotSupportedException>(() => source.StatisticsAsync(query, CancellationToken.None));
     }
 
+    /// <summary>
+    /// An engine that answers for rectangles exactly and records what it was asked — D-263.
+    /// </summary>
+    /// <remarks>
+    /// The grid is axis-aligned squares, so a rectangle's own box is the rectangle and envelope arithmetic is the
+    /// exact answer. What is tested is the source's half: which candidates go to the engine, with which pattern
+    /// or distance, and how the pairs that come back are mapped to features.
+    /// </remarks>
+    private sealed class RectangleEngine : IGeometryEngine
+    {
+        public List<EngineRequest> Asked { get; } = [];
+
+        public EngineRefusal Refusal { get; init; } = EngineRefusal.None;
+
+        public Task<EngineResult> ComputeAsync(EngineRequest request, CancellationToken cancellationToken)
+        {
+            Asked.Add(request);
+
+            if (Refusal != EngineRefusal.None)
+            {
+                return Task.FromResult(new EngineResult([], Refusal, "the engine is busy", 0, 0));
+            }
+
+            Envelope filter = request.Right[0].Envelope;
+            List<int[]> pairs = [];
+
+            for (int i = 0; i < request.Left.Count; i++)
+            {
+                Envelope own = request.Left[i].Envelope;
+
+                bool holds = request.Operation == EngineOperation.WithinDistance
+                    ? Gap(own, filter) <= request.Distance
+                    : request.Pattern switch
+                    {
+                        "esriGeometryRelationWithin" => filter.Contains(own),
+                        "T*****FF*" => own.Contains(filter),
+                        _ => throw new InvalidOperationException($"pattern {request.Pattern}"),
+                    };
+
+                if (holds)
+                {
+                    pairs.Add([i, 0]);
+                }
+            }
+
+            return Task.FromResult(new EngineResult([], EngineRefusal.None, null, 0, 0) { Pairs = pairs });
+        }
+
+        private static double Gap(Envelope a, Envelope b)
+        {
+            double dx = Math.Max(0, Math.Max(a.MinX - b.MaxX, b.MinX - a.MaxX));
+            double dy = Math.Max(0, Math.Max(a.MinY - b.MaxY, b.MinY - a.MaxY));
+            return Math.Sqrt((dx * dx) + (dy * dy));
+        }
+    }
+
+    private GeoParquetFeatureSource Source(IGeometryEngine engine, int srid = 3857) =>
+        new(_folder, new LayerDefinition("grid", "main", "grid", "geom", srid, "objectid", "objectid", isHosted: false), _projector, engine: engine);
+
+    [Fact]
+    public async Task With_the_engine_within_is_the_features_the_filter_holds()
+    {
+        // Squares 1 and 2 lie wholly inside; square 11's box meets the filter's and is not inside it.
+        Polygon filter = Shapes.Square(-0.5, -0.5, 3.5, 2.5);
+        RectangleEngine engine = new();
+        GeoParquetFeatureSource source = Source(engine);
+
+        FeatureQuery query = new(1000, spatial: new SpatialFilter(filter, SpatialRelation.Within));
+
+        long[] held = await IdsAsync(source, query);
+        Assert.Equal([1L, 2L], held);
+        Assert.Equal(2, await source.CountAsync(query, CancellationToken.None));
+        Assert.All(engine.Asked, asked => Assert.Equal("esriGeometryRelationWithin", asked.Pattern));
+        Assert.True(engine.Asked[0].Left.Count >= 3, "the candidates the box let through went to the engine");
+    }
+
+    [Fact]
+    public async Task With_the_engine_contains_is_the_feature_that_holds_the_filter()
+    {
+        Polygon inside = Shapes.Square(2.25, 0.25, 2.75, 0.75);
+        RectangleEngine engine = new();
+
+        long[] holding = await IdsAsync(Source(engine), new FeatureQuery(1000, spatial: new SpatialFilter(inside, SpatialRelation.Contains)));
+        Assert.Equal([2L], holding);
+        Assert.Equal("T*****FF*", engine.Asked[0].Pattern);
+    }
+
+    [Fact]
+    public async Task With_the_engine_a_distance_is_answered_in_a_projected_layer()
+    {
+        // Between squares 1 and 2, half a unit from each; square 11 is further than 0.6 away.
+        RectangleEngine engine = new();
+        GeoParquetFeatureSource source = Source(engine);
+
+        FeatureQuery query = new(1000, spatial: new SpatialFilter(new Point(1.5, 0.5), Distance: 0.6));
+
+        long[] near = await IdsAsync(source, query);
+        Assert.Equal([1L, 2L], near);
+        Assert.Equal(EngineOperation.WithinDistance, engine.Asked[0].Operation);
+        Assert.Equal(0.6, engine.Asked[0].Distance);
+
+        LayerDescription described = await source.DescribeAsync(CancellationToken.None);
+        Assert.True(described.AnswersDistance);
+        Assert.True(described.AnswersRelations);
+    }
+
+    [Fact]
+    public void With_the_engine_a_distance_in_degrees_is_still_refused_and_says_why()
+    {
+        FeatureQuery query = new(10, spatial: new SpatialFilter(new Point(0, 0), Distance: 5));
+
+        QueryNotSupportedException refused =
+            Assert.Throws<QueryNotSupportedException>(() => Source(new RectangleEngine(), srid: 4326).SchemaFor(query));
+        Assert.Contains("degrees", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_engine_that_does_not_answer_refuses_the_query_rather_than_half_answering_it()
+    {
+        RectangleEngine engine = new() { Refusal = EngineRefusal.Unavailable };
+
+        QueryNotSupportedException refused = await Assert.ThrowsAsync<QueryNotSupportedException>(() => IdsAsync(
+            Source(engine), new FeatureQuery(1000, spatial: new SpatialFilter(Shapes.Square(-0.5, -0.5, 3.5, 2.5), SpatialRelation.Within))));
+        Assert.Contains("the engine is busy", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Without_the_engine_the_layer_says_it_answers_intersection_only()
+    {
+        LayerDescription described = await Source().DescribeAsync(CancellationToken.None);
+
+        Assert.False(described.AnswersDistance);
+        Assert.False(described.AnswersRelations);
+    }
+
     [Fact]
     public void A_distance_is_refused_and_the_refusal_says_what_to_do_instead()
     {

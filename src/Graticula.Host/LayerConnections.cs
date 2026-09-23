@@ -88,6 +88,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// The tile cache a successful edit empties for its layer — ADR-069. Optional for the same
     /// reason as the others: a process without one has no tiles to go stale.
     /// </param>
+    /// <param name="engine">The geometry engine a GeoParquet layer decides its wider relations with — D-263.</param>
     public LayerConnections(
         ConnectionBudget budget,
         SourceBreaker breaker,
@@ -95,7 +96,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         GeoParquetSources? geoParquet = null,
         Graticula.Geometries.IProjector? projector = null,
         Graticula.Tiles.IMvtEncoder? mvtEncoder = null,
-        ITileCache? tiles = null)
+        ITileCache? tiles = null,
+        Graticula.Geometries.IGeometryEngine? engine = null)
     {
         ArgumentNullException.ThrowIfNull(budget);
         ArgumentNullException.ThrowIfNull(breaker);
@@ -107,7 +109,11 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         _projector = projector;
         _mvtEncoder = mvtEncoder;
         _tiles = tiles;
+        _engine = engine;
     }
+
+    /// <summary>The geometry engine a GeoParquet layer decides its wider relations with — D-263.</summary>
+    private readonly Graticula.Geometries.IGeometryEngine? _engine;
 
     private readonly ITileCache? _tiles;
 
@@ -257,7 +263,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
             return new BudgetedFeatureSource(
                 new GeoParquetFeatureSource(
-                    _geoParquet.FolderFor(layer.ConnectionString), layer.Definition, _projector, lowered),
+                    _geoParquet.FolderFor(layer.ConnectionString), layer.Definition, _projector, lowered, _engine),
                 _budget,
                 layer.ConnectionString,
                 _breaker,

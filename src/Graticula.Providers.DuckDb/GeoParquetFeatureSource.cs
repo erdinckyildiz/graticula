@@ -86,14 +86,27 @@ public sealed class GeoParquetFeatureSource
     private readonly int _mostMatched;
     private readonly TimeProvider _time;
 
+    private readonly IGeometryEngine? _engine;
+
+    /// <summary>How many candidates go to the geometry engine in one request.</summary>
+    private const int EngineBatch = 1_000;
+
     /// <summary>Serves one file of a folder as a layer.</summary>
     /// <param name="folder">The folder's sandboxed DuckDB.</param>
     /// <param name="layer">The layer; its table name is the file name without <c>.parquet</c>.</param>
     /// <param name="projector">The datastore's projector.</param>
     /// <param name="statementTimeout">How long one query may run; <see cref="DefaultStatementTimeout"/> when null.</param>
+    /// <param name="engine">
+    /// The geometry engine, which answers every relation beyond intersection exactly (D-263); null answers
+    /// intersection only, as before.
+    /// </param>
     public GeoParquetFeatureSource(
-        GeoParquetFolder folder, LayerDefinition layer, IProjector projector, TimeSpan? statementTimeout = null)
-        : this(folder, layer, projector, statementTimeout, DefaultMostMatched)
+        GeoParquetFolder folder,
+        LayerDefinition layer,
+        IProjector projector,
+        TimeSpan? statementTimeout = null,
+        IGeometryEngine? engine = null)
+        : this(folder, layer, projector, statementTimeout, DefaultMostMatched, engine: engine)
     {
     }
 
@@ -109,7 +122,8 @@ public sealed class GeoParquetFeatureSource
         IProjector projector,
         TimeSpan? statementTimeout,
         int mostMatched,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        IGeometryEngine? engine = null)
     {
         ArgumentNullException.ThrowIfNull(folder);
         ArgumentNullException.ThrowIfNull(layer);
@@ -127,7 +141,18 @@ public sealed class GeoParquetFeatureSource
         _timeout = statementTimeout ?? DefaultStatementTimeout;
         _mostMatched = mostMatched;
         _time = time ?? TimeProvider.System;
+        _engine = engine;
     }
+
+    /// <summary>The relations the geometry engine answers for a GeoParquet layer — D-263.</summary>
+    public static IReadOnlyList<SpatialRelation> EngineRelations { get; } =
+    [
+        SpatialRelation.Contains, SpatialRelation.Within, SpatialRelation.Crosses,
+        SpatialRelation.Overlaps, SpatialRelation.Touches, SpatialRelation.Relate,
+    ];
+
+    /// <summary>Whether this layer answers a distance: with an engine, and in a projected reference.</summary>
+    private bool AnswersDistance => _engine is not null && !AxisOrder.IsGeographic(_layer.Srid);
 
     /// <summary>The relations a GeoParquet layer answers.</summary>
     public static IReadOnlyList<SpatialRelation> Relations { get; } =
@@ -319,7 +344,11 @@ public sealed class GeoParquetFeatureSource
             extent = await Task.Run(() => _folder.AttachedExtent(table), cancellationToken).ConfigureAwait(false);
         }
 
-        return new LayerDescription(fields, extent, Writable: false) { AnswersDistance = false };
+        return new LayerDescription(fields, extent, Writable: false)
+        {
+            AnswersDistance = AnswersDistance,
+            AnswersRelations = _engine is not null,
+        };
     }
 
     /// <inheritdoc />
@@ -638,7 +667,7 @@ public sealed class GeoParquetFeatureSource
         Task.FromResult<string?>(Table().Version);
 
     /// <summary>Refuses what this provider does not answer, before any work is done.</summary>
-    private static void Refuse(FeatureQuery query)
+    private void Refuse(FeatureQuery query)
     {
         if (query.Spatial is not { } spatial)
         {
@@ -653,13 +682,29 @@ public sealed class GeoParquetFeatureSource
                 + $"{MostFilterVertices:N0}. Generalize it first (GeometryServer/generalize).");
         }
 
-        if (spatial.Distance > 0)
+        if (spatial.Distance > 0 && !AnswersDistance)
         {
             throw new QueryNotSupportedException(
-                "This layer is served from a GeoParquet file, which answers a spatial filter by "
-                + "intersection and not within a distance. Buffer the geometry first "
-                + "(GeometryServer/buffer) and filter by the result, or publish the data into the "
-                + "datastore, where distance is answered.");
+                _engine is null
+                    ? "This layer is served from a GeoParquet file, which answers a spatial filter by "
+                      + "intersection and not within a distance. Buffer the geometry first "
+                      + "(GeometryServer/buffer) and filter by the result, or publish the data into the "
+                      + "datastore, where distance is answered."
+                    : "This layer is served from a GeoParquet file in degrees, and a distance in degrees is "
+                      + "not a distance: the datastore measures it on the spheroid, and this server does not "
+                      + "for a file. Buffer the geometry first (GeometryServer/buffer, which measures in "
+                      + "metres) and filter by the result, or publish the data into the datastore.");
+        }
+
+        if (spatial.Distance > 0 && spatial.Relation != SpatialRelation.Intersects)
+        {
+            throw new QueryNotSupportedException(
+                $"A distance is answered with intersects, and '{spatial.Relation}' was asked for with one.");
+        }
+
+        if (_engine is not null && EngineRelations.Contains(spatial.Relation))
+        {
+            return;
         }
 
         if (!Relations.Contains(spatial.Relation))
@@ -797,6 +842,7 @@ public sealed class GeoParquetFeatureSource
         List<DuckDBParameter> parameters = [];
         List<Envelope> boxes = [];
         Geometry? shape = null;
+        SpatialFilter? byEngine = null;
 
         if (query.BoundingBox is { } box)
         {
@@ -826,14 +872,20 @@ public sealed class GeoParquetFeatureSource
                 return new Filters(["false"], []);
             }
 
-            boxes.Add(filter.Envelope);
+            // A distance widens the box it is looked for in; the exact test is the engine's.
+            boxes.Add(spatial.Distance > 0 ? Widened(filter.Envelope, spatial.Distance) : filter.Envelope);
 
-            // Envelope and index intersection are the box test; intersects is the shape.
-            if (spatial.Relation == SpatialRelation.Intersects)
+            if (spatial.Distance > 0 || EngineRelations.Contains(spatial.Relation))
+            {
+                byEngine = spatial with { Geometry = filter };
+            }
+            else if (spatial.Relation == SpatialRelation.Intersects)
             {
                 shape = filter;
             }
         }
+
+        List<Geometry>? kept = byEngine is null ? null : [];
 
         if (boxes.Count == 0)
         {
@@ -860,7 +912,7 @@ public sealed class GeoParquetFeatureSource
                 pruned.Add(CoveringClause(boxes[i], "cover" + i.ToString(CultureInfo.InvariantCulture), covering, parameters));
             }
 
-            matched = Refine(table, new Filters(pruned, parameters), boxes, shape, cancellationToken);
+            matched = Refine(table, new Filters(pruned, parameters), boxes, shape, cancellationToken, kept);
 
             if (matched is null)
             {
@@ -869,13 +921,18 @@ public sealed class GeoParquetFeatureSource
                 return new Filters(inDuckDb, parameters);
             }
         }
-        else if (shape is null)
+        else if (shape is null && kept is null)
         {
             return new Filters(inDuckDb, parameters);
         }
         else
         {
-            matched = Refine(table, new Filters(inDuckDb, parameters), [], shape, cancellationToken);
+            matched = Refine(table, new Filters(inDuckDb, parameters), [], shape, cancellationToken, kept);
+        }
+
+        if (byEngine is not null)
+        {
+            matched = await ByEngineAsync(matched!, kept!, byEngine, cancellationToken).ConfigureAwait(false);
         }
 
         if (matched!.Count == 0)
@@ -897,6 +954,7 @@ public sealed class GeoParquetFeatureSource
     /// <param name="boxes">Boxes each geometry's own box must meet, tested here exactly.</param>
     /// <param name="shape">A geometry each must intersect, or null for boxes only.</param>
     /// <param name="cancellationToken">The deadline.</param>
+    /// <param name="kept">Where the survivors' geometries go, for the engine to decide — null when this decides.</param>
     /// <returns>
     /// The identities, or null when a query of boxes alone matched more than this server holds —
     /// which the caller answers in DuckDB instead. A shape past the bound is refused, because only
@@ -907,7 +965,8 @@ public sealed class GeoParquetFeatureSource
         Filters candidates,
         IReadOnlyList<Envelope> boxes,
         Geometry? shape,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        List<Geometry>? kept = null)
     {
         Statement statement = new(candidates);
 
@@ -951,7 +1010,7 @@ public sealed class GeoParquetFeatureSource
 
             if (matched.Count == _mostMatched)
             {
-                if (shape is null)
+                if (shape is null && kept is null)
                 {
                     return null;
                 }
@@ -964,10 +1023,91 @@ public sealed class GeoParquetFeatureSource
             }
 
             matched.Add(Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture));
+            kept?.Add(geometry);
         }
 
         return matched;
     }
+
+    /// <summary>
+    /// The candidates the geometry engine says satisfy the filter — every relation beyond intersection, and a
+    /// distance — D-263.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner's decision, 2026-09-23: the engine the GeometryServer already uses, rather than DuckDB's
+    /// spatial extension.</b> ADR-066 rejected the extension because it links GEOS, PROJ and GDAL into the
+    /// serving process and gives a third GEOS whose answers would have to be reconciled with PostGIS's (Q-20).
+    /// The engine is the worker process the GeometryServer's <c>relation</c> runs in, so a GeoParquet layer and
+    /// that operation give the same answer, and nothing new is linked into this process.
+    /// </para>
+    /// <para>
+    /// <b>The meaning is PostGIS's, read off <c>PostGisFeatureSource</c>:</b> the feature is on the left and the
+    /// filter on the right, so <c>Within</c> is the feature within the filter and <c>Contains</c> the feature
+    /// containing it — <c>T*****FF*</c>, which is how <c>ST_Contains</c> is defined. A distance is in the layer's
+    /// units, which is what <c>ST_DWithin</c> answers on a projected layer; a layer in degrees refuses it before
+    /// anything is read.
+    /// </para>
+    /// <para>
+    /// <b>In batches</b>, so one request to the engine stays a size the worker was built for, and a refusal from
+    /// it — busy, too large, a deadline — is a refusal of the query with the engine's own sentence rather than a
+    /// partial answer.
+    /// </para>
+    /// </remarks>
+    private async Task<List<long>> ByEngineAsync(
+        List<long> candidates, List<Geometry> geometries, SpatialFilter spatial, CancellationToken cancellationToken)
+    {
+        List<long> satisfied = [];
+
+        for (int start = 0; start < candidates.Count; start += EngineBatch)
+        {
+            int count = Math.Min(EngineBatch, candidates.Count - start);
+            List<Geometry> left = geometries.GetRange(start, count);
+
+            EngineRequest request = spatial.Distance > 0
+                ? new EngineRequest(EngineOperation.WithinDistance, left, [spatial.Geometry], _layer.Srid)
+                {
+                    Distance = spatial.Distance,
+                }
+                : new EngineRequest(EngineOperation.Relate, left, [spatial.Geometry], _layer.Srid)
+                {
+                    Pattern = PatternOf(spatial),
+                };
+
+            EngineResult result = await _engine!.ComputeAsync(request, cancellationToken).ConfigureAwait(false);
+
+            if (result.Refusal != EngineRefusal.None)
+            {
+                throw new QueryNotSupportedException(
+                    $"This layer is served from a GeoParquet file, and '{spatial.Relation}' is decided by the "
+                    + $"geometry engine, which did not answer: {result.Message}");
+            }
+
+            foreach (int[] pair in result.Pairs ?? [])
+            {
+                satisfied.Add(candidates[start + pair[0]]);
+            }
+        }
+
+        return satisfied;
+    }
+
+    /// <summary>The engine's name for a relation, with the feature on the left and the filter on the right.</summary>
+    private static string PatternOf(SpatialFilter spatial) => spatial.Relation switch
+    {
+        SpatialRelation.Within => "esriGeometryRelationWithin",
+        SpatialRelation.Touches => "esriGeometryRelationTouch",
+        SpatialRelation.Crosses => "esriGeometryRelationCross",
+        SpatialRelation.Overlaps => "esriGeometryRelationOverlap",
+        SpatialRelation.Contains => "T*****FF*",
+        SpatialRelation.Relate => spatial.RelatePattern
+            ?? throw new QueryNotSupportedException("A relation filter needs a DE-9IM pattern."),
+        _ => throw new QueryNotSupportedException($"'{spatial.Relation}' is not decided by the geometry engine."),
+    };
+
+    /// <summary>A box grown by a distance on every side.</summary>
+    private static Envelope Widened(Envelope box, double distance) =>
+        new(box.MinX - distance, box.MinY - distance, box.MaxX + distance, box.MaxY + distance);
 
     /// <summary>
     /// A box test on the covering column, widened past single-precision rounding — the prefilter.

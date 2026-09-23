@@ -984,7 +984,7 @@ public static class FeatureServerMetadataWriter
             // widgets offered *intersects* against a layer that computed contains, within and a
             // DE-9IM pattern. A source that answers no distance — a GeoParquet file — answers the
             // three box-and-intersects relations and no more, and says so.
-            supportedSpatialRelationships = description.AnswersDistance
+            supportedSpatialRelationships = description.AnswersRelations
                 ? new[]
                 {
                     "esriSpatialRelIntersects", "esriSpatialRelContains", "esriSpatialRelCrosses",

@@ -69,6 +69,12 @@ public enum EngineOperation
     /// </para>
     /// </remarks>
     Generalize,
+
+    /// <summary>
+    /// Which of the first set lie within <see cref="EngineRequest.Distance"/> of the second set's geometries,
+    /// as index pairs — the exact half of a distance filter (D-263).
+    /// </summary>
+    WithinDistance,
 }
 
 /// <summary>Why a computation did not happen.</summary>

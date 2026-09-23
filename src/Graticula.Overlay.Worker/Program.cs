@@ -225,6 +225,37 @@ internal static class Program
             };
         }
 
+        // <b>A distance filter's exact half, pair by pair — D-263.</b> A GeoParquet layer's candidates arrive
+        // already narrowed by a box widened by the distance; this answers which of them really are within it,
+        // in the units of the reference, which is what `ST_DWithin` on a projected layer answers.
+        if (request.Operation == "WithinDistance")
+        {
+            if (right.Count == 0 || request.Distance < 0 || double.IsNaN(request.Distance))
+            {
+                return Refuse("WithinDistance needs a second set of geometries and a distance that is not negative.");
+            }
+
+            List<int[]> near = [];
+
+            for (int i = 0; i < left.Count; i++)
+            {
+                for (int j = 0; j < right.Count; j++)
+                {
+                    if (left[i].IsWithinDistance(right[j], request.Distance))
+                    {
+                        near.Add([i, j]);
+                    }
+                }
+            }
+
+            return new OverlayResponse
+            {
+                Pairs = near,
+                CandidatePairs = candidates,
+                Milliseconds = clock.ElapsedMilliseconds,
+            };
+        }
+
         if (request.Operation == "Relate")
         {
             if (right.Count == 0)

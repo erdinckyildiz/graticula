@@ -94,6 +94,22 @@ GDAL into the serving process — exactly Q-87's side door, and a third GEOS and
 answers would have to be reconciled with PostGIS's (Q-20). The core-only design refuses five
 relations instead, and says so.
 
+### Amended 2026-09-23 — the wider relations are the geometry engine's, not the extension's (§3a)
+
+The owner was first asked to choose between loading this extension and narrowing WFS's operators
+service-wide, and chose the extension; the question had left out a third way, and once it was put the
+owner chose that instead. **The geometry engine — NetTopologySuite in the worker process the
+GeometryServer's `relation` and `buffer` run in — decides every relation beyond intersection.** DuckDB
+narrows the rows by box as before (a distance widens the box), the survivors' geometries go to the
+engine a thousand at a time, and the pairs it returns are the answer. The meaning is PostGIS's, read off
+`PostGisFeatureSource`: the feature on the left, the filter on the right, `Contains` as `T*****FF*`. A
+distance is answered in a projected reference only, where it is the layer's own unit, as `ST_DWithin`
+answers it; in degrees it is refused. The argument against Alternative D stands untouched — nothing is
+linked into the serving process, and the answer is the one the GeometryServer gives, so Q-20 gains no
+third engine. An engine that does not answer — busy, a deadline, too large — refuses the query with its
+own sentence rather than returning part of it. `LayerDescription.AnswersRelations` now says so apart
+from `AnswersDistance`, and the ArcGIS layer document lists every relation for a GeoParquet layer.
+
 ## 3. Counterarguments to the preferred option
 
 **A file parser in the serving process.** ADR-009 §2.2's rule is about *a file somebody else chose*.
@@ -356,6 +372,12 @@ justified* — Q-87's last words — is the owner's to answer, and §11 asks.
 3. **WFS and OGC API Features advertise, per layer, only the spatial operators the layer answers.**
    Today the WFS capabilities list operators service-wide, and a filter a GeoParquet layer cannot
    answer is refused at query time with a sentence rather than not offered. [D-263](../architecture-debt.md).
+   **PARTLY DISCHARGED 2026-09-23**, by making the layer answer rather than the document narrower: the
+   owner chose to decide every relation beyond intersection in the geometry engine the GeometryServer
+   already runs (§3a), so `Within`, `Contains`, `Crosses`, `Overlaps`, `Touches` and a DE-9IM pattern
+   are answered and the WFS list is true of them. **What is left is `DWithin` on a layer in degrees**,
+   which is still refused, because the datastore measures that distance on the spheroid and this server
+   does not for a file; WFS 2.0 still has no per-layer list to say so in.
 4. **The spatial cost is measured at a size where row groups matter** — a million features or more,
    written by GDAL with its covering column — so §6's *twice as slow* is a number with a size attached
    rather than a sample of one. **DISCHARGED 2026-09-13**, and it corrected the sentence it was written
