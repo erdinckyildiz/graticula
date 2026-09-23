@@ -117,6 +117,10 @@ internal static class QueryResponseCaching
     /// <see cref="VectorTileEndpoints"/> falls back to (<c>HostSettings.TileCacheLifetime</c>).
     /// </param>
     /// <param name="cancellation">The caller's.</param>
+    /// <param name="writable">
+    /// Whether the store takes writes to the relation — <see cref="LayerDescription.Writable"/>; null when
+    /// nothing asked.
+    /// </param>
     /// <returns>
     /// <see langword="true"/> when a <c>304</c> was written and the caller must return without
     /// running the query; <see langword="false"/> to proceed as normal, with the headers already
@@ -127,13 +131,14 @@ internal static class QueryResponseCaching
         PublishedLayer layer,
         IFeatureSource source,
         TimeSpan defaultLifetime,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        bool? writable = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(source);
 
-        TimeSpan lifetime = layer.CacheLifetime ?? defaultLifetime;
+        TimeSpan lifetime = LifetimeOf(layer, defaultLifetime, writable);
 
         context.Response.Headers.CacheControl = CacheControlFor(context, [layer], lifetime);
 
@@ -187,6 +192,52 @@ internal static class QueryResponseCaching
         context.Response.Headers.ContentLength = null;
         return true;
     }
+
+    /// <summary>
+    /// How long a query answer from this layer may be kept: its own lifetime when an administrator set one,
+    /// the server's default for a layer nobody can edit, and nothing for a layer somebody can — V-56.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner's decision, 2026-09-23, which answers ADR-069 §11.1.</b> The third ArcGIS review measured
+    /// an editable hosted layer's <c>query</c> answering <c>public, max-age=3600</c>: a record corrected
+    /// through <c>applyEdits</c> stayed wrong in every other browser for up to an hour, and ArcGIS sends no
+    /// cache lifetime on <c>query</c> unless an administrator turns one on. So a layer that can be edited
+    /// is not cached by default; a layer nobody can edit keeps the server default it had; and a lifetime an
+    /// administrator set on the layer is honoured either way, because that is the switch ArcGIS offers too.
+    /// </para>
+    /// <para>
+    /// <b>Editable is a fact about the layer, not about the caller.</b> An anonymous reader who may not edit
+    /// still sees another person's edit late, so the test is whether anybody can: the rows have an integer
+    /// id to address them, the store takes writes, and the service's ceiling offers at least one edit.
+    /// A GeoParquet layer answers <c>Writable: false</c> and stays cached.
+    /// </para>
+    /// </remarks>
+    /// <param name="layer">The layer.</param>
+    /// <param name="defaultLifetime">The server's default.</param>
+    /// <param name="writable">The store's answer, or null when nothing asked.</param>
+    /// <returns>The lifetime; zero means <c>no-store</c>.</returns>
+    internal static TimeSpan LifetimeOf(PublishedLayer layer, TimeSpan defaultLifetime, bool? writable)
+    {
+        ArgumentNullException.ThrowIfNull(layer);
+
+        if (layer.CacheLifetime is { } chosen)
+        {
+            return chosen;
+        }
+
+        return Editable(layer, writable) ? TimeSpan.Zero : defaultLifetime;
+    }
+
+    /// <summary>Whether anybody at all can edit this layer's rows.</summary>
+    /// <param name="layer">The layer.</param>
+    /// <param name="writable">The store's answer, or null when nothing asked.</param>
+    /// <returns>True when an edit is possible for somebody.</returns>
+    internal static bool Editable(PublishedLayer layer, bool? writable) =>
+        layer.Definition.HasIntegerIdentity
+        && writable is not false
+        && (layer.CapabilityCeiling is not { } ceiling
+            || ceiling.Any(offered => offered is "Create" or "Update" or "Delete" or "Editing"));
 
     /// <summary>Whether GET is the only method this may be applied to — used by the caller.</summary>
     /// <remarks>

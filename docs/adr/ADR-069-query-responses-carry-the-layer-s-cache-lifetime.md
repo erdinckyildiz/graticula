@@ -217,6 +217,17 @@ not a debated decision with a recorded second voice.
    own setting.** The owner asked to make query responses cacheable, alongside two other changes,
    and did not specify the policy for an editable layer. Alternative A above is what this ADR
    implements; Alternative B is the fallback if the coupling turns out to be wrong.
+   **Answered 2026-09-23 by the owner, and the answer is neither A nor B for an editable layer.**
+   The third ArcGIS review (V-56) measured an editable hosted layer's `query` answering
+   `public, max-age=3600`, so a record corrected through `applyEdits` stayed wrong in every other
+   browser for up to an hour; ArcGIS sends no lifetime on `query` unless an administrator sets one.
+   Asked, the owner chose: **a layer somebody can edit is not cached by default** (`no-store`), a
+   layer nobody can edit keeps the server default as before, and a lifetime an administrator set on
+   the layer is honoured either way. *Editable* is a fact about the layer rather than the caller —
+   an integer id, a store that takes writes, a ceiling that offers an edit — because an anonymous
+   reader still sees another person's edit late. `QueryResponseCaching.LifetimeOf`. Tiles are
+   unchanged: the server's own tile cache is emptied on an edit (`TilePurgingWriter`), and a
+   browser's copy is bounded by the tile lifetime as it always was.
 2. **That a signed-in caller reading a public layer should still get `private`.** Nothing the owner
    said addresses this directly; it is the safer of two readings of "a response to an authenticated
    request … must be private" from the task that started this change, applied even where the

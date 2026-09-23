@@ -71,8 +71,12 @@ public sealed class QueryResponseCachingTests
         }
     }
 
+    /// <remarks>
+    /// <b>Query-only unless a test says otherwise</b>, because since V-56 a layer somebody can edit is not
+    /// cached by default, and every test below that is about the header's shape is about a layer that is.
+    /// </remarks>
     private static PublishedLayer Layer(
-        SharingScope sharing, TimeSpan? cacheLifetime = null) =>
+        SharingScope sharing, TimeSpan? cacheLifetime = null, string[]? ceiling = null) =>
         new(
             Guid.NewGuid(),
             new LayerDefinition(
@@ -83,7 +87,47 @@ public sealed class QueryResponseCachingTests
             owner: null,
             sharing,
             ServiceStatus.Started,
-            cacheLifetime: cacheLifetime);
+            cacheLifetime: cacheLifetime,
+            capabilityCeiling: ceiling ?? ["Query"]);
+
+    [Fact]
+    public async Task A_layer_somebody_can_edit_is_not_cached_by_default()
+    {
+        // V-56: an editable hosted layer answered `public, max-age=3600`, so an edit stayed invisible to
+        // every other browser for up to an hour. The anonymous caller cannot edit; somebody else can.
+        DefaultHttpContext context = Request();
+        PublishedLayer layer = Layer(SharingScope.Public, ceiling: ["Query", "Create", "Update", "Delete"]);
+
+        await QueryResponseCaching.ApplyAsync(
+            context, layer, new PlainSource(), TimeSpan.FromMinutes(60), CancellationToken.None, writable: true);
+
+        Assert.Equal("no-store", context.Response.Headers.CacheControl.ToString());
+    }
+
+    [Fact]
+    public void Editable_is_the_layers_fact_and_an_administrators_lifetime_still_wins()
+    {
+        TimeSpan server = TimeSpan.FromMinutes(60);
+
+        // No ceiling at all means every edit is on offer to whoever holds the privilege.
+        Assert.Equal(TimeSpan.Zero, QueryResponseCaching.LifetimeOf(new PublishedLayer(
+            Guid.NewGuid(),
+            new LayerDefinition("p", "public", "p", "geom", 4326, "objectid", "objectid", isHosted: false),
+            "postgis", "unused", GeometryKind.Polygon, owner: null, SharingScope.Public, ServiceStatus.Started),
+            server, null));
+
+        // The store refuses writes (a view, a GeoParquet file): nobody can edit, so the default stands.
+        Assert.Equal(server, QueryResponseCaching.LifetimeOf(Layer(SharingScope.Public, ceiling: ["Query", "Update"]), server, false));
+
+        // A service configured to offer only Query.
+        Assert.Equal(server, QueryResponseCaching.LifetimeOf(Layer(SharingScope.Public), server, true));
+
+        // An administrator who set a lifetime on the layer chose it, editable or not.
+        Assert.Equal(
+            TimeSpan.FromSeconds(30),
+            QueryResponseCaching.LifetimeOf(
+                Layer(SharingScope.Public, TimeSpan.FromSeconds(30), ["Query", "Update"]), server, true));
+    }
 
     private static DefaultHttpContext Request(
         string query = "?f=json&where=1%3D1", RequestPrincipal? principal = null)
@@ -246,6 +290,7 @@ public sealed class QueryResponseCachingTests
     public async Task Republishing_a_layer_on_an_unchanged_file_changes_the_ETag()
     {
         // An alias edited on the same file: same query string, same file version, different body.
+        // A GeoParquet file, which answers Writable: false — so it is cached, and the tag is what is tested.
         Guid id = Guid.NewGuid();
         LayerDefinition definition = new(
             "parcels", "public", "parcels", "geom", 4326, "objectid", "objectid", isHosted: false);
@@ -262,11 +307,11 @@ public sealed class QueryResponseCachingTests
 
         DefaultHttpContext a = Request();
         await QueryResponseCaching.ApplyAsync(
-            a, before, new VersionedSource("v1"), TimeSpan.FromMinutes(5), CancellationToken.None);
+            a, before, new VersionedSource("v1"), TimeSpan.FromMinutes(5), CancellationToken.None, writable: false);
 
         DefaultHttpContext b = Request();
         await QueryResponseCaching.ApplyAsync(
-            b, after, new VersionedSource("v1"), TimeSpan.FromMinutes(5), CancellationToken.None);
+            b, after, new VersionedSource("v1"), TimeSpan.FromMinutes(5), CancellationToken.None, writable: false);
 
         Assert.NotEqual(a.Response.Headers.ETag.ToString(), b.Response.Headers.ETag.ToString());
     }

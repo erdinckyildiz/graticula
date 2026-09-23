@@ -5452,7 +5452,7 @@ public static class Program
         // query and not merely the bytes on the wire.
         if (QueryResponseCaching.IsSafeMethod(context)
             && await QueryResponseCaching
-                .ApplyAsync(context, layer, source, settings.TileCacheLifetime, cancellation)
+                .ApplyAsync(context, layer, source, settings.TileCacheLifetime, cancellation, described.Writable)
                 .ConfigureAwait(false))
         {
             return;
