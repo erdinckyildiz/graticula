@@ -51,15 +51,30 @@ public sealed class WhereClauseTests
     [InlineData("objectid = 1 union select 1")]
     [InlineData("objectid = 1) or (1=1")]
     [InlineData("'a' = 'a'")]
-    [InlineData("objectid = objectid")]
     public void Injection_and_anything_outside_the_grammar_is_refused(string clause)
     {
         // <b>Each of these is a real technique, not a hypothetical.</b> The
-        // grammar has no rule for statements, comments, subqueries, function
-        // calls or column-to-column comparison, so none of them can appear by
-        // accident — and the last two are here because they are the ones that
-        // look harmless.
+        // grammar has no rule for statements, comments, subqueries, a function
+        // outside ArcGIS's standardized list or a test that names no field, so
+        // none of them can appear by accident — and the last is here because it
+        // is the one that looks harmless.
         Refused(clause);
+    }
+
+    /// <summary>
+    /// Two fields compared are rebuilt, both re-quoted from the layer's own list.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>objectid = objectid</c> was in the refusal list above until 2026-09-23</b>, beside <c>'a' = 'a'</c>,
+    /// as a shape that looks harmless. ADR-083 gave the grammar arithmetic by the owner's decision, and
+    /// <c>pop2020 - pop2010 &gt; 0</c> compares two fields whatever else it does — as does
+    /// <c>pop2020 &gt; pop2010</c>, which is an ordinary ArcGIS query. So a field against a field is in the
+    /// grammar; a test with no field in it, <c>'a' = 'a'</c>, is still not.
+    /// </remarks>
+    [Fact]
+    public void Two_fields_are_compared_rebuilt()
+    {
+        Assert.Equal("\"objectid\" = \"objectid\"", Ok("objectid = objectid").Sql);
     }
 
     [Fact]

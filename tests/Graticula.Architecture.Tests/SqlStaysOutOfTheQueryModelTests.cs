@@ -100,9 +100,16 @@ public sealed class SqlStaysOutOfTheQueryModelTests
             // own. The manufacture moved, it did not multiply. What would be a
             // widening is a second entry in <see cref="Permitted"/>, and that list
             // is still one long.
+            //
+            // <b>SqlDialect joined it on 2026-09-23 for the same reason.</b> It is how the
+            // emitter spells a statement per datastore — a placeholder, an integer division,
+            // which functions want `numeric` — and PredicateSql took a placeholder function
+            // for exactly that until ADR-083 brought three more differences. Nothing in the
+            // model holds one; the provider hands it to the emitter at the boundary.
             if (type == typeof(ParsedWhere)
                 || type == typeof(WhereClause)
-                || type == typeof(PredicateSql))
+                || type == typeof(PredicateSql)
+                || type == typeof(SqlDialect))
             {
                 continue;
             }

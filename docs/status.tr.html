@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>cb91a2f</code> · 2026-09-23 22:40</p>
+<p class="stamp">Şu commit’ten üretildi: <code>0368db3</code> · 2026-09-23 23:50</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">82</div><div class="kpi-l">ADR</div><div class="kpi-n">17 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">218/288</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">67 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">83</div><div class="kpi-l">ADR</div><div class="kpi-n">17 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">218/290</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">69 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">6</div><div class="kpi-l">açık borç</div><div class="kpi-n">256 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">3473</div><div class="kpi-l">test</div><div class="kpi-n">336 kaynak dosya, 145,926 satır</div></div>
+<div class="kpi good"><div class="kpi-v">3532</div><div class="kpi-l">test</div><div class="kpi-n">339 kaynak dosya, 148,443 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">77 madde</span></div><p><b>67 ADR conditions</b> outstanding across 42 decisions — the largest commitment on this page.</p><p><b>6 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">79 madde</span></div><p><b>69 ADR conditions</b> outstanding across 43 decisions — the largest commitment on this page.</p><p><b>6 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -146,6 +146,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-067 · DuckDB sources beyond a local fold</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-002 · Primary Data Architecture</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-005 · API Architecture</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
@@ -273,6 +274,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">080</td><td>Hosted tables keep the Z and M their data carries</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/2</td></tr>
 <tr><td class="id">081</td><td>Migration publishes an ArcGIS Server&#x27;s layer definitions over the tables they already read</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/1</td></tr>
 <tr><td class="id">082</td><td>Offline sync is not in v1</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
+<tr><td class="id">083</td><td>The where clause evaluates ArcGIS&#x27;s standardized functions</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/2</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -390,11 +392,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">953</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:59.5%"></div></div><div class="bar-n">567</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.2%"></div></div><div class="bar-n">526</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:49.8%"></div></div><div class="bar-n">475</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:22.6%"></div></div><div class="bar-n">215</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">954</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.9%"></div></div><div class="bar-n">619</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.7%"></div></div><div class="bar-n">531</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:49.9%"></div></div><div class="bar-n">476</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:22.5%"></div></div><div class="bar-n">215</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:20.9%"></div></div><div class="bar-n">199</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:19.6%"></div></div><div class="bar-n">187</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:12.9%"></div></div><div class="bar-n">123</div></div>
@@ -405,6 +407,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>0368db3</code><time>2026-09-23</time><span>The sharing page test waits for the scope, not only for the control</span></li>
+<li><code>55a1e62</code><time>2026-09-23</time><span>A service answers a query across its layers</span></li>
+<li><code>3a1e281</code><time>2026-09-23</time><span>An image service is a portal item</span></li>
+<li><code>a29e5c8</code><time>2026-09-23</time><span>A tile of a layer somebody can edit is asked about before it is reused</span></li>
+<li><code>6cb2444</code><time>2026-09-23</time><span>The owner answered what was waiting on them, and the registers say so</span></li>
 <li><code>cb91a2f</code><time>2026-09-23</time><span>The README and the overview page say what the server does now</span></li>
 <li><code>99efa25</code><time>2026-09-23</time><span>The two new dictionaries say what bounds them</span></li>
 <li><code>2319317</code><time>2026-09-23</time><span>A where clause names an unknown function as a function</span></li>
@@ -414,11 +421,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>8f4419b</code><time>2026-09-23</time><span>The map face knows a layer&#x27;s time and draws by it</span></li>
 <li><code>a633df5</code><time>2026-09-23</time><span>A portal item carries its organisation, and orgid: and accountid: find it</span></li>
 <li><code>cf5a2e2</code><time>2026-09-23</time><span>A grouped statistic may be ordered by its own output name</span></li>
-<li><code>3c1b64e</code><time>2026-09-23</time><span>The MapServer face refuses a layer whose service does not answer Query</span></li>
-<li><code>0a3c3f2</code><time>2026-09-23</time><span>An empty label draws nothing, and a date statistic is a number</span></li>
-<li><code>e46784a</code><time>2026-09-23</time><span>Contains and Within are read from the query geometry&#x27;s side, as ArcGIS reads them</span></li>
-<li><code>63bca74</code><time>2026-09-23</time><span>A constant beside an OR is not taken off the where clause</span></li>
-<li><code>72723c0</code><time>2026-09-23</time><span>Offline sync is not in v1, and the portal&#x27;s servers list stays unanswered</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

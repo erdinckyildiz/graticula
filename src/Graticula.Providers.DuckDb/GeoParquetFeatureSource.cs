@@ -1191,9 +1191,11 @@ public sealed class GeoParquetFeatureSource
             columns.Add(GeoParquetFolder.RowNumberColumn);
         }
 
+        // <b>DuckDB's dialect, not only its placeholder</b> — its integer division, and the functions
+        // PostgreSQL needs as `numeric` and DuckDB does not (SqlDialect, ADR-083).
         if (!PredicateSql.TryEmit(
                 where.Predicate, columns, GeoParquetFolder.Quote, out ParsedWhere emitted, out string? error,
-                i => "$w" + i.ToString(CultureInfo.InvariantCulture)))
+                dialect: SqlDialect.DuckDb))
         {
             throw new QueryNotSupportedException(error!);
         }

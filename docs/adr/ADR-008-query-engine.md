@@ -505,9 +505,16 @@ Recursive descent over comparisons, `LIKE`, `IN`, `BETWEEN`, `IS NULL`,
   per bracket, and a stack overflow in .NET cannot be caught and takes the
   process down.
 
-**What is still not in the grammar, and would be safe to add:** arithmetic and
+~~**What is still not in the grammar, and would be safe to add:** arithmetic and
 scalar functions. Both are shapes rather than holes. They are absent because
-nobody has asked, and adding either is a deliberate act with its own tests.
+nobody has asked, and adding either is a deliberate act with its own tests.~~
+**Added 2026-09-23 by owner decision — [ADR-083](ADR-083-the-where-clause-evaluates-arcgis-standard-functions.md).**
+Somebody asked: the fourth ArcGIS review found `CAST`, `SUBSTRING` and arithmetic refused, and the owner
+chose ArcGIS's standardized list. They were shapes rather than holes, as this paragraph said, and were
+added the way it said — as typed nodes the emitter spells, with their own tests and an agreement test
+against both datastores. Column against column came with them, because arithmetic between fields is a
+comparison of fields; **a test that names no field is still absent**, for the reason the bullet above
+gives.
 
 ### 4a-i. §4.1 and §4a do not agree, and §4a is the one that shipped — 2026-08-16
 

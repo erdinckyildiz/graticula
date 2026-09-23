@@ -933,9 +933,12 @@ public static class FeatureServerMetadataWriter
                 supportsHavingClause = false,
                 supportsReturningGeometryCentroid = false,
 
-                // No arithmetic or function calls in the where grammar, which is
-                // what this flag claims — see WhereClause, where the omission is
-                // deliberate rather than pending.
+                // <b>About outStatistics, groupBy and orderBy, not about `where`.</b> Esri's layer
+                // reference ties this flag to an expression in those three — `onStatisticField`
+                // as `str_angle*100` — and they take field names only here. The where grammar
+                // has evaluated ArcGIS's standardized functions since ADR-083, which is a
+                // different claim with no flag of its own; this comment said the grammar had no
+                // functions until then, which was true and was the wrong reason.
                 supportsSqlExpression = false,
                 supportsCountDistinct = false,
                 supportsQueryWithResultType = false,

@@ -304,6 +304,88 @@ public sealed class GeoParquetAgainstPostgisTests : PostgresFixture
         }
     }
 
+    /// <summary>
+    /// ArcGIS's standardized functions select the same rows from PostGIS and from DuckDB — ADR-083.
+    /// </summary>
+    /// <remarks>
+    /// <b>Every spelling the two databases were measured to differ on is here</b> (SqlDialect): integer
+    /// division, <c>ROUND</c>, <c>TRUNCATE</c> and <c>MOD</c> over a double, a <c>VARCHAR(n)</c> cut, and a date
+    /// written the way ArcGIS writes one. Each clause must select something and not everything, or agreeing
+    /// would prove nothing.
+    /// </remarks>
+    [Fact]
+    public async Task The_standardized_functions_select_the_same_rows_from_both_providers()
+    {
+        (IFeatureSource postgis, GeoParquetFeatureSource parquet, GeoParquetFolder folder, string path) = await SourcesAsync();
+
+        Dictionary<string, FieldType> types = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["objectid"] = FieldType.BigInteger,
+            ["name"] = FieldType.Text,
+            ["kind"] = FieldType.Text,
+            ["area"] = FieldType.Double,
+            ["day"] = FieldType.Date,
+            ["score"] = FieldType.Integer,
+        };
+
+        string[] clauses =
+        [
+            "score / 2 = 1",
+            "MOD(score, 3) = 1",
+            "MOD(area, 7) > 3.5",
+            "ROUND(area, 1) > 5000.5",
+            "TRUNCATE(area / 3, 2) > 1000",
+            "SUBSTRING(name, 2, 2) = '12'",
+            "CHAR_LENGTH(name) = 3",
+            "POSITION('5' IN name) = 2",
+            "UPPER(CONCAT(kind, name)) LIKE 'FOREST%'",
+            "TRIM(BOTH ' ' FROM kind) = 'water'",
+            "EXTRACT(MONTH FROM day) = 2",
+            "CAST(score AS FLOAT) / 2 > 2.5",
+            "CAST(objectid AS VARCHAR(2)) = '12'",
+            "ABS(score - 3) <= 1 AND LOG10(area) > 3",
+            "POWER(score, 2) BETWEEN 4 AND 16",
+            "COALESCE(NULLIF(score, 0), 99) = 99",
+            "area - score * 100 > 8000",
+            "(score + 1) * 2 > 10",
+            "day > CAST('03/01/2026' AS DATE)",
+            "EXTRACT(DAY FROM day) IN (1, 15)",
+        ];
+
+        try
+        {
+            foreach (string clause in clauses)
+            {
+                Assert.True(
+                    WhereClause.TryParse(clause, Columns, LayerDefinition.Quote, out ParsedWhere where, out string? error, types),
+                    $"{clause}: {error}");
+
+                FeatureQuery query = new(FeatureQuery.MaximumLimit, where: where, fields: ["objectid"], includeGeometry: false);
+
+                List<Feature> expected = await ReadAsync(postgis, query);
+                List<Feature> actual = await ReadAsync(parquet, query);
+
+                Assert.True(
+                    expected.Count > 0 && expected.Count < Rows,
+                    $"'{clause}' selected {expected.Count} of {Rows} rows from PostGIS, which proves nothing either way.");
+
+                Assert.True(
+                    expected.Select(f => f.Id).SequenceEqual(actual.Select(f => f.Id)),
+                    $"'{clause}': PostGIS selected {expected.Count} rows and DuckDB {actual.Count}; the first that differs is "
+                    + $"{expected.Select(f => f.Id).Except(actual.Select(f => f.Id)).Concat(actual.Select(f => f.Id).Except(expected.Select(f => f.Id))).FirstOrDefault()}.");
+
+                Assert.Equal(
+                    await postgis.CountAsync(query, CancellationToken.None),
+                    await parquet.CountAsync(query, CancellationToken.None));
+            }
+        }
+        finally
+        {
+            folder.Dispose();
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task A_tolerance_gives_the_same_shapes_vertex_for_vertex()
     {

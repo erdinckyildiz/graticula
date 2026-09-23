@@ -140,4 +140,42 @@ public abstract record AttributePredicate
     /// </para>
     /// </remarks>
     public sealed record MatchesNothing : AttributePredicate;
+
+    /// <summary><c>left op right</c>, where either side is a computed value.</summary>
+    /// <remarks>
+    /// <b>The five records below exist only where a function, a cast or arithmetic was written</b> — ADR-083.
+    /// A bare column is still a <see cref="Comparison"/>, <see cref="IsNull"/> and the rest, so the trees WFS,
+    /// OGC API Features and every existing clause produce do not change.
+    /// </remarks>
+    /// <param name="Left">The left side.</param>
+    /// <param name="Operator">The comparison.</param>
+    /// <param name="Right">The right side.</param>
+    public sealed record ExpressionComparison(
+        ScalarExpression Left, ComparisonOperator Operator, ScalarExpression Right) : AttributePredicate;
+
+    /// <summary><c>expression IS [NOT] NULL</c>.</summary>
+    /// <param name="Operand">The value tested.</param>
+    /// <param name="Negated">Whether it is <c>IS NOT NULL</c>.</param>
+    public sealed record ExpressionIsNull(ScalarExpression Operand, bool Negated) : AttributePredicate;
+
+    /// <summary><c>expression [NOT] LIKE pattern</c>.</summary>
+    /// <param name="Operand">The text matched.</param>
+    /// <param name="Pattern">The pattern, bound as a parameter.</param>
+    /// <param name="Negated">Whether it is <c>NOT LIKE</c>.</param>
+    public sealed record ExpressionMatches(ScalarExpression Operand, string Pattern, bool Negated) : AttributePredicate;
+
+    /// <summary><c>expression [NOT] BETWEEN low AND high</c>.</summary>
+    /// <param name="Operand">The value tested.</param>
+    /// <param name="Low">The lower bound.</param>
+    /// <param name="High">The upper bound.</param>
+    /// <param name="Negated">Whether it is <c>NOT BETWEEN</c>.</param>
+    public sealed record ExpressionBetween(
+        ScalarExpression Operand, ScalarExpression Low, ScalarExpression High, bool Negated) : AttributePredicate;
+
+    /// <summary><c>expression [NOT] IN (values)</c>.</summary>
+    /// <param name="Operand">The value tested.</param>
+    /// <param name="Values">The constants it may equal.</param>
+    /// <param name="Negated">Whether it is <c>NOT IN</c>.</param>
+    public sealed record ExpressionOneOf(ScalarExpression Operand, IReadOnlyList<object?> Values, bool Negated)
+        : AttributePredicate;
 }

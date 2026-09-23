@@ -53,16 +53,15 @@ public static class PredicateSql
     /// <param name="parsed">The statement fragment and the values it binds.</param>
     /// <param name="error">Why it was refused.</param>
     /// <param name="placeholder">
-    /// How the target dialect spells the <c>n</c>th bound value, counted from zero. Omitted, it is
-    /// <c>@w0</c>, <c>@w1</c> — Npgsql's named form.
+    /// How the target spells the <c>n</c>th bound value, counted from zero, when it differs from the
+    /// dialect's own. Omitted, it is the dialect's — <c>@w0</c> for PostgreSQL.
     /// </param>
+    /// <param name="dialect">The datastore's spellings; PostgreSQL when omitted.</param>
     /// <returns>Whether it emitted.</returns>
     /// <remarks>
-    /// <b><paramref name="placeholder"/> is the whole of the dialect difference a second datastore
-    /// has needed so far</b> (ADR-066 §4). DuckDB quotes identifiers with double quotes, has
-    /// <c>ilike</c>, <c>lower()</c> and <c>between</c>, and binds <c>$1</c> rather than
-    /// <c>@w0</c>. When a datastore needs more than that, the parameter becomes a dialect object;
-    /// it is not one yet because one difference does not tell anyone what the second will be.
+    /// <b>The placeholder was the whole dialect difference until 2026-09-23</b> (ADR-066 §4), and the
+    /// remark here said the parameter would become a dialect object when a second difference arrived.
+    /// ArcGIS's standardized functions brought three (ADR-083), and <see cref="SqlDialect"/> holds them.
     /// </remarks>
     public static bool TryEmit(
         AttributePredicate? predicate,
@@ -70,12 +69,18 @@ public static class PredicateSql
         Func<string, string> quote,
         out ParsedWhere parsed,
         out string? error,
-        Func<int, string>? placeholder = null)
+        Func<int, string>? placeholder = null,
+        SqlDialect? dialect = null)
     {
         ArgumentNullException.ThrowIfNull(columns);
         ArgumentNullException.ThrowIfNull(quote);
 
-        placeholder ??= NpgsqlPlaceholder;
+        dialect ??= SqlDialect.PostgreSql;
+
+        if (placeholder is not null)
+        {
+            dialect = dialect.WithPlaceholder(placeholder);
+        }
 
         parsed = default;
         error = null;
@@ -89,7 +94,7 @@ public static class PredicateSql
         StringBuilder sql = new();
         List<object?> parameters = [];
 
-        if (!Write(predicate, sql, parameters, columns, quote, placeholder, 0, out error))
+        if (!Write(predicate, sql, parameters, columns, quote, dialect, 0, out error))
         {
             return false;
         }
@@ -104,7 +109,7 @@ public static class PredicateSql
         List<object?> parameters,
         IReadOnlyCollection<string> columns,
         Func<string, string> quote,
-        Func<int, string> placeholder,
+        SqlDialect dialect,
         int depth,
         out string? error)
     {
@@ -129,15 +134,15 @@ public static class PredicateSql
                 return true;
 
             case AttributePredicate.Conjunction and:
-                return Branch(and.Left, " and ", and.Right, sql, parameters, columns, quote, placeholder, depth, out error);
+                return Branch(and.Left, " and ", and.Right, sql, parameters, columns, quote, dialect, depth, out error);
 
             case AttributePredicate.Disjunction or:
-                return Branch(or.Left, " or ", or.Right, sql, parameters, columns, quote, placeholder, depth, out error);
+                return Branch(or.Left, " or ", or.Right, sql, parameters, columns, quote, dialect, depth, out error);
 
             case AttributePredicate.Negation not:
                 sql.Append("not (");
 
-                if (!Write(not.Operand, sql, parameters, columns, quote, placeholder, depth + 1, out error))
+                if (!Write(not.Operand, sql, parameters, columns, quote, dialect, depth + 1, out error))
                 {
                     return false;
                 }
@@ -184,11 +189,11 @@ public static class PredicateSql
 
                 if (folded)
                 {
-                    sql.Append("lower(").Append(Bind(parameters, placeholder, compare.Value)).Append(')');
+                    sql.Append("lower(").Append(Bind(parameters, dialect, compare.Value)).Append(')');
                 }
                 else
                 {
-                    sql.Append(Bind(parameters, placeholder, compare.Value));
+                    sql.Append(Bind(parameters, dialect, compare.Value));
                 }
 
                 return true;
@@ -216,7 +221,7 @@ public static class PredicateSql
                 sql.Append(matched).Append(like.Negated
                         ? (like.IgnoreCase ? " not ilike " : " not like ")
                         : (like.IgnoreCase ? " ilike " : " like "))
-                   .Append(Bind(parameters, placeholder, like.Pattern));
+                   .Append(Bind(parameters, dialect, like.Pattern));
 
                 return true;
 
@@ -227,13 +232,80 @@ public static class PredicateSql
                 }
 
                 sql.Append(bounded).Append(between.Negated ? " not between " : " between ")
-                   .Append(Bind(parameters, placeholder, between.Low)).Append(" and ")
-                   .Append(Bind(parameters, placeholder, between.High));
+                   .Append(Bind(parameters, dialect, between.Low)).Append(" and ")
+                   .Append(Bind(parameters, dialect, between.High));
 
                 return true;
 
             case AttributePredicate.OneOf list:
-                return WriteIn(list, sql, parameters, columns, quote, placeholder, out error);
+                return WriteIn(list, sql, parameters, columns, quote, dialect, out error);
+
+            case AttributePredicate.ExpressionComparison compared:
+                if (!Expression(compared.Left, sql, parameters, columns, quote, dialect, depth + 1, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(' ').Append(Spelling(compared.Operator)).Append(' ');
+
+                return Expression(compared.Right, sql, parameters, columns, quote, dialect, depth + 1, out error);
+
+            case AttributePredicate.ExpressionIsNull isNull:
+                if (!Expression(isNull.Operand, sql, parameters, columns, quote, dialect, depth + 1, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(isNull.Negated ? " is not null" : " is null");
+                return true;
+
+            case AttributePredicate.ExpressionMatches like:
+                if (!Expression(like.Operand, sql, parameters, columns, quote, dialect, depth + 1, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(like.Negated ? " not like " : " like ").Append(Bind(parameters, dialect, like.Pattern));
+                return true;
+
+            case AttributePredicate.ExpressionBetween between:
+                if (!Expression(between.Operand, sql, parameters, columns, quote, dialect, depth + 1, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(between.Negated ? " not between " : " between ");
+
+                if (!Expression(between.Low, sql, parameters, columns, quote, dialect, depth + 1, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(" and ");
+
+                return Expression(between.High, sql, parameters, columns, quote, dialect, depth + 1, out error);
+
+            case AttributePredicate.ExpressionOneOf list:
+                if (list.Values is null || list.Values.Count == 0)
+                {
+                    error = "An 'in' has no values, and an empty list matches nothing.";
+                    return false;
+                }
+
+                if (!Expression(list.Operand, sql, parameters, columns, quote, dialect, depth + 1, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(list.Negated ? " not in (" : " in (");
+
+                for (int i = 0; i < list.Values.Count; i++)
+                {
+                    sql.Append(i == 0 ? string.Empty : ", ").Append(Bind(parameters, dialect, list.Values[i]));
+                }
+
+                sql.Append(')');
+                return true;
 
             default:
                 // Unreachable while every node is handled above, and a compile-time
@@ -252,7 +324,7 @@ public static class PredicateSql
         List<object?> parameters,
         IReadOnlyCollection<string> columns,
         Func<string, string> quote,
-        Func<int, string> placeholder,
+        SqlDialect dialect,
         int depth,
         out string? error)
     {
@@ -261,14 +333,14 @@ public static class PredicateSql
         // tree's own shape already carries the precedence.
         bool bracket = keyword == " and ";
 
-        if (!Side(left, bracket, sql, parameters, columns, quote, placeholder, depth, out error))
+        if (!Side(left, bracket, sql, parameters, columns, quote, dialect, depth, out error))
         {
             return false;
         }
 
         sql.Append(keyword);
 
-        return Side(right, bracket, sql, parameters, columns, quote, placeholder, depth, out error);
+        return Side(right, bracket, sql, parameters, columns, quote, dialect, depth, out error);
     }
 
     private static bool Side(
@@ -278,7 +350,7 @@ public static class PredicateSql
         List<object?> parameters,
         IReadOnlyCollection<string> columns,
         Func<string, string> quote,
-        Func<int, string> placeholder,
+        SqlDialect dialect,
         int depth,
         out string? error)
     {
@@ -289,7 +361,7 @@ public static class PredicateSql
             sql.Append('(');
         }
 
-        if (!Write(side, sql, parameters, columns, quote, placeholder, depth + 1, out error))
+        if (!Write(side, sql, parameters, columns, quote, dialect, depth + 1, out error))
         {
             return false;
         }
@@ -308,7 +380,7 @@ public static class PredicateSql
         List<object?> parameters,
         IReadOnlyCollection<string> columns,
         Func<string, string> quote,
-        Func<int, string> placeholder,
+        SqlDialect dialect,
         out string? error)
     {
         if (!Resolve(list.Column, columns, quote, out string? column, out error))
@@ -329,13 +401,278 @@ public static class PredicateSql
 
         foreach (object? value in list.Values)
         {
-            placeholders.Add(Bind(parameters, placeholder, value));
+            placeholders.Add(Bind(parameters, dialect, value));
         }
 
         sql.Append(column).Append(list.Negated ? " not in (" : " in (")
            .Append(string.Join(", ", placeholders)).Append(')');
 
         return true;
+    }
+
+    /// <summary>Writes a computed value, bracketed wherever it is not a single term.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Every arithmetic node in brackets.</b> Precedence is the tree's, so the brackets the caller wrote
+    /// are gone and the ones written here are what keeps <c>(a + b) * c</c> meaning what it meant. Writing
+    /// them around every node rather than only where needed costs characters and nothing else.
+    /// </para>
+    /// <para>
+    /// <b>An <c>int</c> constant is written into the statement; everything else is bound.</b> The parser
+    /// makes an <c>int</c> only for a number a function needs whole — places, a substring's start and
+    /// length — because Npgsql binds a <c>long</c> as <c>bigint</c> and PostgreSQL has
+    /// <c>round(numeric, integer)</c> and <c>substring(text, integer, integer)</c> with no <c>bigint</c>
+    /// overloads. It is digits the parser read and formatted invariantly, never caller text.
+    /// </para>
+    /// </remarks>
+    private static bool Expression(
+        ScalarExpression node,
+        StringBuilder sql,
+        List<object?> parameters,
+        IReadOnlyCollection<string> columns,
+        Func<string, string> quote,
+        SqlDialect dialect,
+        int depth,
+        out string? error)
+    {
+        error = null;
+
+        if (depth > MaximumDepth)
+        {
+            error =
+                $"The expression nests more than {MaximumDepth} levels deep. The limit exists because "
+                + "emitting is recursive and a deep enough tree would exhaust the stack.";
+            return false;
+        }
+
+        bool Inner(ScalarExpression inner, out string? why) =>
+            Expression(inner, sql, parameters, columns, quote, dialect, depth + 1, out why);
+
+        switch (node)
+        {
+            case ScalarExpression.ColumnValue column:
+                if (!Resolve(column.Column, columns, quote, out string? quoted, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(quoted);
+                return true;
+
+            case ScalarExpression.Constant { Value: int whole }:
+                sql.Append(whole.ToString(CultureInfo.InvariantCulture));
+                return true;
+
+            case ScalarExpression.Constant constant:
+                sql.Append(Bind(parameters, dialect, constant.Value));
+                return true;
+
+            case ScalarExpression.Negated negated:
+                sql.Append("(-");
+
+                if (!Inner(negated.Operand, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(')');
+                return true;
+
+            case ScalarExpression.Arithmetic arithmetic:
+                sql.Append('(');
+
+                if (!Inner(arithmetic.Left, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(arithmetic.Operator switch
+                {
+                    ArithmeticOperator.Add => " + ",
+                    ArithmeticOperator.Subtract => " - ",
+                    ArithmeticOperator.Multiply => " * ",
+                    _ => arithmetic.Integral ? $" {dialect.IntegerDivision} " : " / ",
+                });
+
+                if (!Inner(arithmetic.Right, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(')');
+                return true;
+
+            case ScalarExpression.Cast cast:
+                return WriteCast(cast, sql, Inner, out error);
+
+            case ScalarExpression.Extract extract:
+                sql.Append("extract(").Append(extract.Part switch
+                {
+                    DatePart.Year => "year",
+                    DatePart.Month => "month",
+                    DatePart.Day => "day",
+                    DatePart.Hour => "hour",
+                    DatePart.Minute => "minute",
+                    _ => "second",
+                }).Append(" from ");
+
+                if (!Inner(extract.Operand, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(')');
+                return true;
+
+            case ScalarExpression.Trim trim:
+                sql.Append("trim(").Append(trim.Side switch
+                {
+                    TrimSide.Leading => "leading",
+                    TrimSide.Trailing => "trailing",
+                    _ => "both",
+                }).Append(" ' ' from ");
+
+                if (!Inner(trim.Operand, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(')');
+                return true;
+
+            case ScalarExpression.FunctionCall call:
+                return WriteCall(call, sql, dialect, Inner, out error);
+
+            default:
+                error = $"'{node.GetType().Name}' is not an expression this emitter knows.";
+                return false;
+        }
+    }
+
+    private delegate bool EmitOne(ScalarExpression node, out string? error);
+
+    private static bool WriteCast(ScalarExpression.Cast cast, StringBuilder sql, EmitOne inner, out string? error)
+    {
+        // A length is a cut, written the one way both dialects cut alike (SqlDialect's remarks).
+        if (cast.Target == CastTarget.Text && cast.Length is { } length)
+        {
+            sql.Append("substring(cast(");
+
+            if (!inner(cast.Operand, out error))
+            {
+                return false;
+            }
+
+            sql.Append(" as varchar) from 1 for ").Append(length.ToString(CultureInfo.InvariantCulture)).Append(')');
+            return true;
+        }
+
+        sql.Append("cast(");
+
+        if (!inner(cast.Operand, out error))
+        {
+            return false;
+        }
+
+        sql.Append(" as ").Append(cast.Target switch
+        {
+            CastTarget.Integer => "integer",
+            CastTarget.SmallInteger => "smallint",
+            CastTarget.BigInteger => "bigint",
+
+            // `float` is eight bytes in PostgreSQL and four in DuckDB; ArcGIS means eight by FLOAT.
+            CastTarget.Double => "double precision",
+            CastTarget.Real => "real",
+            CastTarget.Text => "varchar",
+            _ => "date",
+        }).Append(')');
+
+        return true;
+    }
+
+    private static bool WriteCall(
+        ScalarExpression.FunctionCall call, StringBuilder sql, SqlDialect dialect, EmitOne inner, out string? error)
+    {
+        IReadOnlyList<ScalarExpression> a = call.Arguments;
+        error = null;
+
+        // `round`, `trunc` and `mod` over a number PostgreSQL has for `numeric` only (SqlDialect).
+        bool Numeric(ScalarExpression operand, out string? why)
+        {
+            if (!dialect.NumericForPlaces)
+            {
+                return inner(operand, out why);
+            }
+
+            sql.Append("cast(");
+
+            if (!inner(operand, out why))
+            {
+                return false;
+            }
+
+            sql.Append(" as numeric)");
+            return true;
+        }
+
+        // `name(first sep second [sep2 third])`, each argument through `emit`.
+        bool Write(string name, string separator, string? second, EmitOne first, out string? why)
+        {
+            sql.Append(name).Append('(');
+
+            if (!first(a[0], out why))
+            {
+                return false;
+            }
+
+            for (int i = 1; i < a.Count; i++)
+            {
+                sql.Append(i == 1 ? separator : second ?? separator);
+
+                if (!(call.Function == ScalarFunction.Mod ? Numeric(a[i], out why) : inner(a[i], out why)))
+                {
+                    return false;
+                }
+            }
+
+            sql.Append(')');
+            return true;
+        }
+
+        return call.Function switch
+        {
+            // With a number of places the number is cast; alone, both dialects round every number.
+            ScalarFunction.Round => Write("round", ", ", null, a.Count == 2 ? Numeric : inner, out error),
+            ScalarFunction.Truncate => Write("trunc", ", ", null, a.Count == 2 ? Numeric : inner, out error),
+            ScalarFunction.Mod => Write("mod", ", ", null, Numeric, out error),
+            ScalarFunction.Position => Write("position", " in ", null, inner, out error),
+            ScalarFunction.Substring => Write("substring", " from ", " for ", inner, out error),
+            _ => Write(
+                call.Function switch
+                {
+                    ScalarFunction.Abs => "abs",
+                    ScalarFunction.Ceiling => "ceiling",
+                    ScalarFunction.Floor => "floor",
+                    ScalarFunction.Cos => "cos",
+                    ScalarFunction.Sin => "sin",
+                    ScalarFunction.Tan => "tan",
+
+                    // ArcGIS's LOG is the natural logarithm; SQL's `log` is base ten in both dialects.
+                    ScalarFunction.Log => "ln",
+                    ScalarFunction.Log10 => "log10",
+                    ScalarFunction.Power => "power",
+                    ScalarFunction.NullIf => "nullif",
+                    ScalarFunction.Coalesce => "coalesce",
+                    ScalarFunction.CharLength => "char_length",
+                    ScalarFunction.Concat => "concat",
+                    ScalarFunction.Upper => "upper",
+                    _ => "lower",
+                },
+                ", ",
+                null,
+                inner,
+                out error),
+        };
     }
 
     /// <summary>Matches a name against the layer's columns and quotes what was found.</summary>
@@ -365,14 +702,11 @@ public static class PredicateSql
         return false;
     }
 
-    private static string Bind(List<object?> parameters, Func<int, string> placeholder, object? value)
+    private static string Bind(List<object?> parameters, SqlDialect dialect, object? value)
     {
         parameters.Add(value);
-        return placeholder(parameters.Count - 1);
+        return dialect.Placeholder(parameters.Count - 1);
     }
-
-    private static string NpgsqlPlaceholder(int index) =>
-        $"@w{index.ToString(CultureInfo.InvariantCulture)}";
 
     private static string Spelling(ComparisonOperator op) => op switch
     {

@@ -175,16 +175,18 @@ public sealed class WhereClauseFunctionsAndDatesTests
     }
 
     [Theory]
-    [InlineData("CAST(name AS INTEGER) = 1", "CAST")]
-    [InlineData("SUBSTRING (name, 1, 2) = 'ab'", "SUBSTRING")]
-    [InlineData("COALESCE(name, 'x') = 'x'", "COALESCE")]
+    [InlineData("REPLACE(name, 'a', 'b') = 'x'", "REPLACE")]
+    [InlineData("LEFT (name, 2) = 'ab'", "LEFT")]
+    [InlineData("DATEADD(day, 1, name) = 1", "DATEADD")]
     public void A_function_it_does_not_evaluate_is_named_as_a_function(string clause, string function)
     {
-        // V-75, the fourth ArcGIS review: these answered "'CAST' is not a field of this layer".
+        // V-75, the fourth ArcGIS review: CAST, SUBSTRING and COALESCE answered "'CAST' is not a field of
+        // this layer". They are evaluated since ADR-083; what is outside ArcGIS's standardized list is still
+        // named as a function, with the list.
         string refused = Refused(clause);
 
         Assert.Contains($"'{function}' is not a function", refused, StringComparison.Ordinal);
-        Assert.Contains("UPPER", refused, StringComparison.Ordinal);
+        Assert.Contains("SUBSTRING", refused, StringComparison.Ordinal);
     }
 
     [Fact]
