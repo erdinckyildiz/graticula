@@ -162,6 +162,14 @@ internal static class FeatureServerQueryParameters
         ["token"] = "the token authenticates; the header form is preferred and the value is "
             + "redacted from the log",
         ["resultType"] = "no result-type specialisation exists",
+
+        // <b>Three a client may send by default and none of which can change this server's answer — V-76, the
+        // fourth ArcGIS review.</b> `_ts` is a cache-busting stamp that names no data. `timeReferenceUnknownClient`
+        // asks for dates in UTC when a layer has a time zone of its own, and no layer here has one: every date
+        // is UTC already. `multipatchOption` shapes multipatch geometry, and no layer here is a multipatch.
+        ["_ts"] = "a cache-busting stamp that names no data",
+        ["timeReferenceUnknownClient"] = "every date is written in UTC already; no layer here has a time reference of its own",
+        ["multipatchOption"] = "no layer here has multipatch geometry",
         ["sqlFormat"] = "no SQL is exposed",
     };
 
@@ -186,6 +194,19 @@ internal static class FeatureServerQueryParameters
     private static readonly Dictionary<string, string> AcceptedWhenFalse = new(StringComparer.Ordinal)
     {
         ["returnTrueCurves"] = "curves are returned as the vertices that approximate them",
+
+        // V-76: the default of each is the answer this server gives; the other value asks for something it does not.
+        ["returnQueryGeometry"] = "the query geometry is not echoed back in the answer",
+        ["returnGeodetic"] = "geometries are planar in the reference they are served in",
+    };
+
+    /// <summary>
+    /// Parameters accepted only at their ArcGIS default, each with that default and the reason another value is
+    /// refused — V-76.
+    /// </summary>
+    private static readonly Dictionary<string, (string Default, string Otherwise)> AcceptedAtDefault = new(StringComparer.Ordinal)
+    {
+        ["featureEncoding"] = ("esriDefault", "only the default encoding is written; compact geometry is not"),
     };
 
     /// <summary>Parses, or explains why not.</summary>
@@ -568,6 +589,19 @@ internal static class FeatureServerQueryParameters
                 || Array.IndexOf(RefusedParameters, name) >= 0)
             {
                 continue;
+            }
+
+            if (AcceptedAtDefault.TryGetValue(name, out (string Default, string Otherwise) atDefault))
+            {
+                string given = parameters[name].ToString().Trim();
+
+                if (given.Length == 0 || string.Equals(given, atDefault.Default, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                error = $"'{name}={given}' is refused: {atDefault.Otherwise}. '{name}={atDefault.Default}' is accepted.";
+                return false;
             }
 
             if (AcceptedWhenFalse.TryGetValue(name, out string? whenTrue))

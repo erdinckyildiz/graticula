@@ -80,6 +80,14 @@ public sealed class IgnoredParameterTests : ArcGisClient
         ["returnZ"] = "false",
         ["returnM"] = "false",
         ["returnTrueCurves"] = "false",
+        ["returnQueryGeometry"] = "false",
+        ["returnGeodetic"] = "false",
+
+        // V-76: sent by clients by default, and none can change the answer here.
+        ["_ts"] = "1790000000000",
+        ["timeReferenceUnknownClient"] = "true",
+        ["multipatchOption"] = "xyFootprint",
+        ["featureEncoding"] = "esriDefault",
 
         // <b>`token` is deliberately absent, and the absence is asserted below.</b> Its
         // recorded reason is that the token authenticates and the header form is
