@@ -146,6 +146,17 @@ accepting out-of-domain values is ADR-013 condition 5's, which the owner accepte
 not word; no generated template for a layer without subtypes; and a ceiling of 10,000 codes to a
 domain and subtypes to a layer.
 
+**Answered 2026-09-23 by the owner, asked directly, and the first of the four is reversed.**
+*"Domain'ler paylaşılsın"* — **domains are shared across layers, Alternative B**, as a geodatabase
+shares them, so an archive whose fifty classes use one `Material` domain carries one domain and one
+edit reaches every layer that uses it. The other three are confirmed as written: an out-of-domain
+value is refused, no template is generated for a layer without subtypes, the ceiling stays 10,000.
+**Nothing above this paragraph is rewritten**, because it is what shipped and what the next reader
+will find in the code until the change lands; §9 condition 5 is what carries the reversal, and the
+design questions Alternative B named — who may edit a domain other people's layers use, what
+deleting one in use means, whether names collide across folders and owners — are answered in the
+ADR that builds it rather than guessed here.
+
 ## 6. Consequences
 
 **Positive.** The last NOT BUILT row of v1-scope §2 is built. An ArcGIS editing client shows a
@@ -220,6 +231,10 @@ column out), ADR-058 (the drop guard), ADR-038 (the geodatabase import).
    console files replaced by the previous commit's and its review layers removed, so they are not
    this page. CI, which runs that suite in the environment it was written for, passed all 175 on
    the same commit (run 34720565843), so the two were the bare host and the tunnel.
+5. **Domains are shared, by owner decision of 2026-09-23 (§5).** A domain is a named object that
+   fields on many layers point at, and a geodatabase import writes each of its archive's domains
+   once. Not built: the per-column domain of §5 is what is served today. Discharged by an ADR that
+   decides Alternative B's three open questions, and by the build it describes.
 
 ## 10. Revisit triggers
 

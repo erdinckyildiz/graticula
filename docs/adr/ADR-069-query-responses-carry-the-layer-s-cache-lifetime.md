@@ -232,3 +232,15 @@ not a debated decision with a recorded second voice.
    said addresses this directly; it is the safer of two readings of "a response to an authenticated
    request … must be private" from the task that started this change, applied even where the
    layer's own sharing would have allowed `public`.
+   **CONFIRMED 2026-09-23 by the owner, asked directly:** *"Onayla, private kalsın."* A signed-in
+   request is marked `private` whatever the layer's sharing, so no proxy or CDN keeps it. The cost
+   was put to the owner with the question — a signed-in reader gets no shared-cache benefit on a
+   public layer — and accepted.
+
+**The tile half of item 1, decided 2026-09-23 by the owner and NOT BUILT at the time of writing.**
+Item 1's answer left tiles on the tile lifetime, so a browser could hold an editable layer's tile for
+up to an hour after an edit the server's own cache had already dropped. Asked, the owner chose
+**revalidation**: a tile of a layer somebody can edit is sent `no-cache` with its ETag, so the
+browser keeps it and asks on every use, and a tile that has not changed costs a 304. *Editable* is
+the same fact about the layer that `QueryResponseCaching.LifetimeOf` already reads, and a lifetime
+an administrator set on the layer is honoured as it is for `query`.

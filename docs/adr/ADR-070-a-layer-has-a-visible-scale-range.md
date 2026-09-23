@@ -137,7 +137,8 @@ None recorded.
 ## 11. Conditions
 
 1. **The owner confirms the `INFERRED` choices**: enforcing on tiles and drawn maps and not on queries;
-   leaving the record ceiling's default; the three-branch search.
+   leaving the record ceiling's default; the three-branch search. **DISCHARGED 2026-09-23** — the
+   owner was asked the three by name and answered *"Hepsini onayla"*.
 2. **The WMS capabilities document states each layer's range** as `MinScaleDenominator` and
    `MaxScaleDenominator`, converted with `VisibleScaleRange.WmsDenominator`. **DISCHARGED 2026-09-14** for
    1.3.0, after `Style` where its schema puts them, the names the WMS way round —

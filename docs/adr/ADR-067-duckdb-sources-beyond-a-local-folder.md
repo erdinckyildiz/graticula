@@ -307,3 +307,12 @@ https file per source; the one-minute metadata cache; the order of the three; do
 at run time rather than shipping it; refusing private addresses by default; a `.duckdb` file living
 under the GeoParquet root rather than a separate one; one declared reference per DuckDB source rather than
 per table; only the `main` schema; no row number on MotherDuck.
+
+**CONFIRMED 2026-09-23 by the owner, every item, asked directly in two questions.** The first put
+S3 prefixes, refusing private addresses, only the `main` schema and the MotherDuck extension
+travelling in the image (commit da75595 had already replaced *downloading at run time*); the second
+put the other seven by name — the kind names, one https file per source, the one-minute cache, the
+order of the three, the `.duckdb` file under the GeoParquet root, one reference per DuckDB source,
+no row number on MotherDuck. Both answers were *"Hepsini onayla"*. They were asked separately
+because the first question had not named the seven, and a confirmation is not stretched over items
+nobody was shown.

@@ -360,6 +360,12 @@ justified* — Q-87's last words — is the owner's to answer, and §11 asks.
 4. **`file_row_number` as an identity** for a file with no unique integer column.
 5. **Off unless the deployment names a root**, and the image's root is `/data/geoparquet`.
 
+**CONFIRMED 2026-09-23 by the owner, all five, asked directly** — the list was put to them item by
+item and the answer was *"Hepsini onayla"*. None of the five is an inference any more. Item 3 had
+already moved before it was confirmed: the owner's D-263 decision on 2026-09-23 answers the other
+relations through the geometry engine rather than refusing them, which is still *not loading the
+spatial extension* — the half of item 3 that was a choice — and is no longer *refuse*.
+
 ## 12. Conditions
 
 1. **The provider is checked against PostGIS in CI, not only on the VPS.** `GeoParquetAgainstPostgisTests`
