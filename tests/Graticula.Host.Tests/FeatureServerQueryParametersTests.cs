@@ -581,6 +581,47 @@ public sealed class FeatureServerQueryParametersTests
     }
 
     /// <summary>
+    /// A constant beside an OR is not the clause's partner, so it is not taken off — V-65.
+    /// </summary>
+    /// <remarks>
+    /// <b>Measured on the showcase 2026-09-23, after V-45 shipped</b>: <c>kod='TR-06' OR kod='TR-34' AND 1=0</c>
+    /// answered 0 where 248 was right, because the trailing <c>AND 1=0</c> was read as the whole clause's and
+    /// decided that nothing matched. AND binds tighter than OR; the constant belongs to the last term. A wrong
+    /// answer with a 200 is worse than the refusal it replaced, so these go back to the grammar, which refuses
+    /// them with a sentence.
+    /// </remarks>
+    [Theory]
+    [InlineData("name = 'x' OR name = 'y' AND 1=0")]
+    [InlineData("1=0 AND name = 'x' OR name = 'y'")]
+    [InlineData("name = 'x' or name = 'y' AND 1=1")]
+    [InlineData("(1=1) OR name = 'x'")]
+    public void A_constant_beside_an_or_is_not_taken_off(string where)
+    {
+        Assert.Contains("'1'", Refuse(("where", where)), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("(name = 'x' OR name = 'y') AND 1=1")]
+    [InlineData("1=1 AND (name = 'x' OR name = 'y')")]
+    public void An_or_inside_parentheses_leaves_the_constant_the_clauses(string where)
+    {
+        ParsedWhere parsed = Parse(("where", where)).Where!.Value;
+
+        Assert.Equal(2, parsed.Parameters.Count);
+    }
+
+    [Theory]
+    [InlineData("name = 'x OR y' AND 1=1", false)]
+    [InlineData("ORIGIN = 'x' AND 1=1", false)]
+    [InlineData("color = 'x' AND 1=1", false)]
+    [InlineData("a = 1 OR b = 2", true)]
+    [InlineData("(a = 1 OR b = 2)", false)]
+    public void An_or_is_found_only_at_the_top_level_and_as_a_word(string clause, bool found)
+    {
+        Assert.Equal(found, FeatureServerQueryParameters.HasTopLevelOr(clause));
+    }
+
+    /// <summary>
     /// A constant inside a quoted value is the value, not a conjunct: the anchors keep the shape from reaching
     /// into a string.
     /// </summary>

@@ -1574,6 +1574,52 @@ internal static class FeatureServerQueryParameters
         System.Text.RegularExpressions.RegexOptions.CultureInvariant,
         TimeSpan.FromMilliseconds(200));
 
+    /// <summary>Whether a clause has an <c>OR</c> outside every parenthesis and quoted string.</summary>
+    /// <param name="clause">The clause.</param>
+    /// <returns>True when an OR joins terms at the top level.</returns>
+    internal static bool HasTopLevelOr(string clause)
+    {
+        int depth = 0;
+        bool quoted = false;
+
+        for (int i = 0; i < clause.Length; i++)
+        {
+            char c = clause[i];
+
+            if (c == '\'')
+            {
+                // A doubled quote inside a string is an escaped quote and leaves it open.
+                quoted = !quoted;
+                continue;
+            }
+
+            if (quoted)
+            {
+                continue;
+            }
+
+            if (c == '(')
+            {
+                depth++;
+            }
+            else if (c == ')')
+            {
+                depth--;
+            }
+            else if (depth == 0
+                && (c is 'O' or 'o')
+                && i + 1 < clause.Length
+                && (clause[i + 1] is 'R' or 'r')
+                && (i == 0 || !char.IsLetterOrDigit(clause[i - 1]) && clause[i - 1] != '_')
+                && (i + 2 == clause.Length || !char.IsLetterOrDigit(clause[i + 2]) && clause[i + 2] != '_'))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// A where clause with its constant conjuncts taken off — <c>(1=1) AND x</c> is <c>x</c>, and <c>(1=1)</c> is
     /// nothing — V-45.
@@ -1601,6 +1647,15 @@ internal static class FeatureServerQueryParameters
 
                 matchesNothing |= l != r;
                 return string.Empty;
+            }
+
+            // <b>Not beside an OR — V-65, the fourth ArcGIS review.</b> AND binds tighter than OR, so in
+            // `a OR b AND 1=0` the constant is the last term's partner and not the clause's: taking it off the
+            // end and deciding *nothing matches* turned 248 rows into an empty answer with a 200. A clause with
+            // an OR at its top level is left whole, and the grammar refuses it with a sentence as it did before.
+            if (HasTopLevelOr(clause))
+            {
+                return clause;
             }
 
             System.Text.RegularExpressions.Match found = LeadingConstant.Match(clause);
