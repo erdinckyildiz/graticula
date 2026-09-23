@@ -168,6 +168,14 @@ internal static class PortalEndpoints
         // true, rather than *no such thing*, which is not.
         Discoverable(app, $"{Path}/content/items/{{id}}/data", ItemDataAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
+
+        // <b>The item's picture — V-50, the third ArcGIS review.</b> The server draws every layer's
+        // thumbnail and keeps it (ADR-071), and the console shows them; a portal client did not, because
+        // the item named no `thumbnail` and this address did not exist, so Pro's catalogue and every
+        // Online-style gallery showed the grey placeholder for every service. The file name is whatever
+        // the item says; the route answers for the one it says and 404s the rest.
+        Discoverable(app, $"{Path}/content/items/{{id}}/info/thumbnail/{{file}}", ItemThumbnailAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
     }
 
     /// <summary>
@@ -975,6 +983,79 @@ internal static class PortalEndpoints
             statusCode: StatusCodes.Status400BadRequest);
     }
 
+    /// <summary>The file name an item's <c>thumbnail</c> field names, under <c>info/</c>.</summary>
+    internal const string ThumbnailFile = "thumbnail.png";
+
+    /// <summary>
+    /// The picture of a service item: its first drawable layer's kept thumbnail.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Visible exactly when the item is.</b> The service is found in the same list
+    /// <see cref="ItemAsync"/> searches, so an item the caller may not see has no picture either, and the
+    /// answer is the same 404 whether it does not exist or is not visible.
+    /// </para>
+    /// <para>
+    /// <b>The first layer that has geometry and answers <c>Query</c></b>, in the order of its id. ArcGIS draws
+    /// an item thumbnail of the whole service; this server draws per layer, and a service's first layer is
+    /// what its item page already shows. A service with none — a table only, or every layer refusing
+    /// queries — names no thumbnail on its item, so a client does not ask.
+    /// </para>
+    /// </remarks>
+    private static async Task ItemThumbnailAsync(
+        HttpContext context,
+        CatalogFallback catalog,
+        ServiceContexts contexts,
+        Graticula.Cartography.IMapCanvasFactory canvases,
+        ServiceThumbnails held,
+        HostSettings settings,
+        string id,
+        string file,
+        CancellationToken cancellation)
+    {
+        IReadOnlyList<PublishedService>? visible = string.Equals(file, ThumbnailFile, StringComparison.OrdinalIgnoreCase)
+            ? await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false)
+            : [];
+
+        if (visible is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            return;
+        }
+
+        foreach (PublishedService service in visible)
+        {
+            if (!ItemsOf(context, service).Any(face => string.Equals(face.Id, id, StringComparison.OrdinalIgnoreCase))
+                || Pictured(service) is not { } layer)
+            {
+                continue;
+            }
+
+            ServiceThumbnails.Held? picture = await ThumbnailEndpoints.DrawAndKeepAsync(
+                layer, contexts, canvases, held, settings, cancellation).ConfigureAwait(false);
+
+            if (picture is not null)
+            {
+                await ThumbnailEndpoints.AnswerAsync(context, picture, cancellation).ConfigureAwait(false);
+                return;
+            }
+
+            break;
+        }
+
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+    }
+
+    /// <summary>The layer a service item's picture is drawn from, or null when it has none to draw.</summary>
+    /// <param name="service">The service.</param>
+    /// <returns>Its first layer with geometry that answers <c>Query</c>.</returns>
+    internal static PublishedLayer? Pictured(PublishedService service) =>
+        service.Layers
+            .Where(layer => layer.Definition.GeometryColumn is { Length: > 0 }
+                && !CapabilityCeilings.Refuses(layer, "Query"))
+            .OrderBy(layer => layer.LayerIndex)
+            .FirstOrDefault();
+
     /// <summary>
     /// An item's data document, which for a service pointer is empty.
     /// </summary>
@@ -1356,6 +1437,9 @@ internal static class PortalEndpoints
             snippet = service.Description,
             tags = service.Folder is null ? Array.Empty<string>() : new[] { service.Folder },
             url = $"{Origin(context)}/rest/services/{service.QualifiedName}/{face}",
+
+            // Relative to the item's `info/`, as a portal's is — V-50; null when there is nothing to draw.
+            thumbnail = Pictured(service) is null ? null : $"thumbnail/{ThumbnailFile}",
             access = Access(service.Sharing),
             spatialReference = (string?)null,
 

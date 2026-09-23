@@ -94,7 +94,8 @@ anything more.**
   user list through a door nobody reviewed.
 - `search`, on GET and POST — published services as items. Pro's query runs to a paragraph and it
   uses a body.
-- `content/items/{id}`, `content/items/{id}/data` and `content/users/{username}`.
+- `content/items/{id}`, `content/items/{id}/data`, `content/items/{id}/info/thumbnail/{file}` (§4d) and
+  `content/users/{username}`.
 - `portals/{id}/subscriptionInfo`, `portals/{id}/categorySchema` and `community/groups` — three
   documents an organisation has and this one does not. Each answers with an empty truth rather than
   a 404, because a client asks repeatedly and reads absence as a broken portal.
@@ -264,6 +265,22 @@ now answer that request with the same token — one process, one session store, 
 widen the token's expiry, binding or scope — refuse a `serverUrl` on another host with 400, and answer a
 token that is expired, revoked or used outside its binding with 498. The field was not named before the
 exchange existed, because an SDK that reads it and meets a refusal stops signing in at all.
+
+### 4d. Amended 2026-09-23 — an item names its picture
+
+Found by the third ArcGIS review (V-50). The server draws every layer's thumbnail and keeps it
+([ADR-071](ADR-071-thumbnails-are-kept-until-redrawn.md)), and the console shows them; no portal
+client could, because an item named no `thumbnail` and `info/thumbnail/…` did not exist, so Pro's
+catalogue and every gallery showed the grey placeholder for every service.
+
+An item now names `thumbnail/thumbnail.png`, relative to its `info/` as a portal's is, and that address
+answers with the kept picture of the service's first layer that has geometry and answers `Query`, in the
+order of its id. ArcGIS draws an item's picture of the whole service; this server draws per layer, and the
+first layer is what the console's service page already shows. A service with no such layer names no
+thumbnail, so a client does not ask. **The picture is visible exactly when the item is** — the service is
+found in the list the item document searches — and a name other than the one the item gives, an item
+nobody may see and an item that does not exist are the same 404. A saved web map names none yet; it has
+no drawing of its own.
 
 ## 5. Consequences
 

@@ -450,7 +450,7 @@ internal static class ThumbnailEndpoints
     /// <param name="picture">What to send.</param>
     /// <param name="cancellation">The caller's.</param>
     /// <returns>The task.</returns>
-    private static async Task AnswerAsync(
+    internal static async Task AnswerAsync(
         HttpContext context, ServiceThumbnails.Held picture, CancellationToken cancellation)
     {
         context.Response.Headers.ETag = picture.ETag;

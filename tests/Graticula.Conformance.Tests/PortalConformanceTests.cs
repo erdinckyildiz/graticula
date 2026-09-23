@@ -313,6 +313,62 @@ public sealed class PortalConformanceTests : ArcGisClient
     }
 
     [Fact]
+    public async Task An_item_shows_the_picture_it_names_and_only_to_whoever_may_see_it()
+    {
+        // V-50: the server drew every layer's thumbnail and no portal client could see one, because
+        // the item named none and `info/thumbnail` did not exist.
+        string root = await RequireServerAsync();
+
+        string? token = await TokenAsync(root);
+
+        Assert.False(string.IsNullOrWhiteSpace(token));
+
+        JsonElement mine = await GetJsonAsync($"/sharing/rest/search?q=&f=json&token={token}");
+        JsonElement open = await GetJsonAsync("/sharing/rest/search?q=&f=json");
+
+        JsonElement[] pictured =
+        [
+            .. mine.GetProperty("results").EnumerateArray()
+                .Where(i => i.TryGetProperty("thumbnail", out JsonElement t) && t.ValueKind == JsonValueKind.String),
+        ];
+
+        Assert.NotEmpty(pictured);
+
+        string id = pictured[0].GetProperty("id").GetString()!;
+        string thumbnail = pictured[0].GetProperty("thumbnail").GetString()!;
+
+        using HttpResponseMessage picture = await Http.GetAsync(
+            new Uri($"{root}/sharing/rest/content/items/{id}/info/{thumbnail}?token={token}"));
+
+        Assert.True(picture.IsSuccessStatusCode, $"the item's thumbnail answered {(int)picture.StatusCode}");
+        Assert.Equal("image/png", picture.Content.Headers.ContentType?.MediaType);
+
+        byte[] bytes = await picture.Content.ReadAsByteArrayAsync();
+
+        Assert.True(bytes.Length > 8 && bytes[0] == 0x89 && bytes[1] == (byte)'P', "the thumbnail is not a PNG");
+
+        using HttpResponseMessage misnamed = await Http.GetAsync(
+            new Uri($"{root}/sharing/rest/content/items/{id}/info/thumbnail/other.png?token={token}"));
+
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, misnamed.StatusCode);
+
+        HashSet<string> anonymousIds =
+        [
+            .. open.GetProperty("results").EnumerateArray()
+                .Select(i => i.GetProperty("id").GetString()!),
+        ];
+
+        if (pictured.Select(i => i.GetProperty("id").GetString()!).FirstOrDefault(i => !anonymousIds.Contains(i)) is { } hidden)
+        {
+            // A picture of a service is a read of it, so a caller who may not see the item gets no picture.
+            using HttpResponseMessage refused = await Http.GetAsync(
+                new Uri($"{root}/sharing/rest/content/items/{hidden}/info/thumbnail/thumbnail.png"));
+
+            Assert.Equal(System.Net.HttpStatusCode.NotFound, refused.StatusCode);
+        }
+    }
+
+    [Fact]
     public async Task An_item_can_be_opened_the_way_pro_opens_it()
     {
         // Adding a layer to a map is: read the item, follow its url, read the item's
