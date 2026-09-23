@@ -626,7 +626,7 @@ internal static class OAuthEndpoints
     };
 
     private static Task AdminErrorAsync(HttpContext context, int status, string message) =>
-        Results.Json(new { error = new { code = status, message } }, statusCode: status).ExecuteAsync(context);
+        Results.Json(new { error = new { code = status, message, details = Array.Empty<string>() } }, statusCode: status).ExecuteAsync(context);
 
     private static Task RecordAsync(
         HttpContext context, IAuditLog audit, Guid principal, string name, string action, string resource, bool succeeded, CancellationToken cancellation) =>

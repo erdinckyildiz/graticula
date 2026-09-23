@@ -94,7 +94,7 @@ internal static class Authorize
                 ? "It has no owner, so until an administrator assigns one only an administrator edits it."
                 : "You are none of these; ask its owner to share it with a group you belong to for editing.");
 
-        await Results.Json(new { error = new { code = 403, message } }, statusCode: 403)
+        await Results.Json(new { error = new { code = 403, message, details = Array.Empty<string>() } }, statusCode: 403)
             .ExecuteAsync(context)
             .ConfigureAwait(false);
 
@@ -136,7 +136,7 @@ internal static class Authorize
         // The refusal names the privilege and nothing about the resource.
         // D-03's rule: what the caller may not see, they may not learn the shape
         // of either.
-        await Results.Json(new { error = new { code = status, message } }, statusCode: status)
+        await Results.Json(new { error = new { code = status, message, details = Array.Empty<string>() } }, statusCode: status)
             .ExecuteAsync(context)
             .ConfigureAwait(false);
 
@@ -167,6 +167,7 @@ internal static class Authorize
                         $"No layer '{layerName}' is visible to you. It may not exist, or it may "
                         + "not be shared with you — this response is deliberately the same for "
                         + "both, so that layer names cannot be discovered by guessing.",
+                    details = Array.Empty<string>(),
                 },
             },
             statusCode: StatusCodes.Status404NotFound).ExecuteAsync(context);
@@ -197,6 +198,7 @@ internal static class Authorize
                         + "unavailable — an operator took it out of rotation. This is not a "
                         + "transient failure and retrying will not help; ask an administrator to "
                         + "start it.",
+                    details = Array.Empty<string>(),
                 },
             },
             statusCode: StatusCodes.Status503ServiceUnavailable).ExecuteAsync(context);

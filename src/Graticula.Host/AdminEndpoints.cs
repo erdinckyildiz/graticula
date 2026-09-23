@@ -6023,7 +6023,7 @@ internal static partial class AdminEndpoints
 
         if (!bindable)
         {
-            await Results.Json(new { error = new { code = 400, message = unbindable } }, statusCode: StatusCodes.Status400BadRequest)
+            await Results.Json(new { error = new { code = 400, message = unbindable, details = Array.Empty<string>() } }, statusCode: StatusCodes.Status400BadRequest)
                 .ExecuteAsync(context).ConfigureAwait(false);
             return;
         }
@@ -11123,6 +11123,6 @@ internal static partial class AdminEndpoints
     }
 
     private static Task Refuse(HttpContext context, int status, string message) =>
-        Results.Json(new { error = new { code = status, message } }, statusCode: status)
+        Results.Json(new { error = new { code = status, message, details = Array.Empty<string>() } }, statusCode: status)
             .ExecuteAsync(context);
 }

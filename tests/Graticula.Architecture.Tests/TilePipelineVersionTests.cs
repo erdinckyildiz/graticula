@@ -107,7 +107,10 @@ public sealed class TilePipelineVersionTests
         // became `internal` so the services directory asks the tile face's own rule instead of a
         // copy of it: the directory still read `IsHosted`, so a GeoParquet service answered on
         // /VectorTileServer and was never listed there. Visibility is not a byte of a tile.
-        "941eae078d495957df8de500a4745a0354a3845e9d5f36e4efc0094da8c3b311";
+        //
+        // <b>Moved 2026-09-23, and the version did not move.</b> Every error envelope gained
+        // `details: []` (V-60) — the tile face's refusals among them. A refusal is not a tile.
+        "42a301b67c60efc3a929f7596379371c17c823eb303f4bfcac13d56151ad95e7";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 1;

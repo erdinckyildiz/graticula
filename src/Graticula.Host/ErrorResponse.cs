@@ -197,7 +197,7 @@ internal static class ErrorResponse
             return;
         }
 
-        await Results.Json(new { error = new { code = status, message } }, statusCode: status)
+        await Results.Json(new { error = new { code = status, message, details = Array.Empty<string>() } }, statusCode: status)
             .ExecuteAsync(context)
             .ConfigureAwait(false);
     }

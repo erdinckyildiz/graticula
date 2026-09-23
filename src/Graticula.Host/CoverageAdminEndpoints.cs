@@ -335,5 +335,5 @@ internal static class CoverageAdminEndpoints
 
     private static Task Refuse(HttpContext context, int code, string message) =>
         Results.Json(
-            new { error = new { code, message } }, statusCode: code).ExecuteAsync(context);
+            new { error = new { code, message, details = Array.Empty<string>() } }, statusCode: code).ExecuteAsync(context);
 }

@@ -1207,6 +1207,7 @@ public static class Program
                             "This server has no administrator yet and is refusing everything "
                             + "except setup. A one-time setup token has been written to the "
                             + "server log; POST it to /rest/setup with a name and a password.",
+                        details = Array.Empty<string>(),
                     },
                 },
                 statusCode: StatusCodes.Status503ServiceUnavailable)
@@ -1252,6 +1253,7 @@ public static class Program
                             + "the account can be used. Set your own with "
                             + "POST /rest/auth/password. Nothing else answers until then — the "
                             + "password you were given is known to whoever passed it to you.",
+                        details = Array.Empty<string>(),
                     },
                 },
                 statusCode: StatusCodes.Status403Forbidden)
@@ -2315,6 +2317,7 @@ public static class Program
                         code = 404,
                         message = $"No folder '{folder}'. A folder is created by publishing "
                                 + "into it, or through POST /admin/folders.",
+                        details = Array.Empty<string>(),
                     },
                 },
                 statusCode: 404);
@@ -2537,6 +2540,7 @@ public static class Program
                         message =
                             "Counts, ids, extents and statistics are not implemented by the "
                             + "provider this layer is served by.",
+                        details = Array.Empty<string>(),
                     },
                 },
                 statusCode: StatusCodes.Status501NotImplemented)
@@ -3532,6 +3536,7 @@ public static class Program
                         message =
                             $"Layer '{layer.Definition.Name}' has no integer object-id column, so its features "
                             + "cannot be addressed for update or delete (ADR-013 §2a).",
+                        details = Array.Empty<string>(),
                     },
                 },
                 statusCode: StatusCodes.Status400BadRequest)
@@ -3560,6 +3565,7 @@ public static class Program
                             + $"most {maximumRequest}. Send the edits in smaller batches: "
                             + "applyEdits is transactional per call, so several calls are several "
                             + "transactions rather than one partial one.",
+                        details = Array.Empty<string>(),
                     },
                 },
                 statusCode: StatusCodes.Status413PayloadTooLarge)
@@ -3620,6 +3626,7 @@ public static class Program
                             + "nothing here can undo it \u2014 there is no versioning and no soft "
                             + "delete. Run the same clause through /query with returnIdsOnly=true, "
                             + $"look at what it selects, and pass those ids. (where: {clause})",
+                        details = Array.Empty<string>(),
                     },
                 },
                 statusCode: StatusCodes.Status400BadRequest)
@@ -3637,7 +3644,7 @@ public static class Program
         if (EditParameterRefusal(form, context, globalIdsHonoured: operation == EditOperation.Apply) is { } refusedParameter)
         {
             await Results.Json(
-                new { error = new { code = 400, message = refusedParameter } },
+                new { error = new { code = 400, message = refusedParameter, details = Array.Empty<string>() } },
                 statusCode: StatusCodes.Status400BadRequest)
                 .ExecuteAsync(context).ConfigureAwait(false);
 
@@ -3658,6 +3665,7 @@ public static class Program
                             ? "deleteFeatures needs 'objectIds': a comma-separated list."
                             : $"{(operation == EditOperation.Add ? "addFeatures" : "updateFeatures")}"
                               + " needs 'features': an array of ArcGIS features.",
+                        details = Array.Empty<string>(),
                     },
                 },
                 statusCode: StatusCodes.Status400BadRequest)
@@ -3828,7 +3836,7 @@ public static class Program
         if (!string.Equals(sqlType, "where", StringComparison.OrdinalIgnoreCase))
         {
             await Results.Json(
-                new { error = new { code = 400, message = $"sqlType '{sqlType}' is not validated here: only 'where' is, because a where clause is the only SQL this server takes from a caller." } },
+                new { error = new { code = 400, message = $"sqlType '{sqlType}' is not validated here: only 'where' is, because a where clause is the only SQL this server takes from a caller.", details = Array.Empty<string>() } },
                 statusCode: StatusCodes.Status400BadRequest)
                 .ExecuteAsync(context).ConfigureAwait(false);
             return;
@@ -3887,7 +3895,7 @@ public static class Program
             if (!int.TryParse(part, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int id))
             {
                 await Results.Json(
-                    new { error = new { code = 400, message = $"'{part}' in 'layers' is not a layer id." } },
+                    new { error = new { code = 400, message = $"'{part}' in 'layers' is not a layer id.", details = Array.Empty<string>() } },
                     statusCode: StatusCodes.Status400BadRequest)
                     .ExecuteAsync(context).ConfigureAwait(false);
                 return;
@@ -3977,7 +3985,7 @@ public static class Program
             : FormCollection.Empty;
 
         Task Refuse(string message) =>
-            Results.Json(new { error = new { code = 400, message } }, statusCode: StatusCodes.Status400BadRequest)
+            Results.Json(new { error = new { code = 400, message, details = Array.Empty<string>() } }, statusCode: StatusCodes.Status400BadRequest)
                 .ExecuteAsync(context);
 
         if (!layer.Definition.HasIntegerIdentity)
@@ -4154,7 +4162,7 @@ public static class Program
         if (EditParameterRefusal(form, context, globalIdsHonoured: true) is { } refusedParameter)
         {
             await Results.Json(
-                new { error = new { code = 400, message = refusedParameter } },
+                new { error = new { code = 400, message = refusedParameter, details = Array.Empty<string>() } },
                 statusCode: StatusCodes.Status400BadRequest)
                 .ExecuteAsync(context).ConfigureAwait(false);
             return;
@@ -4196,6 +4204,7 @@ public static class Program
                         code = 400,
                         message = "'edits' must be a JSON array of {\"id\": layer id, \"adds\", \"updates\", "
                             + "\"deletes\"}, one entry per layer.",
+                        details = Array.Empty<string>(),
                     },
                 },
                 statusCode: StatusCodes.Status400BadRequest)
@@ -4206,7 +4215,7 @@ public static class Program
         if (entries.Select(e => e.Id).Distinct().Count() != entries.Count)
         {
             await Results.Json(
-                new { error = new { code = 400, message = "'edits' names a layer more than once; send one entry per layer." } },
+                new { error = new { code = 400, message = "'edits' names a layer more than once; send one entry per layer.", details = Array.Empty<string>() } },
                 statusCode: StatusCodes.Status400BadRequest)
                 .ExecuteAsync(context).ConfigureAwait(false);
             return;
@@ -4229,7 +4238,7 @@ public static class Program
             if (!layer.Definition.HasIntegerIdentity)
             {
                 await Results.Json(
-                    new { error = new { code = 400, message = $"Layer {id} has no integer object-id column, so its features cannot be addressed for update or delete (ADR-013 §2a)." } },
+                    new { error = new { code = 400, message = $"Layer {id} has no integer object-id column, so its features cannot be addressed for update or delete (ADR-013 §2a).", details = Array.Empty<string>() } },
                     statusCode: StatusCodes.Status400BadRequest)
                     .ExecuteAsync(context).ConfigureAwait(false);
                 return;
@@ -4265,6 +4274,7 @@ public static class Program
                                 + "discarded together, and rollbackOnFailure asks for exactly that. Send "
                                 + "rollbackOnFailure=false to write each layer on its own, or send the layers "
                                 + "in separate requests.",
+                            details = Array.Empty<string>(),
                         },
                     },
                     statusCode: StatusCodes.Status400BadRequest)
@@ -4361,7 +4371,7 @@ public static class Program
         if (byGlobalId is not null)
         {
             Task Refuse(string message) =>
-                Results.Json(new { error = new { code = 400, message } }, statusCode: StatusCodes.Status400BadRequest)
+                Results.Json(new { error = new { code = 400, message, details = Array.Empty<string>() } }, statusCode: StatusCodes.Status400BadRequest)
                     .ExecuteAsync(context);
 
             if (GlobalIds.FieldOf(description.Fields) is not { } globalIdField)
@@ -4402,7 +4412,7 @@ public static class Program
         if (parsed is null)
         {
             await Results.Json(
-                new { error = new { code = 400, message = malformed } },
+                new { error = new { code = 400, message = malformed, details = Array.Empty<string>() } },
                 statusCode: StatusCodes.Status400BadRequest)
                 .ExecuteAsync(context).ConfigureAwait(false);
             return null;
@@ -4435,6 +4445,7 @@ public static class Program
                             + "rather than trimmed: applying part of a batch would be a different "
                             + "edit than the one requested, and rollbackOnFailure exists so a "
                             + "caller can require all or nothing.",
+                        details = Array.Empty<string>(),
                     },
                 },
                 statusCode: StatusCodes.Status400BadRequest)
@@ -5194,6 +5205,7 @@ public static class Program
                         message =
                             $"Layer '{layer.Definition.Name}' has no integer object-id column, so it cannot be "
                             + "served through the ArcGIS surface. It remains servable natively.",
+                        details = Array.Empty<string>(),
                     },
                 },
                 statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
@@ -5267,7 +5279,7 @@ public static class Program
                 described.Archived))
         {
             await Results.Json(
-                new { error = new { code = 400, message = error } },
+                new { error = new { code = 400, message = error, details = Array.Empty<string>() } },
                 statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
             return;
         }
@@ -5301,7 +5313,7 @@ public static class Program
             if (refused is not null)
             {
                 await Results.Json(
-                    new { error = new { code = 400, message = refused } },
+                    new { error = new { code = 400, message = refused, details = Array.Empty<string>() } },
                     statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
                 return;
             }
@@ -5380,6 +5392,7 @@ public static class Program
                         message = "A coordinate reference system in this request is not one "
                             + "this server can use. The server is healthy; check the outSR, "
                             + "inSR or bboxSR you sent.",
+                        details = Array.Empty<string>(),
                     },
                 },
                 statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context)

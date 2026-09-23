@@ -21,6 +21,7 @@ namespace Graticula.Conformance.Tests;
 /// of the same layer said <c>esriFieldTypeOID</c>.
 /// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class AnArcGisAddressAlwaysAnswersInJsonTests : ArcGisClient
 {
     private static string Queryable()

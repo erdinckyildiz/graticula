@@ -295,6 +295,7 @@ internal static class ServiceLookup
                                 + "children are listed in subLayerIds on "
                                 + $"/rest/services/{service.QualifiedName}/FeatureServer"
                                 + $"/{layerId}.",
+                            details = Array.Empty<string>(),
                         },
                     },
                     statusCode: StatusCodes.Status400BadRequest)
@@ -324,6 +325,7 @@ internal static class ServiceLookup
                                       ", ",
                                       service.Layers.Select(
                                           l => $"{l.LayerIndex} ({l.Definition.Name})"))),
+                        details = Array.Empty<string>(),
                     },
                 },
                 statusCode: StatusCodes.Status404NotFound)
@@ -466,6 +468,7 @@ internal static class ServiceLookup
                     code = 503,
                     message = detail + closing,
                     catalogAgeSeconds = age,
+                    details = Array.Empty<string>(),
                 },
             },
             statusCode: StatusCodes.Status503ServiceUnavailable).ExecuteAsync(context);

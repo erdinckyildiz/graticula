@@ -374,5 +374,5 @@ internal static class ArcGisAdminEndpoints
     private static bool IsTrue(string value) => value.Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
 
     private static Task RefuseAsync(HttpContext context, int code, string message) =>
-        Results.Json(new { error = new { code, message } }, statusCode: code).ExecuteAsync(context);
+        Results.Json(new { error = new { code, message, details = Array.Empty<string>() } }, statusCode: code).ExecuteAsync(context);
 }

@@ -1057,7 +1057,7 @@ public static class GenerateRendererEndpoints
 
     private static Task RefuseAsync(HttpContext context, string why) =>
         Results.Json(
-            new { error = new { code = 400, message = why } },
+            new { error = new { code = 400, message = why, details = Array.Empty<string>() } },
             statusCode: StatusCodes.Status400BadRequest)
             .ExecuteAsync(context);
 }

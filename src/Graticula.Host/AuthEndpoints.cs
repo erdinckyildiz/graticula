@@ -997,6 +997,6 @@ internal static class AuthEndpoints
     }
 
     private static Task Refuse(HttpContext context, int status, string message) =>
-        Results.Json(new { error = new { code = status, message } }, statusCode: status)
+        Results.Json(new { error = new { code = status, message, details = Array.Empty<string>() } }, statusCode: status)
             .ExecuteAsync(context);
 }

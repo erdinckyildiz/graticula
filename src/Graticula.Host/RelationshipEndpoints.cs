@@ -552,6 +552,6 @@ internal static class RelationshipEndpoints
             : context.Request.Query[name].ToString();
 
     private static Task Fail(HttpContext context, int code, string message) =>
-        Results.Json(new { error = new { code, message } }, statusCode: code)
+        Results.Json(new { error = new { code, message, details = Array.Empty<string>() } }, statusCode: code)
             .ExecuteAsync(context);
 }

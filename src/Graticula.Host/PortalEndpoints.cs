@@ -398,14 +398,18 @@ internal static class PortalEndpoints
             // every deployment that did not turn HTTPS off, which is the value this always had.
             allSSL = context.RequestServices.GetRequiredService<HostSettings>().RequireHttps,
 
-            // <b>False, and it has to stay false until it is true.</b> This server
-            // has no OAuth. Claiming it would repeat exactly the mistake that cost
-            // three attempts: a client believes a capability that is advertised,
-            // goes to use it, and never comes back.
+            // <b>False although the server has OAuth, until Pro has signed in with it on</b> —
+            // ADR-076 §6 and its condition 3. The flow is served and the Maps SDK completes it
+            // without reading this flag; what the flag changes in Pro's sign-in is not known, and Pro
+            // is the client this server lost three times to a capability it advertised. The cost is
+            // named rather than hidden: Field Maps and Survey123 read it too (condition 4).
             supportsOAuth = false,
             supportsHostedServices = true,
-            httpPort = 80,
-            httpsPort = 443,
+
+            // <b>The ports the caller reached, not the defaults — V-58.</b> A client that rebuilds a
+            // URL from these two and the host would otherwise drop the showcase's 8443.
+            httpPort = PortOf(context, https: false),
+            httpsPort = PortOf(context, https: true),
             currentVersion = PortalVersion,
             access = "public",
             user = signedIn ? Self(current, groups) : null,
@@ -1381,6 +1385,18 @@ internal static class PortalEndpoints
 
     private static string PrimaryFace(PublishedService service) =>
         string.Equals(service.Kind, "VectorTileServer", StringComparison.OrdinalIgnoreCase) ? "VectorTileServer" : "FeatureServer";
+
+    /// <summary>The port a portal document names for one scheme: the caller's own for the scheme it used.</summary>
+    /// <param name="context">The request.</param>
+    /// <param name="https">Which of the two ports.</param>
+    /// <returns>The request's port for its own scheme, and the scheme's default for the other.</returns>
+    internal static int PortOf(HttpContext context, bool https)
+    {
+        bool secure = context.Request.IsHttps;
+        int fallback = https ? 443 : 80;
+
+        return secure == https ? context.Request.Host.Port ?? fallback : fallback;
+    }
 
     /// <summary>A further face's item id: 32 hex characters derived from the service id and the face.</summary>
     /// <param name="service">The service.</param>

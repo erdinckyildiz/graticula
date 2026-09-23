@@ -214,6 +214,7 @@ internal static class LogEndpoints
                     code = 400,
                     message = $"`{source}` is not a log this server keeps. It keeps audit, "
                         + "requests, studio and server.",
+                    details = Array.Empty<string>(),
                 },
             }).ExecuteAsync(context).ConfigureAwait(false);
 

@@ -358,6 +358,7 @@ internal static class GeometryServerEndpoints
                     + "exist, or it may not be shared with you — this response is deliberately the "
                     + "same for both. An administrator can change its sharing with "
                     + "PUT /admin/services/Geometry/sharing.",
+                details = Array.Empty<string>(),
             },
         },
         statusCode: StatusCodes.Status404NotFound);
@@ -381,6 +382,7 @@ internal static class GeometryServerEndpoints
                     "The geometry service is stopped. It exists and is shared as before; an "
                     + "administrator turned it off and can turn it on again with "
                     + "POST /admin/services/Geometry/start.",
+                details = Array.Empty<string>(),
             },
         },
         statusCode: StatusCodes.Status503ServiceUnavailable);
@@ -584,6 +586,7 @@ internal static class GeometryServerEndpoints
                         ? why
                         : "No reason is recorded, which is itself a defect.")
                     + " Available: " + string.Join(", ", Supported.Concat(Engine)) + ".",
+                details = Array.Empty<string>(),
             },
         };
 
@@ -1183,6 +1186,7 @@ internal static class GeometryServerEndpoints
                         message = result.Message,
                         reason = result.Refusal.ToString(),
                         candidatePairs = result.CandidatePairs,
+                        details = Array.Empty<string>(),
                     },
                 },
                 statusCode: status).ExecuteAsync(context).ConfigureAwait(false);
@@ -2267,7 +2271,7 @@ internal static class GeometryServerEndpoints
         }
 
         return Results.Json(
-            new { error = new { code = status.Value, message } },
+            new { error = new { code = status.Value, message, details = Array.Empty<string>() } },
             statusCode: status.Value)
             .ExecuteAsync(context);
     }
