@@ -68,6 +68,10 @@ public sealed class TilePipelineVersionTests
     /// its own question.
     /// </remarks>
     private const string RecordedHash =
+        // <b>Moved 2026-09-23 for a header again, and the version deliberately did not move.</b>
+        // V-56's tile half: a tile with a layer somebody can edit is sent `no-cache` rather than a
+        // lifetime, so a browser asks before reusing it. What a browser may do with a tile changed;
+        // not one byte of the tile did.
         // <b>Moved 2026-09-15 for a header, and the version deliberately did not move.</b>
         // `VectorTileEndpoints.WriteTileAsync` stopped writing `Cache-Control: public` for every
         // tile and takes the value from `QueryResponseCaching.CacheControlFor` — private unless the
@@ -110,7 +114,7 @@ public sealed class TilePipelineVersionTests
         //
         // <b>Moved 2026-09-23, and the version did not move.</b> Every error envelope gained
         // `details: []` (V-60) — the tile face's refusals among them. A refusal is not a tile.
-        "42a301b67c60efc3a929f7596379371c17c823eb303f4bfcac13d56151ad95e7";
+        "179be31b50e434bb7b6c755ec6a1a46287371c323c5f458aa1d96bc622227788";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 1;

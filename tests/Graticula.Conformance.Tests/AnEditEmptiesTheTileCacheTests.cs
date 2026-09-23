@@ -90,7 +90,16 @@ public sealed class AnEditEmptiesTheTileCacheTests : ArcGisClient
         try
         {
             await CacheStateAsync(root, tile);
-            string warm = await CacheStateAsync(root, tile);
+            (string warm, string caching) = await CacheStateAndControlAsync(root, tile);
+
+            // <b>V-56's tile half, the owner's decision of 2026-09-23.</b> The server's own copy is
+            // kept — the HIT below is the proof — and emptied on an edit; a browser's copy is kept too,
+            // but only on condition that it asks first, because nothing empties a browser.
+            Assert.True(
+                caching.Contains("no-cache", StringComparison.Ordinal)
+                    && !caching.Contains("max-age", StringComparison.Ordinal),
+                $"A tile of a layer somebody can edit was sent 'Cache-Control: {caching}'. A browser keeps "
+                + "that for the whole lifetime and draws an edited feature where it was.");
 
             Assert.True(
                 warm == "HIT",
@@ -117,7 +126,10 @@ public sealed class AnEditEmptiesTheTileCacheTests : ArcGisClient
         }
     }
 
-    private static async Task<string> CacheStateAsync(string root, Uri tile)
+    private static async Task<string> CacheStateAsync(string root, Uri tile) =>
+        (await CacheStateAndControlAsync(root, tile)).State;
+
+    private static async Task<(string State, string Control)> CacheStateAndControlAsync(string root, Uri tile)
     {
         using HttpClient http = Client();
         using HttpRequestMessage request = new(HttpMethod.Get, tile);
@@ -129,9 +141,11 @@ public sealed class AnEditEmptiesTheTileCacheTests : ArcGisClient
             response.StatusCode is HttpStatusCode.OK or HttpStatusCode.NoContent,
             $"The tile answered {(int)response.StatusCode}.");
 
-        return response.Headers.TryGetValues("X-Tile-Cache", out IEnumerable<string>? values)
+        string state = response.Headers.TryGetValues("X-Tile-Cache", out IEnumerable<string>? values)
             ? values.Single()
             : "(none)";
+
+        return (state, response.Headers.CacheControl?.ToString() ?? "(none)");
     }
 
     private static async Task<JsonElement> EditAsync(

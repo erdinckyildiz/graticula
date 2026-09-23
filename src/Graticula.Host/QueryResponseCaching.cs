@@ -92,12 +92,43 @@ internal static class QueryResponseCaching
             return "no-store";
         }
 
+        string seconds = ((long)lifetime.TotalSeconds).ToString(CultureInfo.InvariantCulture);
+
+        return $"{Audience(context, layers)}, max-age={seconds}";
+    }
+
+    /// <summary>
+    /// The <c>Cache-Control</c> value for a response a client may keep but must ask about before every
+    /// use: <c>no-cache</c>, with the same public-or-private rule as <see cref="CacheControlFor"/>.
+    /// </summary>
+    /// <remarks>
+    /// <b>The tile half of V-56, the owner's decision of 2026-09-23 (ADR-069 §11).</b> A tile of a layer
+    /// somebody can edit was kept by the browser for the tile lifetime, so an edit the server's own cache
+    /// had already dropped (<c>TilePurgingWriter</c>) stayed on screen for up to an hour. <c>no-store</c>
+    /// would re-send every tile on every pan; <c>no-cache</c> keeps the tile and makes the browser ask,
+    /// and the tile's ETag turns an unchanged answer into a 304 of a few hundred bytes.
+    /// </remarks>
+    /// <param name="context">The request, for its principal.</param>
+    /// <param name="layers">Every layer whose data is in the response.</param>
+    /// <returns>The header value.</returns>
+    internal static string RevalidateFor(HttpContext context, IEnumerable<PublishedLayer> layers)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(layers);
+
+        return $"{Audience(context, layers)}, no-cache";
+    }
+
+    // enum-default-is-deliberate: private — the two words below are Cache-Control directives, not
+    // sharing scopes. A shared cache may keep only what every caller could have had, which is a
+    // Public layer read anonymously; every other scope, and every signed-in read, is `private`.
+    private static string Audience(HttpContext context, IEnumerable<PublishedLayer> layers)
+    {
         RequestPrincipal? current = context.Features.Get<RequestPrincipal>();
         bool anonymous = current is null || current.Principal.IsAnonymous;
         bool sharable = anonymous && layers.All(layer => layer.Sharing == SharingScope.Public);
-        string seconds = ((long)lifetime.TotalSeconds).ToString(CultureInfo.InvariantCulture);
 
-        return sharable ? $"public, max-age={seconds}" : $"private, max-age={seconds}";
+        return sharable ? "public" : "private";
     }
 
     /// <summary>

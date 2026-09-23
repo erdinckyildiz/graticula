@@ -236,6 +236,28 @@ public sealed class QueryResponseCachingTests
         Assert.Equal("private, max-age=3600", header);
     }
 
+    /// <summary>
+    /// A tile a browser must ask about before reuse keeps the public-or-private rule, and says
+    /// <c>no-cache</c> rather than a lifetime — V-56's tile half, the owner's decision of 2026-09-23.
+    /// </summary>
+    [Fact]
+    public void A_revalidated_tile_says_no_cache_and_keeps_who_may_hold_it()
+    {
+        Assert.Equal(
+            "public, no-cache",
+            QueryResponseCaching.RevalidateFor(Request(), [Layer(SharingScope.Public)]));
+
+        Assert.Equal(
+            "private, no-cache",
+            QueryResponseCaching.RevalidateFor(
+                Request(), [Layer(SharingScope.Public), Layer(SharingScope.Private)]));
+
+        Assert.Equal(
+            "private, no-cache",
+            QueryResponseCaching.RevalidateFor(
+                Request(principal: SignedIn()), [Layer(SharingScope.Public)]));
+    }
+
     [Fact]
     public void A_zero_lifetime_tile_is_no_store_whoever_asks()
     {

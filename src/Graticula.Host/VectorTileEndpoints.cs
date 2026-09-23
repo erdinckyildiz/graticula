@@ -634,6 +634,9 @@ internal static class VectorTileEndpoints
 
         TimeSpan shortest = TimeSpan.MaxValue;
 
+        // Whether any layer in the tile is one a browser must ask about before reusing — V-56.
+        bool revalidate = false;
+
         // <b>The stalest cached part, for `Age`.</b> `MaxValue` means nothing came
         // from the cache, which is the case where there is no age to report.
         DateTimeOffset oldest = DateTimeOffset.MaxValue;
@@ -714,6 +717,15 @@ internal static class VectorTileEndpoints
                 shortest = lifetime;
             }
 
+            // <b>V-56's tile half: a layer somebody can edit is revalidated, not kept.</b> The
+            // lifetime above still governs this server's own copy, which an edit empties; what
+            // changes is what the browser is told. A lifetime an administrator set on the layer is
+            // honoured as it is for `query` — `QueryResponseCaching.LifetimeOf`'s rule.
+            if (layer.CacheLifetime is null && QueryResponseCaching.Editable(layer, description.Writable))
+            {
+                revalidate = true;
+            }
+
             CachedTile cached = await cache.ReadAsync(key, lifetime, cancellation)
                 .ConfigureAwait(false);
 
@@ -789,10 +801,12 @@ internal static class VectorTileEndpoints
             context,
             Concatenate(parts),
             disposition,
-            QueryResponseCaching.CacheControlFor(
-                context,
-                service.Layers,
-                shortest == TimeSpan.MaxValue ? defaultLifetime : shortest),
+            revalidate
+                ? QueryResponseCaching.RevalidateFor(context, service.Layers)
+                : QueryResponseCaching.CacheControlFor(
+                    context,
+                    service.Layers,
+                    shortest == TimeSpan.MaxValue ? defaultLifetime : shortest),
             oldest,
             cancellation)
             .ConfigureAwait(false);
