@@ -10,9 +10,10 @@ roles, groups, sharing. ArcGIS Pro connects, browses, adds the layer and edits i
 
 The three tiers are fused rather than federated
 ([ADR-019](docs/adr/ADR-019-portal-server-split.md)), so there is no site to create, no
-data store tier to install and no portal to federate. What Studio does *not* do is author:
-no web maps, no app builder, no Living Atlas — the services are the product and the client
-is yours.
+data store tier to install and no portal to federate. Studio authors one thing: a **web map**
+— layers, a basemap and a view, saved as an ArcGIS Web Map that Pro and the Maps SDK open
+([ADR-079](docs/adr/ADR-079-a-web-map-is-a-saved-document.md)). No app builder, no dashboards,
+no Living Atlas — the services are the product and the client is yours.
 
 **[The overview page](https://erdinckyildiz.github.io/graticula/)** says the same thing
 with room to breathe. A *graticule* is the net of meridians and parallels drawn on a map;
@@ -36,9 +37,9 @@ Five ArcGIS service types, plus the portal surface Pro connects through.
 
 | | | |
 |---|---|---|
-| **Feature services** | complete | `query`, `applyEdits`, attachments, related records, `generateRenderer` — over a registered PostGIS table or a hosted layer, and read-only over a GeoParquet file read in place, from a folder on the server or over `https://` and `s3://` ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md), [ADR-067](docs/adr/ADR-067-duckdb-sources-beyond-a-local-folder.md)) |
-| **Map services** | complete | `export`, `identify`, `legend`. A layer published without a style gets a generated appearance that reports itself as generated |
-| **Vector tile services** | partial | Tiles from hosted data, a style document and a checked-in glyph set. **The sprite sheet answers and is empty** — no icon library, and no way to upload one ([ADR-027](docs/adr/ADR-027-glyphs-and-sprites.md)) |
+| **Feature services** | complete | `query`, `applyEdits`, attachments, related records, `generateRenderer` — over a registered PostGIS table or a hosted layer, and read-only over a GeoParquet file read in place, from a folder on the server or over `https://` and `s3://` ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md), [ADR-067](docs/adr/ADR-067-duckdb-sources-beyond-a-local-folder.md)). A query answers as JSON, GeoJSON or PBF, filters by time where a layer has a time field, and keeps Z and M where the data has them |
+| **Map services** | complete | `export`, `identify`, `legend` and a sublayer `query`, drawn by time where a layer has one. A layer published without a style gets a generated appearance that reports itself as generated |
+| **Vector tile services** | partial | Tiles from hosted data and GeoParquet files, a style document and a checked-in glyph set. **The sprite sheet answers and is empty** — no icon library, and no way to upload one ([ADR-027](docs/adr/ADR-027-glyphs-and-sprites.md)) |
 | **Image services** | partial | `exportImage`, `identify`, `tile`, over imagery registered where it lies and never copied. **No raster function chains, no mosaic datasets** |
 | **Geometry service** | partial | 18 of 22 operations, including `buffer`, `intersect`, `union`, `difference` and `cut`. **The four that are missing each refuse in their own words**, with the reason that applies to them ([ADR-022](docs/adr/ADR-022-geometry-server.md)) |
 | **ArcGIS Pro** | complete | Add a **portal** connection, sign in, browse My Content, add a layer, edit it. Measured against Pro over seven rounds, each read out of the request log ([ADR-040](docs/adr/ADR-040-the-portal-surface-is-how-arcgis-pro-connects.md)) |
@@ -59,21 +60,30 @@ that works.
   served in place. An enterprise geodatabase on Oracle has to move first. The other engines are
   deferred, not cancelled — [v1-scope.md](docs/v1-scope.md) §3a. **GeoParquet files are the one
   thing served where they lie** — in a folder on the server, or over `https://` and `s3://` — and
-  only for reading: no edits, no attachments, no related records, no vector tiles, and spatial
-  filters by intersection only ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md),
+  only for reading: no edits, no attachments, no related records, and a distance filter only
+  in a projected reference — every other spatial relation is decided by the geometry engine the
+  Geometry service runs ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md) §3a,
   [ADR-067](docs/adr/ADR-067-duckdb-sources-beyond-a-local-folder.md)). A remote file is read over
   the network on every query, at the bucket's latency. **A DuckDB database file and a MotherDuck
   database are served the same way**, their tables read-only; a file's geometry reference has to be
   declared, because DuckDB does not keep one in a database file.
-- **No single sign-on.** Local accounts and server-issued tokens only: no SAML, no OIDC,
-  no Active Directory, no SCIM. Every account is one you create here.
+- **No single sign-on.** Local accounts, server-issued tokens, and OAuth 2.0 for apps an
+  administrator registers ([ADR-076](docs/adr/ADR-076-oauth-for-registered-apps.md)): no SAML, no
+  OIDC, no Active Directory, no SCIM. Every account is one you create here.
+- **No offline editing.** No `createReplica` and no sync, so Field Maps offline areas and Pro's
+  *Download Map* do not work against this server
+  ([ADR-082](docs/adr/ADR-082-offline-sync-is-not-in-v1.md)).
 - **No geoprocessing and no geocoding.** No GPServer, no web tools, no Python toolboxes.
 - **No *New ArcGIS Server* connection.** That handshake is SOAP; it is not built and not
   planned. A portal connection reaches the same content.
 - **No publishing from Pro.** The portal surface is read-only. Publish in the console or
   over the admin API.
-- **No migration tooling yet.** Reading an existing site's inventory and importing its
-  service definitions is scoped and unwritten. Moving today means republishing by hand.
+- **Migration reads ArcGIS Server only, and moves definitions, not data.**
+  `graticula tools inventory` reports what would come across and what would not;
+  `graticula tools migrate plan|apply` publishes the layers' definitions — their drawing and
+  field aliases — over tables already registered here
+  ([ADR-081](docs/adr/ADR-081-migration-publishes-definitions-over-registered-tables.md)).
+  Sharing, editing settings, domains and subtypes are not carried, and GeoServer is not read.
 - **Labels in three scripts.** The shipped glyph set is Latin, Greek and Cyrillic — 7,720
   glyphs. **Chinese, Japanese, Korean and Devanagari are not in it**, and a deployment that
   needs them cannot label a map with what ships here ([ADR-027](docs/adr/ADR-027-glyphs-and-sprites.md)).

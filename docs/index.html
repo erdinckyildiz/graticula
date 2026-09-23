@@ -401,7 +401,8 @@ pre .k{color:var(--accent)}
               <h3>Feature services</h3>
               <p>Query and edit a registered PostGIS table or a hosted layer, and query a
               GeoParquet file where it lies. Identity, relationships and attachments are
-              declared rather than reverse-engineered.</p>
+              declared rather than reverse-engineered. A query answers as JSON, GeoJSON or PBF,
+              filters by time where a layer has a time field, and keeps Z and M.</p>
               <p class="ops"><code>query</code><code>applyEdits</code><code>attachments</code><code>queryRelatedRecords</code><code>generateRenderer</code></p>
             </div>
           </div>
@@ -410,9 +411,9 @@ pre .k{color:var(--accent)}
             <i class="sw full"><span class="vh">Complete.</span></i>
             <div>
               <h3>Map services</h3>
-              <p>Server-side drawing. A layer published without a style gets a generated
-              appearance that reports itself as generated.</p>
-              <p class="ops"><code>export</code><code>identify</code><code>legend</code></p>
+              <p>Server-side drawing, by time where a layer has one. A layer published without a
+              style gets a generated appearance that reports itself as generated.</p>
+              <p class="ops"><code>export</code><code>identify</code><code>legend</code><code>query</code></p>
             </div>
           </div>
 
@@ -420,7 +421,7 @@ pre .k{color:var(--accent)}
             <i class="sw half"><span class="vh">Partial.</span></i>
             <div>
               <h3>Vector tile services</h3>
-              <p>Tiles from hosted data, with a style document and a checked-in glyph set, so a
+              <p>Tiles from hosted data and GeoParquet files, with a style document and a checked-in glyph set, so a
               label actually draws instead of silently rendering nothing.
               <b>The sprite sheet answers and is empty</b> &mdash; there is no icon library and no
               way to upload one.</p>
@@ -506,8 +507,9 @@ pre .k{color:var(--accent)}
               <p>No Oracle, no SQL Server, no file geodatabase served in place. An enterprise
               geodatabase on Oracle has to move before this can serve it. The other engines are
               deferred, not cancelled. <b>GeoParquet files are the one thing served where they
-              lie</b> &mdash; on the server, over https or in S3 &mdash; and only for reading: no edits, no attachments, no related records, no
-              vector tiles, and spatial filters by intersection only.</p>
+              lie</b> &mdash; on the server, over https or in S3 &mdash; and only for reading: no edits, no
+              attachments, no related records, and a distance filter only in a projected reference.
+              Every other spatial relation is decided by the geometry engine the Geometry service runs.</p>
             </div>
           </div>
 
@@ -515,9 +517,20 @@ pre .k{color:var(--accent)}
             <i class="sw none"><span class="vh">Not built.</span></i>
             <div>
               <h3>No single sign-on</h3>
-              <p>Local accounts and server-issued tokens only. There is no SAML, no OIDC, no
-              Active Directory and no SCIM, so every account is one you create here. For a site
-              with an identity provider, this is the first thing to weigh.</p>
+              <p>Local accounts, server-issued tokens, and OAuth 2.0 for apps an administrator
+              registers. There is no SAML, no OIDC, no Active Directory and no SCIM, so every
+              account is one you create here. For a site with an identity provider, this is the
+              first thing to weigh.</p>
+            </div>
+          </div>
+
+          <div class="gap">
+            <i class="sw none"><span class="vh">Not built.</span></i>
+            <div>
+              <h3>No offline editing</h3>
+              <p>No <code>createReplica</code> and no sync, so Field Maps offline areas and
+              Pro&rsquo;s <em>Download Map</em> do not work against this server. Deferred from v1
+              by decision, not overlooked.</p>
             </div>
           </div>
 
@@ -539,10 +552,11 @@ pre .k{color:var(--accent)}
           <div class="gap">
             <i class="sw none"><span class="vh">Not built.</span></i>
             <div>
-              <h3>No web maps, apps or dashboards</h3>
+              <h3>No apps or dashboards</h3>
               <p>Studio is the portal's job for <b>content and people</b> &mdash; items, members,
-              roles, groups, sharing. It authors nothing: there is no web map to save, no app
-              builder and no Living Atlas. Bring your own client; the services are the product.</p>
+              roles, groups, sharing. It authors one thing: a <b>web map</b>, saved as an ArcGIS Web
+              Map that Pro and the Maps SDK open. There is no app builder, no dashboards and no
+              Living Atlas. Bring your own client; the services are the product.</p>
             </div>
           </div>
 
@@ -556,11 +570,14 @@ pre .k{color:var(--accent)}
           </div>
 
           <div class="gap">
-            <i class="sw none"><span class="vh">Not built.</span></i>
+            <i class="sw half"><span class="vh">Partial.</span></i>
             <div>
-              <h3>No migration tooling yet</h3>
-              <p>Reading an existing site&rsquo;s inventory and importing its service definitions
-              is scoped and unwritten. Moving today means republishing by hand.</p>
+              <h3>Migration from ArcGIS Server, definitions only</h3>
+              <p><code>graticula tools inventory</code> reports what an existing site would bring
+              across; <code>graticula tools migrate</code> publishes its layers&rsquo; drawing and
+              field aliases over tables already registered here. The data stays where it is.
+              Sharing, editing settings, domains and subtypes are not carried, and GeoServer is
+              not read.</p>
             </div>
           </div>
 
