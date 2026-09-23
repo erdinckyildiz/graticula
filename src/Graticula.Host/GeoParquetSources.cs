@@ -34,6 +34,9 @@ internal sealed partial class GeoParquetSources : IDisposable
 {
     private readonly ConcurrentDictionary<string, Lazy<GeoParquetFolder>> _folders = new(PathComparer);
 
+    /// <summary>A remote or attached source that could not be opened, and when it may be tried again — V-74.</summary>
+    private readonly ConcurrentDictionary<string, (DateTimeOffset Until, string Why)> _failed = new(PathComparer);
+
     /// <summary>How two folder paths are compared: as the file system compares them.</summary>
     /// <remarks>
     /// On Windows, <c>Sub</c> and <c>sub</c> are one folder, and a case-sensitive key opened a second
@@ -592,12 +595,12 @@ internal sealed partial class GeoParquetSources : IDisposable
 
         if (GeoParquetLocator.IsRemote(locator))
         {
-            return Kept(KeyOf(locator), () => OpenRemote(locator));
+            return Kept(KeyOf(locator), () => OpenRemote(locator), remember: true);
         }
 
         if (GeoParquetLocator.IsAttached(locator))
         {
-            return Kept(KeyOf(locator), () => OpenAttached(locator));
+            return Kept(KeyOf(locator), () => OpenAttached(locator), remember: true);
         }
 
         // <b>Canonical before it is compared</b> — a security review's finding. A stored
@@ -627,19 +630,42 @@ internal sealed partial class GeoParquetSources : IDisposable
         return Kept(folder, () => new GeoParquetFolder(folder, _options));
     }
 
-    private GeoParquetFolder Kept(string key, Func<GeoParquetFolder> open)
+    private GeoParquetFolder Kept(string key, Func<GeoParquetFolder> open, bool remember = false)
     {
+        // <b>A source across the network that just failed to open is not asked again at once — V-74, the fourth
+        // ArcGIS review.</b> Two MotherDuck layers whose account had lapsed took 3.5 s each to fail, on every
+        // request, and every listing that describes them paid it again: /collections and both GetCapabilities took
+        // 7 s on the showcase while ListingGuard correctly left the two out. The failure is remembered for the
+        // breaker's cooling period and answered as the breaker answers — a 503 at once — so one slow request in
+        // ten seconds is what a dead source costs, however many ask.
+        if (remember && _failed.TryGetValue(key, out (DateTimeOffset Until, string Why) failed))
+        {
+            if (DateTimeOffset.UtcNow < failed.Until)
+            {
+                throw new SourceUnreachableException(
+                    $"This source could not be opened moments ago and is not being asked again yet: {failed.Why}");
+            }
+
+            _failed.TryRemove(new KeyValuePair<string, (DateTimeOffset, string)>(key, failed));
+        }
+
         Lazy<GeoParquetFolder> opened = _folders.GetOrAdd(key, _ => new Lazy<GeoParquetFolder>(open));
 
         try
         {
             return opened.Value;
         }
-        catch
+        catch (Exception e)
         {
             // A folder that could not be opened — deleted, unreadable — is tried again next time
             // rather than remembered as broken for the life of the process.
             _folders.TryRemove(new KeyValuePair<string, Lazy<GeoParquetFolder>>(key, opened));
+
+            if (remember)
+            {
+                _failed[key] = (DateTimeOffset.UtcNow.Add(SourceBreaker.Cooling), e.Message);
+            }
+
             throw;
         }
     }

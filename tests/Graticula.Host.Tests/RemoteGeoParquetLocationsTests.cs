@@ -232,4 +232,21 @@ public sealed class RemoteGeoParquetLocationsTests
 
         Assert.Equal(ProbeOutcome.CannotConnect, sources.Probe(locator!).Outcome);
     }
+
+    [Fact]
+    public void A_remote_source_that_failed_to_open_is_not_asked_again_at_once()
+    {
+        // V-74, the fourth ArcGIS review: a lapsed MotherDuck account took 3.5 s to fail on every request, and every
+        // listing that describes the layer paid it again. The second ask inside the cooling period is answered at
+        // once, as the breaker answers, and still says why.
+        Assert.True(RemoteGeoParquetLocations.TryLocate(Request("s3://bucket/prefix/"), false, out string? locator, out _));
+
+        using GeoParquetSources sources = new(null, "128MB", 1);
+
+        Assert.Throws<InvalidOperationException>(() => sources.FolderFor(locator!));
+
+        Graticula.Host.SourceUnreachableException remembered =
+            Assert.Throws<Graticula.Host.SourceUnreachableException>(() => sources.FolderFor(locator!));
+        Assert.Contains("Graticula:DuckDbExtensions", remembered.Message, StringComparison.Ordinal);
+    }
 }
