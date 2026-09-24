@@ -140,8 +140,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS runtime
 # wget, so a healthcheck written against either fails permanently and the
 # container is reported unhealthy while serving perfectly.
 #
-# libldap2, for ADR-089: System.DirectoryServices.Protocols is OpenLDAP's client on Linux and loads libldap.so.2 when
-# a directory is first asked. Without it the image starts, and every directory sign-in fails as "unavailable".
+# libldap2, for ADR-089: System.DirectoryServices.Protocols is OpenLDAP's client on Linux. It looks for 2.6 by a name
+# noble does not give it, so LdapDirectory loads libldap.so.2 itself. Without the package the image starts, and
+# every directory sign-in fails.
 RUN apt-get update  && apt-get install --yes --no-install-recommends curl libldap2  && rm -rf /var/lib/apt/lists/*
 
 # Non-root, and the uid is fixed rather than assigned. A volume written by uid

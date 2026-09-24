@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.DirectoryServices.Protocols;
 using System.Linq;
 using System.Net;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Runtime.Loader;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -38,6 +41,24 @@ internal sealed class LdapDirectory : IDirectorySignIn
     private readonly IIdentityProviderStore _store;
     private readonly SecretProtector _protector;
     private readonly ILogger _log;
+
+    /// <summary>
+    /// <b>OpenLDAP 2.6 by the name its distributions give it.</b> The base library looks for
+    /// <c>libldap-2.6.so.0</c>, <c>-2.5.so.0</c> and <c>-2.4.so.2</c>, and Ubuntu 24.04 — this image's base and CI's —
+    /// ships 2.6 as <c>libldap.so.2</c>, which none of those is. Every directory call was a
+    /// <see cref="DllNotFoundException"/> on Linux and nothing on Windows showed it; the first CI run did.
+    /// </summary>
+    static LdapDirectory()
+    {
+        Assembly protocols = typeof(LdapConnection).Assembly;
+
+        AssemblyLoadContext.Default.ResolvingUnmanagedDll += (assembly, name) =>
+            assembly == protocols
+            && name.StartsWith("libldap", StringComparison.Ordinal)
+            && NativeLibrary.TryLoad("libldap.so.2", out IntPtr handle)
+                ? handle
+                : IntPtr.Zero;
+    }
 
     /// <summary>Creates the directory sign-in.</summary>
     public LdapDirectory(IIdentityProviderStore store, SecretProtector protector, ILoggerFactory logs)

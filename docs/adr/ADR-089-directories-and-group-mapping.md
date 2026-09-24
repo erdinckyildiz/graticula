@@ -62,6 +62,11 @@ length. A periodic sync was offered and not chosen.
   - an OpenID Connect provider's `groups` claim gives a role through the same mapping.
 - Found writing the directory: the base library's writer refuses an ENUMERATED written as an integer, which the first
   version of the test directory did, and the platform client then reported the directory as unavailable.
+- Found by the first CI run, and invisible on Windows: on Linux the base library looks for OpenLDAP as
+  `libldap-2.6.so.0`, `-2.5.so.0` or `-2.4.so.2`, and Ubuntu 24.04 — the image's base and CI's — ships 2.6 as
+  `libldap.so.2`. Every directory call was a `DllNotFoundException`. `LdapDirectory` now loads `libldap.so.2` when the
+  library's own names fail; a probe in `aspnet:9.0-noble` on arm64 failed without that and reached the network with
+  it.
 
 ## 5. Decision
 
