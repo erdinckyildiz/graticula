@@ -157,6 +157,9 @@ design questions Alternative B named — who may edit a domain other people's la
 deleting one in use means, whether names collide across folders and owners — are answered in the
 ADR that builds it rather than guessed here.
 
+**Amended 2026-09-24 — [ADR-087](ADR-087-domains-are-shared.md).** A column's domain is now a reference to a
+shared domain; everything above about what a domain allows and how it is enforced holds unchanged.
+
 ## 6. Consequences
 
 **Positive.** The last NOT BUILT row of v1-scope §2 is built. An ArcGIS editing client shows a
@@ -234,7 +237,9 @@ column out), ADR-058 (the drop guard), ADR-038 (the geodatabase import).
 5. **Domains are shared, by owner decision of 2026-09-23 (§5).** A domain is a named object that
    fields on many layers point at, and a geodatabase import writes each of its archive's domains
    once. Not built: the per-column domain of §5 is what is served today. Discharged by an ADR that
-   decides Alternative B's three open questions, and by the build it describes.
+   decides Alternative B's three open questions, and by the build it describes. **DISCHARGED 2026-09-24 by
+   [ADR-087](ADR-087-domains-are-shared.md)**: the owner answered the questions, migration 55 made every stored
+   domain a shared one, and one edit reaching two layers is measured.
 
 ## 10. Revisit triggers
 

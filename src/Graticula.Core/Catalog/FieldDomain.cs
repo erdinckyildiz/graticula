@@ -132,6 +132,28 @@ public sealed class FieldDomain
         }
     }
 
+    /// <summary>
+    /// Which shared domain this is — ADR-087 — or null for one read from a body that has not been stored.
+    /// </summary>
+    /// <remarks>
+    /// <b>A domain is a named object many fields point at</b>, by owner decision of 2026-09-23, so a field
+    /// stores this rather than the codes, and one edit reaches every layer. It is not part of
+    /// <see cref="SameAs"/>: two domains that say the same thing say the same thing.
+    /// </remarks>
+    public Guid? Id { get; private init; }
+
+    /// <summary>This domain, as the shared domain <paramref name="id"/>.</summary>
+    /// <param name="id">The shared domain's id.</param>
+    /// <returns>A copy carrying the id.</returns>
+    public FieldDomain WithId(Guid id) =>
+        new(Name, Kind, Codes, Min, Max) { Id = id };
+
+    /// <summary>This domain under another name, keeping everything else.</summary>
+    /// <param name="name">The new name.</param>
+    /// <returns>A copy with the name.</returns>
+    public FieldDomain Named(string name) =>
+        new(name, Kind, Codes, Min, Max) { Id = Id };
+
     /// <summary>The domain's name, which a client shows and never matches on.</summary>
     public string Name { get; }
 

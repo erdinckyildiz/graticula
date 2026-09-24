@@ -576,6 +576,7 @@ internal static partial class AdminEndpoints
         MapFieldOverrides(app);  // ADR-063 — AdminEndpoints.FieldOverrides.cs
         MapVisibleRange(app);    // ADR-070 — AdminEndpoints.VisibleRange.cs
         MapServerSettings(app);  // ADR-084 — AdminEndpoints.Settings.cs
+        MapSharedDomains(app);   // ADR-087 — AdminEndpoints.Domains.cs
         MapThumbnails(app);      // ADR-071 — AdminEndpoints.Thumbnails.cs
         MapHistory(app);         // ADR-078 — AdminEndpoints.History.cs
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>

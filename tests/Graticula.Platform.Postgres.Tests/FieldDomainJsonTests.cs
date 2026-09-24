@@ -129,4 +129,39 @@ public sealed class FieldDomainJsonTests
                 FieldDomain.Coded("C", [new CodedValue(DomainValue.Of(1), "one")])))).RootElement
                 .EnumerateObject().Select(p => p.Name));
     }
+
+    [Fact]
+    public void A_shared_domain_is_stored_as_its_id_and_read_back_whole_from_the_domains_the_row_carries()
+    {
+        System.Guid id = System.Guid.NewGuid();
+        FieldDomain material = FieldDomain.Coded("Material", [new CodedValue(DomainValue.Of("CU"), "Copper")]).WithId(id);
+
+        string stored = FieldOverrideJson.Write([new FieldOverride("material", null, false, Domain: material)]);
+
+        // ADR-087: the field keeps the id and nothing else, so one edit to the domain reaches it.
+        Assert.Contains($"\"domain\":{{\"id\":\"{id}\"}}", stored, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("Copper", stored, System.StringComparison.Ordinal);
+
+        Dictionary<System.Guid, FieldDomain> shared = new() { [id] = material };
+        FieldOverride read = Assert.Single(FieldOverrideJson.Read(stored, shared));
+
+        Assert.True(material.SameAs(read.Domain));
+        Assert.Equal(id, read.Domain!.Id);
+
+        // A reference to a domain that is not there reads as none, and the layer is still served.
+        Assert.Null(Assert.Single(FieldOverrideJson.Read(stored, new Dictionary<System.Guid, FieldDomain>())).Domain);
+    }
+
+    [Fact]
+    public void The_catalogues_aggregate_of_shared_domains_is_read_with_their_ids()
+    {
+        System.Guid id = System.Guid.NewGuid();
+        string row = $"{{\"{id}\": {{\"type\": \"range\", \"name\": \"Pressure\", \"range\": [0, 16]}}}}";
+
+        IReadOnlyDictionary<System.Guid, FieldDomain> read = FieldOverrideJson.SharedDomains(row);
+
+        Assert.Equal("Pressure", read[id].Name);
+        Assert.Equal(id, read[id].Id);
+        Assert.Empty(FieldOverrideJson.SharedDomains(null));
+    }
 }

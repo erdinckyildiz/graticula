@@ -1060,6 +1060,35 @@
     <p><button class="ghost" id="logMore" hidden>Older</button></p>
   </section>
 
+  <section class="view" id="view-domains">
+    <!--
+      <b>ADR-087, the owner's decision of 2026-09-23 and 2026-09-24:</b> a domain is shared across layers, as a
+      geodatabase shares it. This screen lists them and where each is used, and deletes one nothing uses. Its
+      values are edited here and only here — design review 2026-09-24 found editing them from a layer bundled a
+      change to every layer with that layer's save, and a refusal of the second hid the first.
+    -->
+    <div class="pagehead">
+      <div>
+        <h2 id="domainsTitle" tabindex="-1">Domains</h2>
+        <p>Lists and ranges of values that fields on many layers share. A field chooses one on its layer's
+          Fields page; its values are changed here, and a change reaches every field that uses it.</p>
+      </div>
+    </div>
+    <div class="toolbar">
+      <span style="flex:1"></span>
+      <button class="primary" id="domainNew">New domain</button>
+    </div>
+    <div class="panel">
+      <table>
+        <thead><tr>
+          <th>Domain</th><th>Values</th><th>Used by</th><th>Owner</th><th><span class="sr-only">Actions</span></th>
+        </tr></thead>
+        <tbody id="domainRows"></tbody>
+      </table>
+    </div>
+    <p class="hint" id="domainsSays" aria-live="polite"></p>
+  </section>
+
   <section class="view" id="view-groups">
     <div class="pagehead">
       <div>

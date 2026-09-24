@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(54);
+    public static SchemaVersion ComponentSchemaVersion => new(55);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -89,6 +89,7 @@ public static class PlatformMigrations
         AWebMapIsASavedDocumentV52,
         ARelationshipHasANumberV53,
         ThePageSizeIsOneNumberV54,
+        DomainsAreSharedV55,
     ]);
 
     /// <summary>
@@ -144,6 +145,152 @@ public static class PlatformMigrations
             + "a query that asks for more. A service that set both keeps its maximum. What a query naming "
             + "no page size gets is unchanged for the first; for the second it becomes the maximum, which "
             + "is the number the service's document already gave.");
+
+    /// <summary>
+    /// A domain is a named object many fields point at — ADR-087.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>By owner decision, 2026-09-23 and 2026-09-24:</b> <i>"Domain'ler paylaşılsın"</i>, then, asked the four
+    /// questions ADR-065 left open: the domain's owner and administrators edit it, one still in use is not
+    /// deleted, names are unique across the server, and the domains stored on layers today become shared ones
+    /// here rather than living beside them.
+    /// </para>
+    /// <para>
+    /// <b>Every domain in every layer's overrides, and in its subtypes', moves into <c>field_domain</c></b> and
+    /// the override keeps <c>{"id"}</c>. Two with the same name and the same content become one — which is the
+    /// point: an archive whose fifty classes carried one <c>Material</c> now carries one. Two with the same
+    /// name and different content cannot both keep it, so the second is <c>Material (2)</c>, and a client sees
+    /// that name. Each is owned by the owner of the first service found using it.
+    /// </para>
+    /// <para>
+    /// <b>A contract, at 55</b>: an older build reads <c>{"id"}</c> as a domain it cannot parse, leaves it out,
+    /// and stops refusing values outside it — the one failure a domain exists to prevent — so no build older
+    /// than this one may start against the store. The conversion runs in a temporary function that goes with
+    /// the session.
+    /// </para>
+    /// </remarks>
+    private static Migration DomainsAreSharedV55 => Migration.Contract(
+        new SchemaVersion(55),
+        raisesMinimumReaderTo: new SchemaVersion(55),
+        "Domains are shared objects that fields point at; the domains stored on layers move into them (ADR-087).",
+
+        """
+        create table if not exists field_domain (
+            id                 uuid        not null primary key default gen_random_uuid(),
+            name               text        not null,
+            definition         jsonb       not null,
+            owner_principal_id uuid        null references principal (id) on delete set null,
+            created_at         timestamptz not null default now(),
+            updated_at         timestamptz not null default now(),
+            constraint field_domain_name_not_blank check (length(btrim(name)) > 0),
+            constraint field_domain_definition_is_object check (jsonb_typeof(definition) = 'object')
+        )
+        """,
+
+        "create unique index if not exists field_domain_name_key on field_domain (lower(name))",
+
+        """
+        create or replace function pg_temp.share_domain(def jsonb, owner uuid) returns uuid
+        language plpgsql as $f$
+        declare
+            base text := coalesce(nullif(btrim(def ->> 'name'), ''), 'Domain');
+            candidate text := base;
+            n int := 1;
+            existing record;
+            created uuid;
+        begin
+            loop
+                select id, definition into existing from field_domain where lower(name) = lower(candidate);
+
+                if existing.id is null then
+                    insert into field_domain (name, definition, owner_principal_id)
+                    values (candidate, jsonb_set(def - 'id', '{name}', to_jsonb(candidate)), owner)
+                    returning id into created;
+                    return created;
+                elsif (existing.definition - 'name') = (def - 'name' - 'id') then
+                    return existing.id;
+                end if;
+
+                n := n + 1;
+                candidate := base || ' (' || n || ')';
+            end loop;
+        end
+        $f$
+        """,
+
+        """
+        do $d$
+        declare
+            l record;
+            entry jsonb;
+            rewritten jsonb;
+            types jsonb;
+            one jsonb;
+            doms jsonb;
+            col text;
+            val jsonb;
+            i int;
+            j int;
+        begin
+            for l in
+                select la.id, la.field_overrides, s.owner_principal_id as owner
+                  from layer la join service s on s.id = la.service_id
+                 where la.field_overrides::text like '%"type"%'
+                 order by s.created_at, la.id
+            loop
+                rewritten := '[]'::jsonb;
+
+                for i in 0 .. jsonb_array_length(l.field_overrides) - 1 loop
+                    entry := l.field_overrides -> i;
+
+                    if jsonb_typeof(entry -> 'domain') = 'object' and (entry -> 'domain') ? 'type' then
+                        entry := jsonb_set(entry, '{domain}',
+                            jsonb_build_object('id', pg_temp.share_domain(entry -> 'domain', l.owner)::text));
+                    end if;
+
+                    if jsonb_typeof(entry #> '{subtypes,types}') = 'array' then
+                        types := '[]'::jsonb;
+
+                        for j in 0 .. jsonb_array_length(entry #> '{subtypes,types}') - 1 loop
+                            one := entry #> array['subtypes', 'types', j::text];
+
+                            if jsonb_typeof(one -> 'domains') = 'object' then
+                                doms := '{}'::jsonb;
+
+                                for col, val in select * from jsonb_each(one -> 'domains') loop
+                                    if jsonb_typeof(val) = 'object' and val ? 'type' then
+                                        val := jsonb_build_object('id', pg_temp.share_domain(val, l.owner)::text);
+                                    end if;
+
+                                    doms := doms || jsonb_build_object(col, val);
+                                end loop;
+
+                                one := jsonb_set(one, '{domains}', doms);
+                            end if;
+
+                            types := types || jsonb_build_array(one);
+                        end loop;
+
+                        entry := jsonb_set(entry, '{subtypes,types}', types);
+                    end if;
+
+                    rewritten := rewritten || jsonb_build_array(entry);
+                end loop;
+
+                update layer set field_overrides = rewritten where id = l.id;
+            end loop;
+        end
+        $d$
+        """,
+
+        "drop function if exists pg_temp.share_domain(jsonb, uuid)")
+        .Cautioning(
+            "Every domain stored on a layer becomes a shared domain that the layer's field points at. Domains "
+            + "with the same name and the same values become one, and editing it will change every layer that "
+            + "uses it. Two with the same name and different values cannot share it: the later one is renamed "
+            + "with a number, as in 'Material (2)', and clients see that name. A server built before schema 55 "
+            + "can no longer start against this store.");
 
     /// <remarks>
     /// <b>V-46, the third ArcGIS review, decided by the owner 2026-09-23.</b> ArcGIS names a relationship by an

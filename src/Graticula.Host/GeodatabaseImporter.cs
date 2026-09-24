@@ -118,6 +118,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
     private readonly ImportScratch _scratch;
     private readonly PostGisImporter _importer;
     private readonly IAdminCatalog _catalog;
+    private readonly IFieldDomainStore _domains;
     private readonly ILogger<GeodatabaseImporter> _log;
 
     private readonly RepeatedFailure _claims = new();
@@ -129,6 +130,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
         ImportScratch scratch,
         PostGisImporter importer,
         IAdminCatalog catalog,
+        IFieldDomainStore domains,
         ILogger<GeodatabaseImporter> log)
     {
         ArgumentNullException.ThrowIfNull(jobs);
@@ -137,6 +139,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
         ArgumentNullException.ThrowIfNull(scratch);
         ArgumentNullException.ThrowIfNull(importer);
         ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(domains);
         ArgumentNullException.ThrowIfNull(log);
 
         _jobs = jobs;
@@ -145,6 +148,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
         _scratch = scratch;
         _importer = importer;
         _catalog = catalog;
+        _domains = domains;
         _log = log;
     }
 
@@ -488,6 +492,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
     /// </para>
     /// </remarks>
     private async Task<Landed> OverridesAsync(
+        Guid owner,
         Guid layerId,
         IReadOnlyList<FieldDescription> declared,
         LayerDescription table,
@@ -604,7 +609,10 @@ internal sealed class GeodatabaseImporter : BackgroundService
             notCarried.Add($"domains and subtypes: {unread}");
         }
 
-        List<FieldOverride> stored = [.. overrides.Values.Where(o => o.SaysSomething)];
+        // ADR-087: each of the archive's domains lands once, as a shared domain every field using it points at.
+        List<FieldOverride> stored = await SharedDomainImport.ShareAsync(
+                overrides.Values.Where(o => o.SaysSomething), _domains, owner, notCarried, stopping)
+            .ConfigureAwait(false);
 
         if (stored.Count > 0)
         {
@@ -852,7 +860,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
                 null);
 
             return await OverridesAsync(
-                    emptyAt.Id, declared, definedColumns, values, new Landed(0, 0, Declared: declared.Count, Kept: defined.Stored), stopping)
+                    asked.Owner, emptyAt.Id, declared, definedColumns, values, new Landed(0, 0, Declared: declared.Count, Kept: defined.Stored), stopping)
                 .ConfigureAwait(false);
         }
 
@@ -908,7 +916,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
             ],
             null);
 
-        return await OverridesAsync(at.Id, declared, madeColumns, values, new Landed(features.Count, made.Flattened, Kept: made.Stored), stopping)
+        return await OverridesAsync(asked.Owner, at.Id, declared, madeColumns, values, new Landed(features.Count, made.Flattened, Kept: made.Stored), stopping)
             .ConfigureAwait(false);
     }
 

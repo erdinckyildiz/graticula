@@ -80,6 +80,7 @@ internal static partial class AdminEndpoints
         PostgresLayerCatalog layers,
         ServiceContexts contexts,
         IAdminCatalog catalog,
+        IFieldDomainStore sharedDomains,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -109,6 +110,10 @@ internal static partial class AdminEndpoints
 
         (_, LayerDescription table) = await contexts.TableAsync(layer, cancellation)
             .ConfigureAwait(false);
+
+        // ADR-087: a field may name a shared domain by its id alone, so the shared ones are at hand to resolve it.
+        Dictionary<Guid, FieldDomain> known = (await sharedDomains.ListAsync(cancellation).ConfigureAwait(false))
+            .ToDictionary(d => d.Id, d => d.Domain);
 
         foreach (FieldOverrideEntry entry in request.Overrides ?? [])
         {
@@ -246,7 +251,7 @@ internal static partial class AdminEndpoints
 
             if (entry.Domain is { ValueKind: not JsonValueKind.Null } given)
             {
-                domain = FieldDomainJson.ReadDomain(given, out string? unreadable);
+                domain = FieldDomainJson.ReadDomain(given, known, out string? unreadable);
 
                 if (domain is null)
                 {
@@ -309,7 +314,7 @@ internal static partial class AdminEndpoints
                     return;
                 }
 
-                leftBehind = FieldDomainJson.ReadSubtypes(column, kept, out string? unreadable);
+                leftBehind = FieldDomainJson.ReadSubtypes(column, kept, known, out string? unreadable);
 
                 if (leftBehind is null)
                 {
@@ -342,7 +347,7 @@ internal static partial class AdminEndpoints
                 return;
             }
 
-            if (FieldDomainJson.ReadSubtypes(field, declared, out string? unreadable) is not { } subtypes)
+            if (FieldDomainJson.ReadSubtypes(field, declared, known, out string? unreadable) is not { } subtypes)
             {
                 await Refuse(context, 400, $"The subtypes cannot be read: {unreadable}").ConfigureAwait(false);
                 return;
@@ -402,6 +407,20 @@ internal static partial class AdminEndpoints
             }
         }
 
+        // <b>ADR-087: every domain is a shared one by the time it is stored</b>, and only now, after every other
+        // judgement has passed, so a save refused for a label does not leave a new shared domain behind it.
+        (List<FieldOverride>? shared, int status, string? refusal) = await ShareAsync(
+                wanted, known, sharedDomains, context.Features.Get<RequestPrincipal>()?.Principal.Id, cancellation)
+            .ConfigureAwait(false);
+
+        if (shared is null)
+        {
+            await Refuse(context, status, refusal!).ConfigureAwait(false);
+            return;
+        }
+
+        wanted = shared;
+
         if (!await catalog.SetFieldOverridesAsync(layer.Id, wanted, cancellation)
             .ConfigureAwait(false))
         {
@@ -424,6 +443,129 @@ internal static partial class AdminEndpoints
 
         await WriteFieldOverridesAsync(context, layer, stored, contexts, cancellation)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The overrides with each domain replaced by the shared domain it is — ADR-087 — or the refusal.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A domain that names a shared one by id must say what it says.</b> A field is given a shared domain, not a
+    /// private copy of one: its values are changed on the domain itself, where the change is judged against every
+    /// field that uses it, and a save through one layer that carried different values would change the others
+    /// without that judgement.
+    /// </para>
+    /// <para>
+    /// <b>A domain without an id is the shared one of that name, or a new one.</b> Names are unique across the
+    /// server, so one with the name and other values is refused rather than renamed: a name the operator typed and
+    /// a different one stored is a surprise, where an import, which nobody typed, is renamed and says so.
+    /// </para>
+    /// </remarks>
+    private static async Task<(List<FieldOverride>? Overrides, int Status, string? Refusal)> ShareAsync(
+        List<FieldOverride> wanted,
+        Dictionary<Guid, FieldDomain> known,
+        IFieldDomainStore store,
+        Guid? owner,
+        CancellationToken cancellation)
+    {
+        Dictionary<string, FieldDomain> made = new(StringComparer.OrdinalIgnoreCase);
+        string? refusal = null;
+        int status = 400;
+
+        async Task<FieldDomain?> One(FieldDomain domain)
+        {
+            if (domain.Id is { } id)
+            {
+                if (!known.TryGetValue(id, out FieldDomain? stored))
+                {
+                    refusal = $"There is no shared domain {id}; it may have been deleted since this page was read.";
+                    return null;
+                }
+
+                if (!stored.SameAs(domain))
+                {
+                    refusal = $"'{stored.Name}' is a shared domain, and its values are changed on the domain itself, "
+                        + "where the change reaches every layer that uses it — not through one layer's fields.";
+                    status = 409;
+                    return null;
+                }
+
+                return stored;
+            }
+
+            FieldDomain? already = made.TryGetValue(domain.Name, out FieldDomain? madeHere)
+                ? madeHere
+                : known.Values.FirstOrDefault(k => string.Equals(k.Name, domain.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (already is not null)
+            {
+                if (already.SameAs(domain.Named(already.Name)))
+                {
+                    return already;
+                }
+
+                refusal = $"There is already a shared domain named '{already.Name}' with other values. Give the column "
+                    + "that domain, or name this one differently: names are unique across the server.";
+                status = 409;
+                return null;
+            }
+
+            SharedDomain? created = await store.CreateAsync(domain, owner, cancellation).ConfigureAwait(false)
+                ?? await store.FindByNameAsync(domain.Name, cancellation).ConfigureAwait(false);
+
+            if (created is null || !created.Domain.SameAs(domain.Named(created.Domain.Name)))
+            {
+                refusal = $"There is already a shared domain named '{domain.Name}' with other values.";
+                status = 409;
+                return null;
+            }
+
+            made[created.Domain.Name] = created.Domain;
+            known[created.Id] = created.Domain;
+            return created.Domain;
+        }
+
+        List<FieldOverride> shared = new(wanted.Count);
+
+        foreach (FieldOverride says in wanted)
+        {
+            FieldDomain? domain = null;
+
+            if (says.Domain is { } own && (domain = await One(own).ConfigureAwait(false)) is null)
+            {
+                return (null, status, refusal);
+            }
+
+            LayerSubtypes? subtypes = says.Subtypes;
+
+            if (subtypes is not null)
+            {
+                List<Subtype> types = new(subtypes.Types.Count);
+
+                foreach (Subtype type in subtypes.Types)
+                {
+                    Dictionary<string, FieldDomain> domains = new(StringComparer.Ordinal);
+
+                    foreach ((string column, FieldDomain given) in type.Domains)
+                    {
+                        if (await One(given).ConfigureAwait(false) is not { } resolved)
+                        {
+                            return (null, status, refusal);
+                        }
+
+                        domains[column] = resolved;
+                    }
+
+                    types.Add(type with { Domains = domains });
+                }
+
+                subtypes = subtypes with { Types = types };
+            }
+
+            shared.Add(says with { Domain = domain, Subtypes = subtypes });
+        }
+
+        return (shared, 200, null);
     }
 
     /// <summary>

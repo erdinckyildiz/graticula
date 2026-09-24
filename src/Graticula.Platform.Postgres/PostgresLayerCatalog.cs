@@ -87,6 +87,18 @@ public sealed class PostgresLayerCatalog
         -- a subquery: D-249 measured the platform store as this server's ceiling.
         l.field_overrides::text as field_overrides,
 
+        -- <b>The shared domains those overrides point at — ADR-087.</b> Resolved here rather than by a second
+        -- read, for D-249's reason above; and only for a layer whose overrides name an id at all, so the
+        -- layers without domains, which are most of them, pay one string test.
+        case when l.field_overrides::text like '%"id"%' then (
+            select jsonb_object_agg(fd.id::text, fd.definition)::text
+              from field_domain fd
+             where fd.id::text in (
+                   select jsonb_path_query(l.field_overrides, 'lax $[*].domain.id') #>> '{}'
+                   union all
+                   select jsonb_path_query(l.field_overrides, 'lax $[*].subtypes.types[*].domains.*.id') #>> '{}')
+        ) end as field_domains,
+
         -- The scales the layer draws at (ADR-070, migration 48). On the end, read by name.
         l.min_scale, l.max_scale,
 
@@ -487,7 +499,11 @@ public sealed class PostgresLayerCatalog
             FieldOverrides = FieldOverrideJson.Read(
                 reader.IsDBNull(reader.GetOrdinal("field_overrides"))
                     ? null
-                    : reader.GetString(reader.GetOrdinal("field_overrides"))),
+                    : reader.GetString(reader.GetOrdinal("field_overrides")),
+                FieldOverrideJson.SharedDomains(
+                    reader.IsDBNull(reader.GetOrdinal("field_domains"))
+                        ? null
+                        : reader.GetString(reader.GetOrdinal("field_domains")))),
 
             // ADR-070: null on either side is no limit on that side, which is every layer from before it.
             VisibleRange = new Graticula.Cartography.VisibleScaleRange(

@@ -106,10 +106,11 @@ public sealed class FieldsValuesPageTests : ConsoleTest
 
         try
         {
+            // ADR-087: named after the layer, because a domain's name is the server's, not the layer's.
             (int set, string said) = await AdminAsync(
                 HttpMethod.Put, $"/admin/layers/{name}/fields",
-                """
-                {"overrides":[{"column":"material","domain":{"type":"codedValue","name":"Material",
+                $$$"""
+                {"overrides":[{"column":"material","domain":{"type":"codedValue","name":"Material {{{name}}}",
                   "codedValues":[{"code":"CU","name":"Copper"},{"code":"PVC","name":"PVC"}]}}],
                  "subtypes":{"field":"kind","defaultCode":1,
                   "types":[{"code":1,"name":"Main"},{"code":2,"name":"Lateral"}]}}
@@ -143,6 +144,16 @@ public sealed class FieldsValuesPageTests : ConsoleTest
                 "valuesKind",
                 await Browser.EvaluateAsync<string>("document.activeElement?.getAttribute('name') || ''"));
 
+            Assert.Equal(2, await Browser.EvaluateAsync<int>("document.querySelectorAll('[data-values-code]').length"));
+
+            // ADR-087: the list is shared, so it is changed on the Domains screen; a variant of it is a new list,
+            // which starts from a copy of it under a name of its own.
+            await Browser.EvaluateAsync<bool>(
+                "(() => { const s = document.getElementById('valuesShared'); s.value = ''; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+
+            await WaitForAsync("!!document.getElementById('valuesAdd')", "A new list drew no Add.");
+
+            Assert.Equal($"Material {name} (copy)", await Browser.EvaluateAsync<string>("document.getElementById('valuesName').value"));
             Assert.Equal(2, await Browser.EvaluateAsync<int>("document.querySelectorAll('[data-values-code]').length"));
 
             await ClickAsync("#valuesAdd");
@@ -199,6 +210,7 @@ public sealed class FieldsValuesPageTests : ConsoleTest
             Assert.True(material.ValueKind == JsonValueKind.Object, $"Save sent no override for material: {body}");
             Assert.Equal(3, material.GetProperty("domain").GetProperty("codedValues").GetArrayLength());
             Assert.Equal("DI", material.GetProperty("domain").GetProperty("codedValues")[2].GetProperty("code").GetString());
+            Assert.False(material.GetProperty("domain").TryGetProperty("id", out _), $"A new list was sent as the shared one: {body}");
             Assert.Equal("Name", label.GetProperty("alias").GetString());
 
             JsonElement subtypes = sent.GetProperty("subtypes");
@@ -212,6 +224,7 @@ public sealed class FieldsValuesPageTests : ConsoleTest
         finally
         {
             await AdminAsync(HttpMethod.Delete, $"/admin/featureservices/{name}?folder=hosted&drop=true");
+            await ForgetDomainAsync($"Material {name}");
         }
     }
 
@@ -278,5 +291,20 @@ public sealed class FieldsValuesPageTests : ConsoleTest
         Assert.True(response.IsSuccessStatusCode, $"The import failed: {(int)response.StatusCode} {body}");
 
         return name;
+    }
+
+    /// <summary>Deletes the shared domain of this name, which a layer's save made and outlives the layer.</summary>
+    private async Task ForgetDomainAsync(string domain)
+    {
+        (int listed, string body) = await AdminAsync(HttpMethod.Get, "/admin/domains");
+        if (listed != 200) return;
+
+        foreach (JsonElement d in JsonDocument.Parse(body).RootElement.GetProperty("domains").EnumerateArray())
+        {
+            if (d.GetProperty("name").GetString() == domain)
+            {
+                await AdminAsync(HttpMethod.Delete, $"/admin/domains/{d.GetProperty("id").GetString()}");
+            }
+        }
     }
 }

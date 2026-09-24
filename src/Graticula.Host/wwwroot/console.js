@@ -1637,6 +1637,10 @@ const SURFACES = {
       // may read what somebody published — which is the publisher's business rather than the
       // administrator's.
       ["groups", "Groups"],
+
+      // <b>Domains — ADR-087.</b> Studio's, beside Groups, because a domain is something a publisher gives
+      // their fields and shares with other publishers' — content, not server administration.
+      ["domains", "Domains"],
     ],
     action: { id: "newLayer", label: "New item" },
   },
@@ -1688,6 +1692,8 @@ const SCREEN_SURFACE = {
   group: "studio",
   content: "studio",
   anonymous: "studio",
+  // ADR-087: the shared domains, Studio's beside Groups.
+  domains: "studio",
   sources: "server",
   members: "server",
 
@@ -2064,6 +2070,7 @@ function openScreen(surface, screen, folder) {
   if (screen === "roles") section("roles", loadRoles, "roleRows");
   if (screen === "apps") section("apps", loadApps, "appRows");
   if (screen === "groups") section("groups", loadGroups, "groupRows");
+  if (screen === "domains") section("domains", loadDomains, "domainRows");
   if (screen === "operations") section("operations", loadOperations);
   if (screen === "settings") section("settings", loadSettings);
   if (screen === "sources") section("data sources", loadSources, "sources");
@@ -11167,8 +11174,15 @@ let fieldsState = null;
 
 async function loadFields(name) {
   const answer = await api(`/admin/layers/${encodeURIComponent(name)}/fields`);
+
+  // ADR-087: the shared domains a column can be given. A server that cannot list them still has a Fields
+  // page — the list is an offer, and a column keeps whatever it already points at.
+  let shared = [];
+  try { shared = (await api("/admin/domains")).domains || []; } catch { shared = []; }
+
   fieldsState = {
     name,
+    shared,
     columns: answer.columns || [],
     inert: answer.inert || [],
     subtypes: answer.subtypes || null,
@@ -11262,6 +11276,43 @@ function boxValue(value, type) {
 function valueInputType(type) {
   if (type === "Date") return "date";
   return numericType(type) ? "number" : "text";
+}
+
+/** The shared domain this page was given with that id, or null. */
+function sharedDomain(id) {
+  return (fieldsState && fieldsState.shared || []).find(d => d.id === id) || null;
+}
+
+/**
+ * Whether a shared domain could govern this column — design review 2026-09-24 (M2): a list of text codes was
+ * offered to a whole-number column, loaded into number boxes that showed nothing, and could only be refused.
+ */
+function sharedFits(d, column) {
+  const kinds = column.domainKinds || [];
+  if (!kinds.includes(d.type)) return false;
+
+  if (d.type === "codedValue") {
+    const codes = (d.domain.codedValues || []).map(v => v.code);
+    return numericType(column.type)
+      ? codes.every(code => typeof code === "number")
+      : codes.every(code => typeof code === "string");
+  }
+
+  // A range: a date range for a date column, a number range for a number column, when a use says which.
+  if (!d.fieldType) return true;
+  return (column.type === "Date") === (d.fieldType === "Date");
+}
+
+/** The fields other than this one that use a shared domain, named — "a · material, b · material and 2 more". */
+function otherUses(d, layer, column) {
+  const others = (d.uses || []).filter(u => !(u.layer === layer && u.column === column && u.subtype == null));
+  const named = others.slice(0, 3).map(u => `${u.layer} · ${u.column}${u.subtype != null ? ` (subtype ${u.subtype})` : ""}`);
+  return { count: others.length, text: named.join(", ") + (others.length > 3 ? ` and ${others.length - 3} more` : "") };
+}
+
+/** "3 fields" or "1 field", as the shared domain's uses count them. */
+function fieldsCount(n) {
+  return `${n} field${n === 1 ? "" : "s"}`;
 }
 
 function fieldColumn(name) {
@@ -11454,8 +11505,14 @@ function openValues(column, subtype) {
   fieldsState.values = {
     column,
     subtype,
+    // ADR-087: the shared domain chosen, or null for a new one named below.
+    id: source && source.id ? source.id : null,
+    // What was typed for a new one, kept while a shared one is looked at — design review 2026-09-24 (M1):
+    // arrowing through the choices replaced it for good.
+    draft: null,
     kind: source ? (source.type === "range" ? "range" : "list") : "none",
-    name: source ? source.name : (c.alias || c.name),
+    // A new one's name is the layer's and the column's, because names are unique across the server.
+    name: source ? source.name : `${fieldsState.name} ${c.alias || c.name}`,
     codes: source && source.type === "codedValue"
       ? source.codedValues.map(v => ({ code: v.code, name: v.name }))
       : [],
@@ -11486,6 +11543,10 @@ function closeValues(keep) {
     } else if (v.kind === "range") {
       domain = { type: "range", name: String(v.name || "").trim(), range: [v.least, v.most] };
     }
+
+    // A shared domain of the same kind keeps its id; switching kind makes it a new one.
+    const kept = domain && v.id ? sharedDomain(v.id) : null;
+    if (kept && kept.type === domain.type) domain.id = v.id;
 
     if (v.subtype === null) {
       fieldColumn(v.column).domain = domain;
@@ -11521,6 +11582,18 @@ function drawValues() {
   const step = input === "number" ? ` step="any"` : "";
   const whose = v.subtype === null ? "" : ` for subtype ${h(fieldsState.subtypes.types[v.subtype].name || "")}`;
 
+  // <b>ADR-087: a shared domain is chosen here, and changed on the Domains screen</b> — design review
+  // 2026-09-24 (B1): editing one here bundled a change to every layer with this layer's save, and a refusal
+  // of the second left the first done and unreported. So a chosen one is shown, read-only.
+  const wanted = v.kind === "range" ? "range" : "codedValue";
+  const choices = (fieldsState.shared || []).filter(d => d.type === wanted && sharedFits(d, c));
+  const chosen = v.id ? sharedDomain(v.id) : null;
+  const ro = chosen ? " readonly" : "";
+  const noun = v.kind === "range" ? "range" : "list";
+  const uses = chosen ? otherUses(chosen, fieldsState.name, v.column) : null;
+  const taken = !chosen && (fieldsState.shared || []).some(d =>
+    d.name.toLowerCase() === String(v.name || "").trim().toLowerCase());
+
   box.innerHTML = `
     <h4 id="valuesTitle">Values of <code>${h(v.column)}</code>${whose}</h4>
     <fieldset class="valueskind">
@@ -11532,28 +11605,46 @@ function drawValues() {
       ${kinds.includes("range") ? `<label><input type="radio" name="valuesKind" value="range"
         ${v.kind === "range" ? "checked" : ""}> A range</label>` : ""}
     </fieldset>
+    ${(v.kind === "list" || v.kind === "range") && choices.length ? `
+      <label class="valuesname" for="valuesShared">Shared ${noun}
+        <select id="valuesShared" aria-describedby="valuesSharedSays">
+          <option value="">A new ${noun} (give it a new name below)</option>
+          ${choices.map(d => `<option value="${h(d.id)}" ${d.id === v.id ? "selected" : ""}>${h(d.name)} (${
+            fieldsCount(d.uses.length)})</option>`).join("")}
+        </select></label>` : ""}
+    ${chosen ? `<p class="hint" id="valuesSharedSays">${uses.count
+      ? `Also used by ${h(uses.text)}.`
+      : "Shared, and used by no other field yet."} Its values are changed on the Domains screen, where the change
+      reaches every field that uses it.
+      <button type="button" class="tiny ghost" data-values-edit-shared="${h(chosen.id)}">Change “${h(chosen.name)}” on Domains</button></p>`
+      : (v.kind === "list" || v.kind === "range")
+        ? `<p class="hint${taken ? " bad-inline" : ""}" id="valuesSharedSays">${taken
+          ? `A shared ${noun} is already named “${h(String(v.name).trim())}”. Choose it above, or give this one a name no other has.`
+          : `This makes a new shared ${noun}, owned by you, that other fields can choose too.`}</p>`
+        : `<span id="valuesSharedSays" hidden></span>`}
     ${v.kind === "list" || v.kind === "range" ? `
-      <label class="valuesname" for="valuesName">Name a client shows for them
-        <input type="text" id="valuesName" maxlength="255" value="${h(v.name || "")}"></label>` : ""}
+      <label class="valuesname" for="valuesName">Name (unique on this server; clients show it)
+        <input type="text" id="valuesName" maxlength="255" value="${h(v.name || "")}"${ro}
+          aria-describedby="valuesSharedSays"></label>` : ""}
     ${v.kind === "list" ? `
       <table class="valuesgrid">
         <thead><tr><th>Stored</th><th>Shown as</th><th><span class="sr-only">Remove</span></th></tr></thead>
         <tbody>${v.codes.length
           ? v.codes.map((row, i) => `<tr>
             <td><input type="${input}"${step} data-values-code="${i}" aria-label="Stored value ${i + 1}"
-              value="${h(boxValue(row.code, c.type))}"></td>
+              value="${h(boxValue(row.code, c.type))}"${ro}></td>
             <td><input type="text" maxlength="255" data-values-name="${i}" aria-label="Shown as, value ${i + 1}"
-              value="${h(row.name || "")}"></td>
-            <td><button type="button" class="tiny ghost" data-values-remove="${i}"
-              aria-label="Remove value ${i + 1}">Remove</button></td></tr>`).join("")
+              value="${h(row.name || "")}"${ro}></td>
+            <td>${chosen ? "" : `<button type="button" class="tiny ghost" data-values-remove="${i}"
+              aria-label="Remove value ${i + 1}">Remove</button>`}</td></tr>`).join("")
           : `<tr><td colspan="3" class="empty">No values yet. A list with none allows nothing.</td></tr>`}</tbody>
       </table>
-      <div class="row"><button type="button" class="ghost" id="valuesAdd">Add a value</button></div>` : ""}
+      ${chosen ? "" : `<div class="row"><button type="button" class="ghost" id="valuesAdd">Add a value</button></div>`}` : ""}
     ${v.kind === "range" ? `
       <div class="setting"><label class="q" for="valuesLeast">From</label>
-        <input type="${input}"${step} id="valuesLeast" value="${h(boxValue(v.least, c.type))}"></div>
+        <input type="${input}"${step} id="valuesLeast" value="${h(boxValue(v.least, c.type))}"${ro}></div>
       <div class="setting"><label class="q" for="valuesMost">To</label>
-        <input type="${input}"${step} id="valuesMost" value="${h(boxValue(v.most, c.type))}"></div>
+        <input type="${input}"${step} id="valuesMost" value="${h(boxValue(v.most, c.type))}"${ro}></div>
       <p class="hint">Both ends are allowed.</p>` : ""}
     <p class="hint valuesnote">Done keeps these on the page. <b>Nothing is stored until you press Save</b>
       at the bottom of the page.</p>
@@ -11693,6 +11784,7 @@ async function saveFields() {
   button.disabled = true;
 
   try {
+    // ADR-087: a shared domain is only chosen here, so the fields are the one write this page makes.
     const answer = await api(`/admin/layers/${encodeURIComponent(fieldsState.name)}/fields`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -11712,6 +11804,9 @@ async function saveFields() {
     const labelled = fieldsState.columns.filter(c => c.alias).length;
     const bounded = fieldsState.columns.filter(c => c.domain).length;
     const kinds = fieldsState.subtypes ? fieldsState.subtypes.types.length : 0;
+
+    // The shared domains again: a save can have made one, and the counts of where each is used have moved.
+    try { fieldsState.shared = (await api("/admin/domains")).domains || fieldsState.shared; } catch { /* keep */ }
 
     drawFields(`Saved. ${labelled} labelled, ${hidden} hidden, ${bounded} with values`
       + `${kinds ? `, ${kinds} subtypes` : ""}. ${answer.note || ""}`.trim());
@@ -11815,7 +11910,25 @@ document.addEventListener("click", e => {
   }
 
   if (t.id === "valuesDone") {
+    // ADR-087: a new list under a name another has would be refused after Save; it is refused here instead.
+    captureFields();
+    const v = fieldsState.values;
+    const clash = v && !v.id && (v.kind === "list" || v.kind === "range")
+      && (fieldsState.shared || []).find(d => d.name.toLowerCase() === String(v.name || "").trim().toLowerCase());
+
+    if (clash) {
+      drawValues();
+      $("valuesName")?.focus();
+      return;
+    }
+
     closeValues(true);
+    return;
+  }
+
+  if (t.dataset && t.dataset.valuesEditShared) {
+    domainsEditId = t.dataset.valuesEditShared;
+    location.hash = "#/domains";
     return;
   }
 
@@ -11891,6 +12004,49 @@ document.addEventListener("click", e => {
 document.addEventListener("change", e => {
   const t = e.target;
   if (!(t instanceof Element) || !fieldsState) return;
+
+  // ADR-087: a new domain's kind or value type redraws its editor, keeping focus on the choice.
+  if (domainEdit && (t.getAttribute("name") === "domEditKind" || t.id === "domEditType")) {
+    captureDomainEdit();
+    if (t.getAttribute("name") === "domEditKind") domainEdit.type = domainEdit.kind === "range" ? "Double" : "String";
+    drawDomains();
+    (t.id === "domEditType" ? $("domEditType") : document.querySelector("[name=domEditKind]:checked"))?.focus();
+    return;
+  }
+
+  // ADR-087: choosing a shared domain loads its values; "a new one" keeps what is typed, as a domain of its own.
+  if (t.id === "valuesShared" && fieldsState.values) {
+    captureFields();
+    const v = fieldsState.values;
+    const chosen = sharedDomain(t.value);
+
+    // Leaving a new one keeps what was typed; coming back to it gives it back. Leaving a shared one for a new
+    // one with nothing typed starts from a copy of it under a name of its own — how a variant is made.
+    const leaving = v.id ? sharedDomain(v.id) : null;
+    if (!v.id) v.draft = { name: v.name, codes: v.codes, least: v.least, most: v.most };
+
+    v.id = chosen ? chosen.id : null;
+
+    if (chosen) {
+      v.name = chosen.name;
+      v.codes = chosen.type === "codedValue"
+        ? (chosen.domain.codedValues || []).map(x => ({ code: x.code, name: x.name }))
+        : [];
+      v.least = chosen.type === "range" ? chosen.domain.range[0] : null;
+      v.most = chosen.type === "range" ? chosen.domain.range[1] : null;
+    } else if (v.draft) {
+      Object.assign(v, v.draft);
+    } else if (leaving) {
+      v.name = `${leaving.name} (copy)`;
+    } else {
+      v.name = `${fieldsState.name} ${fieldColumn(v.column)?.alias || v.column}`;
+      v.codes = [];
+    }
+
+    drawValues();
+    $("valuesShared")?.focus();
+    return;
+  }
 
   // Switching between any, a list and a range redraws the editor and keeps the choice focused.
   if (t.getAttribute("name") === "valuesKind" && fieldsState.values) {
@@ -16322,6 +16478,237 @@ function drawProbeRows() {
 // ----------------------------------------------------------------- operations
 
 /**
+ * The shared domains — ADR-087.
+ *
+ * <b>Where each is used is the point of the screen</b>: a domain in use is not deleted, by owner decision, and
+ * the only way to find which fields to take it off is to be told. So each row lists them, and Delete is
+ * offered only where it would work, with the reason where it would not.
+ */
+let domainsListed = [];
+
+/** The domain whose editor is open: an id, "new", or null. Set from a Fields page to open one on arrival. */
+let domainsEditId = null;
+
+/** The open editor's copy. */
+let domainEdit = null;
+
+async function loadDomains() {
+  domainsListed = (await api("/admin/domains")).domains || [];
+
+  const opening = domainsEditId;
+  domainsEditId = null;
+  domainEdit = null;
+
+  const d = opening && domainsListed.find(x => x.id === opening);
+  if (d && d.mayChange) openDomainEditor(d);
+  else drawDomains();
+
+  if (d && d.mayChange) $("domEditName")?.focus();
+}
+
+/** How a domain's values are typed: the column type of a field that uses it, or what the values look like. */
+function domainValueType(d) {
+  if (d.fieldType) return d.fieldType;
+  const codes = (d.domain.codedValues || []).map(v => v.code);
+  return codes.length && codes.every(c => typeof c === "number") ? "Double" : d.type === "range" ? "Double" : "String";
+}
+
+function openDomainEditor(d) {
+  const type = d ? domainValueType(d) : "String";
+  domainEdit = {
+    id: d ? d.id : null,
+    kind: d ? (d.type === "range" ? "range" : "list") : "list",
+    type,
+    name: d ? d.name : "",
+    codes: d && d.type === "codedValue" ? d.domain.codedValues.map(v => ({ code: v.code, name: v.name })) : [],
+    least: d && d.type === "range" ? d.domain.range[0] : null,
+    most: d && d.type === "range" ? d.domain.range[1] : null,
+  };
+  drawDomains();
+}
+
+/** Reads the editor's controls into its copy, before anything redraws. */
+function captureDomainEdit() {
+  const e = domainEdit;
+  if (!e) return;
+
+  if ($("domEditName")) e.name = $("domEditName").value;
+  const kind = document.querySelector("[name=domEditKind]:checked");
+  if (kind) e.kind = kind.value;
+  if ($("domEditType")) e.type = $("domEditType").value;
+
+  for (const box of document.querySelectorAll("[data-dom-code]")) {
+    const row = e.codes[Number(box.getAttribute("data-dom-code"))];
+    if (row) row.code = typedValue(box.value, e.type) ?? "";
+  }
+  for (const box of document.querySelectorAll("[data-dom-name]")) {
+    const row = e.codes[Number(box.getAttribute("data-dom-name"))];
+    if (row) row.name = box.value;
+  }
+  if ($("domEditLeast")) e.least = typedValue($("domEditLeast").value, e.type);
+  if ($("domEditMost")) e.most = typedValue($("domEditMost").value, e.type);
+}
+
+function domainEditor() {
+  const e = domainEdit;
+  const input = valueInputType(e.type);
+  const step = input === "number" ? ` step="any"` : "";
+  const d = e.id ? domainsListed.find(x => x.id === e.id) : null;
+  const uses = d ? (d.uses || []) : [];
+
+  // A new domain says what its values are, since no column says it yet; an existing one keeps its kind.
+  const shape = e.id ? "" : `
+    <fieldset class="valueskind"><legend class="sr-only">A list or a range</legend>
+      <label><input type="radio" name="domEditKind" value="list" ${e.kind === "list" ? "checked" : ""}> A list</label>
+      <label><input type="radio" name="domEditKind" value="range" ${e.kind === "range" ? "checked" : ""}> A range</label>
+    </fieldset>
+    <div class="setting"><label class="q" for="domEditType">Its values are</label>
+      <select id="domEditType">
+        ${(e.kind === "list"
+          ? [["String", "Text"], ["Integer", "Whole numbers"], ["Double", "Numbers"]]
+          : [["Double", "Numbers"], ["Date", "Dates"]])
+          .map(([v, t]) => `<option value="${v}" ${e.type === v ? "selected" : ""}>${t}</option>`).join("")}
+      </select></div>`;
+
+  return `<tr class="valuesrow"><td colspan="5"><div class="valuesedit" role="group" aria-labelledby="domEditTitle">
+    <h4 id="domEditTitle">${e.id ? `Change “${h(d ? d.name : e.name)}”` : "A new domain"}</h4>
+    ${uses.length ? `<p class="hint"><b>Used by ${fieldsCount(uses.length)}</b>: ${h(uses.slice(0, 4).map(u =>
+      `${u.layer} · ${u.column}`).join(", "))}${uses.length > 4 ? ` and ${uses.length - 4} more` : ""}.
+      Saving changes it on every one of them.</p>` : ""}
+    ${shape}
+    <label class="valuesname" for="domEditName">Name (unique on this server; clients show it)
+      <input type="text" id="domEditName" maxlength="255" value="${h(e.name || "")}"></label>
+    ${e.kind === "list" ? `
+      <table class="valuesgrid">
+        <thead><tr><th>Stored</th><th>Shown as</th><th><span class="sr-only">Remove</span></th></tr></thead>
+        <tbody>${e.codes.length ? e.codes.map((row, i) => `<tr>
+          <td><input type="${input}"${step} data-dom-code="${i}" aria-label="Stored value ${i + 1}"
+            value="${h(boxValue(row.code, e.type))}"></td>
+          <td><input type="text" maxlength="255" data-dom-name="${i}" aria-label="Shown as, value ${i + 1}"
+            value="${h(row.name || "")}"></td>
+          <td><button type="button" class="tiny ghost" data-dom-remove="${i}" aria-label="Remove value ${i + 1}">Remove</button></td>
+        </tr>`).join("") : `<tr><td colspan="3" class="empty">No values yet. A list with none allows nothing.</td></tr>`}</tbody>
+      </table>
+      <div class="row"><button type="button" class="ghost" id="domEditAdd">Add a value</button></div>` : `
+      <div class="setting"><label class="q" for="domEditLeast">From</label>
+        <input type="${input}"${step} id="domEditLeast" value="${h(boxValue(e.least, e.type))}"></div>
+      <div class="setting"><label class="q" for="domEditMost">To</label>
+        <input type="${input}"${step} id="domEditMost" value="${h(boxValue(e.most, e.type))}"></div>
+      <p class="hint">Both ends are allowed.</p>`}
+    <div class="row">
+      <button type="button" class="primary" id="domEditSave">${e.id ? "Save" : "Create"}</button>
+      <button type="button" class="ghost" id="domEditCancel">Cancel</button>
+    </div>
+  </div></td></tr>`;
+}
+
+function drawDomains() {
+  const e = domainEdit;
+  const rows = domainsListed.map((d, i) => {
+    const used = d.uses || [];
+    const where = used.map(u => `<li><a href="#/layer/${encodeURIComponent(u.layer)}/fields">${h(u.layer)}</a> ·
+      <code>${h(u.column)}</code>${u.subtype !== null && u.subtype !== undefined ? ` (subtype ${h(u.subtype)})` : ""}</li>`).join("");
+
+    const actions = !d.mayChange
+      ? `<span class="hint">Only its owner or an administrator can change it</span>`
+      : `<button type="button" class="tiny ghost" data-domain-edit="${i}" aria-expanded="${e && e.id === d.id}"
+          aria-label="Change ${h(d.name)}">Change</button>
+         ${used.length
+           ? `<span class="hint">In use: take it off those fields to delete it</span>`
+           : `<button type="button" class="tiny ghost" data-domain-delete="${i}" aria-label="Delete ${h(d.name)}">Delete</button>`}`;
+
+    return `<tr data-domain-row="${h(d.id)}">
+      <td class="name">${h(d.name)}</td>
+      <td>${h(valuesSummary(d.domain, domainValueType(d)))}</td>
+      <td>${used.length
+        ? `<details><summary>${fieldsCount(used.length)}</summary><ul class="domainuses">${where}</ul></details>`
+        : `<span class="hint">Nothing</span>`}</td>
+      <td>${h(d.owner || "—")}</td>
+      <td class="actions">${actions}</td>
+    </tr>${e && e.id === d.id ? domainEditor() : ""}`;
+  }).join("");
+
+  $("domainRows").innerHTML = (e && !e.id ? domainEditor() : "") + (domainsListed.length || (e && !e.id)
+    ? rows
+    : `<tr><td colspan="5" class="empty">No shared domains yet. One is made the first time a column is given a list
+        or a range on its layer's Fields page, when a geodatabase with domains is imported, or with New domain.</td></tr>`);
+
+  $("domainNew").hidden = !!(e && !e.id);
+}
+
+/** The editor's copy as the server takes it. */
+function domainBody(e) {
+  const name = String(e.name || "").trim();
+  return e.kind === "range"
+    ? { type: "range", name, range: [e.least, e.most] }
+    : { type: "codedValue", name, codedValues: e.codes.map(r => ({ code: r.code, name: String(r.name || "").trim() })) };
+}
+
+async function saveDomain() {
+  captureDomainEdit();
+  const e = domainEdit;
+  const d = e.id ? domainsListed.find(x => x.id === e.id) : null;
+  const uses = d ? (d.uses || []) : [];
+
+  if (uses.length && !confirm(`Change “${d.name}” on ${fieldsCount(uses.length)}: ${uses.slice(0, 4)
+    .map(u => `${u.layer} · ${u.column}`).join(", ")}${uses.length > 4 ? ` and ${uses.length - 4} more` : ""}?`)) {
+    return;
+  }
+
+  try {
+    const answer = await api(e.id ? `/admin/domains/${encodeURIComponent(e.id)}` : "/admin/domains", {
+      method: e.id ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: domainBody(e) }),
+    });
+
+    const name = (answer && answer.name) || domainBody(e).name;
+    domainEdit = null;
+    domainsListed = (await api("/admin/domains")).domains || domainsListed;
+    drawDomains();
+
+    $("domainsSays").textContent = e.id
+      ? `“${name}” was saved${uses.length ? `, and every one of its ${fieldsCount(uses.length)} now allows what it says` : ""}.`
+      : `“${name}” was created. A column can choose it on its layer's Fields page.`;
+    $("domainsSays").classList.remove("bad-inline");
+
+    const at = domainsListed.findIndex(x => x.name === name);
+    (document.querySelector(`[data-domain-edit="${at}"]`) || $("domainNew")).focus();
+  } catch (err) {
+    $("domainsSays").textContent = err.message;
+    $("domainsSays").classList.add("bad-inline");
+    $("domEditSave")?.focus();
+  }
+}
+
+async function deleteDomain(at) {
+  const d = domainsListed[at];
+  if (!d) return;
+
+  if (!confirm(`Delete the domain “${d.name}”? Nothing uses it, so no field changes.`)) return;
+
+  // Where focus goes afterwards: the next Delete in the list, else the one before, else the heading.
+  const deletable = [...document.querySelectorAll("[data-domain-delete]")];
+  const mine = deletable.findIndex(b => Number(b.dataset.domainDelete) === at);
+  const neighbour = deletable[mine + 1] || deletable[mine - 1] || null;
+  const neighbourId = neighbour ? domainsListed[Number(neighbour.dataset.domainDelete)].id : null;
+
+  try {
+    await api(`/admin/domains/${encodeURIComponent(d.id)}`, { method: "DELETE" });
+    domainsListed.splice(at, 1);
+    drawDomains();
+    $("domainsSays").textContent = `“${d.name}” was deleted.`;
+    $("domainsSays").classList.remove("bad-inline");
+
+    const next = neighbourId && domainsListed.findIndex(x => x.id === neighbourId);
+    (next !== null && next >= 0 && document.querySelector(`[data-domain-delete="${next}"]`) || $("domainsTitle")).focus();
+  } catch (e) {
+    $("domainsSays").textContent = e.message;
+    $("domainsSays").classList.add("bad-inline");
+  }
+}
+
+/**
  * The server's settings — V-70, ADR-084.
  *
  * <b>The box holds what was set here, and is empty when nothing was</b> — the default shows as its
@@ -19664,6 +20051,57 @@ async function handleClick(event) {
     groundChosen = [...groundSaved];
     groundSay("Back to the saved ground. Nothing was changed on the server.");
     drawGroundLists("#groundSave");
+    return;
+  }
+
+  // ---- Domains (ADR-087) ----
+  if (t.dataset && t.dataset.domainDelete !== undefined) {
+    await deleteDomain(Number(t.dataset.domainDelete));
+    return;
+  }
+
+  if (t.dataset && t.dataset.domainEdit !== undefined) {
+    const d = domainsListed[Number(t.dataset.domainEdit)];
+    if (domainEdit && domainEdit.id === d.id) { domainEdit = null; drawDomains(); }
+    else openDomainEditor(d);
+    (domainEdit ? $("domEditName") : document.querySelector(`[data-domain-edit="${t.dataset.domainEdit}"]`))?.focus();
+    return;
+  }
+
+  if (t.id === "domainNew") {
+    openDomainEditor(null);
+    $("domEditName")?.focus();
+    return;
+  }
+
+  if (t.id === "domEditCancel" && domainEdit) {
+    const id = domainEdit.id;
+    domainEdit = null;
+    drawDomains();
+    const at = domainsListed.findIndex(x => x.id === id);
+    (at >= 0 ? document.querySelector(`[data-domain-edit="${at}"]`) : $("domainNew"))?.focus();
+    return;
+  }
+
+  if (t.id === "domEditSave" && domainEdit) {
+    await saveDomain();
+    return;
+  }
+
+  if (t.id === "domEditAdd" && domainEdit) {
+    captureDomainEdit();
+    domainEdit.codes.push({ code: "", name: "" });
+    drawDomains();
+    document.querySelector(`[data-dom-code="${domainEdit.codes.length - 1}"]`)?.focus();
+    return;
+  }
+
+  if (t.dataset && t.dataset.domRemove !== undefined && domainEdit) {
+    captureDomainEdit();
+    const at = Number(t.dataset.domRemove);
+    domainEdit.codes.splice(at, 1);
+    drawDomains();
+    (document.querySelector(`[data-dom-remove="${Math.min(at, domainEdit.codes.length - 1)}"]`) || $("domEditAdd"))?.focus();
     return;
   }
 

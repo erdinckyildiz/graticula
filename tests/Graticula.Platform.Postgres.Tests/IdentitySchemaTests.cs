@@ -180,14 +180,17 @@ public sealed class IdentitySchemaTests : PostgresFixture
         // reader to 34, the oldest build that names none of them (ADR-016 §4a). Both
         // edges are asserted, because a window closed one version too far refuses a build
         // that works, and one closed too little admits a build that will fail at publish.
+        //
+        // Migration 55 is the second contract — shared domains, ADR-087 — and raises it to 55: a build
+        // before it reads a field's {"id"} as a domain it cannot parse and stops refusing values outside it.
         await MigrateAsync();
 
         SchemaStamp? stamp = await Store().ReadStampAsync(CancellationToken.None);
 
         Assert.Equal(PlatformMigrations.ComponentSchemaVersion, stamp!.Applied);
-        Assert.Equal(new SchemaVersion(34), stamp.MinimumReader);
-        Assert.True(SchemaCompatibility.Check("server", new SchemaVersion(34), stamp).IsCompatible);
-        Assert.False(SchemaCompatibility.Check("server", new SchemaVersion(33), stamp).IsCompatible);
+        Assert.Equal(new SchemaVersion(55), stamp.MinimumReader);
+        Assert.True(SchemaCompatibility.Check("server", new SchemaVersion(55), stamp).IsCompatible);
+        Assert.False(SchemaCompatibility.Check("server", new SchemaVersion(54), stamp).IsCompatible);
     }
 
     [Fact]

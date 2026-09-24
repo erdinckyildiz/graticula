@@ -48,6 +48,8 @@ public sealed class DomainConformanceTests : ArcGisClient
 
     private static readonly object Diameters = new { type = "range", name = "Diameter", range = new[] { 50, 1200 } };
 
+    private static readonly int[] TenAtMost = [0, 10];
+
     [Fact]
     public async Task A_domain_the_document_reports_is_refused_outside_on_both_faces()
     {
@@ -57,6 +59,11 @@ public sealed class DomainConformanceTests : ArcGisClient
         Assert.False(token is null, "No administrator credential.");
 
         string layer = "zz_adr065_" + Guid.NewGuid().ToString("N")[..8];
+
+        // ADR-087: the names below are the server's now, not this layer's, and a run that stopped before its
+        // cleanup leaves them behind with whatever values it gave them. One left with other values would make
+        // this save a 409 — measured 2026-09-24, from a console run that died mid-test — so they go first.
+        await DeleteSharedAsync(root, token!, "Material", "Diameter", "MainMaterial");
 
         (HttpStatusCode defined, string design) = await RequestAsync(
             HttpMethod.Post,
@@ -285,6 +292,189 @@ public sealed class DomainConformanceTests : ArcGisClient
                 $"{root}/admin/featureservices/{service}?folder={folder}&drop=true",
                 token!,
                 json: null);
+
+            // ADR-087: the save made them shared domains, which outlive the layer as a geodatabase's do.
+            await DeleteSharedAsync(root, token!, "Material", "Diameter", "MainMaterial");
+        }
+    }
+
+    [Fact]
+    public async Task A_shared_domain_is_one_object_every_field_points_at_and_one_edit_reaches_them_all()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        string suffix = Guid.NewGuid().ToString("N")[..8];
+        string name = "zz_shared_" + suffix;
+
+        object Pipes(params string[] codes) => new
+        {
+            type = "codedValue",
+            name,
+            codedValues = codes.Select(c => new { code = c, name = c }).ToArray(),
+        };
+
+        List<(string Folder, string Service, string Feature, string Layer)> made = [];
+
+        try
+        {
+            foreach (string which in (string[])["a", "b"])
+            {
+                string layer = $"zz_adr087_{which}_{suffix}";
+
+                (HttpStatusCode defined, string design) = await RequestAsync(
+                    HttpMethod.Post,
+                    $"{root}/admin/hosted/define",
+                    token!,
+                    JsonSerializer.Serialize(new
+                    {
+                        name = layer,
+                        geometryType = "Point",
+                        fields = new object[]
+                        {
+                            new { name = "kind", type = "smallinteger", nullable = true },
+                            new { name = "material", type = "text", nullable = true },
+                            new { name = "diameter", type = "integer", nullable = true },
+                        },
+                        sharing = "public",
+                    }));
+
+                Assert.True(defined == HttpStatusCode.Created, $"Defining {layer} answered {(int)defined}: {design}");
+
+                string feature = JsonDocument.Parse(design).RootElement
+                    .GetProperty("services").GetProperty("feature").GetString()!;
+                string[] parts = feature.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+                made.Add((parts[2], parts[3], feature, layer));
+
+                // Both layers are given the same domain by name, as an import or a hand would.
+                (HttpStatusCode set, string said) = await RequestAsync(
+                    HttpMethod.Put,
+                    $"{root}/admin/layers/{Uri.EscapeDataString(layer)}/fields",
+                    token!,
+                    JsonSerializer.Serialize(new { overrides = new object[] { new { column = "material", domain = Pipes("CU", "PVC") } } }));
+
+                Assert.True(set == HttpStatusCode.OK, $"Giving {layer} the domain answered {(int)set}: {said}");
+            }
+
+            // ---- one domain, two fields ----
+            JsonElement shared = await SharedNamedAsync(root, token!, name);
+            string id = shared.GetProperty("id").GetString()!;
+
+            Assert.Equal(2, shared.GetProperty("uses").GetArrayLength());
+            Assert.True(shared.GetProperty("mayChange").GetBoolean(), "Its creator may not change it.");
+
+            // ---- one edit reaches both layers, in their documents and in what they refuse ----
+            (HttpStatusCode edited, string editedSaid) = await RequestAsync(
+                HttpMethod.Put, $"{root}/admin/domains/{id}", token!,
+                JsonSerializer.Serialize(new { domain = Pipes("CU", "PVC", "DI") }));
+
+            Assert.True(edited == HttpStatusCode.OK, $"Changing the shared domain answered {(int)edited}: {editedSaid}");
+
+            foreach ((_, _, string feature, _) in made)
+            {
+                JsonElement material = (await GetJsonAsync(feature)).GetProperty("fields").EnumerateArray()
+                    .Single(f => f.GetProperty("name").GetString() == "material").GetProperty("domain");
+
+                Assert.Equal(name, material.GetProperty("name").GetString());
+                Assert.Equal(3, material.GetProperty("codedValues").GetArrayLength());
+
+                Assert.Single(Ids(await EditAsync(
+                    root, token!, feature, "addFeatures", ("features", Point(kind: 1, material: "DI", diameter: 100)))));
+
+                JsonElement lead = Result(await EditAsync(
+                    root, token!, feature, "addFeatures", ("features", Point(kind: 1, material: "LEAD", diameter: 100))));
+
+                Assert.False(lead.GetProperty("success").GetBoolean(), $"A value outside the shared domain was written: {lead}");
+            }
+
+            // ---- a change that does not fit a field that uses it is refused, naming it ----
+            (HttpStatusCode unfit, string unfitWhy) = await RequestAsync(
+                HttpMethod.Put, $"{root}/admin/domains/{id}", token!,
+                JsonSerializer.Serialize(new { domain = new { type = "range", name, range = TenAtMost } }));
+
+            Assert.Equal(HttpStatusCode.BadRequest, unfit);
+            Assert.Contains("'material'", unfitWhy, StringComparison.Ordinal);
+
+            // ---- the same name with other values, through a layer, is refused rather than renamed ----
+            (HttpStatusCode clash, string clashWhy) = await RequestAsync(
+                HttpMethod.Put,
+                $"{root}/admin/layers/{Uri.EscapeDataString(made[1].Layer)}/fields",
+                token!,
+                JsonSerializer.Serialize(new { overrides = new object[] { new { column = "material", domain = Pipes("XX") } } }));
+
+            Assert.Equal(HttpStatusCode.Conflict, clash);
+            Assert.Contains(name, clashWhy, StringComparison.Ordinal);
+
+            // ---- one in use is not deleted, and the refusal says where it is used ----
+            (HttpStatusCode inUse, string inUseWhy) = await RequestAsync(
+                HttpMethod.Delete, $"{root}/admin/domains/{id}", token!, json: null);
+
+            Assert.Equal(HttpStatusCode.Conflict, inUse);
+            Assert.Contains(made[0].Layer, inUseWhy, StringComparison.Ordinal);
+            Assert.Contains(made[1].Layer, inUseWhy, StringComparison.Ordinal);
+
+            // ---- taken off both fields, it goes ----
+            foreach ((_, _, _, string layer) in made)
+            {
+                (HttpStatusCode cleared, string clearedSaid) = await RequestAsync(
+                    HttpMethod.Put,
+                    $"{root}/admin/layers/{Uri.EscapeDataString(layer)}/fields",
+                    token!,
+                    JsonSerializer.Serialize(new { overrides = Array.Empty<object>() }));
+
+                Assert.True(cleared == HttpStatusCode.OK, $"Clearing {layer} answered {(int)cleared}: {clearedSaid}");
+            }
+
+            (HttpStatusCode deleted, string deletedSaid) = await RequestAsync(
+                HttpMethod.Delete, $"{root}/admin/domains/{id}", token!, json: null);
+
+            Assert.True(deleted == HttpStatusCode.NoContent, $"Deleting the unused domain answered {(int)deleted}: {deletedSaid}");
+        }
+        finally
+        {
+            foreach ((string folder, string service, _, _) in made)
+            {
+                await RequestAsync(
+                    HttpMethod.Delete, $"{root}/admin/featureservices/{service}?folder={folder}&drop=true", token!, json: null);
+            }
+
+            await DeleteSharedAsync(root, token!, name);
+        }
+    }
+
+    /// <summary>The shared domain of this name, from the admin listing.</summary>
+    private async Task<JsonElement> SharedNamedAsync(string root, string token, string name)
+    {
+        (HttpStatusCode listed, string body) = await RequestAsync(HttpMethod.Get, $"{root}/admin/domains", token, json: null);
+
+        Assert.True(listed == HttpStatusCode.OK, $"Listing shared domains answered {(int)listed}: {body}");
+
+        JsonElement[] named = [.. JsonDocument.Parse(body).RootElement.GetProperty("domains").EnumerateArray()
+            .Where(d => string.Equals(d.GetProperty("name").GetString(), name, StringComparison.OrdinalIgnoreCase))
+            .Select(d => d.Clone())];
+
+        return Assert.Single(named);
+    }
+
+    /// <summary>Deletes the shared domains of these names that nothing uses; one still used is left.</summary>
+    private async Task DeleteSharedAsync(string root, string token, params string[] names)
+    {
+        (HttpStatusCode listed, string body) = await RequestAsync(HttpMethod.Get, $"{root}/admin/domains", token, json: null);
+
+        if (listed != HttpStatusCode.OK)
+        {
+            return;
+        }
+
+        foreach (JsonElement domain in JsonDocument.Parse(body).RootElement.GetProperty("domains").EnumerateArray())
+        {
+            if (names.Contains(domain.GetProperty("name").GetString(), StringComparer.OrdinalIgnoreCase))
+            {
+                await RequestAsync(HttpMethod.Delete, $"{root}/admin/domains/{domain.GetProperty("id").GetString()}", token, json: null);
+            }
         }
     }
 

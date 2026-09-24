@@ -36,7 +36,21 @@ public static class FieldDomainJson
     /// <see cref="DomainRules.Refuse(FieldDomain, Graticula.Features.FieldType, int?)"/> has it.
     /// This only reads the shape.
     /// </remarks>
-    public static FieldDomain? ReadDomain(JsonElement element, out string? error)
+    public static FieldDomain? ReadDomain(JsonElement element, out string? error) =>
+        ReadDomain(element, shared: null, out error);
+
+    /// <summary>Reads a domain object, or a reference to a shared one — ADR-087.</summary>
+    /// <param name="element">The object: a whole domain, <c>{"id": …}</c>, or a whole domain with its id.</param>
+    /// <param name="shared">The shared domains a bare reference is resolved against, or null to refuse one.</param>
+    /// <param name="error">Why it is not one, when it is not.</param>
+    /// <returns>The domain, carrying its id when it has one; or null with <paramref name="error"/> set.</returns>
+    /// <remarks>
+    /// <b>A bare <c>{"id"}</c> is what the store keeps</b>, so one edit to a shared domain reaches every field
+    /// pointing at it. A whole domain that also carries an id is read as written and keeps the id, so the
+    /// admin surface can tell a field that names a shared domain unchanged from one that sends it edited.
+    /// </remarks>
+    public static FieldDomain? ReadDomain(
+        JsonElement element, IReadOnlyDictionary<Guid, FieldDomain>? shared, out string? error)
     {
         error = null;
 
@@ -45,6 +59,31 @@ public static class FieldDomainJson
             error = "a domain is an object with a type, a name, and its codedValues or its range.";
             return null;
         }
+
+        Guid? id = element.TryGetProperty("id", out JsonElement i)
+            && i.ValueKind == JsonValueKind.String
+            && Guid.TryParse(i.GetString(), out Guid parsedId)
+                ? parsedId
+                : null;
+
+        if (id is { } reference && !element.TryGetProperty("type", out _))
+        {
+            if (shared is not null && shared.TryGetValue(reference, out FieldDomain? found))
+            {
+                return found.WithId(reference);
+            }
+
+            error = $"there is no shared domain with the id {reference}.";
+            return null;
+        }
+
+        FieldDomain? whole = ReadWholeDomain(element, out error);
+        return whole is not null && id is { } carried ? whole.WithId(carried) : whole;
+    }
+
+    private static FieldDomain? ReadWholeDomain(JsonElement element, out string? error)
+    {
+        error = null;
 
         string type = element.TryGetProperty("type", out JsonElement t) && t.ValueKind == JsonValueKind.String
             ? t.GetString()!
@@ -112,7 +151,17 @@ public static class FieldDomainJson
     /// <param name="element">The object: <c>{defaultCode, types: [...]}</c>.</param>
     /// <param name="error">Why it is not one, when it is not.</param>
     /// <returns>The subtypes, or null with <paramref name="error"/> set.</returns>
-    public static LayerSubtypes? ReadSubtypes(string field, JsonElement element, out string? error)
+    public static LayerSubtypes? ReadSubtypes(string field, JsonElement element, out string? error) =>
+        ReadSubtypes(field, element, shared: null, out error);
+
+    /// <summary>Reads a set of subtypes whose domains may be references to shared ones — ADR-087.</summary>
+    /// <param name="field">The subtype column.</param>
+    /// <param name="element">The object.</param>
+    /// <param name="shared">The shared domains a reference is resolved against.</param>
+    /// <param name="error">Why it is not one, when it is not.</param>
+    /// <returns>The subtypes, or null with <paramref name="error"/> set.</returns>
+    public static LayerSubtypes? ReadSubtypes(
+        string field, JsonElement element, IReadOnlyDictionary<Guid, FieldDomain>? shared, out string? error)
     {
         ArgumentNullException.ThrowIfNull(field);
 
@@ -183,7 +232,7 @@ public static class FieldDomainJson
                         continue;
                     }
 
-                    if (ReadDomain(domain.Value, out string? why) is not { } parsed)
+                    if (ReadDomain(domain.Value, shared, out string? why) is not { } parsed)
                     {
                         error = $"subtype {code} gives '{domain.Name}' a domain that cannot be read: {why}";
                         return null;
@@ -219,15 +268,33 @@ public static class FieldDomainJson
     /// <summary>The written form of a domain.</summary>
     /// <param name="domain">The domain.</param>
     /// <returns>An object the serializer writes as the ArcGIS domain object.</returns>
-    public static Dictionary<string, object?> Write(FieldDomain domain)
+    public static Dictionary<string, object?> Write(FieldDomain domain) => Write(domain, byReference: false);
+
+    /// <summary>The written form of a domain, or of a reference to the shared domain it is — ADR-087.</summary>
+    /// <param name="domain">The domain.</param>
+    /// <param name="byReference">
+    /// True for the store: a domain with an id is written as <c>{"id": …}</c> and nothing else.
+    /// </param>
+    /// <returns>An object the serializer writes.</returns>
+    public static Dictionary<string, object?> Write(FieldDomain domain, bool byReference)
     {
         ArgumentNullException.ThrowIfNull(domain);
+
+        if (byReference && domain.Id is { } reference)
+        {
+            return new(StringComparer.Ordinal) { ["id"] = reference.ToString() };
+        }
 
         Dictionary<string, object?> written = new(StringComparer.Ordinal)
         {
             ["type"] = domain.Kind == DomainKind.Range ? "range" : "codedValue",
             ["name"] = domain.Name,
         };
+
+        if (domain.Id is { } id)
+        {
+            written["id"] = id.ToString();
+        }
 
         if (domain.Kind == DomainKind.Range)
         {
@@ -255,7 +322,15 @@ public static class FieldDomainJson
     /// override of that column and does not repeat it.
     /// </param>
     /// <returns>An object the serializer writes.</returns>
-    public static Dictionary<string, object?> Write(LayerSubtypes subtypes, bool withField)
+    public static Dictionary<string, object?> Write(LayerSubtypes subtypes, bool withField) =>
+        Write(subtypes, withField, byReference: false);
+
+    /// <summary>The written form of a set of subtypes, its domains by reference for the store — ADR-087.</summary>
+    /// <param name="subtypes">The subtypes.</param>
+    /// <param name="withField">Whether to name the subtype column.</param>
+    /// <param name="byReference">Whether a shared domain is written as its id alone.</param>
+    /// <returns>An object the serializer writes.</returns>
+    public static Dictionary<string, object?> Write(LayerSubtypes subtypes, bool withField, bool byReference)
     {
         ArgumentNullException.ThrowIfNull(subtypes);
 
@@ -274,7 +349,7 @@ public static class FieldDomainJson
 
             foreach ((string column, FieldDomain domain) in type.Domains)
             {
-                domains[column] = Write(domain);
+                domains[column] = Write(domain, byReference);
             }
 
             types.Add(new(StringComparer.Ordinal)

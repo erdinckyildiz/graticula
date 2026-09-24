@@ -31,7 +31,12 @@ internal static class FieldOverrideJson
 {
     /// <summary>Reads the stored array.</summary>
     /// <param name="json">The column's value.</param>
-    public static ImmutableArray<FieldOverride> Read(string? json)
+    public static ImmutableArray<FieldOverride> Read(string? json) => Read(json, shared: null);
+
+    /// <summary>Reads the stored array, resolving references to shared domains — ADR-087.</summary>
+    /// <param name="json">The column's value.</param>
+    /// <param name="shared">The shared domains the entries point at; a reference to one missing is left out.</param>
+    public static ImmutableArray<FieldOverride> Read(string? json, IReadOnlyDictionary<Guid, FieldDomain>? shared)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
@@ -83,18 +88,49 @@ internal static class FieldOverrideJson
             // about values, which is what it said before, rather than taken off every face.
             FieldDomain? domain = entry.TryGetProperty("domain", out JsonElement d)
                 && d.ValueKind == JsonValueKind.Object
-                    ? FieldDomainJson.ReadDomain(d, out _)
+                    ? FieldDomainJson.ReadDomain(d, shared, out _)
                     : null;
 
             LayerSubtypes? subtypes = entry.TryGetProperty("subtypes", out JsonElement st)
                 && st.ValueKind == JsonValueKind.Object
-                    ? FieldDomainJson.ReadSubtypes(column.GetString()!, st, out _)
+                    ? FieldDomainJson.ReadSubtypes(column.GetString()!, st, shared, out _)
                     : null;
 
             read.Add(new FieldOverride(column.GetString()!, alias, hidden, tracks, domain, subtypes));
         }
 
         return read.ToImmutable();
+    }
+
+    /// <summary>The shared domains a layer row carries, as the catalogue query aggregates them — ADR-087.</summary>
+    /// <param name="json">A JSON object of id to domain definition, or null.</param>
+    /// <returns>The domains by id; empty when there are none.</returns>
+    public static IReadOnlyDictionary<Guid, FieldDomain> SharedDomains(string? json)
+    {
+        Dictionary<Guid, FieldDomain> read = [];
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return read;
+        }
+
+        using JsonDocument document = JsonDocument.Parse(json);
+
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            return read;
+        }
+
+        foreach (JsonProperty entry in document.RootElement.EnumerateObject())
+        {
+            if (Guid.TryParse(entry.Name, out Guid id)
+                && FieldDomainJson.ReadDomain(entry.Value, out _) is { } domain)
+            {
+                read[id] = domain.WithId(id);
+            }
+        }
+
+        return read;
     }
 
     /// <summary>Writes the array to store.</summary>
@@ -131,14 +167,15 @@ internal static class FieldOverrideJson
             }
 
             // ADR-065, on the same terms: absent unless it says something.
+            // ADR-087: a shared domain is stored as its id, so an edit to it reaches this field.
             if (says.Domain is { } domain)
             {
-                entry["domain"] = FieldDomainJson.Write(domain);
+                entry["domain"] = FieldDomainJson.Write(domain, byReference: true);
             }
 
             if (says.Subtypes is { } subtypes)
             {
-                entry["subtypes"] = FieldDomainJson.Write(subtypes, withField: false);
+                entry["subtypes"] = FieldDomainJson.Write(subtypes, withField: false, byReference: true);
             }
 
             stored.Add(entry);

@@ -565,6 +565,10 @@ public static class Program
         // <b>The server's own settings, and the page size read from them — V-70, ADR-084.</b>
         builder.Services.AddSingleton<IServerSettingStore>(services =>
             new PostgresServerSettingStore(services.GetRequiredService<NpgsqlDataSource>()));
+
+        // ADR-087: shared domains, in the same store.
+        builder.Services.AddSingleton<IFieldDomainStore>(services =>
+            new PostgresFieldDomainStore(services.GetRequiredService<NpgsqlDataSource>()));
         builder.Services.AddSingleton<ServerPageSize>();
         builder.Services.AddSingleton<ServerGround>();
 
