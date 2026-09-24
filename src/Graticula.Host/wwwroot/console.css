@@ -959,6 +959,26 @@ label.field {
 }
 
 /* A number reads as a sentence, with the unit outside the box. */
+/* The map ground — ADR-086. The available services never move; the stack is the drawing order, top first. */
+.groundpick { border: 0; padding: 0; margin: var(--gap-3) 0 0; max-width: 620px; }
+.groundpick legend { padding: 0; margin-bottom: var(--gap-2); font-size: var(--t-body); }
+.groundopt {
+  display: grid; grid-template-columns: auto 1fr; column-gap: var(--gap-2);
+  align-items: center; min-height: 44px;
+}
+.groundopt input { width: 18px; height: 18px; margin: 0; }
+.groundopt .warn-inline { grid-column: 2; }
+.groundstack { margin: var(--gap-2) 0 0; padding: 0; list-style: none; max-width: 620px; }
+.groundstack li {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--gap-2);
+  min-height: 44px; border-bottom: 1px solid var(--rule);
+}
+.groundstack .groundname { font-weight: 600; }
+.groundstack .warn-inline { flex-basis: 100%; order: 3; padding-bottom: 6px; }
+.groundmove { margin-left: auto; display: inline-flex; gap: 4px; }
+.groundmove button { min-width: 44px; min-height: 44px; }
+@media (max-width: 600px) { #view-settings .row .tiny { min-height: 44px; } }
+
 .setting { display: flex; align-items: center; gap: var(--gap-3); padding: 7px 0; max-width: 620px; }
 .setting .q { flex: 1; font-size: var(--t-body); }
 /* 116px suits a number with a unit beside it, which is what every other setting on this page is. A

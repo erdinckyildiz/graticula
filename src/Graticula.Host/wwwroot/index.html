@@ -760,6 +760,44 @@
 
       <p class="hint" id="setSays" role="status" aria-live="polite"></p>
     </div>
+
+    <!--
+      <b>Q-110, the owner's answer of 2026-09-24 (ADR-086):</b> "Yönetici seçer, yoksa OSM karoları
+      kalır." The operator picks this server's own tile services as the ground under every map; with none
+      picked, OpenStreetMap's tiles stay. Served to clients as the portal's default basemap.
+    -->
+    <div class="panel pad settingcard">
+      <h4>Map ground</h4>
+      <p class="hint">The basemap under the data on every map this server shows: the console, the viewer,
+        and ArcGIS clients that use the portal's default basemap. Choose your own vector tile services, such
+        as an OpenStreetMap extract you imported. With none chosen, maps use OpenStreetMap's public tiles.</p>
+      <p class="hint">People who chose their own ground in the viewer keep it.</p>
+
+      <!--
+        <b>Two lists, because the design review of 2026-09-24 found one list doing two jobs.</b> The first
+        version made the order of ticking the order of drawing, showed the boxes alphabetically, and then
+        redrew them in saved order after Save — the same ground two ways a second apart. What is available is
+        an alphabetical list that never moves; what is drawn is an ordered list, top first, as every GIS
+        layer panel reads.
+      -->
+      <h5 class="q" id="groundStackLabel">Drawing order, top first</h5>
+      <ol id="groundStack" class="groundstack" aria-labelledby="groundStackLabel"></ol>
+      <p class="hint" id="groundOrder"></p>
+
+      <fieldset class="groundpick" aria-describedby="groundCap">
+        <legend class="q">Tile services on this server</legend>
+        <div id="groundList"><span class="hint">Reading this server's tile services…</span></div>
+      </fieldset>
+      <p class="hint" id="groundCap"></p>
+
+      <div class="row">
+        <button class="primary" id="groundSave">Save ground</button>
+        <button class="tiny" id="groundUndo" hidden>Undo changes</button>
+        <button class="tiny" id="groundClear" hidden>Use OpenStreetMap</button>
+      </div>
+
+      <p class="hint" id="groundSays" aria-live="polite"></p>
+    </div>
   </section>
 
   <section class="view" id="view-operations">

@@ -515,14 +515,22 @@ async function drawGroundPicker() {
     Seen in a screenshot on 2026-08-16 — the first one taken of this page, which is
     its own lesson.
   */
+  // <b>What is on, is on.</b> The server's ground is drawn here exactly as a ground picked here would be,
+  // so its buttons show pressed, and the first click starts from it rather than from nothing — which
+  // silently dropped every other layer of the server's ground.
+  const drawn = groundTiles.length || hasOwnGround() ? groundTiles : SERVER_GROUND_DRAWN;
+  const fromServer = !groundTiles.length && SERVER_GROUND_DRAWN.length > 0;
+
   const parts = [];
-  if (basemapUrl) {
+  if (basemapUrl && !(fromServer && basemapUrl === OSM_TILES)) {
     parts.push(basemapUrl === OSM_TILES
-      ? "<b>OpenStreetMap</b> rendered tiles"
+      ? "<b>OpenStreetMap</b>'s public map"
       : "<b>your basemap</b>");
   }
   if (groundTiles.length) {
-    parts.push(`${groundTiles.length} imported layer${groundTiles.length === 1 ? "" : "s"}`);
+    parts.push(`${groundTiles.length} imported layer${groundTiles.length === 1 ? "" : "s"} (your choice)`);
+  } else if (fromServer) {
+    parts.push(`the server's ground: ${escape(SERVER_GROUND_DRAWN.join(", then "))}`);
   }
   if (!parts.length) {
     parts.push("<b>Natural Earth</b> — the vendored fallback");
@@ -532,27 +540,39 @@ async function drawGroundPicker() {
 
   box.innerHTML = `<span>Ground</span><span style="font-weight:400">${state}</span>`
     + services.map((name, i) => {
-      const on = groundTiles.includes(name);
-      const pen = GROUND_PENS[groundTiles.indexOf(name) % GROUND_PENS.length];
-      return `<button data-ground="${escape(name)}" class="${on ? "on" : ""}">`
+      const on = drawn.includes(name);
+      const pen = GROUND_PENS[drawn.indexOf(name) % GROUND_PENS.length];
+      return `<button data-ground="${escape(name)}" class="${on ? "on" : ""}" aria-pressed="${on}">`
         + (on ? `<i style="display:inline-block;width:8px;height:2px;vertical-align:2px;`
           + `margin-right:5px;background:${pen.color}"></i>` : "")
         + `${escape(name)}</button>`;
     }).join("")
     + (groundTiles.length
       ? `<button data-ground="" title="Draw only the vendored Natural Earth ground">Clear</button>`
+      : "")
+    + (hasOwnGround() && SERVER_GROUND.length
+      ? `<button data-ground-server="1">Use the server's ground</button>`
       : "");
 
   box.onclick = event => {
+    if (event.target.closest("button[data-ground-server]")) {
+      // Back to the operator's ground: forgetting this browser's choice is what "keeps theirs" undoes.
+      localStorage.removeItem(GROUND_KEY);
+      const url = new URL(location.href);
+      url.searchParams.delete("ground");
+      location.href = url.toString();
+      return;
+    }
+
     const button = event.target.closest("button[data-ground]");
     if (!button) return;
 
     const name = button.dataset.ground;
     const next = !name
       ? []
-      : groundTiles.includes(name)
-        ? groundTiles.filter(g => g !== name)
-        : [...groundTiles, name];
+      : drawn.includes(name)
+        ? drawn.filter(g => g !== name)
+        : [...drawn, name];
 
     localStorage.setItem(GROUND_KEY, JSON.stringify(next));
 
@@ -663,6 +683,36 @@ const map = new ol.Map({
     }),
   ]),
 });
+
+/*
+  <b>The server's ground, when this browser has not chosen one — Q-110, ADR-086.</b>
+  Drawn exactly where a ground picked here would be: over the rendered basemap and
+  under the data. Added once the portal has answered rather than waited for, so a
+  slow portal delays the ground and not the map.
+*/
+let SERVER_GROUND_DRAWN = [];
+
+if (QUERY.get("ground") === null && !hasOwnGround()) {
+  SERVER_GROUND_READY.then(list => {
+    SERVER_GROUND_DRAWN = list;
+    list.forEach((service, index) =>
+      map.getLayers().insertAt((basemap ? 1 : 0) + index, tileGround(service, index)));
+
+    // <b>Instead of OpenStreetMap, not over it</b> — as the console and the SDK page draw it, and as the
+    // Settings card promises. An operator who chose a ground to stop calling openstreetmap.org was still
+    // calling it from here; the design review of 2026-09-24 counted 46 requests.
+    if (list.length && basemap && basemapUrl === OSM_TILES) basemap.setVisible(false);
+
+    const box = $("grounds");
+    if (box?.dataset.done) { delete box.dataset.done; drawGroundPicker(); }
+  });
+} else {
+  // Still read, so the picker can offer a way back to it from a ground of this browser's own.
+  SERVER_GROUND_READY.then(() => {
+    const box = $("grounds");
+    if (SERVER_GROUND.length && box?.dataset.done) { delete box.dataset.done; drawGroundPicker(); }
+  });
+}
 
 /**
  * The two faces, as links that keep every other parameter.

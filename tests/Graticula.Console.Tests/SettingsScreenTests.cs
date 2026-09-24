@@ -22,6 +22,7 @@ namespace Graticula.Console.Tests;
 /// under Studio, where the page is not offered — the box it asserted on was in the markup and on no screen.
 /// </para>
 /// </remarks>
+[Collection("server ground")]
 public sealed class SettingsScreenTests : ConsoleTest
 {
     private const string Box = "document.getElementById('setPageSize')";
@@ -98,6 +99,105 @@ public sealed class SettingsScreenTests : ConsoleTest
         Assert.False(await Browser.EvaluateAsync<bool>($"{Says}.classList.contains('bad-inline')"), "A success is marked as a refusal.");
 
         NothingWentWrong(await PageErrorsAsync());
+    }
+
+    [Fact]
+    public async Task The_map_ground_is_an_ordered_list_top_first_and_the_services_do_not_move()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/#/settings", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#groundList input[type=checkbox]').length >= 3",
+            "The Map ground card listed fewer than three tile services — the fixture has several, private ones included.");
+
+        const string Available = "[...document.querySelectorAll('#groundList input')].map(i => i.value)";
+        const string Stack = "[...document.querySelectorAll('#groundStack .groundname')].map(n => n.textContent)";
+
+        string[] names = await Browser.EvaluateAsync<string[]>(Available) ?? Array.Empty<string>();
+
+        // ---- the first run: nothing chosen, said in words, nothing to undo or clear ----
+        Assert.Empty(await Browser.EvaluateAsync<string[]>(Stack) ?? Array.Empty<string>());
+        Assert.Contains("OpenStreetMap", await Browser.EvaluateAsync<string>("document.getElementById('groundOrder').textContent") ?? string.Empty, StringComparison.Ordinal);
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('groundClear').hidden"), "Use OpenStreetMap is offered when it is already the ground.");
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('groundUndo').hidden"), "Undo is offered with nothing changed.");
+
+        // Every box is named by its own label.
+        Assert.Equal(0, await Browser.EvaluateAsync<int>("[...document.querySelectorAll('#groundList input')].filter(i => !document.querySelector(`label[for=\"${i.id}\"]`)).length"));
+
+        // ---- Save with nothing chosen stores nothing ----
+        await ClickAsync("#groundSave");
+        Assert.DoesNotContain(await WritesAsync(), w => w.Contains("/admin/settings/ground", StringComparison.Ordinal));
+
+        // ---- ticking adds on top; the available list does not move ----
+        await ClickAsync($"#groundList input[value=\"{names[1]}\"]");
+        await ClickAsync($"#groundList input[value=\"{names[0]}\"]");
+
+        Assert.Equal([names[0], names[1]], await Browser.EvaluateAsync<string[]>(Stack) ?? Array.Empty<string>());
+        Assert.Equal(names, await Browser.EvaluateAsync<string[]>(Available));
+        Assert.Contains("Not saved yet", await Browser.EvaluateAsync<string>("document.getElementById('groundOrder').textContent") ?? string.Empty, StringComparison.Ordinal);
+        Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('groundUndo').hidden"), "A change that is not saved offers no way back.");
+
+        // ---- moving: the order changes, focus stays with the service, the move is announced ----
+        await ClickAsync($"#groundStack [data-ground=\"{names[1]}\"][data-ground-move=up]");
+
+        Assert.Equal([names[1], names[0]], await Browser.EvaluateAsync<string[]>(Stack) ?? Array.Empty<string>());
+        Assert.Equal(names[1], await Browser.EvaluateAsync<string>("document.activeElement?.dataset?.ground || ''"));
+        Assert.Contains("1 of 2", await Browser.EvaluateAsync<string>("document.getElementById('groundSays').textContent") ?? string.Empty, StringComparison.Ordinal);
+        Assert.Equal("polite", await Browser.EvaluateAsync<string>("document.getElementById('groundSays').getAttribute('aria-live')"));
+
+        // The top row cannot go up, and says what it is by name to a screen reader.
+        Assert.True(await Browser.EvaluateAsync<bool>($"document.querySelector('#groundStack [data-ground=\"{names[1]}\"][data-ground-move=up]').disabled"));
+        Assert.Equal($"Move {names[0]} up", await Browser.EvaluateAsync<string>($"document.querySelector('#groundStack [data-ground=\"{names[0]}\"][data-ground-move=up]').getAttribute('aria-label')"));
+
+        // ---- Save sends the ground and announces it, first at the bottom ----
+        await ClickAsync("#groundSave");
+
+        await WaitForAsync(
+            "document.getElementById('groundSays').textContent.startsWith('Saved')",
+            "Saving the ground announced nothing.");
+
+        Assert.Contains(await WritesAsync(), w => w.StartsWith("PUT", StringComparison.Ordinal) && w.Contains("/admin/settings/ground", StringComparison.Ordinal));
+        Assert.Contains($"{names[0]}, then {names[1]}", await Browser.EvaluateAsync<string>("document.getElementById('groundSays').textContent") ?? string.Empty, StringComparison.Ordinal);
+
+        // The page size's sentence is not the ground's.
+        Assert.Equal(string.Empty, await Browser.EvaluateAsync<string>($"{Says}.textContent"));
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    [Fact]
+    public async Task A_private_tile_service_is_offered_and_its_caution_shows_before_it_is_ticked()
+    {
+        (string token, _) = await SignInAsync();
+
+        const string Private = "zz_ground_screen_private";
+
+        try
+        {
+            (int published, string said) = await PublishOneAsync(Private, Private);
+            Assert.True(published is 200 or 201, $"publishing {Private}: {published} {said}");
+
+            await OpenAsync("/server/#/settings", token);
+
+            await WaitForAsync(
+                $"[...document.querySelectorAll('#groundList input')].some(i => i.value.endsWith('{Private}'))",
+                "A private tile service is not offered as a ground: the list was read as somebody who is not signed in.");
+
+            string caution = await Browser.EvaluateAsync<string>(
+                $"(() => {{ const i = [...document.querySelectorAll('#groundList input')].find(i => i.value.endsWith('{Private}')); return document.getElementById(i.getAttribute('aria-describedby') || '')?.textContent || ''; }})()")
+                ?? string.Empty;
+
+            Assert.Contains("get the ground without it", caution, StringComparison.Ordinal);
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(System.Net.Http.HttpMethod.Delete, $"/admin/layers/{Private}");
+            await AdminAsync(System.Net.Http.HttpMethod.Delete, $"/admin/featureservices/{Private}");
+        }
     }
 
     [Fact]

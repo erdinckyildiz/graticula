@@ -68,7 +68,63 @@ function chosenGroundTiles() {
 }
 
 /**
- * The ground layers, bottom first.
+ * Whether this browser has a ground of its own — including *none*, which is a choice.
+ *
+ * <b>Absent and empty are different answers.</b> The viewer's Clear button stores an
+ * empty list, meaning *draw no imported ground*; somebody who has never touched the
+ * picker has stored nothing at all. Only the second is handed the server's ground.
+ */
+function hasOwnGround() {
+  try {
+    return localStorage.getItem(GROUND_TILES_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/** The server's ground as last read, bottom first; empty until {@link SERVER_GROUND_READY}. */
+let SERVER_GROUND = [];
+
+/**
+ * The ground the operator chose for the whole server — Q-110, ADR-086.
+ *
+ * <b>Read from the portal's default basemap, where ArcGIS keeps it</b>, so this page,
+ * Map Viewer and the Maps SDK agree on one ground from one Save. Anonymous, on
+ * purpose: the server names only the services this caller may draw, and a tile
+ * request from the map is anonymous too, so a ground the page is told about is a
+ * ground it can actually draw.
+ *
+ * Every page awaits this before building its map. It settles on failure as well,
+ * with no ground, because a portal that cannot be reached is not a reason to draw no
+ * map — OpenStreetMap is still the answer then.
+ */
+const SERVER_GROUND_READY = fetch(`${location.origin}/sharing/rest/portals/self?f=json`, {
+  headers: { Accept: "application/json" },
+  credentials: "omit",
+})
+  .then(response => (response.ok ? response.json() : {}))
+  .then(portal => {
+    SERVER_GROUND = (portal?.defaultBasemap?.baseMapLayers || [])
+      .filter(layer => layer.layerType === "VectorTileLayer" && layer.id)
+      .map(layer => layer.id);
+    return SERVER_GROUND;
+  })
+  .catch(() => SERVER_GROUND);
+
+/**
+ * The imported grounds to draw: this browser's own choice, else the server's.
+ *
+ * <b>Personal first.</b> Somebody who picked a ground in the viewer picked it for
+ * themselves, and an operator's default changing underneath them would undo a
+ * choice they can see they made.
+ */
+function groundTilesToDraw() {
+  return hasOwnGround() ? chosenGroundTiles() : SERVER_GROUND;
+}
+
+/**
+ * The ground layers, bottom first. Call after {@link SERVER_GROUND_READY} has settled,
+ * or the server's ground is not yet known and OpenStreetMap is drawn in its place.
  *
  * <b>Imported tiles replace the vendored files entirely rather than drawing over
  * them.</b> Two grounds competing is unreadable, and the vendored world exists for
@@ -80,7 +136,7 @@ function chosenGroundTiles() {
  * @returns {object[]} Layers to add beneath the data.
  */
 function groundLayers({ GeoJSONLayer, VectorTileLayer, WebTileLayer }) {
-  const chosen = chosenGroundTiles();
+  const chosen = groundTilesToDraw();
 
   if (chosen.length && VectorTileLayer) {
     return chosen.map(service => new VectorTileLayer({

@@ -290,6 +290,12 @@ becoming a thing we had to build to satisfy a client library.
 
 #### 4c. The basemap is OpenStreetMap's rendered tiles — owner's decision, 2026-08-16
 
+**Amended 2026-09-24: OpenStreetMap's tiles are the fallback, and the operator chooses the ground —
+[ADR-086](ADR-086-the-operator-chooses-the-map-ground.md), the owner's answer to Q-110.** An operator can make
+this server's own tile services — an imported extract, as §4d shows — the ground under every map, from the
+Settings screen, and it is served as the portal's default basemap. With nothing chosen, what this section
+decided still holds as written.
+
 **§4a removed the hardcoded OpenStreetMap basemap on the finding that their tile
 servers had blocked us. That finding was half right and the half that was wrong
 matters.**

@@ -380,3 +380,43 @@ while a missing file answers 500 to the document itself.
 restore is a figure for 7 GB with one attachment table in it; §2.4's revisit
 trigger is attachments precisely because that number grows with binaries rather
 than with features.
+
+## 3. A map ground of your own
+
+Every map this server draws has OpenStreetMap's public tiles under it until an operator chooses otherwise.
+Those tiles are run by volunteers, their usage policy says they are not for an application's default
+basemap, and a server with no route to the internet cannot reach them at all
+([ADR-020](adr/ADR-020-admin-console-and-service-status.md) §4c). The alternative is your own copy of the
+data, served as this server's own tiles ([ADR-086](adr/ADR-086-the-operator-chooses-the-map-ground.md)).
+
+### 3.1 From an extract to a ground
+
+1. **Get the data.** OpenStreetMap data is ODbL: free to use, with attribution, and the obligations are yours
+   as whoever imported it. A country extract from a mirror such as Geofabrik is an `.osm.pbf`; GDAL turns the
+   parts you want into GeoJSON — one file per layer, since each becomes a layer:
+
+   ```sh
+   ogr2ogr -f GeoJSON roads.geojson turkey-latest.osm.pbf lines \
+     -where "highway in ('motorway','trunk','primary','secondary')" -t_srs EPSG:4326
+   ogr2ogr -f GeoJSON places.geojson turkey-latest.osm.pbf points \
+     -where "place in ('city','town')" -t_srs EPSG:4326
+   ogr2ogr -f GeoJSON boundaries.geojson turkey-latest.osm.pbf multipolygons \
+     -where "boundary = 'administrative' and admin_level in ('4','6')" -t_srs EPSG:4326
+   ```
+
+   Take what a ground needs and nothing else. A whole country's buildings is a data layer, not a ground.
+2. **Import and publish each file** — Studio's *New item* → *Upload a file*, which takes GeoJSON or a zipped
+   shapefile; `POST /admin/hosted/import` takes a GeoPackage and a File Geodatabase too. Leave tiles on, and
+   share it with everybody unless the ground is meant for one group only.
+3. **Choose them** on Server → *Settings* → *Map ground*, ticking the one to draw at the bottom first — land or
+   areas, then boundaries, then roads, then places — and Save.
+
+Maps opened after that draw them; a browser whose user chose a ground in the viewer keeps theirs. ArcGIS
+clients that read the portal's default basemap get the same ground.
+
+### 3.2 What was measured
+
+Turkey's provinces, districts, major roads, country polygon and place names — 44 MB of OSM geometry fetched
+from Overpass — were imported and served as this server's tiles on 2026-08-16, 118 KB for a z6 tile of
+provinces (ADR-020 §4d). That run predates the Settings card; choosing them as the ground on the showcase is
+[ADR-086](adr/ADR-086-the-operator-chooses-the-map-ground.md) condition 1.

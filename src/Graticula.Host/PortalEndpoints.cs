@@ -338,6 +338,75 @@ internal static class PortalEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>The operator's map ground as a web map basemap, or OpenStreetMap when there is none.</summary>
+    /// <remarks>
+    /// <b>Only the services this caller may draw.</b> A ground shared with a group is that group's ground;
+    /// naming it to everybody else would send their map to a 404 for every tile and draw nothing, which is
+    /// worse than the OpenStreetMap they get instead. When none is left, the answer is OpenStreetMap —
+    /// Q-110's default, spelled the way a web map spells it.
+    /// </remarks>
+    private static async Task<object> DefaultBasemapAsync(
+        HttpContext context, RequestPrincipal current, CancellationToken cancellation)
+    {
+        ServerGround.Reading ground = await context.RequestServices
+            .GetRequiredService<ServerGround>()
+            .ReadAsync(cancellation)
+            .ConfigureAwait(false);
+
+        Graticula.Platform.Postgres.CatalogFallback catalog =
+            context.RequestServices.GetRequiredService<Graticula.Platform.Postgres.CatalogFallback>();
+
+        List<object> layers = [];
+
+        foreach (string qualified in ground.Services)
+        {
+            int slash = qualified.IndexOf('/', StringComparison.Ordinal);
+
+            Graticula.Platform.Postgres.CatalogAnswer answer = await catalog
+                .FindServiceAsync(
+                    slash < 0 ? null : qualified[..slash],
+                    slash < 0 ? qualified : qualified[(slash + 1)..],
+                    cancellation)
+                .ConfigureAwait(false);
+
+            if (answer.Service is not { } service
+                || !service.IsRunning
+                || !service.Limits.AllowsTiles(dataSupportsIt: true)
+                || (answer.Blind && service.Sharing != SharingScope.Public)
+                || !LayerAccess.Evaluate(
+                    service.Sharing, service.Owner, current.Principal, current.Authorization, service.SharedWith)
+                    .IsAllowed())
+            {
+                continue;
+            }
+
+            string url = $"{Origin(context)}/rest/services/{service.QualifiedName}/VectorTileServer";
+
+            layers.Add(new
+            {
+                id = service.QualifiedName,
+                layerType = "VectorTileLayer",
+                title = service.QualifiedName,
+                url,
+                styleUrl = $"{url}/resources/styles/root.json",
+                visibility = true,
+                opacity = 1,
+            });
+        }
+
+        return layers.Count > 0
+            ? new { id = "graticula-ground", title = "Ground", baseMapLayers = layers }
+            : new
+            {
+                id = "graticula-osm",
+                title = "OpenStreetMap",
+                baseMapLayers = new object[]
+                {
+                    new { id = "osm", layerType = "OpenStreetMap", title = "OpenStreetMap", visibility = true, opacity = 1 },
+                },
+            };
+    }
+
     /// <summary>The organisation, as this caller sees it.</summary>
     /// <remarks>
     /// <b>The identity is the server's, not a per-request accident.</b> A portal's
@@ -417,6 +486,11 @@ internal static class PortalEndpoints
             // <b>Pro asks where the geometry service is rather than assuming.</b>
             // We have one (ADR-022) and it is at the address every ArcGIS client
             // looks for, so naming it here is free.
+            // <b>The ground the operator chose, where ArcGIS keeps it — Q-110, ADR-086.</b> Map Viewer and
+            // the Maps SDK read a portal's default basemap from here, and so do this server's own map
+            // pages, so one Save changes the ground everywhere a map is drawn from this portal.
+            defaultBasemap = await DefaultBasemapAsync(context, current, cancellation).ConfigureAwait(false),
+
             helperServices = geometryOffered
                 ? (object)new
                 {

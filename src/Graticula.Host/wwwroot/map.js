@@ -125,7 +125,10 @@
     });
   }
 
-  loadSdk().then(() => {
+  // The server's ground is known before the map is built, or groundLayers draws OpenStreetMap in its
+  // place — ADR-086. Awaited here rather than inside the SDK's callback, which is not awaited by anything:
+  // an error after an await there is a rejection nobody hears, and the page went blank without one.
+  loadSdk().then(() => SERVER_GROUND_READY).then(() => {
 
     require([
       "esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer",
@@ -183,9 +186,13 @@
       */
       const osm = ground.some(layer => layer?.copyright?.includes("OpenStreetMap"));
 
+      const own = ground.filter(layer => layer?.type === "vector-tile").map(layer => layer.title);
+
       document.getElementById("ground").textContent = template
         ? "Basemap: " + template
-        : osm
+        : own.length
+          ? `Ground is ${own.join(", ")}, served by this server.`
+          : osm
           ? "Ground is OpenStreetMap. The console's map panel takes a tile template if you "
             + "have one."
           : "Ground is Natural Earth 1:110m — countries and lakes — public domain and served "

@@ -75,7 +75,7 @@ public abstract class ConsoleTest : IAsyncLifetime
     /// is the entire subject of <see cref="SessionTests"/>. Each is planted into
     /// the browser deliberately, one at a time.
     /// </remarks>
-    private static readonly HttpClient Http = new(
+    protected static readonly HttpClient Http = new(
         new HttpClientHandler
         {
             // ADR-014's development certificate is self-signed; see ArcGisClient.

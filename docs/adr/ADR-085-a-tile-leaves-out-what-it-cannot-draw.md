@@ -120,6 +120,21 @@ None recorded.
 ## 11. Conditions
 
 1. **A GeoParquet layer's tile agrees with a table's** under the rule — `GeoParquetTileOracleTests`, passing
-   locally 2026-09-24; discharged by the first CI run that includes this change.
+   locally 2026-09-24; discharged by the first CI run that includes this change. **DISCHARGED 2026-09-24**:
+   CI on 14079f6 (v1.0.162) green, the oracle test in it.
 2. **Measured on the showcase** — a zoomed-out view of `istanbul_buildings` before and after the upgrade that
-   ships this — since the numbers above are one Windows machine's.
+   ships this — since the numbers above are one Windows machine's. **PARTLY DISCHARGED 2026-09-24**, on
+   v1.0.161 → v1.0.162, nine cold tiles around each layer's centre at the first zoom its visible range opens,
+   one sample each:
+
+   | Layer | Before | After |
+   |---|---|---|
+   | `hosted/tr_ilce` z7 | 825,945 bytes, 3,470 ms | 348,405 bytes, 3,432 ms |
+   | `hosted/tr_yol` z8 | 214,066 bytes, 2,382 ms | 81,332 bytes, 2,067 ms |
+   | `geoparquet/istanbul_roads` z12 | 723,331 bytes, 3,233 ms | 561,112 bytes, 3,996 ms |
+
+   Bytes fell 22–62 %. **What is still open:** the showcase has no `istanbul_buildings` — the 927,350-polygon
+   layer measured locally is not published there, so the case this ADR was written for is not on the showcase
+   at all — and the GeoParquet layer's time **rose 24 %** in a single cold sample, which is either the
+   simplification's cost on DuckDB's rows or one sample's noise; it needs repeated samples before it is
+   either.

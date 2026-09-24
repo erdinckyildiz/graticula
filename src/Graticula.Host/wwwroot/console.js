@@ -2251,6 +2251,9 @@ async function buildMap() {
   // WebTileLayer passed, so ground.js can draw OpenStreetMap here exactly as the
   // viewer does. Without it this page fell through to the vendored Natural Earth
   // files and the owner asked a fourth time why they were still showing.
+  // The server's ground first, or groundLayers draws OpenStreetMap in its place — ADR-086.
+  if (!url) await SERVER_GROUND_READY;
+
   const ground = url
     ? []
     : groundLayers({ GeoJSONLayer, VectorTileLayer, WebTileLayer });
@@ -2375,12 +2378,12 @@ async function resetBasemap() {
  */
 function drawBasemapControl() {
   const url = basemapUrl();
-  const imported = chosenGroundTiles();
+  const imported = groundTilesToDraw();
 
   $("basemapState").textContent = url
     ? url
     : imported.length
-      ? `${imported.join(", ")} — imported tiles as the ground`
+      ? `${imported.join(", ")} — ${hasOwnGround() ? "imported tiles as the ground" : "the server's ground"}`
       : "OpenStreetMap — the default ground; name your own tiles to replace it";
 
   $("basemapInput").value = url;
@@ -16330,7 +16333,11 @@ function drawProbeRows() {
 async function loadSettings() {
   // A sentence about an earlier save is not about this visit — the review found it contradicting the box.
   settingsSay("");
-  drawSettings(await api("/admin/settings") || {});
+  groundSay("");
+
+  const settings = await api("/admin/settings") || {};
+  drawSettings(settings);
+  await drawGround(settings.ground || {});
 
   // Enter saves, as it does in every form a person fills in; assigned rather than added so a redraw
   // does not stack a second listener.
@@ -16376,6 +16383,176 @@ function drawSettings(settings) {
   $("setReset").textContent = p.configured != null
     ? `Use the default (${num(p.configured)})`
     : "Use the default";
+}
+
+/**
+ * The map ground — Q-110, ADR-086.
+ *
+ * <b>What is drawn is an ordered list, top first; what is available is a list that never moves.</b> The
+ * design review of 2026-09-24 found the first version's rule — the order of ticking is the order of
+ * drawing — contradicted by the list's own order, and reordering possible only by unticking and ticking
+ * again. Order is the part of a ground that matters most: land drawn over roads is a map with no roads.
+ *
+ * `groundChosen` is bottom first, as the server stores it; the stack shows it reversed.
+ */
+let groundChosen = [];
+let groundSaved = [];
+let groundRows = new Map();
+let groundMost = 8;
+
+/** Why a service would not be drawn for everybody, or "" — shown before it is ticked, not after Save. */
+function groundCaution(row) {
+  if (!row) return "";
+  if (!row.exists) return "No longer on this server: untick it to save.";
+  if (!row.running) return "Stopped: nobody sees it until it is started.";
+  if (!row.everybody) {
+    return `Shared with ${row.sharing === "group" ? "a group" : row.sharing === "organization" ? "the organisation" : "its owner"} only: people who cannot see it get the ground without it.`;
+  }
+  return "";
+}
+
+async function drawGround(ground) {
+  groundSaved = (ground.services || []).map(s => s.name);
+  groundChosen = [...groundSaved];
+  groundMost = ground.most || 8;
+
+  groundRows = new Map();
+  for (const row of ground.candidates || []) groundRows.set(row.name, row);
+  for (const row of ground.services || []) if (!groundRows.has(row.name)) groundRows.set(row.name, row);
+
+  drawGroundLists();
+}
+
+function drawGroundLists(focusAfter = null) {
+  const names = [...groundRows.keys()].sort((a, b) => a.localeCompare(b));
+  const full = groundChosen.length >= groundMost;
+
+  $("groundList").innerHTML = names.length
+    ? names.map(name => {
+      const on = groundChosen.includes(name);
+      const caution = groundCaution(groundRows.get(name));
+      const id = "groundPick-" + name.replace(/[^A-Za-z0-9_-]/g, "_");
+      return `<div class="groundopt">
+        <input type="checkbox" id="${id}" value="${h(name)}"${on ? " checked" : ""}${!on && full ? " disabled" : ""}
+          ${caution ? `aria-describedby="${id}-note"` : ""}>
+        <label for="${id}">${h(name)}</label>
+        ${caution ? `<span class="warn-inline" id="${id}-note">${h(caution)}</span>` : ""}
+      </div>`;
+    }).join("")
+    : `<span class="hint">This server has no vector tile service yet. Import data — an OpenStreetMap
+        extract, for instance — publish it with tiles on, and it appears here.</span>`;
+
+  $("groundList").onchange = e => {
+    const box = e.target.closest("input[type=checkbox]");
+    if (!box) return;
+    groundChosen = box.checked
+      ? [...groundChosen.filter(n => n !== box.value), box.value]
+      : groundChosen.filter(n => n !== box.value);
+    groundSay(box.checked
+      ? `${box.value} added to the top of the drawing order.`
+      : `${box.value} removed from the ground.`);
+    drawGroundLists(`#${CSS.escape(box.id)}`);
+  };
+
+  const top = [...groundChosen].reverse();
+
+  $("groundStack").innerHTML = top.map((name, i) => {
+    const position = top.length === 1 ? "only" : i === 0 ? "top" : i === top.length - 1 ? "bottom" : "";
+    const caution = groundCaution(groundRows.get(name));
+    return `<li>
+      <span class="groundname">${h(name)}</span>
+      ${position ? `<span class="hint">${position}</span>` : ""}
+      ${caution ? `<span class="warn-inline">${h(caution)}</span>` : ""}
+      <span class="groundmove">
+        <button class="tiny" data-ground-move="up" data-ground="${h(name)}" aria-label="Move ${h(name)} up"${i === 0 ? " disabled" : ""}>↑</button>
+        <button class="tiny" data-ground-move="down" data-ground="${h(name)}" aria-label="Move ${h(name)} down"${i === top.length - 1 ? " disabled" : ""}>↓</button>
+      </span>
+    </li>`;
+  }).join("");
+  $("groundStack").hidden = top.length === 0;
+  $("groundStackLabel").hidden = top.length === 0;
+
+  const changed = groundChosen.join("\n") !== groundSaved.join("\n");
+
+  $("groundOrder").textContent = (top.length
+    ? "Data is always drawn over the ground."
+    : "Nothing chosen: OpenStreetMap's public tiles are the ground.")
+    + (changed ? " Not saved yet." : "");
+
+  $("groundCap").textContent = full
+    ? `A ground is at most ${groundMost} services — each one is a request for every tile on screen. Untick one to choose another.`
+    : `Up to ${groundMost}.`;
+
+  $("groundSave").hidden = names.length === 0;
+  $("groundSave").classList.toggle("primary", changed);
+  $("groundUndo").hidden = !changed;
+  $("groundClear").hidden = groundSaved.length === 0;
+
+  if (focusAfter) document.querySelector(focusAfter)?.focus();
+}
+
+/** Moves a chosen service one place up or down the drawing order, keeping focus on the same button. */
+function moveGround(name, direction) {
+  const at = groundChosen.indexOf(name);
+  const to = direction === "up" ? at + 1 : at - 1;   // bottom first: up is towards the end
+  if (at < 0 || to < 0 || to >= groundChosen.length) return;
+
+  [groundChosen[at], groundChosen[to]] = [groundChosen[to], groundChosen[at]];
+
+  const top = [...groundChosen].reverse();
+  const place = top.indexOf(name);
+  const neighbour = direction === "up" ? top[place + 1] : top[place - 1];
+
+  groundSay(`${name} is now ${place + 1} of ${top.length}, ${direction === "up" ? "above" : "below"} ${neighbour}.`);
+
+  // The button pressed may now be disabled at an end; the other one in the row is then where focus goes.
+  const selector = n => `#groundStack [data-ground="${CSS.escape(name)}"][data-ground-move="${n}"]`;
+  drawGroundLists();
+  const same = document.querySelector(selector(direction));
+  (same && !same.disabled ? same : document.querySelector(selector(direction === "up" ? "down" : "up")))?.focus();
+}
+
+function groundSay(text, refusal = false) {
+  const says = $("groundSays");
+  says.textContent = text;
+  says.classList.toggle("bad-inline", refusal);
+}
+
+async function saveGround(services) {
+  try {
+    let now = await api("/admin/settings/ground", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ services }),
+    });
+
+    // Read again when the answer does not carry the setting, for the reason saveSettings gives.
+    if (!now || !now.ground) now = await api("/admin/settings") || {};
+
+    await drawGround(now.ground || {});
+
+    const rows = (now.ground?.services || []);
+    const hidden = rows.filter(r => !r.everybody || !r.running).map(r => r.name);
+    const later = " Maps already open keep the old ground until they are reloaded.";
+
+    groundSay(services.length === 0
+      ? "Saved. Maps opened from now on draw OpenStreetMap's public tiles under the data." + later
+      : `Saved. Maps opened from now on draw ${services.join(", then ")} under the data, first at the bottom.`
+        + (!hidden.length ? ""
+          : hidden.length === rows.length
+            ? " None of these is shared with everybody and running, so people who are not signed in get OpenStreetMap's tiles."
+            : ` ${hidden.join(", ")} ${hidden.length === 1 ? "is" : "are"} not shared with everybody or not running, so people who cannot see ${hidden.length === 1 ? "it" : "them"} get the rest of the ground without ${hidden.length === 1 ? "it" : "them"}.`)
+        + later);
+
+    // Clear hides the button that was pressed; focus goes to Save, which stays where it was.
+    if (services.length === 0) $("groundSave").focus();
+  } catch (e) {
+    const gone = /There is no service '([^']+)'/.exec(e.message || "");
+    groundSay(gone
+      ? `Untick ${gone[1]}: it is no longer on this server, so it cannot be saved as part of the ground.`
+      : e.message, true);
+    $("groundSave").focus();
+  }
 }
 
 async function saveSettings(pageSize) {
@@ -19475,6 +19652,35 @@ async function handleClick(event) {
 
   if (t.id === "setReset") {
     await saveSettings(null);
+    return;
+  }
+
+  if (t.dataset && t.dataset.groundMove) {
+    moveGround(t.dataset.ground, t.dataset.groundMove);
+    return;
+  }
+
+  if (t.id === "groundUndo") {
+    groundChosen = [...groundSaved];
+    groundSay("Back to the saved ground. Nothing was changed on the server.");
+    drawGroundLists("#groundSave");
+    return;
+  }
+
+  if (t.id === "groundSave") {
+    if (groundChosen.join("\n") === groundSaved.join("\n")) {
+      groundSay(groundSaved.length
+        ? "That is the ground already saved. Nothing was changed."
+        : "Nothing is chosen and nothing was saved: OpenStreetMap's tiles are already the ground.");
+      return;
+    }
+
+    await saveGround(groundChosen);
+    return;
+  }
+
+  if (t.id === "groundClear") {
+    await saveGround([]);
     return;
   }
 

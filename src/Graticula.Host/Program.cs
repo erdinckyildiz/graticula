@@ -566,6 +566,7 @@ public static class Program
         builder.Services.AddSingleton<IServerSettingStore>(services =>
             new PostgresServerSettingStore(services.GetRequiredService<NpgsqlDataSource>()));
         builder.Services.AddSingleton<ServerPageSize>();
+        builder.Services.AddSingleton<ServerGround>();
 
         // <b>Behind the breaker, D-127.</b> A capabilities document needs one projection call
         // per distinct spatial reference and cannot be written without them; during an outage
