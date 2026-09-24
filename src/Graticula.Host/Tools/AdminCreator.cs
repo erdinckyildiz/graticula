@@ -130,8 +130,11 @@ internal static class AdminCreator
 
         IIdentityStore identity = services.GetRequiredService<IIdentityStore>();
 
-        if (await identity.AnyPrincipalHoldingAsync(Roles.Administrator, cancellation)
-                .ConfigureAwait(false))
+        // <b>ADR-015 §5b, predicate 3, and condition 5:</b> an administrator who signs in only through a provider
+        // does not make this store healthy — when the provider fails, nobody can sign in, and this tool is the way
+        // back. It asked whether any administrator existed, so on exactly that store it said there was nothing to
+        // recover. It asks now whether one can sign in with a password this server holds.
+        if (await identity.LocalAdministratorsAsync(null, cancellation).ConfigureAwait(false) > 0)
         {
             Console.Error.WriteLine(
                 "This store already has an administrator, so it does not need recovering. This "

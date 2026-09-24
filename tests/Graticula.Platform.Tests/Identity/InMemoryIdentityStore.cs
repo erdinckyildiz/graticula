@@ -219,6 +219,14 @@ internal sealed class InMemoryIdentityStore : IIdentityStore
     public Task<bool> AnyPrincipalHoldingAsync(string role, CancellationToken cancellationToken) =>
         Task.FromResult(_roles.Values.Any(r => r.Contains(role)));
 
+    public Task<int> LocalAdministratorsAsync(string? except, CancellationToken cancellationToken) =>
+        Task.FromResult(_principals.Values.Count(p =>
+            p.Credential is not null
+            && !p.Principal.IsDisabled
+            && !string.Equals(p.Principal.Name, except, StringComparison.OrdinalIgnoreCase)
+            && _roles.TryGetValue(p.Principal.Id, out HashSet<string>? held)
+            && held.Contains(Roles.Administrator)));
+
     private sealed class ByteArrayComparer : IEqualityComparer<byte[]>
     {
         public static readonly ByteArrayComparer Instance = new();

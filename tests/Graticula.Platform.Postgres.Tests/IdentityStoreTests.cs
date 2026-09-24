@@ -418,6 +418,44 @@ public sealed class IdentityStoreTests : PostgresFixture
     }
 
     [Fact]
+    public async Task A_local_administrator_is_an_enabled_one_with_a_password_here()
+    {
+        // ADR-015 §5b and condition 5: what the recovery tool and the last-local-administrator refusals count. An
+        // administrator with no credential here — one a provider signs in — is not one, and neither is a disabled one.
+        await MigrateAsync();
+        PostgresIdentityStore store = Identity();
+
+        Principal ada = await store.CreateUserAsync("ada", null, SomeHash(), CancellationToken.None);
+        await store.GrantRoleAsync(ada.Id, Roles.Administrator, null, CancellationToken.None);
+
+        Principal viewer = await store.CreateUserAsync("vic", null, SomeHash(), CancellationToken.None);
+        await store.GrantRoleAsync(viewer.Id, Roles.Viewer, null, CancellationToken.None);
+
+        Guid external = Guid.NewGuid();
+        await using (Npgsql.NpgsqlCommand insert = DataSource.CreateCommand(
+            "insert into principal (id, kind, name) values (@id, 'user', 'eve')"))
+        {
+            insert.Parameters.AddWithValue("id", external);
+            await insert.ExecuteNonQueryAsync();
+        }
+
+        await store.GrantRoleAsync(external, Roles.Administrator, null, CancellationToken.None);
+
+        Assert.Equal(1, await store.LocalAdministratorsAsync(null, CancellationToken.None));
+        Assert.Equal(0, await store.LocalAdministratorsAsync("ADA", CancellationToken.None));
+        Assert.Equal(1, await store.LocalAdministratorsAsync("eve", CancellationToken.None));
+
+        await using (Npgsql.NpgsqlCommand disable = DataSource.CreateCommand("update principal set disabled_at = now() where name = 'ada'"))
+        {
+            await disable.ExecuteNonQueryAsync();
+        }
+
+        Assert.Equal(0, await store.LocalAdministratorsAsync(null, CancellationToken.None));
+        Assert.True(await store.AnyPrincipalHoldingAsync(Roles.Administrator, CancellationToken.None),
+            "The two counts differ exactly here: administrators exist, and none can sign in with a password held here.");
+    }
+
+    [Fact]
     public async Task The_setup_flow_leaves_the_first_administrator_able_to_administer()
     {
         // ADR-018 §4. An upgraded store showed what the other outcome looks

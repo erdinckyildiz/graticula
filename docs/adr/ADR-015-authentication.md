@@ -774,7 +774,22 @@ access to the platform store.
    `AdminCreator`'s refusal — each read against a principal who has a role and no
    local credential, which is a state that cannot exist today and will exist on
    the first day this condition is due.
-   **DUE since 2026-09-24, and not met.** OIDC, LDAP and SAML were built that day
+   **PARTLY DISCHARGED 2026-09-24**, the day it fell due. A *local administrator* is now its own count —
+   enabled, holding the role, with a password this server holds (`IIdentityStore.LocalAdministratorsAsync`) — and
+   the three predicates §5b names read it where they must: **(1)** demoting, disabling or removing the last local
+   administrator is refused `409` with `lastLocalAdministrator` in its details, and done when the request says
+   `leaveNoLocalAdministrator=true`, which the console asks before sending; **(2)** `AnyPrincipalHoldingAsync` is
+   left as it is, because the startup check that reads it asks the question it answers; **(3)** `AdminCreator`
+   recovers a store whose only administrators sign in through a provider. A provider every administrator signs in
+   through, with no local administrator, cannot be turned off, and any other change to it is refused unless the
+   request names the consequence — §5b's dead issuer. **Measured:** `IdentityStoreTests` counts the two kinds apart
+   on a real PostgreSQL; `AdminCreatorTests` recovers the store the old guard called healthy, and fails with the old
+   guard put back; and walked once by hand on the local fixture with both its local administrators disabled, demoting
+   and disabling the last local one were each refused `409` with the marker, and everything was put back. **Not
+   measured, which is why this is partly:** removal and the provider refusals are refused only when the caller is an
+   administrator who signs in through a provider, and neither the fixture nor the suites can sign one in without
+   risking the fixture's own administrator — the first walk of this scenario did disable it, and it was restored
+   with SQL. *Was:* **DUE since 2026-09-24, and not met.** OIDC, LDAP and SAML were built that day
    ([ADR-088](ADR-088-sign-in-through-an-openid-connect-provider.md) to
    [ADR-090](ADR-090-sign-in-through-a-saml-provider.md)) and none of them read this condition. The lockout is
    reachable now: a group mapped to `administrator` makes administrators who have no local credential, Members

@@ -203,4 +203,19 @@ public interface IIdentityStore
     /// whether the answer is zero.
     /// </remarks>
     Task<bool> AnyPrincipalHoldingAsync(string role, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// How many administrators can sign in with a password this server holds — enabled, holding the
+    /// administrator role, and with a local credential — leaving out <paramref name="except"/>.
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-015 §5b and condition 5.</b> Since an account can sign in through a provider and hold no password
+    /// here (ADR-088 to ADR-090), <i>an administrator</i> and <i>an administrator who can still sign in when the
+    /// provider cannot</i> are two different counts. This is the second: what the recovery tool and the last-local-
+    /// administrator refusals read.
+    /// </remarks>
+    /// <param name="except">A member to leave out of the count, by name, or null.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The count.</returns>
+    Task<int> LocalAdministratorsAsync(string? except, CancellationToken cancellationToken);
 }

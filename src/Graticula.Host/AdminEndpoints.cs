@@ -9145,6 +9145,13 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        if (role != Roles.Administrator
+            && await RefusedAsLastLocalAdministratorAsync(context, name, "Taking that role away", identity, cancellation)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
         IReadOnlyList<string>? before =
             await directory.SetRoleAsync(name, role, cancellation).ConfigureAwait(false);
 
@@ -9448,6 +9455,13 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        if (disabled
+            && await RefusedAsLastLocalAdministratorAsync(context, name, "Disabling them", identity, cancellation)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
         bool? was = await directory
             .SetDisabledAsync(name, disabled, cancellation).ConfigureAwait(false);
 
@@ -9622,6 +9636,7 @@ internal static partial class AdminEndpoints
         PostgresLayerCatalog layers,
         ITileCache tiles,
         IAuditLog audit,
+        IIdentityStore identity,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
@@ -9687,6 +9702,13 @@ internal static partial class AdminEndpoints
                 .ConfigureAwait(false))
         {
             await Refuse(context, 409, OnlyAdministrator(name)).ConfigureAwait(false);
+            return;
+        }
+
+        if (administers
+            && await RefusedAsLastLocalAdministratorAsync(context, name, "Removing them", identity, cancellation)
+                .ConfigureAwait(false))
+        {
             return;
         }
 
@@ -11274,6 +11296,45 @@ internal static partial class AdminEndpoints
 
         return (cut < 0 ? message : message[..cut]).TrimEnd('\r', '\n', ' ');
     }
+
+    /// <summary>
+    /// Refuses a change that would leave no administrator able to sign in with a password this server holds —
+    /// ADR-015 §5b: refused by default, and done when the request says <c>leaveNoLocalAdministrator=true</c>, which
+    /// is the request naming the consequence. False when the change may go ahead.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not the last-administrator refusal, which stays and is absolute.</b> This one is about the other
+    /// administrators being ones a provider signs in: an organisation may mean to have no local password left, and
+    /// may say so; what is refused is doing it by accident.
+    /// </remarks>
+    private static async Task<bool> RefusedAsLastLocalAdministratorAsync(
+        HttpContext context, string name, string act, IIdentityStore identity, CancellationToken cancellation)
+    {
+        if (string.Equals(context.Request.Query["leaveNoLocalAdministrator"].FirstOrDefault(), "true", StringComparison.OrdinalIgnoreCase)
+            || await identity.LocalAdministratorsAsync(null, cancellation).ConfigureAwait(false) == 0
+            || await identity.LocalAdministratorsAsync(name, cancellation).ConfigureAwait(false) > 0)
+        {
+            return false;
+        }
+
+        await Results.Json(new
+        {
+            error = new
+            {
+                code = 409,
+                message = $"'{name}' is the last administrator who signs in with a password this server holds. {act} "
+                    + "would leave only administrators who sign in through a provider, and when that provider is down "
+                    + "or misconfigured nobody could sign in to fix it. Make another local administrator first — or, "
+                    + "if having none is what you mean, send the request again with leaveNoLocalAdministrator=true.",
+                details = LastLocalAdministrator,
+            },
+        }, statusCode: 409).ExecuteAsync(context).ConfigureAwait(false);
+
+        return true;
+    }
+
+    /// <summary>What a refusal's details say when sending again with <c>leaveNoLocalAdministrator=true</c> would do it.</summary>
+    private static readonly string[] LastLocalAdministrator = ["lastLocalAdministrator"];
 
     private static Task Refuse(HttpContext context, int status, string message) =>
         Results.Json(new { error = new { code = status, message, details = Array.Empty<string>() } }, statusCode: status)

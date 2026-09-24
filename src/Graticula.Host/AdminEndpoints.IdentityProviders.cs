@@ -261,6 +261,8 @@ internal static partial class AdminEndpoints
         IRoleDirectory roles,
         SecretProtector protector,
         IAuditLog audit,
+        IMemberDirectory members,
+        IIdentityStore identity,
         CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -277,6 +279,11 @@ internal static partial class AdminEndpoints
         }
 
         if (await ProviderSettingsAsync(context, request, roles, before, cancellation).ConfigureAwait(false) is not { } settings)
+        {
+            return;
+        }
+
+        if (await LockoutRefusalAsync(context, before, settings, store, members, identity, cancellation).ConfigureAwait(false))
         {
             return;
         }
@@ -437,6 +444,75 @@ internal static partial class AdminEndpoints
         {
             await Refuse(context, 502, e.Message).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// ADR-015 §5b and condition 5: a change to the provider every administrator signs in through, when no
+    /// administrator has a password here, is where a lockout comes from. Turning it off is refused outright — nobody
+    /// could sign in afterwards. Any other change is refused unless the request says
+    /// <c>leaveNoLocalAdministrator=true</c>, because a mistake in it — the dead issuer §5b names — locks everybody
+    /// out the same way, and a password prompt would prove who asked, not that anybody can get back in.
+    /// True when refused, with the refusal written.
+    /// </summary>
+    private static async Task<bool> LockoutRefusalAsync(
+        HttpContext context,
+        IdentityProvider before,
+        IdentityProviderSettings after,
+        IIdentityProviderStore store,
+        IMemberDirectory members,
+        IIdentityStore identity,
+        CancellationToken cancellation)
+    {
+        if (await identity.LocalAdministratorsAsync(null, cancellation).ConfigureAwait(false) > 0)
+        {
+            return false;
+        }
+
+        IReadOnlyDictionary<Guid, ExternalMember> external = await store.ExternalMembersAsync(cancellation).ConfigureAwait(false);
+        HashSet<string> enabled = [.. (await store.ListAsync(cancellation).ConfigureAwait(false))
+            .Where(p => p.Settings.Enabled && p.Id != before.Id).Select(p => p.Settings.Name)];
+
+        List<Member> administrators = [.. (await members.ListMembersAsync(cancellation).ConfigureAwait(false))
+            .Where(m => !m.IsDisabled && m.Roles.Contains(Roles.Administrator, StringComparer.Ordinal))];
+
+        bool throughThis = administrators.Any(m =>
+            external.TryGetValue(m.Id, out ExternalMember? e) && string.Equals(e.Provider, before.Settings.Name, StringComparison.Ordinal));
+        bool throughAnother = administrators.Any(m =>
+            external.TryGetValue(m.Id, out ExternalMember? e) && enabled.Contains(e.Provider));
+
+        if (!throughThis || throughAnother)
+        {
+            return false;
+        }
+
+        if (before.Settings.Enabled && !after.Enabled)
+        {
+            await Refuse(context, 409,
+                $"Every administrator signs in through {before.Settings.Name}, and none has a password on this server. "
+                + "Turned off, nobody could sign in to turn it back on. Make a local administrator on Members first.")
+                .ConfigureAwait(false);
+            return true;
+        }
+
+        if (string.Equals(context.Request.Query["leaveNoLocalAdministrator"].FirstOrDefault(), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        await Results.Json(new
+        {
+            error = new
+            {
+                code = 409,
+                message = $"Every administrator signs in through {before.Settings.Name}, and none has a password on this "
+                    + "server, so a mistake in this change would leave nobody able to sign in to put it right. Make a "
+                    + "local administrator on Members first — or, if you mean to go on without one, send the change "
+                    + "again with leaveNoLocalAdministrator=true.",
+                details = LastLocalAdministrator,
+            },
+        }, statusCode: 409).ExecuteAsync(context).ConfigureAwait(false);
+
+        return true;
     }
 
     /// <summary>The settings a request describes, or null with the refusal written.</summary>

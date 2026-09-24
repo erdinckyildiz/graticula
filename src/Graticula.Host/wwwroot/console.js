@@ -79,9 +79,28 @@ async function api(path, options = {}) {
     // carries no digits. A caller reading English to recover a number it was already sent is
     // a mistake with one fix.
     failure.status = response.status;
+    failure.details = (body && body.error && body.error.details) || [];
     throw failure;
   }
   return body;
+}
+
+/**
+ * ADR-015 §5b and condition 5: a change the server refused because it would leave no administrator who signs in with
+ * a password held here is asked about, and sent again naming the consequence only when the operator means it.
+ * `send` is called with the query to add — empty the first time. Resolves to null when the operator declines.
+ */
+async function unlessLastLocalAdministrator(send) {
+  try {
+    return await send("");
+  } catch (e) {
+    if (!(e.details || []).includes("lastLocalAdministrator")) throw e;
+    const said = e.message.replace(/ — or, if .*$/s, "");
+    if (!confirm(`${said}\n\nGo on, and leave no administrator who can sign in with a password on this server?`)) {
+      return null;
+    }
+    return await send("leaveNoLocalAdministrator=true");
+  }
 }
 
 // Escaped by default. Everything below interpolates catalogue text — layer
@@ -1789,11 +1808,17 @@ async function saveIdp() {
   };
 
   try {
-    const saved = await api(editing ? `/admin/identity-providers/${editing}` : "/admin/identity-providers", {
-      method: editing ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const saved = await unlessLastLocalAdministrator(q =>
+      api((editing ? `/admin/identity-providers/${editing}` : "/admin/identity-providers") + (q ? `?${q}` : ""), {
+        method: editing ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }));
+    if (!saved) {
+      idpSay("Not saved.");
+      $("idpSave").focus();
+      return;
+    }
     idpEditing = null;
     await loadSignin();
     idpSay(`${saved && saved.name || body.name} is saved. Press Check to see that this server can reach it, then `
@@ -19858,10 +19883,10 @@ async function handleClick(event) {
       // disposition for content that does not exist is a dialog nobody can answer.
       if (!held.owns) {
         if (confirm(`Remove ${d.memberRemove}? They own nothing, so nothing goes with them.`)) {
-          const r = await api(`/admin/members/${encodeURIComponent(d.memberRemove)}`,
-            { method: "DELETE" });
+          const r = await unlessLastLocalAdministrator(q =>
+            api(`/admin/members/${encodeURIComponent(d.memberRemove)}${q ? `?${q}` : ""}`, { method: "DELETE" }));
 
-          toast(r.note, true);
+          if (r) toast(r.note, true);
           await section("members", loadMembers, "members");
         }
       } else {
@@ -19895,11 +19920,11 @@ async function handleClick(event) {
         ? `?transferTo=${encodeURIComponent(to)}`
         : "?deleteOwned=true";
 
-      const r = await api(`/admin/members/${encodeURIComponent(name)}${query}`,
-        { method: "DELETE" });
+      const r = await unlessLastLocalAdministrator(q =>
+        api(`/admin/members/${encodeURIComponent(name)}${query}${q ? `&${q}` : ""}`, { method: "DELETE" }));
 
       $("removeMember").style.display = "none";
-      toast(r.note, true);
+      if (r) toast(r.note, true);
       await section("members", loadMembers, "members");
       await loadLayers();
     } catch (e) { toast(e.message); }
@@ -21199,9 +21224,9 @@ async function handleClick(event) {
   if (d.memberState) {
     t.disabled = true;
     try {
-      const r = await api(`/admin/members/${encodeURIComponent(d.memberState)}/${d.to}`,
-        { method: "POST" });
-      toast(`${r.name}: ${r.note}`, true);
+      const r = await unlessLastLocalAdministrator(q =>
+        api(`/admin/members/${encodeURIComponent(d.memberState)}/${d.to}${q ? `?${q}` : ""}`, { method: "POST" }));
+      if (r) toast(`${r.name}: ${r.note}`, true);
     } catch (e) { toast(e.message); }
     await section("members", loadMembers, "members");
     return;
@@ -21729,12 +21754,13 @@ document.addEventListener("change", async event => {
     }
 
     try {
-      const r = await api(`/admin/members/${encodeURIComponent(d.memberRole)}/role`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: event.target.value || null }),
-      });
-      toast(`${r.name}: ${(r.from || []).join(", ") || "none"} → ${r.to || "none"}. ${r.note}`, true);
+      const r = await unlessLastLocalAdministrator(q =>
+        api(`/admin/members/${encodeURIComponent(d.memberRole)}/role${q ? `?${q}` : ""}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: event.target.value || null }),
+        }));
+      if (r) toast(`${r.name}: ${(r.from || []).join(", ") || "none"} → ${r.to || "none"}. ${r.note}`, true);
     } catch (e) { toast(e.message); }
     await section("members", loadMembers, "members");
     return;

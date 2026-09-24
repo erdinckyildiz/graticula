@@ -474,6 +474,24 @@ public sealed class PostgresIdentityStore : IIdentityStore
         return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
     }
 
+    /// <inheritdoc/>
+    public async Task<int> LocalAdministratorsAsync(string? except, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            select count(*)::int
+              from principal p
+              join principal_role r on r.principal_id = p.id and r.role_name = @role
+              join local_credential c on c.principal_id = p.id
+             where p.disabled_at is null
+               and (@except::text is null or lower(p.name) <> lower(@except::text))
+            """);
+        command.Parameters.AddWithValue("role", Roles.Administrator);
+        command.Parameters.Add(new NpgsqlParameter("except", NpgsqlTypes.NpgsqlDbType.Text) { Value = (object?)except ?? DBNull.Value });
+
+        return (int)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
+    }
+
     private static Principal ReadPrincipal(NpgsqlDataReader reader, int idOrdinal, bool isDisabled) =>
         new(
             reader.GetGuid(idOrdinal),

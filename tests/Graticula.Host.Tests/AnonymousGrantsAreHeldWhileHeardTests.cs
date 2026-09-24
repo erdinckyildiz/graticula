@@ -253,6 +253,9 @@ public sealed class AnonymousGrantsAreHeldWhileHeardTests
         public Task<bool> AnyPrincipalHoldingAsync(
             string role, CancellationToken cancellationToken) => throw Not();
 
+        public Task<int> LocalAdministratorsAsync(
+            string? except, CancellationToken cancellationToken) => throw Not();
+
         public Task<(Principal Principal, PasswordHash? Credential)?> FindForLoginAsync(
             string name, CancellationToken cancellationToken) => throw Not();
 

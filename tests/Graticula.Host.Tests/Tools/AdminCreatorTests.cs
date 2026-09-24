@@ -111,6 +111,21 @@ public sealed class AdminCreatorTests
     }
 
     [Fact]
+    public async Task An_administrator_who_signs_in_only_through_a_provider_does_not_make_the_store_healthy()
+    {
+        // <b>ADR-015 §5b, predicate 3, and condition 5.</b> On a store whose only administrator signs in through a
+        // provider that has failed, nobody can sign in — and this command asked only whether an administrator
+        // existed, so it answered that there was nothing to recover. That was the line at which a lockout became
+        // permanent.
+        Directory members = new();
+        (int code, _) = await RunAsync(
+            new Store { HasAdministrator = true, AdministratorIsExternal = true }, members, Good);
+
+        Assert.Equal(0, code);
+        Assert.Equal(Roles.Administrator, members.CreatedRole);
+    }
+
+    [Fact]
     public async Task It_creates_the_account_and_grants_the_role()
     {
         Directory members = new();
@@ -262,6 +277,12 @@ public sealed class AdminCreatorTests
             string role, CancellationToken cancellationToken) =>
             Task.FromResult(HasAdministrator
                 && string.Equals(role, Roles.Administrator, StringComparison.Ordinal));
+
+        /// <summary>The administrator there is signs in only through a provider — ADR-015 condition 5.</summary>
+        public bool AdministratorIsExternal { get; init; }
+
+        public Task<int> LocalAdministratorsAsync(string? except, CancellationToken cancellationToken) =>
+            Task.FromResult(HasAdministrator && !AdministratorIsExternal ? 1 : 0);
 
         public Task<AuthenticatedSession?> FindSessionAsync(
             byte[] tokenHash, DateTimeOffset now, CancellationToken cancellationToken) => throw Not();
