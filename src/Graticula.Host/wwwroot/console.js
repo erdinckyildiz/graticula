@@ -14499,7 +14499,15 @@ function pubMenuShut() {
 
   menu.hidden = true;
 
-  if (inside && pubMenuCameFrom?.isConnected) pubMenuCameFrom.focus();
+  // <b>The element it came from, or the one that replaced it.</b> The tree is redrawn when a layer's
+  // extent or preview arrives, which can happen while the menu is open; the root row's button is then a
+  // new element with the same id, and the one remembered is gone — so Escape put focus nowhere. CI caught
+  // it one run in four (2026-09-24), which is how often a redraw landed inside the test's half-second.
+  const back = pubMenuCameFrom?.isConnected
+    ? pubMenuCameFrom
+    : (pubMenuCameFrom?.id ? document.getElementById(pubMenuCameFrom.id) : null);
+
+  if (inside && back) back.focus();
 
   pubMenuCameFrom = null;
 }

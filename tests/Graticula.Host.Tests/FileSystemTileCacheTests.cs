@@ -418,7 +418,8 @@ public sealed class FileSystemTileCacheTests : IDisposable
         // purge match nothing and delete nothing — silently. Written out rather than
         // interpolated, so that raising the generation fails here too and whoever raises
         // it sees what the paths become.
-        Assert.Equal("0f9c9f610f274a519e261e1a1b2c3d4e/v1/abcd1234/7/65/42.mvt", path);
+        // v2 since Q-157 (ADR-085): the tile generalises by zoom, so the cached tiles of v1 are left behind.
+        Assert.Equal("0f9c9f610f274a519e261e1a1b2c3d4e/v2/abcd1234/7/65/42.mvt", path);
     }
 
     [Fact]
