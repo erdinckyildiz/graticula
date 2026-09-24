@@ -57,6 +57,12 @@ public sealed class TilePipelineVersionTests
         "src/Graticula.Core/Tiles/ITileSource.cs",
         "src/Graticula.Providers.PostGis/PostGisTileSource.cs",
         "src/Graticula.Host/VectorTileEndpoints.cs",
+
+        // <b>A GeoParquet layer's tile, since 27e311d, and missing from this list until Q-157.</b> Its rows
+        // come from DuckDB and are encoded by this statement, so these two decide its bytes as the two
+        // above decide a table's; generalising by zoom changed both and this check watched one.
+        "src/Graticula.Providers.PostGis/PostGisMvtEncoder.cs",
+        "src/Graticula.Providers.DuckDb/GeoParquetTileSource.cs",
     ];
 
     /// <summary>
@@ -68,6 +74,10 @@ public sealed class TilePipelineVersionTests
     /// its own question.
     /// </remarks>
     private const string RecordedHash =
+        // <b>Raised to version 2 on 2026-09-24 — Q-157.</b> A tile leaves out a line or polygon smaller
+        // than a pixel and simplifies at half a pixel through z14 (benchmarks/tile-generalisation), which
+        // changes the bytes of nearly every low-zoom tile; every tile cached before is unreachable, which is
+        // the intended effect. The two GeoParquet files joined the list with it.
         // <b>Moved 2026-09-23 for a header again, and the version deliberately did not move.</b>
         // V-56's tile half: a tile with a layer somebody can edit is sent `no-cache` rather than a
         // lifetime, so a browser asks before reusing it. What a browser may do with a tile changed;
@@ -114,10 +124,10 @@ public sealed class TilePipelineVersionTests
         //
         // <b>Moved 2026-09-23, and the version did not move.</b> Every error envelope gained
         // `details: []` (V-60) — the tile face's refusals among them. A refusal is not a tile.
-        "179be31b50e434bb7b6c755ec6a1a46287371c323c5f458aa1d96bc622227788";
+        "9939989fd25b0c8d32f988a77262357d65cb3aca2d36abcc2f60cf5e8bfef079";
 
     /// <summary>The generation that hash belongs to.</summary>
-    private const int RecordedVersion = 1;
+    private const int RecordedVersion = 2;
 
     private static string Root
     {

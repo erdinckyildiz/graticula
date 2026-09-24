@@ -49,6 +49,9 @@ public static class TilePipeline
     /// path from the absence this replaces, and a deployment upgraded onto this release
     /// should invalidate once — the caches it holds were built by code that never
     /// declared a generation at all, so nothing can say whether they agree with it.
+    /// <b>2 on 2026-09-24, Q-157</b>: a tile leaves out a line or polygon smaller than a pixel and
+    /// simplifies at half a pixel through z14, so every tile built before holds features and vertices a
+    /// tile built now does not — the reason this number exists.
     /// </remarks>
-    public const int Version = 1;
+    public const int Version = 2;
 }

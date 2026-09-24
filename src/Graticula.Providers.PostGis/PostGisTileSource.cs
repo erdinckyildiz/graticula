@@ -59,6 +59,54 @@ public sealed class PostGisTileSource : ITileSource
     /// </remarks>
     public const int WebMercator = 3857;
 
+    /// <summary>How many pixels across a client draws a tile — the size a pixel is measured against.</summary>
+    /// <remarks>
+    /// <b>512, which is what MapLibre and the ArcGIS Maps SDK draw a vector tile at</b>, so a pixel is the
+    /// tile's width over 512: 19 m at z12, 1.2 m at z16.
+    /// </remarks>
+    public const int Pixels = 512;
+
+    /// <summary>The deepest zoom at which a tile's geometry is simplified — Q-157.</summary>
+    /// <remarks>
+    /// <b>Measured, not chosen</b> (benchmarks/tile-generalisation): on 927,350 Istanbul polygons,
+    /// simplifying at half a pixel took z10 from 1.43 MB to 918 KB and z12 from 1.39 MB to 1.26 MB, left z13 and
+    /// z14 no slower, and added 9 to 14 ms to a z15 or z16 tile for a few hundred bytes.
+    /// </remarks>
+    public const int SimplifiedThroughZoom = 14;
+
+    /// <summary>The tile's width in its own units — Web Mercator metres — as SQL over the tile envelope.</summary>
+    private const string Span = "(ST_XMax(bounds.geom) - ST_XMin(bounds.geom))";
+
+    /// <summary>
+    /// The geometry a tile encodes, generalised by zoom — Q-157, the owner's decision of 2026-09-23.
+    /// </summary>
+    /// <param name="geometry">SQL for the feature's geometry in Web Mercator.</param>
+    /// <returns>SQL for what <c>ST_AsMVTGeom</c> is given.</returns>
+    /// <remarks>
+    /// <b>Half a pixel at z14 and below, and nothing above.</b> Half a pixel is four of the tile's 4,096 grid
+    /// units, below what a client can draw; <c>preserveCollapsed</c> keeps a shape the tolerance would
+    /// have reduced to nothing, which <see cref="LargeEnough"/> has already decided should be drawn.
+    /// </remarks>
+    public static string Generalised(string geometry) =>
+        $"case when @z <= {SimplifiedThroughZoom} "
+        + $"then ST_Simplify({geometry}, {Span} / {Pixels * 2}, true) else {geometry} end";
+
+    /// <summary>
+    /// Whether a feature is large enough to see at this zoom — Q-157: a line or a polygon whose box is
+    /// smaller than a pixel both ways is left out of the tile, and a point never is.
+    /// </summary>
+    /// <param name="geometry">SQL for the feature's geometry in Web Mercator.</param>
+    /// <returns>A SQL condition.</returns>
+    /// <remarks>
+    /// <b>Where almost all of Q-157's gain is.</b> A z10 tile over Istanbul went from 16.6 MB and 14.4 s to
+    /// 1.43 MB and 3.1 s on this alone; at z16 it costs about 3 ms. A point is exempt because its box has no
+    /// size at all — the rule is about shapes too small to draw, and a point is drawn as a symbol.
+    /// </remarks>
+    public static string LargeEnough(string geometry) =>
+        $"(ST_Dimension({geometry}) = 0"
+        + $" or ST_XMax({geometry}) - ST_XMin({geometry}) >= {Span} / {Pixels}"
+        + $" or ST_YMax({geometry}) - ST_YMin({geometry}) >= {Span} / {Pixels})";
+
     private readonly NpgsqlDataSource _dataSource;
     private readonly LayerDefinition _layer;
     private readonly IReadOnlyList<string> _attributes;
@@ -160,17 +208,22 @@ public sealed class PostGisTileSource : ITileSource
             ? $"t.{column}"
             : $"ST_Transform(t.{column}, {WebMercator.ToString(CultureInfo.InvariantCulture)})";
 
+        // <b>The output geometry once per row, in a lateral</b>, because Q-157's rules read it several
+        // times and on a layer not stored in Web Mercator each read would be a transform. The `&&` stays
+        // on the stored column, which is what reaches the index.
         return string.Create(
             CultureInfo.InvariantCulture,
             $"""
              with bounds as (select ST_TileEnvelope(@z, @x, @y) as geom),
              tile as (
                  select ST_AsMVTGeom(
-                            {outputGeometry},
+                            {Generalised("o.g")},
                             bounds.geom, {Extent}, {Buffer}, true) as geom{columns}
                  from {LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(_layer.TableName)} t,
-                      bounds
+                      bounds,
+                      lateral (select {outputGeometry} as g) o
                  where t.{column} && {filterBox}
+                   and {LargeEnough("o.g")}
              )
              select ST_AsMVT(tile.*, '{safeName}', {Extent}, 'geom') from tile
              """);

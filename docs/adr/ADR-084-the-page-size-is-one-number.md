@@ -155,4 +155,8 @@ None recorded.
 2. **`default_record_count` is dropped by a contract migration** in a release after this one, raising the
    minimum reader to 54, once a store migrated by this release has run a release.
 3. **The showcase keeps its numbers across the migration**: run on a copy first, and its services' page
-   sizes and documents read before and after.
+   sizes and documents read before and after. **DISCHARGED 2026-09-24** with v1.0.161: no showcase
+   service had set a page size, so the fold changed no row; the copy migrated with 26 services and 28 layers
+   before and after; and `hosted/tr_il`'s layer document said `maxRecordCount` **50000 before and 1000 after**,
+   over a parameterless query answering 1000 with `exceededTransferLimit` — V-70's trap, gone where it was
+   found.

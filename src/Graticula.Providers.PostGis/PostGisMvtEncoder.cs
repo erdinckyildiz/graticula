@@ -183,7 +183,9 @@ public sealed class PostGisMvtEncoder : IMvtEncoder
 
     /// <summary>
     /// The one statement: unnest the batch, cast each attribute back to its own type, and run
-    /// the same <c>ST_AsMVTGeom</c>/<c>ST_AsMVT</c> <see cref="PostGisTileSource"/> runs.
+    /// the same <c>ST_AsMVTGeom</c>/<c>ST_AsMVT</c> <see cref="PostGisTileSource"/> runs — with the
+    /// same generalisation by zoom (Q-157), from the same two methods, so a GeoParquet layer's tile
+    /// leaves out and simplifies what a table's does.
     /// </summary>
     private static string BuildSql(string layerName, int srid, IReadOnlyList<MvtTag> shape)
     {
@@ -248,10 +250,12 @@ public sealed class PostGisMvtEncoder : IMvtEncoder
                  from {expandedFrom}
              ),
              tile as (
-                 select ST_AsMVTGeom({outputGeometry}, bounds.geom, {PostGisTileSource.Extent},
+                 select ST_AsMVTGeom({PostGisTileSource.Generalised("o.g")}, bounds.geom, {PostGisTileSource.Extent},
                             {PostGisTileSource.Buffer}, true) as geom{tileColumns}
-                 from expanded, bounds
+                 from expanded, bounds,
+                      lateral (select {outputGeometry} as g) o
                  where expanded.raw_geom && {filterBox}
+                   and {PostGisTileSource.LargeEnough("o.g")}
              )
              select ST_AsMVT(tile.*, '{safeName}', {PostGisTileSource.Extent}, 'geom') from tile
              """);

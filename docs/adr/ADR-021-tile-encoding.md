@@ -79,6 +79,13 @@ byte of encoding, `/src` still carries no MVT encoder, and the round trip this s
 against an in-process alternative is the same round trip a GeoParquet tile now also pays, once per
 cold tile rather than once per row.
 
+**Amended 2026-09-24: the statement generalises by zoom —
+[ADR-085](ADR-085-a-tile-leaves-out-what-it-cannot-draw.md), the owner's answer to Q-157.** A line or
+polygon smaller than a pixel is left out, and geometry is simplified at half a pixel through z14, because a
+z10 tile over dense data measured 16.6 MB. **This section's decision still holds as written**: the
+generalising is `ST_Simplify` and a box comparison inside the same statement, so `/src` still carries no
+simplifier — it writes two SQL expressions, and PostGIS does the work.
+
 ---
 
 ## 3. What this does not throw away

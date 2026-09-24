@@ -79,8 +79,14 @@ public sealed class PostGisTileSourceTests : PostgresFixture
         byte[] tile = await Source().BuildAsync(new TileAddress(Z, X, Y), "buildings", CancellationToken.None);
         Mvt.Layer layer = Assert.Single(Mvt.Decode(tile));
 
+        // <b>Counted by the tile's own rule since Q-157</b>: a building smaller than a pixel both ways — 1.2 m at
+        // z16 — is left out of the tile, so it is left out of the count, from the same method.
         await using NpgsqlCommand count = DataSource.CreateCommand(
-            $"select count(*) from public.osm_buildings where way && ST_TileEnvelope({Z},{X},{Y})");
+            $"""
+            with bounds as (select ST_TileEnvelope({Z},{X},{Y}) as geom)
+            select count(*) from public.osm_buildings t, bounds, lateral (select t.way as g) o
+            where t.way && bounds.geom and {PostGisTileSource.LargeEnough("o.g")}
+            """);
 
         Assert.Equal((long)(await count.ExecuteScalarAsync())!, layer.Features.Count);
         Assert.True(layer.Features.Count > 100, "the chosen tile should be a dense one");
