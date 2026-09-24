@@ -39,7 +39,7 @@ client of it. That reasoning survives; the deferral does not.
 
 **It ships with the server, served from the same process** — at `/console` when this was written, and at `/server` and `/studio` since [ADR-034](ADR-034-server-and-studio.md) split the audiences.
 
-The alternative — a separate deployable, as Honua does with `honua-console` — is
+The alternative — a separate deployable, as the peer server does with its own console — is
 the right shape for a product with several servers under one UI, and the wrong
 one for a product whose whole positioning is *one deployable against one
 PostgreSQL* ([ADR-019](ADR-019-portal-server-split.md)). Telling somebody who
@@ -381,9 +381,9 @@ fields, which was the one question about a layer the console could not answer; a
 timestamp on the Operations figures, because a runtime number with no time on it is
 read as *now* for as long as the tab stays open.
 
-### 5b. Measured against `honua-console`, 2026-08-16
+### 5b. Measured against the peer's separate console, 2026-08-16
 
-§2 rejected the separate-deployable shape and named `honua-console` as the thing
+§2 rejected the separate-deployable shape and named the peer's separate console as the thing
 it was rejecting. That was a judgement about *shape* made without looking at the
 thing. It has now been looked at — from its public repository, its README and its
 own route map — and the shape judgement survives while the **scope** judgement
@@ -391,7 +391,7 @@ does not.
 
 **What they have.** Blazor on .NET 10, MapLibre GL JS, Vega/Vega-Lite for charts,
 Cesium for 3D, an optional MAUI Blazor Hybrid desktop host, Apache-2.0, pre-1.0,
-published as `ghcr.io/honua-io/honua-console:nightly`. Roughly fifty routes across
+published as its published nightly console image. Roughly fifty routes across
 four surfaces — Studio (authoring), Catalog (discovery), Operate (administration),
 Share (public and embed) — with code splitting so the public surfaces paint without
 loading the administrative ones.
@@ -463,7 +463,7 @@ ADR should answer for.
 
 ### 5d. The console's licence is known; the server's is not
 
-`honua-console` is **Apache-2.0**, stated in its own repository. That is a real
+The peer's separate console is **Apache-2.0**, stated in its own repository. That is a real
 data point and it settles nothing about the server, whose licence remains
 [Q-106](../open-questions.md) — the local checkout's `LICENSE` file is scrubbed and
 the owner has said it is not the real one. Recorded here because it is evidence

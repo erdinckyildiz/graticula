@@ -380,7 +380,7 @@ tile path.
 ### Migration tooling — inventory first, and free
 
 **Decided 2026-08-12 (Q-16).** Two separable steps, a decomposition observed in
-Honua Server:
+The peer server:
 
 **1. Inventory.** Scan an existing GeoServer or ArcGIS Server and produce a
 report: what exists, what we can bring across, and **what we cannot, with the
@@ -400,7 +400,7 @@ Styles are the ragged edge. SLD and ArcGIS renderer JSON do not map cleanly onto
 MapLibre style. We convert what converts and report what does not, rather than
 producing something that looks converted and renders wrongly.
 
-**Both are free.** `VERIFY` Honua places service imports behind an Enterprise
+**Both are free.** `VERIFY` The peer server places service imports behind an Enterprise
 entitlement while leaving file import in the community tier — a well-drawn
 monetisation boundary that says plainly where they believe the value sits.
 Giving away what an open-core competitor charges for is a concrete differentiator

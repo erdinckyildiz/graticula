@@ -117,7 +117,7 @@ They pressure-test it, which §3 argues is a benefit.
 - **The observation store** (SensorThings, and half of EDR) is a different domain
   model with its own storage, indexing and write path. It is a defensible thing
   to build and it is not a GIS server feature; it is an IoT platform feature that
-  Honua chose to include.
+  the peer server chose to include.
 - **3D and terrain** has no foundation in anything decided so far.
 
 These two should be **scheduled as their own decisions**, not absorbed into a
@@ -160,7 +160,7 @@ sixteen-item list into four decisions and a stream of adapters.
   Parity is a legitimate answer where a real client speaks the protocol. It is
   not an answer for a protocol nothing in the target market uses, and those
   should be identified rather than built by default.
-- **Conformance is not optional now.** Honua publishes 1,117 passing tests across
+- **Conformance is not optional now.** The peer server publishes 1,117 passing tests across
   13 suites. Claiming twenty-nine protocol faces without conformance evidence is
   a weaker position than claiming six with it. This makes protocol conformance
   testing a CI decision that has to be taken early, and it is currently absent

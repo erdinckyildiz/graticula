@@ -74,7 +74,7 @@ own critique stands unanswered, and the thing being defended is unbuilt — ther
 is no working affinity router to regress. Keeping it as the default costs
 nothing today and quietly keeps two unvalidated assumptions load-bearing.
 
-### Alternative B — adopt Redis, as Honua did
+### Alternative B — adopt Redis, as the peer server did
 
 **Argument for.** It is the demonstrated-working answer at a peer. A shared L2
 means a local miss costs a network hop rather than a datastore query, which
@@ -163,7 +163,7 @@ told us how wasteful. It still does not exist. Condition 2.
 | The affinity prototype has not been run | `experiments/` contains `lang-slice` and a README. `benchmarks/worker-model` does not exist. ADR-007 §4.4 requires both |
 | ADR-007 already named plain balancing as the correct fallback | §4.4, F2 amendment: *"If stability cannot be demonstrated, the correct answer is plain balancing with pinning as the only affinity — simpler, and provably stable"* |
 | The design is a control system with no damping | §4.4's own F2 amendment: five feedback mechanisms, a named oscillation path, an unspecified regime switch |
-| A peer reaches the same scale without affinity | Honua's published architecture: one process, stateless instances, scale by adding containers. Verified 2026-08-15 |
+| A peer reaches the same scale without affinity | The peer's published architecture: one process, stateless instances, scale by adding containers. Verified 2026-08-15 |
 | Redis would not remove A-003 | A connection pool cannot be shared through it. The shareable part of a context is `LayerDescription` — fields and extent — already cached 30s |
 | Nothing is measured to be slow | No performance gate has been run; no deployment exists. This is an argument for not adding a dependency, not for the design being fast |
 | A-003 was already downgraded | ADR-007 §4.3: *"idle services cost a row in a table, not a process"* |
@@ -283,7 +283,7 @@ informational.
 ## 11. Dissent
 
 **Recorded, and it is the differentiator argument.** This project's plausible
-claim to being worth building — rather than being a smaller Honua — was that it
+claim to being worth building — rather than being a smaller copy of the peer — was that it
 holds a thousand services on one machine because it understands where warm state
 lives. This ADR sets that aside because the work to prove it did not get done,
 and swaps it for an architecture a competitor already ships more of.

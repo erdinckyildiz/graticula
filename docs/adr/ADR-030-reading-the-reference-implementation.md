@@ -50,7 +50,7 @@ are not evidence: neither the name it carries nor the licence it declares may be
 cited from it.
 
 That is narrower than it sounds, and the difference is worth stating, because
-this repository names the product it is a copy of — **Honua** — ~~48 times across
+this repository names the product it is a copy of — ~~48 times across
 19 documents~~ **44 times across 15, counted 2026-09-09; the figure in this
 sentence was 48 across 19 when it was written on 2026-08-16 and stayed there
 while the two research documents that carried most of them left the repository on

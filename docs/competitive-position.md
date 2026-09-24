@@ -21,7 +21,7 @@ folded into the sections below yet.
 
 `VERIFY` all figures and capability claims.
 
-| | GeoServer | GeoNode | Honua | ArcGIS Enterprise | Us |
+| | GeoServer | GeoNode | Peer server | ArcGIS Enterprise | Us |
 |---|---|---|---|---|---|
 | Age / maturity | ~20 years, large base | Mature, OSGeo | **8 months**, 4,894 commits, 4 stars, no release (verified 2026-08-15) | Decades, dominant | Nothing built |
 | Licence | GPL | GPL | ~~Elastic 2.0, open core~~ **console Apache-2.0; server unknown** | Commercial | ~~Copyleft, TBD~~ **Elastic License 2.0 — source-available** |
@@ -42,7 +42,7 @@ folded into the sections below yet.
 ## 2. The claim I was about to make, and why it fails
 
 The working answer to Q-49 had become: *an open-source GIS server where users
-publish their own content, not just administrators.* Neither GeoServer nor Honua
+publish their own content, not just administrators.* Neither GeoServer nor the peer server
 has that, and it is what made ArcGIS Enterprise spread inside organisations.
 
 **GeoNode already does it.** `VERIFY`: users upload vector and raster data and
@@ -75,7 +75,7 @@ free, which we would have to build.
 
 Consider an organisation running ArcGIS Server that wants out.
 
-| What they need | GeoServer | GeoNode | Honua | Us |
+| What they need | GeoServer | GeoNode | Peer server | Us |
 |---|---|---|---|---|
 | Their existing apps keep working (FeatureServer) | No | No | Yes | **Yes** |
 | Self-service publishing they already have | No | Yes | No | **Yes** |
@@ -84,7 +84,7 @@ Consider an organisation running ArcGIS Server that wants out.
 | Fully open licence | Yes | Yes | **No** | **Yes** |
 
 **No one else fills that whole row.** GeoNode has the self-service half and no
-ArcGIS compatibility. Honua has the ArcGIS half, charges for migration, keeps
+ArcGIS compatibility. The peer server has the ArcGIS half, charges for migration, keeps
 non-PostGIS read-only, and is not open in the sense that matters to a public
 body.
 
@@ -104,7 +104,7 @@ notices.
 
 **Q-49 has now been attempted three times and has no strong answer.**
 
-- *Multi-protocol access over PostGIS* — taken by Honua.
+- *Multi-protocol access over PostGIS* — taken by the peer server.
 - *Self-service publishing* — taken by GeoNode.
 - *Native rather than bolted-on* — true, and weak as a reason to switch.
 
@@ -280,7 +280,7 @@ Each of these is a genuine GeoServer gap rather than a preference:
 | | Why GeoServer does not cover it |
 |---|---|
 | **Full ArcGIS FeatureServer compatibility, including `applyEdits`** (Q-17) | GeoServer has no ArcGIS REST surface. Existing clients keep working through the migration instead of being rewritten alongside it |
-| **Free migration tooling** (Q-16) | Scan the estate, report honestly what can and cannot come across, import definitions. Honua charges for the equivalent; GeoServer offers none |
+| **Free migration tooling** (Q-16) | Scan the estate, report honestly what can and cannot come across, import definitions. The peer server charges for the equivalent; GeoServer offers none |
 | **A real service runtime** (ADR-007) | Affinity routing, warmth-aware, bounded per-worker context budget, supervisor. GeoServer has no equivalent concept, and §3 of this document found that no existing GIS server does warmth-aware routing at all |
 | **Never degrade silently** (ADR-008 §2) | Published capability reports and explicit refusal rather than quietly dragging data back to the server. A philosophy difference, not a feature |
 | **Self-service publishing with a publisher role** | GeoNode provides this, but as a separate stack layered on GeoServer rather than as the server's own model |

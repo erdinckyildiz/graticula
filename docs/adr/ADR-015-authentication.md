@@ -224,8 +224,8 @@ it is not there rather than asked to sign in.
 | Source | Status | Note |
 |---|---|---|
 | **Local accounts** | **First-class, always present** | Not a fallback. Air-gapped sites may have no reachable IdP, and Q-15 assumes none |
-| **OIDC** | Supported, free | Honua gates this at **Pro**; Q-49's positioning is that we do not |
-| **SAML 2.0** | Supported, free | Honua gates at **Enterprise**. Still common in government and defence, which are plausible customers |
+| **OIDC** | Supported, free | The peer server gates this at **Pro**; Q-49's positioning is that we do not |
+| **SAML 2.0** | Supported, free | The peer server gates at **Enterprise**. Still common in government and defence, which are plausible customers |
 | **SCIM 2.0** | Supported, free | Provisioning, not authentication. Included because Q-83 put it in scope |
 | **API keys** | Service principals only | Long-lived by nature, so scoped narrowly and revocable |
 | **mTLS** | Off by default | [ADR-014](ADR-014-tls-and-certificates.md) §6 validates the certificate; **this ADR interprets the identity in it**. That boundary was set deliberately |

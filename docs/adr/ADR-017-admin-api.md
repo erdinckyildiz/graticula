@@ -264,7 +264,7 @@ administrator has left.
 ## 7. Deliberately not decided here
 
 - The full endpoint catalogue, request and response schemas — Phase 1.
-- Whether there is a web console. `honua-console` exists as a separate product;
+- Whether there is a web console. The peer's console exists as a separate product;
   ours is an API-first decision and a UI, if any, is a client of it.
 - **D-04 multi-tenant resource isolation.** Still unaddressed, and §3.2's
   worker introspection will make one tenant's impact on another *visible* without

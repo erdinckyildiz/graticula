@@ -222,7 +222,7 @@ process.** Concretely:
    `FeatureLayer`, which fetches FeatureServer `query` tiles; for a GeoParquet polygon layer that
    was 4–8 MB per tile even after `maxAllowableOffset` cut far-zoom tiles 107× (item 6 above),
    because near-zoom tiles carry the vertices a low tolerance keeps. The owner looked at how a
-   comparable server (Honua, from its published docs only — ADR-030) draws maps — every layer as
+   comparable server (the peer, from its published docs only — ADR-030) draws maps — every layer as
    vector tiles from a server-side cache — and this server already has that for PostGIS layers
    (ADR-021, `VectorTileServer`). Building it a second time for GeoParquet would have repeated
    ADR-021's own tiling pipeline for a source that only differs in where its rows come from.

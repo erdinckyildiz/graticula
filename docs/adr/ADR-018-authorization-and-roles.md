@@ -168,7 +168,7 @@ an item at some scope may read the same item at any wider one. Nothing that comp
 inherits or defaults may break that.
 
 **This is not the deny-wins rule the reference uses**, and the difference is worth
-keeping straight. Honua composes a service policy with a layer policy and resolves
+keeping straight. The peer server composes a service policy with a layer policy and resolves
 conflicts by denying; §3b-i deliberately has no such composition, because sharing lives on
 the service and a layer has none of its own. So there is nothing here to resolve — which
 is precisely why the rule needed writing down: an invariant with no current violation is

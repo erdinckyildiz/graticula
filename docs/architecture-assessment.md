@@ -114,7 +114,7 @@ and observing someone else's.
 > *category*. It does not justify *this product*, which fresh-challenger review
 > G1 identified as a gap. [competitive-position.md](competitive-position.md) now
 > attempts it and concludes that after three attempts there is no strong answer —
-> GeoNode already provides self-service publishing, Honua already provides
+> GeoNode already provides self-service publishing, the peer server already provides
 > multi-protocol access over PostGIS. What survives is a niche: the fully open
 > ArcGIS Server exit path. **That conclusion should be read before the rest of
 > this document.**

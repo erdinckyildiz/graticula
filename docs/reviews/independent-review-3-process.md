@@ -86,7 +86,7 @@ capacity. **There is none.** The only sizing language is *"a multi-year
 programme"* — with no subject.
 
 **Why it matters.** For calibration, `competitive-position.md` §1 records
-GeoServer at ~20 years with multi-vendor OSGeo governance, and Honua at 4,608
+GeoServer at ~20 years with multi-vendor OSGeo governance, and the peer server at 4,608
 commits from a single vendor — doing a **subset** of this. The exit plan's *"None
 of it changes §3"* is true only of the first line of code and is **the most
 dangerous sentence in the document**: it lets a tripling of scope pass without a
