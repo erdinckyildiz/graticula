@@ -64,9 +64,13 @@ internal static class OidcEndpoints
 
         await Results.Json(new
         {
-            providers = all.Where(p => p.Settings.Enabled)
+            // ADR-089: a directory is signed in to with the password form, not a button.
+            providers = all.Where(p => p.Settings is { Enabled: true, Kind: "oidc" })
                 .Select(p => new { id = p.Id, name = p.Settings.Name, start = $"/rest/auth/oidc/{p.Id}/start" })
                 .ToArray(),
+
+            // ADR-089: a directory's people use the password form, and the form has to say that it is theirs.
+            directories = all.Where(p => p.Settings is { Enabled: true, Kind: "ldap" }).Select(p => p.Settings.Name).ToArray(),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -79,7 +83,7 @@ internal static class OidcEndpoints
         ILoggerFactory logs,
         CancellationToken cancellation)
     {
-        if (await store.FindAsync(id, cancellation).ConfigureAwait(false) is not { Settings.Enabled: true } provider)
+        if (await store.FindAsync(id, cancellation).ConfigureAwait(false) is not { Settings: { Enabled: true, Kind: "oidc" } } provider)
         {
             await PageAsync(context, 404, "No such sign-in", "This server offers no sign-in by that name.").ConfigureAwait(false);
             return;
@@ -238,6 +242,18 @@ internal static class OidcEndpoints
             return;
         }
 
+        // <b>ADR-089: the provider's groups, through the same mapping a directory's go through</b>, at every sign-in.
+        if (!principal.IsDisabled)
+        {
+            await store.ApplyMappingsAsync(
+                principal.Id,
+                provider.Id,
+                [.. claims.FindAll(provider.Settings.GroupsClaim).Select(c => c.Value)],
+                Graticula.Host.Ldap.LdapDirectory.RoleRank,
+                provider.Settings.DefaultRole,
+                cancellation).ConfigureAwait(false);
+        }
+
         if (principal.IsDisabled)
         {
             await PageAsync(context, 403, "This account cannot sign in",
@@ -287,7 +303,7 @@ internal static class OidcEndpoints
     }
 
     /// <summary>An account name made from the name a provider gives: its part before an @, if it has one.</summary>
-    private static string AccountName(string username)
+    internal static string AccountName(string username)
     {
         string name = username.Contains('@', StringComparison.Ordinal) ? username[..username.IndexOf('@', StringComparison.Ordinal)] : username;
         return name.Trim().Length == 0 ? username.Trim() : name.Trim();

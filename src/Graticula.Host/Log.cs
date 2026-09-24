@@ -594,4 +594,10 @@ internal static partial class Log
         Level = LogLevel.Information,
         Message = "An account {Account} was made for {Username} at its first sign-in through {Provider}.")]
     public static partial void OidcAccountMade(ILogger logger, string account, string username, string provider);
+
+    [LoggerMessage(
+        EventId = 1069,
+        Level = LogLevel.Warning,
+        Message = "The directory {Provider} could not be asked about a sign-in: {Why}")]
+    public static partial void LdapUnreachable(ILogger logger, string provider, string why);
 }

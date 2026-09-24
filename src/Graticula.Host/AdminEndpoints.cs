@@ -8809,6 +8809,7 @@ internal static partial class AdminEndpoints
         HttpContext context,
         IMemberDirectory directory,
         IRoleDirectory roles,
+        IIdentityProviderStore providers,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
@@ -8822,11 +8823,16 @@ internal static partial class AdminEndpoints
 
         IReadOnlyList<RoleGrant> defined = await roles.ListAsync(cancellation).ConfigureAwait(false);
 
+        // ADR-088/089: who signs in through a provider, and whose role that provider's groups decide.
+        IReadOnlyDictionary<Guid, ExternalMember> external = await providers.ExternalMembersAsync(cancellation).ConfigureAwait(false);
+
         await Results.Json(new
         {
             members = members.Select(m => new
             {
                 m.Name,
+                signsInWith = external.TryGetValue(m.Id, out ExternalMember? via) ? via.Provider : null,
+                roleManaged = via?.RoleManaged ?? false,
                 displayName = m.DisplayName,
                 m.Roles,
                 userType = m.UserType,
@@ -9066,6 +9072,7 @@ internal static partial class AdminEndpoints
         IMemberDirectory directory,
         IIdentityStore identity,
         IRoleDirectory roles,
+        IIdentityProviderStore providers,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -9075,6 +9082,20 @@ internal static partial class AdminEndpoints
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
             .ConfigureAwait(false))
         {
+            return;
+        }
+
+        // <b>ADR-089, by owner decision: a role a group mapping gives is the mapping's.</b> Changed here, it would be
+        // put back silently at the member's next sign-in; the refusal says where it is changed instead.
+        if ((await directory.ListMembersAsync(cancellation).ConfigureAwait(false))
+                .FirstOrDefault(m => string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase)) is { } target
+            && (await providers.ExternalMembersAsync(cancellation).ConfigureAwait(false)).TryGetValue(target.Id, out ExternalMember? external)
+            && external.RoleManaged)
+        {
+            await Refuse(context, 409,
+                $"'{name}' gets their role from {external.Provider}'s groups, at each sign-in. Change it there — the "
+                + "group they are in, or the mapping on Server > Sign-in — or it would be put back the next time they sign in.")
+                .ConfigureAwait(false);
             return;
         }
 
@@ -9819,12 +9840,27 @@ internal static partial class AdminEndpoints
         string name,
         IMemberDirectory directory,
         IPasswordHasher hasher,
+        IIdentityProviderStore providers,
         IAuditLog audit,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
             .ConfigureAwait(false))
         {
+            return;
+        }
+
+        // <b>ADR-089: an account a provider signs in has no password here, and is not given one</b> — design review
+        // 2026-09-24. A password here is checked first, so one issued would cut the account off from its directory:
+        // disabling it there, changing its password there or taking it out of a group would stop mattering.
+        if ((await directory.ListMembersAsync(cancellation).ConfigureAwait(false))
+                .FirstOrDefault(m => string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase)) is { } signsInElsewhere
+            && (await providers.ExternalMembersAsync(cancellation).ConfigureAwait(false))
+                .TryGetValue(signsInElsewhere.Id, out ExternalMember? via))
+        {
+            await Refuse(context, 409,
+                $"'{name}' signs in with {via.Provider}, which keeps their password. A password here would be checked "
+                + $"instead of {via.Provider}'s, and cut them off from it.").ConfigureAwait(false);
             return;
         }
 

@@ -75,15 +75,19 @@ internal static class RestDirectory
     /// page showed a stranger and any service shared with the organisation was
     /// invisible — in the one surface built for browsing.
     /// </remarks>
-    public static string SignIn(string returnTo, string? failed) => SignIn(returnTo, failed, []);
+    public static string SignIn(string returnTo, string? failed) => SignIn(returnTo, failed, [], []);
 
     /// <summary>The sign-in page, with a way in through each configured provider — ADR-088.</summary>
     /// <param name="returnTo">Where to go afterwards.</param>
     /// <param name="failed">Why the last attempt was refused, or null.</param>
     /// <param name="providers">The providers to offer, by id and name.</param>
+    /// <param name="directories">The directories whose names and passwords the form takes — ADR-089.</param>
     /// <returns>The page.</returns>
-    public static string SignIn(string returnTo, string? failed, IReadOnlyList<(Guid Id, string Name)> providers)
+    public static string SignIn(
+        string returnTo, string? failed, IReadOnlyList<(Guid Id, string Name)> providers, IReadOnlyList<string> directories)
     {
+        ArgumentNullException.ThrowIfNull(directories);
+
         ArgumentNullException.ThrowIfNull(providers);
 
         StringBuilder body = new();
@@ -102,7 +106,18 @@ internal static class RestDirectory
                     $"<li><a href=\"/rest/auth/oidc/{id}/start?return={Uri.EscapeDataString(returnTo)}\">Sign in with {H(name)}</a></li>");
             }
 
-            body.Append("</ul><p class=\"hint\">Or with an account on this server:</p>");
+            body.Append("</ul>");
+        }
+
+        // <b>Whose password the form takes, said</b> — design review 2026-09-24: "an account on this server" told a
+        // directory's people their password did not belong here.
+        string whose = directories.Count == 0
+            ? "an account on this server"
+            : $"your {string.Join(" or ", directories.Select(H))} name and password, or an account on this server";
+
+        if (providers.Count > 0 || directories.Count > 0)
+        {
+            body.Append(CultureInfo.InvariantCulture, $"<p class=\"hint\">{(providers.Count > 0 ? "Or with " : "Sign in with ")}{whose}:</p>");
         }
 
         if (failed is not null)

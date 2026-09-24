@@ -24,6 +24,14 @@ namespace Graticula.Host;
 /// <param name="DefaultRole">That account's role.</param>
 /// <param name="DefaultUserType">That account's user type.</param>
 /// <param name="Enabled">Whether it is offered; true when absent.</param>
+/// <param name="Kind"><c>oidc</c> when absent, or <c>ldap</c> for a directory — ADR-089.</param>
+/// <param name="GroupsClaim">The claim an OpenID Connect provider lists groups in; <c>groups</c> when absent.</param>
+/// <param name="UserBase">A directory's search base.</param>
+/// <param name="UserFilter">A directory's filter for a person, <c>{0}</c> for the name typed.</param>
+/// <param name="DisplayAttribute">A directory's attribute holding a name to show.</param>
+/// <param name="GroupAttribute">A directory's attribute listing a person's groups.</param>
+/// <param name="SubjectAttribute">A directory's attribute that never changes for a person, or empty for the DN.</param>
+/// <param name="StartTls">Whether a directory's <c>ldap://</c> is upgraded with StartTLS.</param>
 internal sealed record IdentityProviderRequest(
     string? Name,
     string? Issuer,
@@ -35,7 +43,25 @@ internal sealed record IdentityProviderRequest(
     bool AutoCreate,
     string? DefaultRole,
     string? DefaultUserType,
-    bool? Enabled);
+    bool? Enabled,
+    string? Kind = null,
+    string? GroupsClaim = null,
+    string? UserBase = null,
+    string? UserFilter = null,
+    string? DisplayAttribute = null,
+    string? GroupAttribute = null,
+    string? SubjectAttribute = null,
+    bool StartTls = false);
+
+/// <summary>A provider's group mappings as the admin surface takes them — ADR-089.</summary>
+/// <param name="Mappings">Each: the directory's or provider's group, and the role and group here it gives.</param>
+internal sealed record GroupMappingsRequest(IReadOnlyList<GroupMappingEntry>? Mappings);
+
+/// <summary>One group mapping.</summary>
+/// <param name="ExternalGroup">The group as the directory or provider names it.</param>
+/// <param name="Role">The role it gives, or null.</param>
+/// <param name="Group">The name of the group here its members join, or null.</param>
+internal sealed record GroupMappingEntry(string? ExternalGroup, string? Role, string? Group);
 
 /// <summary>
 /// The OpenID Connect providers people sign in through — ADR-088, set from the console by owner decision.
@@ -53,6 +79,109 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/identity-providers/{id:guid}", UpdateIdentityProviderAsync);
         app.MapDelete("/admin/identity-providers/{id:guid}", DeleteIdentityProviderAsync);
         app.MapPost("/admin/identity-providers/{id:guid}/check", CheckIdentityProviderAsync);
+        app.MapGet("/admin/identity-providers/{id:guid}/groups", GroupMappingsAsync);
+        app.MapPut("/admin/identity-providers/{id:guid}/groups", SetGroupMappingsAsync);
+    }
+
+    private static async Task GroupMappingsAsync(
+        HttpContext context, Guid id, IIdentityProviderStore store, CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageSecurity).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await store.FindAsync(id, cancellation).ConfigureAwait(false) is null)
+        {
+            await Refuse(context, 404, $"No sign-in provider {id}.").ConfigureAwait(false);
+            return;
+        }
+
+        IReadOnlyList<GroupMapping> mappings = await store.MappingsAsync(id, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            mappings = mappings.Select(m => new { externalGroup = m.ExternalGroup, role = m.Role, group = m.GroupName }),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Replaces a provider's group mappings — ADR-089.</summary>
+    /// <remarks>
+    /// <b>A mapping to the administrator role is an administrator's to make</b>, as making an administrator by hand is
+    /// (ADR-035 §4g): the mapping makes one at somebody's next sign-in, which is the same act at one remove.
+    /// </remarks>
+    private static async Task SetGroupMappingsAsync(
+        HttpContext context,
+        Guid id,
+        GroupMappingsRequest request,
+        IIdentityProviderStore store,
+        IRoleDirectory roles,
+        IGroupDirectory groups,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageSecurity).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await store.FindAsync(id, cancellation).ConfigureAwait(false) is not { } provider)
+        {
+            await Refuse(context, 404, $"No sign-in provider {id}.").ConfigureAwait(false);
+            return;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        IReadOnlyList<RoleGrant> defined = await roles.ListAsync(cancellation).ConfigureAwait(false);
+        IReadOnlyList<GroupSummary> known = await groups.ListAsync(current.Principal.Id, all: true, cancellation).ConfigureAwait(false);
+
+        List<GroupMapping> mappings = [];
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (GroupMappingEntry entry in request.Mappings ?? [])
+        {
+            string external = (entry.ExternalGroup ?? string.Empty).Trim();
+            string? role = string.IsNullOrWhiteSpace(entry.Role) ? null : entry.Role.Trim();
+            string? groupName = string.IsNullOrWhiteSpace(entry.Group) ? null : entry.Group.Trim();
+
+            string? refusal = external.Length == 0
+                ? "Each mapping names a group as the directory or provider calls it."
+                : !seen.Add(external)
+                    ? $"'{external}' is mapped twice; give it one role and one group."
+                    : role is null && groupName is null
+                        ? $"'{external}' gives neither a role nor a group, so it would do nothing."
+                        : role is not null && !defined.Any(r => string.Equals(r.Name, role, StringComparison.Ordinal))
+                            ? $"'{role}' is not a role on this server."
+                            : groupName is not null && !known.Any(g => string.Equals(g.Name, groupName, StringComparison.OrdinalIgnoreCase))
+                                ? $"There is no group '{groupName}' here."
+                                : null;
+
+            if (refusal is not null)
+            {
+                await Refuse(context, 400, refusal).ConfigureAwait(false);
+                return;
+            }
+
+            if (string.Equals(role, Roles.Administrator, StringComparison.Ordinal)
+                && !await AdministratorOnlyAsync(context, "Mapping a group to the administrator role").ConfigureAwait(false))
+            {
+                return;
+            }
+
+            mappings.Add(new GroupMapping(
+                external, role,
+                groupName is null ? null : known.First(g => string.Equals(g.Name, groupName, StringComparison.OrdinalIgnoreCase)).Id));
+        }
+
+        await store.SetMappingsAsync(id, mappings, cancellation).ConfigureAwait(false);
+
+        await AuditAsync(context, audit, "identityProvider.groups", provider.Settings.Name,
+            Detail(new { mappings = mappings.Select(m => new { m.ExternalGroup, m.Role, m.GroupId }) }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await GroupMappingsAsync(context, id, store, cancellation).ConfigureAwait(false);
     }
 
     private static async Task ListIdentityProvidersAsync(
@@ -204,7 +333,12 @@ internal static partial class AdminEndpoints
 
     /// <summary>Reads the provider's discovery document and keys, so an operator knows before anybody signs in.</summary>
     private static async Task CheckIdentityProviderAsync(
-        HttpContext context, Guid id, IIdentityProviderStore store, OidcClient client, CancellationToken cancellation)
+        HttpContext context,
+        Guid id,
+        IIdentityProviderStore store,
+        OidcClient client,
+        Graticula.Host.Ldap.LdapDirectory directory,
+        CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageSecurity).ConfigureAwait(false))
         {
@@ -214,6 +348,32 @@ internal static partial class AdminEndpoints
         if (await store.FindAsync(id, cancellation).ConfigureAwait(false) is not { } provider)
         {
             await Refuse(context, 404, $"No sign-in provider {id}.").ConfigureAwait(false);
+            return;
+        }
+
+        // ADR-089: a directory is checked by binding with its search account and reading its search base.
+        if (provider.Settings.Kind == "ldap")
+        {
+            string? why;
+
+            try
+            {
+                why = await directory.CheckAsync(provider, cancellation).ConfigureAwait(false);
+            }
+            catch (Exception e) when (e is System.DirectoryServices.Protocols.LdapException
+                or System.DirectoryServices.Protocols.DirectoryException)
+            {
+                why = e.Message;
+            }
+
+            if (why is not null)
+            {
+                await Refuse(context, 502, why).ConfigureAwait(false);
+                return;
+            }
+
+            await Results.Json(new { reachable = true, directory = true, userBase = provider.Settings.Ldap?.UserBase })
+                .ExecuteAsync(context).ConfigureAwait(false);
             return;
         }
 
@@ -242,17 +402,31 @@ internal static partial class AdminEndpoints
         HttpContext context, IdentityProviderRequest request, IRoleDirectory roles, CancellationToken cancellation)
     {
         string name = (request.Name ?? string.Empty).Trim();
+        string kind = string.IsNullOrWhiteSpace(request.Kind) ? "oidc" : request.Kind.Trim().ToLowerInvariant();
+        bool directory = kind == "ldap";
         string issuer = (request.Issuer ?? string.Empty).Trim().TrimEnd('/');
         string clientId = (request.ClientId ?? string.Empty).Trim();
+        string userBase = (request.UserBase ?? string.Empty).Trim();
+        string userFilter = string.IsNullOrWhiteSpace(request.UserFilter)
+            ? "(&(objectClass=person)(|(sAMAccountName={0})(uid={0})(userPrincipalName={0})))"
+            : request.UserFilter.Trim();
         string role = string.IsNullOrWhiteSpace(request.DefaultRole) ? Roles.Viewer : request.DefaultRole.Trim();
         string userType = string.IsNullOrWhiteSpace(request.DefaultUserType) ? UserTypes.Unrestricted : request.DefaultUserType.Trim();
 
-        string? refusal = name.Length is 0 or > 100
+        string? refusal = kind is not ("oidc" or "ldap")
+            ? "A sign-in provider is an OpenID Connect provider (oidc) or an LDAP directory (ldap)."
+            : name.Length is 0 or > 100
             ? "A sign-in provider has a name of 1 to 100 characters: it is what the sign-in button says."
-            : OidcClient.IssuerRefusal(issuer) is { } badIssuer
+            : directory && Graticula.Host.Ldap.LdapDirectory.AddressRefusal(issuer, request.StartTls) is { } badAddress
+                ? badAddress
+            : !directory && OidcClient.IssuerRefusal(issuer) is { } badIssuer
                 ? badIssuer
-                : clientId.Length == 0
+                : !directory && clientId.Length == 0
                     ? "A sign-in provider needs the client id this server was given there."
+                    : directory && userBase.Length == 0
+                        ? "A directory needs the base people are searched under, as in ou=people,dc=example,dc=org."
+                        : directory && !userFilter.Contains("{0}", StringComparison.Ordinal)
+                            ? "A directory's filter holds {0} where the name typed goes, as in (sAMAccountName={0})."
                     : !UserTypes.All.Contains(userType, StringComparer.Ordinal)
                         ? $"'{userType}' is not a user type. They are {string.Join(", ", UserTypes.All)}."
                         : null;
@@ -289,7 +463,18 @@ internal static partial class AdminEndpoints
             request.AutoCreate,
             role,
             userType,
-            request.Enabled ?? true);
+            request.Enabled ?? true,
+            kind,
+            string.IsNullOrWhiteSpace(request.GroupsClaim) ? "groups" : request.GroupsClaim.Trim(),
+            directory
+                ? new LdapSettings(
+                    userBase,
+                    userFilter,
+                    string.IsNullOrWhiteSpace(request.DisplayAttribute) ? "displayName" : request.DisplayAttribute.Trim(),
+                    string.IsNullOrWhiteSpace(request.GroupAttribute) ? "memberOf" : request.GroupAttribute.Trim(),
+                    (request.SubjectAttribute ?? string.Empty).Trim(),
+                    request.StartTls)
+                : null);
     }
 
     private static object DescribeProvider(IdentityProvider provider) => new
@@ -306,5 +491,13 @@ internal static partial class AdminEndpoints
         defaultUserType = provider.Settings.DefaultUserType,
         enabled = provider.Settings.Enabled,
         accounts = provider.Accounts,
+        kind = provider.Settings.Kind,
+        groupsClaim = provider.Settings.GroupsClaim,
+        userBase = provider.Settings.Ldap?.UserBase,
+        userFilter = provider.Settings.Ldap?.UserFilter,
+        displayAttribute = provider.Settings.Ldap?.DisplayAttribute,
+        groupAttribute = provider.Settings.Ldap?.GroupAttribute,
+        subjectAttribute = provider.Settings.Ldap?.SubjectAttribute,
+        startTls = provider.Settings.Ldap?.StartTls ?? false,
     };
 }

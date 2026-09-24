@@ -974,6 +974,15 @@ label.field {
 #idpForm h5 { margin: 18px 0 4px; }
 #idpForm .hint { margin: 2px 0 8px; }
 .idpissuer code { overflow-wrap: anywhere; }
+.idpissuer .hint { display: block; margin: 0; }
+#idpGroups .valuesgrid input[type=text] { width: 100%; min-width: 14ch; }
+#idpGroups .valuesgrid select { min-width: 16ch; }
+#idpGroups .tablewrap { overflow-x: auto; max-width: 100%; }
+#idpGroups .picker { min-width: 0; max-width: 100%; }
+#idpGroups .row.left, #idpForm .row.left { justify-content: flex-start; }
+#idpForm #idpIssuer, #idpForm #idpClient, #idpForm #idpUserBase, #idpForm #idpUserFilter { font-family: var(--mono, monospace); }
+/* The .sr-only header of the provider list escaped the card at 390 px: its absolute box needs a positioned card. */
+#view-signin .panel { position: relative; }
 
 /* At a phone's width the list scrolls inside its card, as the Domains screen's does. */
 @media (max-width: 760px) {

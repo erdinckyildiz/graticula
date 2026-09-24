@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>079afcb</code> · 2026-09-24 16:29</p>
+<p class="stamp">Şu commit’ten üretildi: <code>072e5f7</code> · 2026-09-24 17:21</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">88</div><div class="kpi-l">ADR</div><div class="kpi-n">17 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">223/303</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">77 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">89</div><div class="kpi-l">ADR</div><div class="kpi-n">17 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">224/306</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">79 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">6</div><div class="kpi-l">açık borç</div><div class="kpi-n">257 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">3562</div><div class="kpi-l">test</div><div class="kpi-n">353 kaynak dosya, 152,343 satır</div></div>
+<div class="kpi good"><div class="kpi-v">3568</div><div class="kpi-l">test</div><div class="kpi-n">355 kaynak dosya, 153,324 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">87 madde</span></div><p><b>77 ADR conditions</b> outstanding across 48 decisions — the largest commitment on this page.</p><p><b>6 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">89 madde</span></div><p><b>79 ADR conditions</b> outstanding across 49 decisions — the largest commitment on this page.</p><p><b>6 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -150,6 +150,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-087 · A domain is a named object that fi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-002 · Primary Data Architecture</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-005 · API Architecture</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
@@ -285,6 +286,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">086</td><td>The operator chooses the map ground, and it is the portal&#x27;s default basemap</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">0/3</td></tr>
 <tr><td class="id">087</td><td>A domain is a named object that fields on many layers point at</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">0/2</td></tr>
 <tr><td class="id">088</td><td>Sign-in through an OpenID Connect provider</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
+<tr><td class="id">089</td><td>Sign-in through an LDAP directory, and groups mapped to roles and groups here</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -294,7 +296,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
 <div class="scroll"><table><thead><tr><th>No</th><th>Borç</th><th>Ne zaman ödenir</th><th>Durum</th></tr></thead><tbody>
 <tr class=""><td class="id">D-04</td><td>Multi-tenant resource isolation is not designed.</td><td class="muted-t">Before multi-tenant deployments are supported</td><td><span class="pill muted">PARKED</span></td></tr>
-<tr class=""><td class="id">D-10</td><td>~~ADR-015 is implemented for local passwords only.~~ OIDC is built 2026-09-24 (ADR-088); SAML 2.0 and LDAP are next, by the owner&#x27;s order, and SCIM, API keys and mTLS remain unbuilt.</td><td class="muted-t">OIDC before the first deployment with an IdP; /generateToken before any unmodified ArcGIS client is pointed at us The…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-10</td><td>~~ADR-015 is implemented for local passwords only.~~ OIDC and LDAP are built 2026-09-24 (ADR-088, ADR-089); SAML 2.0 is next, by the owner&#x27;s order, and SCIM, API keys and mTLS remain unbuilt.</td><td class="muted-t">OIDC before the first deployment with an IdP; /generateToken before any unmodified ArcGIS client is pointed at us The…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-108</td><td>The pipe streams and the importer does not, so the million-feature ceiling has not moved — it has changed owner.</td><td class="muted-t">The first archive with a layer past a million features, which is an ordinary size for a national road network</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-115</td><td>The Server/Studio surface split is the single cause of four recorded console defects.</td><td class="muted-t">The next defect whose cause is the split</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-144</td><td>~~Nothing bounds how long one request may hold a database permit.~~ The headline is struck 2026-09-09 rather than reworded, because it was false and the correction had already been written into this row&#x27;s status cell without reaching its first sentence — half…</td><td class="muted-t">A way to refuse before the first byte, or a way to end a response that says why.</td><td><span class="pill muted">PARKED</span></td></tr>
@@ -404,10 +406,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">954</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.9%"></div></div><div class="bar-n">619</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.4%"></div></div><div class="bar-n">548</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.8%"></div></div><div class="bar-n">551</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:50.3%"></div></div><div class="bar-n">480</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:22.5%"></div></div><div class="bar-n">215</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.8%"></div></div><div class="bar-n">198</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.1%"></div></div><div class="bar-n">201</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:20.6%"></div></div><div class="bar-n">197</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:12.9%"></div></div><div class="bar-n">123</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:12.1%"></div></div><div class="bar-n">115</div></div>
@@ -417,6 +419,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>072e5f7</code><time>2026-09-24</time><span>People sign in through an OpenID Connect provider</span></li>
 <li><code>079afcb</code><time>2026-09-24</time><span>A domain is a named object that fields on many layers point at</span></li>
 <li><code>075711d</code><time>2026-09-24</time><span>The operator chooses the map ground, and it is the portal&#x27;s default basemap</span></li>
 <li><code>14079f6</code><time>2026-09-24</time><span>Escape puts focus back even when the menu&#x27;s opener was redrawn</span></li>
@@ -430,7 +433,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>55a1e62</code><time>2026-09-23</time><span>A service answers a query across its layers</span></li>
 <li><code>3a1e281</code><time>2026-09-23</time><span>An image service is a portal item</span></li>
 <li><code>a29e5c8</code><time>2026-09-23</time><span>A tile of a layer somebody can edit is asked about before it is reused</span></li>
-<li><code>6cb2444</code><time>2026-09-23</time><span>The owner answered what was waiting on them, and the registers say so</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

@@ -363,9 +363,11 @@ jobs:
       # schema has to exist first: the migrator creates tables, not the namespace
       # it was told to put them in, and against a brand-new database it fails
       # with Postgres's own "no schema has been selected to create in" — D-36.
+      # libldap2, for ADR-089's directory sign-in: the server's LDAP client is OpenLDAP's on Linux, and the
+      # conformance suite runs a directory for it to talk to.
       - name: create the platform schema
         run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client libldap2
           PGPASSWORD=gis psql -h 127.0.0.1 -U gis -d gis -v ON_ERROR_STOP=1             -c 'create schema if not exists gisserver;'
 
       - name: migrate

@@ -693,12 +693,16 @@ public static class Program
             services.GetRequiredService<SourceBreaker>(),
             services.GetRequiredService<AnonymousGrants>()));
 
+        // ADR-089: a name with no password here is asked of the configured directories, inside this one service.
+        builder.Services.AddSingleton<Graticula.Host.Ldap.LdapDirectory>();
+
         builder.Services.AddSingleton(services => new LoginService(
             services.GetRequiredService<IIdentityStore>(),
             services.GetRequiredService<IPasswordHasher>(),
             LoginThrottle.Default,
             settings.SessionLifetime,
-            services.GetRequiredService<TimeProvider>()));
+            services.GetRequiredService<TimeProvider>(),
+            services.GetRequiredService<Graticula.Host.Ldap.LdapDirectory>()));
 
         QuietTheFramework(builder.Logging, builder.Configuration);
 
@@ -2044,8 +2048,11 @@ public static class Program
 
                     // ADR-088: a way in through each provider an operator configured and left on.
                     [.. (await providers.ListAsync(cancellation).ConfigureAwait(false))
-                        .Where(p => p.Settings.Enabled)
-                        .Select(p => (p.Id, p.Settings.Name))]),
+                        .Where(p => p.Settings is { Enabled: true, Kind: "oidc" })
+                        .Select(p => (p.Id, p.Settings.Name))],
+                    [.. (await providers.ListAsync(cancellation).ConfigureAwait(false))
+                        .Where(p => p.Settings is { Enabled: true, Kind: "ldap" })
+                        .Select(p => p.Settings.Name)]),
                 "text/html; charset=utf-8"));
 
         Graticula.Host.Oidc.OidcEndpoints.Map(app);

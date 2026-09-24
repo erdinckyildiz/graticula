@@ -94,6 +94,35 @@ public interface IIdentityProviderStore
 
     /// <summary>Which provider an account signs in through, and the name it gives, or null for a local account.</summary>
     Task<(Guid ProviderId, string Username)?> ExternalOfAsync(Guid principalId, CancellationToken cancellationToken);
+
+    /// <summary>Every account that signs in through a provider, by principal id — for the members list.</summary>
+    Task<IReadOnlyDictionary<Guid, ExternalMember>> ExternalMembersAsync(CancellationToken cancellationToken);
+
+    /// <summary>A provider's group mappings — ADR-089.</summary>
+    Task<IReadOnlyList<GroupMapping>> MappingsAsync(Guid providerId, CancellationToken cancellationToken);
+
+    /// <summary>Replaces a provider's group mappings — ADR-089.</summary>
+    Task SetMappingsAsync(Guid providerId, IReadOnlyList<GroupMapping> mappings, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Applies a person's groups at their sign-in — ADR-089: the highest role any matched group gives, else the
+    /// provider's default when its mappings give roles at all; membership of every group here a mapping names, as
+    /// the matched groups say; and nothing a mapping does not name.
+    /// </summary>
+    /// <param name="principalId">The account.</param>
+    /// <param name="providerId">The provider they signed in through.</param>
+    /// <param name="groups">Their groups, as the directory or provider named them.</param>
+    /// <param name="rank">How high a role is, for choosing between two a person's groups give.</param>
+    /// <param name="defaultRole">The role for a person none of whose groups gives one.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What changed.</returns>
+    Task<MappingApplied> ApplyMappingsAsync(
+        Guid principalId,
+        Guid providerId,
+        IReadOnlyCollection<string> groups,
+        Func<string, int> rank,
+        string defaultRole,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>What an operator sets on a provider.</summary>
@@ -106,6 +135,10 @@ public interface IIdentityProviderStore
 /// <param name="DefaultRole">The role such an account gets.</param>
 /// <param name="DefaultUserType">The user type such an account gets.</param>
 /// <param name="Enabled">Whether it is offered.</param>
+/// <param name="Kind"><c>oidc</c>, or <c>ldap</c> for a directory — ADR-089, whose issuer is its address and whose
+/// client id is the account it searches with.</param>
+/// <param name="GroupsClaim">The claim an OpenID Connect provider lists a person's groups in — ADR-089.</param>
+/// <param name="Ldap">A directory's search settings, or null for an OpenID Connect provider.</param>
 public sealed record IdentityProviderSettings(
     string Name,
     string Issuer,
@@ -115,7 +148,44 @@ public sealed record IdentityProviderSettings(
     bool AutoCreate,
     string DefaultRole,
     string DefaultUserType,
-    bool Enabled);
+    bool Enabled,
+    string Kind = "oidc",
+    string GroupsClaim = "groups",
+    LdapSettings? Ldap = null);
+
+/// <summary>How a directory is searched for a person — ADR-089.</summary>
+/// <param name="UserBase">Where people are found, as in <c>ou=people,dc=example,dc=org</c>.</param>
+/// <param name="UserFilter">The filter that finds one by the name typed, <c>{0}</c> standing for it.</param>
+/// <param name="DisplayAttribute">The attribute that holds a name to show.</param>
+/// <param name="GroupAttribute">The attribute that lists a person's groups.</param>
+/// <param name="SubjectAttribute">The attribute that never changes for a person, or empty for their DN.</param>
+/// <param name="StartTls">Whether an <c>ldap://</c> connection is upgraded before the password is sent.</param>
+public sealed record LdapSettings(
+    string UserBase,
+    string UserFilter,
+    string DisplayAttribute,
+    string GroupAttribute,
+    string SubjectAttribute,
+    bool StartTls);
+
+/// <summary>One of a directory's or provider's groups, and what it gives here — ADR-089.</summary>
+/// <param name="ExternalGroup">The group as the directory or provider names it: a name, or a DN whose first part is.</param>
+/// <param name="Role">The role it gives, or null.</param>
+/// <param name="GroupId">The group here its members join, or null.</param>
+/// <param name="GroupName">That group's name, for a screen.</param>
+public sealed record GroupMapping(string ExternalGroup, string? Role, Guid? GroupId, string? GroupName = null);
+
+/// <summary>What applying a person's groups did — ADR-089.</summary>
+/// <param name="Role">The role they now hold because of it, or null when no mapping gives roles.</param>
+/// <param name="Joined">Groups here they were added to.</param>
+/// <param name="Left">Groups here they were taken out of.</param>
+public sealed record MappingApplied(string? Role, IReadOnlyList<string> Joined, IReadOnlyList<string> Left);
+
+/// <summary>An account that signs in through a provider, for the members list — ADR-088, ADR-089.</summary>
+/// <param name="Provider">The provider's name.</param>
+/// <param name="Username">The name it gives them.</param>
+/// <param name="RoleManaged">Whether their role is the provider's group mapping's, and not set by hand.</param>
+public sealed record ExternalMember(string Provider, string Username, bool RoleManaged);
 
 /// <summary>A provider as stored.</summary>
 /// <param name="Id">Its id.</param>

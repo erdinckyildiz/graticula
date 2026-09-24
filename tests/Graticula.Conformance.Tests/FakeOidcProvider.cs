@@ -77,6 +77,9 @@ internal sealed class FakeOidcProvider : IDisposable
     /// <summary>Who the next authorization signs in: a subject and the name it gives.</summary>
     public (string Subject, string Username) Next { get; set; } = ("nobody", "nobody");
 
+    /// <summary>The groups the next ID token lists in its <c>groups</c> claim — ADR-089.</summary>
+    public string[] NextGroups { get; set; } = [];
+
     /// <summary>How the next ID token is spoiled, to see the server refuse it; null for a good one.</summary>
     public string? Spoil { get; set; }
 
@@ -226,6 +229,7 @@ internal sealed class FakeOidcProvider : IDisposable
             ["nonce"] = Spoil == "nonce" ? "a-nonce-from-another-sign-in" : who.Nonce,
             ["preferred_username"] = who.Username,
             ["name"] = $"Test {who.Username}",
+            ["groups"] = NextGroups,
         }));
 
         using RSA stranger = RSA.Create(2048);

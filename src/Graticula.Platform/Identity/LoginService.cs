@@ -87,18 +87,23 @@ public sealed class LoginService
     /// </remarks>
     private readonly PasswordHash _decoy;
 
+    /// <summary>The directories a name with no password here is tried against — ADR-089 — or null.</summary>
+    private readonly IDirectorySignIn? _directory;
+
     /// <summary>Creates the service.</summary>
     /// <param name="store">Where identity lives.</param>
     /// <param name="hasher">The password hasher.</param>
     /// <param name="throttle">The rate limit policy.</param>
     /// <param name="sessionLifetime">How long an issued session lasts.</param>
     /// <param name="time">The clock. Injected so expiry is testable without waiting.</param>
+    /// <param name="directory">The directories to ask for a name with no password here — ADR-089 — or null.</param>
     public LoginService(
         IIdentityStore store,
         IPasswordHasher hasher,
         LoginThrottle throttle,
         TimeSpan sessionLifetime,
-        TimeProvider time)
+        TimeProvider time,
+        IDirectorySignIn? directory = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(hasher);
@@ -111,6 +116,7 @@ public sealed class LoginService
         _throttle = throttle;
         _sessionLifetime = sessionLifetime;
         _time = time;
+        _directory = directory;
 
         // <b>A password nobody has and nobody can guess</b>, so the decoy can never accidentally
         // be the one somebody typed. Thirty-two random bytes; what matters is only that the
@@ -248,6 +254,19 @@ public sealed class LoginService
             && _hasher.Verify(password, credential);
 
         bool verified = matches && !found!.Value.Principal.IsDisabled;
+
+        // <b>ADR-089: a name with no password here is asked of the directories</b> — after the address limit, so
+        // the directory cannot be used to hammer somebody else's server, and never for an account with a password
+        // here, which is its own. A directory's bind is itself the comparable work the decoy below stands in for.
+        if (!verified && found is not { Credential: not null } && _directory is not null
+            && await _directory.SignInAsync(name, password, cancellationToken).ConfigureAwait(false)
+                is { IsDisabled: false } fromDirectory)
+        {
+            await _store.RecordAttemptAsync(name, address, succeeded: true, cancellationToken)
+                .ConfigureAwait(false);
+
+            return (LoginFailure.None, fromDirectory);
+        }
 
         if (!verified)
         {

@@ -14,6 +14,9 @@
 
 ---
 
+**Amended 2026-09-24 — [ADR-089](ADR-089-directories-and-group-mapping.md).** The group mapping this ADR left for
+later is built there, and applies to a provider's `groups` claim as well as to a directory's groups.
+
 ## 1. Context
 
 [ADR-015](ADR-015-authentication.md) §5 lists OIDC as *supported, free*, and [D-10](../architecture-debt.md) has

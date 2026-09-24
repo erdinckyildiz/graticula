@@ -1542,6 +1542,8 @@ def a_serving_assembly_that_reaches_for_the_network():
         # ADR-088: signing in through an OpenID Connect provider cannot be done without asking the provider. Only
         # an issuer an operator configured, only when somebody signs in or the operator checks it.
         "src/Graticula.Host/Oidc/OidcClient.cs",
+        # ADR-089: a password with no hash here is checked by the directory an operator configured, and only then.
+        "src/Graticula.Host/Ldap/LdapDirectory.cs",
         # ADR-067: DuckDB's MotherDuck extension, fetched from extensions.duckdb.org the first time a MotherDuck
         # source is opened. A MotherDuck source is a remote database, so a deployment that has one is not air-gapped.
         "src/Graticula.Host/GeoParquetSources.cs",
@@ -1556,6 +1558,8 @@ def a_serving_assembly_that_reaches_for_the_network():
     reaching = re.compile(
         r"\bnew\s+HttpClient\b"
         r"|\bHttpClient\s+\w+\s*=\s*new\s*\("
+        r"|\bnew\s+LdapConnection\b"
+        r"|\bLdapConnection\s+\w+\s*=\s*new\s*\("
         r"|\bnew\s+System\.Net\.Http\.HttpClient\b"
         r"|\bWebRequest\.Create\b"
         r"|\bnew\s+Socket\s*\("

@@ -78,5 +78,6 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
     <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" />
+    <PackageReference Include="System.DirectoryServices.Protocols" />
   </ItemGroup>
 </Project>

@@ -24,10 +24,10 @@ namespace Graticula.Conformance.Tests;
 /// </remarks>
 public sealed class OidcSignInConformanceTests : ArcGisClient
 {
-    private sealed record Outcome(HttpStatusCode Callback, string? Name, string Body);
+    internal sealed record Outcome(HttpStatusCode Callback, string? Name, string Body);
 
     /// <summary>Walks the redirects a browser would, with a browser's cookie jar.</summary>
-    private static async Task<Outcome> SignInAsync(string root, string providerId)
+    internal static async Task<Outcome> SignInAsync(string root, string providerId)
     {
         using HttpClientHandler handler = new()
         {

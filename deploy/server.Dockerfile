@@ -139,7 +139,10 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS runtime
 # container when something is wrong. The aspnet image ships neither curl nor
 # wget, so a healthcheck written against either fails permanently and the
 # container is reported unhealthy while serving perfectly.
-RUN apt-get update  && apt-get install --yes --no-install-recommends curl  && rm -rf /var/lib/apt/lists/*
+#
+# libldap2, for ADR-089: System.DirectoryServices.Protocols is OpenLDAP's client on Linux and loads libldap.so.2 when
+# a directory is first asked. Without it the image starts, and every directory sign-in fails as "unavailable".
+RUN apt-get update  && apt-get install --yes --no-install-recommends curl libldap2  && rm -rf /var/lib/apt/lists/*
 
 # Non-root, and the uid is fixed rather than assigned. A volume written by uid
 # 64198 on one host and read by a differently-numbered user on the next is the

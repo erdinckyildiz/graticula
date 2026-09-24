@@ -1290,12 +1290,31 @@ let idpList = [];
 let idpMeta = { redirectUri: "", roles: [], userTypes: [] };
 let idpEditing = null;
 
+/** The kind a new provider is being added as — ADR-089. */
+let idpNewKind = "oidc";
+
+/** Whose group mappings are open, and their unsaved copy — ADR-089. */
+let idpGroupsOf = null;
+let idpMappings = [];
+let idpGroupNames = [];
+let idpMappingsLoaded = "[]";
+let idpMappingsInvalid = null;
+
+/** A provider whose Groups open when Sign-in is next drawn — from a member's "change on Sign-in". */
+let idpGroupsOpenName = null;
+
 async function loadSignin() {
   idpSay("");
   const answer = await api("/admin/identity-providers") || {};
   idpList = answer.providers || [];
   idpMeta = { redirectUri: answer.redirectUri || "", roles: answer.roles || [], userTypes: answer.userTypes || [] };
+
+  const opening = idpGroupsOpenName && idpList.find(x => x.name === idpGroupsOpenName);
+  idpGroupsOpenName = null;
+  if (opening) await openIdpGroups(opening);
+
   drawSignin();
+  if (opening) $("idpGroupsTitle")?.focus();
 }
 
 function drawSignin() {
@@ -1307,7 +1326,8 @@ function drawSignin() {
     : idpList.map((p, i) => `
       <tr>
         <td class="name"><b>${h(p.name)}</b>${p.enabled ? "" : ` <span class="hint">off: nobody can sign in with it</span>`}</td>
-        <td class="val idpissuer"><code>${h(p.issuer)}</code></td>
+        <td class="val idpissuer"><span class="hint">${p.kind === "ldap" ? "Directory" : "OpenID Connect"}</span>
+          <code>${h(p.issuer)}</code></td>
         <td>${p.autoCreate
           ? `Anyone it signs in gets an account: ${h(p.defaultRole)}`
           : "Only people added on Members"}</td>
@@ -1315,6 +1335,7 @@ function drawSignin() {
         <td class="actions">
           <button class="ghost tiny" data-idp-check="${i}" aria-describedby="idpSays">Check</button>
           <button class="ghost tiny" data-idp-edit="${i}" aria-expanded="${idpEditing === p.id}" aria-controls="idpForm">Edit</button>
+          <button class="ghost tiny" data-idp-groups="${i}" aria-expanded="${idpGroupsOf === p.id}" aria-controls="idpGroups">Groups</button>
           ${p.accounts
             ? `<button class="ghost tiny" aria-disabled="true" data-idp-remove-refused="${i}"
                 title="Accounts sign in with it. Turn it off instead.">Remove</button>`
@@ -1323,6 +1344,8 @@ function drawSignin() {
       </tr>`).join("");
 
   drawIdpForm();
+  if (idpGroupsOf && !idpList.some(x => x.id === idpGroupsOf)) idpGroupsOf = null;
+  if (!idpGroupsOf) drawIdpGroups();
 }
 
 function drawIdpForm() {
@@ -1339,19 +1362,59 @@ function drawIdpForm() {
   const roles = idpMeta.roles.filter(r => r !== "administrator");
   const auto = p ? p.autoCreate : false;
 
+  // ADR-089: a directory is chosen when a provider is added, and stays what it is.
+  const kind = p ? p.kind : (idpNewKind || "oidc");
+
   form.hidden = false;
   $("idpNew").hidden = true;
   // <b>In the order the provider asks for things</b> — design review 2026-09-24 (M5): a provider shows its issuer,
   // client ID and secret only after this server is registered there with its redirect URI, so that comes first.
   form.innerHTML = `<div class="picker idpform" role="group" aria-labelledby="idpFormTitle">
-    <h4 id="idpFormTitle">${p ? `Edit ${h(p.name)}` : "A new sign-in provider"}</h4>
+    <h4 id="idpFormTitle">${p ? `Edit ${h(p.name)}` : kind === "ldap" ? "A new directory" : "A new sign-in provider"}</h4>
+    ${p ? "" : `<fieldset class="valueskind"><legend>What people sign in with</legend>
+      <label><input type="radio" name="idpKind" value="oidc" ${kind === "oidc" ? "checked" : ""}> Their organisation's
+        sign-in page — OpenID Connect: Entra ID, Keycloak, Okta, Google</label>
+      <label><input type="radio" name="idpKind" value="ldap" ${kind === "ldap" ? "checked" : ""}> Their organisation's
+        name and password, typed here — an LDAP directory or Active Directory</label>
+    </fieldset>`}
 
     <label for="idpName">Name</label>
-    <input id="idpName" type="text" maxlength="100" required value="${h(p ? p.name : "")}" placeholder="Contoso staff"
+    <input id="idpName" type="text" maxlength="100" required value="${h(p ? p.name : "")}"
+      placeholder="${kind === "ldap" ? "Contoso AD" : "Contoso staff"}"
       aria-describedby="idpNameHint">
-    <p class="hint" id="idpNameHint">The sign-in button reads “Sign in with” and this name.</p>
+    <p class="hint" id="idpNameHint">${kind === "ldap"
+      ? "What the members list says they sign in with. A directory has no button: its people use the name and password form."
+      : "The sign-in button reads “Sign in with” and this name."}</p>
 
-    <h5>1. At your provider</h5>
+${kind === "ldap" ? `    <h5>The directory</h5>
+    <label for="idpIssuer">Address</label>
+    <input id="idpIssuer" type="text" required spellcheck="false" value="${h(p ? p.issuer : "")}"
+      placeholder="ldaps://dc01.contoso.com" aria-describedby="idpIssuerHint">
+    <p class="hint" id="idpIssuerHint">ldaps:// with the directory's port if it is not 636. Plain ldap:// is accepted
+      only with StartTLS, so that the password typed never crosses the network in the clear.</p>
+    <label class="check"><input type="checkbox" id="idpStartTls" ${p && p.startTls ? "checked" : ""}
+      aria-describedby="idpStartTlsHint"> Upgrade ldap:// with StartTLS</label>
+    <p class="hint" id="idpStartTlsHint">Only for an ldap:// address; ldaps:// is encrypted already.</p>
+    <label for="idpClient">Account that searches the directory</label>
+    <input id="idpClient" type="text" spellcheck="false" autocomplete="off" value="${h(p ? p.clientId : "")}"
+      placeholder="CN=graticula-reader,OU=Service,DC=contoso,DC=com" aria-describedby="idpClientHint">
+    <p class="hint" id="idpClientHint">Its distinguished name — Active Directory also takes reader@contoso.com. Empty
+      searches anonymously, which most directories refuse.</p>
+    <label for="idpSecret">Its password</label>
+    <input id="idpSecret" type="password" autocomplete="new-password" aria-describedby="idpSecretHint">
+    <p class="hint" id="idpSecretHint">${p && p.hasSecret
+      ? "One is stored and never shown. Leave this empty to keep it." : "Stored sealed, and never shown back."}</p>
+    ${p && p.hasSecret ? `<label class="check"><input type="checkbox" id="idpClearSecret"> Remove the stored password</label>` : ""}
+    <label for="idpUserBase">Where people are</label>
+    <input id="idpUserBase" type="text" required spellcheck="false" value="${h(p ? p.userBase || "" : "")}"
+      placeholder="OU=Staff,DC=contoso,DC=com" aria-describedby="idpUserBaseHint">
+    <p class="hint" id="idpUserBaseHint">Searched with everything below it — DC=contoso,DC=com searches the whole domain.</p>
+    <label for="idpUserFilter">How a person is found</label>
+    <input id="idpUserFilter" type="text" spellcheck="false" aria-describedby="idpUserFilterHint"
+      value="${h(p ? p.userFilter || "" : "(&(objectClass=person)(|(sAMAccountName={0})(uid={0})(userPrincipalName={0})))")}">
+    <p class="hint" id="idpUserFilterHint">{0} is the name typed. The default finds an Active Directory or OpenLDAP person
+      by their account name or their e-mail-style name; CONTOSO\jane is read as jane.</p>
+` : `    <h5>1. At your provider</h5>
     <p class="hint" id="idpRegisterHint">Register this server there as an application — Entra ID: App registrations;
       Keycloak: Clients; Okta: Applications; Google: Credentials, OAuth client — and give it this redirect URI:</p>
     <div class="row"><input id="idpRedirect" type="text" readonly value="${h(idpMeta.redirectUri)}"
@@ -1376,22 +1439,39 @@ function drawIdpForm() {
       ? "One is stored and never shown. Leave this empty to keep it." : "If the provider gave one."}</p>
     ${p && p.hasSecret ? `<label class="check"><input type="checkbox" id="idpClearSecret"> Remove the stored secret</label>` : ""}
 
+`}
     <fieldset class="valueskind"><legend>When somebody signs in for the first time and has no account here</legend>
       <label><input type="radio" name="idpAuto" value="no" ${auto ? "" : "checked"}> Turn them away. Only people an
         administrator has added on Members, with this provider chosen, can sign in.</label>
       <label><input type="radio" name="idpAuto" value="yes" ${auto ? "checked" : ""}> Give them an account with the
-        role below. <b>Anyone who can sign in at this provider gets in</b> — with Google or a multi-tenant Microsoft
-        app, that is anyone at all.</label>
+        role below. ${kind === "ldap"
+          ? "<b>Anyone the filter finds under Where people are gets in.</b>"
+          : "<b>Anyone who can sign in at this provider gets in</b> — with Google or a multi-tenant Microsoft app, that is anyone at all."}</label>
     </fieldset>
+    <label for="idpRole">Role for a new account, and for anyone none of whose mapped groups gives one</label>
+    <select id="idpRole" aria-describedby="idpRoleHint">${roles.map(r => `<option ${p && p.defaultRole === r ? "selected" : ""}>${h(r)}</option>`).join("")}</select>
+    <p class="hint" id="idpRoleHint">Change it on Members afterwards, unless the provider's Groups set it. An
+      administrator is never made this way.</p>
     <div id="idpAutoRow" ${auto ? "" : "hidden"}>
-      <label for="idpRole">Their role</label>
-      <select id="idpRole" aria-describedby="idpRoleHint">${roles.map(r => `<option ${p && p.defaultRole === r ? "selected" : ""}>${h(r)}</option>`).join("")}</select>
-      <p class="hint" id="idpRoleHint">Raise it on Members afterwards. An administrator is never made this way.</p>
       <label for="idpType">Their user type</label>
       <select id="idpType">${idpMeta.userTypes.map(t => `<option ${p ? (p.defaultUserType === t ? "selected" : "") : (t === "unrestricted" ? "selected" : "")}>${h(t)}</option>`).join("")}</select>
     </div>
 
-    <details><summary>Advanced: scopes and the claim that names the account</summary>
+    ${kind === "ldap" ? `<details><summary>Advanced: the attributes read from a person's entry</summary>
+      <label for="idpDisplayAttr">A name to show</label>
+      <input id="idpDisplayAttr" type="text" spellcheck="false" value="${h(p ? p.displayAttribute || "displayName" : "displayName")}">
+      <label for="idpGroupAttr">Their groups</label>
+      <input id="idpGroupAttr" type="text" spellcheck="false" value="${h(p ? p.groupAttribute || "memberOf" : "memberOf")}"
+        aria-describedby="idpGroupAttrHint">
+      <p class="hint" id="idpGroupAttrHint">memberOf lists the groups a person is directly in; groups inside groups are not
+        followed.</p>
+      <label for="idpSubjectAttr">What stays the same when they move or are renamed</label>
+      <input id="idpSubjectAttr" type="text" spellcheck="false" value="${h(p ? p.subjectAttribute || "" : "objectGUID")}"
+        aria-describedby="idpSubjectAttrHint"${p && p.accounts ? " readonly" : ""}>
+      <p class="hint" id="idpSubjectAttrHint">objectGUID in Active Directory, entryUUID in OpenLDAP; a person without it
+        is known by their DN, which changes when they move.${p && p.accounts
+          ? " Fixed now that people have signed in: changing it would make them new people here." : ""}</p>
+    </details>` : `<details><summary>Advanced: scopes and the claims that name the account and its groups</summary>
       <label for="idpScopes">Scopes</label>
       <input id="idpScopes" type="text" spellcheck="false" value="${h(p ? p.scopes : "openid profile email")}">
       <label for="idpClaim">Claim that names the account</label>
@@ -1399,7 +1479,9 @@ function drawIdpForm() {
         aria-describedby="idpClaimHint">
       <p class="hint" id="idpClaimHint">An account made at a first sign-in is named by its part before an @. An account
         added on Members is found by the whole of it.</p>
-    </details>
+      <label for="idpGroupsClaim">Claim that lists their groups</label>
+      <input id="idpGroupsClaim" type="text" spellcheck="false" value="${h(p ? p.groupsClaim || "groups" : "groups")}">
+    </details>`}
     <label class="check"><input type="checkbox" id="idpEnabled" ${!p || p.enabled ? "checked" : ""}
       aria-describedby="idpEnabledHint"> On: people can sign in with it</label>
     <p class="hint" id="idpEnabledHint">Off hides it from the sign-in page and stops everyone who uses it from signing in,
@@ -1412,6 +1494,136 @@ function drawIdpForm() {
   </div>`;
 }
 
+/**
+ * A provider's group mappings — ADR-089, by owner decision: a group there gives a role and a group here, applied at
+ * every sign-in, and a role it gives is the mapping's.
+ */
+async function openIdpGroups(p) {
+  idpGroupsOf = p.id;
+  const answer = await api(`/admin/identity-providers/${p.id}/groups`) || {};
+  idpMappings = (answer.mappings || []).map(m => ({ externalGroup: m.externalGroup, role: m.role || "", group: m.group || "" }));
+  idpMappingsLoaded = JSON.stringify(idpMappings);
+  idpMappingsInvalid = null;
+
+  try {
+    idpGroupNames = ((await api("/admin/groups")) || {}).groups?.map(g => g.name) || [];
+  } catch { idpGroupNames = []; }
+
+  drawIdpGroups();
+}
+
+function drawIdpGroups() {
+  const box = $("idpGroups");
+  const p = idpList.find(x => x.id === idpGroupsOf);
+
+  if (!p) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+
+  // The built-in order, which is what "highest" means; a deployment's own roles rank below them.
+  const order = ["viewer", "data_editor", "user", "publisher", "administrator"].filter(r => idpMeta.roles.includes(r));
+  const invalid = idpMappingsInvalid;
+
+  box.hidden = false;
+  box.innerHTML = `<div class="picker" role="group" aria-labelledby="idpGroupsTitle">
+    <h4 id="idpGroupsTitle" tabindex="-1">Groups — ${h(p.name)}</h4>
+    <p class="hint">At each sign-in, their role here becomes the highest role their ${h(p.name)} groups give
+      (${order.map(h).join(" &lt; ")}). With none of these groups, it becomes ${h(p.defaultRole)}.</p>
+    <p class="hint">That role is then locked on Members. ${num(p.accounts)} ${p.accounts === 1 ? "person signs" : "people sign"}
+      in with ${h(p.name)}; this applies from their next sign-in. Groups here that no row names are left alone.</p>
+    <p class="hint">${p.kind === "ldap"
+      ? "Write a group as the directory names it — its name, as GIS-Admins, or its whole DN."
+      : `Write a group as ${h(p.name)} puts it in the ${h(p.groupsClaim || "groups")} claim — a name or an ID.`}
+      ${idpGroupNames.length ? "" : "There are no groups here yet: make them on Studio › Groups to map to them."}</p>
+    <div class="tablewrap"><table class="valuesgrid">
+      <thead><tr><th>Their group</th><th>Role here</th><th>Group here</th><th><span class="sr-only">Remove</span></th></tr></thead>
+      <tbody>${idpMappings.length ? idpMappings.map((m, i) => `<tr>
+        <td><input type="text" data-map-external="${i}" aria-label="Their group, row ${i + 1}" value="${h(m.externalGroup)}"
+          placeholder="${p.kind === "ldap" ? "GIS-Publishers" : "gis-publishers"}"
+          ${invalid === i ? `aria-invalid="true" aria-describedby="mapInvalid"` : ""}>
+          ${invalid === i ? `<span class="bad-inline" id="mapInvalid">Name the ${h(p.name)} group, or remove this row.</span>` : ""}</td>
+        <td><select data-map-role="${i}" aria-label="Role here, row ${i + 1}">
+          <option value="">no role from this group</option>
+          ${idpMeta.roles.map(r => `<option ${m.role === r ? "selected" : ""}>${h(r)}</option>`).join("")}</select>
+          ${m.role === "administrator"
+            ? `<span class="warn-inline">Everyone ${h(p.name)} puts in this group becomes an administrator here at their next sign-in.</span>`
+            : ""}</td>
+        <td><select data-map-group="${i}" aria-label="Group here, row ${i + 1}">
+          <option value="">no group here</option>
+          ${idpGroupNames.map(g => `<option ${m.group === g ? "selected" : ""}>${h(g)}</option>`).join("")}</select></td>
+        <td><button type="button" class="tiny ghost" data-map-remove="${i}" aria-label="Remove row ${i + 1}">Remove</button></td>
+      </tr>`).join("") : `<tr><td colspan="4" class="empty">No group is mapped, so roles and groups here are set by hand.
+        Add a group to let ${h(p.name)}'s groups decide roles here.</td></tr>`}</tbody>
+    </table></div>
+    <div class="row left"><button type="button" class="ghost" id="idpMapAdd">Add a group</button></div>
+    <div class="row left">
+      <button type="button" class="primary" id="idpMapSave">Save groups</button>
+      <button type="button" class="ghost" id="idpMapClose">Close</button>
+    </div>
+  </div>`;
+}
+
+/** Whether the open mappings differ from what was loaded. */
+function idpGroupsChanged() {
+  if (!idpGroupsOf) return false;
+  captureIdpGroups();
+  return JSON.stringify(idpMappings) !== idpMappingsLoaded;
+}
+
+/** Asks before unsaved mappings are thrown away — design review 2026-09-24 (M11); true to go on. */
+function idpGroupsLeave() {
+  if (!idpGroupsChanged()) return true;
+  const p = idpList.find(x => x.id === idpGroupsOf);
+  return confirm(`${p ? p.name : "This provider"}'s groups have changes that are not saved. Discard them?`);
+}
+
+function captureIdpGroups() {
+  idpMappings.forEach((m, i) => {
+    const e = document.querySelector(`[data-map-external="${i}"]`);
+    const r = document.querySelector(`[data-map-role="${i}"]`);
+    const g = document.querySelector(`[data-map-group="${i}"]`);
+    if (e) m.externalGroup = e.value;
+    if (r) m.role = r.value;
+    if (g) m.group = g.value;
+  });
+}
+
+async function saveIdpGroups() {
+  captureIdpGroups();
+  const p = idpList.find(x => x.id === idpGroupsOf);
+
+  // A row that gives something and names no group would be dropped without a word (M5): it is marked instead.
+  const blank = idpMappings.findIndex(m => !m.externalGroup.trim() && (m.role || m.group));
+  idpMappingsInvalid = blank >= 0 ? blank : null;
+  if (blank >= 0) {
+    drawIdpGroups();
+    document.querySelector(`[data-map-external="${blank}"]`)?.focus();
+    return;
+  }
+
+  try {
+    const answer = await api(`/admin/identity-providers/${idpGroupsOf}/groups`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mappings: idpMappings
+        .filter(m => m.externalGroup.trim())
+        .map(m => ({ externalGroup: m.externalGroup, role: m.role || null, group: m.group || null })) }),
+    });
+    if (answer && answer.mappings) {
+      idpMappings = answer.mappings.map(m => ({ externalGroup: m.externalGroup, role: m.role || "", group: m.group || "" }));
+    }
+    idpMappingsLoaded = JSON.stringify(idpMappings);
+    drawIdpGroups();
+    idpSay(`${p ? p.name : "The provider"}'s groups are saved. They apply at each person's next sign-in.`);
+    $("idpMapSave").focus();
+  } catch (e) {
+    idpSay(e.message, true);
+    $("idpMapSave")?.focus();
+  }
+}
+
 function idpSay(text, bad = false) {
   $("idpSays").textContent = text;
   $("idpSays").classList.toggle("bad-inline", bad);
@@ -1419,8 +1631,8 @@ function idpSay(text, bad = false) {
 
 async function saveIdp() {
   // The browser's own check first, at the box that is wrong, rather than a round trip for an empty name.
-  for (const id of ["idpName", "idpIssuer", "idpClient"]) {
-    if (!$(id).reportValidity()) return;
+  for (const id of ["idpName", "idpIssuer", "idpClient", "idpUserBase"]) {
+    if ($(id) && !$(id).reportValidity()) return;
   }
 
   const editing = idpEditing !== "new" ? idpEditing : null;
@@ -1434,9 +1646,18 @@ async function saveIdp() {
     autoCreate: auto,
     defaultRole: $("idpRole")?.value || "viewer",
     defaultUserType: $("idpType")?.value || "unrestricted",
-    scopes: $("idpScopes").value,
-    usernameClaim: $("idpClaim").value,
+    scopes: $("idpScopes")?.value || null,
+    usernameClaim: $("idpClaim")?.value || null,
     enabled: $("idpEnabled").checked,
+    // ADR-089
+    kind: editing ? (idpList.find(x => x.id === editing) || {}).kind : (idpNewKind || "oidc"),
+    groupsClaim: $("idpGroupsClaim")?.value || null,
+    userBase: $("idpUserBase")?.value || null,
+    userFilter: $("idpUserFilter")?.value || null,
+    displayAttribute: $("idpDisplayAttr")?.value || null,
+    groupAttribute: $("idpGroupAttr")?.value || null,
+    subjectAttribute: $("idpSubjectAttr")?.value ?? null,
+    startTls: !!$("idpStartTls")?.checked,
   };
 
   try {
@@ -1447,7 +1668,8 @@ async function saveIdp() {
     });
     idpEditing = null;
     await loadSignin();
-    idpSay(`${saved && saved.name || body.name} is saved. Press Check to see that this server can reach it.`);
+    idpSay(`${saved && saved.name || body.name} is saved. Press Check to see that this server can reach it, then `
+      + "Groups to let its groups decide roles here.");
     const at = idpList.findIndex(x => x.name === (saved && saved.name || body.name));
     (document.querySelector(`[data-idp-check="${at}"]`) || $("idpNew")).focus();
   } catch (e) {
@@ -8988,6 +9210,11 @@ function initialsHue(name) {
   return `hsl(${hash} 42% 88%)`;
 }
 
+/** An id made from a member's name that no other name makes, for a hint an element points at. */
+function roleFromId(name) {
+  return Array.from(String(name)).map(c => c.charCodeAt(0).toString(36)).join("-");
+}
+
 async function loadMembers() {
   const answer = await api("/admin/members");
   const rows = answer.members || [];
@@ -9045,6 +9272,8 @@ async function loadMembers() {
         style="--avatar:${h(initialsHue(m.name))}" aria-hidden="true">${h(initialsOf(m.name))}</span>
         <span>${h(m.name)}${m.displayName
           ? `<span class="val" style="display:block;font-weight:400">${h(m.displayName)}</span>`
+          : ""}${m.signsInWith
+          ? `<span class="hint" style="display:block">signs in with ${h(m.signsInWith)}</span>`
           : ""}</span></span></td>
       <!--
         <b>The role keeps its select and takes the pill's hue.</b> The handoff draws a pill —
@@ -9053,12 +9282,17 @@ async function loadMembers() {
         colour rather than being replaced by a label that carries it.
       -->
       <td><select class="rolepick" data-role-is="${h((m.roles || [])[0] || "none")}"
-        data-member-role="${h(m.name)}">
+        data-member-role="${h(m.name)}" aria-label="Role of ${h(m.name)}"${m.roleManaged
+          ? ` disabled aria-describedby="roleFrom-${h(roleFromId(m.name))}"` : ""}>
         ${(answer.roles || []).map(r =>
           `<option value="${h(r)}"${m.roles.includes(r) ? " selected" : ""}>${h(r)}</option>`)
           .join("")}
         <option value=""${m.roles.length === 0 ? " selected" : ""}>— none —</option>
-      </select></td>
+      </select>${m.roleManaged
+        // ADR-089, by owner decision: the mapping decides, and the row says where to change it.
+        ? `<span class="hint" id="roleFrom-${h(roleFromId(m.name))}" style="display:block">Set by ${h(m.signsInWith)}'s groups —
+            <a href="#/signin" data-open-groups="${h(m.signsInWith)}">change on Sign-in</a></span>`
+        : ""}</td>
       <!--
         <b>A control, because it was a word and the word was the answer to a question nobody
         could act on.</b> The owner read this column and asked how to change a user type; the
@@ -9081,7 +9315,10 @@ async function loadMembers() {
       <td class="num">${num(m.ownsServices)}</td>
       <td class="val">${h(String(m.createdAt).slice(0, 10))}</td>
       <td class="acts" style="text-align:right">
-        <button class="tiny" data-member-password="${h(m.name)}">Set password</button>
+        ${m.signsInWith
+          // ADR-089, design review 2026-09-24 (B2): a password here would cut them off from their provider.
+          ? `<span class="hint">${h(m.signsInWith)} keeps their password</span>`
+          : `<button class="tiny" data-member-password="${h(m.name)}">Set password</button>`}
         <button class="tiny ${m.disabled ? "" : "danger"}"
           data-member-state="${h(m.name)}" data-to="${m.disabled ? "enable" : "disable"}"
           >${m.disabled ? "Enable" : "Disable"}</button>
@@ -12191,6 +12428,24 @@ document.addEventListener("change", e => {
   // the sign-in form's first-sign-in choice, the New member provider and the Domains screen's new-domain kind did
   // nothing at all. Tests passed because none of them fired a change without a Fields editor open.
   if (!(t instanceof Element)) return;
+
+  // ADR-089: choosing administrator in a mapping says what it does, under the row.
+  if (t.dataset && t.dataset.mapRole !== undefined) {
+    captureIdpGroups();
+    drawIdpGroups();
+    document.querySelector(`[data-map-role="${t.dataset.mapRole}"]`)?.focus();
+    return;
+  }
+
+  // ADR-089: an OpenID Connect provider or a directory — the form is redrawn for the one chosen.
+  if (t.getAttribute("name") === "idpKind") {
+    idpNewKind = t.value;
+    const name = $("idpName")?.value || "";
+    drawIdpForm();
+    $("idpName").value = name;
+    document.querySelector("[name=idpKind]:checked")?.focus();
+    return;
+  }
 
   // ADR-088: the role and type a first sign-in gets are asked only when it makes an account.
   if (t.getAttribute("name") === "idpAuto") {
@@ -20340,8 +20595,66 @@ async function handleClick(event) {
   }
 
   // ---- Sign-in providers (ADR-088) ----
+  // ---- from Members: "change on Sign-in" opens that provider's Groups ----
+  if (t.dataset && t.dataset.openGroups !== undefined) {
+    idpGroupsOpenName = t.dataset.openGroups;
+    return; // the link navigates to #/signin, whose load opens it
+  }
+
+  // ---- a provider's group mappings (ADR-089) ----
+  if (t.dataset && t.dataset.idpGroups !== undefined) {
+    idpSay("");
+    const p = idpList[Number(t.dataset.idpGroups)];
+    if (!idpGroupsLeave()) return;
+    idpEditing = null;
+    if (idpGroupsOf === p.id) {
+      idpGroupsOf = null;
+      drawIdpGroups();
+      drawSignin();
+      document.querySelector(`[data-idp-groups="${t.dataset.idpGroups}"]`)?.focus();
+    } else {
+      await openIdpGroups(p);
+      drawSignin();
+      $("idpGroupsTitle")?.focus();
+    }
+    return;
+  }
+
+  if (t.id === "idpMapAdd") {
+    captureIdpGroups();
+    idpMappings.push({ externalGroup: "", role: "", group: "" });
+    drawIdpGroups();
+    document.querySelector(`[data-map-external="${idpMappings.length - 1}"]`)?.focus();
+    return;
+  }
+
+  if (t.dataset && t.dataset.mapRemove !== undefined) {
+    captureIdpGroups();
+    const at = Number(t.dataset.mapRemove);
+    idpMappings.splice(at, 1);
+    drawIdpGroups();
+    (document.querySelector(`[data-map-remove="${Math.min(at, idpMappings.length - 1)}"]`) || $("idpMapAdd")).focus();
+    return;
+  }
+
+  if (t.id === "idpMapSave") {
+    await saveIdpGroups();
+    return;
+  }
+
+  if (t.id === "idpMapClose") {
+    if (!idpGroupsLeave()) return;
+    const at = idpList.findIndex(x => x.id === idpGroupsOf);
+    idpGroupsOf = null;
+    drawIdpGroups();
+    drawSignin();
+    document.querySelector(`[data-idp-groups="${at}"]`)?.focus();
+    return;
+  }
+
   if (t.id === "idpNew") {
     idpSay("");
+    idpNewKind = "oidc";
     idpEditing = "new";
     drawIdpForm();
     $("idpName").focus();
@@ -20371,6 +20684,9 @@ async function handleClick(event) {
 
   if (t.dataset && t.dataset.idpEdit !== undefined) {
     idpSay("");
+    if (!idpGroupsLeave()) return;
+    idpGroupsOf = null;
+    drawIdpGroups();
     const p = idpList[Number(t.dataset.idpEdit)];
     idpEditing = idpEditing === p.id ? null : p.id;
     drawSignin();
@@ -20384,13 +20700,18 @@ async function handleClick(event) {
     t.disabled = true;
     try {
       const r = await api(`/admin/identity-providers/${p.id}/check`, { method: "POST" });
+      if (r.directory) {
+        idpSay(`${p.name} answers: its search account signed in and can read ${r.userBase}. People can sign in with their name and password.`);
+        return;
+      }
       idpSay(`${p.name} answers: issuer ${r.issuer}, ${r.keys} signing key${r.keys === 1 ? "" : "s"}.`
         + (r.pkce ? " Sign-in can be tried."
           : " It does not say it supports PKCE, which this server uses; if a sign-in fails at the provider, that is why."),
         !r.pkce);
     } catch (e) {
-      idpSay(`${p.name}: ${e.message} Check the issuer for a typing mistake. If it is right, this server cannot reach `
-        + "the provider: a firewall or a proxy may be in the way.", true);
+      idpSay(`${p.name}: ${e.message} ` + (p.kind === "ldap"
+        ? "Check the address, the port and the search account. If they are right, a firewall may be in the way."
+        : "Check the issuer for a typing mistake. If it is right, this server cannot reach the provider: a firewall or a proxy may be in the way."), true);
     } finally {
       t.disabled = false;
       t.focus();
@@ -21651,17 +21972,28 @@ async function drawSigninProviders() {
   if (!box) return;
 
   let providers = [];
-  try { providers = ((await (await fetch("/rest/auth/providers")).json()) || {}).providers || []; } catch { providers = []; }
+  let directories = [];
+  try {
+    const answer = (await (await fetch("/rest/auth/providers")).json()) || {};
+    providers = answer.providers || [];
+    directories = answer.directories || [];
+  } catch { providers = []; }
 
   const back = encodeURIComponent(location.pathname + location.hash);
-  box.hidden = providers.length === 0;
+  box.hidden = providers.length === 0 && directories.length === 0;
+
+  // Design review 2026-09-24 (B3): whose password the form takes, said, so a directory's people know it is theirs.
+  const whose = directories.length
+    ? `your ${directories.map(h).join(" or ")} name and password — jane or jane@contoso.com — or an account on this server`
+    : "an account on this server";
 
   // Keyboard order follows the page (design review 2026-09-24, m7): the name box's autofocus would put a keyboard
   // past the provider, so when there is one and nothing has been typed, focus starts on it.
   const typing = document.activeElement === $("u") && $("u").value;
   box.innerHTML = providers.map(p =>
     `<a class="provider" href="${h(p.start)}?return=${back}">Sign in with ${h(p.name)}</a>`).join("")
-    + (providers.length ? `<p class="hint">Or with an account on this server:</p>` : "");
+    + (providers.length ? `<p class="hint">Or with ${whose}:</p>`
+      : directories.length ? `<p class="hint">Sign in with ${whose}.</p>` : "");
 
   if (providers.length && !typing) box.querySelector("a")?.focus();
 }

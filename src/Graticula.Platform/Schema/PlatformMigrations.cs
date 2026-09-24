@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(56);
+    public static SchemaVersion ComponentSchemaVersion => new(57);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -91,6 +91,7 @@ public static class PlatformMigrations
         ThePageSizeIsOneNumberV54,
         DomainsAreSharedV55,
         SignInThroughAnIdentityProviderV56,
+        DirectoriesAndGroupMappingV57,
     ]);
 
     /// <summary>
@@ -146,6 +147,48 @@ public static class PlatformMigrations
             + "a query that asks for more. A service that set both keeps its maximum. What a query naming "
             + "no page size gets is unchanged for the first; for the second it becomes the maximum, which "
             + "is the number the service's document already gave.");
+
+    /// <summary>
+    /// Sign-in through an LDAP directory, and an organisation's groups mapped to roles and groups here — ADR-089.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>By owner decision, 2026-09-24:</b> LDAP after OIDC; a directory's or provider's groups map to a role and to
+    /// groups here; the mapping is applied at every sign-in; a role the mapping gives is the mapping's, and not
+    /// changed by hand; and the same mapping serves an OpenID Connect provider's <c>groups</c> claim.
+    /// </para>
+    /// <para>
+    /// <b>A directory is a row of <c>identity_provider</c></b>, whose issuer is its <c>ldap://</c> or <c>ldaps://</c>
+    /// address and whose client id is the account it searches with. Those two stay not null, so a build before this
+    /// one reads a directory's row without failing — it offers it as a provider it cannot reach, which is what a
+    /// rollback of one release costs, and nothing it can misread as a credential.
+    /// </para>
+    /// <para><b>Expand.</b></para>
+    /// </remarks>
+    private static Migration DirectoriesAndGroupMappingV57 => Migration.Expand(
+        new SchemaVersion(57),
+        "Sign-in through an LDAP directory, and a directory's or provider's groups mapped to roles and groups (ADR-089).",
+
+        "alter table identity_provider drop constraint if exists identity_provider_kind_known",
+        "alter table identity_provider add constraint identity_provider_kind_known check (kind in ('oidc', 'ldap'))",
+        "alter table identity_provider add column if not exists ldap jsonb null",
+        "alter table identity_provider add column if not exists groups_claim text not null default 'groups'",
+        "alter table external_identity add column if not exists role_managed boolean not null default false",
+
+        """
+        create table if not exists group_mapping (
+            id              uuid        not null primary key default gen_random_uuid(),
+            provider_id     uuid        not null references identity_provider (id) on delete cascade,
+            external_group  text        not null,
+            role_name       text        null,
+            group_id        uuid        null references sharing_group (id) on delete cascade,
+            created_at      timestamptz not null default now(),
+            constraint group_mapping_says_something check (role_name is not null or group_id is not null),
+            constraint group_mapping_group_not_blank check (length(btrim(external_group)) > 0)
+        )
+        """,
+
+        "create unique index if not exists group_mapping_key on group_mapping (provider_id, lower(external_group))");
 
     /// <summary>
     /// Sign-in through an OpenID Connect provider — ADR-088.

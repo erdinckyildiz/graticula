@@ -1471,7 +1471,8 @@
       <div>
         <h2 id="idpTitle" tabindex="-1">Sign-in</h2>
         <p>Where people can sign in besides a password on this server: an OpenID Connect provider such as
-          Microsoft Entra ID, Keycloak, Okta or Google. They sign in there and come back here with an account.</p>
+          Microsoft Entra ID, Keycloak, Okta or Google, or an LDAP directory such as Active Directory. Their groups
+          there can decide their role and groups here.</p>
       </div>
       <div class="right">
         <span class="val" id="idpCount"></span>
@@ -1479,11 +1480,13 @@
       </div>
     </div>
     <div id="idpForm" hidden></div>
+    <!-- ADR-089: a provider's groups, mapped to a role and a group here. -->
+    <div id="idpGroups" hidden></div>
     <p class="hint" id="idpSays" aria-live="polite"></p>
     <div class="panel">
       <table>
         <thead><tr>
-          <th>Provider</th><th>Issuer</th><th>First sign-in</th><th class="num">Accounts</th>
+          <th>Provider</th><th>Address</th><th>First sign-in</th><th class="num">Accounts</th>
           <th><span class="sr-only">Actions</span></th>
         </tr></thead>
         <tbody id="idpRows"></tbody>
