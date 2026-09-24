@@ -145,10 +145,16 @@ public sealed class AdvertisedCapabilityTests : ArcGisClient
             + oid + "%22%2C%22outStatisticFieldName%22%3A%22n%22%7D%5D&having=n%3E0",
             "asking to filter grouped rows"),
 
+        // <b>An expression in `outStatistics`, which is what the flag is about.</b> Esri's layer reference
+        // ties `supportsSqlExpression` to an expression in outStatistics, groupBy or orderBy, with
+        // `onStatisticField: "str_angle*100"` as its example. This probe asked for arithmetic in `where`
+        // until 2026-09-23, when ADR-083 put ArcGIS's standardized functions into the where grammar — the
+        // probe went green where the flag had not moved, because it had been measuring the wrong thing.
         new(
             "supportsSqlExpression",
-            $"where={oid}%2B1%3E1&returnCountOnly=true",
-            "asking for arithmetic in the where grammar"),
+            "outStatistics=%5B%7B%22statisticType%22%3A%22avg%22%2C%22onStatisticField%22%3A%22"
+            + oid + "%2A100%22%2C%22outStatisticFieldName%22%3A%22a%22%7D%5D",
+            "asking for an expression as a statistic's field"),
 
         // <b>The probe carries `statisticParameters`, and it has to.</b> A percentile is the
         // one statistic with an argument of its own: Esri requires the fraction and this server
