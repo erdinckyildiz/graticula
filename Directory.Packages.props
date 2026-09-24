@@ -22,6 +22,8 @@
          process is what makes the cost killable (Q-97, ADR-022 §9). -->
     <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.23.0" />
     <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.23.0" />
+    <PackageVersion Include="ITfoxtec.Identity.Saml2" Version="4.21.0" />
+    <PackageVersion Include="System.Security.Cryptography.Xml" Version="9.0.20" />
     <PackageVersion Include="NetTopologySuite" Version="2.5.0" />
     <PackageVersion Include="System.DirectoryServices.Protocols" Version="9.0.9" />
   </ItemGroup>

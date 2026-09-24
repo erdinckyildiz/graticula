@@ -114,7 +114,7 @@ check. The image carries `libldap2`.
 **Depends on:** [ADR-088](ADR-088-sign-in-through-an-openid-connect-provider.md), [ADR-015](ADR-015-authentication.md),
 [ADR-036](ADR-036-groups.md) (groups here).
 
-**Depended on by:** SAML, next.
+**Depended on by:** [ADR-090](ADR-090-sign-in-through-a-saml-provider.md), whose SAML groups go through the same mapping.
 
 ## 9. Revisit triggers
 

@@ -981,6 +981,13 @@ label.field {
 #idpGroups .picker { min-width: 0; max-width: 100%; }
 #idpGroups .row.left, #idpForm .row.left { justify-content: flex-start; }
 #idpForm #idpIssuer, #idpForm #idpClient, #idpForm #idpUserBase, #idpForm #idpUserFilter { font-family: var(--mono, monospace); }
+#view-signin .tablewrap { overflow-x: auto; max-width: 100%; }
+#idpForm [aria-invalid="true"] { border-color: var(--alert); }
+@media (max-width: 480px) {
+  /* The reply URL and redirect URI were cut to their host at 390 px: the box takes the line, Copy the next. */
+  .idpform .row { flex-wrap: wrap; }
+  .idpform .row input[readonly] { flex: 1 1 100%; }
+}
 /* The .sr-only header of the provider list escaped the card at 390 px: its absolute box needs a positioned card. */
 #view-signin .panel { position: relative; }
 

@@ -30,6 +30,7 @@
          carries its own font and graphics stack, so a runner — or an air-gapped image —
          needs no system packages. -->
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />
+    <PackageReference Include="System.Security.Cryptography.Xml" />
   </ItemGroup>
 
   <ItemGroup>

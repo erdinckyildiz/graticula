@@ -80,11 +80,11 @@ internal static class RestDirectory
     /// <summary>The sign-in page, with a way in through each configured provider — ADR-088.</summary>
     /// <param name="returnTo">Where to go afterwards.</param>
     /// <param name="failed">Why the last attempt was refused, or null.</param>
-    /// <param name="providers">The providers to offer, by id and name.</param>
+    /// <param name="providers">The providers to offer, by where their sign-in starts and their name.</param>
     /// <param name="directories">The directories whose names and passwords the form takes — ADR-089.</param>
     /// <returns>The page.</returns>
     public static string SignIn(
-        string returnTo, string? failed, IReadOnlyList<(Guid Id, string Name)> providers, IReadOnlyList<string> directories)
+        string returnTo, string? failed, IReadOnlyList<(string Start, string Name)> providers, IReadOnlyList<string> directories)
     {
         ArgumentNullException.ThrowIfNull(directories);
 
@@ -100,10 +100,10 @@ internal static class RestDirectory
         {
             body.Append("<ul class=\"providers\">");
 
-            foreach ((Guid id, string name) in providers)
+            foreach ((string start, string name) in providers)
             {
                 body.Append(CultureInfo.InvariantCulture,
-                    $"<li><a href=\"/rest/auth/oidc/{id}/start?return={Uri.EscapeDataString(returnTo)}\">Sign in with {H(name)}</a></li>");
+                    $"<li><a href=\"{H(start)}?return={Uri.EscapeDataString(returnTo)}\">Sign in with {H(name)}</a></li>");
             }
 
             body.Append("</ul>");

@@ -13,7 +13,8 @@ using NpgsqlTypes;
 namespace Graticula.Platform.Postgres;
 
 /// <summary>
-/// OpenID Connect providers and the accounts they name, in the platform store — migration 56, ADR-088.
+/// OpenID Connect providers, directories and SAML providers, and the accounts they name, in the platform store —
+/// migrations 56, 57 and 58; ADR-088, ADR-089, ADR-090.
 /// </summary>
 public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
 {
@@ -21,7 +22,7 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
         select ip.id, ip.name, ip.issuer, ip.client_id, ip.scopes, ip.username_claim, ip.auto_create,
                ip.default_role, ip.default_user_type, ip.enabled, ip.client_secret is not null,
                (select count(*)::int from external_identity e where e.provider_id = ip.id),
-               ip.kind, ip.groups_claim, ip.ldap::text
+               ip.kind, ip.groups_claim, ip.ldap::text, ip.saml::text
           from identity_provider ip
         """;
 
@@ -67,9 +68,9 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
         await using NpgsqlCommand command = _dataSource.CreateCommand("""
             insert into identity_provider
                 (name, issuer, client_id, client_secret, key_version, scopes, username_claim,
-                 auto_create, default_role, default_user_type, enabled, kind, groups_claim, ldap)
+                 auto_create, default_role, default_user_type, enabled, kind, groups_claim, ldap, saml)
             values (@name, @issuer, @client, @secret, @version, @scopes, @claim, @auto, @role, @type, @enabled,
-                    @kind, @groups, @ldap::jsonb)
+                    @kind, @groups, @ldap::jsonb, @saml::jsonb)
             on conflict ((lower(name))) do nothing
             returning id
             """);
@@ -100,7 +101,7 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
             update identity_provider
                set name = @name, issuer = @issuer, client_id = @client, scopes = @scopes, username_claim = @claim,
                    auto_create = @auto, default_role = @role, default_user_type = @type, enabled = @enabled,
-                   kind = @kind, groups_claim = @groups, ldap = @ldap::jsonb,
+                   kind = @kind, groups_claim = @groups, ldap = @ldap::jsonb, saml = @saml::jsonb,
                    {secretSet}
                    updated_at = now()
              where id = @id
@@ -567,6 +568,47 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
         {
             Value = settings.Ldap is null ? DBNull.Value : JsonSerializer.Serialize(settings.Ldap),
         });
+        command.Parameters.Add(new NpgsqlParameter("saml", NpgsqlDbType.Text)
+        {
+            Value = settings.Saml is null ? DBNull.Value : JsonSerializer.Serialize(settings.Saml),
+        });
+    }
+
+    /// <inheritdoc/>
+    public async Task SetSamlMetadataAsync(Guid id, string metadata, DateTimeOffset fetchedAt, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand("""
+            update identity_provider
+               set saml = saml || jsonb_build_object('Metadata', @metadata::text, 'FetchedAt', @at::timestamptz)
+             where id = @id and saml is not null
+            """);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("metadata", metadata);
+        command.Parameters.AddWithValue("at", fetchedAt);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> ConsumeAssertionAsync(
+        Guid providerId, string assertionId, DateTimeOffset until, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(assertionId);
+
+        // What has expired is swept by the next sign-in rather than by a schedule: a row outlives its assertion by
+        // at most the time until somebody signs in again, and needs no second thing running to go away.
+        await using NpgsqlCommand command = _dataSource.CreateCommand("""
+            with swept as (delete from saml_assertion_used where until < now())
+            insert into saml_assertion_used (provider_id, assertion_id, until)
+            values (@provider, @assertion, @until)
+            on conflict do nothing
+            """);
+        command.Parameters.AddWithValue("provider", providerId);
+        command.Parameters.AddWithValue("assertion", assertionId);
+        command.Parameters.AddWithValue("until", until);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
     }
 
     private async Task<List<IdentityProvider>> ReadAsync(string sql, Guid? id, CancellationToken cancellationToken)
@@ -598,7 +640,8 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
                     reader.GetBoolean(9),
                     reader.GetString(12),
                     reader.GetString(13),
-                    reader.IsDBNull(14) ? null : JsonSerializer.Deserialize<LdapSettings>(reader.GetString(14))),
+                    reader.IsDBNull(14) ? null : JsonSerializer.Deserialize<LdapSettings>(reader.GetString(14)),
+                    reader.IsDBNull(15) ? null : JsonSerializer.Deserialize<SamlSettings>(reader.GetString(15))),
                 reader.GetBoolean(10),
                 reader.GetInt32(11)));
         }

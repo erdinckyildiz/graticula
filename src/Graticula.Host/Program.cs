@@ -574,6 +574,7 @@ public static class Program
         builder.Services.AddSingleton<IIdentityProviderStore>(services =>
             new PostgresIdentityProviderStore(services.GetRequiredService<NpgsqlDataSource>()));
         builder.Services.AddSingleton<Graticula.Host.Oidc.OidcClient>();
+        builder.Services.AddSingleton<Graticula.Host.Saml.SamlMetadata>();
         builder.Services.AddSingleton<ServerPageSize>();
         builder.Services.AddSingleton<ServerGround>();
 
@@ -2048,14 +2049,15 @@ public static class Program
 
                     // ADR-088: a way in through each provider an operator configured and left on.
                     [.. (await providers.ListAsync(cancellation).ConfigureAwait(false))
-                        .Where(p => p.Settings is { Enabled: true, Kind: "oidc" })
-                        .Select(p => (p.Id, p.Settings.Name))],
+                        .Where(p => p.Settings is { Enabled: true, Kind: "oidc" or "saml" })
+                        .Select(p => (Graticula.Host.Oidc.OidcEndpoints.StartPath(p), p.Settings.Name))],
                     [.. (await providers.ListAsync(cancellation).ConfigureAwait(false))
                         .Where(p => p.Settings is { Enabled: true, Kind: "ldap" })
                         .Select(p => p.Settings.Name)]),
                 "text/html; charset=utf-8"));
 
         Graticula.Host.Oidc.OidcEndpoints.Map(app);
+        Graticula.Host.Saml.SamlEndpoints.Map(app);
 
         app.MapGet("/rest/whoami", (HttpContext context) =>
         {

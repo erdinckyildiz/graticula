@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(57);
+    public static SchemaVersion ComponentSchemaVersion => new(58);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -92,6 +92,7 @@ public static class PlatformMigrations
         DomainsAreSharedV55,
         SignInThroughAnIdentityProviderV56,
         DirectoriesAndGroupMappingV57,
+        SamlSignInV58,
     ]);
 
     /// <summary>
@@ -147,6 +148,43 @@ public static class PlatformMigrations
             + "a query that asks for more. A service that set both keeps its maximum. What a query naming "
             + "no page size gets is unchanged for the first; for the second it becomes the maximum, which "
             + "is the number the service's document already gave.");
+
+    /// <summary>
+    /// Sign-in through a SAML 2.0 identity provider — ADR-090.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>By owner decision, 2026-09-24:</b> SAML after LDAP; its signatures checked by an established library behind
+    /// this server's own code; a sign-in only ever started here, never one a provider sends unasked; and the
+    /// provider's metadata read from its URL and refreshed daily, or uploaded where the server cannot reach it.
+    /// </para>
+    /// <para>
+    /// <b>A provider is a row of <c>identity_provider</c></b> whose issuer is its metadata URL, or its entity id when
+    /// the metadata was uploaded, and whose client id is this server's entity id there. The metadata itself is in
+    /// <c>saml</c>, so every node reads the same certificates without asking the provider.
+    /// </para>
+    /// <para>
+    /// <b><c>saml_assertion_used</c> is what makes an assertion single-use across nodes</b>. The library's own replay
+    /// check is held in one process's memory; an assertion somebody captured would sign in again at the next node.
+    /// A row lives until the assertion would have expired anyway.
+    /// </para>
+    /// </remarks>
+    private static Migration SamlSignInV58 => Migration.Expand(
+        new SchemaVersion(58),
+        "Sign-in through a SAML 2.0 identity provider (ADR-090).",
+
+        "alter table identity_provider drop constraint if exists identity_provider_kind_known",
+        "alter table identity_provider add constraint identity_provider_kind_known check (kind in ('oidc', 'ldap', 'saml'))",
+        "alter table identity_provider add column if not exists saml jsonb null",
+
+        """
+        create table if not exists saml_assertion_used (
+            provider_id   uuid        not null references identity_provider (id) on delete cascade,
+            assertion_id  text        not null,
+            until         timestamptz not null,
+            primary key (provider_id, assertion_id)
+        )
+        """);
 
     /// <summary>
     /// Sign-in through an LDAP directory, and an organisation's groups mapped to roles and groups here — ADR-089.

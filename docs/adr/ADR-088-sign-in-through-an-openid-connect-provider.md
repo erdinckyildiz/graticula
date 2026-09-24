@@ -17,6 +17,10 @@
 **Amended 2026-09-24 — [ADR-089](ADR-089-directories-and-group-mapping.md).** The group mapping this ADR left for
 later is built there, and applies to a provider's `groups` claim as well as to a directory's groups.
 
+**Amended 2026-09-24 — [ADR-090](ADR-090-sign-in-through-a-saml-provider.md).** A SAML provider leaves by this ADR's
+door: what ends a sign-in — the account found or made, the groups applied, the session — is now
+`OidcEndpoints.FinishAsync`, shared by both, and `/rest/auth/providers` lists SAML providers beside these.
+
 ## 1. Context
 
 [ADR-015](ADR-015-authentication.md) §5 lists OIDC as *supported, free*, and [D-10](../architecture-debt.md) has

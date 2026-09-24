@@ -32,6 +32,8 @@ namespace Graticula.Host;
 /// <param name="GroupAttribute">A directory's attribute listing a person's groups.</param>
 /// <param name="SubjectAttribute">A directory's attribute that never changes for a person, or empty for the DN.</param>
 /// <param name="StartTls">Whether a directory's <c>ldap://</c> is upgraded with StartTLS.</param>
+/// <param name="MetadataUrl">Where a SAML provider publishes its metadata — ADR-090.</param>
+/// <param name="Metadata">A SAML provider's metadata document, uploaded where its URL cannot be reached.</param>
 internal sealed record IdentityProviderRequest(
     string? Name,
     string? Issuer,
@@ -51,7 +53,9 @@ internal sealed record IdentityProviderRequest(
     string? DisplayAttribute = null,
     string? GroupAttribute = null,
     string? SubjectAttribute = null,
-    bool StartTls = false);
+    bool StartTls = false,
+    string? MetadataUrl = null,
+    string? Metadata = null);
 
 /// <summary>A provider's group mappings as the admin surface takes them — ADR-089.</summary>
 /// <param name="Mappings">Each: the directory's or provider's group, and the role and group here it gives.</param>
@@ -199,6 +203,10 @@ internal static partial class AdminEndpoints
         {
             // What the operator registers at the provider, said once for all of them.
             redirectUri = OidcEndpoints.RedirectUri(context),
+
+            // ADR-090: what a SAML provider is given about this server.
+            acsUrl = Graticula.Host.Saml.SamlEndpoints.AcsUrl(context),
+            samlEntityId = Graticula.Host.Saml.SamlEndpoints.DefaultEntityId(context),
             roles = defined.Select(r => r.Name).ToArray(),
             userTypes = UserTypes.All.ToArray(),
             providers = all.Select(DescribeProvider).ToArray(),
@@ -221,7 +229,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await ProviderSettingsAsync(context, request, roles, cancellation).ConfigureAwait(false) is not { } settings)
+        if (await ProviderSettingsAsync(context, request, roles, null, cancellation).ConfigureAwait(false) is not { } settings)
         {
             return;
         }
@@ -268,7 +276,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await ProviderSettingsAsync(context, request, roles, cancellation).ConfigureAwait(false) is not { } settings)
+        if (await ProviderSettingsAsync(context, request, roles, before, cancellation).ConfigureAwait(false) is not { } settings)
         {
             return;
         }
@@ -351,6 +359,40 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // ADR-090: a SAML provider is checked by reading its metadata again, from its URL when it has one.
+        if (provider.Settings is { Kind: "saml", Saml: { } saml })
+        {
+            try
+            {
+                string metadata = saml.Metadata;
+
+                if (saml.MetadataUrl.Length > 0)
+                {
+                    metadata = await Graticula.Host.Saml.SamlMetadata.FetchAsync(saml.MetadataUrl, cancellation).ConfigureAwait(false);
+                    Graticula.Host.Saml.SamlMetadata.Describe(metadata);
+                    await store.SetSamlMetadataAsync(provider.Id, metadata, DateTimeOffset.UtcNow, cancellation).ConfigureAwait(false);
+                }
+
+                Graticula.Host.Saml.SamlMetadata.Described idp = Graticula.Host.Saml.SamlMetadata.Describe(metadata);
+
+                await Results.Json(new
+                {
+                    reachable = true,
+                    saml = true,
+                    entityId = idp.EntityId,
+                    signOn = idp.SignOn.OriginalString,
+                    certificates = idp.Certificates.Count,
+                    expires = idp.Expires,
+                }).ExecuteAsync(context).ConfigureAwait(false);
+            }
+            catch (Graticula.Host.Saml.SamlException e)
+            {
+                await Refuse(context, 502, e.Message).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
         // ADR-089: a directory is checked by binding with its search account and reading its search base.
         if (provider.Settings.Kind == "ldap")
         {
@@ -399,13 +441,36 @@ internal static partial class AdminEndpoints
 
     /// <summary>The settings a request describes, or null with the refusal written.</summary>
     private static async Task<IdentityProviderSettings?> ProviderSettingsAsync(
-        HttpContext context, IdentityProviderRequest request, IRoleDirectory roles, CancellationToken cancellation)
+        HttpContext context,
+        IdentityProviderRequest request,
+        IRoleDirectory roles,
+        IdentityProvider? before,
+        CancellationToken cancellation)
     {
         string name = (request.Name ?? string.Empty).Trim();
         string kind = string.IsNullOrWhiteSpace(request.Kind) ? "oidc" : request.Kind.Trim().ToLowerInvariant();
         bool directory = kind == "ldap";
+        bool saml = kind == "saml";
         string issuer = (request.Issuer ?? string.Empty).Trim().TrimEnd('/');
         string clientId = (request.ClientId ?? string.Empty).Trim();
+
+        // ADR-090: a SAML provider is its metadata, read from its URL now or taken as uploaded; its issuer is where
+        // the metadata came from, and its client id is this server's entity id there.
+        SamlSettings? samlSettings = null;
+        string? samlRefusal = null;
+
+        if (saml)
+        {
+            (samlSettings, samlRefusal) = await SamlSettingsAsync(request, before, cancellation).ConfigureAwait(false);
+
+            if (samlSettings is not null)
+            {
+                issuer = samlSettings.MetadataUrl.Length > 0
+                    ? samlSettings.MetadataUrl
+                    : Graticula.Host.Saml.SamlMetadata.Describe(samlSettings.Metadata).EntityId;
+                clientId = clientId.Length > 0 ? clientId : Graticula.Host.Saml.SamlEndpoints.DefaultEntityId(context);
+            }
+        }
         string userBase = (request.UserBase ?? string.Empty).Trim();
         string userFilter = string.IsNullOrWhiteSpace(request.UserFilter)
             ? "(&(objectClass=person)(|(sAMAccountName={0})(uid={0})(userPrincipalName={0})))"
@@ -413,15 +478,17 @@ internal static partial class AdminEndpoints
         string role = string.IsNullOrWhiteSpace(request.DefaultRole) ? Roles.Viewer : request.DefaultRole.Trim();
         string userType = string.IsNullOrWhiteSpace(request.DefaultUserType) ? UserTypes.Unrestricted : request.DefaultUserType.Trim();
 
-        string? refusal = kind is not ("oidc" or "ldap")
-            ? "A sign-in provider is an OpenID Connect provider (oidc) or an LDAP directory (ldap)."
+        string? refusal = kind is not ("oidc" or "ldap" or "saml")
+            ? "A sign-in provider is an OpenID Connect provider (oidc), an LDAP directory (ldap) or a SAML provider (saml)."
             : name.Length is 0 or > 100
             ? "A sign-in provider has a name of 1 to 100 characters: it is what the sign-in button says."
+            : samlRefusal is not null
+                ? samlRefusal
             : directory && Graticula.Host.Ldap.LdapDirectory.AddressRefusal(issuer, request.StartTls) is { } badAddress
                 ? badAddress
-            : !directory && OidcClient.IssuerRefusal(issuer) is { } badIssuer
+            : kind == "oidc" && OidcClient.IssuerRefusal(issuer) is { } badIssuer
                 ? badIssuer
-                : !directory && clientId.Length == 0
+                : kind == "oidc" && clientId.Length == 0
                     ? "A sign-in provider needs the client id this server was given there."
                     : directory && userBase.Length == 0
                         ? "A directory needs the base people are searched under, as in ou=people,dc=example,dc=org."
@@ -459,13 +526,13 @@ internal static partial class AdminEndpoints
             issuer,
             clientId,
             string.IsNullOrWhiteSpace(request.Scopes) ? "openid profile email" : request.Scopes.Trim(),
-            string.IsNullOrWhiteSpace(request.UsernameClaim) ? "preferred_username" : request.UsernameClaim.Trim(),
+            string.IsNullOrWhiteSpace(request.UsernameClaim) ? (saml ? "NameID" : "preferred_username") : request.UsernameClaim.Trim(),
             request.AutoCreate,
             role,
             userType,
             request.Enabled ?? true,
             kind,
-            string.IsNullOrWhiteSpace(request.GroupsClaim) ? "groups" : request.GroupsClaim.Trim(),
+            string.IsNullOrWhiteSpace(request.GroupsClaim) ? (saml ? SamlGroupsAttribute : "groups") : request.GroupsClaim.Trim(),
             directory
                 ? new LdapSettings(
                     userBase,
@@ -474,7 +541,52 @@ internal static partial class AdminEndpoints
                     string.IsNullOrWhiteSpace(request.GroupAttribute) ? "memberOf" : request.GroupAttribute.Trim(),
                     (request.SubjectAttribute ?? string.Empty).Trim(),
                     request.StartTls)
-                : null);
+                : null,
+            samlSettings);
+    }
+
+    /// <summary>
+    /// The attribute Entra ID lists a person's groups in, which is the default because most SAML providers asked about
+    /// are Entra; AD FS sends <c>http://schemas.xmlsoap.org/claims/Group</c>, and Okta whatever the operator named.
+    /// </summary>
+    private const string SamlGroupsAttribute = "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups";
+
+    /// <summary>
+    /// A SAML provider's metadata as a request gives it — ADR-090: read from its URL now; else the document uploaded;
+    /// else, for a provider already stored, the document it has. Null with the refusal when none can be used.
+    /// </summary>
+    private static async Task<(SamlSettings? Settings, string? Refusal)> SamlSettingsAsync(
+        IdentityProviderRequest request, IdentityProvider? before, CancellationToken cancellation)
+    {
+        string url = (request.MetadataUrl ?? string.Empty).Trim();
+        string display = (request.DisplayAttribute ?? string.Empty).Trim();
+
+        try
+        {
+            if (url.Length > 0)
+            {
+                string fetched = await Graticula.Host.Saml.SamlMetadata.FetchAsync(url, cancellation).ConfigureAwait(false);
+                Graticula.Host.Saml.SamlMetadata.Describe(fetched);
+                return (new SamlSettings(url, fetched, DateTimeOffset.UtcNow, display), null);
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Metadata))
+            {
+                Graticula.Host.Saml.SamlMetadata.Describe(request.Metadata);
+                return (new SamlSettings(string.Empty, request.Metadata, null, display), null);
+            }
+
+            if (before?.Settings.Saml is { } kept)
+            {
+                return (new SamlSettings(string.Empty, kept.Metadata, null, display), null);
+            }
+
+            return (null, "A SAML provider needs its metadata: the URL it publishes it at, or the file it gives.");
+        }
+        catch (Graticula.Host.Saml.SamlException e)
+        {
+            return (null, e.Message);
+        }
     }
 
     private static object DescribeProvider(IdentityProvider provider) => new
@@ -499,5 +611,32 @@ internal static partial class AdminEndpoints
         groupAttribute = provider.Settings.Ldap?.GroupAttribute,
         subjectAttribute = provider.Settings.Ldap?.SubjectAttribute,
         startTls = provider.Settings.Ldap?.StartTls ?? false,
+        saml = provider.Settings.Saml is { } saml ? DescribeSaml(provider, saml) : null,
     };
+
+    /// <summary>What an operator reads about a SAML provider — ADR-090: whose metadata, until when its certificate holds.</summary>
+    private static object DescribeSaml(IdentityProvider provider, SamlSettings saml)
+    {
+        Graticula.Host.Saml.SamlMetadata.Described? idp;
+
+        try
+        {
+            idp = Graticula.Host.Saml.SamlMetadata.Describe(saml.Metadata);
+        }
+        catch (Graticula.Host.Saml.SamlException)
+        {
+            idp = null;
+        }
+
+        return new
+        {
+            metadataUrl = saml.MetadataUrl,
+            fetchedAt = saml.FetchedAt,
+            displayAttribute = saml.DisplayAttribute,
+            entityId = idp?.EntityId,
+            signOn = idp?.SignOn.OriginalString,
+            certificateExpires = idp?.Expires,
+            spMetadata = $"/rest/auth/saml/{provider.Id}/metadata",
+        };
+    }
 }

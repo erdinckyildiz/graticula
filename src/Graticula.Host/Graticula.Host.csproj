@@ -79,5 +79,6 @@
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
     <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" />
     <PackageReference Include="System.DirectoryServices.Protocols" />
+    <PackageReference Include="ITfoxtec.Identity.Saml2" />
   </ItemGroup>
 </Project>

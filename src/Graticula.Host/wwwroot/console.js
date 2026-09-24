@@ -1287,7 +1287,11 @@ function recountRoleSections() {
  * one thing an operator has to carry to the other system, and the one they would otherwise have to guess.
  */
 let idpList = [];
-let idpMeta = { redirectUri: "", roles: [], userTypes: [] };
+let idpMeta = { redirectUri: "", roles: [], userTypes: [], acsUrl: "", samlEntityId: "" };
+
+/** A SAML provider's metadata file as read from the file box, and the form it was read into — ADR-090. */
+let idpMetadataText = null;
+let idpMetadataFor = null;
 let idpEditing = null;
 
 /** The kind a new provider is being added as — ADR-089. */
@@ -1307,7 +1311,10 @@ async function loadSignin() {
   idpSay("");
   const answer = await api("/admin/identity-providers") || {};
   idpList = answer.providers || [];
-  idpMeta = { redirectUri: answer.redirectUri || "", roles: answer.roles || [], userTypes: answer.userTypes || [] };
+  idpMeta = {
+    redirectUri: answer.redirectUri || "", roles: answer.roles || [], userTypes: answer.userTypes || [],
+    acsUrl: answer.acsUrl || "", samlEntityId: answer.samlEntityId || "",
+  };
 
   const opening = idpGroupsOpenName && idpList.find(x => x.name === idpGroupsOpenName);
   idpGroupsOpenName = null;
@@ -1325,8 +1332,8 @@ function drawSignin() {
         Add one to let them use their organisation's sign-in.</td></tr>`
     : idpList.map((p, i) => `
       <tr>
-        <td class="name"><b>${h(p.name)}</b>${p.enabled ? "" : ` <span class="hint">off: nobody can sign in with it</span>`}</td>
-        <td class="val idpissuer"><span class="hint">${p.kind === "ldap" ? "Directory" : "OpenID Connect"}</span>
+        <td class="name"><b>${h(p.name)}</b>${p.enabled ? "" : ` <span class="hint">off: nobody can sign in with it</span>`}${samlExpiring(p)}</td>
+        <td class="val idpissuer"><span class="hint">${p.kind === "ldap" ? "Directory" : p.kind === "saml" ? "SAML" : "OpenID Connect"}</span>
           <code>${h(p.issuer)}</code></td>
         <td>${p.autoCreate
           ? `Anyone it signs in gets an account: ${h(p.defaultRole)}`
@@ -1362,6 +1369,12 @@ function drawIdpForm() {
   const roles = idpMeta.roles.filter(r => r !== "administrator");
   const auto = p ? p.autoCreate : false;
 
+  // A file read into one form is not sent from another.
+  if (idpMetadataFor !== idpEditing) {
+    idpMetadataText = null;
+    idpMetadataFor = idpEditing;
+  }
+
   // ADR-089: a directory is chosen when a provider is added, and stays what it is.
   const kind = p ? p.kind : (idpNewKind || "oidc");
 
@@ -1370,23 +1383,57 @@ function drawIdpForm() {
   // <b>In the order the provider asks for things</b> — design review 2026-09-24 (M5): a provider shows its issuer,
   // client ID and secret only after this server is registered there with its redirect URI, so that comes first.
   form.innerHTML = `<div class="picker idpform" role="group" aria-labelledby="idpFormTitle">
-    <h4 id="idpFormTitle">${p ? `Edit ${h(p.name)}` : kind === "ldap" ? "A new directory" : "A new sign-in provider"}</h4>
+    <h4 id="idpFormTitle">${p ? `Edit ${h(p.name)}` : kind === "ldap" ? "A new directory"
+      : kind === "saml" ? "A new SAML provider" : "A new sign-in provider"}</h4>
     ${p ? "" : `<fieldset class="valueskind"><legend>What people sign in with</legend>
       <label><input type="radio" name="idpKind" value="oidc" ${kind === "oidc" ? "checked" : ""}> Their organisation's
         sign-in page — OpenID Connect: Entra ID, Keycloak, Okta, Google</label>
+      <label><input type="radio" name="idpKind" value="saml" ${kind === "saml" ? "checked" : ""}> Their organisation's
+        sign-in page — SAML 2.0: AD FS, an Entra ID enterprise application, Okta, Shibboleth</label>
       <label><input type="radio" name="idpKind" value="ldap" ${kind === "ldap" ? "checked" : ""}> Their organisation's
         name and password, typed here — an LDAP directory or Active Directory</label>
     </fieldset>`}
 
     <label for="idpName">Name</label>
     <input id="idpName" type="text" maxlength="100" required value="${h(p ? p.name : "")}"
-      placeholder="${kind === "ldap" ? "Contoso AD" : "Contoso staff"}"
+      placeholder="${kind === "ldap" ? "Contoso AD" : kind === "saml" ? "Contoso AD FS" : "Contoso staff"}"
       aria-describedby="idpNameHint">
     <p class="hint" id="idpNameHint">${kind === "ldap"
       ? "What the members list says they sign in with. A directory has no button: its people use the name and password form."
       : "The sign-in button reads “Sign in with” and this name."}</p>
 
-${kind === "ldap" ? `    <h5>The directory</h5>
+${kind === "saml" ? `    <h5>1. At your provider</h5>
+    <p class="hint" id="idpSamlRegisterHint">Add this server there as a SAML application — AD FS: Relying Party Trusts;
+      Entra ID: Enterprise applications, Single sign-on, SAML; Okta: Applications, SAML 2.0 — with this identifier and
+      reply URL.${p && p.saml ? ` Or give it <a href="${h(p.saml.spMetadata)}" target="_blank" rel="noopener">this
+      server's metadata</a>, which holds both.` : ""}</p>
+    <label for="idpClient">Identifier (entity ID)</label>
+    <input id="idpClient" type="text" required spellcheck="false" value="${h(p ? p.clientId : idpMeta.samlEntityId)}"
+      aria-describedby="idpSamlRegisterHint idpClientHint">
+    <p class="hint" id="idpClientHint">What the provider knows this server as. Change it only to match one already
+      registered there${p && p.accounts ? "; changing it stops sign-in until the provider is changed to match" : ""}.</p>
+    <label for="idpAcs">Reply URL (Assertion Consumer Service)</label>
+    <div class="row"><input id="idpAcs" type="text" readonly value="${h(idpMeta.acsUrl)}" aria-describedby="idpAcsHint">
+      <button type="button" class="ghost tiny" id="idpCopyAcs">Copy</button></div>
+    <p class="hint" id="idpAcsHint">Built from the address you opened this console at. If people reach this server at
+      another address, register that one instead.</p>
+
+    <h5>2. From your provider</h5>
+    <label for="idpMetadataUrl">Its metadata URL</label>
+    <input id="idpMetadataUrl" type="url" spellcheck="false" value="${h(p && p.saml ? p.saml.metadataUrl || "" : "")}"
+      placeholder="${p && p.saml && !p.saml.metadataUrl
+        ? "none: this provider's metadata was uploaded"
+        : "https://adfs.contoso.com/FederationMetadata/2007-06/FederationMetadata.xml"}"
+      aria-describedby="idpMetadataUrlHint idpMetadataMissing">
+    <p class="hint" id="idpMetadataUrlHint">Read now, and again every day, so a new signing certificate is picked up
+      by itself. Entra ID shows it as App Federation Metadata Url.</p>
+    <label for="idpMetadataFile">Or its metadata file</label>
+    <input id="idpMetadataFile" type="file" accept=".xml,application/xml,text/xml,application/samlmetadata+xml"
+      aria-describedby="idpMetadataFileHint">
+    <p class="hint" id="idpMetadataFileHint" aria-live="polite">${samlHeld(p)}</p>
+    <p class="bad-inline" id="idpMetadataMissing" hidden>Give the provider's metadata URL, or its metadata file.</p>
+    <p class="hint">Groups are read from Entra ID's groups attribute; for AD FS, change it under Advanced.</p>
+` : kind === "ldap" ? `    <h5>The directory</h5>
     <label for="idpIssuer">Address</label>
     <input id="idpIssuer" type="text" required spellcheck="false" value="${h(p ? p.issuer : "")}"
       placeholder="ldaps://dc01.contoso.com" aria-describedby="idpIssuerHint">
@@ -1446,6 +1493,8 @@ ${kind === "ldap" ? `    <h5>The directory</h5>
       <label><input type="radio" name="idpAuto" value="yes" ${auto ? "checked" : ""}> Give them an account with the
         role below. ${kind === "ldap"
           ? "<b>Anyone the filter finds under Where people are gets in.</b>"
+          : kind === "saml"
+          ? "<b>Anyone the provider signs in to this application gets in</b> — in Entra ID, everybody in the tenant unless assignment is required."
           : "<b>Anyone who can sign in at this provider gets in</b> — with Google or a multi-tenant Microsoft app, that is anyone at all."}</label>
     </fieldset>
     <label for="idpRole">Role for a new account, and for anyone none of whose mapped groups gives one</label>
@@ -1471,6 +1520,21 @@ ${kind === "ldap" ? `    <h5>The directory</h5>
       <p class="hint" id="idpSubjectAttrHint">objectGUID in Active Directory, entryUUID in OpenLDAP; a person without it
         is known by their DN, which changes when they move.${p && p.accounts
           ? " Fixed now that people have signed in: changing it would make them new people here." : ""}</p>
+    </details>` : kind === "saml" ? `<details><summary>Advanced: the attributes that name the account, its groups and a name to show</summary>
+      <label for="idpClaim">Attribute that names the account</label>
+      <input id="idpClaim" type="text" spellcheck="false" value="${h(p ? p.usernameClaim : "NameID")}"
+        aria-describedby="idpClaimHint">
+      <p class="hint" id="idpClaimHint">NameID is the subject the provider sends, which Entra ID and AD FS set to the
+        user principal name unless told otherwise. An account made at a first sign-in is named by its part before an @.</p>
+      <label for="idpGroupsClaim">Attribute that lists their groups</label>
+      <input id="idpGroupsClaim" type="text" spellcheck="false" value="${h(p ? p.groupsClaim : SAML_GROUPS)}"
+        aria-describedby="idpGroupsClaimHint">
+      <p class="hint" id="idpGroupsClaimHint">Entra ID: this one, with group object IDs unless it is told to send names.
+        AD FS: http://schemas.xmlsoap.org/claims/Group, once a rule sends it.</p>
+      <label for="idpDisplayAttr">Attribute with a name to show</label>
+      <input id="idpDisplayAttr" type="text" spellcheck="false" value="${h(p && p.saml ? p.saml.displayAttribute || "" : "")}"
+        placeholder="empty: the usual display name attributes" aria-describedby="idpDisplayAttrHint">
+      <p class="hint" id="idpDisplayAttrHint">Empty looks for Entra ID's and AD FS's display name, then displayName and cn.</p>
     </details>` : `<details><summary>Advanced: scopes and the claims that name the account and its groups</summary>
       <label for="idpScopes">Scopes</label>
       <input id="idpScopes" type="text" spellcheck="false" value="${h(p ? p.scopes : "openid profile email")}">
@@ -1492,6 +1556,53 @@ ${kind === "ldap" ? `    <h5>The directory</h5>
       <button class="ghost" id="idpCancel">Cancel</button>
     </div>
   </div>`;
+}
+
+/** Under a SAML provider's name, when its signing certificate runs out within thirty days — ADR-090. */
+function samlExpiring(p) {
+  const at = p.saml && p.saml.certificateExpires;
+  if (!at) return "";
+  const days = Math.floor((new Date(at) - Date.now()) / 86400000);
+  return days >= 30 ? "" : `<span class="warn-inline" style="display:block">${days < 0
+    ? "Its signing certificate has expired"
+    : `Its signing certificate expires in ${days} day${days === 1 ? "" : "s"}`}</span>`;
+}
+
+/** A Copy button says Copied for two seconds, where the eye is — design review 2026-09-24 (m8). */
+function copiedHere(button) {
+  const was = button.textContent;
+  button.textContent = "Copied";
+  setTimeout(() => { if (button.isConnected) button.textContent = was; }, 2000);
+}
+
+/** Metadata was given: the missing-metadata mark goes — design review 2026-09-24 (M2). */
+function idpMetadataGiven() {
+  $("idpMetadataUrl")?.removeAttribute("aria-invalid");
+  if ($("idpMetadataMissing")) $("idpMetadataMissing").hidden = true;
+}
+
+document.addEventListener("input", e => {
+  if (e.target instanceof Element && e.target.id === "idpMetadataUrl" && e.target.value.trim()) idpMetadataGiven();
+});
+
+/** Entra ID's groups attribute: the default a SAML provider is given, as the server gives it (ADR-090). */
+const SAML_GROUPS = "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups";
+
+/** What the form says about a SAML provider's metadata held — ADR-090: whose, from where, and until when it holds. */
+function samlHeld(p) {
+  if (idpMetadataText) return `Read ${h(idpMetadataText.name)}; it is checked when you save.`;
+  const s = p && p.saml;
+  if (!s || !s.entityId) {
+    return "For a server that cannot reach the provider. A file is not read again: upload a new one when the provider's "
+      + "signing certificate changes.";
+  }
+  const days = s.certificateExpires ? Math.floor((new Date(s.certificateExpires) - Date.now()) / 86400000) : null;
+  const where = s.metadataUrl ? `read from the URL ${s.fetchedAt ? day(s.fetchedAt) : ""}` : "uploaded";
+  return `Holding the metadata of ${h(s.entityId)}, ${where}. Its signing certificate holds until ${day(s.certificateExpires)}`
+    + (days !== null && days < 30
+      ? ` — <b>${days < 0 ? "it has expired" : `${days} day${days === 1 ? "" : "s"} from now`}</b>${s.metadataUrl
+        ? "; the daily read picks up the new one once the provider publishes it." : "; upload the provider's new metadata before then."}`
+      : ".");
 }
 
 /**
@@ -1535,6 +1646,9 @@ function drawIdpGroups() {
       in with ${h(p.name)}; this applies from their next sign-in. Groups here that no row names are left alone.</p>
     <p class="hint">${p.kind === "ldap"
       ? "Write a group as the directory names it — its name, as GIS-Admins, or its whole DN."
+      : p.kind === "saml"
+      ? `Write a group as ${h(p.name)} puts it in the ${h(p.groupsClaim)} attribute — ${p.groupsClaim === SAML_GROUPS
+        ? "Entra ID sends group object IDs unless told to send names." : "usually the group's name, as GIS-Publishers."}`
       : `Write a group as ${h(p.name)} puts it in the ${h(p.groupsClaim || "groups")} claim — a name or an ID.`}
       ${idpGroupNames.length ? "" : "There are no groups here yet: make them on Studio › Groups to map to them."}</p>
     <div class="tablewrap"><table class="valuesgrid">
@@ -1631,17 +1745,28 @@ function idpSay(text, bad = false) {
 
 async function saveIdp() {
   // The browser's own check first, at the box that is wrong, rather than a round trip for an empty name.
-  for (const id of ["idpName", "idpIssuer", "idpClient", "idpUserBase"]) {
+  for (const id of ["idpName", "idpIssuer", "idpClient", "idpUserBase", "idpMetadataUrl"]) {
     if ($(id) && !$(id).reportValidity()) return;
   }
 
   const editing = idpEditing !== "new" ? idpEditing : null;
+  const editedKind = editing ? (idpList.find(x => x.id === editing) || {}).kind : (idpNewKind || "oidc");
+
+  // ADR-090: a SAML provider is its metadata; with neither a URL nor a file, a new one has nothing to trust.
+  if (editedKind === "saml" && !editing && !$("idpMetadataUrl").value.trim() && !idpMetadataText) {
+    $("idpMetadataUrl").setAttribute("aria-invalid", "true");
+    $("idpMetadataMissing").hidden = false;
+    $("idpMetadataUrl").focus();
+    return;
+  }
   const auto = document.querySelector("[name=idpAuto]:checked")?.value === "yes";
   const body = {
     name: $("idpName").value,
-    issuer: $("idpIssuer").value,
+    issuer: $("idpIssuer")?.value || null,
     clientId: $("idpClient").value,
-    clientSecret: $("idpSecret").value || null,
+    // A SAML provider has no secret here: design review 2026-09-24 (B1) found this read throwing, so no SAML
+    // provider could be added or saved from the console at all.
+    clientSecret: $("idpSecret")?.value || null,
     clearSecret: !!$("idpClearSecret")?.checked,
     autoCreate: auto,
     defaultRole: $("idpRole")?.value || "viewer",
@@ -1650,7 +1775,7 @@ async function saveIdp() {
     usernameClaim: $("idpClaim")?.value || null,
     enabled: $("idpEnabled").checked,
     // ADR-089
-    kind: editing ? (idpList.find(x => x.id === editing) || {}).kind : (idpNewKind || "oidc"),
+    kind: editedKind,
     groupsClaim: $("idpGroupsClaim")?.value || null,
     userBase: $("idpUserBase")?.value || null,
     userFilter: $("idpUserFilter")?.value || null,
@@ -1658,6 +1783,9 @@ async function saveIdp() {
     groupAttribute: $("idpGroupAttr")?.value || null,
     subjectAttribute: $("idpSubjectAttr")?.value ?? null,
     startTls: !!$("idpStartTls")?.checked,
+    // ADR-090
+    metadataUrl: $("idpMetadataUrl")?.value.trim() || null,
+    metadata: idpMetadataText ? idpMetadataText.text : null,
   };
 
   try {
@@ -12437,6 +12565,27 @@ document.addEventListener("change", e => {
     return;
   }
 
+  // ADR-090: a SAML provider's metadata file, read in the browser and sent with the form.
+  if (t.id === "idpMetadataFile") {
+    const file = t.files && t.files[0];
+    idpMetadataText = null;
+    if (file) idpMetadataGiven();
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        $("idpMetadataFileHint").textContent = `${file.name} is larger than a SAML metadata document can be here (2 MB).`;
+        return;
+      }
+      // This listener is not async: the file is read and the hint said once it has been.
+      file.text().then(text => {
+        idpMetadataText = { name: file.name, text };
+        $("idpMetadataFileHint").innerHTML = samlHeld(idpList.find(x => x.id === idpEditing));
+      });
+      return;
+    }
+    $("idpMetadataFileHint").innerHTML = samlHeld(idpList.find(x => x.id === idpEditing));
+    return;
+  }
+
   // ADR-089: an OpenID Connect provider or a directory — the form is redrawn for the one chosen.
   if (t.getAttribute("name") === "idpKind") {
     idpNewKind = t.value;
@@ -20676,8 +20825,14 @@ async function handleClick(event) {
     return;
   }
 
+  if (t.id === "idpCopyAcs") {
+    try { await navigator.clipboard.writeText($("idpAcs").value); idpSay("The reply URL is copied."); copiedHere(t); }
+    catch { $("idpAcs").select(); idpSay("Select and copy it: this browser did not let the page copy."); }
+    return;
+  }
+
   if (t.id === "idpCopy") {
-    try { await navigator.clipboard.writeText($("idpRedirect").value); idpSay("The redirect URI is copied."); }
+    try { await navigator.clipboard.writeText($("idpRedirect").value); idpSay("The redirect URI is copied."); copiedHere(t); }
     catch { $("idpRedirect").select(); idpSay("Select and copy it: this browser did not let the page copy."); }
     return;
   }
@@ -20700,6 +20855,19 @@ async function handleClick(event) {
     t.disabled = true;
     try {
       const r = await api(`/admin/identity-providers/${p.id}/check`, { method: "POST" });
+      if (r.saml) {
+        const days = Math.floor((new Date(r.expires) - Date.now()) / 86400000);
+        idpSay(`${p.name}'s metadata reads: it is ${r.entityId}, signs people in at ${r.signOn}, and its signing `
+          + `certificate holds until ${day(r.expires)}.`
+          + (days < 0 ? " That has passed: nobody can sign in with it until the provider's new metadata is here."
+            + (p.saml && p.saml.metadataUrl ? " The daily read picks it up once the provider publishes it; press Check again then." : " Upload it in Edit.")
+          : days < 30 ? ` That is ${days} day${days === 1 ? "" : "s"} away: `
+            + (p.saml && p.saml.metadataUrl ? "the daily read picks up the new one once the provider publishes it." : "upload the provider's new metadata in Edit before then.")
+            + " Sign-in can be tried until that day."
+          : " Sign-in can be tried."),
+          days < 30);
+        return;
+      }
       if (r.directory) {
         idpSay(`${p.name} answers: its search account signed in and can read ${r.userBase}. People can sign in with their name and password.`);
         return;
@@ -20711,6 +20879,8 @@ async function handleClick(event) {
     } catch (e) {
       idpSay(`${p.name}: ${e.message} ` + (p.kind === "ldap"
         ? "Check the address, the port and the search account. If they are right, a firewall may be in the way."
+        : p.kind === "saml"
+        ? "Check the metadata URL. If it is right and this server cannot reach it, upload the metadata file in Edit instead."
         : "Check the issuer for a typing mistake. If it is right, this server cannot reach the provider: a firewall or a proxy may be in the way."), true);
     } finally {
       t.disabled = false;

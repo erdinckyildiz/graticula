@@ -1544,6 +1544,9 @@ def a_serving_assembly_that_reaches_for_the_network():
         "src/Graticula.Host/Oidc/OidcClient.cs",
         # ADR-089: a password with no hash here is checked by the directory an operator configured, and only then.
         "src/Graticula.Host/Ldap/LdapDirectory.cs",
+        # ADR-090: a SAML provider's metadata, read from the URL an operator configured when it is saved or checked,
+        # and again when a sign-in finds the copy held older than a day. An uploaded document is never fetched.
+        "src/Graticula.Host/Saml/SamlMetadata.cs",
         # ADR-067: DuckDB's MotherDuck extension, fetched from extensions.duckdb.org the first time a MotherDuck
         # source is opened. A MotherDuck source is a remote database, so a deployment that has one is not air-gapped.
         "src/Graticula.Host/GeoParquetSources.cs",

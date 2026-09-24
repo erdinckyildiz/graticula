@@ -123,6 +123,24 @@ public interface IIdentityProviderStore
         Func<string, int> rank,
         string defaultRole,
         CancellationToken cancellationToken);
+
+    /// <summary>Keeps a SAML provider's metadata as last read from its URL — ADR-090.</summary>
+    /// <param name="id">The provider.</param>
+    /// <param name="metadata">The metadata document.</param>
+    /// <param name="fetchedAt">When it was read.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    Task SetSamlMetadataAsync(Guid id, string metadata, DateTimeOffset fetchedAt, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records a SAML assertion as used — ADR-090: true the first time, false for an assertion already used, on any
+    /// node, until it would have expired.
+    /// </summary>
+    /// <param name="providerId">The provider that issued it.</param>
+    /// <param name="assertionId">Its <c>ID</c>.</param>
+    /// <param name="until">When it expires.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether this is its first use.</returns>
+    Task<bool> ConsumeAssertionAsync(Guid providerId, string assertionId, DateTimeOffset until, CancellationToken cancellationToken);
 }
 
 /// <summary>What an operator sets on a provider.</summary>
@@ -139,6 +157,10 @@ public interface IIdentityProviderStore
 /// client id is the account it searches with.</param>
 /// <param name="GroupsClaim">The claim an OpenID Connect provider lists a person's groups in — ADR-089.</param>
 /// <param name="Ldap">A directory's search settings, or null for an OpenID Connect provider.</param>
+/// <param name="Saml">A SAML provider's metadata, or null for the other kinds — ADR-090, whose issuer is the metadata
+/// URL (or the provider's entity id when the metadata was uploaded), whose client id is this server's entity id there,
+/// whose username claim is the attribute that names the account (<c>NameID</c> for the subject), and whose groups
+/// claim is the attribute that lists a person's groups.</param>
 public sealed record IdentityProviderSettings(
     string Name,
     string Issuer,
@@ -151,7 +173,16 @@ public sealed record IdentityProviderSettings(
     bool Enabled,
     string Kind = "oidc",
     string GroupsClaim = "groups",
-    LdapSettings? Ldap = null);
+    LdapSettings? Ldap = null,
+    SamlSettings? Saml = null);
+
+/// <summary>A SAML identity provider as this server knows it — ADR-090.</summary>
+/// <param name="MetadataUrl">Where its metadata is read and refreshed from, or empty when it was uploaded.</param>
+/// <param name="Metadata">Its metadata document as last read or uploaded: its entity id, sign-in address and
+/// signing certificates.</param>
+/// <param name="FetchedAt">When the metadata was last read from <paramref name="MetadataUrl"/>, or null.</param>
+/// <param name="DisplayAttribute">The attribute that holds a name to show, or empty for the usual ones.</param>
+public sealed record SamlSettings(string MetadataUrl, string Metadata, DateTimeOffset? FetchedAt, string DisplayAttribute);
 
 /// <summary>How a directory is searched for a person — ADR-089.</summary>
 /// <param name="UserBase">Where people are found, as in <c>ou=people,dc=example,dc=org</c>.</param>

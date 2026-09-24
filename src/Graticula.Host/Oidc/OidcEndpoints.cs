@@ -51,6 +51,10 @@ internal static class OidcEndpoints
         app.MapGet(CallbackPath, CallbackAsync);
     }
 
+    /// <summary>Where a sign-in through a provider with a button starts — ADR-088, ADR-090.</summary>
+    internal static string StartPath(IdentityProvider provider) =>
+        provider.Settings.Kind == "saml" ? $"/rest/auth/saml/{provider.Id}/start" : $"/rest/auth/oidc/{provider.Id}/start";
+
     /// <summary>Where a provider sends a person back to, for the operator to register with it.</summary>
     /// <param name="context">A request to this server.</param>
     /// <returns>The absolute redirect URI.</returns>
@@ -65,8 +69,9 @@ internal static class OidcEndpoints
         await Results.Json(new
         {
             // ADR-089: a directory is signed in to with the password form, not a button.
-            providers = all.Where(p => p.Settings is { Enabled: true, Kind: "oidc" })
-                .Select(p => new { id = p.Id, name = p.Settings.Name, start = $"/rest/auth/oidc/{p.Id}/start" })
+            // ADR-090: a SAML provider is a button as an OpenID Connect one is, and starts at its own route.
+            providers = all.Where(p => p.Settings is { Enabled: true, Kind: "oidc" or "saml" })
+                .Select(p => new { id = p.Id, name = p.Settings.Name, start = StartPath(p) })
                 .ToArray(),
 
             // ADR-089: a directory's people use the password form, and the form has to say that it is theirs.
@@ -219,12 +224,53 @@ internal static class OidcEndpoints
             ?? claims.FindFirst("email")?.Value
             ?? subject;
 
+        await FinishAsync(
+            context, store, login, log, provider, subject, username, claims.FindFirst("name")?.Value,
+            [.. claims.FindAll(provider.Settings.GroupsClaim).Select(c => c.Value)], started.Return, cancellation)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Ends a sign-in a provider vouched for — ADR-088, and ADR-090's SAML through the same door: the account the
+    /// provider's subject signs in to, made at a first sign-in when the provider allows it; the provider's groups
+    /// applied (ADR-089); and this server's own session.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="store">The providers.</param>
+    /// <param name="login">What issues a session.</param>
+    /// <param name="log">Where an account made is said.</param>
+    /// <param name="provider">The provider that vouched.</param>
+    /// <param name="subject">What it never reuses for another person.</param>
+    /// <param name="username">The name it gives them.</param>
+    /// <param name="displayName">A name to show, or null.</param>
+    /// <param name="groups">Their groups there.</param>
+    /// <param name="returnTo">Where the sign-in was started from.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    internal static async Task FinishAsync(
+        HttpContext context,
+        IIdentityProviderStore store,
+        LoginService login,
+        ILogger log,
+        IdentityProvider provider,
+        string subject,
+        string username,
+        string? displayName,
+        IReadOnlyCollection<string> groups,
+        string returnTo,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(login);
+        ArgumentNullException.ThrowIfNull(provider);
+
+        string name = provider.Settings.Name;
         Principal? principal = await store.FindPrincipalAsync(provider.Id, subject, username, cancellation).ConfigureAwait(false);
 
         if (principal is null && provider.Settings.AutoCreate)
         {
             principal = await store.CreateMemberAsync(
-                provider.Id, subject, username, AccountName(username), claims.FindFirst("name")?.Value,
+                provider.Id, subject, username, AccountName(username), displayName,
                 provider.Settings.DefaultRole, provider.Settings.DefaultUserType, cancellation).ConfigureAwait(false)
                 ?? await store.FindPrincipalAsync(provider.Id, subject, username, cancellation).ConfigureAwait(false);
 
@@ -238,7 +284,7 @@ internal static class OidcEndpoints
         {
             await PageAsync(context, 403, "There is no account for you here",
                 $"{name} signed you in as {username}, and this server has no account for that name. "
-                + "Ask an administrator to add one.", started.Return).ConfigureAwait(false);
+                + "Ask an administrator to add one.", returnTo).ConfigureAwait(false);
             return;
         }
 
@@ -248,7 +294,7 @@ internal static class OidcEndpoints
             await store.ApplyMappingsAsync(
                 principal.Id,
                 provider.Id,
-                [.. claims.FindAll(provider.Settings.GroupsClaim).Select(c => c.Value)],
+                groups,
                 Graticula.Host.Ldap.LdapDirectory.RoleRank,
                 provider.Settings.DefaultRole,
                 cancellation).ConfigureAwait(false);
@@ -257,7 +303,7 @@ internal static class OidcEndpoints
         if (principal.IsDisabled)
         {
             await PageAsync(context, 403, "This account cannot sign in",
-                "It has been disabled on this server. Ask an administrator.", started.Return).ConfigureAwait(false);
+                "It has been disabled on this server. Ask an administrator.", returnTo).ConfigureAwait(false);
             return;
         }
 
@@ -265,7 +311,7 @@ internal static class OidcEndpoints
             .IssueAsync(principal, context.Connection.RemoteIpAddress, cancellation).ConfigureAwait(false);
 
         AuthEndpoints.SetSessionCookie(context, token, session.ExpiresAt);
-        context.Response.Redirect(started.Return);
+        context.Response.Redirect(returnTo);
     }
 
     /// <summary>What a sign-in carries from its start to its callback, sealed in <see cref="StateCookie"/>.</summary>
@@ -309,9 +355,9 @@ internal static class OidcEndpoints
         return name.Trim().Length == 0 ? username.Trim() : name.Trim();
     }
 
-    private static string Random(int bytes) => WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(bytes));
+    internal static string Random(int bytes) => WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(bytes));
 
-    private static Task PageAsync(HttpContext context, int status, string heading, string sentence, string? back = null) =>
+    internal static Task PageAsync(HttpContext context, int status, string heading, string sentence, string? back = null) =>
         Results.Content(
                 RestDirectory.SignInMessage(heading, sentence, back ?? "/rest/login"), "text/html; charset=utf-8", statusCode: status)
             .ExecuteAsync(context);

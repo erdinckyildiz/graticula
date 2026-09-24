@@ -600,4 +600,16 @@ internal static partial class Log
         Level = LogLevel.Warning,
         Message = "The directory {Provider} could not be asked about a sign-in: {Why}")]
     public static partial void LdapUnreachable(ILogger logger, string provider, string why);
+
+    [LoggerMessage(
+        EventId = 1070,
+        Level = LogLevel.Warning,
+        Message = "The SAML metadata of {Provider} could not be read again, so the copy held is used: {Why}")]
+    public static partial void SamlMetadataKept(ILogger logger, string provider, string why);
+
+    [LoggerMessage(
+        EventId = 1071,
+        Level = LogLevel.Warning,
+        Message = "A SAML response from {Provider} was refused: {Why}")]
+    public static partial void SamlRefused(ILogger logger, string provider, string why);
 }
