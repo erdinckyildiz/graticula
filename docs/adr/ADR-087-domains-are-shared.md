@@ -106,7 +106,9 @@ one nothing uses.
 **Revised after the design review of 2026-09-24**, whose blocker was the first version's: a shared domain edited
 on a layer's Fields page was written to the domain before the layer's fields, so a refusal of the second left
 every other layer changed and the page saying *refused*. Changing a domain in one place, in one write, removes
-that case rather than reporting it. The review's other findings — a typed draft lost by arrowing through the
+that case rather than reporting it. A fault the review did not reach was found the same day by ADR-088's: the Domains screen's new-domain kind
+redrew nothing unless a layer's Fields editor was open, through the console's shared change listener; repaired
+there, with a test that fires it with none open. The review's other findings — a typed draft lost by arrowing through the
 choices, lists offered that could not fit the column, the warning counting rather than naming, the new-list
 path not saying the name must be new, read-only boxes that looked editable, a date range printed in
 milliseconds, the screen scrolling sideways at 390 px — are repaired as it described them.
@@ -151,4 +153,7 @@ None recorded.
    way ADR-065 §4 measured coded values and ranges; the path is the one the conformance test drives through
    the admin surface, not yet through an import.
 2. **The showcase is migrated** — 55 is a contract, so the showcase's backup-and-copy rehearsal before it is
-   the evidence that the conversion is right on real data.
+   the evidence that the conversion is right on real data. **PARTLY DISCHARGED 2026-09-24**: v1.0.164 migrated a
+   copy and then the showcase to 55 without error, and it serves. But the showcase had no layer with a domain, so
+   the conversion itself ran on nothing there; the evidence that it converts correctly is still the seeded copy of
+   §4. Discharged by the first real store with domains going through it.

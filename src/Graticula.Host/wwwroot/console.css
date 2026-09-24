@@ -959,6 +959,30 @@ label.field {
 }
 
 /* A number reads as a sentence, with the unit outside the box. */
+/* Sign-in providers — ADR-088: a provider's way in on the sign-in panel, and a checkbox label in a form. */
+#signinProviders { margin: 4px 0 14px; }
+/* A secondary button, drawn as one: the form's own Sign in is the page's one primary action. */
+#signinProviders a.provider {
+  display: block; text-align: center; margin-bottom: 8px; text-decoration: none;
+  padding: 10px 16px; border: 1px solid var(--control-edge); border-radius: var(--round);
+  background: var(--surface); color: var(--ink); font-weight: 600;
+}
+#signinProviders a.provider:hover { background: var(--surface-2); }
+#idpForm .check { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+#idpForm .row input[readonly] { flex: 1; font-family: var(--mono, monospace); }
+#idpForm input[type=text], #idpForm input[type=url], #idpForm input[type=password] { width: 100%; max-width: 520px; }
+#idpForm h5 { margin: 18px 0 4px; }
+#idpForm .hint { margin: 2px 0 8px; }
+.idpissuer code { overflow-wrap: anywhere; }
+
+/* At a phone's width the list scrolls inside its card, as the Domains screen's does. */
+@media (max-width: 760px) {
+  #view-signin .panel { overflow-x: auto; }
+  #view-signin .panel table { min-width: 560px; }
+  #view-signin .panel table:has(td.empty) { min-width: 0; }
+  #view-signin .panel table:has(td.empty) thead { display: none; }
+}
+
 /* Where a shared domain is used — ADR-087. A short list under its count, one field a line. */
 .domainuses { margin: 4px 0 0; padding-left: 1.1em; font-size: var(--t-small); }
 .domainuses li { padding: 2px 0; }

@@ -512,7 +512,7 @@ internal static class AuthEndpoints
     /// it at all. The fourth control is not a flag: the cookie only
     /// authenticates GET and HEAD.
     /// </remarks>
-    private static void SetSessionCookie(
+    internal static void SetSessionCookie(
         HttpContext context, string token, DateTimeOffset expires) =>
         context.Response.Cookies.Append(
             Authentication.SessionCookie,
@@ -548,7 +548,7 @@ internal static class AuthEndpoints
     /// slash is honoured, and <c>//host</c> is rejected because a
     /// protocol-relative URL also begins with one.
     /// </remarks>
-    private static string Safe(string? target) =>
+    internal static string Safe(string? target) =>
         !string.IsNullOrEmpty(target)
         && target.StartsWith('/')
         && !target.StartsWith("//", StringComparison.Ordinal)

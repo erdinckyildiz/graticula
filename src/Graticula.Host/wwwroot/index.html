@@ -298,6 +298,8 @@
   -->
   <form class="panel" id="signinForm" method="post" action="">
     <h2>Sign in</h2>
+    <!-- ADR-088: a way in through each provider the operator configured, filled in when this panel is shown. -->
+    <div id="signinProviders" hidden></div>
     <label for="u">Name</label>
     <input type="text" id="u" autocomplete="username" autofocus>
     <label for="p">Password</label>
@@ -1458,6 +1460,37 @@
     </div>
   </section>
 
+  <section class="view" id="view-signin">
+    <!--
+      <b>ADR-088, the owner's decisions of 2026-09-24:</b> OpenID Connect, set here rather than in a configuration
+      file; whether a first sign-in makes an account is chosen per provider, as ArcGIS Portal leaves it; an account
+      that signs in through a provider is its own and never joined to a local one by e-mail. Beside Apps, because
+      who may sign people in is the same question as which apps may.
+    -->
+    <div class="pagehead">
+      <div>
+        <h2 id="idpTitle" tabindex="-1">Sign-in</h2>
+        <p>Where people can sign in besides a password on this server: an OpenID Connect provider such as
+          Microsoft Entra ID, Keycloak, Okta or Google. They sign in there and come back here with an account.</p>
+      </div>
+      <div class="right">
+        <span class="val" id="idpCount"></span>
+        <button class="primary" id="idpNew">Add a provider</button>
+      </div>
+    </div>
+    <div id="idpForm" hidden></div>
+    <p class="hint" id="idpSays" aria-live="polite"></p>
+    <div class="panel">
+      <table>
+        <thead><tr>
+          <th>Provider</th><th>Issuer</th><th>First sign-in</th><th class="num">Accounts</th>
+          <th><span class="sr-only">Actions</span></th>
+        </tr></thead>
+        <tbody id="idpRows"></tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="view" id="view-apps">
     <!--
       <b>ADR-076 condition 5: the apps that may sign people in, on a screen.</b> They were registered
@@ -1534,13 +1567,19 @@
     <div class="panel" id="memberForm" hidden>
       <div class="page on" id="memberPages">
         <h4>A new member</h4>
-        <div class="setting"><span class="q">Name they sign in with:</span>
+        <div class="setting"><label class="q" for="mName" id="mNameLabel">Name they sign in with:</label>
           <input id="mName" type="text" autocomplete="off"><span class="u"></span></div>
-        <div class="setting"><span class="q">Shown instead of the name, if you like:</span>
+        <!-- ADR-088: an account that signs in through a provider has no password here. -->
+        <div class="setting" id="mViaRow" hidden><label class="q" for="mVia">Signs in with:</label>
+          <select id="mVia"></select><span class="u"></span></div>
+        <div class="setting" id="mUsernameRow" hidden><label class="q" for="mUsername" id="mUsernameLabel"></label>
+          <input id="mUsername" type="text" autocomplete="off" placeholder="jane@contoso.com"
+            aria-describedby="mViaSays"><span class="u"></span></div>
+        <div class="setting"><label class="q" for="mDisplay">Shown instead of the name, if you like:</label>
           <input id="mDisplay" type="text" autocomplete="off"><span class="u"></span></div>
-        <div class="setting"><span class="q">Role, which decides what they may do:</span>
+        <div class="setting"><label class="q" for="mRole">Role, which decides what they may do:</label>
           <select id="mRole"></select><span class="u"></span></div>
-        <div class="setting"><span class="q">User type, which caps whatever the role grants:</span>
+        <div class="setting"><label class="q" for="mType">User type, which caps whatever the role grants:</label>
           <select id="mType"></select><span class="u"></span></div>
 
         <p class="hint" id="mGrants"></p>
@@ -1553,7 +1592,8 @@
           hint that the password was then known to whoever typed it — a note describing a hazard
           instead of a control. It also put one person's habits on another person's account.
         -->
-        <p class="hint"><b>The server picks the password, not you.</b> You see it once, on this
+        <p class="hint" id="mViaSays" hidden></p>
+        <p class="hint" id="mPasswordSays"><b>The server picks the password, not you.</b> You see it once, on this
           screen, and you pass it on. It is marked as needing replacement, so their first act after
           signing in has to be setting their own — nothing else answers until they do. There is no
           invitation e-mail because this server cannot send a message at all.</p>

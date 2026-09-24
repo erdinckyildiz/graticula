@@ -75,11 +75,35 @@ internal static class RestDirectory
     /// page showed a stranger and any service shared with the organisation was
     /// invisible — in the one surface built for browsing.
     /// </remarks>
-    public static string SignIn(string returnTo, string? failed)
+    public static string SignIn(string returnTo, string? failed) => SignIn(returnTo, failed, []);
+
+    /// <summary>The sign-in page, with a way in through each configured provider — ADR-088.</summary>
+    /// <param name="returnTo">Where to go afterwards.</param>
+    /// <param name="failed">Why the last attempt was refused, or null.</param>
+    /// <param name="providers">The providers to offer, by id and name.</param>
+    /// <returns>The page.</returns>
+    public static string SignIn(string returnTo, string? failed, IReadOnlyList<(Guid Id, string Name)> providers)
     {
+        ArgumentNullException.ThrowIfNull(providers);
+
         StringBuilder body = new();
 
         body.Append("<h1>Sign in</h1>");
+
+        // <b>A provider first, when there is one</b>: an organisation that configured one expects its people to
+        // use it, and the password form below is for the accounts that live here.
+        if (providers.Count > 0)
+        {
+            body.Append("<ul class=\"providers\">");
+
+            foreach ((Guid id, string name) in providers)
+            {
+                body.Append(CultureInfo.InvariantCulture,
+                    $"<li><a href=\"/rest/auth/oidc/{id}/start?return={Uri.EscapeDataString(returnTo)}\">Sign in with {H(name)}</a></li>");
+            }
+
+            body.Append("</ul><p class=\"hint\">Or with an account on this server:</p>");
+        }
 
         if (failed is not null)
         {
@@ -130,6 +154,15 @@ internal static class RestDirectory
 
         return Page("/rest/login", body.ToString());
     }
+
+    /// <summary>A page that says one thing about a sign-in, with the way back to the form — ADR-088.</summary>
+    /// <param name="heading">What happened.</param>
+    /// <param name="sentence">What to do about it.</param>
+    /// <returns>The page.</returns>
+    /// <param name="back">Where the sign-in started, so the way back is to the same place.</param>
+    public static string SignInMessage(string heading, string sentence, string back = "/rest/login") =>
+        Page("/rest/login",
+            $"<h1>{H(heading)}</h1><p class=\"warn\">{H(sentence)}</p><p><a href=\"{H(back)}\">Back to sign in</a></p>");
 
     /// <summary>A folder listing: its folders and its services.</summary>
     /// <param name="path">The request path, for the breadcrumb.</param>
@@ -1119,6 +1152,11 @@ internal static class RestDirectory
                       font-size: 13.5px; background: var(--warn-soft);
                       color: var(--warn); border: 1px solid var(--warn-line);
                       border-radius: 7px; }
+              /* ADR-088: a provider's way in, drawn as the console draws it. */
+              ul.providers { list-style: none; padding: 0; margin: 0 0 12px; max-width: 320px; }
+              ul.providers a { display: block; text-align: center; padding: 9px 14px; margin-bottom: 8px;
+                               border: 1px solid var(--rule-strong); border-radius: 7px; font-weight: 600;
+                               text-decoration: none; }
               .empty { background: var(--panel); border: 1px dashed var(--rule-strong);
                        border-radius: 7px; padding: 16px 18px; max-width: 68ch; }
               .empty p { margin: 0 0 8px; }

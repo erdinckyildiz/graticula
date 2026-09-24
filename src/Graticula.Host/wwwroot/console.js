@@ -1280,6 +1280,182 @@ function recountRoleSections() {
  * code is only ever sent to one of them — so they are listed rather than counted, and a built-in
  * registration says so rather than looking like something an administrator typed.
  */
+/**
+ * The OpenID Connect providers — ADR-088.
+ *
+ * <b>The address to register at the provider is shown in the form, with a way to copy it</b>, because it is the
+ * one thing an operator has to carry to the other system, and the one they would otherwise have to guess.
+ */
+let idpList = [];
+let idpMeta = { redirectUri: "", roles: [], userTypes: [] };
+let idpEditing = null;
+
+async function loadSignin() {
+  idpSay("");
+  const answer = await api("/admin/identity-providers") || {};
+  idpList = answer.providers || [];
+  idpMeta = { redirectUri: answer.redirectUri || "", roles: answer.roles || [], userTypes: answer.userTypes || [] };
+  drawSignin();
+}
+
+function drawSignin() {
+  $("idpCount").textContent = `${idpList.length} provider${idpList.length === 1 ? "" : "s"}`;
+
+  $("idpRows").innerHTML = idpList.length === 0
+    ? `<tr><td colspan="5" class="empty">No provider is set, so people sign in with a password on this server only.
+        Add one to let them use their organisation's sign-in.</td></tr>`
+    : idpList.map((p, i) => `
+      <tr>
+        <td class="name"><b>${h(p.name)}</b>${p.enabled ? "" : ` <span class="hint">off: nobody can sign in with it</span>`}</td>
+        <td class="val idpissuer"><code>${h(p.issuer)}</code></td>
+        <td>${p.autoCreate
+          ? `Anyone it signs in gets an account: ${h(p.defaultRole)}`
+          : "Only people added on Members"}</td>
+        <td class="num">${num(p.accounts)}</td>
+        <td class="actions">
+          <button class="ghost tiny" data-idp-check="${i}" aria-describedby="idpSays">Check</button>
+          <button class="ghost tiny" data-idp-edit="${i}" aria-expanded="${idpEditing === p.id}" aria-controls="idpForm">Edit</button>
+          ${p.accounts
+            ? `<button class="ghost tiny" aria-disabled="true" data-idp-remove-refused="${i}"
+                title="Accounts sign in with it. Turn it off instead.">Remove</button>`
+            : `<button class="ghost tiny" data-idp-remove="${i}" aria-label="Remove ${h(p.name)}">Remove</button>`}
+        </td>
+      </tr>`).join("");
+
+  drawIdpForm();
+}
+
+function drawIdpForm() {
+  const form = $("idpForm");
+  const p = idpEditing && idpEditing !== "new" ? idpList.find(x => x.id === idpEditing) : null;
+
+  if (!idpEditing) {
+    form.hidden = true;
+    form.innerHTML = "";
+    $("idpNew").hidden = false;
+    return;
+  }
+
+  const roles = idpMeta.roles.filter(r => r !== "administrator");
+  const auto = p ? p.autoCreate : false;
+
+  form.hidden = false;
+  $("idpNew").hidden = true;
+  // <b>In the order the provider asks for things</b> — design review 2026-09-24 (M5): a provider shows its issuer,
+  // client ID and secret only after this server is registered there with its redirect URI, so that comes first.
+  form.innerHTML = `<div class="picker idpform" role="group" aria-labelledby="idpFormTitle">
+    <h4 id="idpFormTitle">${p ? `Edit ${h(p.name)}` : "A new sign-in provider"}</h4>
+
+    <label for="idpName">Name</label>
+    <input id="idpName" type="text" maxlength="100" required value="${h(p ? p.name : "")}" placeholder="Contoso staff"
+      aria-describedby="idpNameHint">
+    <p class="hint" id="idpNameHint">The sign-in button reads “Sign in with” and this name.</p>
+
+    <h5>1. At your provider</h5>
+    <p class="hint" id="idpRegisterHint">Register this server there as an application — Entra ID: App registrations;
+      Keycloak: Clients; Okta: Applications; Google: Credentials, OAuth client — and give it this redirect URI:</p>
+    <div class="row"><input id="idpRedirect" type="text" readonly value="${h(idpMeta.redirectUri)}"
+        aria-label="Redirect URI" aria-describedby="idpRegisterHint idpRedirectHint">
+      <button type="button" class="ghost tiny" id="idpCopy">Copy</button></div>
+    <p class="hint" id="idpRedirectHint">Built from the address you opened this console at. If people reach this server
+      at another address, register that one instead.</p>
+
+    <h5>2. From your provider</h5>
+    <label for="idpIssuer">Issuer</label>
+    <input id="idpIssuer" type="url" required spellcheck="false" value="${h(p ? p.issuer : "")}"
+      placeholder="https://login.microsoftonline.com/<tenant ID>/v2.0" aria-describedby="idpIssuerHint">
+    <p class="hint" id="idpIssuerHint">Entra ID: https://login.microsoftonline.com/&lt;tenant ID&gt;/v2.0 · Keycloak:
+      https://&lt;host&gt;/realms/&lt;realm&gt; · Okta: https://&lt;org&gt;.okta.com · Google: https://accounts.google.com</p>
+    <label for="idpClient">Client ID</label>
+    <input id="idpClient" type="text" required spellcheck="false" autocomplete="off" value="${h(p ? p.clientId : "")}"
+      aria-describedby="idpClientHint">
+    <p class="hint" id="idpClientHint">Entra ID calls it the Application (client) ID.</p>
+    <label for="idpSecret">Client secret</label>
+    <input id="idpSecret" type="password" autocomplete="new-password" aria-describedby="idpSecretHint">
+    <p class="hint" id="idpSecretHint">${p && p.hasSecret
+      ? "One is stored and never shown. Leave this empty to keep it." : "If the provider gave one."}</p>
+    ${p && p.hasSecret ? `<label class="check"><input type="checkbox" id="idpClearSecret"> Remove the stored secret</label>` : ""}
+
+    <fieldset class="valueskind"><legend>When somebody signs in for the first time and has no account here</legend>
+      <label><input type="radio" name="idpAuto" value="no" ${auto ? "" : "checked"}> Turn them away. Only people an
+        administrator has added on Members, with this provider chosen, can sign in.</label>
+      <label><input type="radio" name="idpAuto" value="yes" ${auto ? "checked" : ""}> Give them an account with the
+        role below. <b>Anyone who can sign in at this provider gets in</b> — with Google or a multi-tenant Microsoft
+        app, that is anyone at all.</label>
+    </fieldset>
+    <div id="idpAutoRow" ${auto ? "" : "hidden"}>
+      <label for="idpRole">Their role</label>
+      <select id="idpRole" aria-describedby="idpRoleHint">${roles.map(r => `<option ${p && p.defaultRole === r ? "selected" : ""}>${h(r)}</option>`).join("")}</select>
+      <p class="hint" id="idpRoleHint">Raise it on Members afterwards. An administrator is never made this way.</p>
+      <label for="idpType">Their user type</label>
+      <select id="idpType">${idpMeta.userTypes.map(t => `<option ${p ? (p.defaultUserType === t ? "selected" : "") : (t === "unrestricted" ? "selected" : "")}>${h(t)}</option>`).join("")}</select>
+    </div>
+
+    <details><summary>Advanced: scopes and the claim that names the account</summary>
+      <label for="idpScopes">Scopes</label>
+      <input id="idpScopes" type="text" spellcheck="false" value="${h(p ? p.scopes : "openid profile email")}">
+      <label for="idpClaim">Claim that names the account</label>
+      <input id="idpClaim" type="text" spellcheck="false" value="${h(p ? p.usernameClaim : "preferred_username")}"
+        aria-describedby="idpClaimHint">
+      <p class="hint" id="idpClaimHint">An account made at a first sign-in is named by its part before an @. An account
+        added on Members is found by the whole of it.</p>
+    </details>
+    <label class="check"><input type="checkbox" id="idpEnabled" ${!p || p.enabled ? "checked" : ""}
+      aria-describedby="idpEnabledHint"> On: people can sign in with it</label>
+    <p class="hint" id="idpEnabledHint">Off hides it from the sign-in page and stops everyone who uses it from signing in,
+      until it is turned back on.</p>
+
+    <div class="row">
+      <button class="primary" id="idpSave">${p ? "Save" : "Add"}</button>
+      <button class="ghost" id="idpCancel">Cancel</button>
+    </div>
+  </div>`;
+}
+
+function idpSay(text, bad = false) {
+  $("idpSays").textContent = text;
+  $("idpSays").classList.toggle("bad-inline", bad);
+}
+
+async function saveIdp() {
+  // The browser's own check first, at the box that is wrong, rather than a round trip for an empty name.
+  for (const id of ["idpName", "idpIssuer", "idpClient"]) {
+    if (!$(id).reportValidity()) return;
+  }
+
+  const editing = idpEditing !== "new" ? idpEditing : null;
+  const auto = document.querySelector("[name=idpAuto]:checked")?.value === "yes";
+  const body = {
+    name: $("idpName").value,
+    issuer: $("idpIssuer").value,
+    clientId: $("idpClient").value,
+    clientSecret: $("idpSecret").value || null,
+    clearSecret: !!$("idpClearSecret")?.checked,
+    autoCreate: auto,
+    defaultRole: $("idpRole")?.value || "viewer",
+    defaultUserType: $("idpType")?.value || "unrestricted",
+    scopes: $("idpScopes").value,
+    usernameClaim: $("idpClaim").value,
+    enabled: $("idpEnabled").checked,
+  };
+
+  try {
+    const saved = await api(editing ? `/admin/identity-providers/${editing}` : "/admin/identity-providers", {
+      method: editing ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    idpEditing = null;
+    await loadSignin();
+    idpSay(`${saved && saved.name || body.name} is saved. Press Check to see that this server can reach it.`);
+    const at = idpList.findIndex(x => x.name === (saved && saved.name || body.name));
+    (document.querySelector(`[data-idp-check="${at}"]`) || $("idpNew")).focus();
+  } catch (e) {
+    idpSay(e.message, true);
+    $("idpSave").focus();
+  }
+}
+
 async function loadApps() {
   const answer = await api("/admin/oauth/apps") || {};
   const apps = answer.apps || [];
@@ -1603,6 +1779,10 @@ const SURFACES = {
       // apps may sign people in is the same question as who is here and what they may do.
       ["apps", "Apps"],
 
+      // <b>Sign-in — ADR-088.</b> Beside Apps: which providers may sign people in is the question of who may,
+      // and it needs the same privilege.
+      ["signin", "Sign-in"],
+
       // <b>Settings — V-70, ADR-084.</b> What the whole server does unless a service sets its own, which
       // the owner asked to be set here rather than in a configuration file. Before Operations, because it
       // is the one screen in this surface that changes what every service answers.
@@ -1703,6 +1883,7 @@ const SCREEN_SURFACE = {
   // not a 404"* promise above, unkept for the two newest screens.
   roles: "server",
   apps: "server",
+  signin: "server",
   groups: "studio",
 };
 
@@ -2069,6 +2250,7 @@ function openScreen(surface, screen, folder) {
   if (screen === "members") section("members", loadMembers, "members");
   if (screen === "roles") section("roles", loadRoles, "roleRows");
   if (screen === "apps") section("apps", loadApps, "appRows");
+  if (screen === "signin") section("sign-in providers", loadSignin, "idpRows");
   if (screen === "groups") section("groups", loadGroups, "groupRows");
   if (screen === "domains") section("domains", loadDomains, "domainRows");
   if (screen === "operations") section("operations", loadOperations);
@@ -12003,7 +12185,39 @@ document.addEventListener("click", e => {
 
 document.addEventListener("change", e => {
   const t = e.target;
-  if (!(t instanceof Element) || !fieldsState) return;
+
+  // <b>Only an element here, and the Fields page's own state further down</b> — design review 2026-09-24: this
+  // guard also required `fieldsState`, so every branch below it was dead on any page but a layer's Fields, and
+  // the sign-in form's first-sign-in choice, the New member provider and the Domains screen's new-domain kind did
+  // nothing at all. Tests passed because none of them fired a change without a Fields editor open.
+  if (!(t instanceof Element)) return;
+
+  // ADR-088: the role and type a first sign-in gets are asked only when it makes an account.
+  if (t.getAttribute("name") === "idpAuto") {
+    $("idpAutoRow").hidden = t.value !== "yes";
+    return;
+  }
+
+  // ADR-088: a member signing in through a provider has no password here, and is named by the provider.
+  if (t.id === "mVia") {
+    const via = t.value;
+    const provider = via ? t.selectedOptions[0].textContent : "";
+    $("mUsernameRow").hidden = !via;
+    $("mUsername").required = !!via;
+    $("mUsernameLabel").textContent = via ? `The name ${provider} sends for them:` : "";
+    $("mNameLabel").textContent = via ? "Name here:" : "Name they sign in with:";
+    $("mPasswordSays").hidden = !!via;
+    $("mViaSays").hidden = !via;
+
+    // Design review 2026-09-24 (M2): the name has to be the provider's, whole — Entra and Okta send an e-mail
+    // address — or the account is never found and its owner is told there is none.
+    $("mViaSays").textContent = via
+      ? `Usually their e-mail or sign-in name at ${provider}, in full; it must match what ${provider} sends `
+        + `(letter case does not matter). They sign in with ${provider}, so there is no password here to give them, `
+        + "and the account becomes theirs the first time they do."
+      : "";
+    return;
+  }
 
   // ADR-087: a new domain's kind or value type redraws its editor, keeping focus on the choice.
   if (domainEdit && (t.getAttribute("name") === "domEditKind" || t.id === "domEditType")) {
@@ -12013,6 +12227,9 @@ document.addEventListener("change", e => {
     (t.id === "domEditType" ? $("domEditType") : document.querySelector("[name=domEditKind]:checked"))?.focus();
     return;
   }
+
+  // Everything below is the Fields page's, and needs it open.
+  if (!fieldsState) return;
 
   // ADR-087: choosing a shared domain loads its values; "a new one" keeps what is typed, as a domain of its own.
   if (t.id === "valuesShared" && fieldsState.values) {
@@ -20122,6 +20339,85 @@ async function handleClick(event) {
     return;
   }
 
+  // ---- Sign-in providers (ADR-088) ----
+  if (t.id === "idpNew") {
+    idpSay("");
+    idpEditing = "new";
+    drawIdpForm();
+    $("idpName").focus();
+    return;
+  }
+
+  if (t.id === "idpCancel") {
+    idpSay("");
+    const was = idpEditing;
+    idpEditing = null;
+    drawSignin();
+    const at = idpList.findIndex(x => x.id === was);
+    (at >= 0 ? document.querySelector(`[data-idp-edit="${at}"]`) : $("idpNew")).focus();
+    return;
+  }
+
+  if (t.id === "idpSave") {
+    await saveIdp();
+    return;
+  }
+
+  if (t.id === "idpCopy") {
+    try { await navigator.clipboard.writeText($("idpRedirect").value); idpSay("The redirect URI is copied."); }
+    catch { $("idpRedirect").select(); idpSay("Select and copy it: this browser did not let the page copy."); }
+    return;
+  }
+
+  if (t.dataset && t.dataset.idpEdit !== undefined) {
+    idpSay("");
+    const p = idpList[Number(t.dataset.idpEdit)];
+    idpEditing = idpEditing === p.id ? null : p.id;
+    drawSignin();
+    (idpEditing ? $("idpName") : document.querySelector(`[data-idp-edit="${t.dataset.idpEdit}"]`)).focus();
+    return;
+  }
+
+  if (t.dataset && t.dataset.idpCheck !== undefined) {
+    const p = idpList[Number(t.dataset.idpCheck)];
+    idpSay(`Asking ${p.name}…`);
+    t.disabled = true;
+    try {
+      const r = await api(`/admin/identity-providers/${p.id}/check`, { method: "POST" });
+      idpSay(`${p.name} answers: issuer ${r.issuer}, ${r.keys} signing key${r.keys === 1 ? "" : "s"}.`
+        + (r.pkce ? " Sign-in can be tried."
+          : " It does not say it supports PKCE, which this server uses; if a sign-in fails at the provider, that is why."),
+        !r.pkce);
+    } catch (e) {
+      idpSay(`${p.name}: ${e.message} Check the issuer for a typing mistake. If it is right, this server cannot reach `
+        + "the provider: a firewall or a proxy may be in the way.", true);
+    } finally {
+      t.disabled = false;
+      t.focus();
+    }
+    return;
+  }
+
+  if (t.dataset && t.dataset.idpRemoveRefused !== undefined) {
+    const p = idpList[Number(t.dataset.idpRemoveRefused)];
+    idpSay(`${p.name} is not removed: ${num(p.accounts)} account${p.accounts === 1 ? " signs" : "s sign"} in with it. `
+      + "Turn it off in Edit instead, or remove those accounts on Members first.", true);
+    return;
+  }
+
+  if (t.dataset && t.dataset.idpRemove !== undefined) {
+    const at = Number(t.dataset.idpRemove);
+    const p = idpList[at];
+    if (!confirm(`Remove ${p.name}? Nobody signs in with it, so no account changes.`)) return;
+    try {
+      await api(`/admin/identity-providers/${p.id}`, { method: "DELETE" });
+      await loadSignin();
+      idpSay(`${p.name} is removed.`);
+      $("idpTitle").focus();
+    } catch (e) { idpSay(e.message, true); }
+    return;
+  }
+
   if (t.id === "appNew") {
     $("appForm").hidden = false;
     $("appTitle").focus();
@@ -20371,6 +20667,7 @@ async function handleClick(event) {
   if (t.id === "memberNew") {
     $("memberForm").hidden = false;
     $("mName").focus();
+    drawMemberProviders();
     return;
   }
 
@@ -20381,6 +20678,8 @@ async function handleClick(event) {
   }
 
   if (t.id === "mSave") {
+    // ADR-088: a provider's name for the person is required, and the browser says so at the box.
+    if ($("mVia")?.value && !$("mUsername").reportValidity()) return;
     t.disabled = true;
     try {
       const made = await api("/admin/members", {
@@ -20391,11 +20690,15 @@ async function handleClick(event) {
           displayName: $("mDisplay").value || null,
           role: $("mRole").value,
           userType: $("mType").value,
+          // ADR-088: through a provider, by the name it gives, or with a password here.
+          provider: $("mVia")?.value || null,
+          username: $("mVia")?.value ? ($("mUsername").value || null) : null,
         }),
       });
       $("memberForm").hidden = true;
-      for (const id of ["mName", "mDisplay"]) $(id).value = "";
-      showIssuedPassword(made);
+      for (const id of ["mName", "mDisplay", "mUsername"]) if ($(id)) $(id).value = "";
+      if (made && made.password) showIssuedPassword(made);
+      else toast(made && made.note || "Created.", true);
     } catch (e) { toast(e.message); }
     t.disabled = false;
     await section("members", loadMembers, "members");
@@ -21342,6 +21645,40 @@ try {
  *
  * @returns {Promise<boolean>} whether a token is now held
  */
+/** The providers people may sign in through, as links on the sign-in panel — ADR-088. */
+async function drawSigninProviders() {
+  const box = $("signinProviders");
+  if (!box) return;
+
+  let providers = [];
+  try { providers = ((await (await fetch("/rest/auth/providers")).json()) || {}).providers || []; } catch { providers = []; }
+
+  const back = encodeURIComponent(location.pathname + location.hash);
+  box.hidden = providers.length === 0;
+
+  // Keyboard order follows the page (design review 2026-09-24, m7): the name box's autofocus would put a keyboard
+  // past the provider, so when there is one and nothing has been typed, focus starts on it.
+  const typing = document.activeElement === $("u") && $("u").value;
+  box.innerHTML = providers.map(p =>
+    `<a class="provider" href="${h(p.start)}?return=${back}">Sign in with ${h(p.name)}</a>`).join("")
+    + (providers.length ? `<p class="hint">Or with an account on this server:</p>` : "");
+
+  if (providers.length && !typing) box.querySelector("a")?.focus();
+}
+
+/** Offers the providers on the New member form, when there are any. */
+async function drawMemberProviders() {
+  const select = $("mVia");
+  if (!select) return;
+
+  let providers = [];
+  try { providers = ((await (await fetch("/rest/auth/providers")).json()) || {}).providers || []; } catch { providers = []; }
+
+  $("mViaRow").hidden = providers.length === 0;
+  select.innerHTML = `<option value="">A password on this server</option>`
+    + providers.map(p => `<option value="${h(p.id)}">${h(p.name)}</option>`).join("");
+}
+
 async function exchangeSession() {
   try {
     const response = await fetch("/rest/auth/session", { method: "POST", credentials: "same-origin" });
@@ -21391,6 +21728,9 @@ async function start() {
     // Otherwise this reads "checking…" for ever, which is a small lie of the same family as
     // the one above: a line that says it is working on something it has stopped working on.
     $("healthLine").textContent = "sign in to read the server's state";
+
+    // ADR-088: a way in through each provider, back to where this page was.
+    drawSigninProviders();
 
     const cookieOnly = $("signinCookie");
     if (me.authenticated && !token) {

@@ -1534,8 +1534,28 @@ def a_serving_assembly_that_reaches_for_the_network():
     if not os.path.isdir(src):
         return ["src/ is not there, so this check is reading nothing."]
 
+    # **The named exceptions, each with the reason it is one.** A file here reaches out only to something an
+    # operator configured or a person ran; anything else reaching out is still a failure, and a new file doing it
+    # has to be added here with its reason. Three of these were invisible until 2026-09-24 -- see the next comment
+    # and D-274 in docs/architecture-debt.md.
+    allowed = {
+        # ADR-088: signing in through an OpenID Connect provider cannot be done without asking the provider. Only
+        # an issuer an operator configured, only when somebody signs in or the operator checks it.
+        "src/Graticula.Host/Oidc/OidcClient.cs",
+        # ADR-067: DuckDB's MotherDuck extension, fetched from extensions.duckdb.org the first time a MotherDuck
+        # source is opened. A MotherDuck source is a remote database, so a deployment that has one is not air-gapped.
+        "src/Graticula.Host/GeoParquetSources.cs",
+        # ADR-081: `graticula tools inventory` and `migrate` read an ArcGIS Server a person names on the command
+        # line. A command-line tool, not the serving process -- the same reason tools/ is not read.
+        "src/Graticula.Host/Tools/InventoryScan.cs",
+        "src/Graticula.Host/Tools/MigrationPlan.cs",
+    }
+
+    # **Target-typed `new(` too** -- found 2026-09-24 writing that file: `HttpClient Http = new(...)` is the
+    # same connection, and a pattern that looked only for `new HttpClient` did not see it.
     reaching = re.compile(
         r"\bnew\s+HttpClient\b"
+        r"|\bHttpClient\s+\w+\s*=\s*new\s*\("
         r"|\bnew\s+System\.Net\.Http\.HttpClient\b"
         r"|\bWebRequest\.Create\b"
         r"|\bnew\s+Socket\s*\("
@@ -1574,6 +1594,9 @@ def a_serving_assembly_that_reaches_for_the_network():
                 continue
 
             shown = os.path.relpath(path, conditions.ROOT).replace(os.sep, "/")
+
+            if shown in allowed:
+                continue
 
             problems.append(
                 f'{shown} constructs `{found.group(0).strip()}`. This server makes no outbound '

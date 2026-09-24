@@ -1,5 +1,4 @@
 <Project>
-
   <!--
     Central package management.
 
@@ -10,12 +9,10 @@
 
     Nothing below is bundled yet. When the first one is, D-06 comes due.
   -->
-
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
-
   <ItemGroup Label="Geometry — Tier 2, and in a separate process">
     <!-- NetTopologySuite: BSD-3-Clause, compatible with our Apache-2.0
          outbound. Referenced by Graticula.Overlay.Worker and by nothing else,
@@ -23,9 +20,10 @@
          6,408-vertex adversarial input costing 153 seconds and 16.7 GB, and
          OverlayNG cannot be interrupted. Keeping the library out of the server
          process is what makes the cost killable (Q-97, ADR-022 §9). -->
+    <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.23.0" />
+    <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.23.0" />
     <PackageVersion Include="NetTopologySuite" Version="2.5.0" />
   </ItemGroup>
-
   <ItemGroup Label="Formats — Tier 2, and in a separate process for the same reason as geometry">
     <!-- GDAL through its managed bindings, referenced by Graticula.Import.Reader and by nothing
          else. ADR-037 §5a, which reversed that ADR's own Python worker on the day it was written:
@@ -52,7 +50,6 @@
     <PackageVersion Include="MaxRev.Gdal.WindowsRuntime.Minimal" Version="3.13.1.534" />
     <PackageVersion Include="MaxRev.Gdal.LinuxRuntime.Minimal" Version="3.13.1.534" />
   </ItemGroup>
-
   <ItemGroup Label="Data access — Tier 2, adapters only">
     <!-- Npgsql: PostgreSQL License (BSD-style), compatible with our Apache-2.0
          outbound. Referenced only by Graticula.Platform.Postgres; the
@@ -85,7 +82,6 @@
          come with it. Confined to Graticula.Providers.DuckDb by NativeDependencyTests. -->
     <PackageVersion Include="DuckDB.NET.Data.Full" Version="1.5.5" />
   </ItemGroup>
-
   <ItemGroup Label="Rendering — Tier 2, behind our own port, in the serving process">
     <!-- ADR-041. The only rasteriser in this repository, and the first native
          binary admitted into the process that answers public requests.
@@ -117,7 +113,6 @@
     <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />
     <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.2" />
   </ItemGroup>
-
   <ItemGroup Label="Testing">
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageVersion Include="xunit" Version="2.9.2" />
@@ -134,5 +129,4 @@
          that implementation, in process, with no socket. Test-only, MIT, not linked. -->
     <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="9.0.0" />
   </ItemGroup>
-
 </Project>

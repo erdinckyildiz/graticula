@@ -574,4 +574,24 @@ internal static partial class Log
                 + "the server (V-43).")]
     public static partial void LayerLeftOutOfListing(
         ILogger logger, string layer, string face, string kind, string reason);
+
+    // ---- ADR-088: signing in through an OpenID Connect provider ----
+
+    [LoggerMessage(
+        EventId = 1066,
+        Level = LogLevel.Warning,
+        Message = "A sign-in through {Provider} could not start: {Why}")]
+    public static partial void OidcStartFailed(ILogger logger, string provider, string why);
+
+    [LoggerMessage(
+        EventId = 1067,
+        Level = LogLevel.Warning,
+        Message = "A sign-in through {Provider} did not complete: {Why}")]
+    public static partial void OidcSignInFailed(ILogger logger, string provider, string why);
+
+    [LoggerMessage(
+        EventId = 1068,
+        Level = LogLevel.Information,
+        Message = "An account {Account} was made for {Username} at its first sign-in through {Provider}.")]
+    public static partial void OidcAccountMade(ILogger logger, string account, string username, string provider);
 }

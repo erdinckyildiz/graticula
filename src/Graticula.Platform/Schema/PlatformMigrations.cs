@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(55);
+    public static SchemaVersion ComponentSchemaVersion => new(56);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -90,6 +90,7 @@ public static class PlatformMigrations
         ARelationshipHasANumberV53,
         ThePageSizeIsOneNumberV54,
         DomainsAreSharedV55,
+        SignInThroughAnIdentityProviderV56,
     ]);
 
     /// <summary>
@@ -145,6 +146,69 @@ public static class PlatformMigrations
             + "a query that asks for more. A service that set both keeps its maximum. What a query naming "
             + "no page size gets is unchanged for the first; for the second it becomes the maximum, which "
             + "is the number the service's document already gave.");
+
+    /// <summary>
+    /// Sign-in through an OpenID Connect provider — ADR-088.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>By owner decision, 2026-09-24:</b> OIDC now, configured from the console; whether a first sign-in
+    /// makes an account is the operator's choice per provider, as ArcGIS Portal leaves it; an account signed in
+    /// through a provider is its own account, never joined to a local one by e-mail.
+    /// </para>
+    /// <para>
+    /// <b>A provider's client secret is sealed with the server's key</b>, as a data source's credential is, and
+    /// carries the key version that sealed it. <b>An external identity is a provider and the subject it names</b>
+    /// — the one claim a provider promises never to reuse. An account an administrator made before its owner
+    /// first signed in has the name the provider will give and no subject yet; the first sign-in binds it.
+    /// </para>
+    /// <para>
+    /// <b>Expand</b>: two new tables, nothing an older build reads changes.
+    /// </para>
+    /// </remarks>
+    private static Migration SignInThroughAnIdentityProviderV56 => Migration.Expand(
+        new SchemaVersion(56),
+        "Sign-in through an OpenID Connect provider, and the accounts it names (ADR-088).",
+
+        """
+        create table if not exists identity_provider (
+            id                 uuid        not null primary key default gen_random_uuid(),
+            name               text        not null,
+            kind               text        not null default 'oidc',
+            issuer             text        not null,
+            client_id          text        not null,
+            client_secret      bytea       null,
+            key_version        int         null,
+            scopes             text        not null default 'openid profile email',
+            username_claim     text        not null default 'preferred_username',
+            auto_create        boolean     not null default false,
+            default_role       text        not null default 'viewer',
+            default_user_type  text        not null default 'unrestricted',
+            enabled            boolean     not null default true,
+            created_at         timestamptz not null default now(),
+            updated_at         timestamptz not null default now(),
+            constraint identity_provider_kind_known check (kind in ('oidc')),
+            constraint identity_provider_name_not_blank check (length(btrim(name)) > 0),
+            constraint identity_provider_secret_has_key check ((client_secret is null) = (key_version is null))
+        )
+        """,
+
+        "create unique index if not exists identity_provider_name_key on identity_provider (lower(name))",
+
+        """
+        create table if not exists external_identity (
+            principal_id  uuid        not null references principal (id) on delete cascade,
+            provider_id   uuid        not null references identity_provider (id) on delete restrict,
+            subject       text        null,
+            username      text        not null,
+            created_at    timestamptz not null default now(),
+            primary key (provider_id, principal_id)
+        )
+        """,
+
+        "create unique index if not exists external_identity_subject_key on external_identity (provider_id, subject) where subject is not null",
+        "create unique index if not exists external_identity_username_key on external_identity (provider_id, lower(username))",
+        "create index if not exists external_identity_principal_idx on external_identity (principal_id)");
 
     /// <summary>
     /// A domain is a named object many fields point at — ADR-087.

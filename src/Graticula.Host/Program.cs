@@ -569,6 +569,11 @@ public static class Program
         // ADR-087: shared domains, in the same store.
         builder.Services.AddSingleton<IFieldDomainStore>(services =>
             new PostgresFieldDomainStore(services.GetRequiredService<NpgsqlDataSource>()));
+
+        // ADR-088: sign-in through an OpenID Connect provider, and the one client that asks it.
+        builder.Services.AddSingleton<IIdentityProviderStore>(services =>
+            new PostgresIdentityProviderStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton<Graticula.Host.Oidc.OidcClient>();
         builder.Services.AddSingleton<ServerPageSize>();
         builder.Services.AddSingleton<ServerGround>();
 
@@ -2029,13 +2034,21 @@ public static class Program
 
         // The only way a browser gets a session. See Authentication.CookieToken
         // for why that session can only read.
-        app.MapGet("/rest/login", (HttpContext context) => Results.Content(
-            RestDirectory.SignIn(
-                context.Request.Query["return"].ToString(),
-                context.Request.Query["failed"].Count > 0
-                    ? "That name and password were not accepted."
-                    : null),
-            "text/html; charset=utf-8"));
+        app.MapGet("/rest/login", async (HttpContext context, IIdentityProviderStore providers, CancellationToken cancellation) =>
+            Results.Content(
+                RestDirectory.SignIn(
+                    context.Request.Query["return"].ToString(),
+                    context.Request.Query["failed"].Count > 0
+                        ? "That name and password were not accepted."
+                        : null,
+
+                    // ADR-088: a way in through each provider an operator configured and left on.
+                    [.. (await providers.ListAsync(cancellation).ConfigureAwait(false))
+                        .Where(p => p.Settings.Enabled)
+                        .Select(p => (p.Id, p.Settings.Name))]),
+                "text/html; charset=utf-8"));
+
+        Graticula.Host.Oidc.OidcEndpoints.Map(app);
 
         app.MapGet("/rest/whoami", (HttpContext context) =>
         {

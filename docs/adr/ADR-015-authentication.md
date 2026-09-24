@@ -221,6 +221,10 @@ it is not there rather than asked to sign in.
 
 ## 5. Decision — identity sources
 
+**Amended 2026-09-24: the OIDC row is built — [ADR-088](ADR-088-sign-in-through-an-openid-connect-provider.md).**
+Authorization code with PKCE against a provider an operator sets from the console, ending in this ADR's own session.
+SAML 2.0 and LDAP follow, by the owner's order; SCIM, API keys and mTLS are as this table leaves them.
+
 | Source | Status | Note |
 |---|---|---|
 | **Local accounts** | **First-class, always present** | Not a fallback. Air-gapped sites may have no reachable IdP, and Q-15 assumes none |

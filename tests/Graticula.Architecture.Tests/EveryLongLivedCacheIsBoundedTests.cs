@@ -85,6 +85,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
             + "picture is read back from disk (D-58, ADR-071)",
         ["ServiceThumbnails._drawing"] = "one per picture being drawn right now; removed when its draw ends (ADR-071)",
         ["ServiceContexts._known"] = "one per table; removed by Forget on unpublish and refresh",
+        ["OidcClient._known"] = "one per issuer an operator configured (ADR-088); a removed provider's entry is an hour's worth of a discovery document, replaced when read again",
         ["ServiceContexts._times"] = "one per layer; removed by Forget on unpublish and refresh (D-160)",
         ["SourceBreaker._tripped"] = "one per data source; removed on recovery",
 

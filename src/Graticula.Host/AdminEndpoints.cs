@@ -392,6 +392,10 @@ internal sealed record TimeFieldRequest(string? Field);
 /// <param name="DisplayName">What to show, or null for the name.</param>
 /// <param name="Role">The role to grant.</param>
 /// <param name="UserType">Their ceiling, or null for the default.</param>
+/// <param name="Provider">
+/// ADR-088: the sign-in provider the account signs in through, or null for an account with a password here.
+/// </param>
+/// <param name="Username">The name that provider gives them, or null for <paramref name="Name"/>.</param>
 /// <remarks>
 /// <b>There is no password field, and that is the decision.</b> Owner rule 2026-08-17: the system
 /// issues the password, the administrator may pass it along, and its owner has to replace it. A
@@ -399,7 +403,7 @@ internal sealed record TimeFieldRequest(string? Field);
 /// see <see cref="IssuedPassword"/>.
 /// </remarks>
 internal sealed record MemberRequest(
-    string? Name, string? DisplayName, string? Role, string? UserType);
+    string? Name, string? DisplayName, string? Role, string? UserType, Guid? Provider = null, string? Username = null);
 
 /// <summary>A role to hold, or null to hold none.</summary>
 internal sealed record MemberRoleRequest(string? Role);
@@ -577,6 +581,7 @@ internal static partial class AdminEndpoints
         MapVisibleRange(app);    // ADR-070 — AdminEndpoints.VisibleRange.cs
         MapServerSettings(app);  // ADR-084 — AdminEndpoints.Settings.cs
         MapSharedDomains(app);   // ADR-087 — AdminEndpoints.Domains.cs
+        MapIdentityProviders(app); // ADR-088 — AdminEndpoints.IdentityProviders.cs
         MapThumbnails(app);      // ADR-071 — AdminEndpoints.Thumbnails.cs
         MapHistory(app);         // ADR-078 — AdminEndpoints.History.cs
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
@@ -8881,6 +8886,7 @@ internal static partial class AdminEndpoints
         IMemberDirectory directory,
         IRoleDirectory roles,
         IPasswordHasher hasher,
+        IIdentityProviderStore providers,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -8940,6 +8946,61 @@ internal static partial class AdminEndpoints
                 $"'{userType}' is not a user type. They are {string.Join(", ", UserTypes.All)}, and "
                 + "a type is a ceiling: it caps whatever the role grants (ADR-018 §3).")
                 .ConfigureAwait(false);
+            return;
+        }
+
+        // <b>ADR-088: an account that signs in through a provider has no password here.</b> It is made ahead of its
+        // owner's first sign-in with the name the provider will give, and that sign-in binds it — which is how an
+        // operator who turned automatic accounts off lets a person in.
+        if (request.Provider is { } providerId)
+        {
+            if (await providers.FindAsync(providerId, cancellation).ConfigureAwait(false) is not { } provider)
+            {
+                await Refuse(context, 400, $"There is no sign-in provider {providerId}.").ConfigureAwait(false);
+                return;
+            }
+
+            // <b>The provider's name for them, given whole — design review 2026-09-24.</b> Defaulting to the
+            // account's name made an account that Entra or Okta, which send an e-mail address, never matched.
+            if (string.IsNullOrWhiteSpace(request.Username))
+            {
+                await Refuse(context, 400,
+                    $"Give the name {provider.Settings.Name} sends for '{name}' — usually their e-mail or sign-in name "
+                    + "there, in full. It is how their first sign-in finds this account.").ConfigureAwait(false);
+                return;
+            }
+
+            string username = request.Username.Trim();
+
+            Principal? external = await providers.CreateMemberAsync(
+                providerId, subject: null, username, name,
+                string.IsNullOrWhiteSpace(request.DisplayName) ? null : request.DisplayName.Trim(),
+                role, userType, cancellation, numberIfTaken: false).ConfigureAwait(false);
+
+            if (external is null)
+            {
+                await Refuse(context, 409,
+                    $"There is already a member called '{name}', or {provider.Settings.Name} already names an account "
+                    + $"'{username}' here.").ConfigureAwait(false);
+                return;
+            }
+
+            await AuditAsync(
+                context, audit, "member.create", name,
+                Detail(new { role, userType, provider = provider.Settings.Name, username }),
+                succeeded: true, cancellation).ConfigureAwait(false);
+
+            context.Response.StatusCode = StatusCodes.Status201Created;
+
+            await Results.Json(new
+            {
+                name = external.Name,
+                role,
+                userType,
+                provider = provider.Settings.Name,
+                username,
+                note = $"'{name}' signs in with {provider.Settings.Name} as {username}. There is no password here to give them.",
+            }).ExecuteAsync(context).ConfigureAwait(false);
             return;
         }
 
