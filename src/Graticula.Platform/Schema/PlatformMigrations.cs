@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(53);
+    public static SchemaVersion ComponentSchemaVersion => new(54);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -88,7 +88,62 @@ public static class PlatformMigrations
         OAuthV51,
         AWebMapIsASavedDocumentV52,
         ARelationshipHasANumberV53,
+        ThePageSizeIsOneNumberV54,
     ]);
+
+    /// <summary>
+    /// A server's own settings, and a service's page size as one number — V-70.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The owner's decision of 2026-09-23 (ADR-084):</b> a query that names no page size answers the
+    /// page size, the document says that same number, it is 1000 unless changed, a service may change its
+    /// own, and the server's is changed from a settings screen rather than a configuration file. The third
+    /// ArcGIS review found a layer document saying <c>maxRecordCount</c> 50000 over a query answering 1000,
+    /// and a script paging by the document skipping rows.
+    /// </para>
+    /// <para>
+    /// <b><c>server_setting</c> is a table of named values</b>, because the page size is the first thing an
+    /// operator sets for the whole server from the console and will not be the last; a row per setting is
+    /// what lets the next one arrive without a migration.
+    /// </para>
+    /// <para>
+    /// <b>The fold keeps what a service answered.</b> A service that set only its default page answered that
+    /// many rows to a query naming none; it becomes its page size, so it still does. A service that set both
+    /// keeps its maximum, which is what its document already said. <c>default_record_count</c> is read by
+    /// nothing after this and is dropped by a later contract, so a server built before this one can still
+    /// start against the store — the rollback window stays open for one release.
+    /// </para>
+    /// </remarks>
+    private static Migration ThePageSizeIsOneNumberV54 => Migration.Expand(
+        new SchemaVersion(54),
+        "Server settings, and a service's page size as one number (V-70).",
+
+        """
+        create table if not exists server_setting (
+            name       text        not null primary key,
+            value      text        not null,
+            changed_at timestamptz not null default now(),
+            changed_by uuid        null references principal (id) on delete set null,
+            constraint server_setting_name_not_blank check (length(btrim(name)) > 0)
+        )
+        """,
+
+        """
+        update service
+           set max_record_count = default_record_count
+         where default_record_count is not null
+           and max_record_count is null
+        """,
+
+        // Emptied once folded, so migration 17's check — the default no larger than the maximum —
+        // cannot refuse a later, smaller page size over a number nothing reads.
+        "update service set default_record_count = null where default_record_count is not null")
+        .Cautioning(
+            "A service that set only a default page size takes it as its page size, which now also bounds "
+            + "a query that asks for more. A service that set both keeps its maximum. What a query naming "
+            + "no page size gets is unchanged for the first; for the second it becomes the maximum, which "
+            + "is the number the service's document already gave.");
 
     /// <remarks>
     /// <b>V-46, the third ArcGIS review, decided by the owner 2026-09-23.</b> ArcGIS names a relationship by an

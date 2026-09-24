@@ -505,7 +505,11 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
             servesTiles: false,
             ceiling: ["Query", "Extract"],
             statementTimeout: TimeSpan.FromMilliseconds(7000))
-            .With(new ServiceCostCeilings(20_000, 500, 33_554_432, 1_048_576, 250));
+            .With(new ServiceCostCeilings(
+                maximumRecordCount: 20_000,
+                maximumResponseBytes: 33_554_432,
+                maximumRequestBytes: 1_048_576,
+                maximumEditsPerTransaction: 250));
 
         Assert.True(await admin.SetServiceCapabilitiesAsync(
             "capped", null, written, CancellationToken.None));
@@ -519,7 +523,6 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         Assert.Equal(["Query", "Extract"], read.Ceiling);
         Assert.Equal(TimeSpan.FromMilliseconds(7000), read.StatementTimeout);
         Assert.Equal(20_000, read.Cost.MaximumRecordCount);
-        Assert.Equal(500, read.Cost.DefaultRecordCount);
         Assert.Equal(33_554_432, read.Cost.MaximumResponseBytes);
         Assert.Equal(1_048_576, read.Cost.MaximumRequestBytes);
         Assert.Equal(250, read.Cost.MaximumEditsPerTransaction);
@@ -577,7 +580,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
             "same",
             "shared",
             new ServiceCapabilityLimits(null, null, null, null)
-                .With(new ServiceCostCeilings(9_000, null, null, null, null)),
+                .With(new ServiceCostCeilings(9_000, null, null, null)),
             CancellationToken.None);
 
         ServiceCapabilityLimits? read = await admin

@@ -1603,6 +1603,11 @@ const SURFACES = {
       // apps may sign people in is the same question as who is here and what they may do.
       ["apps", "Apps"],
 
+      // <b>Settings — V-70, ADR-084.</b> What the whole server does unless a service sets its own, which
+      // the owner asked to be set here rather than in a configuration file. Before Operations, because it
+      // is the one screen in this surface that changes what every service answers.
+      ["settings", "Settings"],
+
       ["operations", "Operations"],
 
       // <b>Beside Operations, because they answer the same shift.</b> Operations says what
@@ -1668,6 +1673,9 @@ const SCREEN_SURFACE = {
   // naming a single owner here is what sent every sharing link to Server. Which surface a layer's
   // page belongs to is `LAYER_PAGES`, and the router asks that instead.
   operations: "server",
+
+  // <b>Server's — V-70.</b> A page size for the whole server is server administration.
+  settings: "server",
 
   // <b>Server's, because reading a log is an operational act.</b> It carries principals,
   // source addresses and paths — most of what somebody probing a deployment wants — so it
@@ -1940,7 +1948,7 @@ function drawSurfaces(surface) {
   // column, the button would have been a nav item that is not one. The router fills two slots
   // instead, which is the only change the redesign made to this function.
   $("tabs").innerHTML = config.tabs.map(([name, label]) =>
-    `<a href="#/${name}" data-tab="${name}">
+    `<a href="#/${name}" data-tab="${name}" aria-label="${h(label)}">
        <span class="ico" aria-hidden="true">${SECTION_GLYPH[name] ?? "·"}</span>
        <span class="label">${h(label)}</span>${
        name === "services" ? '<span class="count" id="cServices"></span>' : ""}${
@@ -1982,6 +1990,7 @@ const SECTION_GLYPH = {
   sources: "▤",
   members: "◍",
   operations: "◎",
+  settings: "◇",
   logs: "≡",
   content: "◈",
   anonymous: "◌",
@@ -2056,6 +2065,7 @@ function openScreen(surface, screen, folder) {
   if (screen === "apps") section("apps", loadApps, "appRows");
   if (screen === "groups") section("groups", loadGroups, "groupRows");
   if (screen === "operations") section("operations", loadOperations);
+  if (screen === "settings") section("settings", loadSettings);
   if (screen === "sources") section("data sources", loadSources, "sources");
   if (screen === "publish") section("publish", loadPublish);
   if (screen === "logs") section("logs", loadLogs, "logRows");
@@ -3516,7 +3526,7 @@ function drawServiceBounds(doc) {
       is refused with the reason.</p>`;
 
   const rows = [
-    ["Rows per request", doc.maxRecordCount != null ? num(doc.maxRecordCount) : null],
+    ["Page size", doc.maxRecordCount != null ? num(doc.maxRecordCount) : null],
     ["Query formats", doc.supportedQueryFormats ? h(String(doc.supportedQueryFormats)) : null],
     // <b>No thousands separator on an identifier.</b> `num()` made Web Mercator read as
     // *EPSG:3,857*, which is not a code anybody can paste anywhere.
@@ -5333,23 +5343,25 @@ function serviceSettingsMarkup(name, folder) {
 
     <section class="page" id="page-limits">
       <h4>Response</h4>
-      <div class="setting"><span class="q">The most rows one response may carry:</span>
-        <input type="number" id="capMaxRows" min="1" placeholder="50000"><span class="u">rows</span></div>
-      <div class="setting"><span class="q">Rows returned when the caller does not ask:</span>
-        <input type="number" id="capDefRows" min="1" placeholder="1000"><span class="u">rows</span></div>
-      <div class="setting"><span class="q">The most one response body may reach:</span>
+      <div class="setting"><label class="q" for="capMaxRows">Page size:</label>
+        <input type="number" id="capMaxRows" min="1" step="1" inputmode="numeric" placeholder=""
+          aria-describedby="capPageSays"><span class="u">features</span></div>
+      <p class="hint" id="capPageSays">What a query returns when it does not ask for a number, and the most
+        it returns when it does — ArcGIS's <code>maxRecordCount</code>. Empty uses the server's page
+        size<span id="capServerPage"></span>, set on <a href="#/settings">Settings</a>.</p>
+      <div class="setting"><label class="q" for="capOutBytes">The most one response body may reach:</label>
         <input type="number" id="capOutBytes" min="1" placeholder="67108864"><span class="u">bytes</span></div>
 
       <h4>Request</h4>
-      <div class="setting"><span class="q">The most one request body may carry:</span>
+      <div class="setting"><label class="q" for="capInBytes">The most one request body may carry:</label>
         <input type="number" id="capInBytes" min="1" placeholder="unset"><span class="u">bytes</span></div>
-      <div class="setting"><span class="q">The most edits one call may apply:</span>
+      <div class="setting"><label class="q" for="capEdits">The most edits one call may apply:</label>
         <input type="number" id="capEdits" min="1" placeholder="unset"><span class="u">edits</span></div>
 
       <h4>Time</h4>
-      <div class="setting"><span class="q">The longest a client may use this service:</span>
+      <div class="setting"><label class="q" for="capDeadline">The longest a client may use this service:</label>
         <input type="number" id="capDeadline" min="1" placeholder="600"><span class="u">seconds</span></div>
-      <div class="setting"><span class="q">The longest one database statement may run:</span>
+      <div class="setting"><label class="q" for="capTimeout">The longest one database statement may run:</label>
         <input type="number" id="capTimeout" min="1000" step="1000" placeholder="30000"><span class="u">ms</span></div>
       <p class="hint"><b>The two time limits are not the same limit.</b> The first bounds the whole
         request — reading it, querying, projecting, encoding and writing the answer. The second
@@ -12095,7 +12107,17 @@ async function loadServiceCapabilities(name, folderGiven) {
   }
 
   set("capMaxRows", c.maxRecordCount);
-  set("capDefRows", c.defaultRecordCount);
+
+  // <b>The server's page size as the placeholder, and in the sentence under it</b> — V-70. The placeholder
+  // alone was the only place the number showed, and at phone width it was cut off.
+  if ($("capMaxRows") && c.serverPageSize != null) {
+    $("capMaxRows").placeholder = String(c.serverPageSize);
+    $("capMaxRows").dataset.ceiling = c.pageSizeCeiling != null ? String(c.pageSizeCeiling) : "";
+    if ($("capServerPage")) {
+      $("capServerPage").textContent = `, ${num(c.serverPageSize)}` + (c.pageSizeCeiling != null
+        ? `, and no service's can be larger than ${num(c.pageSizeCeiling)}, this server's ceiling` : "");
+    }
+  }
   set("capOutBytes", c.maxResponseBytes);
   set("capInBytes", c.maxRequestBytes);
   set("capEdits", c.maxEditsPerTransaction);
@@ -12154,6 +12176,16 @@ async function saveServiceSettings(service, folder) {
     return raw === "" ? null : Number(raw);
   };
 
+  // <b>A page size is checked here, with the same sentence Settings uses</b> — design review 2026-09-24:
+  // 0 reached the server and came back as an exception's text, and 1.5 as a bare status line.
+  const pageBox = $("capMaxRows");
+
+  if (pageBox && (pageBox.validity?.badInput
+      || (pageBox.value.trim() !== "" && (!Number.isInteger(Number(pageBox.value)) || Number(pageBox.value) < 1)))) {
+    pageBox.focus();
+    throw new Error("A page size is a whole number of features, 1 or more — or empty for the server's.");
+  }
+
   const ops = [...document.querySelectorAll("#ops input[data-op]")];
   const ticked = ops.filter(b => b.checked).map(b => b.dataset.op);
 
@@ -12171,7 +12203,6 @@ async function saveServiceSettings(service, folder) {
       capabilities: ticked.length === ops.length ? null : ticked,
 
       maxRecordCount: num("capMaxRows"),
-      defaultRecordCount: num("capDefRows"),
       maxResponseBytes: num("capOutBytes"),
       maxRequestBytes: num("capInBytes"),
       maxEditsPerTransaction: num("capEdits"),
@@ -12180,7 +12211,16 @@ async function saveServiceSettings(service, folder) {
     }),
   });
 
-  toast(saved.note ? `${service}: saved. ${saved.note}` : `${service}: saved`, true);
+  // <b>A page size above the ceiling is held down rather than refused</b> — this page's rule for every one
+  // of its limits, said in the hint at its foot — and the design review found that said nowhere at the
+  // moment it happened: *saved*, and the box went on showing a number the service does not answer.
+  const asked = num("capMaxRows");
+  const ceiling = Number(pageBox?.dataset.ceiling || "");
+  const held = asked != null && ceiling > 0 && asked > ceiling
+    ? ` Its page size is held at ${nf.format(ceiling)}, this server's ceiling, not ${nf.format(asked)}.`
+    : "";
+
+  toast((saved.note ? `${service}: saved. ${saved.note}` : `${service}: saved.`) + held, true);
 }
 
 /**
@@ -16270,6 +16310,94 @@ function drawProbeRows() {
 
 // ----------------------------------------------------------------- operations
 
+/**
+ * The server's settings — V-70, ADR-084.
+ *
+ * <b>The box holds what was set here, and is empty when nothing was</b> — the default shows as its
+ * placeholder, which is the rule the service's own Limits page follows one click away. The design review of
+ * 2026-09-24 found the first version holding the value in force: Save pressed by habit stored the
+ * configured default as the operator's own, and the deployment's `Graticula:DefaultRecordCount` silently
+ * stopped applying. The box is filled only when this screen is drawn, never while somebody is typing in it.
+ */
+async function loadSettings() {
+  // A sentence about an earlier save is not about this visit — the review found it contradicting the box.
+  settingsSay("");
+  drawSettings(await api("/admin/settings") || {});
+
+  // Enter saves, as it does in every form a person fills in; assigned rather than added so a redraw
+  // does not stack a second listener.
+  $("setPageSize").onkeydown = e => {
+    if (e.key === "Enter") { e.preventDefault(); $("setSave").click(); }
+  };
+
+  // Typing makes the last sentence about a value that is no longer in the box.
+  $("setPageSize").oninput = () => settingsSay("");
+}
+
+/** Says something under Save, marked as a refusal when it is one. */
+function settingsSay(text, refusal = false) {
+  const says = $("setSays");
+  const box = $("setPageSize");
+
+  says.textContent = text;
+  says.classList.toggle("bad-inline", refusal);
+
+  if (refusal) box.setAttribute("aria-invalid", "true");
+  else box.removeAttribute("aria-invalid");
+}
+
+function drawSettings(settings) {
+  const p = settings.pageSize || {};
+  const box = $("setPageSize");
+
+  box.value = p.source === "stored" ? (p.stored ?? "") : "";
+  box.max = p.ceiling ?? "";
+  box.placeholder = p.configured != null ? String(p.configured) : "";
+  box.dataset.stored = p.source === "stored" ? "yes" : "";
+
+  const ceiling = p.ceiling != null ? ` No page can be larger than ${num(p.ceiling)}, this server's ceiling.` : "";
+  const on = p.changedAt ? ` on ${day(p.changedAt)}` : "";
+
+  $("setPageSizeSource").textContent = p.source === "stored"
+    ? (p.clamped
+      ? `Set here to ${num(p.stored)}${on}, and held at ${num(p.value)} because the ceiling has come down since. The default is ${num(p.configured)}.${ceiling}`
+      : `Set here${on}. The default is ${num(p.configured)}.${ceiling}`)
+    : `Not set here, so the server uses its default, ${num(p.configured)}, from its configuration.${ceiling}`;
+
+  $("setReset").hidden = p.source !== "stored";
+  $("setReset").textContent = p.configured != null
+    ? `Use the default (${num(p.configured)})`
+    : "Use the default";
+}
+
+async function saveSettings(pageSize) {
+  try {
+    let now = await api("/admin/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pageSize }),
+    });
+
+    // <b>Read again when the answer does not carry the setting</b>, rather than drawing an empty box over
+    // a value that was just saved: a proxy that strips a body, or a test harness that answers writes with
+    // `{}`, would otherwise leave the screen saying nothing about what is in force.
+    if (!now || !now.pageSize) now = await api("/admin/settings") || {};
+
+    drawSettings(now);
+
+    const value = now.pageSize && now.pageSize.value;
+    settingsSay(pageSize === null
+      ? `The page size is the default again: ${num(value)}. Services that set their own keep them.`
+      : `Saved. Every service without a page size of its own now answers ${num(value)} features at most.`);
+
+    // Reset hides the button that was pressed; focus goes to the box it changed rather than to nowhere.
+    if (pageSize === null) $("setPageSize").focus();
+  } catch (e) {
+    settingsSay(e.message, true);
+    $("setPageSize").focus();
+  }
+}
+
 async function loadOperations() {
   let health;
   try { health = await api("/admin/health"); }
@@ -18751,10 +18879,15 @@ async function handleClick(event) {
   // A service's settings page: a screen state, so it is not an address — the service already is one.
   if (d.serviceSave) {
     t.disabled = true;
+    let refused = false;
     try {
       await saveServiceSettings(d.serviceSave, d.folder || null);
-    } catch (e) { toast(e.message); }
+    } catch (e) { refused = true; toast(e.message); }
     t.disabled = false;
+
+    // Disabling the button dropped focus to the page body — design review 2026-09-24. A refusal that named
+    // a box has already put focus in it.
+    if (!refused || document.activeElement === document.body) t.focus();
     return;
   }
 
@@ -19292,6 +19425,51 @@ async function handleClick(event) {
   }
 
   // ---- Apps (ADR-076) ----
+  if (t.id === "setSave") {
+    const box = $("setPageSize");
+    const raw = box.value.trim();
+
+    const refuse = text => { settingsSay(text, true); box.focus(); };
+
+    // <b>Text the browser could not read as a number arrives as an empty value</b>, and empty means the
+    // default — so without this, *abc* and Save would quietly put the default back.
+    if (box.validity && box.validity.badInput) {
+      refuse("A page size is a whole number of features, 1 or more.");
+      return;
+    }
+
+    if (!raw) {
+      // Empty is the default, as on a service's Limits page. Nothing stored means nothing to change.
+      if (box.dataset.stored !== "yes") {
+        settingsSay(`The page size is already the server's default, ${num(Number(box.placeholder))}. Nothing was saved.`);
+        return;
+      }
+
+      await saveSettings(null);
+      return;
+    }
+
+    const value = Number(raw);
+
+    if (!Number.isInteger(value) || value < 1) {
+      refuse("A page size is a whole number of features, 1 or more.");
+      return;
+    }
+
+    if (box.max && value > Number(box.max)) {
+      refuse(`No page can be larger than ${num(Number(box.max))}, this server's ceiling. Choose a smaller number, or raise Graticula:MaximumRecordCount in the server's configuration.`);
+      return;
+    }
+
+    await saveSettings(value);
+    return;
+  }
+
+  if (t.id === "setReset") {
+    await saveSettings(null);
+    return;
+  }
+
   if (t.id === "appNew") {
     $("appForm").hidden = false;
     $("appTitle").focus();

@@ -67,7 +67,14 @@ public sealed class DeadColumnsStayDeadTests
     /// `l.sharing` is the wrong one; an unqualified search cannot tell them apart.
     /// </remarks>
     private static readonly string[] Dead =
-        ["l.sharing", "l.status", "l.owner_principal_id", "l.is_hosted"];
+    [
+        "l.sharing", "l.status", "l.owner_principal_id", "l.is_hosted",
+
+        // <b>V-70, migration 54:</b> the page size is one number, and the default page it replaced is
+        // emptied and read by nothing until a contract drops it — so the next release can still start
+        // against a store this one migrated. Unqualified, because nothing outside the migrations names it.
+        "default_record_count",
+    ];
 
     /// <summary>
     /// Nothing outside the migrations reads a layer column whose meaning has moved.

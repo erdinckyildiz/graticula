@@ -238,7 +238,7 @@ internal static class FeatureServerQueryParameters
     /// figures (Q-113). Narrows and never widens.
     /// </param>
     /// <param name="serverDefaultRecordCount">
-    /// The page size to use when neither the caller nor the service says.
+    /// The server's page size, for a service that set none — <c>ServerPageSize</c>, V-70.
     /// </param>
     /// <param name="serverMaximumRecordCount">
     /// The most rows this deployment will return, whatever the caller or the service asks for.
@@ -861,11 +861,13 @@ internal static class FeatureServerQueryParameters
         return false;
     }
 
-    /// <summary>The page size used when a caller does not ask for one.</summary>
+    /// <summary>The page size a server has before anybody sets one.</summary>
     /// <remarks>
     /// <b>A named constant since Q-113, and it was a literal 1000 inside the parser
     /// before.</b> A number a service can override has to be readable from the place
-    /// that overrides it, and a number nobody can find is a number nobody tunes.
+    /// that overrides it, and a number nobody can find is a number nobody tunes. Since
+    /// V-70 (ADR-084) it is the default of the server's page size, which an operator sets
+    /// from the console, and ArcGIS Server's own default besides.
     /// </remarks>
     public const int DefaultRecordCount = 1000;
 
@@ -882,10 +884,14 @@ internal static class FeatureServerQueryParameters
         // query rather than as a configuration error.
         int ceiling = Math.Clamp(serverCeiling, 1, FeatureQuery.MaximumLimit);
 
-        // The service's own default when it has one, clamped by whichever ceiling is
-        // in force — so a page size set in one edit cannot exceed a maximum set in
-        // another.
-        limit = cost.PageSize(serverDefault, ceiling);
+        // <b>One number, ArcGIS's `maxRecordCount` — V-70, ADR-084.</b> The page a query
+        // naming none gets, and the most any query gets: the service's own when it set one,
+        // the server's otherwise, and never above the deployment's ceiling. There was a
+        // default page beside a maximum, and a document giving the one over a query answering
+        // the other is how a script paging by the document skipped rows.
+        int pageSize = cost.PageSize(serverDefault, ceiling);
+
+        limit = pageSize;
         error = null;
 
         if (!parameters.TryGetValue("resultRecordCount", out Microsoft.Extensions.Primitives.StringValues count)
@@ -913,7 +919,7 @@ internal static class FeatureServerQueryParameters
         // service's ceiling (ADR-031, Q-113) and the deployment's — which the owner asked for on
         // 2026-08-19, because a service-by-service setting leaves every newly published service at the
         // model's maximum: *"düşünsene 3 milyonluk record'u olan bir veriye n tane request atıldığını."*
-        limit = Math.Min(limit, cost.RecordCount(ceiling));
+        limit = Math.Min(limit, pageSize);
         return true;
     }
 

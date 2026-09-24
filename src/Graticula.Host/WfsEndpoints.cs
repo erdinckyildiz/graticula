@@ -665,8 +665,10 @@ internal static class WfsEndpoints
             described.Extent,
             Published: layer.PublishedSrid);
 
+        int pageSize = await ServerPageSize.OfAsync(context, cancellation).ConfigureAwait(false);
+
         if (!TryQuery(
-                request, layer, described, resourceIds, settings,
+                request, layer, described, resourceIds, settings, pageSize,
                 out FeatureQuery? query, out int outputSrid, out WfsFault? bad))
         {
             await RefuseAsync(context, bad!, cancellation).ConfigureAwait(false);
@@ -1062,6 +1064,7 @@ internal static class WfsEndpoints
         LayerDescription described,
         IReadOnlyList<string> resourceIds,
         HostSettings settings,
+        int pageSize,
         out FeatureQuery? query,
         out int outputSrid,
         out WfsFault? fault)
@@ -1167,8 +1170,11 @@ internal static class WfsEndpoints
             return false;
         }
 
+        // The server's page size when the request names no count — the number the console sets (V-70).
         int limit = Math.Clamp(
-            request.Count ?? settings.DefaultRecordCount, 1, settings.MaximumRecordCount);
+            request.Count ?? pageSize,
+            1,
+            settings.MaximumRecordCount);
 
         // <b>Paging needs a stable order and WFS does not require the client to
         // ask for one.</b> FeatureQuery.Offset is only sound against a stable

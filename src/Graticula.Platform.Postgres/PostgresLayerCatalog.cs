@@ -48,7 +48,10 @@ public sealed class PostgresLayerCatalog
         -- What one request may cost this service (Q-113, migration 17). Null
         -- throughout on a service nobody has configured, which is every service
         -- that existed before it.
-        s.max_record_count, s.default_record_count, s.max_response_bytes,
+        -- Ordinal 31 was the default page size until V-70 made the page size one number
+        -- (migration 54). The column is no longer read; a null keeps every ordinal after it
+        -- where it was, which is the defect the next comment exists to prevent.
+        s.max_record_count, null::integer, s.max_response_bytes,
         s.max_request_bytes, s.max_edits_per_transaction,
 
         -- <b>Appended, and appended deliberately.</b> Every reader below takes its
@@ -887,7 +890,6 @@ public sealed class PostgresLayerCatalog
     private static ServiceCostCeilings ReadCost(NpgsqlDataReader reader)
     {
         int? maxRows = reader.IsDBNull(30) ? null : reader.GetInt32(30);
-        int? defaultRows = reader.IsDBNull(31) ? null : reader.GetInt32(31);
         long? responseBytes = reader.IsDBNull(32) ? null : reader.GetInt64(32);
         long? requestBytes = reader.IsDBNull(33) ? null : reader.GetInt64(33);
         int? edits = reader.IsDBNull(34) ? null : reader.GetInt32(34);
@@ -902,11 +904,15 @@ public sealed class PostgresLayerCatalog
             ? null
             : TimeSpan.FromSeconds(reader.GetInt32(deadlineOrdinal));
 
-        return maxRows is null && defaultRows is null && responseBytes is null
+        return maxRows is null && responseBytes is null
             && requestBytes is null && edits is null && deadline is null
             ? ServiceCostCeilings.Unset
             : new ServiceCostCeilings(
-                maxRows, defaultRows, responseBytes, requestBytes, edits, deadline);
+                maximumRecordCount: maxRows,
+                maximumResponseBytes: responseBytes,
+                maximumRequestBytes: requestBytes,
+                maximumEditsPerTransaction: edits,
+                requestDeadline: deadline);
     }
 
     /// <summary>Reads the sharing scope, refusing an unknown one.</summary>

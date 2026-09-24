@@ -724,6 +724,44 @@
   </section>
 
   <!-- ---------------------------------------------------------- operations -->
+  <section class="view" id="view-settings">
+    <!--
+      <b>V-70, the owner's decision of 2026-09-23 (ADR-084):</b> "server tarafında genel ayarlar gibi bir
+      yer olsun. oradan default da değiştirilebilsin." What the whole server does unless a service says
+      otherwise, set here rather than in a configuration file. One setting today; the card is its own so the
+      next one is a second card rather than a longer form.
+    -->
+    <div class="pagehead">
+      <div>
+        <h2>Settings</h2>
+        <p>What this whole server does unless a service sets its own.</p>
+      </div>
+    </div>
+
+    <div class="panel pad settingcard">
+      <h4>Query results</h4>
+      <p class="hint">How many features a query returns when it does not ask for a number, and the
+        most it returns when it does — ArcGIS's <code>maxRecordCount</code>, which every service
+        document gives. Larger pages mean fewer requests and heavier responses. A service that sets
+        its own page size on its Limits page keeps it; empty here means the server's default.</p>
+
+      <div class="setting">
+        <label class="q" for="setPageSize">Page size:</label>
+        <input type="number" id="setPageSize" min="1" step="1" inputmode="numeric"
+          aria-describedby="setPageSizeSource">
+        <span class="u">features</span>
+      </div>
+      <p class="hint" id="setPageSizeSource"></p>
+
+      <div class="row">
+        <button class="primary" id="setSave">Save</button>
+        <button class="tiny" id="setReset" hidden>Use the default</button>
+      </div>
+
+      <p class="hint" id="setSays" role="status" aria-live="polite"></p>
+    </div>
+  </section>
+
   <section class="view" id="view-operations">
     <!--
       Every screen names itself the same way, which is the brief's *same Graticula

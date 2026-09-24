@@ -313,7 +313,7 @@ internal static class AttachmentEndpoints
                 out FeatureQuery? query,
                 out _,
                 out string? error,
-                serverDefaultRecordCount: settings.DefaultRecordCount,
+                serverDefaultRecordCount: await ServerPageSize.OfAsync(context, cancellation).ConfigureAwait(false),
                 serverMaximumRecordCount: settings.MaximumRecordCount))
         {
             await Refuse(context, 400, $"'definitionExpression': {error}").ConfigureAwait(false);

@@ -40,14 +40,12 @@ public sealed class ServiceLimitsPageTests : ConsoleTest
 
         (string Folder, string[] Services)[] folders = await FoldersWithServicesAsync();
 
-        string? folder = null;
         string? service = null;
 
-        foreach ((string at, string[] services) in folders)
+        foreach ((_, string[] services) in folders)
         {
             if (services.Length > 0)
             {
-                folder = at;
                 service = services[0];
                 break;
             }
@@ -58,15 +56,26 @@ public sealed class ServiceLimitsPageTests : ConsoleTest
             "No service anywhere in the catalogue, so there is no Limits page to open. This suite "
             + "fails rather than skips: a green run with its subject absent is worse than no test.");
 
+        // <b>The name is qualified already, so it is the whole address.</b> This prefixed the folder a second
+        // time until 2026-09-23 — `#/service/hosted/hosted%2Fci_EarlyAlert` — and passed, because the controls
+        // are in the markup whichever service the page failed to find and the placeholder check accepted the
+        // markup's own. Found by the page size test, which waits for a placeholder only the `GET` can set.
+        //
+        // <b>And under Server, where Limits is offered</b> — `SERVICE_PAGES` gives it to Server. Opened under
+        // Studio, the page was never shown and every box below was asserted in hidden markup; the design
+        // review of 2026-09-24 found Limits unreachable from Studio, which is where this test went.
         await OpenAsync(
-            $"/studio/#/service/{Uri.EscapeDataString(folder!)}/{Uri.EscapeDataString(service!)}",
+            "/server/#/service/" + string.Join("/", Array.ConvertAll(service!.Split('/'), Uri.EscapeDataString)),
             token);
 
-        // The Limits page is one of the service's tabs, and the deadline box is what proves this
-        // build's markup rather than a cached older one.
+        await WaitForAsync(Shown("#serviceNav a[data-service-page=limits]"), "The service has no Limits page in Server.");
+        await ClickAsync("#serviceNav a[data-service-page=limits]");
+
+        // The Limits page is one of the service's tabs, and the deadline box — on screen, not only in the
+        // markup — is what proves this build's page rather than a cached older one.
         await WaitForAsync(
-            "!!document.getElementById('capDeadline')",
-            "The Limits page has no request-deadline control, so the owner's *every service needs "
+            Shown("#capDeadline"),
+            "The Limits page has no request-deadline control on screen, so the owner's *every service needs "
             + "a timeout* has no place on the screen where limits are set.");
 
         // <b>Waiting for the placeholder, not for the element.</b> The element is in the markup

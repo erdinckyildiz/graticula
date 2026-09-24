@@ -1519,7 +1519,6 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                    capability_ceiling  = @ceiling::text[],
                    statement_timeout_ms = @timeout,
                    max_record_count     = @maxRows,
-                   default_record_count = @defaultRows,
                    max_response_bytes   = @responseBytes,
                    max_request_bytes    = @requestBytes,
                    max_edits_per_transaction = @edits,
@@ -1548,8 +1547,6 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
         command.Parameters.AddWithValue(
             "maxRows", (object?)limits.Cost.MaximumRecordCount ?? DBNull.Value);
-        command.Parameters.AddWithValue(
-            "defaultRows", (object?)limits.Cost.DefaultRecordCount ?? DBNull.Value);
         command.Parameters.AddWithValue(
             "responseBytes", (object?)limits.Cost.MaximumResponseBytes ?? DBNull.Value);
         command.Parameters.AddWithValue(
@@ -1590,7 +1587,6 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                    capability_ceiling,
                    statement_timeout_ms,
                    max_record_count,
-                   default_record_count,
                    max_response_bytes,
                    max_request_bytes,
                    max_edits_per_transaction,
@@ -1627,12 +1623,11 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
         return new ServiceCapabilityLimits(features, tiles, ceiling, timeout)
             .With(new ServiceCostCeilings(
-                Number(4),
-                Number(5),
-                Bytes(6),
-                Bytes(7),
-                Number(8),
-                Number(9) is { } seconds ? TimeSpan.FromSeconds(seconds) : null));
+                maximumRecordCount: Number(4),
+                maximumResponseBytes: Bytes(5),
+                maximumRequestBytes: Bytes(6),
+                maximumEditsPerTransaction: Number(7),
+                requestDeadline: Number(8) is { } seconds ? TimeSpan.FromSeconds(seconds) : null));
     }
 
     /// <inheritdoc/>

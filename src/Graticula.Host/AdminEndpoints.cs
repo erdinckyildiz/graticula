@@ -341,8 +341,15 @@ internal sealed record SharingRequest(string? Sharing);
 /// <param name="StatementTimeoutMilliseconds">
 /// A timeout this service asks for, or null for the source's own. May only lower.
 /// </param>
-/// <param name="MaxRecordCount">Most rows one response may carry, or null.</param>
-/// <param name="DefaultRecordCount">Rows when the caller does not ask, or null.</param>
+/// <param name="MaxRecordCount">
+/// The service's page size — ArcGIS's <c>maxRecordCount</c>: what a query naming none answers and the
+/// most one answers — or null for the server's (ADR-084).
+/// </param>
+/// <param name="DefaultRecordCount">
+/// <b>Refused since V-70 (ADR-084).</b> A default page beside the maximum was how a document came to
+/// say one number over a query answering another; the page size is one number now. Kept on the request
+/// so a script that sends it is told so, rather than ignored.
+/// </param>
 /// <param name="MaxResponseBytes">Most bytes one response body may reach, or null.</param>
 /// <param name="MaxRequestBytes">Most bytes one request body may carry, or null.</param>
 /// <param name="MaxEditsPerTransaction">Most edits one applyEdits may carry, or null.</param>
@@ -568,6 +575,7 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/layers/{name}/time-field", SetTimeFieldAsync);
         MapFieldOverrides(app);  // ADR-063 — AdminEndpoints.FieldOverrides.cs
         MapVisibleRange(app);    // ADR-070 — AdminEndpoints.VisibleRange.cs
+        MapServerSettings(app);  // ADR-084 — AdminEndpoints.Settings.cs
         MapThumbnails(app);      // ADR-071 — AdminEndpoints.Thumbnails.cs
         MapHistory(app);         // ADR-078 — AdminEndpoints.History.cs
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
@@ -4456,6 +4464,28 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // <b>A page size below one is refused in the words the Settings screen uses</b>, rather than as the
+        // constructor's exception text, which reached the console with its parameter name and "Actual value
+        // was 0" appended — design review 2026-09-24. Above the ceiling is held down, this page's rule.
+        if (request.MaxRecordCount is < 1)
+        {
+            await Refuse(context, 400,
+                "A page size is at least 1: a query that may answer nothing is what switching Query off says. "
+                + "Leave it empty for the server's page size.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (request.DefaultRecordCount is not null)
+        {
+            await Refuse(context, 400,
+                "defaultRecordCount is not a setting any more: a service has one page size, maxRecordCount, "
+                + "which is both what a query naming none answers and the most one answers — ArcGIS's "
+                + "rule. Send maxRecordCount alone, or leave it out for the server's page size.")
+                .ConfigureAwait(false);
+            return;
+        }
+
         ServiceCapabilityLimits limits;
 
         try
@@ -4468,18 +4498,19 @@ internal static partial class AdminEndpoints
                     ? TimeSpan.FromMilliseconds(ms)
                     : null)
                 .With(new ServiceCostCeilings(
-                    request.MaxRecordCount,
-                    request.DefaultRecordCount,
-                    request.MaxResponseBytes,
-                    request.MaxRequestBytes,
-                    request.MaxEditsPerTransaction,
-                    request.RequestDeadlineSeconds is { } seconds
+                    maximumRecordCount: request.MaxRecordCount,
+                    maximumResponseBytes: request.MaxResponseBytes,
+                    maximumRequestBytes: request.MaxRequestBytes,
+                    maximumEditsPerTransaction: request.MaxEditsPerTransaction,
+                    requestDeadline: request.RequestDeadlineSeconds is { } seconds
                         ? TimeSpan.FromSeconds(seconds)
                         : null));
         }
         catch (Exception e) when (e is ArgumentException or ArgumentOutOfRangeException)
         {
-            await Refuse(context, 400, e.Message).ConfigureAwait(false);
+            // The sentence the domain wrote, without what .NET appends to it for a developer — the parameter
+            // name and the value — which reached an administrator's screen as part of the refusal.
+            await Refuse(context, 400, Sentence(e)).ConfigureAwait(false);
             return;
         }
 
@@ -4521,7 +4552,6 @@ internal static partial class AdminEndpoints
             capabilities = limits.Ceiling,
             statementTimeoutMs = limits.StatementTimeout is { } t ? (int?)t.TotalMilliseconds : null,
             maxRecordCount = limits.Cost.MaximumRecordCount,
-            defaultRecordCount = limits.Cost.DefaultRecordCount,
             maxResponseBytes = limits.Cost.MaximumResponseBytes,
             maxRequestBytes = limits.Cost.MaximumRequestBytes,
             maxEditsPerTransaction = limits.Cost.MaximumEditsPerTransaction,
@@ -4701,7 +4731,11 @@ internal static partial class AdminEndpoints
             capabilities = limits.Ceiling,
             statementTimeoutMs = limits.StatementTimeout is { } t ? (int?)t.TotalMilliseconds : null,
             maxRecordCount = limits.Cost.MaximumRecordCount,
-            defaultRecordCount = limits.Cost.DefaultRecordCount,
+
+            // What an empty page size means for this service: the server's, set on Settings — V-70; and the
+            // ceiling a value is held down to, which the page says rather than leaving to be discovered.
+            serverPageSize = await ServerPageSize.OfAsync(context, cancellation).ConfigureAwait(false),
+            pageSizeCeiling = Math.Clamp(settings.MaximumRecordCount, 1, Graticula.Features.FeatureQuery.MaximumLimit),
             maxResponseBytes = limits.Cost.MaximumResponseBytes,
             maxRequestBytes = limits.Cost.MaximumRequestBytes,
             maxEditsPerTransaction = limits.Cost.MaximumEditsPerTransaction,
@@ -11120,6 +11154,27 @@ internal static partial class AdminEndpoints
 
         await Refuse(context, 404, $"No layer '{layer.Definition.Name}'.").ConfigureAwait(false);
         return false;
+    }
+
+    /// <summary>The sentence a domain exception was thrown with, without what .NET appends to it.</summary>
+    /// <remarks>
+    /// <b>An argument exception's <c>Message</c> is its sentence plus <c>(Parameter 'x')</c> and, for an
+    /// out-of-range one, <c>Actual value was …</c></b> — written for a developer, and it reached an
+    /// administrator's screen as part of a refusal (design review 2026-09-24).
+    /// </remarks>
+    /// <param name="e">The exception.</param>
+    /// <returns>The sentence.</returns>
+    private static string Sentence(Exception e)
+    {
+        string message = e.Message;
+        int cut = message.IndexOf(" (Parameter '", StringComparison.Ordinal);
+
+        if (cut < 0)
+        {
+            cut = message.IndexOf("\nActual value was", StringComparison.Ordinal);
+        }
+
+        return (cut < 0 ? message : message[..cut]).TrimEnd('\r', '\n', ' ');
     }
 
     private static Task Refuse(HttpContext context, int status, string message) =>

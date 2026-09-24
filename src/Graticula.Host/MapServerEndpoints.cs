@@ -152,7 +152,11 @@ internal static class MapServerEndpoints
             CapabilitiesOf(service),
             settings.MaximumImageWidth,
             settings.MaximumImageHeight,
-            settings.MaximumRecordCount,
+
+            // The page size, which this face's query shares with the FeatureServer's — V-70.
+            service.Limits.Cost.PageSize(
+                await ServerPageSize.OfAsync(context, cancellation).ConfigureAwait(false),
+                settings.MaximumRecordCount),
             await TimeOfServiceAsync(service, contexts, cancellation).ConfigureAwait(false));
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
@@ -263,7 +267,9 @@ internal static class MapServerEndpoints
             drawingInfo,
             // The FeatureServer face's own rule, so the two documents of one layer name one field.
             FeatureServerMetadataWriter.DisplayField(layer.Definition, described),
-            settings.MaximumRecordCount,
+            layer.Cost.PageSize(
+                await ServerPageSize.OfAsync(context, cancellation).ConfigureAwait(false),
+                settings.MaximumRecordCount),
             Labels(layer),
             CapabilityCeilings.Refuses(layer, "Query") ? string.Empty : Capabilities,
             layer.Definition.IntegerIdentityColumn,

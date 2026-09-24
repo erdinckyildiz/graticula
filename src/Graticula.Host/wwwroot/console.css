@@ -1806,10 +1806,13 @@ dialog { color: var(--ink); }
   .grid2 { grid-template-columns: minmax(0, 1fr); max-width: none; }
 
   /* The layer and service editors put their navigation above their page rather than beside it. */
-  #edit { grid-template-columns: minmax(0, 1fr); }
-  #editNav { border-right: 0; border-bottom: 1px solid var(--rule); display: flex; overflow-x: auto; }
-  #editNav a { border-left: 0; border-bottom: 3px solid transparent; white-space: nowrap; }
-  #editNav a[aria-current] { border-left-color: transparent; border-bottom-color: var(--accent); }
+  /* <b>Both editors, as the comment says.</b> Only the layer's selectors were here until the design review
+     of 2026-09-24 found the service's navigation still a column at 390 pixels, its page 200 wide and the
+     page size box cut off at the edge. `#serviceEdit` is `#edit` by selector everywhere else in this file. */
+  #edit, #serviceEdit { grid-template-columns: minmax(0, 1fr); }
+  #editNav, #serviceNav { border-right: 0; border-bottom: 1px solid var(--rule); display: flex; overflow-x: auto; }
+  #editNav a, #serviceNav a { border-left: 0; border-bottom: 3px solid transparent; white-space: nowrap; }
+  #editNav a[aria-current], #serviceNav a[aria-current] { border-left-color: transparent; border-bottom-color: var(--accent); }
   #editPages, #servicePages, #servicePagesBody { padding: var(--gap-4) var(--gap-3); }
 
   /* Full width, because 480 pixels of toast beside a 16-pixel margin is the width of the screen. */
@@ -4108,3 +4111,13 @@ td.logmessage span[title] { display: inline-block; max-width: 60ch; overflow: hi
 #page-history .tag { display: inline-block; font-size: 11.5px; line-height: 1.5; padding: 0 6px;
                      border: 1px solid var(--rule-strong); border-radius: 999px; color: var(--muted);
                      vertical-align: 1px; white-space: nowrap; }
+
+/* <b>The Settings screen's card — V-70.</b> A setting row stops at its own width, so a card as wide as
+   the page left 424 pixels between a label and its box (design review 2026-09-24). */
+.settingcard { max-width: 760px; }
+
+/* A label over its box at phone width, rather than a label broken over two lines beside it. */
+@media (max-width: 560px) {
+  .setting { flex-wrap: wrap; }
+  .setting .q { flex-basis: 100%; }
+}

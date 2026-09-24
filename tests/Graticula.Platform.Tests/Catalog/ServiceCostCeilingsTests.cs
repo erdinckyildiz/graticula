@@ -25,71 +25,40 @@ public sealed class ServiceCostCeilingsTests
     [Fact]
     public void An_unset_ceiling_defers_to_the_server()
     {
-        Assert.Equal(50_000, ServiceCostCeilings.Unset.RecordCount(50_000));
         Assert.Equal(1_000, ServiceCostCeilings.Unset.PageSize(1_000, 50_000));
         Assert.Equal(64L * 1024 * 1024, ServiceCostCeilings.Unset.ResponseBytes(64L * 1024 * 1024));
         Assert.True(ServiceCostCeilings.Unset.IsUnset);
     }
 
+    /// <summary>
+    /// The page size is one number — V-70, ADR-084: the service's own when it set one, the server's otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <b>The server's page size is a default and not a ceiling</b>, so a service may set a larger one; the
+    /// deployment's ceiling is what nothing exceeds. Until 2026-09-23 there were two numbers here, a default
+    /// page and a maximum, and a document giving the one over a query answering the other.
+    /// </remarks>
     [Fact]
-    public void A_service_may_ask_for_fewer_rows_than_the_server_permits()
+    public void A_service_page_size_replaces_the_servers_either_way()
     {
-        ServiceCostCeilings cost = new(maximumRecordCount: 50, null, null, null, null);
-
-        Assert.Equal(50, cost.RecordCount(50_000));
+        Assert.Equal(50, new ServiceCostCeilings(maximumRecordCount: 50, null, null, null).PageSize(1_000, 50_000));
+        Assert.Equal(5_000, new ServiceCostCeilings(maximumRecordCount: 5_000, null, null, null).PageSize(1_000, 50_000));
     }
 
     [Fact]
     public void A_service_may_not_ask_for_more_rows_than_the_server_permits()
     {
         // The direction that matters. A service asking for a million rows gets the
-        // server's figure, not its own.
-        ServiceCostCeilings cost = new(maximumRecordCount: 1_000_000, null, null, null, null);
+        // deployment's ceiling, not its own.
+        ServiceCostCeilings cost = new(maximumRecordCount: 1_000_000, null, null, null);
 
-        Assert.Equal(50_000, cost.RecordCount(50_000));
+        Assert.Equal(50_000, cost.PageSize(1_000, 50_000));
     }
 
     [Fact]
-    public void A_service_default_replaces_the_servers_and_is_still_clamped()
+    public void The_servers_page_size_is_clamped_by_the_ceiling_too()
     {
-        ServiceCostCeilings cost = new(maximumRecordCount: 25, defaultRecordCount: 25, null, null, null);
-
-        // The service said 25, so 25 it is — the server's default is what applies when
-        // nobody else has an opinion, not a competing figure.
-        Assert.Equal(25, cost.PageSize(1_000, 50_000));
-        Assert.Equal(25, cost.PageSize(10, 50_000));
-
-        // <b>But it is still clamped by the ceiling actually in force.</b> A server
-        // whose maximum is five will not hand out a page of twenty-five because a
-        // service asked for one — which is the same narrowing rule as everywhere else
-        // here, applied to the default rather than to the maximum.
-        Assert.Equal(5, cost.PageSize(1_000, 5));
-    }
-
-    [Fact]
-    public void With_no_service_default_the_servers_applies()
-    {
-        ServiceCostCeilings cost = new(maximumRecordCount: 25, null, null, null, null);
-
-        Assert.Equal(10, cost.PageSize(10, 50_000));
-
-        // And the server's default is clamped by the service's maximum, so a server
-        // default of a thousand cannot produce a page of a thousand on a service that
-        // permits twenty-five.
-        Assert.Equal(25, cost.PageSize(1_000, 50_000));
-    }
-
-    [Fact]
-    public void A_default_larger_than_the_services_own_maximum_is_refused()
-    {
-        // Refused rather than clamped: an operator who wrote both meant one of them,
-        // and quietly picking one hides which. The database refuses it too
-        // (migration 17), because this constructor is not the only way to write a row.
-        ArgumentOutOfRangeException refusal = Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ServiceCostCeilings(
-                maximumRecordCount: 10, defaultRecordCount: 100, null, null, null));
-
-        Assert.Contains("would never apply", refusal.Message, StringComparison.Ordinal);
+        Assert.Equal(5, ServiceCostCeilings.Unset.PageSize(1_000, 5));
     }
 
     [Fact]
@@ -97,7 +66,7 @@ public sealed class ServiceCostCeilingsTests
     {
         // Zero means no ceiling, so a naive Math.Min would return 0 here and disable
         // the service's ceiling — the bug this method exists to avoid.
-        ServiceCostCeilings cost = new(null, null, maximumResponseBytes: 4096, null, null);
+        ServiceCostCeilings cost = new(null, maximumResponseBytes: 4096, null, null);
 
         Assert.Equal(4096, cost.ResponseBytes(0));
         Assert.Equal(4096, cost.ResponseBytes(8192));
@@ -112,10 +81,10 @@ public sealed class ServiceCostCeilingsTests
         // Zero would describe a service that answers nothing, which an empty
         // capability set already says (ADR-031 §2a) and says more clearly.
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ServiceCostCeilings(value, null, null, null, null));
+            () => new ServiceCostCeilings(value, null, null, null));
 
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ServiceCostCeilings(null, null, null, null, value));
+            () => new ServiceCostCeilings(null, null, null, maximumEditsPerTransaction: value));
     }
 
     [Fact]
@@ -125,7 +94,7 @@ public sealed class ServiceCostCeilingsTests
         // capability. Reading one and not the other is how the first version of the
         // catalogue read silently discarded every cost ceiling on such a service.
         ServiceCapabilityLimits limits = ServiceCapabilityLimits.Unset
-            .With(new ServiceCostCeilings(50, null, null, null, null));
+            .With(new ServiceCostCeilings(50, null, null, null));
 
         Assert.False(limits.IsUnset);
         Assert.Null(limits.ServesFeatures);

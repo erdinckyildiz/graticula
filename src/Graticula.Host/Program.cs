@@ -562,6 +562,11 @@ public static class Program
         builder.Services.AddSingleton<ICoverageCatalog>(services =>
             new PostgresCoverageCatalog(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // <b>The server's own settings, and the page size read from them — V-70, ADR-084.</b>
+        builder.Services.AddSingleton<IServerSettingStore>(services =>
+            new PostgresServerSettingStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton<ServerPageSize>();
+
         // <b>Behind the breaker, D-127.</b> A capabilities document needs one projection call
         // per distinct spatial reference and cannot be written without them; during an outage
         // each of those waited out a connect nothing answered, which is what a WFS document
@@ -3006,13 +3011,17 @@ public static class Program
         // <b>The service's own row ceiling, advertised rather than only enforced.</b>
         // ADR-031: what is served is the intersection, and a document that reports the
         // server's figure while the query path applies a lower one sends every paging
-        // client to a page size that does not exist.
+        // client to a page size that does not exist. <b>The page size, since V-70 (ADR-084)</b>:
+        // a service that set none advertised the deployment's ceiling, 50000, over queries
+        // answering 1000, and a script paging by this number skipped rows.
         object document = FeatureServerMetadataWriter.Service(
             layers,
             CapabilitiesFor(context, service, WritabilityOf(shapes)),
             service.Description,
             groups,
-            service.Limits.Cost.MaximumRecordCount,
+            service.Limits.Cost.PageSize(
+                await ServerPageSize.OfAsync(context, cancellation).ConfigureAwait(false),
+                settings.MaximumRecordCount),
 
             // <b>The deployment's own ceiling, since 2026-08-19.</b> It was a compile-time constant, so
             // an operator who wanted *nothing on this server returns more than two thousand* had to set
@@ -3308,7 +3317,11 @@ public static class Program
             CapabilitiesFor(context, layer, description.Writable),
             declared ?? [],
             layer.LayerIndex,
-            layer.Cost.MaximumRecordCount,
+
+            // The page size, as the service document gives it and the query applies it — V-70.
+            layer.Cost.PageSize(
+                await ServerPageSize.OfAsync(context, cancellation).ConfigureAwait(false),
+                settings.MaximumRecordCount),
             settings.MaximumRecordCount,
 
             // ADR-033 §5a: the stored canonical document, or null for the generated
@@ -5302,7 +5315,7 @@ public static class Program
                 out QueryShape shape,
                 out string? error,
                 cost,
-                settings.DefaultRecordCount,
+                await ServerPageSize.OfAsync(context, cancellation).ConfigureAwait(false),
                 settings.MaximumRecordCount,
 
                 // <b>The service's reference, when it has named one.</b> It travels on the

@@ -864,10 +864,20 @@ public sealed class FeatureServerQueryParametersTests
         Parse(("outSR", Srid.ToString(System.Globalization.CultureInfo.InvariantCulture)));
     }
 
+    /// <summary>
+    /// A request for more than the page size gets the page size, clamped rather than refused.
+    /// </summary>
+    /// <remarks>
+    /// <b>The page size, not the deployment's ceiling, since V-70 (ADR-084).</b> This asserted the ceiling
+    /// while a query naming no number got a thousand — the two numbers a document could not both give. The
+    /// page size is one number now, ArcGIS's <c>maxRecordCount</c>, and it bounds both.
+    /// </remarks>
     [Fact]
-    public void A_request_for_more_than_the_maximum_is_clamped_rather_than_refused()
+    public void A_request_for_more_than_the_page_size_is_clamped_rather_than_refused()
     {
-        Assert.Equal(FeatureQuery.MaximumLimit, Parse(("resultRecordCount", "999999999")).Limit);
+        Assert.Equal(
+            FeatureServerQueryParameters.DefaultRecordCount,
+            Parse(("resultRecordCount", "999999999")).Limit);
     }
 
     // ---------- the ignored set ----------
