@@ -121,6 +121,10 @@ public sealed record GeoParquetColumn(string Name, string Type);
 /// read instead of <paramref name="Path"/>; null for a Parquet file.
 /// </param>
 /// <param name="SridDeclared">Whether the reference came from the registration rather than the data.</param>
+/// <param name="WideIdentityCandidates">
+/// The candidates whose values do not fit in 32 bits — V-77: ArcGIS 10.x clients read an object id as a 32-bit
+/// number. Offered all the same, by owner decision, and said.
+/// </param>
 public sealed record GeoParquetTable(
     string Name,
     string Path,
@@ -133,7 +137,8 @@ public sealed record GeoParquetTable(
     string? CandidateObjectIdColumn,
     string? Problem,
     string? Relation = null,
-    bool SridDeclared = false);
+    bool SridDeclared = false,
+    IReadOnlyList<string>? WideIdentityCandidates = null);
 
 /// <summary>
 /// A folder of GeoParquet files, and the sandboxed DuckDB that reads them — ADR-066 §2.
@@ -1060,7 +1065,7 @@ public sealed partial class GeoParquetFolder : IDisposable
         }
 
         GeometryKind? kind = SampleKind(connection, relation, geometry.Name);
-        (IReadOnlyList<string> candidates, string? preferred) = Identities(connection, relation, columns);
+        (IReadOnlyList<string> candidates, string? preferred, IReadOnlyList<string> wide) = Identities(connection, relation, columns);
 
         // <b>The row number only where it is a row number</b> — two findings of a security review. A column the
         // table itself calls `rowid` hides DuckDB's pseudo-column, so the alias would name somebody's data; and on
@@ -1085,7 +1090,7 @@ public sealed partial class GeoParquetFolder : IDisposable
         return new GeoParquetTable(
             name, location, rows, version,
             new GeoParquetMetadata(geometry.Name, srid, kind, null, null, null),
-            columns, kind, candidates, preferred, null, relation, SridDeclared: typed is null);
+            columns, kind, candidates, preferred, null, relation, SridDeclared: typed is null, WideIdentityCandidates: wide);
     }
 
     /// <summary>The EPSG code a <c>GEOMETRY('…')</c> type names, or null when it names none.</summary>
@@ -1485,14 +1490,14 @@ public sealed partial class GeoParquetFolder : IDisposable
         // the first end-to-end run's test request was abandoned by its client at a minute (ADR-067).
         // A remote file is as immutable as a local one — its version is its footer — so the row number
         // is as stable, and a publisher who knows a column is unique says so on a local copy.
-        (IReadOnlyList<string> candidates, string? preferred) = problem is not null
-            ? ([], null)
+        (IReadOnlyList<string> candidates, string? preferred, IReadOnlyList<string> wide) = problem is not null
+            ? ([], null, [])
             : _remote is not null
-                ? ([RowNumberColumn], RowNumberColumn)
+                ? ([RowNumberColumn], RowNumberColumn, [])
                 : Identities(connection, $"read_parquet({Literal(path)})", columns);
 
         return new GeoParquetTable(
-            name, path, rows, version, metadata, columns, kind, candidates, preferred, problem);
+            name, path, rows, version, metadata, columns, kind, candidates, preferred, problem, WideIdentityCandidates: wide);
     }
 
     private static GeometryKind? SampleKind(DuckDBConnection connection, string relation, string column)
@@ -1524,7 +1529,7 @@ public sealed partial class GeoParquetFolder : IDisposable
     /// and at most eight columns are measured, preferred names first, so that a wide file of
     /// integers does not make listing a folder expensive.
     /// </remarks>
-    private static (IReadOnlyList<string> Candidates, string? Preferred) Identities(
+    private static (IReadOnlyList<string> Candidates, string? Preferred, IReadOnlyList<string> Wide) Identities(
         DuckDBConnection connection, string relation, IReadOnlyList<GeoParquetColumn> columns)
     {
         List<string> integers = columns
@@ -1535,15 +1540,20 @@ public sealed partial class GeoParquetFolder : IDisposable
             .ToList();
 
         List<string> unique = [];
+        List<string> wide = [];
+        long rows = 0;
 
         if (integers.Count > 0)
         {
             StringBuilder sql = new("select count(*)");
 
+            // <b>And each one's smallest and largest, in the same pass</b> — V-77: an object id past 32 bits is one
+            // an ArcGIS 10.x client cannot hold, and `osm_id` reaches 14 billion.
             foreach (string column in integers)
             {
                 sql.Append(", count(distinct ").Append(Quote(column)).Append("), count(")
-                   .Append(Quote(column)).Append(')');
+                   .Append(Quote(column)).Append("), min(").Append(Quote(column)).Append(")::hugeint, max(")
+                   .Append(Quote(column)).Append(")::hugeint");
             }
 
             sql.Append(" from ").Append(relation);
@@ -1556,15 +1566,22 @@ public sealed partial class GeoParquetFolder : IDisposable
             if (reader.Read())
             {
                 long total = Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture);
+                rows = total;
 
                 for (int i = 0; i < integers.Count; i++)
                 {
-                    long distinct = Convert.ToInt64(reader.GetValue(1 + (2 * i)), CultureInfo.InvariantCulture);
-                    long present = Convert.ToInt64(reader.GetValue(2 + (2 * i)), CultureInfo.InvariantCulture);
+                    long distinct = Convert.ToInt64(reader.GetValue(1 + (4 * i)), CultureInfo.InvariantCulture);
+                    long present = Convert.ToInt64(reader.GetValue(2 + (4 * i)), CultureInfo.InvariantCulture);
 
                     if (distinct == total && present == total)
                     {
                         unique.Add(integers[i]);
+
+                        if (total > 0
+                            && (!FitsIn32Bits(reader.GetValue(3 + (4 * i))) || !FitsIn32Bits(reader.GetValue(4 + (4 * i)))))
+                        {
+                            wide.Add(integers[i]);
+                        }
                     }
                 }
             }
@@ -1583,8 +1600,15 @@ public sealed partial class GeoParquetFolder : IDisposable
             preferred ??= RowNumberColumn;
         }
 
-        return (unique, preferred);
+        return (unique, preferred, wide);
     }
+
+    /// <summary>Whether a measured value fits in a signed 32-bit integer, as an ArcGIS 10.x object id must.</summary>
+    private static bool FitsIn32Bits(object value) =>
+        value is DBNull
+        || (System.Numerics.BigInteger.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.AllowLeadingSign,
+                CultureInfo.InvariantCulture, out System.Numerics.BigInteger v)
+            && v >= int.MinValue && v <= int.MaxValue);
 
     private static int PreferenceOf(string column)
     {

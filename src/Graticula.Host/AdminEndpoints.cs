@@ -10492,6 +10492,9 @@ internal static partial class AdminEndpoints
             primaryKeyColumn = t.PrimaryKeyColumn,
             identityCandidates = t.IdentityCandidates,
 
+            // V-77, by owner decision: offered, and said — an object id past 32 bits.
+            wideIdentityCandidates = t.WideIdentityCandidates ?? [],
+
             arcGisServable = t.CandidateObjectIdColumn is not null,
             t.Writable,
         }),

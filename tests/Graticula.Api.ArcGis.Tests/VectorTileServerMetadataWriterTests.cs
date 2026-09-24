@@ -182,7 +182,14 @@ public sealed class VectorTileServerMetadataWriterTests
     public void The_service_declares_itself_a_vector_tile_service()
     {
         Assert.Equal("indexedVector", Service().GetProperty("type").GetString());
-        Assert.Equal("TilesOnly", Service().GetProperty("capabilities").GetString());
+        Assert.Equal("TilesOnly,Tilemap", Service().GetProperty("capabilities").GetString());
+    }
+
+    [Fact]
+    public void The_tile_map_is_named_where_the_arcgis_js_api_looks_for_it()
+    {
+        // V-63: without `tileMap` the client asks for every tile, the empty ones included.
+        Assert.Equal("tilemap", Service().GetProperty("tileMap").GetString());
     }
 
     [Fact]

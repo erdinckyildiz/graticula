@@ -124,7 +124,10 @@ public sealed class TilePipelineVersionTests
         //
         // <b>Moved 2026-09-23, and the version did not move.</b> Every error envelope gained
         // `details: []` (V-60) — the tile face's refusals among them. A refusal is not a tile.
-        "9939989fd25b0c8d32f988a77262357d65cb3aca2d36abcc2f60cf5e8bfef079";
+        
+        // <b>The hash moved on 2026-09-25 and the version did not</b> — V-63's tile map is a new route beside the
+        // tiles, and changes no byte of one.
+        "761154eed18895e81a07bc5358ef951174a151173ce2aa1be9ee62a90d311b05";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 2;

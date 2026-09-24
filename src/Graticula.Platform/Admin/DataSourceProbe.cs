@@ -79,6 +79,10 @@ public enum ProbeOutcome
 /// wrong one.
 /// </para>
 /// </param>
+/// <param name="WideIdentityCandidates">
+/// The candidates whose values pass 32 bits, which an ArcGIS 10.x client cannot hold as an object id — V-77. Only a
+/// file's columns can be: a database's candidates are <c>int2</c> and <c>int4</c>.
+/// </param>
 public readonly record struct SourceTable(
     string SchemaName,
     string TableName,
@@ -88,7 +92,8 @@ public readonly record struct SourceTable(
     string? CandidateObjectIdColumn,
     string? PrimaryKeyColumn,
     IReadOnlyList<string> IdentityCandidates,
-    bool Writable);
+    bool Writable,
+    IReadOnlyList<string>? WideIdentityCandidates = null);
 
 /// <summary>What a probe found.</summary>
 /// <param name="Outcome">How far it got.</param>

@@ -11,6 +11,17 @@
 
 ---
 
+**Amended 2026-09-25, by owner decision (V-63): the vector tile service answers `tilemap`.** Asked whether to
+build it, the owner said yes; `exportTiles` stays out of v1 with offline work
+([ADR-082](ADR-082-offline-sync-is-not-in-v1.md)). `VectorTileServer/tilemap/{level}/{row}/{column}/{width}/{height}`
+answers ImageServer's shape and bound (4096 tiles), and the service document says `TilesOnly,Tilemap` and
+`tileMap: "tilemap"`, where the ArcGIS JS API looks. **A tile is 1 where a layer drawn at that level
+([ADR-070](ADR-070-a-layer-has-a-visible-scale-range.md)) has an extent that touches it**, so the promise runs one
+way — 0 is empty, 1 may be — and costs no query against the data. Touching counts, unlike ImageServer's, because a
+vector tile is encoded with a buffer. `TheTileMapSaysWhichTilesAreEmptyTests` fetches every tile a map calls empty
+and requires it empty, at a level where the tile under the data is not; an all-zero map fails it.
+
+
 > **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are
 > deferred rather than cut.** This decision reasons about several database engines.
 > Owner decision: *"Şimdilik postgis ile gideceğiz. Sonra diğer db'ler eklenecek. V1'de

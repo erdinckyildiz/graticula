@@ -14,6 +14,13 @@
 
 ---
 
+**Amended 2026-09-25, by owner decision (V-77): an object id past 32 bits is offered and said, not changed.**
+`osm_id` reaches 14 billion, and ArcGIS 10.x clients read an object id as a 32-bit number. Asked, the owner chose to
+warn: the identity measurement also reads each candidate's smallest and largest value, a candidate outside
+`int` is listed in `wideIdentityCandidates`, and the console says so beside the object id when a table is probed or
+published. Nothing already published changes, and no candidate is dropped. Not measured against a real 10.x client.
+
+
 ## 1. Context
 
 [v1-scope](../v1-scope.md) §3a deferred DuckDB with every database except PostGIS, and its

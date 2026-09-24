@@ -17114,11 +17114,23 @@ function drawProbeRows() {
         <td class="val">${h(t.geometryType)} · ${h(t.geometryColumn)}${t.ordinates
           ? ` <span class="bad-inline">${h(t.ordinates)}, served flat</span>` : ""}</td>
         <td class="num">${h(t.srid)}</td>
-        <td class="val">${h(t.objectIdColumn || "—")}</td>
+        <td class="val">${h(t.objectIdColumn || "—")}${wideObjectId(t)
+          ? ` <span class="warn-inline" style="display:block">${WIDE_OBJECT_ID}</span>` : ""}</td>
         <td>${t.writable ? "yes" : "read only"}</td>
       </tr>`).join("");
 
   $("probePager").innerHTML = pagerFor("probeRows", shown.length);
+}
+
+/**
+ * V-77, by owner decision: an object id past 32 bits is offered and said, not changed. ArcGIS 10.x clients read an
+ * object id as a 32-bit number.
+ */
+const WIDE_OBJECT_ID = "Its values pass 2,147,483,647. ArcGIS 10.x clients read an object id as a 32-bit number and "
+  + "may misplace or refuse these features; if the file has a narrower unique column, choose that one.";
+
+function wideObjectId(t) {
+  return Boolean(t.objectIdColumn) && (t.wideIdentityCandidates || []).includes(t.objectIdColumn);
 }
 
 // ----------------------------------------------------------------- operations
@@ -18477,7 +18489,7 @@ function showChosenTable() {
         : ""}</dd>
       <dt>SRID</dt><dd>${h(t.srid)}</dd>
       <dt>Object id</dt><dd>${t.objectIdColumn
-        ? `<code>${h(t.objectIdColumn)}</code>`
+        ? `<code>${h(t.objectIdColumn)}</code>${wideObjectId(t) ? ` <span class="warn-inline">${WIDE_OBJECT_ID}</span>` : ""}`
         : `<span class="bad-inline">none — see below</span>`}</dd>
       <dt>Writable</dt><dd>${t.writable ? "yes" : "read only"}</dd>
     </dl>`

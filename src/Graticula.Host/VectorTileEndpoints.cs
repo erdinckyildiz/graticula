@@ -80,6 +80,13 @@ internal static class VectorTileEndpoints
             app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/tile/{{z:int}}/{{y:int}}/{{x:int}}.pbf",
                 TileAsync)
                 .Governed(SharingGovernedExtensions.ByService);
+
+            // V-63, by owner decision: which tiles of a block can hold anything, so a client does not ask for the
+            // ones that cannot. The ArcGIS order again — level, then row, then column.
+            app.MapGet(
+                $"{prefix}/{{serviceName}}/VectorTileServer/tilemap/{{z:int}}/{{top:int}}/{{left:int}}/{{width:int}}/{{height:int}}",
+                TilemapAsync)
+                .Governed(SharingGovernedExtensions.ByService);
         }
     }
 
@@ -292,6 +299,123 @@ internal static class VectorTileEndpoints
             WebMercator,
             ServiceRange(service.Layers)))
             .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The most tiles one tilemap answers about — ImageServer's number (<c>ImageServerEndpoints</c>), a 64 by 64 block,
+    /// so the two faces refuse the same request the same way. The ArcGIS JS API asks for 32 by 32.
+    /// </summary>
+    private const int LargestTilemap = 4096;
+
+    /// <summary>
+    /// Which tiles of a block can hold anything — V-63, owner decision 2026-09-25, and the ArcGIS tile map's shape:
+    /// <c>data</c> row by row from the block's top left, <c>1</c> where a tile may carry a feature and <c>0</c> where
+    /// it cannot.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A tile is 1 where a layer that draws at that level has an extent that touches it</b> — the layer's visible
+    /// range (ADR-070) read by the same <see cref="VisibleScaleRange.CarriesVectorTile"/> the tile itself is built
+    /// with. That is a promise in one direction only: a 0 is a tile that is empty, and a 1 is one that may be. It
+    /// is what spares a client the open sea and the levels a service does not draw at, which is where nearly all of
+    /// the empty requests are, without a query per tile against the data.
+    /// </para>
+    /// <para>
+    /// <b>A layer whose extent cannot be put in Web Mercator makes every tile 1</b>: not knowing where the data is
+    /// is not knowing that a tile is empty.
+    /// </para>
+    /// <para>
+    /// <b>Touching counts, where ImageServer's does not.</b> A raster tile that only shares an edge with a coverage
+    /// has none of its pixels; a vector tile is encoded with a buffer, so a feature on the edge is drawn by the tile
+    /// beside it too, and a 0 there would hide it.
+    /// </para>
+    /// </remarks>
+    private static async Task TilemapAsync(
+        HttpContext context,
+        string serviceName,
+        int z,
+        int top,
+        int left,
+        int width,
+        int height,
+        CatalogFallback catalog,
+        ServiceContexts contexts,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
+        PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
+            .ConfigureAwait(false);
+
+        if (service is null)
+        {
+            return;
+        }
+
+        long side = 1L << Math.Clamp(z, 0, 62);
+
+        string? refusal = z < 0 || z > TileAddress.MaxZoom
+            ? $"The level is 0 to {TileAddress.MaxZoom}."
+            : width < 1 || height < 1 || (long)width * height > LargestTilemap
+                ? $"A tile map answers about 1 to {LargestTilemap} tiles at once — 64 by 64 — and this asks for {(long)width * height}."
+                : top < 0 || left < 0 || top >= side || left >= side
+                    ? $"Level {z} has rows and columns 0 to {side - 1}."
+                    : null;
+
+        if (refusal is not null)
+        {
+            await Results.Json(
+                new { error = new { code = 400, message = refusal, details = Array.Empty<string>() } },
+                statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        // The extents of the layers that draw at this level; null for one whose extent could not be projected.
+        List<Envelope?> drawn = [];
+
+        foreach (PublishedLayer layer in service.Layers.Where(l => l.VisibleRange.CarriesVectorTile(z)))
+        {
+            (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+            if (described.Extent is not { } extent)
+            {
+                continue; // no rows: nothing to draw anywhere
+            }
+
+            drawn.Add(await InWebMercatorAsync(extent, layer.Definition.Srid, projector, cancellation).ConfigureAwait(false));
+        }
+
+        // Web Mercator's square, and one tile's side in it at this level.
+        const double half = 20037508.342789244;
+        double size = 2 * half / side;
+
+        int[] data = new int[width * height];
+
+        for (int row = 0; row < height; row++)
+        {
+            double maxY = half - ((top + row) * size);
+            double minY = maxY - size;
+
+            for (int column = 0; column < width; column++)
+            {
+                double minX = -half + ((left + column) * size);
+                double maxX = minX + size;
+
+                bool may = top + row < side && left + column < side && drawn.Any(e =>
+                    e is not { } box
+                    || (box.MinX <= maxX && box.MaxX >= minX && box.MinY <= maxY && box.MaxY >= minY));
+
+                data[(row * width) + column] = may ? 1 : 0;
+            }
+        }
+
+        await Results.Json(new
+        {
+            adjusted = false,
+            location = new { top, left, width, height },
+            data,
+            valid = true,
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>The range a whole tile service draws in — ADR-070.</summary>

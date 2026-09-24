@@ -108,7 +108,9 @@ public static class VectorTileServerMetadataWriter
         {
             currentVersion = FeatureServerMetadataWriter.CurrentVersion,
             name = serviceName,
-            capabilities = "TilesOnly",
+            // V-63: the tile map is offered, and named where the ArcGIS JS API looks for it.
+            capabilities = "TilesOnly,Tilemap",
+            tileMap = "tilemap",
             type = "indexedVector",
 
             // Relative, so the service works behind a reverse proxy that mounts

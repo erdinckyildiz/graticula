@@ -109,6 +109,28 @@ public sealed class GeoParquetFeatureSourceTests : IDisposable
         Assert.Equal(["objectid", GeoParquetFolder.RowNumberColumn], table.IdentityCandidates);
     }
 
+    [Fact]
+    public void A_candidate_whose_values_pass_32_bits_is_offered_and_said()
+    {
+        // V-77, by owner decision: `osm_id` reaches 14 billion, and an ArcGIS 10.x client reads an object id as a
+        // 32-bit number. Both columns below are unique; only the one past int.MaxValue is said to be wide.
+        using TemporaryFolder folder = new();
+        GeoParquetFixture.Write(
+            folder.File("places.parquet"),
+            [new("osm_id", "BIGINT"), new("small", "BIGINT")],
+            Enumerable.Range(0, 3).Select(i => (
+                new object?[] { 14_000_000_000L + i, (long)i + 1 },
+                (Geometry?)Shapes.Square(i * 2, 0, (i * 2) + 1, 1))),
+            srid: 3857);
+
+        using GeoParquetFolder places = new(folder.Path, new GeoParquetOptions { MemoryLimit = "256MB", Threads = 2 });
+        GeoParquetTable table = Assert.Single(places.List());
+
+        Assert.Contains("osm_id", table.IdentityCandidates);
+        Assert.Contains("small", table.IdentityCandidates);
+        Assert.Equal(["osm_id"], table.WideIdentityCandidates);
+    }
+
     // ---------- reading ----------
 
     [Fact]
