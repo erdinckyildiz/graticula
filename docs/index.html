@@ -514,13 +514,16 @@ pre .k{color:var(--accent)}
           </div>
 
           <div class="gap">
-            <i class="sw none"><span class="vh">Not built.</span></i>
+            <i class="sw half"><span class="vh">Partial.</span></i>
             <div>
-              <h3>No single sign-on</h3>
-              <p>Local accounts, server-issued tokens, and OAuth 2.0 for apps an administrator
-              registers. There is no SAML, no OIDC, no Active Directory and no SCIM, so every
-              account is one you create here. For a site with an identity provider, this is the
-              first thing to weigh.</p>
+              <h3>Single sign-on, not yet proven against a real provider</h3>
+              <p>OpenID Connect (Entra ID, Keycloak, Okta, Google), LDAP and Active Directory, and
+              SAML 2.0 (AD FS, Entra ID) sign people in, and their groups there can decide their role
+              and groups here. Each is tested against a provider the test suite runs, <b>not yet
+              against a real Entra ID, AD FS or Active Directory</b>. There is no SCIM: an account is
+              made at its first sign-in or by hand, and a change of groups arrives at the person's
+              next sign-in. Nested Active Directory groups are not followed, a SAML assertion must not
+              be encrypted, and signing out ends this server's session only.</p>
             </div>
           </div>
 

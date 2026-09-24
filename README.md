@@ -67,9 +67,16 @@ that works.
   the network on every query, at the bucket's latency. **A DuckDB database file and a MotherDuck
   database are served the same way**, their tables read-only; a file's geometry reference has to be
   declared, because DuckDB does not keep one in a database file.
-- **No single sign-on.** Local accounts, server-issued tokens, and OAuth 2.0 for apps an
-  administrator registers ([ADR-076](docs/adr/ADR-076-oauth-for-registered-apps.md)): no SAML, no
-  OIDC, no Active Directory, no SCIM. Every account is one you create here.
+- **Single sign-on is new, and not yet proven against a real provider.** OpenID Connect (Entra ID,
+  Keycloak, Okta, Google), LDAP and Active Directory, and SAML 2.0 (AD FS, Entra ID) sign people in,
+  and their groups there can decide their role and groups here
+  ([ADR-088](docs/adr/ADR-088-sign-in-through-an-openid-connect-provider.md),
+  [ADR-089](docs/adr/ADR-089-directories-and-group-mapping.md),
+  [ADR-090](docs/adr/ADR-090-sign-in-through-a-saml-provider.md)). Each is tested against a
+  provider the test suite runs, **not yet against a real Entra ID, AD FS or Active Directory**.
+  There is no SCIM: an account is made at its first sign-in or by hand, and a change of groups
+  reaches this server at the person's next sign-in. Nested Active Directory groups are not
+  followed, a SAML assertion must not be encrypted, and signing out ends this server's session only.
 - **No offline editing.** No `createReplica` and no sync, so Field Maps offline areas and Pro's
   *Download Map* do not work against this server
   ([ADR-082](docs/adr/ADR-082-offline-sync-is-not-in-v1.md)).

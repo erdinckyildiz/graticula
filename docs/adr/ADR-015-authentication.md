@@ -774,7 +774,13 @@ access to the platform store.
    `AdminCreator`'s refusal — each read against a principal who has a role and no
    local credential, which is a state that cannot exist today and will exist on
    the first day this condition is due.
-   **NOT YET APPLICABLE, and for the same reason as condition 2.** §9a records
+   **DUE since 2026-09-24, and not met.** OIDC, LDAP and SAML were built that day
+   ([ADR-088](ADR-088-sign-in-through-an-openid-connect-provider.md) to
+   [ADR-090](ADR-090-sign-in-through-a-saml-provider.md)) and none of them read this condition. The lockout is
+   reachable now: a group mapped to `administrator` makes administrators who have no local credential, Members
+   then lets the last *local* administrator be demoted or disabled because other administrators exist, and when
+   the provider fails nobody can sign in — and `AdminCreator` refuses the recovery, because an administrator
+   exists. *Was:* **NOT YET APPLICABLE, and for the same reason as condition 2.** §9a records
    that OIDC, SAML and SCIM are not built (D-10), so there is no external source
    to break and no lockout to have: today every account is local. The condition
    becomes due **in the same change that adds the first external identity
@@ -790,8 +796,15 @@ credential, re-hashed on login when the cost is raised); opaque server-side
 sessions with immediate revocation; the first-start bootstrap; and both rate
 limits.
 
-**Not built, tracked as D-10:** OIDC, SAML 2.0, SCIM 2.0, API keys, mTLS
-identity, and the ArcGIS `/generateToken` surface.
+**Not built, tracked as D-10:** ~~OIDC, SAML 2.0,~~ SCIM 2.0, API keys, mTLS
+identity~~, and the ArcGIS `/generateToken` surface~~. **Corrected 2026-09-24:** `/generateToken`
+was built 2026-08-20, and OIDC, LDAP and SAML 2.0 on 2026-09-24
+([ADR-088](ADR-088-sign-in-through-an-openid-connect-provider.md),
+[ADR-089](ADR-089-directories-and-group-mapping.md),
+[ADR-090](ADR-090-sign-in-through-a-saml-provider.md)). This section kept its 2026-08-13 heading
+and went on saying otherwise, which is the propagation [D-130](../architecture-debt.md) records —
+and it is how condition 5 below, due *in the same change that adds the first external identity
+source*, went unread by all three.
 
 **Authentication without authorization, tracked as D-11.** A principal is
 resolved and nothing consults it. Q-59 has not decided what the roles are, and
