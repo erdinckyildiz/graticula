@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(58);
+    public static SchemaVersion ComponentSchemaVersion => new(59);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -93,6 +93,7 @@ public static class PlatformMigrations
         SignInThroughAnIdentityProviderV56,
         DirectoriesAndGroupMappingV57,
         SamlSignInV58,
+        TheDefaultPageSizeGoesV59,
     ]);
 
     /// <summary>
@@ -148,6 +149,36 @@ public static class PlatformMigrations
             + "a query that asks for more. A service that set both keeps its maximum. What a query naming "
             + "no page size gets is unchanged for the first; for the second it becomes the maximum, which "
             + "is the number the service's document already gave.");
+
+    /// <summary>
+    /// The default page size migration 54 emptied is dropped — ADR-084 condition 2.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Two releases after the fold, as condition 2 asked.</b> Migration 54 folded a service's default page into its
+    /// page size, emptied <c>default_record_count</c>, and left it so a build before 54 could still start against a
+    /// store 54 migrated. Nothing has read it since; <c>DeadColumnsStayDeadTests</c> says so for the source, and the
+    /// showcase has run migrations 55 to 58 on top.
+    /// </para>
+    /// <para>
+    /// <b>The minimum reader stays 55.</b> The column needs one of 54 — the first build that does not read it — and
+    /// migration 55 already raised it past that; a contract names the reader it needs and does not lower one.
+    /// </para>
+    /// <para>
+    /// <b>Migration 17's check named the column</b>, so it is replaced by the half that is left: a page size, when a
+    /// service sets one, is positive.
+    /// </para>
+    /// </remarks>
+    private static Migration TheDefaultPageSizeGoesV59 => Migration.Contract(
+        new SchemaVersion(59),
+        raisesMinimumReaderTo: new SchemaVersion(55),
+        "The emptied default page size is dropped; a service's page size is its one number (ADR-084).",
+
+        "alter table service drop constraint if exists service_record_counts_sane",
+        "alter table service add constraint service_record_counts_sane check (max_record_count is null or max_record_count > 0)",
+        "alter table service drop column if exists default_record_count")
+        .Cautioning(
+            "Drops a column migration 54 emptied and nothing has read since. No service's page size changes.");
 
     /// <summary>
     /// Sign-in through a SAML 2.0 identity provider — ADR-090.
