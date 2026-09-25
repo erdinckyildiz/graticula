@@ -552,6 +552,31 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
         Assert.DoesNotContain("name=\"password\"", markup, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The console's files are checked with the server before they are reused.
+    /// </summary>
+    /// <remarks>
+    /// <b>The owner's upgrade to v1.0.176 painted the new sign-in markup with the old
+    /// stylesheet</b>, because nothing told the browser how long to keep either and it guessed
+    /// differently for each. A page and its stylesheet from two releases is a broken page that
+    /// no server-side test sees, so this asserts the header that prevents it, on each kind of
+    /// file the page loads, under both surfaces.
+    /// </remarks>
+    [Theory]
+    [InlineData("/server/")]
+    [InlineData("/server/console.css")]
+    [InlineData("/server/console.js")]
+    [InlineData("/studio/console.css")]
+    public async Task The_console_files_are_revalidated_rather_than_guessed_fresh(string path)
+    {
+        using HttpResponseMessage response = await GetAsync(path);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoCache == true,
+            $"{path} answered Cache-Control '{response.Headers.CacheControl}', so a browser may keep "
+            + "it past an upgrade and pair it with the other files of a newer release.");
+    }
+
     // ---------- the inventory ----------
 
     /// <summary>

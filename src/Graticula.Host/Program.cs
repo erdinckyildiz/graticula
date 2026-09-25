@@ -1318,7 +1318,19 @@ public static class Program
                 RequestPath = surface,
                 EnableDefaultFiles = true,
                 EnableDirectoryBrowsing = false,
-                StaticFileOptions = { ContentTypeProvider = contentTypes },
+                StaticFileOptions =
+                {
+                    ContentTypeProvider = contentTypes,
+
+                    // <b>Asked about every time, and answered 304 when nothing changed.</b> With no
+                    // Cache-Control a browser guesses a lifetime from Last-Modified, and on
+                    // 2026-09-25, the first upgrade after the sign-in card changed, the owner's got
+                    // the new index.html and kept the old console.css: a Show button the width of
+                    // the card, a checkbox on a line of its own, "Gr" as a word. The page and its
+                    // stylesheet have to be the same release, and the ETag already makes asking
+                    // cheap.
+                    OnPrepareResponse = file => file.Context.Response.Headers.CacheControl = "no-cache",
+                },
             });
         }
 
