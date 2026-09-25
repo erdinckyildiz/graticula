@@ -22022,10 +22022,15 @@ $("signinForm").addEventListener("submit", async event => {
     const r = await api("/rest/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: $("u").value, password: $("p").value }),
+      // `remember` is Keep me signed in: false gives a cookie with no expiry, which the browser
+      // forgets when it closes. The session itself lasts as long as it always did.
+      body: JSON.stringify({ name: $("u").value, password: $("p").value, remember: $("keep").checked }),
     });
     token = r.token;
     sessionStorage.setItem("gis-token", token);
+    $("p").type = "password";
+    $("pShow").textContent = "Show";
+    $("pShow").setAttribute("aria-pressed", "false");
     await start();
   } catch (e) {
     // The server's own words. A refused sign-in says whether the name is
@@ -22056,6 +22061,30 @@ $("signinForm").addEventListener("submit", async event => {
  * it has answered. If it refuses, stay and say why — a console that cannot sign
  * out must not pretend it did.
  */
+/**
+ * Shows or hides the password, and says which it will do next.
+ *
+ * <b>The label is the action, and `aria-pressed` is the state</b> — a button reading *Hide* is
+ * pressed. Hidden again on every submit, so a password left visible is not left visible on a
+ * screen somebody walks away from after signing in.
+ */
+$("pShow").addEventListener("click", event => {
+  const shown = $("p").type === "password";
+  $("p").type = shown ? "text" : "password";
+  $("pShow").textContent = shown ? "Hide" : "Show";
+  $("pShow").setAttribute("aria-pressed", String(shown));
+
+  // Back to the field after a pointer click, so typing carries on. Not after a key press: focus in
+  // the field would make a second Space type a space into the password instead of hiding it.
+  if (event.detail !== 0) $("p").focus();
+});
+
+$("forgot").addEventListener("click", () => {
+  const open = $("forgotHint").hidden;
+  $("forgotHint").hidden = !open;
+  $("forgot").setAttribute("aria-expanded", String(open));
+});
+
 /**
  * Replaces an issued password with the member's own.
  *
@@ -22268,6 +22297,9 @@ async function start() {
     // Otherwise this reads "checking…" for ever, which is a small lie of the same family as
     // the one above: a line that says it is working on something it has stopped working on.
     $("healthLine").textContent = "sign in to read the server's state";
+
+    // Which server this is — the head's second line, as the portal's names its own.
+    $("signinWhere").textContent = location.host;
 
     // ADR-088: a way in through each provider, back to where this page was.
     drawSigninProviders();

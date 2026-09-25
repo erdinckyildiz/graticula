@@ -1830,6 +1830,9 @@ dialog { color: var(--ink); }
   box-shadow: -18px 0 44px -30px rgba(16, 24, 38, .45);
 }
 #drawer.on { transform: none; }
+/* Closed, the drawer is only moved off-screen, so its shadow bled into every page's right edge —
+   visible once the sign-in page had nothing else on it. Hidden after the slide, not before it. */
+#drawer:not(.on) { box-shadow: none; visibility: hidden; transition: transform .16s ease-out, visibility 0s .16s; }
 #drawer header { height: auto; padding: var(--gap-4) var(--gap-5); align-items: flex-start;
                  gap: var(--gap-3); position: static; }
 #drawer header h2 { margin: 0; font-size: var(--t-head); font-weight: 600; }
@@ -2010,9 +2013,64 @@ dialog { color: var(--ink); }
 #signin h2, #mustchange h2 { margin: 0 0 var(--gap-2); font-size: 19px; font-weight: 600; }
 #signin label, #mustchange label { display: block; font-size: var(--t-small); color: var(--muted);
                                    margin: var(--gap-3) 0 var(--gap-1); }
-#signin input, #signin button,
+#signin input, #signin button.primary,
 #mustchange input, #mustchange button { width: 100%; }
-#signin button, #mustchange button { margin-top: var(--gap-4); }
+#signin button.primary, #mustchange button { margin-top: var(--gap-4); }
+
+/*
+  <b>The sign-in card stands alone, the way the portal's does.</b> Owner, 2026-09-25, with the two
+  screenshots side by side. Until there is a session the rail and the top bar are hidden: every
+  link in them needs one, and the health line could only ever say *sign in to read the server's
+  state*. The attribute is the same one the head script sets before first paint, so the card is
+  alone from the first frame rather than after the script decides.
+*/
+html[data-session="none"] #rail,
+html[data-session="none"] #main > header { display: none; }
+html[data-session="none"] #shell { grid-template-columns: 1fr; }
+#signin { width: 100%; max-width: 420px; margin: clamp(32px, 12vh, 120px) auto 48px; padding: 0 var(--gap-4); }
+#signin .panel { padding: 0; overflow: hidden; }
+#signin .signin-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--gap-3);
+  padding: var(--gap-4) var(--gap-5); border-bottom: 1px solid var(--rule);
+}
+#signin .signin-head h2 { margin: 0; font-size: 20px; }
+#signin .signin-where { margin: 2px 0 0; font-size: var(--t-small); color: var(--muted);
+                        overflow-wrap: anywhere; }
+#signin .signin-head .mark {
+  width: 34px; height: 34px; flex: none; border-radius: 8px;
+  background: linear-gradient(148deg, var(--cyan), var(--cyan-deep) 55%, #2a5fb0);
+  display: grid; place-items: center; color: #fff; font-size: 15px; font-weight: 700;
+}
+#signin .signin-body { padding: var(--gap-2) var(--gap-5) var(--gap-5); }
+#signin #u, #signin #p { font-size: 15px; min-height: 42px; padding: 8px 10px; }
+#signin #p { padding-right: 68px; }
+#signin .signin-refused {
+  margin: var(--gap-3) 0 0; padding: 10px 12px; font-size: var(--t-small);
+  background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn-line);
+  border-radius: 7px;
+}
+
+/* Show sits inside the field, at its end, and says what it will do rather than what it is. */
+#signin .reveal { position: relative; }
+#signin .reveal-toggle {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: auto; margin: 0; padding: 6px 10px; min-height: 32px;
+  background: none; border: 0; color: var(--accent); font-weight: 600; font-size: var(--t-small);
+}
+#signin .reveal-toggle:hover { text-decoration: underline; }
+
+#signin label.keep {
+  display: inline-flex; align-items: center; gap: 8px; margin: var(--gap-3) 0 0;
+  color: var(--ink); font-size: var(--t-body); cursor: pointer;
+}
+#signin label.keep input { width: 18px; height: 18px; margin: 0; flex: none; }
+
+#signin .forgot {
+  display: block; width: auto; margin: var(--gap-3) auto 0; padding: 6px 4px; min-height: 32px;
+  background: none; border: 0; color: var(--accent); font-size: var(--t-small);
+  text-decoration: underline; text-underline-offset: 3px;
+}
+#signin #forgotHint { margin: var(--gap-2) 0 0; text-align: center; }
 
 /*
   <b>The conversion's losses, and a derived document beside them.</b> ADR-033 accepted a

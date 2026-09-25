@@ -296,19 +296,58 @@
     is nothing to serialise, and method="post" means a fallback could not put it
     in a URL even if there were.
   -->
+  <!--
+    <b>Shaped after the portal sign-in people already know</b> — owner, 2026-09-25, holding the two
+    side by side: a card alone on the page, a head that says what you are signing in to, then the
+    fields. The console's rail and top bar are hidden until there is a session (console.css,
+    `html[data-session="none"]`), because a column of navigation nobody can use yet is furniture.
+    The note that stood at the foot of this card, about the admin API and ADR-020, was written for
+    a developer reading the page and is gone for the same reason.
+  -->
   <form class="panel" id="signinForm" method="post" action="">
-    <h2>Sign in</h2>
+    <div class="signin-head">
+      <div>
+        <h2>Sign in to Graticula</h2>
+        <!-- Filled from location.host: which server this is, which is the question the head answers. -->
+        <p class="signin-where" id="signinWhere"></p>
+      </div>
+      <span class="mark" aria-hidden="true">Gr</span>
+    </div>
+    <div class="signin-body">
+    <!--
+      The refusal sits above the fields, where /rest/login puts it, and is an alert: focus goes back
+      to the password, so without the role a screen reader reads the field and never the reason.
+    -->
+    <p class="signin-refused" id="signinError" role="alert" hidden></p>
     <!-- ADR-088: a way in through each provider the operator configured, filled in when this panel is shown. -->
     <div id="signinProviders" hidden></div>
     <label for="u">Name</label>
     <input type="text" id="u" autocomplete="username" autofocus>
     <label for="p">Password</label>
-    <input id="p" type="password" autocomplete="current-password">
+    <div class="reveal">
+      <input id="p" type="password" autocomplete="current-password" aria-describedby="signinError">
+      <!-- A fixed name, so aria-pressed alone carries the state: "Hide, pressed" is a double negative. -->
+      <button type="button" class="reveal-toggle" id="pShow" aria-controls="p" aria-pressed="false"
+        aria-label="Show password">Show</button>
+    </div>
+    <!--
+      No name attribute, like the two fields above: a native submit with script blocked must carry
+      nothing. Unticked, the session cookie has no expiry and closing the browser ends it.
+    -->
+    <label class="keep"><input type="checkbox" id="keep"> Keep me signed in</label>
     <button class="primary" id="go" type="submit">Sign in</button>
     <noscript><p class="bad-inline">This console is JavaScript. Your browser is not
       running it, so signing in here cannot work — check whether an extension is
       blocking scripts on this page.</p></noscript>
-    <p class="bad-inline" id="signinError" hidden></p>
+    <!--
+      <b>Not a reset link, because there is nothing to send it with.</b> This server has no mail, so
+      the honest answer to a forgotten password is who can fix it — which is also what the portal's
+      own link says when no mail server is configured.
+    -->
+    <button type="button" class="forgot" id="forgot" aria-expanded="false" aria-controls="forgotHint">Forgot password?</button>
+    <p class="hint" id="forgotHint" hidden>Ask an administrator of this server to reset it. They
+      pass you a new password, and you choose your own the first time you use it. If you sign in
+      with your organisation's account, your organisation resets it.</p>
     <!--
       Shown when the browser already holds a session cookie. ADR-023 §4c: the cookie
       authenticates GET and HEAD and nothing else, on purpose, so a session arrived at
@@ -317,8 +356,7 @@
       a sign-in form for no stated reason.
     -->
     <p class="hint" id="signinCookie" style="margin-top:14px" hidden></p>
-    <p class="hint" style="margin-top:14px">Everything here is the admin API. Nothing this
-      console does is anything <code>curl</code> could not — ADR-020 §2.</p>
+    </div>
   </form>
 </div>
 

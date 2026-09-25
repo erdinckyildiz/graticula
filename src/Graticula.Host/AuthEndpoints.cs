@@ -15,7 +15,12 @@ namespace Graticula.Host;
 /// <summary>What a client sends to log in.</summary>
 /// <param name="Name">The principal name.</param>
 /// <param name="Password">The password.</param>
-internal sealed record LoginRequest(string? Name, string? Password);
+/// <param name="Remember">
+/// Whether the browser keeps the session after it is closed — the sign-in form's <em>Keep me signed
+/// in</em>. Null keeps what this endpoint always did, a cookie that lasts as long as the session, so a
+/// client that has never heard of the field is not signed out by a browser restart it did not ask for.
+/// </param>
+internal sealed record LoginRequest(string? Name, string? Password, bool? Remember = null);
 
 /// <summary>What a member sends to change their own password.</summary>
 /// <param name="CurrentPassword">The one they have now.</param>
@@ -257,7 +262,13 @@ internal static class AuthEndpoints
             IFormCollection form = await context.Request.ReadFormAsync(cancellation)
                 .ConfigureAwait(false);
 
-            request = new LoginRequest(form["name"].ToString(), form["password"].ToString());
+            // <b>A checkbox that is not ticked is not sent at all</b>, so on a form absence is the
+            // answer "no" rather than "not asked" — this form has the box, and leaving it clear is a
+            // choice somebody made.
+            request = new LoginRequest(
+                form["name"].ToString(),
+                form["password"].ToString(),
+                string.Equals(form["remember"].ToString(), "true", StringComparison.OrdinalIgnoreCase));
             returnTo = form["return"].ToString();
         }
         else
@@ -335,7 +346,7 @@ internal static class AuthEndpoints
         // browser following a link cannot send. The cookie authenticates GET and
         // HEAD only (Authentication.CookieToken), so it cannot be used to change
         // anything even if another origin manages to send it.
-        SetSessionCookie(context, result.Token!, session.ExpiresAt);
+        SetSessionCookie(context, result.Token!, session.ExpiresAt, request.Remember ?? true);
 
         // A browser that posted the sign-in form wants the directory back, not
         // a JSON document it has no way to read.
@@ -512,8 +523,14 @@ internal static class AuthEndpoints
     /// it at all. The fourth control is not a flag: the cookie only
     /// authenticates GET and HEAD.
     /// </remarks>
+    /// <remarks>
+    /// <b>Not persistent means no <c>Expires</c>, not a shorter one.</b> A cookie without it is the
+    /// browser's to forget when it closes, which is what <em>Keep me signed in</em> left clear means to
+    /// the person who left it clear. The session itself still ends when it ends — this decides only
+    /// whether closing the browser ends it first.
+    /// </remarks>
     internal static void SetSessionCookie(
-        HttpContext context, string token, DateTimeOffset expires) =>
+        HttpContext context, string token, DateTimeOffset expires, bool persistent = true) =>
         context.Response.Cookies.Append(
             Authentication.SessionCookie,
             token,
@@ -522,7 +539,7 @@ internal static class AuthEndpoints
                 HttpOnly = true,
                 Secure = true,
                 SameSite = SameSiteMode.Strict,
-                Expires = expires,
+                Expires = persistent ? expires : null,
                 Path = "/",
             });
 

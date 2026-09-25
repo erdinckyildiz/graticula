@@ -75,16 +75,21 @@ internal static class RestDirectory
     /// page showed a stranger and any service shared with the organisation was
     /// invisible — in the one surface built for browsing.
     /// </remarks>
-    public static string SignIn(string returnTo, string? failed) => SignIn(returnTo, failed, [], []);
+    public static string SignIn(string returnTo, string? failed) => SignIn(returnTo, failed, [], [], null);
 
     /// <summary>The sign-in page, with a way in through each configured provider — ADR-088.</summary>
     /// <param name="returnTo">Where to go afterwards.</param>
     /// <param name="failed">Why the last attempt was refused, or null.</param>
     /// <param name="providers">The providers to offer, by where their sign-in starts and their name.</param>
     /// <param name="directories">The directories whose names and passwords the form takes — ADR-089.</param>
+    /// <param name="host">The address this server was reached at, for the card's head, or null.</param>
     /// <returns>The page.</returns>
     public static string SignIn(
-        string returnTo, string? failed, IReadOnlyList<(string Start, string Name)> providers, IReadOnlyList<string> directories)
+        string returnTo,
+        string? failed,
+        IReadOnlyList<(string Start, string Name)> providers,
+        IReadOnlyList<string> directories,
+        string? host = null)
     {
         ArgumentNullException.ThrowIfNull(directories);
 
@@ -92,7 +97,14 @@ internal static class RestDirectory
 
         StringBuilder body = new();
 
-        body.Append("<h1>Sign in</h1>");
+        body.Append("<div class=\"card\"><div class=\"card-head\"><div><h1>Sign in to Graticula</h1>");
+
+        if (!string.IsNullOrEmpty(host))
+        {
+            body.Append(CultureInfo.InvariantCulture, $"<p class=\"where\">{H(host)}</p>");
+        }
+
+        body.Append("</div><span class=\"mark\" aria-hidden=\"true\">Gr</span></div><div class=\"card-body\">");
 
         // <b>A provider first, when there is one</b>: an organisation that configured one expects its people to
         // use it, and the password form below is for the accounts that live here.
@@ -125,7 +137,7 @@ internal static class RestDirectory
             // <b>A failed sign-in is a warning, not a hint.</b> `.hint` is the faint
             // grey this page uses for asides; the reason a sign-in did not work is the
             // most important sentence on the page at the moment it appears.
-            body.Append(CultureInfo.InvariantCulture, $"<p class=\"warn\">{H(failed)}</p>");
+            body.Append(CultureInfo.InvariantCulture, $"<p class=\"warn\" id=\"signin-refused\">{H(failed)}</p>");
         }
 
         string escapedReturn = H(returnTo);
@@ -147,27 +159,37 @@ internal static class RestDirectory
           `QueryPage` already uses `<label>` correctly for its radio pairs, so this applies a
           pattern the codebase has rather than inventing one.
         */
+        /*
+          <b>Labels above the fields, not a two-column table</b>, now that the form is a narrow card:
+          the table put *Name* and *Password* beside boxes that had no room. Each field still has an
+          `id` and a real `<label for>`, which is why the table's `<th>`s were made labels to begin with.
+
+          <b>No Show button here, and that is the price of this page having no script.</b> The
+          directory's policy is `default-src 'none'`, asserted by a test, and showing a password needs
+          a script. The console's own sign-in has one.
+        */
         body.Append(
             "<form action=\"/rest/auth/login\" method=\"post\">"
             + "<input type=\"hidden\" name=\"return\" value=\"" + escapedReturn + "\">"
             + "<input type=\"hidden\" name=\"f\" value=\"html\">"
-            + "<table class=\"form\">"
-            + "<tr><th><label for=\"signin-name\">Name</label></th>"
-            + "<td><input id=\"signin-name\" type=\"text\" name=\"name\" size=\"26\" "
-            + "autocomplete=\"username\" autofocus></td></tr>"
-            + "<tr><th><label for=\"signin-password\">Password</label></th>"
-            + "<td><input id=\"signin-password\" type=\"password\" name=\"password\" "
-            + "size=\"26\" autocomplete=\"current-password\"></td></tr>"
-            + "<tr><th></th><td><button type=\"submit\">Sign in</button></td></tr>"
-            + "</table></form>");
+            + "<label class=\"field\" for=\"signin-name\">Name</label>"
+            + "<input id=\"signin-name\" type=\"text\" name=\"name\" autocomplete=\"username\" autofocus"
+            + (failed is null ? string.Empty : " aria-describedby=\"signin-refused\"") + ">"
+            + "<label class=\"field\" for=\"signin-password\">Password</label>"
+            + "<input id=\"signin-password\" type=\"password\" name=\"password\" autocomplete=\"current-password\">"
+            + "<label class=\"keep\"><input type=\"checkbox\" name=\"remember\" value=\"true\"> Keep me signed in</label>"
+            + "<button type=\"submit\">Sign in</button>"
+            + "</form>");
 
+        // Not a reset link: this server sends no mail, so the answer is who can fix it.
         body.Append(
-            "<p class=\"hint\">Signing in stores a cookie that authenticates <b>reading</b> only. "
-            + "Publishing, editing and administration still need an "
-            + "<code>Authorization: Bearer</code> header, so nothing a browser is tricked into "
-            + "sending can change anything here.</p>");
+            "<details><summary>Forgot password?</summary><p>Ask an administrator of this server to reset "
+            + "it. They pass you a new password, and you choose your own the first time you use it. If you "
+            + "sign in with your organisation's account, your organisation resets it.</p></details>");
 
-        return Page("/rest/login", body.ToString());
+        body.Append("</div></div>");
+
+        return Page("/rest/login", body.ToString(), bare: true);
     }
 
     /// <summary>A page that says one thing about a sign-in, with the way back to the form — ADR-088.</summary>
@@ -810,12 +832,17 @@ internal static class RestDirectory
     /// the WFS type name are the same thing, which they are not.
     /// </para>
     /// </param>
+    /// <param name="bare">
+    /// Leave out the masthead and the breadcrumb row, for the sign-in card: nothing in them is
+    /// reachable until the reader has signed in.
+    /// </param>
     /// <returns>The page.</returns>
     private static string Page(
         string path,
         string body,
         bool close = true,
-        IEnumerable<(string Label, string Href)>? formats = null)
+        IEnumerable<(string Label, string Href)>? formats = null,
+        bool bare = false)
     {
         /*
           <b>An ordered list, and the last crumb is not a link to itself.</b> This built a
@@ -1155,6 +1182,9 @@ internal static class RestDirectory
                        color: #fff; font-weight: 550; padding: 6px 16px;
                        cursor: pointer; margin-top: 8px; }
               button:hover { filter: brightness(1.08); }
+              /* Dark lightens the accent and the white label stayed white: 1.89:1 on the sign-in
+                 button and the query form's alike. The page's own dark ground reads 9.69:1. */
+              @media (prefers-color-scheme: dark) { button { color: var(--paper); } }
 
               /* The word still carries the meaning; the colour only makes a column of
                  them scannable. Never colour alone. */
@@ -1178,6 +1208,37 @@ internal static class RestDirectory
               .empty p:last-child { margin: 0; }
               .paging { margin-top: 16px; display: flex; gap: 12px; font-size: 13px; }
 
+              /* <b>The sign-in card, alone on the page</b> — owner, 2026-09-25, holding this beside the
+                 portal's. A head that says what you are signing in to, then the fields, then the two
+                 small things the portal also has: keep me signed in, and what to do about a
+                 forgotten password. No directory chrome: nothing in it is reachable yet. */
+              main.bare { max-width: 420px; margin: clamp(32px, 12vh, 120px) auto 48px; padding: 0 16px; }
+              .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px;
+                      box-shadow: 0 1px 2px rgba(16,24,38,.05), 0 12px 32px -14px rgba(16,24,38,.2); }
+              .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+                           padding: 18px 22px; border-bottom: 1px solid var(--rule); }
+              .card-head h1 { margin: 0; font-size: 20px; font-weight: 600; }
+              .card-head .where { margin: 2px 0 0; font-size: 13.5px; color: var(--muted); overflow-wrap: anywhere; }
+              .card-head .mark { width: 34px; height: 34px; flex: none; border-radius: 8px; display: grid;
+                                 place-items: center; color: #fff; font-weight: 700; font-size: 15px;
+                                 background: linear-gradient(148deg, #2ad3c4, #0fb3ba 55%, #2a5fb0); }
+              .card-body { padding: 16px 22px 22px; }
+              .card-body .hint { margin: 0 0 12px; }
+              .card-body ul.providers { max-width: none; }
+              .card-body label.field { display: block; font-size: 13.5px; color: var(--muted); margin: 12px 0 4px; }
+              .card-body input[type=text], .card-body input[type=password] { width: 100%; padding: 8px 10px; }
+              .card-body label.keep { display: inline-flex; align-items: center; gap: 8px; margin: 12px 0 0; cursor: pointer; }
+              .card-body label.keep input { width: 18px; height: 18px; margin: 0; }
+              .card-body button { display: block; width: 100%; margin-top: 16px; padding: 10px 16px; }
+              /* The console's sign-in button, so the two doors read as one product. */
+              @media (prefers-color-scheme: light) {
+                .card-body button { background: linear-gradient(96deg, #0d7d70, #2f6fd0 62%, #5a49c4); border-color: transparent; }
+              }
+              .card-body details { margin-top: 14px; text-align: center; font-size: 13.5px; }
+              .card-body summary { color: var(--accent); cursor: pointer; text-decoration: underline;
+                                   text-underline-offset: 3px; display: inline-block; padding: 4px; }
+              .card-body details p { margin: 6px 0 0; color: var(--muted); }
+
               /* A wide grid is clipped at the paper's edge with nothing to say so.
                  Let it wrap on paper instead, and drop the chrome nobody can click. */
               @media print {
@@ -1189,13 +1250,17 @@ internal static class RestDirectory
             </style>
             </head>
             <body>
-            <header class="top"><span class="name">Graticula <span>REST Services
-            Directory</span></span><span class="who">{{Who(path)}}</span></header>
-            <nav class="bar" aria-label="Breadcrumb"><ol>{{crumbs}}</ol>
-            <span class="fmt">{{faces}}</span></nav>
-            <main>{{body}}{{(close ? "</main></body></html>" : string.Empty)}}
+            {{(bare ? string.Empty : Chrome(path, crumbs.ToString(), faces.ToString()))}}
+            <main{{(bare ? " class=\"bare\"" : string.Empty)}}>{{body}}{{(close ? "</main></body></html>" : string.Empty)}}
             """;
     }
+
+    /// <summary>The directory's masthead and breadcrumb row, which a bare page leaves out.</summary>
+    private static string Chrome(string path, string crumbs, string faces) =>
+        "<header class=\"top\"><span class=\"name\">Graticula <span>REST Services\n"
+        + "Directory</span></span><span class=\"who\">" + Who(path) + "</span></header>\n"
+        + "<nav class=\"bar\" aria-label=\"Breadcrumb\"><ol>" + crumbs + "</ol>\n"
+        + "<span class=\"fmt\">" + faces + "</span></nav>";
 
     /// <summary>The signed-in badge, or a link to sign in.</summary>
     /// <remarks>

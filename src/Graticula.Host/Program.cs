@@ -2044,7 +2044,7 @@ public static class Program
                 RestDirectory.SignIn(
                     context.Request.Query["return"].ToString(),
                     context.Request.Query["failed"].Count > 0
-                        ? "That name and password were not accepted."
+                        ? "The name or password is incorrect."
                         : null,
 
                     // ADR-088: a way in through each provider an operator configured and left on.
@@ -2053,7 +2053,8 @@ public static class Program
                         .Select(p => (Graticula.Host.Oidc.OidcEndpoints.StartPath(p), p.Settings.Name))],
                     [.. (await providers.ListAsync(cancellation).ConfigureAwait(false))
                         .Where(p => p.Settings is { Enabled: true, Kind: "ldap" })
-                        .Select(p => p.Settings.Name)]),
+                        .Select(p => p.Settings.Name)],
+                    context.Request.Host.Value),
                 "text/html; charset=utf-8"));
 
         Graticula.Host.Oidc.OidcEndpoints.Map(app);
