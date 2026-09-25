@@ -142,7 +142,25 @@ None recorded.
 1. **A real provider signs somebody in** — Entra ID or Keycloak, against the showcase or a deployment. The suite's
    provider is honest but is ours; the first person to meet a real one's quirks should not be the owner.
 2. **ArcGIS clients' own sign-in pages offer it.** This server's OAuth authorize page (ADR-076) — where Field Maps
-   and a web app send a person — offers only a password today.
+   and a web app send a person — offers only a password today. **DISCHARGED 2026-09-25.** The page offers every
+   enabled OpenID Connect and SAML provider first, and names the directories whose passwords its form takes. **The
+   code is issued where the provider sign-in ends, not from a session**: this server's session cookie is
+   `SameSite=Strict`, and a sign-in coming back from a provider's site — a cross-site navigation for OpenID, a
+   cross-site POST for SAML — does not carry it back to this page, so a "sign in, then return" design cannot work.
+   The app's request rides with the provider sign-in instead, sealed with the server's key, and the same issuing path
+   the password form uses sends the code. **Bound to the browser twice**: the provider link is accepted only beside
+   the page's `SameSite=Strict` form cookie, so a link opened from anywhere else is refused; and a random value in a
+   short-lived `SameSite=None` cookie under `/rest/auth`, sealed into the request too, must come back with the
+   sign-in. `OAuthThroughAProviderConformanceTests` walks it end to end against the suite's provider — the app gets a
+   code and redeems it for a token in the person's name — and refuses both misuses. **Control:** with the second
+   binding taken out, a sign-in started from a link prepared in another browser sent a code for the victim to the
+   app, and the test failed on exactly that; so the binding is load-bearing, not decoration. The provider links are
+   links rather than a form because a browser applies the page's `form-action` to every redirect after a post.
+   **The page passed a design review the same day, with its findings repaired:** the provider is the filled way in
+   and the password form the outlined other one, under an *or*; the form says whose names and passwords it takes;
+   a failed password is said inside the form, tied to both fields, keeps the name typed and puts *Error:* in the
+   title; nothing takes focus past the provider unless a failed password brought the person back; the page names
+   the server being signed in to, and the return address moved below the form; field borders reach 3:1.
 3. **The design review of every screen here**, with its findings repaired. **DISCHARGED 2026-09-24.** Its blocker
    was the console's shared change listener returning early unless a layer's Fields editor was open, so the
    first-sign-in choice and New member's provider did nothing — and ADR-087's Domains screen had the same fault in

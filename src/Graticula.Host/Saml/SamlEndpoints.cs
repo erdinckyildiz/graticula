@@ -153,7 +153,8 @@ internal static class SamlEndpoints
         StartedSignIn started = new(
             provider.Id, relay, request.IdAsString,
             AuthEndpoints.Safe(context.Request.Query["return"].ToString() is { Length: > 0 } r ? r : "/server/"),
-            DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            OAuthEndpoints.Carried(context, protector));
 
         context.Response.Cookies.Append(
             StateCookie,
@@ -296,7 +297,8 @@ internal static class SamlEndpoints
 
         await OidcEndpoints.FinishAsync(
             context, store, login, log, provider, subject, username, display,
-            [.. claims.FindAll(provider.Settings.GroupsClaim).Select(c => c.Value)], started.Return, cancellation)
+            [.. claims.FindAll(provider.Settings.GroupsClaim).Select(c => c.Value)], started.Return, cancellation,
+            started.OAuth)
             .ConfigureAwait(false);
     }
 
@@ -363,7 +365,7 @@ internal static class SamlEndpoints
     }
 
     /// <summary>What a sign-in carries from its start to the response, sealed in <see cref="StateCookie"/>.</summary>
-    private sealed record StartedSignIn(Guid Provider, string Relay, string RequestId, string Return, long At);
+    private sealed record StartedSignIn(Guid Provider, string Relay, string RequestId, string Return, long At, string? OAuth = null);
 
     private static StartedSignIn? ReadState(HttpContext context, SecretProtector protector)
     {

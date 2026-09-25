@@ -116,7 +116,8 @@ internal static class OidcEndpoints
         StartedSignIn started = new(
             provider.Id, state, nonce, verifier,
             AuthEndpoints.Safe(context.Request.Query["return"].ToString() is { Length: > 0 } r ? r : "/server/"),
-            DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            OAuthEndpoints.Carried(context, protector));
 
         context.Response.Cookies.Append(
             StateCookie,
@@ -226,7 +227,8 @@ internal static class OidcEndpoints
 
         await FinishAsync(
             context, store, login, log, provider, subject, username, claims.FindFirst("name")?.Value,
-            [.. claims.FindAll(provider.Settings.GroupsClaim).Select(c => c.Value)], started.Return, cancellation)
+            [.. claims.FindAll(provider.Settings.GroupsClaim).Select(c => c.Value)], started.Return, cancellation,
+            started.OAuth)
             .ConfigureAwait(false);
     }
 
@@ -246,6 +248,8 @@ internal static class OidcEndpoints
     /// <param name="groups">Their groups there.</param>
     /// <param name="returnTo">Where the sign-in was started from.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="oauth">An app's sealed request, when the sign-in was started from the OAuth sign-in page: then
+    /// the app gets a code instead of the browser getting a session — ADR-088 condition 2.</param>
     internal static async Task FinishAsync(
         HttpContext context,
         IIdentityProviderStore store,
@@ -257,7 +261,8 @@ internal static class OidcEndpoints
         string? displayName,
         IReadOnlyCollection<string> groups,
         string returnTo,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        string? oauth = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(store);
@@ -307,6 +312,12 @@ internal static class OidcEndpoints
             return;
         }
 
+        if (oauth is not null)
+        {
+            await OAuthEndpoints.CompleteExternalAsync(context, oauth, principal, cancellation).ConfigureAwait(false);
+            return;
+        }
+
         (string token, AuthenticatedSession session) = await login
             .IssueAsync(principal, context.Connection.RemoteIpAddress, cancellation).ConfigureAwait(false);
 
@@ -315,7 +326,15 @@ internal static class OidcEndpoints
     }
 
     /// <summary>What a sign-in carries from its start to its callback, sealed in <see cref="StateCookie"/>.</summary>
-    private sealed record StartedSignIn(Guid Provider, string State, string Nonce, string Verifier, string Return, long At);
+    /// <param name="Provider">The provider.</param>
+    /// <param name="State">The state sent, which the callback must bring back.</param>
+    /// <param name="Nonce">The nonce the ID token must carry.</param>
+    /// <param name="Verifier">The PKCE verifier.</param>
+    /// <param name="Return">Where the sign-in was started from.</param>
+    /// <param name="At">When, in Unix seconds.</param>
+    /// <param name="OAuth">An app's request, when the sign-in was started from the OAuth sign-in page — ADR-088
+    /// condition 2 — sealed.</param>
+    private sealed record StartedSignIn(Guid Provider, string State, string Nonce, string Verifier, string Return, long At, string? OAuth = null);
 
     private static StartedSignIn? ReadState(HttpContext context, SecretProtector protector)
     {

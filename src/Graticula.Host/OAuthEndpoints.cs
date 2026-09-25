@@ -10,9 +10,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Identity;
+using Graticula.Platform.Secrets;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Primitives;
 
@@ -42,6 +44,23 @@ internal static class OAuthEndpoints
 
     private const string FormCookie = "graticula_oauth_form";
 
+    /// <summary>
+    /// What ties a sign-in through a provider to the browser that left this page for it — ADR-088 condition 2.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>SameSite=None</c>, and only under <c>/rest/auth</c>,</b> because the sign-in comes back as a cross-site
+    /// POST from a SAML provider and a cross-site navigation from an OpenID one, and a stricter cookie is sent on
+    /// neither. It carries a random value and nothing else.
+    /// </remarks>
+    private const string HandoffCookie = "graticula_oauth_handoff";
+
+    private const string HandoffPath = "/rest/auth";
+
+    private static readonly TimeSpan HandoffLifetime = TimeSpan.FromMinutes(10);
+
+    /// <summary>The OAuth request a provider sign-in carries through, sealed — ADR-088 condition 2.</summary>
+    private sealed record Handoff(string ClientId, string RedirectUri, string? State, string? Challenge, string? ChallengeMethod, string Nonce, long At);
+
     /// <summary>Maps the protocol and the administration of registered apps.</summary>
     /// <param name="app">The application.</param>
     public static void Map(WebApplication app)
@@ -61,6 +80,9 @@ internal static class OAuthEndpoints
         }
 
         app.MapPost($"{Root}/signin", SignInAsync).Governed(SharingGovernedExtensions.Public).DisableAntiforgery();
+
+        // ADR-088 condition 2: the way from this page to an organisation's own sign-in.
+        app.MapGet($"{Root}/external", ExternalAsync).Governed(SharingGovernedExtensions.Public);
         app.MapGet($"{Root}/approval", Approval).Governed(SharingGovernedExtensions.Public);
 
         app.MapGet("/admin/oauth/apps", ListAppsAsync);
@@ -168,16 +190,24 @@ internal static class OAuthEndpoints
                     failure is LoginFailure.AddressThrottled or LoginFailure.AccountThrottled
                         ? "Too many failed sign-in attempts. Wait and try again."
                         : "The name or password is incorrect.",
-                    failure is LoginFailure.AddressThrottled or LoginFailure.AccountThrottled ? 429 : 401)
+                    failure is LoginFailure.AddressThrottled or LoginFailure.AccountThrottled ? 429 : 401,
+                    typedName: name)
                 .ConfigureAwait(false);
             return;
         }
 
+        await IssueAsync(context, store, audit, app, request, principal!, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>A code for the app, recorded, and the browser sent back to it — whichever way the person signed in.</summary>
+    private static async Task IssueAsync(
+        HttpContext context, IOAuthStore store, IAuditLog audit, OAuthApp app, Request request, Principal principal, CancellationToken cancellation)
+    {
         string code = SessionToken.Generate();
         byte[] hash = SessionToken.HashOf(code);
 
         await store.IssueCodeAsync(
-                hash, app.ClientId, principal!.Id, request.RedirectUri, request.Challenge, request.ChallengeMethod,
+                hash, app.ClientId, principal.Id, request.RedirectUri, request.Challenge, request.ChallengeMethod,
                 DateTimeOffset.UtcNow + OAuthRules.CodeLifetime, cancellation)
             .ConfigureAwait(false);
 
@@ -636,9 +666,12 @@ internal static class OAuthEndpoints
 
     // ---------------------------------------------------------------- pages
 
-    private static async Task SignInPageAsync(HttpContext context, OAuthApp app, Request request, string? message, int status)
+    private static async Task SignInPageAsync(
+        HttpContext context, OAuthApp app, Request request, string? message, int status, string? typedName = null)
     {
         string formToken = SessionToken.Generate();
+        IReadOnlyList<IdentityProvider> offered = await context.RequestServices.GetRequiredService<IIdentityProviderStore>()
+            .ListAsync(context.RequestAborted).ConfigureAwait(false);
 
         context.Response.Cookies.Append(FormCookie, formToken, new CookieOptions
         {
@@ -658,12 +691,34 @@ internal static class OAuthEndpoints
             ? "the app on this device"
             : request.RedirectUri;
 
+        List<IdentityProvider> buttons = [.. offered.Where(p => p.Settings is { Enabled: true, Kind: "oidc" or "saml" })];
+        List<string> directories = [.. offered.Where(p => p.Settings is { Enabled: true, Kind: "ldap" }).Select(p => p.Settings.Name)];
+        bool providers = buttons.Count > 0;
+        string server = context.Request.Host.Value ?? "this server";
+
+        // <b>Design review 2026-09-25.</b> With a provider offered it is the way in drawn first and filled, and the
+        // password form is the other way, said as such: the review found the filled button beneath pulling the eye
+        // to the form. No autofocus then — it jumped past the provider for a keyboard or a screen reader — unless a
+        // failed password brought the person back to the form.
+        string whose = directories.Count == 0
+            ? "For accounts made on this server."
+            : $"For {string.Join(" and ", directories.Select(e.Encode))} accounts and accounts made on this server.";
+
+        string invalid = message is null ? string.Empty : " aria-invalid=\"true\" aria-describedby=\"signinError\"";
+        bool focus = !providers || message is not null;
+
         string body =
             $"<h1>Sign in</h1>"
-            + $"<p class=\"who\"><b>{e.Encode(app.Title)}</b> is asking to use this server as you.</p>"
-            + $"<p class=\"where\">You will be returned to <code>{e.Encode(where)}</code>.</p>"
-            + (message is null ? string.Empty : $"<p class=\"bad\" role=\"alert\">{e.Encode(message)}</p>")
+            + $"<p class=\"who\"><b>{e.Encode(app.Title)}</b> wants to sign in to <b>{e.Encode(server)}</b> as you.</p>"
+            + (providers ? ProvidersOffered(buttons, request, formToken) + "<p class=\"or\"><span>or</span></p>" : string.Empty)
+            + (providers || directories.Count > 0
+                ? $"<p class=\"lead\">{(providers ? "Sign in with a name and password" : "Your name and password")}</p><p class=\"where\">{whose}</p>"
+                : string.Empty)
             + $"<form method=\"post\" action=\"{Root}/signin\">"
+            + (message is null ? string.Empty
+                : $"<p class=\"bad\" id=\"signinError\">{e.Encode(message)}"
+                  + (providers ? $" {string.Join(" or ", buttons.Select(b => e.Encode(b.Settings.Name)))} can use the button above instead." : string.Empty)
+                  + "</p>")
             + Hidden("form_token", formToken)
             + Hidden("client_id", request.ClientId)
             + Hidden("response_type", request.ResponseType)
@@ -671,11 +726,172 @@ internal static class OAuthEndpoints
             + Hidden("state", request.State)
             + Hidden("code_challenge", request.Challenge)
             + Hidden("code_challenge_method", request.ChallengeMethod)
-            + "<label for=\"username\">Name</label><input id=\"username\" name=\"username\" autocomplete=\"username\" required autofocus>"
-            + "<label for=\"password\">Password</label><input id=\"password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required>"
-            + "<button type=\"submit\">Sign in</button></form>";
+            + $"<label for=\"username\">Name</label><input id=\"username\" name=\"username\" autocomplete=\"username\" required"
+            + $"{(typedName is { Length: > 0 } typed ? $" value=\"{e.Encode(typed)}\"" : string.Empty)}{invalid}{(focus ? " autofocus" : string.Empty)}>"
+            + $"<label for=\"password\">Password</label><input id=\"password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required{invalid}>"
+            + $"<button type=\"submit\"{(providers ? " class=\"second\"" : string.Empty)}>{(providers ? "Sign in with password" : "Sign in")}</button></form>"
+            + $"<p class=\"where small\">You will be returned to <code>{e.Encode(where)}</code>.</p>";
 
-        await HtmlAsync(context, status, $"Sign in to {app.Title}", body, FormTarget(request.RedirectUri)).ConfigureAwait(false);
+        await HtmlAsync(
+                context, status, $"{(message is null ? string.Empty : "Error: ")}Sign in to {app.Title} – {server}", body,
+                FormTarget(request.RedirectUri))
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The providers a person may sign in through instead of a password — ADR-088 condition 2: Field Maps and a web
+    /// app send people to this page, and an organisation that configured its own sign-in expects its people to use it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Links, not buttons in a form.</b> A browser applies the page's <c>form-action</c> to every redirect after a
+    /// form is posted, and the provider's address is not one this page may name. A link carries the form token, and
+    /// <see cref="ExternalAsync"/> accepts it only beside this page's <c>SameSite=Strict</c> cookie, which a link
+    /// from anywhere else does not bring.
+    /// </remarks>
+    private static string ProvidersOffered(IReadOnlyList<IdentityProvider> buttons, Request request, string formToken)
+    {
+        HtmlEncoder e = HtmlEncoder.Default;
+
+        string Query(Guid provider) => string.Join("&",
+            new (string Key, string? Value)[]
+            {
+                ("provider", provider.ToString()), ("form_token", formToken), ("client_id", request.ClientId),
+                ("response_type", request.ResponseType), ("redirect_uri", request.RedirectUri), ("state", request.State),
+                ("code_challenge", request.Challenge), ("code_challenge_method", request.ChallengeMethod),
+            }
+            .Where(p => p.Value is not null)
+            .Select(p => $"{p.Key}={Uri.EscapeDataString(p.Value!)}"));
+
+        return "<ul class=\"providers\">"
+            + string.Concat(buttons.Select(p =>
+                $"<li><a href=\"{Root}/external?{e.Encode(Query(p.Id))}\">Sign in with {e.Encode(p.Settings.Name)}</a></li>"))
+            + "</ul>";
+    }
+
+    /// <summary>
+    /// From this page to a provider's sign-in, carrying the app's request — ADR-088 condition 2.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The code is issued where the sign-in ends, not here and not from a session.</b> The server's session cookie
+    /// is <c>SameSite=Strict</c>, and a sign-in that comes back from a provider's site does not carry it on the way
+    /// back to this page. So the request rides with the provider sign-in, sealed with the server's key, and
+    /// <see cref="CompleteExternalAsync"/> issues the code the password form would have.
+    /// </para>
+    /// <para>
+    /// <b>Bound to this browser twice.</b> The form token proves the link came from this page, and a random value in
+    /// <see cref="HandoffCookie"/>, sealed into the request too, proves the sign-in coming back is the one this
+    /// browser left for — so a link somebody else prepared cannot have a code issued to an app in a stranger's name.
+    /// </para>
+    /// </remarks>
+    private static async Task ExternalAsync(
+        HttpContext context, IOAuthStore store, IIdentityProviderStore providers, SecretProtector protector, CancellationToken cancellation)
+    {
+        string? posted = context.Request.Query["form_token"].FirstOrDefault();
+        string? kept = context.Request.Cookies[FormCookie];
+
+        if (string.IsNullOrEmpty(posted) || string.IsNullOrEmpty(kept)
+            || !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(posted), Encoding.ASCII.GetBytes(kept)))
+        {
+            await ErrorPageAsync(context, 400,
+                "This sign-in link has expired, or did not come from this server's sign-in page. Go back to the app and start signing in again.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        Request request = Read(name => context.Request.Query[name].FirstOrDefault());
+
+        if (await VerifiedAppAsync(context, store, request, cancellation).ConfigureAwait(false) is null)
+        {
+            return;
+        }
+
+        if (!Guid.TryParse(context.Request.Query["provider"].FirstOrDefault(), out Guid id)
+            || await providers.FindAsync(id, cancellation).ConfigureAwait(false) is not { Settings: { Enabled: true, Kind: "oidc" or "saml" } } provider)
+        {
+            await ErrorPageAsync(context, 404, "This server offers no sign-in by that name.").ConfigureAwait(false);
+            return;
+        }
+
+        string nonce = SessionToken.Generate();
+
+        context.Response.Cookies.Append(HandoffCookie, nonce, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.None,
+            Path = HandoffPath,
+            MaxAge = HandoffLifetime,
+        });
+
+        Handoff handoff = new(
+            request.ClientId, request.RedirectUri, request.State, request.Challenge, request.ChallengeMethod,
+            nonce, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        string sealedHandoff = WebEncoders.Base64UrlEncode(protector.Protect(JsonSerializer.Serialize(handoff)));
+
+        context.Response.Headers.CacheControl = "no-store";
+        context.Response.Redirect($"{Graticula.Host.Oidc.OidcEndpoints.StartPath(provider)}?oauth={Uri.EscapeDataString(sealedHandoff)}");
+    }
+
+    /// <summary>Whether a sealed handoff is one this server made, for a start endpoint to carry it — or null.</summary>
+    internal static string? Carried(HttpContext context, SecretProtector protector)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        string? carried = context.Request.Query["oauth"].FirstOrDefault();
+        return carried is { Length: > 0 } && Unseal(carried, protector) is not null ? carried : null;
+    }
+
+    private static Handoff? Unseal(string carried, SecretProtector protector)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<Handoff>(
+                protector.Unprotect(WebEncoders.Base64UrlDecode(carried), protector.KeyVersion));
+        }
+        catch (Exception e) when (e is FormatException or CryptographicException or JsonException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Ends a provider sign-in started from this page: the code the password form would have issued, sent to the app
+    /// — ADR-088 condition 2. Writes the answer, whatever it is.
+    /// </summary>
+    internal static async Task CompleteExternalAsync(HttpContext context, string carried, Principal principal, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(principal);
+
+        SecretProtector protector = context.RequestServices.GetRequiredService<SecretProtector>();
+        IOAuthStore store = context.RequestServices.GetRequiredService<IOAuthStore>();
+        IAuditLog audit = context.RequestServices.GetRequiredService<IAuditLog>();
+
+        Handoff? handoff = Unseal(carried, protector);
+        string? nonce = context.Request.Cookies[HandoffCookie];
+        context.Response.Cookies.Delete(HandoffCookie, new CookieOptions { Path = HandoffPath, Secure = true, HttpOnly = true, SameSite = SameSiteMode.None });
+
+        if (handoff is null
+            || DateTimeOffset.UtcNow.ToUnixTimeSeconds() - handoff.At > HandoffLifetime.TotalSeconds
+            || string.IsNullOrEmpty(nonce)
+            || !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(nonce), Encoding.ASCII.GetBytes(handoff.Nonce)))
+        {
+            await ErrorPageAsync(context, 400,
+                "This sign-in was not started from this browser in the last ten minutes. Go back to the app and start signing in again.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        Request request = new(handoff.ClientId, "code", handoff.RedirectUri, handoff.State, handoff.Challenge, handoff.ChallengeMethod);
+
+        if (await VerifiedAppAsync(context, store, request, cancellation).ConfigureAwait(false) is not { } app)
+        {
+            return;
+        }
+
+        await IssueAsync(context, store, audit, app, request, principal, cancellation).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -713,13 +929,19 @@ internal static class OAuthEndpoints
             + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
             + $"<title>{HtmlEncoder.Default.Encode(title).Replace("SUCCESS code=", "SUCCESS code=", StringComparison.Ordinal)}</title>"
             + "<style>"
-            + ":root{--ground:#f4f6f5;--card:#fff;--ink:#17262b;--muted:#5a6b70;--line:#d3dcdb;--accent:#1d6a86;--bad:#a8321f}"
-            + "@media (prefers-color-scheme:dark){:root{--ground:#0f171a;--card:#162226;--ink:#e1eaea;--muted:#93a5a9;--line:#2a3a3f;--accent:#72b8d0;--bad:#f08c78}}"
+            + ":root{--ground:#f4f6f5;--card:#fff;--ink:#17262b;--muted:#5a6b70;--line:#d3dcdb;--field:#8a9a9e;--accent:#1d6a86;--bad:#a8321f}"
+            + "@media (prefers-color-scheme:dark){:root{--ground:#0f171a;--card:#162226;--ink:#e1eaea;--muted:#93a5a9;--line:#2a3a3f;--field:#5b6f75;--accent:#72b8d0;--bad:#f08c78}}"
             + "*{box-sizing:border-box}body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;padding:32px 16px}"
             + "main{max-width:380px;margin:0 auto;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:24px}"
+            + ".providers{list-style:none;padding:0;margin:0 0 12px}.providers li{margin:0 0 8px}"
+            + ".providers a{display:block;padding:11px 12px;border:1px solid var(--accent);border-radius:6px;background:var(--accent);color:var(--card);"
+            + "text-decoration:none;text-align:center;font-weight:600}.providers a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
+            + ".or{display:flex;align-items:center;gap:10px;color:var(--muted);margin:16px 0}.or::before,.or::after{content:'';flex:1;border-top:1px solid var(--line)}"
+            + ".lead{font-weight:600;margin:0 0 2px}.small{font-size:.85rem;margin:16px 0 0}"
+            + "button.second{background:transparent;color:var(--accent);border:1px solid var(--accent)}"
             + "h1{font-size:1.4rem;margin:0 0 12px}p{margin:0 0 12px}.where,.code{color:var(--muted);overflow-wrap:anywhere}"
             + "code{font-size:.9em}.bad{color:var(--bad);font-weight:600}"
-            + "label{display:block;font-weight:600;margin:14px 0 4px}input{width:100%;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--ground);color:var(--ink)}"
+            + "label{display:block;font-weight:600;margin:14px 0 4px}input{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--field);border-radius:6px;background:var(--ground);color:var(--ink)}"
             + "input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
             + "button{margin-top:20px;width:100%;font:inherit;font-weight:600;padding:10px;border:0;border-radius:6px;background:var(--accent);color:var(--card);cursor:pointer}"
             + "</style></head><body><main>"
