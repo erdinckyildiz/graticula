@@ -166,7 +166,10 @@ None recorded.
 
 1. **The two datastores are held to the same rows in CI**, not only locally.
    `The_standardized_functions_select_the_same_rows_from_both_providers` runs in the datastore job; this
-   is discharged by the first green CI run that includes it.
+   is discharged by the first green CI run that includes it. **DISCHARGED 2026-09-25, checked rather than
+   assumed:** the test carries no `Needs=RealCorpus` trait, so the datastore job's `Needs!=RealCorpus` filter
+   keeps it, and that job's run for v1.0.173 passed all 463 of `Graticula.Platform.Postgres.Tests` with none
+   skipped.
 2. **An ArcGIS client's own clause is answered.** The clauses in §4 were written by hand from ArcGIS's
    list; one captured from Dashboards or Experience Builder against this server — the date filter
    Dashboards builds is the likeliest — is what says the list is the one they send.

@@ -164,7 +164,11 @@ signing Pro in afterwards.
 2. **The protocol's refusals are pinned by tests against PostgreSQL**: a code used twice (and the
    refresh token revoked with it), a wrong `code_verifier`, a redirect not registered, an expired
    code, a refresh token after its app is deleted, and an access token from this flow refused by
-   `/admin`.
+   `/admin`. **DISCHARGED 2026-09-25 — it had been met without being marked.** Against PostgreSQL,
+   `OAuthStoreTests` pins a code redeemed once whose second use revokes what the first issued, an expired or
+   unknown code, and an app's deletion ending its codes and refresh tokens; end to end, `OAuthConformanceTests`
+   pins the wrong `code_verifier`, the unregistered redirect (and a registered one's other path), the code replayed
+   with its refresh token then refused, and the access token refused by `/admin`. Both run in CI.
 3. **`supportsOAuth` is turned on only after ArcGIS Pro signs in to the showcase with it on.**
 4. **Field Maps signs in on a device** against the showcase; and the owner supplies Survey123's
    client id, or confirms it, so it can ship registered too. *(Open — needs a device and the owner.)*

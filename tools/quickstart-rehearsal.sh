@@ -324,4 +324,24 @@ fi
 
 printf '   the overlay worker and the import reader are both runnable from the image\n'
 
+# <b>And DuckDB opens a folder in the running image -- ADR-066 condition 5.</b> The Dockerfile fails if
+# the library is missing; that a container actually opens a GeoParquet folder had been observed only on
+# the showcase, which is arm64. This runner is amd64, so the two architectures are both seen. An empty
+# folder is enough: the probe answers with the engine that read it, and there is no engine without the
+# library loading.
+$COMPOSE exec -T -u root server mkdir -p /data/geoparquet/rehearsal >/dev/null
+probed=$(curl -sk -X POST "https://127.0.0.1:$PORT/admin/datasources/test" \
+  -H "Authorization: Bearer $SIGNED" -H 'Content-Type: application/json' \
+  -d '{"kind":"geoparquet","path":"/data/geoparquet/rehearsal"}' || true)
+
+case "$probed" in
+  *"DuckDB v"*"found no .parquet files"*) ;;
+  *)
+    printf 'Probing a GeoParquet folder in the image did not name DuckDB. It answered:\n  %s\n' "$probed"
+    exit 1
+    ;;
+esac
+
+printf '   DuckDB opens a GeoParquet folder in the image (%s)\n' "$(uname -m)"
+
 printf '\nThe quickstart works, in the order the README gives it.\n'

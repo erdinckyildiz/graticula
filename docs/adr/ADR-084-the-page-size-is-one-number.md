@@ -153,7 +153,10 @@ None recorded.
    ceiling, and a save that was held down says so. Settings refuses, because what it sets is the server's
    own default and *raise the ceiling first* is something the reader can do.
 2. **`default_record_count` is dropped by a contract migration** in a release after this one, raising the
-   minimum reader to 54, once a store migrated by this release has run a release.
+   minimum reader to 54, once a store migrated by this release has run a release. **DISCHARGED 2026-09-25** by migration 59 in v1.0.173,
+   four migrations after the fold. The minimum reader stays 55: migration 55 had already raised it past the 54 the
+   column needs. Rehearsed on a copy of the showcase — 26 services and 28 layers before and after — then applied,
+   and every one of its 20 feature services reported the same `maxRecordCount` after as before.
 3. **The showcase keeps its numbers across the migration**: run on a copy first, and its services' page
    sizes and documents read before and after. **DISCHARGED 2026-09-24** with v1.0.161: no showcase
    service had set a page size, so the fold changed no row; the copy migrated with 26 services and 28 layers

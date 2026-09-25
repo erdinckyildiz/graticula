@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>63067d1</code> · 2026-09-25 00:47</p>
+<p class="stamp">Şu commit’ten üretildi: <code>e6db7bf</code> · 2026-09-25 11:23</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">90</div><div class="kpi-l">ADR</div><div class="kpi-n">17 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">226/309</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">80 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">229/309</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">77 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">6</div><div class="kpi-l">açık borç</div><div class="kpi-n">257 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">3581</div><div class="kpi-l">test</div><div class="kpi-n">357 kaynak dosya, 154,792 satır</div></div>
+<div class="kpi good"><div class="kpi-v">3581</div><div class="kpi-l">test</div><div class="kpi-n">357 kaynak dosya, 154,823 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">90 madde</span></div><p><b>80 ADR conditions</b> outstanding across 50 decisions — the largest commitment on this page.</p><p><b>6 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">87 madde</span></div><p><b>77 ADR conditions</b> outstanding across 49 decisions — the largest commitment on this page.</p><p><b>6 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -135,7 +135,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-066 · GeoParquet layers, read in place b</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-086 · The operator chooses the map groun</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
@@ -146,8 +145,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-065 · Domains and subtypes</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-067 · DuckDB sources beyond a local fold</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-087 · A domain is a named object that fi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
@@ -178,7 +177,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-075 · A layer is edited by its owner, an</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-080 · Hosted tables keep the Z and M the</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-081 · Migration publishes an ArcGIS Serv</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-084 · The page size is one number, and t</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-085 · A tile leaves out what it cannot d</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 </div>
@@ -274,15 +273,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">073</td><td>A FeatureServer query answers in PBF, on the grid the caller names</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">074</td><td>Z and M are read, said out loud, and not served</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/3</td></tr>
 <tr><td class="id">075</td><td>A layer is edited by its owner, an administrator, and the group its owner shares it with</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">2/3</td></tr>
-<tr><td class="id">076</td><td>OAuth 2.0 authorization code with PKCE, for registered apps</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/5</td></tr>
+<tr><td class="id">076</td><td>OAuth 2.0 authorization code with PKCE, for registered apps</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
 <tr><td class="id">077</td><td>Z and M ride beside x and y, and a flat geometry pays nothing for it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/5</td></tr>
 <tr><td class="id">078</td><td>A hosted layer can keep its history, and the database keeps it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH that the database keeps it · MEDIUM on the write cost, which is measured once on one…</td><td class="num">0/6</td></tr>
 <tr><td class="id">079</td><td>A web map is a saved document, and ArcGIS clients can open it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH on the format · MEDIUM on the viewer&#x27;s shape until the owner has used it</td><td class="num">0/4</td></tr>
 <tr><td class="id">080</td><td>Hosted tables keep the Z and M their data carries</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/2</td></tr>
 <tr><td class="id">081</td><td>Migration publishes an ArcGIS Server&#x27;s layer definitions over the tables they already read</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/1</td></tr>
 <tr><td class="id">082</td><td>Offline sync is not in v1</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
-<tr><td class="id">083</td><td>The where clause evaluates ArcGIS&#x27;s standardized functions</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/2</td></tr>
-<tr><td class="id">084</td><td>The page size is one number, and the server&#x27;s is set from the console</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">2/3</td></tr>
+<tr><td class="id">083</td><td>The where clause evaluates ArcGIS&#x27;s standardized functions</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/2</td></tr>
+<tr><td class="id">084</td><td>The page size is one number, and the server&#x27;s is set from the console</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/3</td></tr>
 <tr><td class="id">085</td><td>A tile leaves out what it cannot draw</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/2</td></tr>
 <tr><td class="id">086</td><td>The operator chooses the map ground, and it is the portal&#x27;s default basemap</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">0/3</td></tr>
 <tr><td class="id">087</td><td>A domain is a named object that fields on many layers point at</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">0/2</td></tr>
@@ -421,6 +420,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>e6db7bf</code><time>2026-09-25</time><span>The emptied default page size is dropped by a contract migration</span></li>
+<li><code>827fbd6</code><time>2026-09-25</time><span>Field Maps and web apps sign people in through the organisation&#x27;s own provider</span></li>
 <li><code>63067d1</code><time>2026-09-25</time><span>A vector tile service answers tilemap, and an object id past 32 bits is said</span></li>
 <li><code>8563c4e</code><time>2026-09-24</time><span>The last administrator who signs in with a password here is not removed by accident</span></li>
 <li><code>1d081ea</code><time>2026-09-24</time><span>The front page says single sign-on is built, and not yet proven against a real provider</span></li>
@@ -433,8 +434,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>14079f6</code><time>2026-09-24</time><span>Escape puts focus back even when the menu&#x27;s opener was redrawn</span></li>
 <li><code>257c096</code><time>2026-09-24</time><span>A tile leaves out what it cannot draw, and simplifies through z14</span></li>
 <li><code>ccf3690</code><time>2026-09-24</time><span>A service has one page size, and the server&#x27;s is set on a Settings screen</span></li>
-<li><code>cff8bb5</code><time>2026-09-24</time><span>The registers no longer name the reference product</span></li>
-<li><code>09b0b40</code><time>2026-09-24</time><span>The supportsSqlExpression probe asks what the flag is about</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
