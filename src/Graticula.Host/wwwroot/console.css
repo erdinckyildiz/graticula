@@ -193,7 +193,7 @@
     together and the ratios between the levels — which are the hierarchy — are unchanged. Editing
     twenty components by hand is how a type scale stops being one.
   */
-  --t-page: 29px;
+  --t-page: 26px;
   --t-head: 17px;
   --t-body: 15px;
   --t-small: 13.5px;
@@ -284,9 +284,10 @@ a:hover { text-decoration: underline; }
 */
 #rail {
   background:
-    radial-gradient(920px 420px at -12% -6%, rgba(88, 96, 214, .42), transparent 62%),
-    radial-gradient(560px 460px at 12% 104%, rgba(42, 211, 196, .14), transparent 68%),
-    linear-gradient(178deg, #1c2058 0%, var(--nav-base) 46%, #12153a 100%);
+  /* <b>Flat since 2026-09-25.</b> The owner asked for a calmer, enterprise look: the two glows and
+     the vertical wash went, and the column is the one colour its tokens already name. The hue still
+     tells Server from Studio; the atmosphere was the part that read as a template. */
+    var(--nav-base);
   border-right: 1px solid var(--nav-line);
   display: flex;
   flex-direction: column;
@@ -349,7 +350,7 @@ a:hover { text-decoration: underline; }
 #railArt {
   flex: 0 1 auto; min-height: 0; align-self: stretch;
   width: 100%; height: auto; margin: auto 0 24px;
-  pointer-events: none; opacity: .92;
+  pointer-events: none; opacity: .5; /* .92 until 2026-09-25: a quieter rail */
 }
 
 /* Below this there is no leftover space worth an illustration, and a squeezed one reads as a
@@ -371,8 +372,8 @@ a:hover { text-decoration: underline; }
 
 #brand .mark {
   width: 28px; height: 28px; flex: none;
-  border-radius: 7px;
-  background: linear-gradient(148deg, var(--cyan), var(--cyan-deep) 55%, #2a5fb0);
+  border-radius: var(--round);
+  background: var(--accent);
   display: grid; place-items: center;
   color: #fff; font-size: 13px; font-weight: 700;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
@@ -408,9 +409,7 @@ a:hover { text-decoration: underline; }
 
 :root[data-surface="studio"] #rail {
   background:
-    radial-gradient(920px 420px at -12% -6%, rgba(146, 92, 226, .40), transparent 62%),
-    radial-gradient(560px 460px at 12% 104%, rgba(42, 211, 196, .12), transparent 68%),
-    linear-gradient(178deg, #301c57 0%, var(--nav-base) 46%, #1f1139 100%);
+    var(--nav-base);
 }
 
 /*
@@ -421,12 +420,15 @@ a:hover { text-decoration: underline; }
 :root[data-surface="studio"] #tabs .ico { color: #a394cf; }
 :root[data-surface="studio"] #tabs a[data-tab]:hover .ico { color: #ded4f7; }
 :root[data-surface="studio"] #tabs a[data-tab][aria-current="page"] {
-  background: linear-gradient(96deg, rgba(180, 145, 255, .22), rgba(120, 90, 210, .24));
-  box-shadow: inset 3px 0 0 #b491ff, var(--lift);
+  background: var(--nav-on);
+  box-shadow: inset 3px 0 0 #b491ff;
+  /* <b>White, like Server's — 2026-09-25.</b> The Studio link colour above is more specific than
+     the shared selected rule, so the selected label stayed lilac and read as unselected. */
+  color: #fff;
 }
 :root[data-surface="studio"] #tabs a[data-tab][aria-current="page"] .ico { color: #c9adff; }
 :root[data-surface="studio"] #brand .mark {
-  background: linear-gradient(148deg, #c9adff, #8a5fe0 55%, #5b3fc4);
+  background: var(--violet);
 }
 :root[data-surface="studio"] #collapse { color: #d9d1f2; }
 
@@ -460,9 +462,9 @@ a:hover { text-decoration: underline; }
 #tabs a[data-tab] {
   display: flex;
   align-items: center;
-  gap: 13px;
-  padding: 12px 15px;
-  border-radius: 7px;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: var(--round);
   color: #bcc1e8;
   font-size: var(--t-body);
   text-decoration: none;
@@ -484,8 +486,8 @@ a:hover { text-decoration: underline; }
   at a heavier weight.
 */
 #tabs a[data-tab][aria-current="page"] {
-  background: linear-gradient(96deg, rgba(42, 211, 196, .18), rgba(96, 104, 220, .24));
-  box-shadow: inset 3px 0 0 var(--cyan), var(--lift);
+  background: var(--nav-on);
+  box-shadow: inset 3px 0 0 var(--cyan);
   color: #fff;
   font-weight: 600;
 }
@@ -577,8 +579,6 @@ a:hover { text-decoration: underline; }
 #main {
   min-width: 0; display: flex; flex-direction: column;
   background:
-    radial-gradient(1100px 520px at 6% -8%, rgba(42, 211, 196, .07), transparent 70%),
-    radial-gradient(900px 460px at 96% -12%, rgba(122, 92, 220, .06), transparent 72%),
     var(--paper);
   background-attachment: fixed;
 }
@@ -614,10 +614,9 @@ header .right { margin-left: auto; display: flex; align-items: center; gap: var(
 #surfaces a[data-surface="server"][aria-current] { background: var(--accent); color: #fff; }
 #surfaces a[data-surface="studio"][aria-current] { background: var(--violet); color: #fff; }
 
-#healthDot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--faint); }
-#healthDot.ok { background: var(--ok); }
-#healthDot.degraded { background: var(--warn); }
-#healthDot.unusable { background: var(--alert); }
+/* `#healthDot` is a `.dot` and takes its states from there. Its own id rules, removed 2026-09-25,
+   out-weighed `.dot.ok` and painted every state `--faint`, while refreshHealth() set a class
+   (`bad`) that no rule named — so a healthy server showed a grey dot. */
 #healthLine { font-size: var(--t-small); color: var(--muted); }
 
 #who { font-size: var(--t-small); color: var(--muted); text-align: right; line-height: 1.35; }
@@ -646,7 +645,10 @@ header .right { margin-left: auto; display: flex; align-items: center; gap: var(
   same voice at two levels rather than as two decisions.
 */
 .pagehead h2 {
-  margin: 0; font-size: 33px; font-weight: 650; letter-spacing: -.028em; line-height: 1.1;
+  /* <b>26/600 from 33/650, 2026-09-25, and through `--t-page` at last.</b> Owner: *"a professional
+     look and feel"*, chosen as the calmer enterprise direction. The title was the loudest thing on
+     every screen and the token that named its size was declared and never read. */
+  margin: 0; font-size: var(--t-page); font-weight: 600; letter-spacing: -.02em; line-height: 1.15;
 }
 .pagehead p { margin: 6px 0 0; color: var(--muted); font-size: 15.5px; }
 .pagehead .right {
@@ -742,7 +744,7 @@ th {
   padding: 14px var(--gap-4) 12px;
   font-size: var(--t-label); font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
   color: var(--faint);
-  background: linear-gradient(to bottom, #fafbfd, var(--surface-2));
+  background: var(--surface-2);
   border-bottom: 1px solid var(--rule);
   white-space: nowrap;
 }
@@ -842,8 +844,8 @@ button:disabled { opacity: .45; cursor: default; }
 button:disabled:hover { background: var(--surface); }
 
 /*
-  <b>The primary action carries the product's gradient, and it is the only gradient in the
-  workspace.</b> Owner refinement pass: *"visually give it the stronger cyan → blue/violet treatment
+  <b>Superseded 2026-09-25 by the rule below; kept as the record of D-233.</b> Until then the
+  primary action carried the product's gradient, the only one in the workspace. Owner refinement pass: *"visually give it the stronger cyan → blue/violet treatment
   from the approved design."* One element having it is what makes it read as *the* action; two would
   make it a theme, which is on the list of things to avoid.
 
@@ -860,15 +862,19 @@ button:disabled:hover { background: var(--surface); }
   the worst of the three options the row named: it trades a ratio anybody can compute for one
   nobody can.
 */
+/* <b>Solid teal, 2026-09-25.</b> The teal-blue-violet gradient and its coloured glow were the one
+   decorative surface on a working screen; the calmer enterprise direction makes the primary the
+   accent and nothing else. White on `--accent` is 5.0:1, and 4.8:1 under the hover filter. It
+   keeps its weight and loses its size: the same height as the buttons beside it. */
 button.primary {
-  background: linear-gradient(96deg, var(--primary-from), #2f6fd0 62%, #5a49c4);
-  border-color: transparent; color: #fff; font-weight: 600;
-  padding: 11px 21px; font-size: var(--t-body); letter-spacing: -.005em;
-  box-shadow: 0 1px 2px rgba(16, 24, 38, .12), 0 6px 16px -10px rgba(47, 111, 208, .7);
-  transition: filter .12s, box-shadow .12s;
+  background: var(--accent);
+  border-color: var(--accent); color: #fff; font-weight: 600;
+  padding: 7px 16px;
+  box-shadow: var(--lift);
+  transition: filter .12s;
 }
 button.primary:hover {
-  background: linear-gradient(96deg, var(--primary-from), #2f6fd0 62%, #5a49c4);
+  background: var(--accent);
 
   /*
     <b>Hover darkens rather than brightens — D-233's second half, which nothing had named.</b>
@@ -879,8 +885,7 @@ button.primary:hover {
     worst stop still measures 4.67:1. A filled button that deepens under the pointer is also the
     ordinary affordance; brightening one was never more than a habit.
   */
-  filter: brightness(.94);
-  box-shadow: 0 1px 2px rgba(16, 24, 38, .14), 0 10px 22px -12px rgba(47, 111, 208, .8);
+  filter: brightness(.9);
 }
 button.primary .plus { font-weight: 400; margin-right: 7px; opacity: .9; }
 
@@ -982,7 +987,12 @@ label.field {
 #idpGroups .row.left, #idpForm .row.left { justify-content: flex-start; }
 #idpForm #idpIssuer, #idpForm #idpClient, #idpForm #idpUserBase, #idpForm #idpUserFilter { font-family: var(--mono, monospace); }
 #view-signin .tablewrap { overflow-x: auto; max-width: 100%; }
-#idpForm [aria-invalid="true"] { border-color: var(--alert); }
+/* <b>Any control the page marks invalid, since 2026-09-25.</b> This was scoped to `#idpForm`, so the
+   three other places console.js sets `aria-invalid` (a field map, a schedule's minutes, a refused
+   value) announced the error and drew nothing. */
+input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"] {
+  border-color: var(--alert);
+}
 @media (max-width: 480px) {
   /* The reply URL and redirect URI were cut to their host at 390 px: the box takes the line, Copy the next. */
   .idpform .row { flex-wrap: wrap; }
@@ -1206,7 +1216,7 @@ button:hover .ico { opacity: 1; }
 .rail-item:hover { background: var(--surface-2); text-decoration: none; }
 .rail-item { transition: background .1s; }
 .rail-item.on {
-  background: linear-gradient(96deg, var(--accent-soft), #f2f8fd);
+  background: var(--accent-soft);
   border-left-color: var(--accent);
   font-weight: 600;
 }
@@ -1541,7 +1551,7 @@ td .name { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.
 #serviceNote {
   display: flex; gap: var(--gap-3); align-items: flex-start;
   margin: var(--gap-4) 0 0; padding: var(--gap-3) var(--gap-4);
-  background: linear-gradient(96deg, var(--accent-soft), #f4f8fd 70%);
+  background: var(--accent-soft);
   border: 1px solid var(--accent-line); border-left-width: 3px;
   border-radius: var(--round);
   color: var(--muted); max-width: none;
@@ -2038,7 +2048,7 @@ html[data-session="none"] #shell { grid-template-columns: 1fr; }
                         overflow-wrap: anywhere; }
 #signin .signin-head .mark {
   width: 34px; height: 34px; flex: none; border-radius: 8px;
-  background: linear-gradient(148deg, var(--cyan), var(--cyan-deep) 55%, #2a5fb0);
+  background: var(--accent);
   display: grid; place-items: center; color: #fff; font-size: 15px; font-weight: 700;
 }
 #signin .signin-body { padding: var(--gap-2) var(--gap-5) var(--gap-5); }
@@ -3742,6 +3752,17 @@ tr.rowbad > td { background: var(--alert-soft); }
 .symstack .setting.symlayer input[type="color"] { width: 26px; height: 22px; padding: 2px; }
 .symstack .setting.symlayer input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
 .symstack .setting.symlayer .pair > input { width: 4.9em; }
+
+/* <b>The last digit shows, 2026-09-25.</b> In 306 pixels the width and the opacity still take
+   two lines, as the rule above chose; what was wrong is that the number's spinner ate the last
+   digit of `0.75`, and each unit reserved `.setting .u`'s 68 pixels — a form row's column — beside
+   a box in a panel. The unit takes its own width and the boxes drop the spinner; arrow keys still
+   step the value. */
+.symstack .setting.symlayer .u { width: auto; }
+.symstack .setting.symlayer .pair > input { width: 3.6em; padding-left: 5px; padding-right: 5px;
+                                             -moz-appearance: textfield; appearance: textfield; }
+.symstack .setting.symlayer .pair > input::-webkit-inner-spin-button,
+.symstack .setting.symlayer .pair > input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 
 /* <b>The Map shortcut costs 42 pixels the services table did not have, and it still does.</b>
    Measured at 1440: without the shortcut the table is 816 wide in an 816-pixel column beside the

@@ -17821,7 +17821,8 @@ async function refreshHealth() {
   try {
     const health = await api("/admin/health");
     const ok = health.status === "ok";
-    $("healthDot").className = "dot " + (ok ? "" : "bad");
+    // `.dot` names ok / degraded / unusable / unknown; "bad" was no class at all (2026-09-25).
+    $("healthDot").className = "dot " + (ok ? "ok" : "degraded");
     const build = consoleBuildSays(health.console);
 
     $("healthLine").textContent = ok
