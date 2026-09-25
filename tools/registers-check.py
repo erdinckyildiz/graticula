@@ -903,17 +903,22 @@ def white_text_on_the_primary_action():
             "says its gradient has to be measurable against its own label."
         ]
 
+    # <b>A flat colour is a gradient of one stop.</b> The button went solid accent in
+    # v1.0.178, which is one of the shapes D-233 named; its `background` is measured the
+    # same way, so a later change of colour still fails here rather than in a review.
     gradient = re.search(r"linear-gradient\(([^;]*)\)", rule.group(1))
+    ground = gradient or re.search(r"background(?:-color)?:\s*([^;]*);", rule.group(1))
 
-    if not gradient:
+    if not ground:
         return [
-            "`button.primary` no longer paints a gradient. If it is a flat colour now "
-            "that is one of the shapes D-233 named -- teach this check to measure it."
+            "`button.primary` paints neither a gradient nor a flat background this "
+            "check can read. D-233 is the row that says its ground has to be measurable "
+            "against its own label."
         ]
 
     stops = []
 
-    for token in re.findall(r"var\(\s*(--[\w-]+)\s*\)|(#[0-9a-fA-F]{6})", gradient.group(1)):
+    for token in re.findall(r"var\(\s*(--[\w-]+)\s*\)|(#[0-9a-fA-F]{6})", ground.group(1)):
         name, literal = token
 
         if literal:
