@@ -199,6 +199,10 @@ from configuration and from a connection string, and neither is something this s
    decision is still reversible by a stranger. **The re-measurement is the point**: §4's
    table said *available* and the condition said that has a shelf life of days, so the
    only honest way to leave this open is with a fresh reading beside the old one.)*
+   *(2026-09-26: the owner asked for the README to name `graticula.com`, and it now does.
+   **That the domain is held is `INFERRED` from that request, not measured** — this
+   session's network could not reach it — so this is not a discharge, and the next
+   re-measurement should confirm it and say what the domain serves.)*
 4. **No document keeps `gis-server` as live text.** Checked by
    [tools/registers-check.py](../../tools/registers-check.py) rather than by memory,
    the way the banned-tally check already works.
