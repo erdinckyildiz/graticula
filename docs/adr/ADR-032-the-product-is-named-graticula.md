@@ -202,7 +202,11 @@ from configuration and from a connection string, and neither is something this s
    *(2026-09-26: the owner asked for the README to name `graticula.com`, and it now does.
    **That the domain is held is `INFERRED` from that request, not measured** — this
    session's network could not reach it — so this is not a discharge, and the next
-   re-measurement should confirm it and say what the domain serves.)*
+   re-measurement should confirm it and say what the domain serves. Measured the same
+   day: `graticula.com` now **resolves**, to `152.53.224.34`, where on 2026-08-27 it did
+   not — so somebody registered it in between, and that address is not one of GitHub
+   Pages'. What it serves was not read: the session's egress policy refused the
+   connection. `.io`, `.org`, the organisation and the package names were not re-run.)*
 4. **No document keeps `gis-server` as live text.** Checked by
    [tools/registers-check.py](../../tools/registers-check.py) rather than by memory,
    the way the banned-tally check already works.
