@@ -1199,7 +1199,8 @@ internal static class WfsEndpoints
                     [.. described.Fields.Select(f => f.Name), layer.Definition.GeometryColumn],
                     LayerDefinition.Quote,
                     out ParsedWhere emitted,
-                    out string? error))
+                    out string? error,
+                    dialect: PredicateSql.PostgreSqlFor(described.Fields, arcGisText: false)))
             {
                 fault = WfsFault.Invalid("filter", error ?? "The filter could not be compiled.");
                 return false;

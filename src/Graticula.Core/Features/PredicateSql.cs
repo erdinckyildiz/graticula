@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Globalization;
 using System.Text;
 
@@ -174,6 +175,20 @@ public static class PredicateSql
                   caller's to choose. A functional index on `lower(col)` is a
                   deployment's answer if it matters.
                 */
+                // <b>A UUID column compares as a UUID</b> — the value is read as one, braced or not, upper-case or
+                // not, which is how ArcGIS, WFS and OGC API Features variously write the same GlobalID (SqlDialect).
+                if (dialect.IsGuid(compare.Column))
+                {
+                    if (!TryGuid(compare.Column!, compare.Value, out object? guid, out error))
+                    {
+                        return false;
+                    }
+
+                    sql.Append(comparand).Append(' ').Append(Spelling(compare.Operator)).Append(' ')
+                       .Append(Bind(parameters, dialect, guid));
+                    return true;
+                }
+
                 bool folded = compare.IgnoreCase && compare.Value is string;
 
                 if (folded)
@@ -218,6 +233,11 @@ public static class PredicateSql
                 // keeps the pattern's escape character meaning what it meant — folding a
                 // pattern through `lower()` is safe today and is one more thing to get
                 // right if the escaping ever changes.
+                if (dialect.IsGuid(like.Column))
+                {
+                    matched = dialect.GuidText(matched!);
+                }
+
                 sql.Append(matched).Append(like.Negated
                         ? (like.IgnoreCase ? " not ilike " : " not like ")
                         : (like.IgnoreCase ? " ilike " : " like "))
@@ -231,9 +251,18 @@ public static class PredicateSql
                     return false;
                 }
 
+                object? low = between.Low, high = between.High;
+
+                if (dialect.IsGuid(between.Column)
+                    && (!TryGuid(between.Column!, between.Low, out low, out error)
+                        || !TryGuid(between.Column!, between.High, out high, out error)))
+                {
+                    return false;
+                }
+
                 sql.Append(bounded).Append(between.Negated ? " not between " : " between ")
-                   .Append(Bind(parameters, dialect, between.Low)).Append(" and ")
-                   .Append(Bind(parameters, dialect, between.High));
+                   .Append(Bind(parameters, dialect, low)).Append(" and ")
+                   .Append(Bind(parameters, dialect, high));
 
                 return true;
 
@@ -401,7 +430,14 @@ public static class PredicateSql
 
         foreach (object? value in list.Values)
         {
-            placeholders.Add(Bind(parameters, dialect, value));
+            object? bound = value;
+
+            if (dialect.IsGuid(list.Column) && !TryGuid(list.Column!, value, out bound, out error))
+            {
+                return false;
+            }
+
+            placeholders.Add(Bind(parameters, dialect, bound));
         }
 
         sql.Append(column).Append(list.Negated ? " not in (" : " in (")
@@ -456,7 +492,7 @@ public static class PredicateSql
                     return false;
                 }
 
-                sql.Append(quoted);
+                sql.Append(dialect.IsGuid(column.Column) ? dialect.GuidText(quoted!) : quoted);
                 return true;
 
             case ScalarExpression.Constant { Value: int whole }:
@@ -699,6 +735,40 @@ public static class PredicateSql
             $"'{column}' is not a field of this layer. A predicate may only mention fields the "
             + "layer document lists.";
 
+        return false;
+    }
+
+    /// <summary>
+    /// PostgreSQL told which of a layer's fields hold UUIDs, in the spelling of the face that asks — what every face
+    /// passes as its dialect, so that a GlobalID can be filtered on (SqlDialect.GuidColumns).
+    /// </summary>
+    /// <param name="fields">The layer's fields.</param>
+    /// <param name="arcGisText">True for an ArcGIS face.</param>
+    /// <returns>The dialect.</returns>
+    public static SqlDialect PostgreSqlFor(IEnumerable<FieldDescription> fields, bool arcGisText) =>
+        SqlDialect.PostgreSql.WithGuids(
+            (fields ?? throw new ArgumentNullException(nameof(fields))).Where(f => f.Type == FieldType.Guid).Select(f => f.Name),
+            arcGisText);
+
+    /// <summary>A value compared with a UUID column, read as a UUID — or the refusal, naming both.</summary>
+    private static bool TryGuid(string column, object? value, out object? guid, out string? error)
+    {
+        error = null;
+        guid = value;
+
+        if (value is null or System.Guid)
+        {
+            return true;
+        }
+
+        if (value is string text && System.Guid.TryParse(text.Trim(), out System.Guid parsed))
+        {
+            guid = parsed;
+            return true;
+        }
+
+        error = $"'{column}' holds GlobalIDs, and '{value}' is not one: a GlobalID is written like "
+            + "{1F0C9D2B-6E4A-4F7B-9A3C-2D5E8B1A7C40}, with or without its braces.";
         return false;
     }
 

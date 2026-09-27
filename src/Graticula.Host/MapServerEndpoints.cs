@@ -552,7 +552,7 @@ internal static class MapServerEndpoints
 
         return PredicateSql.TryEmit(
                 definition, [.. described.Fields.Select(f => f.Name)], LayerDefinition.Quote,
-                out ParsedWhere emitted, out string? error)
+                out ParsedWhere emitted, out string? error, dialect: PredicateSql.PostgreSqlFor(described.Fields, arcGisText: true))
             ? emitted
             : throw new InvalidOperationException($"A layer definition parsed and did not emit: {error}");
     }

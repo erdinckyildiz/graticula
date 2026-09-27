@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Graticula.Features;
@@ -27,12 +28,19 @@ namespace Graticula.Features;
 public sealed class SqlDialect
 {
     private SqlDialect(
-        string name, Func<int, string> placeholder, bool numericForPlaces, string integerDivision)
+        string name,
+        Func<int, string> placeholder,
+        bool numericForPlaces,
+        string integerDivision,
+        IReadOnlySet<string>? guidColumns = null,
+        bool arcGisGuidText = false)
     {
         Name = name;
         Placeholder = placeholder;
         NumericForPlaces = numericForPlaces;
         IntegerDivision = integerDivision;
+        GuidColumns = guidColumns ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        ArcGisGuidText = arcGisGuidText;
     }
 
     /// <summary>PostgreSQL through Npgsql: <c>@w0</c>, <c>@w1</c>.</summary>
@@ -61,5 +69,41 @@ public sealed class SqlDialect
     /// <param name="placeholder">The spelling.</param>
     /// <returns>The dialect.</returns>
     public SqlDialect WithPlaceholder(Func<int, string> placeholder) =>
-        new(Name, placeholder ?? throw new ArgumentNullException(nameof(placeholder)), NumericForPlaces, IntegerDivision);
+        new(Name, placeholder ?? throw new ArgumentNullException(nameof(placeholder)), NumericForPlaces, IntegerDivision,
+            GuidColumns, ArcGisGuidText);
+
+    /// <summary>
+    /// The layer's columns that hold a UUID — a GlobalID — which every filter language sends as text and neither
+    /// database compares with text.
+    /// </summary>
+    /// <remarks>
+    /// <b>Found by the OGC CITE WFS suite, red every day from 2026-09-16:</b> V-17 gave hosted layers a
+    /// <c>uuid</c> GlobalID column, the suite filtered on it, and every comparison and <c>like</c> reached PostgreSQL
+    /// as <c>uuid = text</c> and was refused — and so was an ArcGIS client's <c>GlobalID='{…}'</c>, which is how Field
+    /// Maps and related records look a feature up.
+    /// </remarks>
+    public IReadOnlySet<string> GuidColumns { get; }
+
+    /// <summary>
+    /// Whether a UUID is spelled as ArcGIS spells a GlobalID — <c>{1F0C…}</c>, braced and upper-case — when a
+    /// pattern is matched against it; otherwise as the database does, bare and lower-case, which is how WFS and OGC
+    /// API Features write it.
+    /// </summary>
+    public bool ArcGisGuidText { get; }
+
+    /// <summary>This dialect, told which columns hold UUIDs and how the face that asked spells one.</summary>
+    /// <param name="columns">The UUID columns.</param>
+    /// <param name="arcGisText">True for an ArcGIS face.</param>
+    /// <returns>The dialect.</returns>
+    public SqlDialect WithGuids(IEnumerable<string> columns, bool arcGisText) =>
+        new(Name, Placeholder, NumericForPlaces, IntegerDivision,
+            new HashSet<string>(columns ?? throw new ArgumentNullException(nameof(columns)), StringComparer.OrdinalIgnoreCase),
+            arcGisText);
+
+    /// <summary>Whether a column holds UUIDs.</summary>
+    internal bool IsGuid(string? column) => column is not null && GuidColumns.Contains(column);
+
+    /// <summary>A UUID column as text, in the spelling of the face that asked.</summary>
+    internal string GuidText(string quoted) =>
+        ArcGisGuidText ? $"('{{' || upper({quoted}::text) || '}}')" : $"({quoted}::text)";
 }

@@ -942,7 +942,8 @@ internal static class WmsEndpoints
                     [.. described.Fields.Select(f => f.Name)],
                     LayerDefinition.Quote,
                     out ParsedWhere emitted,
-                    out string? emitError))
+                    out string? emitError,
+                    dialect: PredicateSql.PostgreSqlFor(described.Fields, arcGisText: false)))
             {
                 where = emitted;
             }

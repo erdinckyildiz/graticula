@@ -174,7 +174,11 @@ public static class WhereClause
             return false;
         }
 
-        return PredicateSql.TryEmit(predicate, columns, quote, out parsed, out error);
+        return PredicateSql.TryEmit(
+            predicate, columns, quote, out parsed, out error,
+            dialect: types is null
+                ? null
+                : SqlDialect.PostgreSql.WithGuids(types.Where(t => t.Value == FieldType.Guid).Select(t => t.Key), arcGisText: true));
     }
 
     /// <summary>Recursive descent over the grammar above.</summary>

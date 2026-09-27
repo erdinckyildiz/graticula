@@ -491,7 +491,8 @@ internal static partial class OgcFeaturesEndpoints
                 [.. described.Fields.Select(f => f.Name)],
                 LayerDefinition.Quote,
                 out ParsedWhere where,
-                out _))
+                out _,
+                dialect: PredicateSql.PostgreSqlFor(described.Fields, arcGisText: false)))
         {
             await RefuseAsync(
                 context,
@@ -887,7 +888,8 @@ internal static partial class OgcFeaturesEndpoints
                     [.. described.Fields.Select(f => f.Name)],
                     LayerDefinition.Quote,
                     out ParsedWhere emitted,
-                    out string? error))
+                    out string? error,
+                    dialect: PredicateSql.PostgreSqlFor(described.Fields, arcGisText: false)))
             {
                 problem = OgcProblem.BadRequest(error ?? "The filter could not be compiled.");
                 return false;

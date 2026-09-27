@@ -740,7 +740,8 @@ internal static class FeatureServerQueryParameters
             ? new AttributePredicate.Conjunction(asked, window)
             : window;
 
-        if (!PredicateSql.TryEmit(combined, [.. allFields.Select(f => f.Name)], LayerDefinition.Quote, out ParsedWhere emitted, out error))
+        if (!PredicateSql.TryEmit(combined, [.. allFields.Select(f => f.Name)], LayerDefinition.Quote, out ParsedWhere emitted, out error,
+                dialect: PredicateSql.PostgreSqlFor(allFields, arcGisText: true)))
         {
             return false;
         }
