@@ -36,13 +36,18 @@
   },
 
   "wms13": {
-    "failed": 6,
-    "run": "2026-08-27, 158 passed / 6 failed / 0 untested of 164 attempted",
+    "failed": 5,
+    "run": "2026-09-27, 161 passed / 5 failed / 0 untested of 166 attempted",
     "note": [
       "Six is the number ADR-041 condition 6 recorded when it was discharged by running",
       "it -- 187 passed, 6 failed -- and it is a baseline rather than a target. It is the",
       "only non-zero one here, so it is the only place a regression could hide behind an",
-      "existing failure; the count is exact for that reason."
+      "existing failure; the count is exact for that reason.",
+      "",
+      "Lowered to five on 2026-09-27: the scheduled run and a dispatched one both failed",
+      "five, so one of the six had come right in the weeks the WFS regression was hiding",
+      "the whole workflow's red. Which one is in the cite-reports artefact of run",
+      "36317564820."
     ]
   }
 }
