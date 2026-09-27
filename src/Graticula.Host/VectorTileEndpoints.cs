@@ -642,6 +642,7 @@ internal static class VectorTileEndpoints
         string serviceName,
         CatalogFallback catalog,
         GlyphStore glyphs,
+        ILoggerFactory logs,
         CancellationToken cancellation)
     {
         PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
@@ -652,16 +653,26 @@ internal static class VectorTileEndpoints
             return;
         }
 
-        // <b>A stored style wins, unchanged.</b> It was checked when it was
-        // written, so nothing here reparses or rewrites it — a cartographer
-        // should get back the file they sent, not a normalised version of it
-        // (ADR-028).
+        // <b>A stored style wins, unchanged — while it still fits the service.</b> Nothing here rewrites it: a
+        // cartographer should get back the file they sent, not a normalised version of it (ADR-028).
+        //
+        // <b>Checked again here, and not only when it was written — ADR-028 condition 3.</b> A layer unpublished,
+        // taken out of the service or renamed leaves a style drawing a source that no longer exists, and nothing
+        // noticed: the write-time check had been passed once, by a service that has since changed. Every door that
+        // changes a service's layers arrives here, so this is the one place the check cannot be missed. A style
+        // that no longer fits gives way to the generated one, which always does, and says so in the server log.
         if (service.Style is { Length: > 0 } stored)
         {
-            await Results.Content(stored, "application/json; charset=utf-8")
-                .ExecuteAsync(context).ConfigureAwait(false);
+            if (StoredStyleFits(stored, [.. service.Layers.Select(l => l.Definition.Name)], out string? stale))
+            {
+                await Results.Content(stored, "application/json; charset=utf-8")
+                    .ExecuteAsync(context).ConfigureAwait(false);
 
-            return;
+                return;
+            }
+
+            Log.StyleStale(logs.CreateLogger("Graticula.Tiles"), service.Name, stale!);
+            context.Response.Headers["Graticula-Style-Stale"] = "true";
         }
 
         // One style layer per source layer, drawn in index order — polygons
@@ -682,6 +693,17 @@ internal static class VectorTileEndpoints
                 .ToDictionary(g => g.Key, g => g.First().VisibleRange, StringComparer.Ordinal)))
             .ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Whether a stored style still draws only layers the service has — ADR-028 condition 3: checked when it is
+    /// served, because a layer can leave a service by more doors than the one that wrote the style.
+    /// </summary>
+    /// <param name="stored">The style as stored.</param>
+    /// <param name="layers">The service's layers now, by name.</param>
+    /// <param name="stale">Why it no longer fits, or null.</param>
+    /// <returns>Whether it may be served.</returns>
+    internal static bool StoredStyleFits(string stored, IReadOnlyList<string> layers, out string? stale) =>
+        StyleDocument.TryValidate(stored, layers, out stale);
 
     /// <summary>One tile.</summary>
     /// <remarks>

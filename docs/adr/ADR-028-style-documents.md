@@ -235,7 +235,14 @@ sprite upload, which deletes the `icon-image` check.
 3. **A style is revalidated when the service's layers change.** Unpublishing a
    layer today leaves a style that draws a source which no longer exists, and
    nothing notices — which is the exact failure the write-time check was built
-   to prevent, arriving by a different door.
+   to prevent, arriving by a different door. **DISCHARGED 2026-09-25, at the one door every other leads to:**
+   the style is checked again each time it is served, against the layers the service has then, so an unpublished,
+   removed or renamed layer is caught whichever way it went. A style that no longer fits is not served — the
+   generated one is, which always fits — with `Graticula-Style-Stale` on the answer, the reason on the admin
+   read-back beside the document (still byte for byte what was sent), and a server warning on Logs naming the
+   service and the layer. `AStyleThatOutlivesItsLayersIsNotServedTests` pins the check; walked once on the local
+   fixture by giving `ci_parcels` a style drawing `zz_gone`: the served style was the generated one, both headers
+   said why, and the warning was logged — and put back.
 4. **The `icon-image` refusal is deleted when sprites can be uploaded**, rather
    than left as a permanent restriction whose reason nobody remembers.
 5. **The admin route naming is straightened out.** `/admin/services/{name}/sharing`

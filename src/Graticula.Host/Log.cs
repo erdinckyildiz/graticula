@@ -612,4 +612,11 @@ internal static partial class Log
         Level = LogLevel.Warning,
         Message = "A SAML response from {Provider} was refused: {Why}")]
     public static partial void SamlRefused(ILogger logger, string provider, string why);
+
+    [LoggerMessage(
+        EventId = 1072,
+        Level = LogLevel.Warning,
+        Message = "The stored style of service {Service} no longer fits its layers, so the generated one is served: {Why} "
+                + "Replace or delete the style on the service's Style page.")]
+    public static partial void StyleStale(ILogger logger, string service, string why);
 }

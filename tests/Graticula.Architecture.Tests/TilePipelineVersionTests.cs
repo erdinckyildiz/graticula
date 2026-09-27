@@ -125,9 +125,10 @@ public sealed class TilePipelineVersionTests
         // <b>Moved 2026-09-23, and the version did not move.</b> Every error envelope gained
         // `details: []` (V-60) — the tile face's refusals among them. A refusal is not a tile.
         
-        // <b>The hash moved on 2026-09-25 and the version did not</b> — V-63's tile map is a new route beside the
-        // tiles, and changes no byte of one.
-        "761154eed18895e81a07bc5358ef951174a151173ce2aa1be9ee62a90d311b05";
+        // <b>The hash moved twice on 2026-09-25 and the version did not</b> — V-63's tile map is a new route beside the
+        // tiles, and ADR-028 condition 3 checks a stored style again where it is served; neither changes a byte of
+        // a tile.
+        "13180fea8439521da5b48017490846d568db67d5fae0f20aa7ba27d86ff18575";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 2;

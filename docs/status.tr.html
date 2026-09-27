@@ -110,40 +110,40 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>e6db7bf</code> · 2026-09-25 11:23</p>
+<p class="stamp">Şu commit’ten üretildi: <code>a367015</code> · 2026-09-27 13:32</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">90</div><div class="kpi-l">ADR</div><div class="kpi-n">17 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">229/309</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">77 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">231/309</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">75 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">6</div><div class="kpi-l">açık borç</div><div class="kpi-n">257 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">3581</div><div class="kpi-l">test</div><div class="kpi-n">357 kaynak dosya, 154,823 satır</div></div>
+<div class="kpi good"><div class="kpi-v">3587</div><div class="kpi-l">test</div><div class="kpi-n">357 kaynak dosya, 154,955 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">87 madde</span></div><p><b>77 ADR conditions</b> outstanding across 49 decisions — the largest commitment on this page.</p><p><b>6 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">85 madde</span></div><p><b>75 ADR conditions</b> outstanding across 49 decisions — the largest commitment on this page.</p><p><b>6 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-078 · A hosted layer can keep its histor</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">6</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">4</div></div>
-<div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-066 · GeoParquet layers, read in place b</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-086 · The operator chooses the map groun</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-017 · Admin API Shape</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-028 · Style documents: the one thing abo</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-029 · Affinity routing is not the defaul</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-052 · The canonical symbology document i</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-065 · Domains and subtypes</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-066 · GeoParquet layers, read in place b</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-067 · DuckDB sources beyond a local fold</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
@@ -225,7 +225,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">025</td><td>Governance: what a gift owes, and what it does not</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/4</td></tr>
 <tr><td class="id">026</td><td>Serving through a platform-store outage: public-only, while blind</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the policy · MEDIUM for the window</td><td class="num">4/5</td></tr>
 <tr><td class="id">027</td><td>Glyphs and sprites: the tile service could not draw a label</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the coverage</td><td class="num">4/5</td></tr>
-<tr><td class="id">028</td><td>Style documents: the one thing about a map a server cannot guess</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">2/5</td></tr>
+<tr><td class="id">028</td><td>Style documents: the one thing about a map a server cannot guess</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/5</td></tr>
 <tr><td class="id">029</td><td>Affinity routing is not the default, and A-003 stops being load-bearing</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the reversal · MEDIUM for what replaces it at scale</td><td class="num">2/4</td></tr>
 <tr><td class="id">030</td><td>Reading the reference implementation, not only its documentation</td><td><span class="pill cond">~~ACCEPTED WITH CONDITIONS~~ WITHDRAWN</span><div class="muted-t">the permission this ADR granted ended 2026-09-09 by owner decision.</div></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
 <tr><td class="id">031</td><td>A service&#x27;s capabilities are configured, and configuration only ever restricts</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">6/6</td></tr>
@@ -263,7 +263,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">063</td><td>A field list may differ from the table, in two ways and no more</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">~~MEDIUM — the decision is the owner&#x27;s and the shape is forced by what already exists,…</td><td class="num">3/3</td></tr>
 <tr><td class="id">064</td><td>Editor tracking, and what `features:edit` means</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 <tr><td class="id">065</td><td>Domains and subtypes</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
-<tr><td class="id">066</td><td>GeoParquet layers, read in place by DuckDB</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/5</td></tr>
+<tr><td class="id">066</td><td>GeoParquet layers, read in place by DuckDB</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
 <tr><td class="id">067</td><td>DuckDB sources beyond a local folder: remote GeoParquet, a DuckDB database file, MotherDuck</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/6</td></tr>
 <tr><td class="id">068</td><td>Responses are compressed, on an allowlist rather than everywhere</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">069</td><td>Query responses carry the layer&#x27;s cache lifetime</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
@@ -405,12 +405,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">955</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.8%"></div></div><div class="bar-n">619</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:58.4%"></div></div><div class="bar-n">558</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:50.4%"></div></div><div class="bar-n">481</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">957</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.7%"></div></div><div class="bar-n">619</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:58.7%"></div></div><div class="bar-n">562</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:50.3%"></div></div><div class="bar-n">481</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:22.6%"></div></div><div class="bar-n">216</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.3%"></div></div><div class="bar-n">203</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.2%"></div></div><div class="bar-n">203</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:20.6%"></div></div><div class="bar-n">197</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:13.0%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:12.0%"></div></div><div class="bar-n">115</div></div>
@@ -420,6 +420,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>a367015</code><time>2026-09-27</time><span>A stored style that outlives its service&#x27;s layers is not served</span></li>
+<li><code>1e3aee8</code><time>2026-09-25</time><span>The primary button&#x27;s contrast check measures a flat colour, not only a gradient</span></li>
+<li><code>566db5f</code><time>2026-09-25</time><span>The console reads as an operations tool: flat surfaces, one teal, and four display faults fixed</span></li>
+<li><code>bdb3c60</code><time>2026-09-25</time><span>The console&#x27;s files are revalidated, so a page and its stylesheet are one release</span></li>
+<li><code>c9b1961</code><time>2026-09-25</time><span>Signing in looks like the portal: one card, what you sign in to, and keep me signed in</span></li>
+<li><code>58ef2d5</code><time>2026-09-25</time><span>The quickstart probes the image&#x27;s own GeoParquet root, which it cannot write under</span></li>
+<li><code>d353b5f</code><time>2026-09-25</time><span>Three conditions met are marked, and the quickstart proves DuckDB on amd64</span></li>
 <li><code>e6db7bf</code><time>2026-09-25</time><span>The emptied default page size is dropped by a contract migration</span></li>
 <li><code>827fbd6</code><time>2026-09-25</time><span>Field Maps and web apps sign people in through the organisation&#x27;s own provider</span></li>
 <li><code>63067d1</code><time>2026-09-25</time><span>A vector tile service answers tilemap, and an object id past 32 bits is said</span></li>
@@ -427,13 +434,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>1d081ea</code><time>2026-09-24</time><span>The front page says single sign-on is built, and not yet proven against a real provider</span></li>
 <li><code>dea6a4d</code><time>2026-09-24</time><span>People sign in through a SAML 2.0 identity provider, AD FS and Entra ID alike</span></li>
 <li><code>b1cfa3e</code><time>2026-09-24</time><span>A directory is reached on Linux: OpenLDAP 2.6 is loaded by the name Ubuntu gives it</span></li>
-<li><code>2715e68</code><time>2026-09-24</time><span>People sign in with their Active Directory password, and their groups decide their role here</span></li>
-<li><code>072e5f7</code><time>2026-09-24</time><span>People sign in through an OpenID Connect provider</span></li>
-<li><code>079afcb</code><time>2026-09-24</time><span>A domain is a named object that fields on many layers point at</span></li>
-<li><code>075711d</code><time>2026-09-24</time><span>The operator chooses the map ground, and it is the portal&#x27;s default basemap</span></li>
-<li><code>14079f6</code><time>2026-09-24</time><span>Escape puts focus back even when the menu&#x27;s opener was redrawn</span></li>
-<li><code>257c096</code><time>2026-09-24</time><span>A tile leaves out what it cannot draw, and simplifies through z14</span></li>
-<li><code>ccf3690</code><time>2026-09-24</time><span>A service has one page size, and the server&#x27;s is set on a Settings screen</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

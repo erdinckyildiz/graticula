@@ -4044,6 +4044,14 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // ADR-028 condition 3: a stored style the service's layers have since outgrown is not served to clients, and
+        // the author reading it back is told why, beside the document — which stays byte for byte what they sent.
+        if (!StyleDocument.TryValidate(service.Style, service.SourceLayers, out string? stale))
+        {
+            context.Response.Headers["Graticula-Style-Stale"] =
+                Uri.EscapeDataString("Not served: the generated style is, because " + stale);
+        }
+
         // The document as it was stored, byte for byte. An author diffing this
         // against their file should see nothing.
         await Results.Content(service.Style, "application/json; charset=utf-8")

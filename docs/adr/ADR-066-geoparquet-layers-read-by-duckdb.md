@@ -400,4 +400,8 @@ spatial extension* — the half of item 3 that was a choice — and is no longer
    this process in the same change.
 5. **The image starts DuckDB on both architectures.** The release workflow builds `linux/amd64` and
    `linux/arm64`, and the Dockerfile fails if either library is missing; that a container on each
-   actually opens a folder is not yet observed.
+   actually opens a folder is not yet observed. **DISCHARGED 2026-09-25, both observed.** arm64: the showcase runs the arm64 image on
+   aarch64 and counted 1,270,971 rows of `cities/istanbul_buildings_parquet` through DuckDB. amd64: the quickstart
+   rehearsal now probes the image's own GeoParquet root and requires DuckDB to name itself, and CI's run of v1.0.175
+   said *DuckDB opens a GeoParquet folder in the image (x86_64)*. The first version of that step failed — it made a
+   folder under the root, in a container whose file system is read-only — and took v1.0.174's images down with it.
