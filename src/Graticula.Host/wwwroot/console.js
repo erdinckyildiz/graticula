@@ -15931,16 +15931,16 @@ async function loadSources() {
                   data-source-layers="${num(d.layerCount)}"
                   data-source-shares="${h((d.sharesWith || []).join(","))}"
                   data-source-shared-layers="${num(sharedLayers(dataSources, d))}"
-                  >Quiesce…</button>`}${
+                  >Pause…</button>`}${
             d.name === "datastore"
               ? ` <span class="managed">set by Graticula:PlatformStore</span>`
               : ` <button class="tiny" data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
                     data-source-kind="${h(d.kind)}"
                     data-source-summary="${h(d.summary || "")}"
-                    data-source-layers="${num(d.layerCount)}">Edit</button>
+                    data-source-layers="${num(d.layerCount)}">Edit…</button>
                   <button class="tiny danger" data-source-remove="${h(d.id)}"
                     data-source-name="${h(d.name)}"
-                    data-source-layers="${num(d.layerCount)}">Remove</button>`}</td>
+                    data-source-layers="${num(d.layerCount)}">Remove…</button>`}</td>
       </tr>`).join("");
 }
 
@@ -16007,11 +16007,11 @@ function sourceHeldSays(held, shares) {
   */
   const also = (shares || []).length > 0
     ? ` The same database is also registered as ${h((shares || []).join(", "))}, and
-      ${shares.length === 1 ? "it is" : "they are"} out of service too.`
+      ${shares.length === 1 ? "it is" : "they are"} paused too.`
     : "";
 
-  return `<div class="rowmeta bad-inline" role="alert">Out of service until ${h(clock)},
-    taken out by ${h(held.by)}${held.why ? ` for ${h(held.why)}` : ""}.${also} This worker has
+  return `<div class="rowmeta bad-inline" role="alert">Paused until ${h(clock)},
+    by ${h(held.by)}${held.why ? ` for ${h(held.why)}` : ""}.${also} This worker has
     closed its connections; another worker holds its own.
     This hold lives in memory: restarting the server lifts it.</div>`;
 }
@@ -16053,14 +16053,14 @@ async function quiesceSource(id, name, layers, shares, sharedLayerCount) {
 
   const shared = others.length > 0
     ? ` The same database is also registered as <b>${h(others.join(", "))}</b>, so
-      ${others.length === 1 ? "it goes" : "they go"} out too — a quiesce is per database, which
+      ${others.length === 1 ? "it is" : "they are"} paused too — a pause is per database, which
       is where the lock is.`
     : "";
 
-  $("quiesceWhat").innerHTML = `<b>${h(name)}</b> stops answering while it is out of service.
+  $("quiesceWhat").innerHTML = `<b>${h(name)}</b> stops answering while it is paused.
     ${num(stopping)} layer${stopping === 1 ? "" : "s"} will answer 503 until the time is up or
     you press Resume.${shared} This worker closes its connections so a DBA can run their schema
-    change; another worker <i>process</i> holds its own and must be taken out separately.`;
+    change; another worker <i>process</i> holds its own and must be paused separately.`;
 
   // <b>Nothing pre-filled — a design review's finding, not a preference.</b> The default was 15
   // and Enter accepted it, so the reflex that dismisses a native prompt was the same keystroke
@@ -16151,10 +16151,10 @@ async function quiesceSource(id, name, layers, shares, sharedLayerCount) {
 
       const also = (held.alsoQuiesced || []).length > 0
         ? ` ${held.alsoQuiesced.join(", ")} ${held.alsoQuiesced.length === 1 ? "is" : "are"} `
-          + "the same database and went out with it."
+          + "the same database and paused with it."
         : "";
 
-      toast(`${name} is out of service until ${when}.${also}`, true);
+      toast(`${name} is paused until ${when}.${also}`, true);
 
       await loadSources();
       focusSourceRow(id);
