@@ -243,12 +243,19 @@ internal static class VectorTileEndpoints
     /// <b>Reprojecting on read was measured rather than dismissed.</b>
     /// <c>ST_Transform</c> in the select, with the tile envelope transformed once
     /// into the layer's own reference so the spatial index is still used, costs
-    /// <b>74.6 ms against 21.6 ms</b> on the same tile — 3.5×, and correct. It is
-    /// not implemented because a datum transformation is a different kind of
-    /// claim from an affine one: 4326 to 3857 is a pure formula, while a national
-    /// grid to Web Mercator needs shift grids PROJ may not have, and silently
-    /// falling back to a null transform moves features by metres. That is a CRS
-    /// decision and it is [Q-96], not something to slip in behind a constant.
+    /// <b>74.6 ms against 21.6 ms</b> on the same tile — 3.5×, and correct.
+    /// </para>
+    /// <para>
+    /// <b>And it is what the tile path does, since 2026-08-15 (0eaf635).</b> This
+    /// paragraph said reprojection was not implemented, which was true for one day:
+    /// a layer keeps its own reference and <c>PostGisTileSource</c> transforms the
+    /// tile envelope into it once and the geometry out of it per row. The worry
+    /// that held it back — a national grid to Web Mercator needs shift grids PROJ
+    /// may not have — was answered by Q-141 rather than by refusing: the transform
+    /// runs, and a pair that crosses a datum is reported once to the operator, in
+    /// the log and under <c>datumShifts</c> on <c>/admin/health</c>, because a tile
+    /// has nowhere to carry a caution. What stays true is this constant: the tiles
+    /// themselves are Web Mercator only.
     /// </para>
     /// </remarks>
     public const int WebMercator = 3857;
