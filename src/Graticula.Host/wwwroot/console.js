@@ -17155,13 +17155,20 @@ async function loadDomains() {
 
   const opening = domainsEditId;
   domainsEditId = null;
-  domainEdit = null;
+
+  // A new domain opened while this list was on its way stays open, with what was typed and
+  // where the cursor was: #domainNew is drawn before the list arrives, and closing the
+  // editor under somebody's hands lost their work (and failed the console suite once).
+  const typing = domainEdit && !domainEdit.id ? document.activeElement?.id : null;
+  if (domainEdit && !domainEdit.id && !opening) captureDomainEdit();
+  else domainEdit = null;
 
   const d = opening && domainsListed.find(x => x.id === opening);
   if (d && d.mayChange) openDomainEditor(d);
   else drawDomains();
 
   if (d && d.mayChange) $("domEditName")?.focus();
+  else if (typing) $(typing)?.focus();
 }
 
 /** How a domain's values are typed: the column type of a field that uses it, or what the values look like. */
