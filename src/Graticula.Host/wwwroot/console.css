@@ -4220,7 +4220,22 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
 
 /* ADR-067: an s3:// prefix is long and has no spaces, and it widened the Sources table past the page
    until it broke somewhere. Measured 2026-09-13 with Overture's prefix: 1,377 pixels in a 1,280 window. */
-#sources td.val { overflow-wrap: anywhere; }
+/* 2026-09-28: `anywhere` also shrank the column to one character, so a short path broke mid-token
+   ("datastore:5432/gi" / "s"). The string now wraps only between the pieces breakAtSeparators()
+   draws, each piece stays whole, and the full value is always on screen. */
+#sources td.val .seg { white-space: nowrap; }
+/* The four actions are one row, never a staircase. Remove stands a little apart because it is the
+   one that cannot be undone. */
+#sources td.acts { white-space: nowrap; width: 1%; }
+#sources td.acts .tiny { padding: 3px 9px; }
+#sources td.acts .danger { margin-left: var(--gap-3); }
+#sources td.acts .managed { color: var(--faint); font-size: var(--t-small); }
+#sources td.name .pill { margin-left: 6px; cursor: help; vertical-align: 1px; }
+/* One row of four buttons makes the table about 720 pixels at its narrowest, and beside the
+   register card that needs a 1,500 pixel window: measured at 1,280, Edit and Remove sat under the
+   card. Below that the card goes under the table, and a phone scrolls the table sideways. */
+@media (max-width: 1500px) { #view-sources .pickpair { grid-template-columns: minmax(0, 1fr); } }
+#view-sources .pickpair > div > .panel { overflow-x: auto; }
 #dbconn #dcS3 summary { cursor: pointer; }
 .dcskipped { margin: var(--gap-2) 0 0; padding-left: 1.2em; }
 .dcskipped li { margin: 2px 0; }

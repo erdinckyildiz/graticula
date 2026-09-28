@@ -15888,6 +15888,18 @@ let remoteGeoParquet;
 /** Whether this server may register MotherDuck (ADR-067 §5.4). Undefined until read. */
 let motherDuckOn;
 
+/**
+ * A connection string that may wrap only after a separator. Each piece is kept whole, so a
+ * narrow column breaks `/data/geoparquet/cities-db/cities.duckdb` after a slash and never
+ * inside `cities-db`; the whole string always shows.
+ */
+function breakAtSeparators(text) {
+  return String(text).match(/[^/:?&]*[/:?&]?/g)
+    .filter(piece => piece !== "")
+    .map(piece => `<span class="seg">${h(piece)}</span>`)
+    .join("<wbr>");
+}
+
 async function loadSources() {
   const { dataSources, geoParquetRoot: root, remoteGeoParquet: remote, motherDuck } = await api("/admin/datasources");
   geoParquetRoot = root ?? null;
@@ -15900,34 +15912,33 @@ async function loadSources() {
   $("sources").innerHTML = dataSources.length === 0
     ? `<tr><td colspan="4" class="empty">None registered.</td></tr>`
     : pageOf("sources", dataSources).map(d => `<tr>
-        <td class="name">${h(d.name)}
-          <div class="rowmeta">${h(d.kind)}${d.name === "datastore"
-            ? " · this server's own hosted store: its connection comes from the "
-              + "Graticula:PlatformStore setting on every start, so it is neither edited "
-              + "here nor removed"
-            : ""}</div>
+        <td class="name">${h(d.name)}${d.name === "datastore"
+            ? ` <span class="pill p-hosted" tabindex="0"
+                  title="This server's own hosted store: its connection comes from the Graticula:PlatformStore setting on every start, so it is neither edited here nor removed.">built-in</span>`
+            : ""}
+          <div class="rowmeta">${h(d.kind)}</div>
           ${d.quiesced ? sourceHeldSays(d.quiesced, d.sharesWith) : ""}</td>
         <td class="val">${d.sealedWithAnotherKey
           ? `<span class="bad-inline">sealed with a key this build does not hold</span>`
-          : h(d.summary || "—")}</td>
+          : breakAtSeparators(d.summary || "—")}</td>
         <td class="num">${num(d.layerCount)}</td>
-        <td class="acts"><button data-probe="${h(d.id)}"
+        <td class="acts"><button class="tiny" data-probe="${h(d.id)}"
             data-probe-name="${h(d.name)}">Probe</button>
           ${d.quiesced
-            ? ` <button class="primary" data-source-resume="${h(d.id)}"
+            ? ` <button class="tiny primary" data-source-resume="${h(d.id)}"
                   data-source-name="${h(d.name)}">Resume</button>`
-            : ` <button data-source-quiesce="${h(d.id)}" data-source-name="${h(d.name)}"
+            : ` <button class="tiny" data-source-quiesce="${h(d.id)}" data-source-name="${h(d.name)}"
                   data-source-layers="${num(d.layerCount)}"
                   data-source-shares="${h((d.sharesWith || []).join(","))}"
                   data-source-shared-layers="${num(sharedLayers(dataSources, d))}"
                   >Quiesce…</button>`}${
             d.name === "datastore"
-              ? ""
-              : ` <button data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
+              ? ` <span class="managed">set by Graticula:PlatformStore</span>`
+              : ` <button class="tiny" data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
                     data-source-kind="${h(d.kind)}"
                     data-source-summary="${h(d.summary || "")}"
                     data-source-layers="${num(d.layerCount)}">Edit</button>
-                  <button class="danger" data-source-remove="${h(d.id)}"
+                  <button class="tiny danger" data-source-remove="${h(d.id)}"
                     data-source-name="${h(d.name)}"
                     data-source-layers="${num(d.layerCount)}">Remove</button>`}</td>
       </tr>`).join("");

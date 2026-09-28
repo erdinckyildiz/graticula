@@ -257,7 +257,8 @@ public sealed class DataSourceScreenTests : ConsoleTest
     }
 
     /// <summary>
-    /// The register form stands beside the table rather than under it.
+    /// The register form stands beside the table on a wide window and under it on a narrow one,
+    /// and a row's actions are one line at both.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -267,47 +268,94 @@ public sealed class DataSourceScreenTests : ConsoleTest
     /// *test this* arrived somewhere the eye was not.
     /// </para>
     /// <para>
+    /// <b>Amended 2026-09-28, owner's choice.</b> The actions were a staircase of four stacked
+    /// buttons and the owner asked for one row. One row makes the table about 720 pixels at its
+    /// narrowest, which fits beside the form only from a 1,500 pixel window; below that the owner
+    /// chose the form under the table over two rows of buttons. So this measures both widths.
+    /// </para>
+    /// <para>
     /// <b>Measured, and `offsetParent` is the half that keeps being the defect.</b> Three times
     /// this console has shipped a control that was in the markup and could not be seen, and each
     /// time the suite was green on the element existing.
     /// </para>
     /// </remarks>
-    [Fact]
-    public async Task The_register_form_stands_beside_the_table()
+    [Theory]
+    [InlineData(1600, true)]
+    [InlineData(1280, false)]
+    public async Task The_register_form_stands_beside_the_table_when_it_fits(int width, bool beside)
     {
-        await OpenSourcesAsync();
+        await Browser.CallAsync("Emulation.setDeviceMetricsOverride", new
+        {
+            width,
+            height = 1000,
+            deviceScaleFactor = 1,
+            mobile = false,
+        });
 
-        await WaitForAsync(
-            "document.querySelectorAll('#sources tr').length > 0",
-            "No sources were listed, so there is no layout to measure.");
+        try
+        {
+            await OpenSourcesAsync();
 
-        await WaitForAsync(
-            Shown("#sourceForm"),
-            "The register form is not on screen.");
+            await WaitForAsync(
+                "document.querySelectorAll('#sources tr td.acts').length > 0",
+                "No sources were listed, so there is no layout to measure.");
 
-        int[] box = await Browser.EvaluateAsync<int[]>("""
-        (() => {
-          const table = document.getElementById('sources').closest('.panel').getBoundingClientRect();
-          const form = document.getElementById('sourceForm').getBoundingClientRect();
-          return [
-            Math.round(table.right), Math.round(form.left),
-            Math.round(table.top), Math.round(form.top),
-          ];
-        })()
-        """) ?? [];
+            await WaitForAsync(
+                Shown("#sourceForm"),
+                "The register form is not on screen.");
 
-        Assert.True(box.Length == 4, "The layout could not be measured.");
+            int[] box = await Browser.EvaluateAsync<int[]>("""
+            (() => {
+              const table = document.getElementById('sources').closest('.panel').getBoundingClientRect();
+              const form = document.getElementById('sourceForm').getBoundingClientRect();
+              return [
+                Math.round(table.right), Math.round(form.left),
+                Math.round(table.bottom), Math.round(form.top),
+                Math.round(table.top),
+              ];
+            })()
+            """) ?? [];
 
-        Assert.True(
-            box[1] >= box[0],
-            $"The form starts at {box[1]} and the table ends at {box[0]}, so it is under the "
-            + "table rather than beside it.");
+            Assert.True(box.Length == 5, "The layout could not be measured.");
 
-        Assert.True(
-            System.Math.Abs(box[3] - box[2]) < 40,
-            $"The table starts at {box[2]} and the form at {box[3]}, "
-            + $"{System.Math.Abs(box[3] - box[2])} pixels apart. Side by side means they begin "
-            + "together.");
+            if (beside)
+            {
+                Assert.True(
+                    box[1] >= box[0],
+                    $"At {width} pixels the form starts at {box[1]} and the table ends at {box[0]}, "
+                    + "so it is under the table rather than beside it.");
+
+                Assert.True(
+                    System.Math.Abs(box[3] - box[4]) < 40,
+                    $"At {width} pixels the table starts at {box[4]} and the form at {box[3]}. "
+                    + "Side by side means they begin together.");
+            }
+            else
+            {
+                Assert.True(
+                    box[3] >= box[2],
+                    $"At {width} pixels the form starts at {box[3]} and the table ends at {box[2]}: "
+                    + "beside a table of one-row actions it pushes Edit and Remove out of sight.");
+            }
+
+            // Every button in a row shares one top, and none is clipped by the panel.
+            string[] staircase = await Browser.EvaluateAsync<string[]>("""
+            [...document.querySelectorAll('#sources td.acts')].flatMap(cell => {
+              const tops = [...cell.querySelectorAll('button')].map(b => Math.round(b.getBoundingClientRect().top));
+              const panel = cell.closest('.panel').getBoundingClientRect();
+              const last = [...cell.querySelectorAll('button')].pop()?.getBoundingClientRect();
+              const name = cell.parentElement.querySelector('td.name').firstChild.textContent.trim();
+              return (new Set(tops).size > 1 ? [`${name}: buttons on ${new Set(tops).size} lines`] : [])
+                .concat(last && last.right > panel.right + 1 ? [`${name}: last button past the panel`] : []);
+            })
+            """) ?? [];
+
+            Assert.True(staircase.Length == 0, $"At {width} pixels: " + string.Join("; ", staircase));
+        }
+        finally
+        {
+            await Browser.CallAsync("Emulation.clearDeviceMetricsOverride");
+        }
     }
 
     /// <summary>
