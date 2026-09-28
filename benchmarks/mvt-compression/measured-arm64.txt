@@ -1,0 +1,41 @@
+== corpus
+all                    n= 274  raw=   2874.7 KiB  br=  1673.8 KiB (1.72x)  gz=  1843.5 KiB (1.56x)  median raw=1.2 KiB  br time med=21 us max=3416 us  gz time med=15 us  µs/KiB br=11.2
+< 1 KiB                n= 135  raw=     33.1 KiB  br=    30.1 KiB (1.10x)  gz=    31.3 KiB (1.06x)  median raw=0.2 KiB  br time med=8 us max=65 us  gz time med=7 us  µs/KiB br=39.8
+1-16 KiB               n= 100  raw=    574.6 KiB  br=   345.2 KiB (1.66x)  gz=   382.7 KiB (1.50x)  median raw=4.5 KiB  br time med=53 us max=539 us  gz time med=38 us  µs/KiB br=11.3
+16-64 KiB              n=  28  raw=    894.0 KiB  br=   523.5 KiB (1.71x)  gz=   571.0 KiB (1.57x)  median raw=30.1 KiB  br time med=274 us max=1003 us  gz time med=220 us  µs/KiB br=9.8
+>= 64 KiB              n=  11  raw=   1372.9 KiB  br=   775.0 KiB (1.77x)  gz=   858.5 KiB (1.60x)  median raw=109.8 KiB  br time med=1186 us max=3416 us  gz time med=1078 us  µs/KiB br=11.3
+cities/istanbul_buildings_parquet n=  11  raw=     11.9 KiB  br=     8.9 KiB (1.35x)  gz=    10.5 KiB (1.14x)  median raw=0.7 KiB  br time med=13 us max=41 us  gz time med=12 us  µs/KiB br=15.5
+cities/new_york_buildings_duckdb n=  18  raw=    493.6 KiB  br=   349.3 KiB (1.41x)  gz=   397.2 KiB (1.24x)  median raw=13.8 KiB  br time med=126 us max=1389 us  gz time med=128 us  µs/KiB br=11.8
+geoparquet/istanbul_areas n=  18  raw=      2.8 KiB  br=     2.8 KiB (0.98x)  gz=     3.1 KiB (0.90x)  median raw=0.2 KiB  br time med=8 us max=9 us  gz time med=7 us  µs/KiB br=49.0
+geoparquet/istanbul_places n=  27  raw=    342.3 KiB  br=   204.0 KiB (1.68x)  gz=   211.9 KiB (1.62x)  median raw=2.2 KiB  br time med=39 us max=1186 us  gz time med=26 us  µs/KiB br=12.9
+geoparquet/istanbul_roads n=  26  raw=    794.2 KiB  br=   451.7 KiB (1.76x)  gz=   503.6 KiB (1.58x)  median raw=13.0 KiB  br time med=132 us max=3416 us  gz time med=101 us  µs/KiB br=11.8
+hosted/look_buildings  n=  12  raw=      1.8 KiB  br=     1.8 KiB (1.03x)  gz=     1.9 KiB (0.99x)  median raw=0.2 KiB  br time med=7 us max=57 us  gz time med=7 us  µs/KiB br=85.9
+hosted/look_parcels    n=  20  raw=      3.8 KiB  br=     3.5 KiB (1.08x)  gz=     3.4 KiB (1.11x)  median raw=0.2 KiB  br time med=8 us max=14 us  gz time med=7 us  µs/KiB br=44.7
+hosted/tr_il           n=  26  raw=    283.3 KiB  br=   137.9 KiB (2.06x)  gz=   146.2 KiB (1.94x)  median raw=4.0 KiB  br time med=38 us max=543 us  gz time med=29 us  µs/KiB br=9.9
+hosted/tr_ilce         n=  27  raw=    701.0 KiB  br=   364.6 KiB (1.92x)  gz=   403.9 KiB (1.74x)  median raw=13.4 KiB  br time med=97 us max=1404 us  gz time med=82 us  µs/KiB br=9.0
+hosted/tr_kara         n=  46  raw=      6.5 KiB  br=     6.5 KiB (1.00x)  gz=     7.4 KiB (0.88x)  median raw=0.1 KiB  br time med=7 us max=15 us  gz time med=6 us  µs/KiB br=51.6
+hosted/tr_yer          n=  27  raw=    136.4 KiB  br=    84.6 KiB (1.61x)  gz=    91.4 KiB (1.49x)  median raw=0.7 KiB  br time med=18 us max=530 us  gz time med=12 us  µs/KiB br=11.0
+hosted/tr_yol          n=  16  raw=     96.9 KiB  br=    58.2 KiB (1.67x)  gz=    63.1 KiB (1.54x)  median raw=6.7 KiB  br time med=63 us max=103 us  gz time med=51 us  µs/KiB br=9.7
+largest: geoparquet__istanbul_roads__12_2374_1535.pbf 270.1 KiB -> br 142.5 KiB in 3416 us, gz 160.6 KiB in 2566 us
+grew under br: 102 of 274; under gz: 94
+cpu: 6 logical, Arm64, .NET 9.0.20
+== glyphs
+all                    n=   3  raw=    425.0 KiB  br=    76.6 KiB (5.55x)  gz=   126.0 KiB (3.37x)  median raw=146.5 KiB  br time med=938 us max=1171 us  gz time med=602 us  µs/KiB br=6.8
+>= 64 KiB              n=   3  raw=    425.0 KiB  br=    76.6 KiB (5.55x)  gz=   126.0 KiB (3.37x)  median raw=146.5 KiB  br time med=938 us max=1171 us  gz time med=602 us  µs/KiB br=6.8
+Unhandled exception. System.IndexOutOfRangeException: Index was outside the bounds of the array.
+   at Program.<>c.<<Main>$>b__0_19(ValueTuple`6 r) in /opt/dev/mvtbench/Program.cs:line 38
+   at System.Linq.Lookup`2.Create(IEnumerable`1 source, Func`2 keySelector, IEqualityComparer`1 comparer)
+   at System.Linq.Enumerable.GroupByIterator`2.ToArray()
+   at System.Linq.Enumerable.OrderedIterator`2.MoveNext()
+   at Program.<Main>$(String[] args) in /opt/dev/mvtbench/Program.cs:line 38
+== fpbf
+all                    n=   4  raw=    668.1 KiB  br=   287.8 KiB (2.32x)  gz=   363.9 KiB (1.84x)  median raw=217.9 KiB  br time med=2045 us max=2270 us  gz time med=1290 us  µs/KiB br=9.4
+16-64 KiB              n=   1  raw=     51.9 KiB  br=    28.7 KiB (1.81x)  gz=    31.7 KiB (1.63x)  median raw=51.9 KiB  br time med=650 us max=650 us  gz time med=508 us  µs/KiB br=12.5
+>= 64 KiB              n=   3  raw=    616.3 KiB  br=   259.1 KiB (2.38x)  gz=   332.1 KiB (1.86x)  median raw=217.9 KiB  br time med=2045 us max=2270 us  gz time med=1290 us  µs/KiB br=9.2
+cities/new_york_buildings_parquet.pbf n=   1  raw=    146.5 KiB  br=    86.2 KiB (1.70x)  gz=    96.4 KiB (1.52x)  median raw=146.5 KiB  br time med=1334 us max=1334 us  gz time med=1197 us  µs/KiB br=9.1
+geoparquet/istanbul_places.pbf n=   1  raw=     51.9 KiB  br=    28.7 KiB (1.81x)  gz=    31.7 KiB (1.63x)  median raw=51.9 KiB  br time med=650 us max=650 us  gz time med=508 us  µs/KiB br=12.5
+hosted/tr_ilce.pbf     n=   1  raw=    251.9 KiB  br=    86.0 KiB (2.93x)  gz=   121.2 KiB (2.08x)  median raw=251.9 KiB  br time med=2270 us max=2270 us  gz time med=1737 us  µs/KiB br=9.0
+hosted/tr_yol.pbf      n=   1  raw=    217.9 KiB  br=    86.9 KiB (2.51x)  gz=   114.5 KiB (1.90x)  median raw=217.9 KiB  br time med=2045 us max=2045 us  gz time med=1290 us  µs/KiB br=9.4
+largest: hosted__tr_ilce.pbf 251.9 KiB -> br 86.0 KiB in 2270 us, gz 121.2 KiB in 1737 us
+grew under br: 0 of 4; under gz: 0
+cpu: 6 logical, Arm64, .NET 9.0.20

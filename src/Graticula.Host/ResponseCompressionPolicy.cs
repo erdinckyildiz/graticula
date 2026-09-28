@@ -35,16 +35,16 @@ namespace Graticula.Host;
 /// nothing had to be written to keep BREACH away from a token.
 /// </para>
 /// <para>
-/// <b>Vector tile bytes are deliberately left out</b>, even though
-/// <c>/rest/services</c> is on the list: <see cref="VectorTileEndpoints"/>
-/// serves <c>application/vnd.mapbox-vector-tile</c> and
-/// <c>application/x-protobuf</c>, neither of which is in
-/// <see cref="MimeTypes"/>, so the path allowlist alone does not compress
-/// them. No response in <c>/src</c> sets <c>Content-Encoding</c> today, so
-/// double-encoding is not the reason — there is simply no measurement yet of
-/// what compression does to a format that is already a packed binary
-/// structure, and Agent C's GeoParquet vector tile work is active in that same
-/// file while this was written. Left for a benchmark once that work lands.
+/// <b>Protobuf is compressed since 2026-09-28, when the benchmark ADR-068 §9 waited
+/// for was run</b> (<c>benchmarks/mvt-compression</c>). It had been left out because
+/// nobody had measured what compression does to a packed binary structure. It does
+/// a lot: brotli at <c>Fastest</c> took 274 showcase tiles to 1.72x smaller, the
+/// SDF glyph ranges to 5.55x and FeatureServer <c>f=pbf</c> answers to 2.32x, at
+/// about 11 µs per KiB on the arm64 showcase. Tiles under a kilobyte gain nothing
+/// and some grow by a few bytes, which costs less than the decision to skip them
+/// would. <c>application/vnd.mapbox-vector-tile</c> is what a tile is served as and
+/// <c>application/x-protobuf</c> is a glyph range and a FeatureServer <c>pbf</c>
+/// answer; none of them carries a secret, which is the reasoning above.
 /// </para>
 /// <para>
 /// <b>Static console assets are included</b> — <c>/server</c> and
@@ -62,10 +62,10 @@ internal static class ResponseCompressionPolicy
     /// <remarks>
     /// <b>A second, independent gate — not redundant with <see cref="IsAllowed"/>.</b>
     /// The path allowlist admits <c>/rest/services</c> wholesale, and that prefix also
-    /// serves PNG map exports, JPEG tiles, MVT bytes and attachment downloads. Those are
-    /// already compressed (images) or undecided (MVT, see the type remarks) and none of
-    /// them carry a MIME type below, so the two gates together compress the JSON, GeoJSON
-    /// and XML that pass through that prefix and nothing else it also serves.
+    /// serves PNG map exports, JPEG tiles, MVT bytes and attachment downloads. The images
+    /// and attachments are already compressed or are somebody's arbitrary bytes, and carry
+    /// no MIME type below, so the two gates together compress the JSON, GeoJSON, XML and
+    /// protobuf that pass through that prefix and nothing else it also serves.
     /// </remarks>
     internal static readonly string[] MimeTypes =
     [
@@ -73,6 +73,8 @@ internal static class ResponseCompressionPolicy
         OgcNames.GeoJson, // application/geo+json — FeatureServer has no equivalent constant; ArcGIS answers plain application/json, already covered by the default set.
         OgcNames.Problem, // application/problem+json
         "application/gml+xml", // WfsEndpoints.GmlMediaType, minus the ";version=3.2" parameter the header carries
+        "application/vnd.mapbox-vector-tile", // a vector tile — ADR-068 §9, measured 1.72x
+        "application/x-protobuf", // a glyph range (5.55x) and a FeatureServer f=pbf answer (2.32x)
     ];
 
     /// <summary>Whether a request path may be compressed at all.</summary>

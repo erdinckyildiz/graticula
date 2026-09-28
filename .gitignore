@@ -108,3 +108,6 @@ scratchpad/
 
 # ADR-066: the folder compose mounts read-only for GeoParquet files, when run from a checkout.
 /geoparquet/
+
+# benchmarks/mvt-compression: the tiles collect.py downloads are the showcase's data, re-fetched on demand
+benchmarks/mvt-compression/corpus/

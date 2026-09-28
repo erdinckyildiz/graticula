@@ -10,6 +10,14 @@
 | **Supersedes** | — |
 | **Superseded by** | — |
 
+> **Amended 2026-09-28: protobuf is compressed.** §9's first trigger fired. The benchmark it
+> waited for ran against 274 showcase tiles, three glyph ranges and four FeatureServer `f=pbf`
+> answers on the arm64 host ([benchmarks/mvt-compression](../../benchmarks/mvt-compression/RESULTS.md)):
+> brotli at `Fastest` made them 1.72x, 5.55x and 2.32x smaller at about 11 µs per KiB.
+> `application/vnd.mapbox-vector-tile` and `application/x-protobuf` joined
+> `ResponseCompressionPolicy.MimeTypes`. §5's exclusion paragraph describes the decision as it
+> stood on 2026-09-13; the allowlist of paths is unchanged.
+
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
 > Confidence: `HIGH`, `MEDIUM`, `LOW`.
@@ -192,7 +200,7 @@ tile bytes need a `Content-Encoding` story.
 
 ## 9. Revisit triggers
 
-- **A benchmark measuring brotli/gzip against representative MVT bytes**, once the GeoParquet
+- ~~**A benchmark measuring brotli/gzip against representative MVT bytes**~~ **Fired 2026-09-28, see the note at the top.** Once the GeoParquet
   vector tile work has landed — if it shows a worthwhile reduction at an acceptable CPU cost,
   `application/vnd.mapbox-vector-tile` and `application/x-protobuf` are added to
   `ResponseCompressionPolicy.MimeTypes`.

@@ -140,9 +140,12 @@ public static class VectorTileServerMetadataWriter
             {
                 styleVersion = 8,
 
-                // Served uncompressed. Declaring gzip while sending raw bytes is
-                // the failure this field exists to prevent, in the other
-                // direction.
+                // The tile bytes themselves are not gzipped. Declaring gzip while
+                // sending raw bytes is the failure this field exists to prevent,
+                // in the other direction. Since 2026-09-28 the response may be
+                // brotli or gzip on the wire (ADR-068 §9), but that is HTTP
+                // Content-Encoding, undone by the client's HTTP stack before a
+                // renderer sees the bytes, so this still says "none".
                 tileCompression = "none",
             },
         };

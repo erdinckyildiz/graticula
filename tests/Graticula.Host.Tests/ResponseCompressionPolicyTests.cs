@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -55,6 +56,10 @@ public sealed class ResponseCompressionPolicyTests
 
     private const string TokenBody = """{"token":"abc123secret","expires":1234567890}""";
 
+    // Repetitive the way a real tile is: the same command and tag varints over and over.
+    private static readonly byte[] TileBody =
+        [.. Enumerable.Range(0, 4096).Select(i => (byte)(i % 7 == 0 ? 0x1a : i % 13))];
+
     private static TestServer BuildServer()
     {
         IWebHostBuilder builder = new WebHostBuilder()
@@ -85,6 +90,16 @@ public sealed class ResponseCompressionPolicyTests
                     {
                         context.Response.ContentType = "application/json; charset=utf-8";
                         await context.Response.WriteAsync(QueryBody).ConfigureAwait(false);
+                    });
+
+                    // Shaped like VectorTileEndpoints' tile writer: it sets Content-Length to
+                    // the raw size before writing, which the middleware has to drop when it
+                    // compresses, or the client reads a truncated or overlong body.
+                    endpoints.MapGet("/rest/services/x/VectorTileServer/tile/0/0/0.pbf", async context =>
+                    {
+                        context.Response.ContentType = "application/vnd.mapbox-vector-tile";
+                        context.Response.Headers.ContentLength = TileBody.Length;
+                        await context.Response.Body.WriteAsync(TileBody).ConfigureAwait(false);
                     });
 
                     endpoints.MapPost("/rest/auth/login", async context =>
@@ -141,6 +156,45 @@ public sealed class ResponseCompressionPolicyTests
 
         Assert.Empty(response.Content.Headers.ContentEncoding);
         Assert.Equal(QueryBody, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
+    /// A vector tile is compressed when asked, and arrives whole (ADR-068 §9, 2026-09-28).
+    /// </summary>
+    /// <remarks>
+    /// The tile writer sets <c>Content-Length</c> to the raw size. If the middleware kept it,
+    /// the body would be shorter than the header says and a client would wait for bytes that
+    /// never come — so this reads the body back and decompresses it, rather than only
+    /// looking at <c>Content-Encoding</c>.
+    /// </remarks>
+    [Theory]
+    [InlineData("br")]
+    [InlineData("gzip")]
+    public async Task A_vector_tile_is_compressed_when_the_client_asks_and_arrives_whole(string encoding)
+    {
+        using TestServer server = BuildServer();
+        using HttpClient client = server.CreateClient();
+
+        using HttpRequestMessage request = new(HttpMethod.Get, "/rest/services/x/VectorTileServer/tile/0/0/0.pbf");
+        request.Headers.AcceptEncoding.Add(new StringWithQualityHeaderValue(encoding));
+
+        using HttpResponseMessage response = await client.SendAsync(request);
+
+        Assert.Equal(encoding, Join(response.Content.Headers.ContentEncoding));
+        Assert.Contains("Accept-Encoding", response.Headers.Vary);
+
+        byte[] compressed = await response.Content.ReadAsByteArrayAsync();
+        Assert.True(compressed.Length < TileBody.Length);
+        Assert.True(
+            response.Content.Headers.ContentLength is null || response.Content.Headers.ContentLength == compressed.Length,
+            $"Content-Length says {response.Content.Headers.ContentLength} and {compressed.Length} bytes came.");
+
+        using Stream decompressor = encoding == "br"
+            ? new BrotliStream(new MemoryStream(compressed), CompressionMode.Decompress)
+            : new GZipStream(new MemoryStream(compressed), CompressionMode.Decompress);
+        using MemoryStream back = new();
+        await decompressor.CopyToAsync(back);
+        Assert.Equal(TileBody, back.ToArray());
     }
 
     /// <summary>
