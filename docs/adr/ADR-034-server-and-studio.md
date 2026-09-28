@@ -9,6 +9,13 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-020](ADR-020-admin-console-and-service-status.md) — one console becomes two surfaces over the same API |
 
+
+> **Amended 2026-09-25 by [ADR-091](ADR-091-server-sidebar-five-rows.md).** Server's sidebar is five rows —
+> Services, Data sources, Members, Settings, Operations. Roles, Sign-in and Apps are pages of Settings,
+> Logs is a page of Operations and Publish a page of Services. Every screen keeps its address and its
+> surface; the split this ADR decides is unchanged. Owner decision, after comparing the portal's
+> Organization › Settings.
+
 ---
 
 ## 1. Context — one console shows everybody everything, and then refuses

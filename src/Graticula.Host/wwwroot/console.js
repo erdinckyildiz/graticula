@@ -2125,11 +2125,17 @@ const SURFACES = {
     tabs: [
       ["services", "Services"],
 
+      // <b>Five rows since 2026-09-25 — ADR-091.</b> Publish, Roles, Apps, Sign-in and Logs are still
+      // screens with their own addresses, but not sidebar rows: `SUBPAGES` below puts each one under
+      // the row it belongs to, the way the portal's Organization › Settings holds roles and logins.
+      // The notes on the rows that moved are kept where the rows were, because they still say why
+      // each screen is Server's.
+
       // <b>Publish, and it is Server's because a registered database is.</b> ADR-057: a
       // service is composed from tables in databases this server was pointed at, and pointing
       // it at one is an administrator's act on the tab next door. Studio publishes a layer
       // somebody imported; this publishes a service somebody assembled.
-      ["publish", "Publish"],
+      // ["publish", "Publish"],  — a subpage since ADR-091
 
       // <b>Data sources is Server's, by owner decision 2026-08-17</b> — *"data sources studio'nun
       // değil server'in bir seçeneği. onu da sadece admin ayarlayabilir."* This corrects ADR-034
@@ -2148,15 +2154,15 @@ const SURFACES = {
       // capability is administrative even though most of the capabilities it hands out are
       // Studio's: the same split ADR-034 §5c draws everywhere else. The tab sits beside Members
       // because *who is there* and *what they may do* are read together.
-      ["roles", "Roles"],
+      // ["roles", "Roles"],  — a subpage since ADR-091
 
       // <b>Apps, needing `admin:manageSecurity` — ADR-076.</b> Beside Members and Roles because which
       // apps may sign people in is the same question as who is here and what they may do.
-      ["apps", "Apps"],
+      // ["apps", "Apps"],  — a subpage since ADR-091
 
       // <b>Sign-in — ADR-088.</b> Beside Apps: which providers may sign people in is the question of who may,
       // and it needs the same privilege.
-      ["signin", "Sign-in"],
+      // ["signin", "Sign-in"],  — a subpage since ADR-091
 
       // <b>Settings — V-70, ADR-084.</b> What the whole server does unless a service sets its own, which
       // the owner asked to be set here rather than in a configuration file. Before Operations, because it
@@ -2169,7 +2175,7 @@ const SURFACES = {
       // this process is doing now; Logs says what it has done. The owner asked for it here:
       // *"hem server hem studio ile ilgili logların sorgulandığı bir ekran lazım. bu da
       // server ekranında olmalı."* ADR-045.
-      ["logs", "Logs"],
+      // ["logs", "Logs"],  — a subpage since ADR-091
     ],
   },
   studio: {
@@ -2200,6 +2206,26 @@ const SURFACES = {
     action: { id: "newLayer", label: "New item" },
   },
 };
+
+/**
+ * Screens that open from inside another screen rather than from the sidebar — ADR-091.
+ *
+ * <b>The row is the key, and its strip is the list.</b> The first entry of each list is the row's own
+ * screen, which is why Settings' first page is itself (labelled *General*) and Operations' is itself
+ * (labelled *Status*). Every screen here keeps its address — `#/roles` still opens Roles — so links,
+ * bookmarks and the suites' `OpenAsync("/server/#/roles")` did not move; what moved is which sidebar
+ * row is lit and the strip that appears at the top of the page. `publish` is a subpage of Services
+ * with no strip: it is where the *New service* action goes, not a place anybody browses to.
+ */
+const SUBPAGES = {
+  settings: [["settings", "General"], ["roles", "Roles"], ["signin", "Sign-in"], ["apps", "Apps"]],
+  operations: [["operations", "Status"], ["logs", "Logs"]],
+  services: [["services", "Services"], ["publish", "Publish"]],
+};
+
+/** Which sidebar row a subpage lights, from `SUBPAGES`. */
+const ROW_OF = Object.fromEntries(Object.entries(SUBPAGES)
+  .flatMap(([row, pages]) => pages.map(([screen]) => [screen, row])));
 
 /**
  * Which surface each screen lives in.
@@ -2394,6 +2420,10 @@ function route() {
   }
 
   const screens = SURFACES[surface].tabs.map(([name]) => name);
+  // A subpage is a screen of the surface its row is in (ADR-091), so it routes like a row.
+  for (const [screen, row] of Object.entries(ROW_OF)) {
+    if (screens.includes(row) && !screens.includes(screen)) screens.push(screen);
+  }
   const screen = screens.includes(rest[0]) ? rest[0] : SURFACES[surface].home;
 
   // The folder a Server services screen is looking at, which is part of its address so that
@@ -2597,6 +2627,28 @@ function showView(id, tab) {
 }
 
 /**
+ * The strip across the top of a page that has siblings under one sidebar row — ADR-091.
+ *
+ * <b>Drawn into the page, once, and re-marked on every visit</b>, so each page carries its own copy
+ * and nothing has to be moved between views when the reader switches. Services draws no strip:
+ * Publish is its action, not a sibling anybody browses to.
+ */
+function drawSubpages(screen) {
+  const row = ROW_OF[screen];
+  const view = $("view-" + screen);
+  if (!row || !view || row === "services") return;
+  let strip = view.querySelector(":scope > nav.subpages");
+  if (!strip) {
+    strip = document.createElement("nav");
+    strip.className = "tabstrip subpages";
+    strip.setAttribute("aria-label", SURFACES.server.tabs.find(([name]) => name === row)?.[1] || row);
+    view.prepend(strip);
+  }
+  strip.innerHTML = SUBPAGES[row].map(([name, label]) =>
+    `<a href="#/${name}"${name === screen ? ' aria-current="page"' : ""}>${h(label)}</a>`).join("");
+}
+
+/**
  * Opens a screen, and re-reads what it shows.
  *
  * Re-read on entry, because a screen showing numbers from when the page was opened is worse
@@ -2607,7 +2659,8 @@ function openScreen(surface, screen, folder) {
   // refresh redraw a screen nobody is looking at.
   editing = null;
 
-  showView("view-" + screen, screen);
+  showView("view-" + screen, ROW_OF[screen] || screen);
+  drawSubpages(screen);
 
   if (screen === "services") {
     selectedFolder = folder;
