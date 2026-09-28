@@ -128,8 +128,16 @@ public sealed class TileValidatorConformanceTests : ArcGisClient
         return (response.StatusCode, body.Length, response.Headers.ETag?.ToString());
     }
 
+    /// <summary>
+    /// A tile with bytes carries a weak validator.
+    /// </summary>
+    /// <remarks>
+    /// <b>Strong until 2026-09-29.</b> ADR-068 §9 compresses tiles, so one tile goes out
+    /// brotli, gzip or identity under one tag, and RFC 9110 §8.8.1 reserves a strong tag for
+    /// byte-identical bodies — the reason query answers were already weak.
+    /// </remarks>
     [Fact]
-    public async Task A_tile_with_bytes_carries_a_strong_validator()
+    public async Task A_tile_with_bytes_carries_a_weak_validator()
     {
         Uri tile = await PopulatedTileAsync();
 
@@ -139,8 +147,7 @@ public sealed class TileValidatorConformanceTests : ArcGisClient
         Assert.True(bytes > 0);
 
         Assert.NotNull(etag);
-        Assert.StartsWith("\"", etag, StringComparison.Ordinal);
-        Assert.DoesNotContain("W/", etag, StringComparison.Ordinal);
+        Assert.StartsWith("W/\"", etag, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -179,7 +186,7 @@ public sealed class TileValidatorConformanceTests : ArcGisClient
         [
             (etag!, "the exact tag"),
             ("*", "a proxy revalidating anything it holds"),
-            ("W/" + etag!, "a cache that weakened the tag"),
+            (etag!.Substring(2), "the strong tag this server sent before 2026-09-29"),
             ("\"stale-one\", " + etag!, "a list, ours second"),
         ])
         {

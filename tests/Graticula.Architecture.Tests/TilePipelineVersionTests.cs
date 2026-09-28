@@ -137,7 +137,9 @@ public sealed class TilePipelineVersionTests
         // publisher uploaded instead of an empty one, and a stored style is checked against that sheet's icon names
         // where it is served. A sprite sheet and a style are resources beside the tiles; not one byte of a tile is
         // decided differently.
-        "0f1010c8832f1efacf4f5b805505a0546a9648995f94190ca67be5d1600bd2ea";
+        // <b>Moved again 2026-09-29, and the version did not move.</b> A tile's ETag became weak, because tiles are
+        // compressed since ADR-068 §9 and one tag now covers three encodings. A validator is a header, not a byte.
+        "ee5f2f32432e90243f70b3bf9c634b2858266b7b3b24bae22efe03646418230a";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 2;

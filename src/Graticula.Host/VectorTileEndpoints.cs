@@ -1160,9 +1160,15 @@ internal static class VectorTileEndpoints
         // data changed and the address did not. Hashing ~50 KB costs
         // microseconds beside the query that produced it.
         //
-        // <b>Strong, not weak.</b> These are bytes, compared byte for byte;
-        // there is no notion of a semantically equivalent tile.
-        string etag = "\"" + Convert.ToHexString(
+        // <b>Weak since 2026-09-29, and it was strong until then.</b> It was
+        // strong because a tile is bytes and there is no notion of a
+        // semantically equivalent one. Then ADR-068 §9 started compressing
+        // tiles, so the same tile goes out brotli, gzip or identity under
+        // one tag, and RFC 9110 §8.8.1 reserves a strong tag for
+        // byte-identical bodies. `QueryResponseCaching.ComputeETag` made the same
+        // call for query answers for the same reason. If-None-Match compares
+        // weakly, so a client holding the old strong tag still gets its 304.
+        string etag = "W/\"" + Convert.ToHexString(
             System.Security.Cryptography.SHA256.HashData(tile).AsSpan(0, 16)) + "\"";
 
         context.Response.Headers.ETag = etag;
@@ -1212,15 +1218,11 @@ internal static class VectorTileEndpoints
             foreach (string candidate in value.Split(
                          ',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
             {
-                if (candidate == "*" || string.Equals(candidate, etag, StringComparison.Ordinal))
-                {
-                    return true;
-                }
-
-                // A cache may weaken a tag it stored. W/"x" and "x" identify the
-                // same bytes as far as this server is concerned.
-                if (candidate.StartsWith("W/", StringComparison.Ordinal)
-                    && string.Equals(candidate[2..], etag, StringComparison.Ordinal))
+                // RFC 9110 §8.8.3.2's weak comparison, which is what If-None-Match
+                // uses: W/"x" and "x" identify the same tile. It also keeps a
+                // client that stored the strong tag sent before 2026-09-29 on 304s.
+                if (candidate == "*"
+                    || string.Equals(Opaque(candidate), Opaque(etag), StringComparison.Ordinal))
                 {
                     return true;
                 }
@@ -1228,6 +1230,9 @@ internal static class VectorTileEndpoints
         }
 
         return false;
+
+        static string Opaque(string tag) =>
+            tag.StartsWith("W/", StringComparison.Ordinal) ? tag[2..] : tag;
     }
 
     /// <summary>
