@@ -128,7 +128,11 @@ public sealed class TilePipelineVersionTests
         // <b>The hash moved twice on 2026-09-25 and the version did not</b> — V-63's tile map is a new route beside the
         // tiles, and ADR-028 condition 3 checks a stored style again where it is served; neither changes a byte of
         // a tile.
-        "13180fea8439521da5b48017490846d568db67d5fae0f20aa7ba27d86ff18575";
+
+        // <b>Moved 2026-09-28 for a comment, and the version did not move.</b> `WebMercator`'s remarks said
+        // reprojecting a tile was not implemented; it has been since 0eaf635, and the paragraph now says so.
+        // CI was red on this for two pushes (eec54dd, 59266bd): the architecture suite was not run first.
+        "692fc4687890493445cc63f84a0aabe83d345d31d32b525314550ef4185c780b";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 2;
