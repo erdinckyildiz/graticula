@@ -61,7 +61,9 @@ internal static class SymbologyMigrator
 
         foreach (AdminLayer listed in layers)
         {
-            if (await catalog.FindLayerForSymbologyAsync(listed.Name, cancellationToken)
+            // By id: the listing names every layer, and a name shared by two of them read and then
+            // wrote the first one's document over both (D-276).
+            if (await catalog.FindLayerForSymbologyAsync(listed.Id, cancellationToken)
                     .ConfigureAwait(false)
                 is not { Symbology: { Length: > 0 } stored } found)
             {
@@ -100,7 +102,7 @@ internal static class SymbologyMigrator
                 {
                     await catalog
                         .SetSymbologyAsync(
-                            listed.Name,
+                            listed.Id,
                             rewritten.Renderer.ToJsonString(),
                             cancellationToken)
                         .ConfigureAwait(false);

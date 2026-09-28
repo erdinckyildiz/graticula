@@ -2316,7 +2316,8 @@ internal static class HostedDataEndpoints
         // <b>The stamp, so anything listing the service sees that it changed.</b> ArcGIS moves a
         // timestamp on the item for exactly this; here the service row's `updated_at` is what a
         // listing already reads, so there is nothing new to store.
-        await catalog.TouchServiceAsync(layer.ServiceName, cancellation).ConfigureAwait(false);
+        // By id: the name stamped every service of that name in every folder (D-275).
+        await catalog.TouchServiceAsync(layer.ServiceId, cancellation).ConfigureAwait(false);
     }
 
     /// <summary>

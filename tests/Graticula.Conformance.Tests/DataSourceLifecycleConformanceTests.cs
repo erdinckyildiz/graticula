@@ -618,7 +618,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
         try
         {
             (HttpStatusCode set, string said) = await RequestAsync(
-                HttpMethod.Put, $"{root}/admin/services/{bare}/srid", token!,
+                HttpMethod.Put, $"{root}/admin/services/{bare}/srid{FolderQuery(qualified)}", token!,
                 JsonSerializer.Serialize(new { srid = other }));
 
             Assert.True(
@@ -674,7 +674,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
         finally
         {
             await RequestAsync(
-                HttpMethod.Put, $"{root}/admin/services/{bare}/srid", token!,
+                HttpMethod.Put, $"{root}/admin/services/{bare}/srid{FolderQuery(qualified)}", token!,
                 JsonSerializer.Serialize(new { srid = (int?)null }));
         }
 
@@ -702,7 +702,7 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
             : qualified;
 
         (HttpStatusCode status, string body) = await RequestAsync(
-            HttpMethod.Put, $"{root}/admin/services/{bare}/srid", token!,
+            HttpMethod.Put, $"{root}/admin/services/{bare}/srid{FolderQuery(qualified)}", token!,
             JsonSerializer.Serialize(new { srid = 0 }));
 
         Assert.Equal(HttpStatusCode.BadRequest, status);

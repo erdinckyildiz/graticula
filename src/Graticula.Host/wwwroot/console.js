@@ -6294,7 +6294,8 @@ async function loadSymbology(name) {
     if (r.service) {
       try {
         const service = await api(
-          `/admin/services/${encodeURIComponent(r.service)}/style`);
+          `/admin/services/${encodeURIComponent(r.service)}/style`
+          + `?folder=${encodeURIComponent(r.serviceFolder || "")}`);
 
         // <b>A banner rather than a sentence appended to the state line.</b> The state line is
         // in the Document tab now, and this fact is not about the document: it says the picture
@@ -8765,18 +8766,28 @@ function drawSymStrip(name, at, trail) {
   // It used to be stamped by the service page's Symbology tab, and that tab is gone: the override
   // now lives at the foot of this rail. A button addressed by whichever screen was drawn last is
   // the defect this control has already had twice.
+  //
+  // <b>And its folder, because a name is not an address</b> — D-275. These routes matched the name
+  // alone until 2026-09-29, so `a/roads` and `b/roads` were one service to them; the server now
+  // reads `?folder=` as every other service route does, and an absent one means the root.
   if (at && at.bare) {
     for (const attribute of ["data-style", "data-style-put", "data-style-del"]) {
       const node = document.querySelector(`#serviceStyle [${attribute}]`);
 
-      if (node) node.setAttribute(attribute, at.bare);
+      if (node) {
+        node.setAttribute(attribute, at.bare);
+        node.setAttribute("data-folder", at.folder || "");
+      }
     }
 
     // The sprite sheet beside it, stamped the same way and for the same reason (ADR-092).
     for (const attribute of ["data-sprite", "data-sprite-put", "data-sprite-del"]) {
       const node = document.querySelector(`#serviceSprite [${attribute}]`);
 
-      if (node) node.setAttribute(attribute, at.bare);
+      if (node) {
+        node.setAttribute(attribute, at.bare);
+        node.setAttribute("data-folder", at.folder || "");
+      }
     }
   }
 
@@ -10088,6 +10099,7 @@ async function loadServices() {
               : "Answer 503 for every operation on this service, without changing who may call it"}"
             ><span class="ico" aria-hidden="true">${stopped ? "▶" : "■"}</span>${stopped ? "Start" : "Stop"}</button>` : `
           <button class="tiny" data-service-status="${h(r.cover ? r.cover.name : "")}"
+            data-service-qualified="${h(r.qualified || "")}"
             data-to="${stopped ? "start" : "stop"}"
             ${r.cover ? "" : "disabled"}
             title="${stopped ? "Serve this again"
@@ -19969,7 +19981,8 @@ async function handleClick(event) {
 
   if (d.style) {
     try {
-      const r = await api(`/admin/services/${encodeURIComponent(d.style)}/style`);
+      const r = await api(`/admin/services/${encodeURIComponent(d.style)}/style`
+        + `?folder=${encodeURIComponent(d.folder || "")}`);
       // <b>Two different bodies from one endpoint, and putting the wrong one in
       // the box would be a trap.</b> With a style stored, the response *is* the
       // document, byte for byte. With none stored it is a wrapper saying so —
@@ -20219,7 +20232,8 @@ async function handleClick(event) {
 
   if (d.stylePut) {
     try {
-      const r = await api(`/admin/services/${encodeURIComponent(d.stylePut)}/style`, {
+      const r = await api(`/admin/services/${encodeURIComponent(d.stylePut)}/style`
+        + `?folder=${encodeURIComponent(d.folder || "")}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: $("styleDoc").value,
@@ -20232,8 +20246,8 @@ async function handleClick(event) {
 
   if (d.styleDel) {
     try {
-      const r = await api(`/admin/services/${encodeURIComponent(d.styleDel)}/style`,
-        { method: "DELETE" });
+      const r = await api(`/admin/services/${encodeURIComponent(d.styleDel)}/style`
+        + `?folder=${encodeURIComponent(d.folder || "")}`, { method: "DELETE" });
       $("styleDoc").value = "";
       styleState(false, r.note);
       toast(r.note || "Back to the composition.", true);
@@ -20247,7 +20261,8 @@ async function handleClick(event) {
   if (d.sprite) {
     spriteRefused(null);
     try {
-      spriteState(await api(`/admin/services/${encodeURIComponent(d.sprite)}/sprite`));
+      spriteState(await api(`/admin/services/${encodeURIComponent(d.sprite)}/sprite`
+        + `?folder=${encodeURIComponent(d.folder || "")}`));
     } catch (e) { spriteRefused(e.message); }
     return;
   }
@@ -20279,7 +20294,8 @@ async function handleClick(event) {
         const form = new FormData();
         form.append("index", json);
         form.append("image", png);
-        return api(`/admin/services/${encodeURIComponent(d.spritePut)}/sprite?ratio=${ratio}`,
+        return api(`/admin/services/${encodeURIComponent(d.spritePut)}/sprite`
+          + `?folder=${encodeURIComponent(d.folder || "")}&ratio=${ratio}`,
           { method: "PUT", body: form });
       };
 
@@ -20290,7 +20306,8 @@ async function handleClick(event) {
       toast(`${one.name}: sprite sheet ${one.replaced ? "replaced" : "stored"}, ${num(one.icons)} icon${
         one.icons === 1 ? "" : "s"}${two ? `, and the @2x sheet with ${num(two.icons)}` : ""}.`, true);
 
-      spriteState(await api(`/admin/services/${encodeURIComponent(d.spritePut)}/sprite`));
+      spriteState(await api(`/admin/services/${encodeURIComponent(d.spritePut)}/sprite`
+        + `?folder=${encodeURIComponent(d.folder || "")}`));
     } catch (e) { spriteRefused(e.message); }
 
     t.disabled = false;
@@ -20305,8 +20322,8 @@ async function handleClick(event) {
     t.disabled = true;
 
     try {
-      const r = await api(`/admin/services/${encodeURIComponent(d.spriteDel)}/sprite`,
-        { method: "DELETE" });
+      const r = await api(`/admin/services/${encodeURIComponent(d.spriteDel)}/sprite`
+        + `?folder=${encodeURIComponent(d.folder || "")}`, { method: "DELETE" });
       spriteState({ stored: false });
       toast(r.note, true);
     } catch (e) { spriteRefused(e.message); }
@@ -20324,7 +20341,11 @@ async function handleClick(event) {
   if (d.serviceStatus) {
     t.disabled = true;
     try {
-      const r = await api(`/admin/layers/${encodeURIComponent(d.serviceStatus)}/${d.to}`,
+      // <b>`?service=` names which layer of that name</b>: the route resolves one layer as every
+      // layer route does (D-109), and since D-276 it no longer stops every service that happens to
+      // hold a layer of this name — so an ambiguous one is refused unless the row says whose it is.
+      const r = await api(`/admin/layers/${encodeURIComponent(d.serviceStatus)}/${d.to}`
+        + (d.serviceQualified ? `?service=${encodeURIComponent(d.serviceQualified)}` : ""),
         { method: "POST" });
       if (r.to === "stopped") hide(d.serviceStatus);
       toast(`${d.serviceStatus}: ${r.from} → ${r.to}. ${r.note}`, true);

@@ -231,7 +231,7 @@ public sealed class TheMapFacesPublishWhatTheServiceChoseTests : ArcGisClient
         try
         {
             (HttpStatusCode set, string said) = await RequestAsync(
-                HttpMethod.Put, $"{root}/admin/services/{bare}/srid", token!,
+                HttpMethod.Put, $"{root}/admin/services/{bare}/srid{FolderQuery(qualified)}", token!,
                 JsonSerializer.Serialize(new { srid = other }));
 
             Assert.True(
@@ -361,7 +361,7 @@ public sealed class TheMapFacesPublishWhatTheServiceChoseTests : ArcGisClient
         finally
         {
             await RequestAsync(
-                HttpMethod.Put, $"{root}/admin/services/{bare}/srid", token!,
+                HttpMethod.Put, $"{root}/admin/services/{bare}/srid{FolderQuery(qualified)}", token!,
                 JsonSerializer.Serialize(new { srid = (int?)null }));
         }
 

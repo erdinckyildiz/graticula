@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>a761c60</code> · 2026-09-29 00:12</p>
+<p class="stamp">Generated from commit <code>0f8d687</code> · 2026-09-29 01:07</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">92</div><div class="kpi-l">ADRs</div><div class="kpi-n">19 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">233/309</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">73 live · 3 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">160 answered</div></div>
-<div class="kpi "><div class="kpi-v">6</div><div class="kpi-l">open debts</div><div class="kpi-n">257 repaid · 6 waiting on a trigger · 1 partly</div></div>
+<div class="kpi "><div class="kpi-v">6</div><div class="kpi-l">open debts</div><div class="kpi-n">259 repaid · 6 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">3673</div><div class="kpi-l">tests</div><div class="kpi-n">359 source files, 156,385 lines</div></div>
+<div class="kpi good"><div class="kpi-v">3677</div><div class="kpi-l">tests</div><div class="kpi-n">359 source files, 156,635 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -310,7 +310,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-267</td><td>A layer&#x27;s visible range is measured once, at publish (ADR-070), and a layer published before it has none.</td><td class="muted-t">A layer whose data grows past its range — a tile at its first drawn level measured over 10,000 features, or a slow-tile…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-270</td><td>ADR-064&#x27;s per-feature ownership is unreachable and kept.</td><td class="muted-t">When somebody asks for that setting — then it is wired to a per-layer flag and this closes; or at the next ADR-064…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">257 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
+<p class="sub">259 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -408,8 +408,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">964</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.8%"></div></div><div class="bar-n">625</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:59.8%"></div></div><div class="bar-n">576</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:50.0%"></div></div><div class="bar-n">482</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:60.0%"></div></div><div class="bar-n">578</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:50.2%"></div></div><div class="bar-n">484</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:27.4%"></div></div><div class="bar-n">264</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:22.1%"></div></div><div class="bar-n">213</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:20.4%"></div></div><div class="bar-n">197</div></div>
@@ -421,6 +421,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>0f8d687</code><time>2026-09-29</time><span>A tile&#x27;s ETag is weak, because a compressed tile is not byte-identical</span></li>
+<li><code>738e461</code><time>2026-09-29</time><span>A vector tile service can carry an uploaded sprite sheet, so a style may draw icons</span></li>
 <li><code>a761c60</code><time>2026-09-29</time><span>The tile pipeline&#x27;s recorded hash follows a comment, and its version does not move</span></li>
 <li><code>59266bd</code><time>2026-09-28</time><span>Vector tiles, glyphs and pbf query answers are compressed, because the benchmark said so</span></li>
 <li><code>eec54dd</code><time>2026-09-28</time><span>Three statements about vector tiles that stopped being true are corrected</span></li>
@@ -433,8 +435,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>5ca54be</code><time>2026-09-27</time><span>A GlobalID can be filtered on again, on every face</span></li>
 <li><code>644e0dd</code><time>2026-09-27</time><span>A stored style that outlives its service&#x27;s layers is not served</span></li>
 <li><code>1e3aee8</code><time>2026-09-25</time><span>The primary button&#x27;s contrast check measures a flat colour, not only a gradient</span></li>
-<li><code>566db5f</code><time>2026-09-25</time><span>The console reads as an operations tool: flat surfaces, one teal, and four display faults fixed</span></li>
-<li><code>bdb3c60</code><time>2026-09-25</time><span>The console&#x27;s files are revalidated, so a page and its stylesheet are one release</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

@@ -407,8 +407,17 @@ public enum Removal
 /// <param name="ServiceName">The service holding it, for the URL a caller builds.</param>
 /// <param name="Geometry">What it holds, which decides what a paint property means.</param>
 /// <param name="Symbology">The canonical document, or null for the generated appearance.</param>
+/// <param name="ServiceFolder">
+/// The service's folder, or null for the root, so a caller that goes on to the service's own
+/// routes can address it: the name alone reaches every folder's service of that name
+/// ([D-275](../../../docs/architecture-debt.md)).
+/// </param>
 public readonly record struct SymbolisedLayer(
-    string Name, string ServiceName, GeometryKind Geometry, string? Symbology);
+    string Name,
+    string ServiceName,
+    GeometryKind Geometry,
+    string? Symbology,
+    string? ServiceFolder = null);
 
 /// <summary>
 /// A service and the style stored against it.
@@ -605,27 +614,36 @@ public interface IAdminCatalog
         LayerPublication publication, Guid owner, CancellationToken cancellationToken);
 
     /// <summary>Sets how long a layer's tiles stay fresh.</summary>
-    /// <param name="name">The layer's name.</param>
+    /// <param name="layerId">The layer, by catalogue id.</param>
     /// <param name="seconds">Seconds, or null to fall back to the server default.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>Whether the layer existed.</returns>
     /// <remarks>
+    /// <para>
     /// <b>No purge afterwards, deliberately.</b> Changing how long a tile stays
     /// fresh does not make any cached byte wrong — it changes when the next read
     /// decides an entry is stale. Purging would throw away a seeded pyramid to
     /// apply a number that does not affect content, which is the same reasoning
     /// [ADR-010](../../../docs/adr/ADR-010-caching.md) §5.1 gets right for
     /// sharing changes and would get wrong here.
+    /// </para>
+    /// <para>
+    /// <b>By id since [D-276](../../../docs/architecture-debt.md).</b> It took the layer's name, and a
+    /// name is not unique ([D-109](../../../docs/architecture-debt.md)): the endpoint resolved one
+    /// layer — <c>?service=</c> chooses among several — asked whether the caller owned <em>that</em>
+    /// one, and this then wrote every layer of the name in every service.
+    /// </para>
     /// </remarks>
     Task<bool> SetCacheLifetimeAsync(
-        string name, int? seconds, CancellationToken cancellationToken);
+        Guid layerId, int? seconds, CancellationToken cancellationToken);
 
     /// <summary>Declares which column carries a layer's time, or clears the declaration.</summary>
-    /// <param name="name">The layer.</param>
+    /// <param name="layerId">The layer, by catalogue id.</param>
     /// <param name="field">The column, or null to go back to deriving it.</param>
     /// <param name="cancellationToken">Cancellation.</param>
-    /// <returns>Whether a layer of that name was found.</returns>
+    /// <returns>Whether the layer was found.</returns>
     /// <remarks>
+    /// <para>
     /// <b>[Q-129](../../../docs/open-questions.md), and the column is not checked
     /// here.</b> A registered table's schema drifts under us (A-023), so a
     /// declaration that is valid at the moment it is written can stop being valid
@@ -633,9 +651,16 @@ public interface IAdminCatalog
     /// fields and says so; the dimension checks it again on every read and falls back
     /// to the derivation. Storing it unchecked is what lets a publisher declare a
     /// column ahead of a schema change instead of after it.
+    /// </para>
+    /// <para>
+    /// <b>By id since [D-276](../../../docs/architecture-debt.md).</b> It took the layer's name, and a
+    /// name is not unique ([D-109](../../../docs/architecture-debt.md)): the endpoint resolved one
+    /// layer — <c>?service=</c> chooses among several — asked whether the caller owned <em>that</em>
+    /// one, and this then wrote every layer of the name in every service.
+    /// </para>
     /// </remarks>
     Task<bool> SetTimeFieldAsync(
-        string name, string? field, CancellationToken cancellationToken);
+        Guid layerId, string? field, CancellationToken cancellationToken);
 
     /// <summary>Stores the scales a layer draws at — ADR-070.</summary>
     /// <param name="id">The layer — by id, because a name may belong to layers in several services.</param>
@@ -687,10 +712,20 @@ public interface IAdminCatalog
     Task<IReadOnlyList<AdminLayer>> ListLayersAsync(CancellationToken cancellationToken);
 
     /// <summary>Finds a service and the layer names a style may draw.</summary>
-    /// <param name="name">The service name.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="name">The service name within that folder.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The service, or null.</returns>
-    Task<StyledService?> FindServiceForStyleAsync(string name, CancellationToken cancellationToken);
+    /// <remarks>
+    /// <b>[D-275](../../../docs/architecture-debt.md): addressed by folder and name, because a name
+    /// alone is not an address.</b> <c>service_name_in_folder_ci</c> makes a name unique within its
+    /// folder and nowhere else, and this lookup and the writes below it matched the name alone — so
+    /// with <c>a/roads</c> and <c>b/roads</c> both published, the handler checked who owned the
+    /// first row it was given and the write then touched both. Null means the root, never *any
+    /// folder*: a lookup that searched every folder is the defect, not a convenience.
+    /// </remarks>
+    Task<StyledService?> FindServiceForStyleAsync(
+        string? folder, string name, CancellationToken cancellationToken);
 
     /// <summary>
     /// Stores a style against a service, or clears it.
@@ -700,30 +735,35 @@ public interface IAdminCatalog
     /// checks live in <c>StyleDocument</c> where the caller can be told which
     /// line is wrong.
     /// </remarks>
-    /// <param name="name">The service name.</param>
+    /// <param name="folder">The service's folder, or null for the root.</param>
+    /// <param name="name">The service name within that folder.</param>
     /// <param name="style">The document, or null to go back to the default.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>True when a service was found and written.</returns>
-    Task<bool> SetStyleAsync(string name, string? style, CancellationToken cancellationToken);
+    Task<bool> SetStyleAsync(
+        string? folder, string name, string? style, CancellationToken cancellationToken);
 
     /// <summary>
     /// A service's sprite sheets, without their pictures — ADR-092.
     /// </summary>
+    /// <param name="folder">The service's folder, or null for the root.</param>
     /// <param name="name">The service name, matched as <see cref="FindServiceForStyleAsync"/> matches it.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>Each stored sheet, ratio 1 first; empty when there are none or no such service.</returns>
-    Task<IReadOnlyList<StoredSprite>> ListSpritesAsync(string name, CancellationToken cancellationToken);
+    Task<IReadOnlyList<StoredSprite>> ListSpritesAsync(
+        string? folder, string name, CancellationToken cancellationToken);
 
     /// <summary>
     /// One of a service's sprite sheets, with or without its picture — ADR-092.
     /// </summary>
+    /// <param name="folder">The service's folder, or null for the root.</param>
     /// <param name="name">The service name.</param>
     /// <param name="pixelRatio">1, or 2 for the <c>@2x</c> sheet.</param>
     /// <param name="withImage">Whether to read the picture's bytes.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The sheet, or null when that ratio is not stored.</returns>
     Task<StoredSprite?> FindSpriteAsync(
-        string name, int pixelRatio, bool withImage, CancellationToken cancellationToken);
+        string? folder, string name, int pixelRatio, bool withImage, CancellationToken cancellationToken);
 
     /// <summary>
     /// Stores one of a service's sprite sheets, replacing that ratio's if there is one.
@@ -732,6 +772,7 @@ public interface IAdminCatalog
     /// <b>Validated before it gets here</b>, as a style is: the checks live in <c>SpriteSheet</c>,
     /// where the caller can be told which icon is wrong. The table's constraints repeat the bounds.
     /// </remarks>
+    /// <param name="folder">The service's folder, or null for the root.</param>
     /// <param name="name">The service name.</param>
     /// <param name="pixelRatio">1, or 2 for the <c>@2x</c> sheet.</param>
     /// <param name="index">The index, as it was uploaded.</param>
@@ -739,13 +780,19 @@ public interface IAdminCatalog
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>True when a service was found and written.</returns>
     Task<bool> SetSpriteAsync(
-        string name, int pixelRatio, string index, byte[] image, CancellationToken cancellationToken);
+        string? folder,
+        string name,
+        int pixelRatio,
+        string index,
+        byte[] image,
+        CancellationToken cancellationToken);
 
     /// <summary>Removes every sprite sheet a service has.</summary>
+    /// <param name="folder">The service's folder, or null for the root.</param>
     /// <param name="name">The service name.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>How many sheets were removed.</returns>
-    Task<int> DeleteSpritesAsync(string name, CancellationToken cancellationToken);
+    Task<int> DeleteSpritesAsync(string? folder, string name, CancellationToken cancellationToken);
 
     /// <summary>
     /// Removes every service that holds nothing, and reports which.
@@ -784,27 +831,36 @@ public interface IAdminCatalog
     Task<IReadOnlyList<string>> SweepEmptyServicesAsync(CancellationToken cancellationToken);
 
     /// <summary>Finds a layer and the symbology stored against it.</summary>
-    /// <param name="name">The layer name.</param>
+    /// <param name="layerId">The layer, by catalogue id — resolved from its name first, where an
+    /// ambiguous name is refused rather than guessed (D-109).</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The layer, or null.</returns>
     Task<SymbolisedLayer?> FindLayerForSymbologyAsync(
-        string name, CancellationToken cancellationToken);
+        Guid layerId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Stores a canonical symbology document against a layer, or clears it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>Normalised and validated before it gets here</b>, by
     /// <c>SymbologyConversion.Read</c> — which is also where the losses are collected,
     /// because the caller is the only one who can be told about them. This writes what
     /// it is given, byte for byte, so that what comes back out is what went in.
+    /// </para>
+    /// <para>
+    /// <b>By id since [D-276](../../../docs/architecture-debt.md).</b> It took the layer's name, and a
+    /// name is not unique ([D-109](../../../docs/architecture-debt.md)): the endpoint resolved one
+    /// layer — <c>?service=</c> chooses among several — asked whether the caller owned <em>that</em>
+    /// one, and this then wrote every layer of the name in every service.
+    /// </para>
     /// </remarks>
-    /// <param name="name">The layer name.</param>
+    /// <param name="layerId">The layer, by catalogue id.</param>
     /// <param name="canonical">The document, or null for the generated appearance.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>True when a layer was found and written.</returns>
     Task<bool> SetSymbologyAsync(
-        string name, string? canonical, CancellationToken cancellationToken);
+        Guid layerId, string? canonical, CancellationToken cancellationToken);
 
     /// <summary>
     /// Stores what a service is configured to offer — a ceiling, never a grant.
@@ -894,9 +950,9 @@ public interface IAdminCatalog
     Task<IReadOnlyList<AdminService>> ListServicesAsync(CancellationToken cancellationToken);
 
     /// <summary>Moves a service's change stamp, without changing anything else.</summary>
-    /// <param name="name">The service.</param>
+    /// <param name="serviceId">The service, by catalogue id.</param>
     /// <param name="cancellationToken">Cancellation.</param>
-    /// <returns>Whether a service of that name was found.</returns>
+    /// <returns>Whether the service was found.</returns>
     /// <remarks>
     /// <para>
     /// <b>[ADR-058](../../../docs/adr/ADR-058-the-datastore-schema-is-edited-from-the-screen.md)
@@ -912,8 +968,15 @@ public interface IAdminCatalog
     /// is *something about this service is different now*, and hiding it inside an unrelated
     /// update would make the next reader look for the change it made.
     /// </para>
+    /// <para>
+    /// <b>By id since [D-275](../../../docs/architecture-debt.md).</b> It took a bare name and
+    /// stamped every service of that name in every folder, so changing one hosted layer's schema
+    /// marked a same-named service elsewhere as changed too. The one caller holds the layer, and the
+    /// layer carries its service's id — the shape [D-109](../../../docs/architecture-debt.md) gave
+    /// <see cref="UnpublishLayerAsync"/> for the same reason.
+    /// </para>
     /// </remarks>
-    Task<bool> TouchServiceAsync(string name, CancellationToken cancellationToken);
+    Task<bool> TouchServiceAsync(Guid serviceId, CancellationToken cancellationToken);
 
     /// <summary>What already occupies a folder and a name, or null when nothing does.</summary>
     /// <param name="folder">The folder, or null for the root.</param>
@@ -1018,17 +1081,41 @@ public interface IAdminCatalog
         CancellationToken cancellationToken);
 
     /// <summary>Changes a service's sharing scope, addressed by one of its layers.</summary>
-    /// <param name="layerName">A layer in the service.</param>
+    /// <param name="layerId">A layer in the service, by catalogue id.</param>
     /// <param name="sharing">The new scope.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The layer as it was before, or null if there is no such layer.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>By id since [D-276](../../../docs/architecture-debt.md).</b> It took the layer's name, and a
+    /// name is not unique ([D-109](../../../docs/architecture-debt.md)): the endpoint resolved one
+    /// layer — <c>?service=</c> chooses among several — asked whether the caller owned <em>that</em>
+    /// one, and this then wrote every layer of the name in every service.
+    /// </para>
+    /// <para>
+    /// <b>This one was the dangerous member of the family</b>, because what it writes is who may
+    /// read: a publisher owning <c>a/roads</c> could name it with <c>?service=</c> and publish
+    /// every other service holding a layer called <c>roads</c>.
+    /// </para>
+    /// </remarks>
     Task<AdminLayer?> SetSharingAsync(
-        string layerName, SharingScope sharing, CancellationToken cancellationToken);
+        Guid layerId, SharingScope sharing, CancellationToken cancellationToken);
 
     /// <summary>Starts or stops a service (ADR-020 §3).</summary>
+    /// <param name="layerId">A layer in the service, by catalogue id.</param>
+    /// <param name="status">The new status.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The status it had before, or null if there is no such layer.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>By id since [D-276](../../../docs/architecture-debt.md).</b> It took the layer's name, and a
+    /// name is not unique ([D-109](../../../docs/architecture-debt.md)): the endpoint resolved one
+    /// layer — <c>?service=</c> chooses among several — asked whether the caller owned <em>that</em>
+    /// one, and this then wrote every layer of the name in every service.
+    /// </para>
+    /// </remarks>
     Task<ServiceStatus?> SetStatusAsync(
-        string layerName, ServiceStatus status, CancellationToken cancellationToken);
+        Guid layerId, ServiceStatus status, CancellationToken cancellationToken);
 
     /// <summary>Removes a published layer. The data is untouched.</summary>
     /// <param name="layerId">

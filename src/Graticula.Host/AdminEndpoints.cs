@@ -585,10 +585,12 @@ internal static partial class AdminEndpoints
         MapThumbnails(app);      // ADR-071 — AdminEndpoints.Thumbnails.cs
         MapHistory(app);         // ADR-078 — AdminEndpoints.History.cs
         MapSprite(app);          // ADR-092 — AdminEndpoints.Sprite.cs
-        app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
-            SetStatusAsync(c, name, ServiceStatus.Started, a, l, t));
-        app.MapPost("/admin/layers/{name}/stop", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
-            SetStatusAsync(c, name, ServiceStatus.Stopped, a, l, t));
+        app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a,
+            PostgresLayerCatalog p, IAuditLog l, CancellationToken t) =>
+            SetStatusAsync(c, name, ServiceStatus.Started, a, p, l, t));
+        app.MapPost("/admin/layers/{name}/stop", (HttpContext c, string name, IAdminCatalog a,
+            PostgresLayerCatalog p, IAuditLog l, CancellationToken t) =>
+            SetStatusAsync(c, name, ServiceStatus.Stopped, a, p, l, t));
         app.MapDelete("/admin/layers/{name}", UnpublishAsync);
         app.MapPost("/admin/layers/{name}/refresh", RefreshAsync);
 
@@ -2819,8 +2821,10 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        // ADR-075: whose layer it is — the privilege above never asked.
-        if (await ManagedLayerAsync(context, owners, name, "set the cache lifetime of", cancellation).ConfigureAwait(false) is null)
+        // ADR-075: whose layer it is — the privilege above never asked. And the write below takes the
+        // layer this answered with, not its name: D-276.
+        if (await ManagedLayerAsync(context, owners, name, "set the cache lifetime of", cancellation).ConfigureAwait(false)
+            is not { } layer)
         {
             return;
         }
@@ -2833,7 +2837,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (!await catalog.SetCacheLifetimeAsync(name, request.Seconds, cancellation)
+        if (!await catalog.SetCacheLifetimeAsync(layer.Id, request.Seconds, cancellation)
             .ConfigureAwait(false))
         {
             await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
@@ -2933,7 +2937,8 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (!await catalog.SetTimeFieldAsync(name, field, cancellation).ConfigureAwait(false))
+        // The layer the check answered with, not its name — D-276.
+        if (!await catalog.SetTimeFieldAsync(layer.Id, field, cancellation).ConfigureAwait(false))
         {
             await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
             return;
@@ -3052,13 +3057,15 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        // Sharing governs reading, on this surface too — ADR-018 §3b.
-        if (await ReadableLayerAsync(context, owners, name, cancellation).ConfigureAwait(false) is null)
+        // Sharing governs reading, on this surface too — ADR-018 §3b. And the document read is the
+        // one this check answered for: a name read on its own took the first layer of several (D-276).
+        if (await ReadableLayerAsync(context, owners, name, cancellation).ConfigureAwait(false)
+            is not { } readable)
         {
             return;
         }
 
-        if (await catalog.FindLayerForSymbologyAsync(name, cancellation).ConfigureAwait(false)
+        if (await catalog.FindLayerForSymbologyAsync(readable.Id, cancellation).ConfigureAwait(false)
             is not { } layer)
         {
             await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
@@ -3071,6 +3078,7 @@ internal static partial class AdminEndpoints
             {
                 name = layer.Name,
                 service = layer.ServiceName,
+                serviceFolder = layer.ServiceFolder,
                 geometry = layer.Geometry.ToString(),
                 stored = false,
 
@@ -3111,6 +3119,7 @@ internal static partial class AdminEndpoints
             {
                 name = layer.Name,
                 service = layer.ServiceName,
+                serviceFolder = layer.ServiceFolder,
                 geometry = layer.Geometry.ToString(),
                 stored = true,
                 version = 1,
@@ -3129,6 +3138,7 @@ internal static partial class AdminEndpoints
         {
             name = layer.Name,
             service = layer.ServiceName,
+            serviceFolder = layer.ServiceFolder,
             geometry = layer.Geometry.ToString(),
             stored = true,
             version = 1,
@@ -3209,7 +3219,17 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await catalog.FindLayerForSymbologyAsync(name, cancellation).ConfigureAwait(false)
+        // <b>Resolved first, and read by what it resolved to — D-276.</b> The name was read on its own
+        // here and the layer resolved again further down, so with two layers of one name the classes
+        // could be built from one layer's rows and the other's geometry. Resolving first also means a
+        // layer the caller may not read is refused before its field is judged.
+        if (await ReadableLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
+            is not { } layer)
+        {
+            return;
+        }
+
+        if (await catalog.FindLayerForSymbologyAsync(layer.Id, cancellation).ConfigureAwait(false)
             is not { } symbolised)
         {
             await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
@@ -3283,12 +3303,6 @@ internal static partial class AdminEndpoints
         catch (SymbologyException badNumber)
         {
             await Refuse(context, 400, badNumber.Message).ConfigureAwait(false);
-            return;
-        }
-
-        if (await ReadableLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
-            is not { } layer)
-        {
             return;
         }
 
@@ -3512,7 +3526,14 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await catalog.FindLayerForSymbologyAsync(name, cancellation).ConfigureAwait(false)
+        // Resolved first and read by what it resolved to, as the classifier above is — D-276.
+        if (await ReadableLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
+            is not { } layer)
+        {
+            return;
+        }
+
+        if (await catalog.FindLayerForSymbologyAsync(layer.Id, cancellation).ConfigureAwait(false)
             is not { } symbolised)
         {
             await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
@@ -3539,12 +3560,6 @@ internal static partial class AdminEndpoints
                 await Refuse(context, 400, why.Message).ConfigureAwait(false);
                 return;
             }
-        }
-
-        if (await ReadableLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
-            is not { } layer)
-        {
-            return;
         }
 
         (Graticula.Features.IFeatureSource source,
@@ -3779,13 +3794,16 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        // ADR-075: whose layer it is — the privilege above never asked.
-        if (await ManagedLayerAsync(context, published, name, "restyle", cancellation).ConfigureAwait(false) is null)
+        // ADR-075: whose layer it is — the privilege above never asked. The read and the write below
+        // take the layer this answered with: by name they reached every layer called that, whoever
+        // owned it (D-276).
+        if (await ManagedLayerAsync(context, published, name, "restyle", cancellation).ConfigureAwait(false)
+            is not { } owned)
         {
             return;
         }
 
-        if (await catalog.FindLayerForSymbologyAsync(name, cancellation).ConfigureAwait(false)
+        if (await catalog.FindLayerForSymbologyAsync(owned.Id, cancellation).ConfigureAwait(false)
             is not { } layer)
         {
             await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
@@ -3875,7 +3893,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (!await catalog.SetSymbologyAsync(name, written.Canonical, cancellation)
+        if (!await catalog.SetSymbologyAsync(owned.Id, written.Canonical, cancellation)
                 .ConfigureAwait(false))
         {
             await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
@@ -3912,6 +3930,7 @@ internal static partial class AdminEndpoints
         {
             name = layer.Name,
             service = layer.ServiceName,
+            serviceFolder = layer.ServiceFolder,
             geometry = layer.Geometry.ToString(),
             from = written.Source,
             bytes = written.Canonical.Length,
@@ -3951,13 +3970,16 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        // ADR-075: whose layer it is — the privilege above never asked.
-        if (await ManagedLayerAsync(context, published, name, "reset the symbology of", cancellation).ConfigureAwait(false) is null)
+        // ADR-075: whose layer it is — the privilege above never asked. The read and the write below
+        // take the layer this answered with: by name they reached every layer called that, whoever
+        // owned it (D-276).
+        if (await ManagedLayerAsync(context, published, name, "reset the symbology of", cancellation).ConfigureAwait(false)
+            is not { } owned)
         {
             return;
         }
 
-        if (await catalog.FindLayerForSymbologyAsync(name, cancellation).ConfigureAwait(false)
+        if (await catalog.FindLayerForSymbologyAsync(owned.Id, cancellation).ConfigureAwait(false)
             is not { } layer)
         {
             await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
@@ -3966,7 +3988,7 @@ internal static partial class AdminEndpoints
 
         bool had = layer.Symbology is not null;
 
-        if (!await catalog.SetSymbologyAsync(name, null, cancellation).ConfigureAwait(false))
+        if (!await catalog.SetSymbologyAsync(owned.Id, null, cancellation).ConfigureAwait(false))
         {
             await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
             return;
@@ -3994,6 +4016,7 @@ internal static partial class AdminEndpoints
     private static async Task GetStyleAsync(
         HttpContext context,
         string name,
+        string? folder,
         IAdminCatalog catalog,
         PostgresLayerCatalog owners,
         CancellationToken cancellation)
@@ -4004,10 +4027,12 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await catalog.FindServiceForStyleAsync(name, cancellation).ConfigureAwait(false)
+        string? at = FolderOf(folder);
+
+        if (await catalog.FindServiceForStyleAsync(at, name, cancellation).ConfigureAwait(false)
             is not { } service)
         {
-            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
             return;
         }
 
@@ -4019,7 +4044,7 @@ internal static partial class AdminEndpoints
                     context.Features.Get<RequestPrincipal>()!.Authorization,
                     readable.SharedWith).IsAllowed())
         {
-            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
             return;
         }
 
@@ -4028,6 +4053,7 @@ internal static partial class AdminEndpoints
             await Results.Json(new
             {
                 name = service.Name,
+                folder = service.Folder,
                 stored = false,
                 sourceLayers = service.SourceLayers,
                 // <b>This sentence said "one colour per geometry type" until 2026-08-17</b>,
@@ -4050,7 +4076,7 @@ internal static partial class AdminEndpoints
         if (!StyleDocument.TryValidate(
                 service.Style,
                 service.SourceLayers,
-                await SpriteIconsAsync(catalog, service.Name, cancellation).ConfigureAwait(false),
+                await SpriteIconsAsync(catalog, service.Folder, service.Name, cancellation).ConfigureAwait(false),
                 out string? stale))
         {
             context.Response.Headers["Graticula-Style-Stale"] =
@@ -4083,6 +4109,7 @@ internal static partial class AdminEndpoints
     private static async Task SetStyleAsync(
         HttpContext context,
         string name,
+        string? folder,
         IAdminCatalog catalog,
         IAuditLog audit,
         PostgresLayerCatalog owners,
@@ -4094,10 +4121,17 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await catalog.FindServiceForStyleAsync(name, cancellation).ConfigureAwait(false)
+        string? at = FolderOf(folder);
+
+        // <b>[D-275](../../docs/architecture-debt.md): the folder is part of the address.</b> This
+        // looked the service up by name alone and took the first row, asked below whether the caller
+        // owned it, and then stored the style against every service of that name in every folder — so
+        // a publisher who owned `a/roads` restyled `b/roads`. The lookup, the check and the write now
+        // all name the one service the request named.
+        if (await catalog.FindServiceForStyleAsync(at, name, cancellation).ConfigureAwait(false)
             is not { } service)
         {
-            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
             return;
         }
 
@@ -4134,16 +4168,16 @@ internal static partial class AdminEndpoints
         if (!StyleDocument.TryValidate(
                 body,
                 service.SourceLayers,
-                await SpriteIconsAsync(catalog, service.Name, cancellation).ConfigureAwait(false),
+                await SpriteIconsAsync(catalog, service.Folder, service.Name, cancellation).ConfigureAwait(false),
                 out string? error))
         {
             await Refuse(context, 400, error!).ConfigureAwait(false);
             return;
         }
 
-        if (!await catalog.SetStyleAsync(name, body, cancellation).ConfigureAwait(false))
+        if (!await catalog.SetStyleAsync(service.Folder, service.Name, body, cancellation).ConfigureAwait(false))
         {
-            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
             return;
         }
 
@@ -4152,12 +4186,13 @@ internal static partial class AdminEndpoints
         // subject is a second place to keep the same thing correct.
         await AuditAsync(
             context, audit, "service.style", name,
-            Detail(new { bytes = body.Length, replaced = service.Style is not null }),
+            Detail(new { folder = service.Folder, bytes = body.Length, replaced = service.Style is not null }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
         await Results.Json(new
         {
             name = service.Name,
+            folder = service.Folder,
             stored = true,
             bytes = body.Length,
             replaced = service.Style is not null,
@@ -4221,6 +4256,34 @@ internal static partial class AdminEndpoints
 
         return true;
     }
+
+    /// <summary>The folder a request named, or null for the root.</summary>
+    /// <param name="folder">The <c>?folder=</c> value as it arrived.</param>
+    /// <returns>It trimmed, or null when it is absent or blank.</returns>
+    /// <remarks>
+    /// <b>Absent means the root, and never *any folder*.</b> This is what every route that already
+    /// took a folder did — sharing, start and stop, the capabilities read, the group delete — each
+    /// with its own copy of the one line. [D-275](../../docs/architecture-debt.md) is what a lookup
+    /// that searched every folder cost, so the rule has one spelling here rather than the chance to
+    /// grow a second.
+    /// </remarks>
+    private static string? FolderOf(string? folder) =>
+        string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+    /// <summary>The refusal for a service that is not at the address asked for.</summary>
+    /// <param name="name">The service name.</param>
+    /// <param name="folder">The folder asked for, or null for the root.</param>
+    /// <returns>The sentence, naming the folder.</returns>
+    /// <remarks>
+    /// <b>The folder is named, and at the root the way to name one is said.</b> A caller who
+    /// addressed <c>hosted/roads</c> by its bare name, as these routes used to allow, is now told
+    /// that the root has no <c>roads</c> — which is true and useless unless it also says how to
+    /// ask for the other one.
+    /// </remarks>
+    private static string NoService(string name, string? folder) =>
+        folder is null
+            ? $"No service '{name}' at the root. Pass ?folder= if it is in one, e.g. ?folder=hosted."
+            : $"No service '{name}' in folder '{folder}'.";
 
     /// <summary>
     /// A system service by name, but only when the caller asked for the folder it is in.
@@ -4288,6 +4351,7 @@ internal static partial class AdminEndpoints
     private static async Task DeleteStyleAsync(
         HttpContext context,
         string name,
+        string? folder,
         IAdminCatalog catalog,
         IAuditLog audit,
         PostgresLayerCatalog owners,
@@ -4299,10 +4363,12 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await catalog.FindServiceForStyleAsync(name, cancellation).ConfigureAwait(false)
+        string? at = FolderOf(folder);
+
+        if (await catalog.FindServiceForStyleAsync(at, name, cancellation).ConfigureAwait(false)
             is not { } service)
         {
-            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
             return;
         }
 
@@ -4312,16 +4378,17 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        await catalog.SetStyleAsync(name, null, cancellation).ConfigureAwait(false);
+        await catalog.SetStyleAsync(service.Folder, service.Name, null, cancellation).ConfigureAwait(false);
 
         await AuditAsync(
             context, audit, "service.style.clear", name,
-            Detail(new { had = service.Style is not null }),
+            Detail(new { folder = service.Folder, had = service.Style is not null }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
         await Results.Json(new
         {
             name = service.Name,
+            folder = service.Folder,
             stored = false,
             had = service.Style is not null,
             note = "Back to the generated style.",
@@ -7524,6 +7591,7 @@ internal static partial class AdminEndpoints
     /// </remarks>
     /// <param name="context">The request.</param>
     /// <param name="name">The service.</param>
+    /// <param name="folder">Its folder, from <c>?folder=</c>; absent or empty is the root.</param>
     /// <param name="request">The reference, or null.</param>
     /// <param name="catalog">The catalogue.</param>
     /// <param name="audit">The log.</param>
@@ -7532,6 +7600,7 @@ internal static partial class AdminEndpoints
     private static async Task SetServiceSridAsync(
         HttpContext context,
         string name,
+        string? folder,
         ServiceSridRequest? request,
         IAdminCatalog catalog,
         IAuditLog audit,
@@ -7566,21 +7635,25 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // <b>[D-275](../../docs/architecture-debt.md): one service, not every service of the name.</b>
+        // The statement matched the name alone, so a reference set on `a/roads` was set on `b/roads`.
+        string? at = FolderOf(folder);
+
         bool found = await postgres
-            .SetServiceSridAsync(name, wanted, cancellation)
+            .SetServiceSridAsync(at, name, wanted, cancellation)
             .ConfigureAwait(false);
 
         if (!found)
         {
-            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
             return;
         }
 
         await AuditAsync(
             context, audit, "service.srid", name,
-            Detail(new { srid = wanted }), succeeded: true, cancellation).ConfigureAwait(false);
+            Detail(new { folder = at, srid = wanted }), succeeded: true, cancellation).ConfigureAwait(false);
 
-        await Results.Json(new { name, srid = wanted }).ExecuteAsync(context)
+        await Results.Json(new { name, folder = at, srid = wanted }).ExecuteAsync(context)
             .ConfigureAwait(false);
     }
 
@@ -8778,7 +8851,13 @@ internal static partial class AdminEndpoints
         }
 
         // ADR-075: whose layer it is — the privilege above never asked.
-        if (await ManagedLayerAsync(context, owners, name, "share", cancellation).ConfigureAwait(false) is null)
+        //
+        // <b>[D-276](../../docs/architecture-debt.md): and the write takes the layer this answered
+        // with.</b> It took the name, so a publisher who chose their own `roads` with `?service=`
+        // passed this check and then set the scope of every service holding a layer called `roads` —
+        // which is publishing somebody else's data, with a 200 that named only their own.
+        if (await ManagedLayerAsync(context, owners, name, "share", cancellation).ConfigureAwait(false)
+            is not { } layer)
         {
             return;
         }
@@ -8786,12 +8865,12 @@ internal static partial class AdminEndpoints
         // Read first, so the audit record can say what it was as well as what it
         // became. ADR-017 §5d asks for before and after, and after alone answers
         // "what is it now" — which anybody can see — rather than "what changed".
+        // By id, for the reason above: the first row of that name was not always this layer.
         AdminLayer? before = (await catalog.ListLayersAsync(cancellation).ConfigureAwait(false))
-            .FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.Ordinal)) is
-            { Name: not null } found ? found : null;
+            .FirstOrDefault(l => l.Id == layer.Id) is { Name: not null } found ? found : null;
 
         AdminLayer? after = await catalog
-            .SetSharingAsync(name, scope, cancellation).ConfigureAwait(false);
+            .SetSharingAsync(layer.Id, scope, cancellation).ConfigureAwait(false);
 
         if (after is null)
         {
@@ -10253,6 +10332,7 @@ internal static partial class AdminEndpoints
         string name,
         ServiceStatus status,
         IAdminCatalog catalog,
+        PostgresLayerCatalog layers,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -10262,8 +10342,18 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // <b>One layer, the way every other `/admin/layers/{name}/…` route resolves one — D-276.</b>
+        // This was the one that did not: it wrote by name, so stopping `roads` stopped every service
+        // holding a layer called `roads`, and the answer named one. An ambiguous name is now a 409
+        // listing the services and `?service=` chooses, which is D-109's rule.
+        if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
+            is not { } layer)
+        {
+            return;
+        }
+
         ServiceStatus? previous =
-            await catalog.SetStatusAsync(name, status, cancellation).ConfigureAwait(false);
+            await catalog.SetStatusAsync(layer.Id, status, cancellation).ConfigureAwait(false);
 
         if (previous is null)
         {

@@ -669,14 +669,12 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
     /// <inheritdoc/>
     public async Task<bool> SetCacheLifetimeAsync(
-        string name, int? seconds, CancellationToken cancellationToken)
+        Guid layerId, int? seconds, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "update layer set cache_seconds = @seconds, updated_at = now() where name = @name");
+            "update layer set cache_seconds = @seconds, updated_at = now() where id = @id");
 
-        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("id", layerId);
         command.Parameters.AddWithValue("seconds", (object?)seconds ?? DBNull.Value);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
@@ -698,14 +696,12 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
     /// <inheritdoc/>
     public async Task<bool> SetTimeFieldAsync(
-        string name, string? field, CancellationToken cancellationToken)
+        Guid layerId, string? field, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "update layer set time_field = @field, updated_at = now() where name = @name");
+            "update layer set time_field = @field, updated_at = now() where id = @id");
 
-        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("id", layerId);
         command.Parameters.AddWithValue("field", (object?)field ?? DBNull.Value);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
@@ -807,27 +803,39 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <summary>Sets the reference a service is served in, or clears it.</summary>
-    /// <param name="name">The service.</param>
+    /// <param name="folder">The service's folder, or null for the root.</param>
+    /// <param name="name">The service within that folder.</param>
     /// <param name="srid">The reference, or null for each layer's own.</param>
     /// <param name="cancellationToken">Cancellation.</param>
-    /// <returns>True when a service by that name was found.</returns>
+    /// <returns>True when the service was found.</returns>
     /// <remarks>
+    /// <para>
     /// <b>Null clears rather than leaves alone, and the caller has to be able to say so.</b>
     /// A service that has chosen a reference and wants to stop having one is a real request —
     /// the tables are the answer again — and an API where null means *no change* has no way to
     /// express it. ADR-057 §5c, migration 39.
+    /// </para>
+    /// <para>
+    /// <b>Folder and name, and the folder half was missing until
+    /// [D-275](../../docs/architecture-debt.md).</b> The statement matched the name alone, so
+    /// setting a reference on <c>a/roads</c> set it on <c>b/roads</c> as well. The predicate is
+    /// <c>service_name_in_folder_ci</c>'s own expression, as <see cref="FindServiceAtAsync"/>'s is.
+    /// </para>
     /// </remarks>
     public async Task<bool> SetServiceSridAsync(
-        string name, int? srid, CancellationToken cancellationToken)
+        string? folder, string name, int? srid, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         const string Sql = """
-            update service set srid = @srid where lower(name) = lower(@name)
+            update service set srid = @srid
+             where lower(name) = lower(@name)
+               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
         command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
         command.Parameters.AddWithValue("srid", (object?)srid ?? DBNull.Value);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
@@ -1109,14 +1117,12 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
-    public async Task<bool> TouchServiceAsync(string name, CancellationToken cancellationToken)
+    public async Task<bool> TouchServiceAsync(Guid serviceId, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "update service set updated_at = now() where lower(name) = lower(@name)");
+            "update service set updated_at = now() where id = @id");
 
-        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("id", serviceId);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
@@ -1299,8 +1305,15 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The first row of several was the answer until
+    /// [D-275](../../docs/architecture-debt.md).</b> With no folder in the predicate, two
+    /// same-named services in two folders both matched and the reader took whichever came first —
+    /// so the handler authorised against one service and the name-only write that followed changed
+    /// both. The folder half is the unique index's expression, so at most one row can answer.
+    /// </remarks>
     public async Task<StyledService?> FindServiceForStyleAsync(
-        string name, CancellationToken cancellationToken)
+        string? folder, string name, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
@@ -1310,11 +1323,13 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             from service s
             left join layer l on l.service_id = s.id
             where lower(s.name) = lower(@name)
+              and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '')
             group by s.id, s.name, s.folder, s.style
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
         command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
 
         await using NpgsqlDataReader reader =
             await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -1381,19 +1396,17 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
     /// <inheritdoc/>
     public async Task<SymbolisedLayer?> FindLayerForSymbologyAsync(
-        string name, CancellationToken cancellationToken)
+        Guid layerId, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-
         const string Sql = """
-            select l.name, coalesce(s.name, l.name), l.geometry_type, l.symbology
+            select l.name, coalesce(s.name, l.name), l.geometry_type, l.symbology, s.folder
             from layer l
             left join service s on s.id = l.service_id
-            where lower(l.name) = lower(@name)
+            where l.id = @id
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
-        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("id", layerId);
 
         await using NpgsqlDataReader reader =
             await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -1420,15 +1433,21 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             reader.GetString(0),
             reader.GetString(1),
             geometry,
-            reader.IsDBNull(3) ? null : reader.GetString(3));
+            reader.IsDBNull(3) ? null : reader.GetString(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4));
     }
 
     /// <inheritdoc/>
     public async Task<bool> SetSymbologyAsync(
-        string name, string? canonical, CancellationToken cancellationToken)
+        Guid layerId, string? canonical, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-
+        // <b>By id, because the check in front of this resolved one layer and a name is not
+        // one.</b> [D-275](../../docs/architecture-debt.md): this matched `lower(name)`, so a
+        // publisher who named their own `roads` with `?service=` — which is how D-109 lets an
+        // ambiguous name be chosen — passed the ownership check for that layer and then restyled
+        // every layer called `roads`, in every service, whoever owned them. Case made it worse:
+        // the check matches the name exactly and this matched it without case.
+        //
         // <b>The timestamp moves with the document, including to null.</b> Clearing the
         // symbology is a decision as much as setting one is, and a stamp left behind
         // would say a layer was styled at a time when it was un-styled.
@@ -1444,10 +1463,10 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                    symbology_updated_at =
                      case when @document::text is null then null else now() end,
                    updated_at = now()
-             where lower(name) = lower(@name)
+             where id = @id
             """);
 
-        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("id", layerId);
         command.Parameters.AddWithValue("document", (object?)canonical ?? DBNull.Value);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
@@ -1455,9 +1474,14 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
     /// <inheritdoc/>
     public async Task<bool> SetStyleAsync(
-        string name, string? style, CancellationToken cancellationToken)
+        string? folder, string name, string? style, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        // <b>Folder and name — [D-275](../../docs/architecture-debt.md).</b> The name alone restyled
+        // every service of that name in every folder, after the handler had asked who owned one of
+        // them. This is the index's expression, so it can match one row and no more.
+        //
 
         // <b>style_updated_at moves with the style and is cleared with it</b>, so
         // "when was this styled" cannot outlive the style itself.
@@ -1472,10 +1496,12 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                    style_updated_at =
                      case when @style::text is null then null else now() end
              where lower(name) = lower(@name)
+               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
         command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
         command.Parameters.AddWithValue("style", (object?)style ?? DBNull.Value);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
@@ -1513,7 +1539,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
     /// <inheritdoc/>
     public async Task<IReadOnlyList<StoredSprite>> ListSpritesAsync(
-        string name, CancellationToken cancellationToken)
+        string? folder, string name, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
@@ -1521,9 +1547,11 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             $"select {SpriteColumns(withImage: false)} "
             + "from service_sprite sp join service s on s.id = sp.service_id "
             + "where lower(s.name) = lower(@name) "
+            + "  and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '') "
             + "order by sp.pixel_ratio");
 
         command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
 
         await using NpgsqlDataReader reader =
             await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -1540,16 +1568,19 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
     /// <inheritdoc/>
     public async Task<StoredSprite?> FindSpriteAsync(
-        string name, int pixelRatio, bool withImage, CancellationToken cancellationToken)
+        string? folder, string name, int pixelRatio, bool withImage, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             $"select {SpriteColumns(withImage)} "
             + "from service_sprite sp join service s on s.id = sp.service_id "
-            + "where lower(s.name) = lower(@name) and sp.pixel_ratio = @ratio");
+            + "where lower(s.name) = lower(@name) "
+            + "  and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '') "
+            + "  and sp.pixel_ratio = @ratio");
 
         command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
         command.Parameters.AddWithValue("ratio", (short)pixelRatio);
 
         await using NpgsqlDataReader reader =
@@ -1560,7 +1591,12 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
     /// <inheritdoc/>
     public async Task<bool> SetSpriteAsync(
-        string name, int pixelRatio, string index, byte[] image, CancellationToken cancellationToken)
+        string? folder,
+        string name,
+        int pixelRatio,
+        string index,
+        byte[] image,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(index);
@@ -1569,11 +1605,17 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         // <b>One statement, so a replacement is never half a sheet.</b> The index and the picture it
         // indexes are written together or not at all; a client reading between two writes would cut
         // the old rectangles out of the new picture.
+        //
+        // <b>And one service, by folder and name — [D-275](../../docs/architecture-debt.md).</b> The
+        // select matched the name alone, so it produced a row per same-named service and the sheet was
+        // written into every one of them: ADR-092 copied the style routes' lookup, and with it their
+        // defect.
         const string Sql = """
             insert into service_sprite (service_id, pixel_ratio, index_json, image)
             select s.id, @ratio, @index, @image
               from service s
              where lower(s.name) = lower(@name)
+               and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '')
             on conflict (service_id, pixel_ratio) do update
                set index_json = excluded.index_json,
                    image      = excluded.image,
@@ -1582,6 +1624,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
         command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
         command.Parameters.AddWithValue("ratio", (short)pixelRatio);
         command.Parameters.AddWithValue("index", index);
         command.Parameters.Add(new NpgsqlParameter("image", NpgsqlDbType.Bytea) { Value = image });
@@ -1590,16 +1633,21 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
-    public async Task<int> DeleteSpritesAsync(string name, CancellationToken cancellationToken)
+    public async Task<int> DeleteSpritesAsync(
+        string? folder, string name, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         await using NpgsqlCommand command = _dataSource.CreateCommand("""
             delete from service_sprite
-             where service_id in (select id from service where lower(name) = lower(@name))
+             where service_id in (
+                   select id from service
+                    where lower(name) = lower(@name)
+                      and coalesce(lower(folder), '') = coalesce(lower(@folder), ''))
             """);
 
         command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -1823,9 +1871,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     /// </para>
     /// </remarks>
     public async Task<AdminLayer?> SetSharingAsync(
-        string layerName, SharingScope sharing, CancellationToken cancellationToken)
+        Guid layerId, SharingScope sharing, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
 
         // Returns the row as it was. ADR-017 §5d wants before and after in the
         // audit record, and the only moment the "before" is knowable is inside
@@ -1833,13 +1880,13 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         const string Sql = """
             update service s set sharing = @sharing
             from layer l
-            where l.service_id = s.id and l.name = @name
+            where l.service_id = s.id and l.id = @id
             returning l.id, l.name, s.sharing, s.owner_principal_id,
                       l.object_id_column, l.schema_name, l.table_name
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
-        command.Parameters.AddWithValue("name", layerName);
+        command.Parameters.AddWithValue("id", layerId);
         command.Parameters.AddWithValue("sharing", Wire(sharing));
 
         await using NpgsqlDataReader reader =
@@ -1924,9 +1971,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     /// </para>
     /// </remarks>
     public async Task<ServiceStatus?> SetStatusAsync(
-        string layerName, ServiceStatus status, CancellationToken cancellationToken)
+        Guid layerId, ServiceStatus status, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
 
         // A CTE captures the old value before the update overwrites it, so the
         // audit record can say what changed rather than only what it is now —
@@ -1935,7 +1981,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             with before as (
                 select s.id, s.status
                   from service s join layer l on l.service_id = s.id
-                 where l.name = @name
+                 where l.id = @id
             )
             update service set status = @status
             from before
@@ -1944,7 +1990,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
-        command.Parameters.AddWithValue("name", layerName);
+        command.Parameters.AddWithValue("id", layerId);
         command.Parameters.AddWithValue("status", Wire(status));
 
         object? previous = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);

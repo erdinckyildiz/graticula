@@ -95,9 +95,12 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
         Assert.True(
             await Browser.EvaluateAsync<bool>(
                 "(async () => {"
-                + " const name = document.querySelector('[data-style]').getAttribute('data-style');"
+                + " const node = document.querySelector('[data-style]');"
+                + " const name = node.getAttribute('data-style');"
+                + " const folder = node.getAttribute('data-folder') || '';"
                 + " const t = sessionStorage.getItem('gis-token');"
-                + " const r = await fetch('/admin/services/' + encodeURIComponent(name) + '/style',"
+                + " const r = await fetch('/admin/services/' + encodeURIComponent(name) + '/style'"
+                + "   + '?folder=' + encodeURIComponent(folder),"
                 + "   { headers: t ? { Authorization: 'Bearer ' + t } : {} });"
                 + " return r.ok; })()"),
             $"The override is addressed with a name the server does not know, so Fetch, Store "
@@ -178,10 +181,12 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
         // that is well formed and wrong, which is exactly what the defect was.
         bool answered = await Browser.EvaluateAsync<bool>(
             "(async () => {"
-            + " const name = document.querySelector('#serviceStyle [data-style]')"
-            + "   .getAttribute('data-style');"
+            + " const node = document.querySelector('#serviceStyle [data-style]');"
+            + " const name = node.getAttribute('data-style');"
+            + " const folder = node.getAttribute('data-folder') || '';"
             + " const t = sessionStorage.getItem('gis-token');"
-            + " const r = await fetch('/admin/services/' + encodeURIComponent(name) + '/style',"
+            + " const r = await fetch('/admin/services/' + encodeURIComponent(name) + '/style'"
+            + "   + '?folder=' + encodeURIComponent(folder),"
             + "   { headers: t ? { Authorization: 'Bearer ' + t } : {} });"
             + " return r.ok; })()");
 

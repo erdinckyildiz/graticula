@@ -40,7 +40,7 @@ public sealed class SpriteConformanceTests : ArcGisClient, IAsyncLifetime
 
     private static string? Configured => Environment.GetEnvironmentVariable(ServiceVariable);
 
-    /// <summary>The service name without its folder, which is how admin addresses it.</summary>
+    /// <summary>The service name without its folder; the folder travels as <c>?folder=</c> (D-275).</summary>
     private string _service = string.Empty;
 
     private string _root = string.Empty;
@@ -101,7 +101,7 @@ public sealed class SpriteConformanceTests : ArcGisClient, IAsyncLifetime
         foreach (string path in (string[])["style", "sprite"])
         {
             using HttpRequestMessage request = new(
-                HttpMethod.Delete, new Uri($"{_root}/admin/services/{_service}/{path}"));
+                HttpMethod.Delete, new Uri($"{_root}/admin/services/{_service}/{path}{FolderQuery(Configured!)}"));
 
             await AuthenticateAsync(request, _root);
 
@@ -132,7 +132,8 @@ public sealed class SpriteConformanceTests : ArcGisClient, IAsyncLifetime
 
         using HttpRequestMessage request = new(
             HttpMethod.Put,
-            new Uri($"{_root}/admin/services/{_service}/sprite" + (ratio is { } r ? $"?ratio={r}" : string.Empty)))
+            new Uri($"{_root}/admin/services/{_service}/sprite{FolderQuery(Configured!)}"
+                + (ratio is { } r ? $"&ratio={r}" : string.Empty)))
         {
             Content = form,
         };
@@ -149,7 +150,8 @@ public sealed class SpriteConformanceTests : ArcGisClient, IAsyncLifetime
     {
         using HttpClient http = Client();
 
-        using HttpRequestMessage request = new(method, new Uri($"{_root}/admin/services/{_service}/{path}"));
+        using HttpRequestMessage request = new(
+            method, new Uri($"{_root}/admin/services/{_service}/{path}{FolderQuery(Configured!)}"));
 
         if (json is not null)
         {

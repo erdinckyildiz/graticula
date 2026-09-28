@@ -54,7 +54,7 @@ public sealed class StyleConformanceTests : ArcGisClient, IAsyncLifetime
 
     private static string? Configured => Environment.GetEnvironmentVariable(ServiceVariable);
 
-    /// <summary>The service name without its folder, which is how admin addresses it.</summary>
+    /// <summary>The service name without its folder; the folder travels as <c>?folder=</c> (D-275).</summary>
     private string _service = string.Empty;
 
     private string _root = string.Empty;
@@ -103,7 +103,7 @@ public sealed class StyleConformanceTests : ArcGisClient, IAsyncLifetime
         using HttpClient http = Client();
 
         using HttpRequestMessage request = new(
-            HttpMethod.Put, new Uri($"{_root}/admin/services/{_service}/style"))
+            HttpMethod.Put, new Uri($"{_root}/admin/services/{_service}/style{FolderQuery(Configured!)}"))
         {
             Content = new StringContent(style, Encoding.UTF8, "application/json"),
         };
@@ -121,7 +121,7 @@ public sealed class StyleConformanceTests : ArcGisClient, IAsyncLifetime
         using HttpClient http = Client();
 
         using HttpRequestMessage request = new(
-            HttpMethod.Delete, new Uri($"{_root}/admin/services/{_service}/style"));
+            HttpMethod.Delete, new Uri($"{_root}/admin/services/{_service}/style{FolderQuery(Configured!)}"));
 
         await AuthenticateAsync(request, _root);
 

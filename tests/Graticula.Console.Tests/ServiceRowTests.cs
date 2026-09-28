@@ -53,7 +53,9 @@ public sealed class ServiceRowTests : ConsoleTest
         // Named rather than matched loosely, because "some request went out" is
         // satisfied by the listing reloading itself.
         Assert.Contains("/admin/layers/", sent, StringComparison.Ordinal);
-        Assert.Matches(@"/(stop|start)$", sent);
+        // Since D-276 the row names its service, so the layer is not looked up by a name that
+        // several services can share.
+        Assert.Matches(@"/(stop|start)\?service=[^&]+$", sent);
 
         Assert.Equal(before, await Browser.EvaluateAsync<string>("location.hash"));
     }

@@ -60,8 +60,8 @@ internal static partial class AdminEndpoints
     /// <c>@2x</c> falls back to it, and a client asking for 1x never sees the other.
     /// </remarks>
     private static async Task<IReadOnlyList<string>?> SpriteIconsAsync(
-        IAdminCatalog catalog, string name, CancellationToken cancellation) =>
-        await catalog.FindSpriteAsync(name, 1, withImage: false, cancellation).ConfigureAwait(false) is { } sheet
+        IAdminCatalog catalog, string? folder, string name, CancellationToken cancellation) =>
+        await catalog.FindSpriteAsync(folder, name, 1, withImage: false, cancellation).ConfigureAwait(false) is { } sheet
             ? SpriteSheet.IconNames(sheet.Index)
             : null;
 
@@ -73,6 +73,7 @@ internal static partial class AdminEndpoints
     private static async Task GetSpriteAsync(
         HttpContext context,
         string name,
+        string? folder,
         IAdminCatalog catalog,
         PostgresLayerCatalog owners,
         CancellationToken cancellation)
@@ -82,9 +83,11 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await catalog.FindServiceForStyleAsync(name, cancellation).ConfigureAwait(false) is not { } service)
+        string? at = FolderOf(folder);
+
+        if (await catalog.FindServiceForStyleAsync(at, name, cancellation).ConfigureAwait(false) is not { } service)
         {
-            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
             return;
         }
 
@@ -95,15 +98,17 @@ internal static partial class AdminEndpoints
                     context.Features.Get<RequestPrincipal>()!.Authorization,
                     readable.SharedWith).IsAllowed())
         {
-            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
             return;
         }
 
-        IReadOnlyList<StoredSprite> sheets = await catalog.ListSpritesAsync(service.Name, cancellation).ConfigureAwait(false);
+        IReadOnlyList<StoredSprite> sheets =
+            await catalog.ListSpritesAsync(service.Folder, service.Name, cancellation).ConfigureAwait(false);
 
         await Results.Json(new
         {
             name = service.Name,
+            folder = service.Folder,
             stored = sheets.Count > 0,
             sheets = sheets.Select(sheet => new
             {
@@ -151,6 +156,7 @@ internal static partial class AdminEndpoints
     private static async Task SetSpriteAsync(
         HttpContext context,
         string name,
+        string? folder,
         IAdminCatalog catalog,
         IAuditLog audit,
         PostgresLayerCatalog owners,
@@ -179,9 +185,14 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await catalog.FindServiceForStyleAsync(name, cancellation).ConfigureAwait(false) is not { } service)
+        string? at = FolderOf(folder);
+
+        // <b>[D-275](../../docs/architecture-debt.md): by folder and name, as the style is.</b> ADR-092
+        // copied the style routes' lookup, and with it their defect: the owner of `a/roads` passed
+        // the check below and then wrote a sheet into every service called `roads`.
+        if (await catalog.FindServiceForStyleAsync(at, name, cancellation).ConfigureAwait(false) is not { } service)
         {
-            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
             return;
         }
 
@@ -303,7 +314,8 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        IReadOnlyList<StoredSprite> stored = await catalog.ListSpritesAsync(service.Name, cancellation).ConfigureAwait(false);
+        IReadOnlyList<StoredSprite> stored =
+            await catalog.ListSpritesAsync(service.Folder, service.Name, cancellation).ConfigureAwait(false);
 
         if (ratio == 2 && stored.All(sheet => sheet.PixelRatio != 1))
         {
@@ -327,9 +339,10 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (!await catalog.SetSpriteAsync(service.Name, ratio, text, image, cancellation).ConfigureAwait(false))
+        if (!await catalog.SetSpriteAsync(service.Folder, service.Name, ratio, text, image, cancellation)
+                .ConfigureAwait(false))
         {
-            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
             return;
         }
 
@@ -341,12 +354,13 @@ internal static partial class AdminEndpoints
         // through the service, and a log that copies its subject is a second place to keep it right.
         await AuditAsync(
             context, audit, "service.sprite", service.Name,
-            Detail(new { ratio, icons = icons.Count, bytes = image.Length, replaced }),
+            Detail(new { folder = service.Folder, ratio, icons = icons.Count, bytes = image.Length, replaced }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
         await Results.Json(new
         {
             name = service.Name,
+            folder = service.Folder,
             stored = true,
             ratio,
             icons = icons.Count,
@@ -366,6 +380,7 @@ internal static partial class AdminEndpoints
     private static async Task DeleteSpriteAsync(
         HttpContext context,
         string name,
+        string? folder,
         IAdminCatalog catalog,
         IAuditLog audit,
         PostgresLayerCatalog owners,
@@ -376,9 +391,11 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await catalog.FindServiceForStyleAsync(name, cancellation).ConfigureAwait(false) is not { } service)
+        string? at = FolderOf(folder);
+
+        if (await catalog.FindServiceForStyleAsync(at, name, cancellation).ConfigureAwait(false) is not { } service)
         {
-            await Refuse(context, 404, $"No service '{name}'.").ConfigureAwait(false);
+            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
             return;
         }
 
@@ -390,7 +407,8 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        IReadOnlyList<StoredSprite> stored = await catalog.ListSpritesAsync(service.Name, cancellation).ConfigureAwait(false);
+        IReadOnlyList<StoredSprite> stored =
+            await catalog.ListSpritesAsync(service.Folder, service.Name, cancellation).ConfigureAwait(false);
 
         if (stored.Count > 0 && StyleDocument.LiteralIcons(service.Style) is { Count: > 0 } used)
         {
@@ -402,16 +420,17 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        int removed = await catalog.DeleteSpritesAsync(service.Name, cancellation).ConfigureAwait(false);
+        int removed = await catalog.DeleteSpritesAsync(service.Folder, service.Name, cancellation).ConfigureAwait(false);
 
         await AuditAsync(
             context, audit, "service.sprite.clear", service.Name,
-            Detail(new { removed }),
+            Detail(new { folder = service.Folder, removed }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
         await Results.Json(new
         {
             name = service.Name,
+            folder = service.Folder,
             stored = false,
             had = removed > 0,
             removed,

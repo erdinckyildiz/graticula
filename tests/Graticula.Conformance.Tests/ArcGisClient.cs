@@ -926,6 +926,25 @@ public abstract class ArcGisClient : IDisposable
             + (folder is null ? string.Empty : $"?folder={Uri.EscapeDataString(folder)}"));
     }
 
+    /// <summary>
+    /// The <c>?folder=</c> an administrative service route needs, from a qualified service name.
+    /// </summary>
+    /// <param name="qualified">The service as a client writes it: <c>hosted/roads</c>, or <c>roads</c>.</param>
+    /// <returns>The query string, naming the empty folder for a service at the root.</returns>
+    /// <remarks>
+    /// <b>[D-275](../../docs/architecture-debt.md): a name is not an address.</b> The style, sprite and
+    /// reference routes matched the bare name until 2026-09-29, so these fixtures sent the bare name
+    /// and reached a service in <c>hosted</c> by the accident that nothing else had its name. They read
+    /// <c>?folder=</c> now and an absent one means the root, as every other service route already did.
+    /// </remarks>
+    protected static string FolderQuery(string qualified)
+    {
+        string trimmed = qualified.Trim('/');
+        int cut = trimmed.LastIndexOf('/');
+
+        return "?folder=" + Uri.EscapeDataString(cut < 0 ? string.Empty : trimmed[..cut]);
+    }
+
     /// <summary>Sends an administrative request as the suite's account.</summary>
     /// <param name="method">The verb.</param>
     /// <param name="path">The path, from the root.</param>

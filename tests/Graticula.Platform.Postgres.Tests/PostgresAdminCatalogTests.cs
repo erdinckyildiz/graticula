@@ -52,6 +52,14 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         return (admin, source, owner);
     }
 
+    /// <summary>A layer's catalogue id, by its name in a test that gave it one no other layer has.</summary>
+    /// <remarks>
+    /// <b>The setters take the id since D-276</b>, because a layer name is not unique and a write by
+    /// name reached every layer carrying it. The tests that name one layer look it up here.
+    /// </remarks>
+    private static async Task<Guid> LayerIdAsync(PostgresAdminCatalog admin, string name) =>
+        (await admin.ListLayersAsync(CancellationToken.None)).Single(l => l.Name == name).Id;
+
     private static LayerPublication Publication(
         Guid source, string name, string? service = null, int? cacheSeconds = null) =>
         new(
@@ -193,7 +201,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         await admin.PublishLayerAsync(
             Publication(source, "later"), owner, CancellationToken.None);
 
-        Assert.True(await admin.SetCacheLifetimeAsync("later", 0, CancellationToken.None));
+        Assert.True(await admin.SetCacheLifetimeAsync(await LayerIdAsync(admin, "later"), 0, CancellationToken.None));
 
         PostgresLayerCatalog catalog = new(DataSource, new SecretProtector(1, new byte[32]));
 
@@ -209,7 +217,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     {
         (PostgresAdminCatalog admin, _, _) = await ReadyAsync();
 
-        Assert.False(await admin.SetCacheLifetimeAsync("nosuch", 60, CancellationToken.None));
+        Assert.False(await admin.SetCacheLifetimeAsync(Guid.NewGuid(), 60, CancellationToken.None));
     }
 
     /// <summary>
@@ -246,7 +254,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         await admin.PublishLayerAsync(
             Publication(source, "shared"), owner, CancellationToken.None);
 
-        Assert.NotNull(await admin.SetSharingAsync("shared", scope, CancellationToken.None));
+        Assert.NotNull(await admin.SetSharingAsync(await LayerIdAsync(admin, "shared"), scope, CancellationToken.None));
 
         PostgresLayerCatalog catalog = new(DataSource, new SecretProtector(1, new byte[32]));
 
@@ -277,7 +285,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         await admin.PublishLayerAsync(
             Publication(source, "second", service: "together"), owner, CancellationToken.None);
 
-        await admin.SetSharingAsync("first", SharingScope.Public, CancellationToken.None);
+        await admin.SetSharingAsync(await LayerIdAsync(admin, "first"), SharingScope.Public, CancellationToken.None);
 
         PostgresLayerCatalog catalog = new(DataSource, new SecretProtector(1, new byte[32]));
 
@@ -422,18 +430,18 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
             }
             """;
 
-        Assert.True(await admin.SetStyleAsync("styled", Style, CancellationToken.None));
+        Assert.True(await admin.SetStyleAsync(null, "styled", Style, CancellationToken.None));
 
         StyledService stored =
-            (await admin.FindServiceForStyleAsync("styled", CancellationToken.None))!.Value;
+            (await admin.FindServiceForStyleAsync(null, "styled", CancellationToken.None))!.Value;
 
         Assert.Equal(Style, stored.Style);
         Assert.Equal(["styled"], stored.SourceLayers);
 
-        Assert.True(await admin.SetStyleAsync("styled", null, CancellationToken.None));
+        Assert.True(await admin.SetStyleAsync(null, "styled", null, CancellationToken.None));
 
         StyledService cleared =
-            (await admin.FindServiceForStyleAsync("styled", CancellationToken.None))!.Value;
+            (await admin.FindServiceForStyleAsync(null, "styled", CancellationToken.None))!.Value;
 
         Assert.Null(cleared.Style);
     }
@@ -459,7 +467,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
             Publication(source, "second", service: "pair"), owner, CancellationToken.None);
 
         StyledService pair =
-            (await admin.FindServiceForStyleAsync("pair", CancellationToken.None))!.Value;
+            (await admin.FindServiceForStyleAsync(null, "pair", CancellationToken.None))!.Value;
 
         Assert.Equal(["first", "second"], pair.SourceLayers.OrderBy(n => n));
         Assert.Null(pair.Style);
@@ -470,8 +478,8 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     {
         (PostgresAdminCatalog admin, _, _) = await ReadyAsync();
 
-        Assert.Null(await admin.FindServiceForStyleAsync("nosuch", CancellationToken.None));
-        Assert.False(await admin.SetStyleAsync("nosuch", "{}", CancellationToken.None));
+        Assert.Null(await admin.FindServiceForStyleAsync(null, "nosuch", CancellationToken.None));
+        Assert.False(await admin.SetStyleAsync(null, "nosuch", "{}", CancellationToken.None));
     }
 
     /// <summary>
@@ -498,9 +506,9 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 1, 44, 0, 0, 0, 200 }
             .CopyTo(png, 0);
 
-        Assert.True(await admin.SetSpriteAsync("iconic", 1, Index, png, CancellationToken.None));
+        Assert.True(await admin.SetSpriteAsync(null, "iconic", 1, Index, png, CancellationToken.None));
 
-        StoredSprite listed = Assert.Single(await admin.ListSpritesAsync("iconic", CancellationToken.None));
+        StoredSprite listed = Assert.Single(await admin.ListSpritesAsync(null, "iconic", CancellationToken.None));
 
         Assert.Equal(1, listed.PixelRatio);
         Assert.Equal(Index, listed.Index);
@@ -509,17 +517,17 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         Assert.Equal(300, listed.Width);
         Assert.Equal(200, listed.Height);
 
-        StoredSprite found = (await admin.FindSpriteAsync("iconic", 1, withImage: true, CancellationToken.None))!;
+        StoredSprite found = (await admin.FindSpriteAsync(null, "iconic", 1, withImage: true, CancellationToken.None))!;
 
         Assert.Equal(png, found.Image);
-        Assert.Null(await admin.FindSpriteAsync("iconic", 2, withImage: false, CancellationToken.None));
+        Assert.Null(await admin.FindSpriteAsync(null, "iconic", 2, withImage: false, CancellationToken.None));
 
-        Assert.True(await admin.SetSpriteAsync("iconic", 2, Index, png, CancellationToken.None));
-        Assert.Equal(2, (await admin.ListSpritesAsync("iconic", CancellationToken.None)).Count);
+        Assert.True(await admin.SetSpriteAsync(null, "iconic", 2, Index, png, CancellationToken.None));
+        Assert.Equal(2, (await admin.ListSpritesAsync(null, "iconic", CancellationToken.None)).Count);
 
-        Assert.Equal(2, await admin.DeleteSpritesAsync("iconic", CancellationToken.None));
-        Assert.Empty(await admin.ListSpritesAsync("iconic", CancellationToken.None));
-        Assert.False(await admin.SetSpriteAsync("nosuch", 1, Index, png, CancellationToken.None));
+        Assert.Equal(2, await admin.DeleteSpritesAsync(null, "iconic", CancellationToken.None));
+        Assert.Empty(await admin.ListSpritesAsync(null, "iconic", CancellationToken.None));
+        Assert.False(await admin.SetSpriteAsync(null, "nosuch", 1, Index, png, CancellationToken.None));
     }
 
     /// <summary>
@@ -956,7 +964,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         Assert.True(before.IsRunning);
 
         ServiceStatus? previous = await admin
-            .SetStatusAsync("stoppable", ServiceStatus.Stopped, CancellationToken.None);
+            .SetStatusAsync(await LayerIdAsync(admin, "stoppable"), ServiceStatus.Stopped, CancellationToken.None);
 
         Assert.Equal(ServiceStatus.Started, previous);
 
@@ -972,7 +980,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         // And back, because a stop that cannot be undone is a different fault.
         Assert.Equal(
             ServiceStatus.Stopped,
-            await admin.SetStatusAsync("stoppable", ServiceStatus.Started, CancellationToken.None));
+            await admin.SetStatusAsync(await LayerIdAsync(admin, "stoppable"), ServiceStatus.Started, CancellationToken.None));
 
         Assert.True(
             (await catalog.FindServiceAsync(null, "stoppable", CancellationToken.None))!.IsRunning);
@@ -1034,8 +1042,8 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         await admin.PublishLayerAsync(
             Publication(source, "agreeable"), owner, CancellationToken.None);
 
-        await admin.SetStatusAsync("agreeable", ServiceStatus.Stopped, CancellationToken.None);
-        await admin.SetSharingAsync("agreeable", SharingScope.Public, CancellationToken.None);
+        await admin.SetStatusAsync(await LayerIdAsync(admin, "agreeable"), ServiceStatus.Stopped, CancellationToken.None);
+        await admin.SetSharingAsync(await LayerIdAsync(admin, "agreeable"), SharingScope.Public, CancellationToken.None);
 
         AdminLayer listed = (await admin.ListLayersAsync(CancellationToken.None))
             .Single(l => l.Name == "agreeable");
@@ -1086,7 +1094,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         // than assumed, so a service whose layer 0 was unpublished still names a member.
         Assert.Equal(new AdminServiceCover("first", 0), running.Cover);
 
-        await admin.SetStatusAsync("first", ServiceStatus.Stopped, CancellationToken.None);
+        await admin.SetStatusAsync(await LayerIdAsync(admin, "first"), ServiceStatus.Stopped, CancellationToken.None);
 
         AdminService stopped = (await admin.ListServicesAsync(CancellationToken.None))
             .Single(s => s.Name == "covered");
@@ -1161,7 +1169,7 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         Assert.Equal(1, routes.LayerIndex);
         Assert.Equal("/rest/services/addressed/FeatureServer/1", routes.Address);
 
-        await admin.SetStatusAsync("sites", ServiceStatus.Stopped, CancellationToken.None);
+        await admin.SetStatusAsync(await LayerIdAsync(admin, "sites"), ServiceStatus.Stopped, CancellationToken.None);
 
         AdminLayer stopped = (await admin.ListLayersAsync(CancellationToken.None))
             .Single(l => l.Name == "routes");
@@ -1196,5 +1204,155 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
 
         Assert.Equal("turkiye", listed.Folder);
         Assert.Equal("/rest/services/turkiye/in_a_folder/FeatureServer/0", listed.Address);
+    }
+
+    // ---------- D-275: a service name is unique within its folder, and nowhere else ----------
+
+    /// <summary>
+    /// Writing to one of two same-named services leaves the other exactly as it was.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-275](../../docs/architecture-debt.md).</b> <c>service_name_in_folder_ci</c> lets
+    /// <c>fa/twin</c> and <c>fb/twin</c> both exist, and the style, sprite and reference statements
+    /// matched the name alone — so each of these writes changed both services, and the handler in
+    /// front of them had asked who owned only one. Every write here is aimed at <c>fa</c> and the
+    /// assertions that matter are about <c>fb</c>, because the defect was never that the target
+    /// went unwritten.
+    /// </para>
+    /// <para>
+    /// <b>And the root is a third place, not a wildcard.</b> Neither service is at the root, so a
+    /// write there finds nothing: a lookup that fell back to *any folder* when none was named would
+    /// be the defect wearing a convenience.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_write_to_one_folders_service_leaves_the_same_name_in_another_alone()
+    {
+        (PostgresAdminCatalog admin, _, Guid owner) = await ReadyAsync();
+
+        Guid a = await SeedServiceAsync("twin", "fa", owner);
+        Guid b = await SeedServiceAsync("twin", "fb", owner);
+
+        const string Style = """{"version":8,"layers":[]}""";
+
+        // ---- the style ----
+        Assert.True(await admin.SetStyleAsync("fa", "twin", Style, CancellationToken.None));
+
+        Assert.Equal(Style, (await admin.FindServiceForStyleAsync("FA", "TWIN", CancellationToken.None))!.Value.Style);
+        Assert.Null((await admin.FindServiceForStyleAsync("fb", "twin", CancellationToken.None))!.Value.Style);
+        Assert.Equal("fb", (await admin.FindServiceForStyleAsync("fb", "twin", CancellationToken.None))!.Value.Folder);
+
+        Assert.Null(await admin.FindServiceForStyleAsync(null, "twin", CancellationToken.None));
+        Assert.False(await admin.SetStyleAsync(null, "twin", Style, CancellationToken.None));
+
+        Assert.True(await admin.SetStyleAsync("fa", "twin", null, CancellationToken.None));
+        Assert.Null((await admin.FindServiceForStyleAsync("fa", "twin", CancellationToken.None))!.Value.Style);
+
+        // ---- the sprite sheet ----
+        const string Index = """{ "marker": { "x": 0, "y": 0, "width": 8, "height": 8 } }""";
+
+        byte[] png = new byte[40];
+        new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 8, 0, 0, 0, 8 }
+            .CopyTo(png, 0);
+
+        Assert.True(await admin.SetSpriteAsync("fa", "twin", 1, Index, png, CancellationToken.None));
+
+        Assert.Single(await admin.ListSpritesAsync("fa", "twin", CancellationToken.None));
+        Assert.Empty(await admin.ListSpritesAsync("fb", "twin", CancellationToken.None));
+        Assert.Null(await admin.FindSpriteAsync("fb", "twin", 1, withImage: false, CancellationToken.None));
+        Assert.False(await admin.SetSpriteAsync(null, "twin", 1, Index, png, CancellationToken.None));
+
+        Assert.Equal(0, await admin.DeleteSpritesAsync("fb", "twin", CancellationToken.None));
+        Assert.Single(await admin.ListSpritesAsync("fa", "twin", CancellationToken.None));
+        Assert.Equal(1, await admin.DeleteSpritesAsync("fa", "twin", CancellationToken.None));
+
+        // ---- the reference it is served in ----
+        Assert.True(await admin.SetServiceSridAsync("fa", "twin", 4326, CancellationToken.None));
+        Assert.False(await admin.SetServiceSridAsync(null, "twin", 4326, CancellationToken.None));
+
+        Assert.Equal(4326, await SridOfAsync(a));
+        Assert.Null(await SridOfAsync(b));
+
+        // ---- the capability ceiling, already folder-qualified, asserted in the same shape ----
+        Assert.True(await admin.SetServiceCapabilitiesAsync(
+            "twin",
+            "fa",
+            new ServiceCapabilityLimits(null, null, null, null)
+                .With(new ServiceCostCeilings(7_000, null, null, null)),
+            CancellationToken.None));
+
+        Assert.True((await admin.FindServiceCapabilitiesAsync("twin", "fb", CancellationToken.None))!.IsUnset);
+
+        // ---- a group layer, already folder-qualified, likewise ----
+        Assert.NotNull(await admin.CreateGroupLayerAsync("fa", "twin", "Grouped", null, CancellationToken.None));
+
+        Assert.Equal(1, await GroupsInAsync(a));
+        Assert.Equal(0, await GroupsInAsync(b));
+    }
+
+    /// <summary>
+    /// A write addressed to one layer changes that layer, not every layer of its name.
+    /// </summary>
+    /// <remarks>
+    /// <b>[D-276](../../docs/architecture-debt.md), the same shape one level down.</b> A layer name
+    /// is not unique either — [D-109](../../docs/architecture-debt.md) — and the endpoints resolve
+    /// one layer before they ask whose it is. The setters behind them matched the name, so sharing,
+    /// status, cache lifetime, time field and symbology each reached every layer called
+    /// <c>roads</c>. The first of those is the one that matters: it decides who may read.
+    /// </remarks>
+    [Fact]
+    public async Task A_write_to_one_layer_leaves_a_same_named_layer_in_another_service_alone()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        PublishedLayerAddress mine = await admin.PublishLayerAsync(
+            Publication(source, "roads", service: "mine"), owner, CancellationToken.None);
+
+        PublishedLayerAddress theirs = await admin.PublishLayerAsync(
+            Publication(source, "roads", service: "theirs"), owner, CancellationToken.None);
+
+        Assert.NotNull(await admin.SetSharingAsync(mine.Id, SharingScope.Public, CancellationToken.None));
+        Assert.Equal(
+            ServiceStatus.Started,
+            await admin.SetStatusAsync(mine.Id, ServiceStatus.Stopped, CancellationToken.None));
+        Assert.True(await admin.SetCacheLifetimeAsync(mine.Id, 0, CancellationToken.None));
+        Assert.True(await admin.SetTimeFieldAsync(mine.Id, "observed_at", CancellationToken.None));
+        Assert.True(await admin.SetSymbologyAsync(
+            mine.Id, """{"type":"CIMSimpleRenderer"}""", CancellationToken.None));
+
+        AdminLayer other = (await admin.ListLayersAsync(CancellationToken.None)).Single(l => l.Id == theirs.Id);
+
+        Assert.Equal(SharingScope.Private, other.Sharing);
+        Assert.Equal(ServiceStatus.Started, other.Status);
+        Assert.Null(other.CacheSeconds);
+        Assert.Null(other.TimeField);
+        Assert.Null((await admin.FindLayerForSymbologyAsync(theirs.Id, CancellationToken.None))!.Value.Symbology);
+
+        // And the one that was addressed did change, so the assertions above are not about nothing.
+        AdminLayer addressed = (await admin.ListLayersAsync(CancellationToken.None)).Single(l => l.Id == mine.Id);
+
+        Assert.Equal(SharingScope.Public, addressed.Sharing);
+        Assert.Equal(ServiceStatus.Stopped, addressed.Status);
+        Assert.Equal(0, addressed.CacheSeconds);
+        Assert.Equal("observed_at", addressed.TimeField);
+        Assert.NotNull((await admin.FindLayerForSymbologyAsync(mine.Id, CancellationToken.None))!.Value.Symbology);
+    }
+
+    private async Task<int?> SridOfAsync(Guid service)
+    {
+        await using NpgsqlCommand command = DataSource.CreateCommand("select srid from service where id = @id");
+        command.Parameters.AddWithValue("id", service);
+
+        return await command.ExecuteScalarAsync(CancellationToken.None) is int srid ? srid : null;
+    }
+
+    private async Task<long> GroupsInAsync(Guid service)
+    {
+        await using NpgsqlCommand command = DataSource.CreateCommand(
+            "select count(*) from group_layer where service_id = @id");
+        command.Parameters.AddWithValue("id", service);
+
+        return (long)(await command.ExecuteScalarAsync(CancellationToken.None))!;
     }
 }
