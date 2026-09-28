@@ -351,6 +351,17 @@ public sealed class DataSourceScreenTests : ConsoleTest
             """) ?? [];
 
             Assert.True(staircase.Length == 0, $"At {width} pixels: " + string.Join("; ", staircase));
+
+            // And each button stands where it stands on every other row: the owner's screenshot of
+            // 2026-09-28 had the datastore's Probe under everybody else's Pause.
+            int[] probeLefts = await Browser.EvaluateAsync<int[]>("""
+            [...new Set([...document.querySelectorAll('#sources td.acts [data-probe]')]
+              .map(b => Math.round(b.getBoundingClientRect().left)))]
+            """) ?? [];
+
+            Assert.True(
+                probeLefts.Length == 1,
+                $"At {width} pixels Probe starts at {string.Join(", ", probeLefts)} on different rows.");
         }
         finally
         {

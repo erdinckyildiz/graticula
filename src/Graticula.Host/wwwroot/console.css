@@ -4226,7 +4226,11 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
 #sources td.val .seg { white-space: nowrap; }
 /* The four actions are one row, never a staircase. Remove stands a little apart because it is the
    one that cannot be undone. */
-#sources td.acts { white-space: nowrap; width: 1%; }
+/* Left-aligned, so Probe, Pause, Edit and Remove stand in the same place on every row: right-aligned,
+   the datastore's shorter set (two buttons and a note) pushed its Probe under the others' Pause.
+   Pause and Resume share one width so the buttons after them do not move when a source is paused. */
+#sources td.acts { white-space: nowrap; width: 1%; text-align: left; }
+#sources td.acts [data-source-quiesce], #sources td.acts [data-source-resume] { min-width: 5.6em; }
 #sources td.acts .tiny { padding: 3px 9px; }
 #sources td.acts .danger { margin-left: var(--gap-3); }
 #sources td.acts .managed { color: var(--faint); font-size: var(--t-small); }
