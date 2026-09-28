@@ -420,6 +420,31 @@ public readonly record struct SymbolisedLayer(
 public readonly record struct StyledService(
     string Name, string? Folder, IReadOnlyList<string> SourceLayers, string? Style);
 
+/// <summary>
+/// One of a service's sprite sheets, as stored — ADR-092.
+/// </summary>
+/// <param name="PixelRatio">1, or 2 for the <c>@2x</c> sheet.</param>
+/// <param name="Index">The index as it was uploaded, byte for byte.</param>
+/// <param name="Image">The picture, or null when the read did not ask for it.</param>
+/// <param name="ImageBytes">How large the picture is, whether or not it was read.</param>
+/// <param name="Width">The picture's width in pixels, from its header.</param>
+/// <param name="Height">The picture's height in pixels, from its header.</param>
+/// <param name="UpdatedAt">When it was last uploaded.</param>
+/// <remarks>
+/// <b>The picture is optional because only one route draws it.</b> The index answers every other
+/// question — which icons exist, for the style check and the admin read-back — and the picture is up
+/// to eight megabytes; a read that does not need it does not carry it. The size comes from the
+/// header the validator already read, so the read-back can say it without the bytes.
+/// </remarks>
+public sealed record StoredSprite(
+    int PixelRatio,
+    string Index,
+    byte[]? Image,
+    int ImageBytes,
+    int Width,
+    int Height,
+    DateTimeOffset UpdatedAt);
+
 /// <summary>One table a published layer depends on.</summary>
 /// <param name="Layer">The layer's name, for a message a person reads.</param>
 /// <param name="Schema">Its schema.</param>
@@ -680,6 +705,47 @@ public interface IAdminCatalog
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>True when a service was found and written.</returns>
     Task<bool> SetStyleAsync(string name, string? style, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A service's sprite sheets, without their pictures — ADR-092.
+    /// </summary>
+    /// <param name="name">The service name, matched as <see cref="FindServiceForStyleAsync"/> matches it.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Each stored sheet, ratio 1 first; empty when there are none or no such service.</returns>
+    Task<IReadOnlyList<StoredSprite>> ListSpritesAsync(string name, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// One of a service's sprite sheets, with or without its picture — ADR-092.
+    /// </summary>
+    /// <param name="name">The service name.</param>
+    /// <param name="pixelRatio">1, or 2 for the <c>@2x</c> sheet.</param>
+    /// <param name="withImage">Whether to read the picture's bytes.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The sheet, or null when that ratio is not stored.</returns>
+    Task<StoredSprite?> FindSpriteAsync(
+        string name, int pixelRatio, bool withImage, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Stores one of a service's sprite sheets, replacing that ratio's if there is one.
+    /// </summary>
+    /// <remarks>
+    /// <b>Validated before it gets here</b>, as a style is: the checks live in <c>SpriteSheet</c>,
+    /// where the caller can be told which icon is wrong. The table's constraints repeat the bounds.
+    /// </remarks>
+    /// <param name="name">The service name.</param>
+    /// <param name="pixelRatio">1, or 2 for the <c>@2x</c> sheet.</param>
+    /// <param name="index">The index, as it was uploaded.</param>
+    /// <param name="image">The picture.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>True when a service was found and written.</returns>
+    Task<bool> SetSpriteAsync(
+        string name, int pixelRatio, string index, byte[] image, CancellationToken cancellationToken);
+
+    /// <summary>Removes every sprite sheet a service has.</summary>
+    /// <param name="name">The service name.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>How many sheets were removed.</returns>
+    Task<int> DeleteSpritesAsync(string name, CancellationToken cancellationToken);
 
     /// <summary>
     /// Removes every service that holds nothing, and reports which.

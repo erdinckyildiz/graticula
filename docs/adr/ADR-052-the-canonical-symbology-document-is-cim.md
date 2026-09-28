@@ -279,6 +279,11 @@ Measured 2026-09-03 rather than assumed:
   sprite sheet.
 - [ADR-027](ADR-027-glyphs-and-sprites.md) condition 5 is still open and says the refusal of
   `icon-image` is *deleted rather than relaxed when sprites can be uploaded*.
+  *(Discharged 2026-09-29 by [ADR-092](ADR-092-sprites-are-uploaded-per-service.md), for the
+  **service** style only: a service now carries an uploaded sheet, and its style may draw icons from it.
+  The per-layer document this ADR is about has no sheet of its own, so a picture marker and a marker
+  shape are still refused here — the sprite store this paragraph asks for exists now, and pointing a
+  layer's symbol at it is the work that remains.)*
 
 So marker shapes are not a small addition to this library: they need either a sprite store —
 upload, licensing, a size ceiling, a served sheet — or a second route from CIM to the renderer

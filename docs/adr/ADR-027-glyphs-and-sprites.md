@@ -152,6 +152,9 @@ PNG for `sprite.json`, `sprite.png` and their `@2x` forms. There is no icon
 library to ship and no way for anybody to upload one yet; what this buys is that
 a client probing the sheet gets an answer instead of a 404, which is the
 difference between *this service has no icons* and *this service is broken*.
+*(Amended 2026-09-29 by [ADR-092](ADR-092-sprites-are-uploaded-per-service.md): a publisher can now
+upload a sheet per service, and the empty one is served only to a service that has none. The empty
+sheet is no longer sent `immutable`, since a sheet can now change.)*
 
 **The style gains `glyphs` and `sprite`**, with `{fontstack}` and `{range}` left
 as the client's placeholders. A build shipped without the glyph directory omits
@@ -176,14 +179,16 @@ both keys and still serves tiles.
 - **Text far above the design size is half a pixel blocky.** §4.
 - **An administrator cannot add a font without running a Python tool and
   rebuilding**, which is a worse story than a directory drop.
-- The sprite sheet exists and is empty, which is a stub with a route.
+- ~~The sprite sheet exists and is empty, which is a stub with a route.~~ *Uploaded per service since
+  2026-09-29 — [ADR-092](ADR-092-sprites-are-uploaded-per-service.md).*
 
 **Ports created.** None. `System.IO` and files.
 
 **State.** *Catalogue*: none. The glyph ranges are **checked-in files** served from
 disk, and the sprite sheet is a stub; nothing about them is per deployment, which is why a
 deployment that needs another script regenerates the files rather than configuring anything.
-*Runtime*: none — a range is read and written out.
+*Runtime*: none — a range is read and written out. *(The sprite sheet is catalogue state since
+[ADR-092](ADR-092-sprites-are-uploaded-per-service.md), in `service_sprite`, and that ADR records it.)*
 
 ## 7. Assumptions this decision rests on
 
@@ -211,6 +216,9 @@ sheet stops being allowed to be empty.
 - **Style document management ships.** Users will supply styles naming fonts and
   icons, and both the substitution rule and the empty sprite sheet need
   revisiting together.
+  *(Fired 2026-08-15 with [ADR-028](ADR-028-style-documents.md). The sprite half is answered by
+  [ADR-092](ADR-092-sprites-are-uploaded-per-service.md), 2026-09-29: sheets are uploaded per
+  service. The font substitution rule was not revisited and still stands.)*
 - **A client reports labels drawn in the wrong place.** The substitution changes
   metrics, and this is what that would look like.
 
@@ -295,8 +303,14 @@ sheet stops being allowed to be empty.
    clients probe the sheet whether or not we advertise it. Instead the style
    validator **refuses any layer setting `icon-image`**, so a style that would
    silently draw nothing is turned away at the moment its author can fix it. The
-   harm is removed; the gap is not. **Still open**, and the check is deleted
-   rather than relaxed when sprites can be uploaded.)*
+   harm is removed; the gap is not. ~~**Still open**, and the check is deleted
+   rather than relaxed when sprites can be uploaded.~~)*
+   ***(Discharged 2026-09-29 — [ADR-092](ADR-092-sprites-are-uploaded-per-service.md).)*** The sheet
+   stops being empty: a publisher uploads one per service, at 1x and optionally @2x, through
+   `PUT /admin/services/{name}/sprite`, and the sprite routes serve it. A service nobody gave icons
+   still answers the empty sheet, for the reason §5 gives. The blanket `icon-image` refusal is
+   **deleted, as this condition said**; what replaced it is a check that the icons a style names are in
+   the sheet, and a check that a sheet cannot take away an icon the stored style names.
 
 ## 11. Dissent
 

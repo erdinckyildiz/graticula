@@ -4320,6 +4320,53 @@ function styleState(stored, note) {
   if (note) line.title = note;
 }
 
+/**
+ * Says what sprite sheet this service carries, on the page — ADR-092.
+ *
+ * <b>On the page for the reason the override's state is</b>: whether a sheet is stored decides
+ * whether a style can draw icons at all, and the server refuses one that names an icon the sheet
+ * does not have.
+ *
+ * @param {object} r the server's read-back of `/admin/services/{name}/sprite`
+ */
+function spriteState(r) {
+  const line = $("spriteState");
+
+  if (!line) return;
+
+  if (!r.stored) {
+    line.innerHTML = `<b>None.</b> The service serves an empty sheet, so a style cannot draw icons.`;
+    return;
+  }
+
+  const sheets = r.sheets.map(s => `${s.ratio === 2 ? "@2x" : "1x"}: ${num(s.icons)} icon${
+    s.icons === 1 ? "" : "s"}, ${num(s.width)} × ${num(s.height)} px`);
+
+  line.innerHTML = `<b>Stored.</b> ${h(sheets.join("; "))}.`
+    + (r.styleUses && r.styleUses.length
+      ? ` The style override draws ${h(r.styleUses.join(", "))}.`
+      : "");
+
+  if (r.note) line.title = r.note;
+}
+
+/**
+ * Shows the server's refusal under the sprite buttons, or clears it.
+ *
+ * <b>Inline rather than a toast</b>, because the refusals here name an icon and a rectangle — a
+ * sentence somebody reads while they fix a file, which is longer than a toast stays.
+ *
+ * @param {string|null} message the refusal, or null to clear it
+ */
+function spriteRefused(message) {
+  const line = $("spriteRefused");
+
+  if (!line) return;
+
+  line.textContent = message || "";
+  line.hidden = !message;
+}
+
 /*
   <b>`drawServiceSymbology` is gone, and what it did is in two places now.</b> Handoff revision
   2026-09-04 removed the service page's Symbology tab: it drew one row per layer whose only
@@ -6519,7 +6566,7 @@ function wireSymbologyForm() {
     //
     // <b>One at a time, which is the prototype's own rule.</b> Two open at once is the wall
     // again, in a column that also has to hold the renderer and the layer list.
-    const fold = t.closest(".symfoldhead, #symOverrideHead");
+    const fold = t.closest(".symfoldhead, #symOverrideHead, #symSpriteHead");
 
     if (fold) {
       e.preventDefault();
@@ -7120,6 +7167,7 @@ function symShowFold(which, open) {
     ["symVaryHead", "symVaryBody"],
     ["symSetsHead", "symSetsBody"],
     ["symOverrideHead", "symOverrideBody"],
+    ["symSpriteHead", "symSpriteBody"],
   ];
 
   for (const [head, body] of folds) {
@@ -8723,10 +8771,19 @@ function drawSymStrip(name, at, trail) {
 
       if (node) node.setAttribute(attribute, at.bare);
     }
+
+    // The sprite sheet beside it, stamped the same way and for the same reason (ADR-092).
+    for (const attribute of ["data-sprite", "data-sprite-put", "data-sprite-del"]) {
+      const node = document.querySelector(`#serviceSprite [${attribute}]`);
+
+      if (node) node.setAttribute(attribute, at.bare);
+    }
   }
 
   if ($("styleDoc")) $("styleDoc").value = "";
   if ($("styleState")) $("styleState").innerHTML = "<b>Not fetched yet.</b>";
+  if ($("spriteState")) $("spriteState").innerHTML = "<b>Not fetched yet.</b>";
+  spriteRefused(null);
 
   // <b>Studio's, because the service page's tabs are Studio's.</b> `drawServiceTabs` draws
   // nothing on Server, so linking to them from a Server address would be a row of links to a
@@ -11049,6 +11106,38 @@ function showLayer(name, page, pending = null) {
               </div>
               <textarea id="styleDoc" rows="8" spellcheck="false"
                 placeholder="A MapLibre style document. Fetch it first — an empty box means none is stored, and the composition is being served."></textarea>
+            </div>
+          </section>
+
+          <!--
+            <b>The service's sprite sheet, beside the override that uses it — ADR-092.</b> An
+            override can draw icons with icon-image only from this sheet, and the server checks each
+            against the other, so the two sit together at the foot of the rail and fold the same way.
+            Stamped with the service's name by drawSymStrip, like the override above.
+          -->
+          <section class="symfold symoverride" id="serviceSprite">
+            <b>Sprite sheet</b>
+            <p class="hint" id="spriteState"><b>Not fetched yet.</b></p>
+            <p class="hint">The icons a style override draws with icon-image. A sheet is two files a
+              sprite tool writes, sprite.json and sprite.png; a @2x pair is optional and is what
+              high-density screens use.</p>
+            <button type="button" class="tiny ghost" id="symSpriteHead"
+              aria-expanded="false" aria-controls="symSpriteBody">Manage&hellip;</button>
+            <div class="symfoldbody" id="symSpriteBody" hidden>
+              <label class="field">sprite.json<input id="spriteIndex" type="file"
+                accept=".json,application/json"></label>
+              <label class="field">sprite.png<input id="spriteImage" type="file"
+                accept=".png,image/png"></label>
+              <label class="field">sprite@2x.json, optional<input id="spriteIndex2x" type="file"
+                accept=".json,application/json"></label>
+              <label class="field">sprite@2x.png, optional<input id="spriteImage2x" type="file"
+                accept=".png,image/png"></label>
+              <div class="row">
+                <button data-sprite="">Fetch current</button>
+                <button data-sprite-del="" class="ghost">Remove</button>
+                <button class="primary" data-sprite-put="">Upload</button>
+              </div>
+              <p class="hint bad-inline" id="spriteRefused" hidden role="alert"></p>
             </div>
           </section>
         </div>
@@ -20149,6 +20238,80 @@ async function handleClick(event) {
       styleState(false, r.note);
       toast(r.note || "Back to the composition.", true);
     } catch (e) { toast(e.message); }
+    return;
+  }
+
+  // <b>The sprite sheet — ADR-092.</b> Read, upload and remove, beside the override that draws
+  // from it. A refusal is written under the buttons rather than toasted: it names the icon and the
+  // numbers, and the reader needs it while they fix the file.
+  if (d.sprite) {
+    spriteRefused(null);
+    try {
+      spriteState(await api(`/admin/services/${encodeURIComponent(d.sprite)}/sprite`));
+    } catch (e) { spriteRefused(e.message); }
+    return;
+  }
+
+  if (d.spritePut) {
+    const index = $("spriteIndex").files[0];
+    const image = $("spriteImage").files[0];
+    const index2x = $("spriteIndex2x").files[0];
+    const image2x = $("spriteImage2x").files[0];
+
+    spriteRefused(null);
+
+    // Checked here only for what the server cannot see: which files were chosen. Everything about
+    // what is in them is the server's to judge, and it says why.
+    if (!index || !image) {
+      spriteRefused("Choose sprite.json and sprite.png. The @2x pair is optional, and goes up after them.");
+      return;
+    }
+
+    if (!index2x !== !image2x) {
+      spriteRefused("The @2x sheet is a pair too: choose both sprite@2x.json and sprite@2x.png, or neither.");
+      return;
+    }
+
+    t.disabled = true;
+
+    try {
+      const send = async (ratio, json, png) => {
+        const form = new FormData();
+        form.append("index", json);
+        form.append("image", png);
+        return api(`/admin/services/${encodeURIComponent(d.spritePut)}/sprite?ratio=${ratio}`,
+          { method: "PUT", body: form });
+      };
+
+      // 1x first: the server refuses a @2x sheet with nothing under it.
+      const one = await send(1, index, image);
+      const two = index2x ? await send(2, index2x, image2x) : null;
+
+      toast(`${one.name}: sprite sheet ${one.replaced ? "replaced" : "stored"}, ${num(one.icons)} icon${
+        one.icons === 1 ? "" : "s"}${two ? `, and the @2x sheet with ${num(two.icons)}` : ""}.`, true);
+
+      spriteState(await api(`/admin/services/${encodeURIComponent(d.spritePut)}/sprite`));
+    } catch (e) { spriteRefused(e.message); }
+
+    t.disabled = false;
+    return;
+  }
+
+  if (d.spriteDel) {
+    if (!confirm(`Remove ${d.spriteDel}'s sprite sheet? Both the 1x and the @2x sheet go, and the `
+      + `service serves an empty one again.`)) return;
+
+    spriteRefused(null);
+    t.disabled = true;
+
+    try {
+      const r = await api(`/admin/services/${encodeURIComponent(d.spriteDel)}/sprite`,
+        { method: "DELETE" });
+      spriteState({ stored: false });
+      toast(r.note, true);
+    } catch (e) { spriteRefused(e.message); }
+
+    t.disabled = false;
     return;
   }
 

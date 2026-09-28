@@ -475,6 +475,54 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     }
 
     /// <summary>
+    /// A sprite sheet comes back as it was stored, its size is read from its header, and removing it removes both
+    /// ratios — ADR-092.
+    /// </summary>
+    /// <remarks>
+    /// <b>The picture is read only when asked for</b>, because only the image route needs it; the width and height
+    /// come out of the stored header without it. And the serving read falls back from @2x to 1x in one statement.
+    /// </remarks>
+    [Fact]
+    public async Task A_sprite_sheet_survives_the_round_trip_and_is_removed_whole()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(
+            Publication(source, "iconic"), owner, CancellationToken.None);
+
+        const string Index = """
+            { "marker": { "x": 0, "y": 0, "width": 8, "height": 8 },  "İ": {"x":8,"y":0,"width":8,"height":8} }
+            """;
+
+        byte[] png = new byte[40];
+        new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 1, 44, 0, 0, 0, 200 }
+            .CopyTo(png, 0);
+
+        Assert.True(await admin.SetSpriteAsync("iconic", 1, Index, png, CancellationToken.None));
+
+        StoredSprite listed = Assert.Single(await admin.ListSpritesAsync("iconic", CancellationToken.None));
+
+        Assert.Equal(1, listed.PixelRatio);
+        Assert.Equal(Index, listed.Index);
+        Assert.Null(listed.Image);
+        Assert.Equal(40, listed.ImageBytes);
+        Assert.Equal(300, listed.Width);
+        Assert.Equal(200, listed.Height);
+
+        StoredSprite found = (await admin.FindSpriteAsync("iconic", 1, withImage: true, CancellationToken.None))!;
+
+        Assert.Equal(png, found.Image);
+        Assert.Null(await admin.FindSpriteAsync("iconic", 2, withImage: false, CancellationToken.None));
+
+        Assert.True(await admin.SetSpriteAsync("iconic", 2, Index, png, CancellationToken.None));
+        Assert.Equal(2, (await admin.ListSpritesAsync("iconic", CancellationToken.None)).Count);
+
+        Assert.Equal(2, await admin.DeleteSpritesAsync("iconic", CancellationToken.None));
+        Assert.Empty(await admin.ListSpritesAsync("iconic", CancellationToken.None));
+        Assert.False(await admin.SetSpriteAsync("nosuch", 1, Index, png, CancellationToken.None));
+    }
+
+    /// <summary>
     /// What was written is what is read back, field for field.
     /// </summary>
     /// <remarks>

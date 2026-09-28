@@ -165,6 +165,9 @@ generated one.**
 `source-layer` that the service actually has (background layers excepted); no
 URL anywhere leaves this server; and no layer sets `icon-image`, because the
 sprite sheet is empty and the icon would silently not draw.
+*(Amended 2026-09-29 by [ADR-092](ADR-092-sprites-are-uploaded-per-service.md): the last check is
+deleted. An `icon-image` is checked against the service's uploaded sprite sheet instead — refused when
+there is no sheet, and when a literal name is not in it.)*
 
 **Bounded at 1 MB**, enforced while reading the body rather than after, and again
 by a column constraint so a second writer cannot bypass it.
@@ -187,8 +190,9 @@ by a column constraint so a second writer cannot bypass it.
   source that no longer exists, and nothing revalidates it. Condition 3.
 - **The validator will eventually refuse something valid**, because the
   specification grows and this does not.
-- **`icon-image` is refused**, which is a valid style being turned away for a
-  reason that is ours.
+- ~~**`icon-image` is refused**, which is a valid style being turned away for a
+  reason that is ours.~~ *Checked against an uploaded sheet since 2026-09-29 —
+  [ADR-092](ADR-092-sprites-are-uploaded-per-service.md).*
 - One more thing in the platform store that is not a catalogue fact.
 
 **Ports created.** None.
@@ -212,7 +216,8 @@ needs glyphs, and the `icon-image` refusal exists because that ADR's sprite shee
 is empty. [ADR-021](ADR-021-tile-encoding.md) for the tiles a style draws.
 
 **Depended on by**: ADR-027 condition 5, answered here a third way. Any future
-sprite upload, which deletes the `icon-image` check.
+sprite upload, which deletes the `icon-image` check — [ADR-092](ADR-092-sprites-are-uploaded-per-service.md),
+2026-09-29.
 
 ## 9. Revisit triggers
 
@@ -221,7 +226,7 @@ sprite upload, which deletes the `icon-image` check.
 - **The validator refuses a style that is valid.** Then the check is behind the
   specification and the trade in §3 has stopped paying.
 - **Sprites become uploadable.** The `icon-image` refusal is deleted, not
-  relaxed.
+  relaxed. *(Fired 2026-09-29 — [ADR-092](ADR-092-sprites-are-uploaded-per-service.md); condition 4.)*
 - **A style is found naming a layer that has since been removed.** Condition 3
   stops being theoretical.
 
@@ -245,6 +250,12 @@ sprite upload, which deletes the `icon-image` check.
    said why, and the warning was logged — and put back.
 4. **The `icon-image` refusal is deleted when sprites can be uploaded**, rather
    than left as a permanent restriction whose reason nobody remembers.
+   *(Discharged 2026-09-29 — [ADR-092](ADR-092-sprites-are-uploaded-per-service.md).)* Sprites are
+   uploaded per service, and the refusal is **deleted**, not relaxed: `UsesAnIcon` is gone from
+   `StyleDocument`. What stands in its place is a different check with the source-layer check's
+   shape — an `icon-image` on a service with no sheet is refused and says to upload one, and a literal
+   icon name the 1x sheet does not have is refused and named. An expression is accepted. The same check
+   runs where the style is served, under condition 3.
 5. **The admin route naming is straightened out.** `/admin/services/{name}/sharing`
    addresses a *system* service while `/admin/services/{name}/groups` and now
    `/style` address a *published* one. A published service named `Geometry`

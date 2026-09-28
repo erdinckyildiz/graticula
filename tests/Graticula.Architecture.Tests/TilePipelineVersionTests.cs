@@ -132,7 +132,12 @@ public sealed class TilePipelineVersionTests
         // <b>Moved 2026-09-28 for a comment, and the version did not move.</b> `WebMercator`'s remarks said
         // reprojecting a tile was not implemented; it has been since 0eaf635, and the paragraph now says so.
         // CI was red on this for two pushes (eec54dd, 59266bd): the architecture suite was not run first.
-        "692fc4687890493445cc63f84a0aabe83d345d31d32b525314550ef4185c780b";
+
+        // <b>Moved 2026-09-29, and the version did not move.</b> ADR-092: the sprite routes serve the sheet a
+        // publisher uploaded instead of an empty one, and a stored style is checked against that sheet's icon names
+        // where it is served. A sprite sheet and a style are resources beside the tiles; not one byte of a tile is
+        // decided differently.
+        "0f1010c8832f1efacf4f5b805505a0546a9648995f94190ca67be5d1600bd2ea";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 2;

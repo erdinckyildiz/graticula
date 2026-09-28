@@ -584,6 +584,7 @@ internal static partial class AdminEndpoints
         MapIdentityProviders(app); // ADR-088 — AdminEndpoints.IdentityProviders.cs
         MapThumbnails(app);      // ADR-071 — AdminEndpoints.Thumbnails.cs
         MapHistory(app);         // ADR-078 — AdminEndpoints.History.cs
+        MapSprite(app);          // ADR-092 — AdminEndpoints.Sprite.cs
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
             SetStatusAsync(c, name, ServiceStatus.Started, a, l, t));
         app.MapPost("/admin/layers/{name}/stop", (HttpContext c, string name, IAdminCatalog a, IAuditLog l, CancellationToken t) =>
@@ -4046,7 +4047,11 @@ internal static partial class AdminEndpoints
 
         // ADR-028 condition 3: a stored style the service's layers have since outgrown is not served to clients, and
         // the author reading it back is told why, beside the document — which stays byte for byte what they sent.
-        if (!StyleDocument.TryValidate(service.Style, service.SourceLayers, out string? stale))
+        if (!StyleDocument.TryValidate(
+                service.Style,
+                service.SourceLayers,
+                await SpriteIconsAsync(catalog, service.Name, cancellation).ConfigureAwait(false),
+                out string? stale))
         {
             context.Response.Headers["Graticula-Style-Stale"] =
                 Uri.EscapeDataString("Not served: the generated style is, because " + stale);
@@ -4124,7 +4129,13 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (!StyleDocument.TryValidate(body, service.SourceLayers, out string? error))
+        // ADR-092: an icon the style draws by name must be in the service's sprite sheet, as a source layer it draws
+        // must be in the service — and an icon on a service with no sheet is refused with the step that fixes it.
+        if (!StyleDocument.TryValidate(
+                body,
+                service.SourceLayers,
+                await SpriteIconsAsync(catalog, service.Name, cancellation).ConfigureAwait(false),
+                out string? error))
         {
             await Refuse(context, 400, error!).ConfigureAwait(false);
             return;

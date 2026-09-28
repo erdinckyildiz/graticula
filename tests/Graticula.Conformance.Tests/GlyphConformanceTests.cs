@@ -187,7 +187,7 @@ public sealed class GlyphConformanceTests : ArcGisClient
     // ---------- the sprite sheet ----------
 
     /// <summary>
-    /// The sprite sheet answers, and is honestly empty.
+    /// The sprite sheet answers, whether or not one was uploaded — an empty one when not (ADR-092).
     /// </summary>
     [Theory]
     [InlineData("sprite.json")]

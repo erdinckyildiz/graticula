@@ -63,8 +63,9 @@ internal static class VectorTileEndpoints
             // <b>The resources a style needs to draw a label.</b> Without the
             // fonts a client with a text-field renders no text at all and logs a
             // fetch error, which reads as a broken server rather than a missing
-            // feature. The sprite sheet is empty and exists so that a style
-            // carrying an icon reference gets an answer instead of a 404.
+            // feature. The sprite sheet is the one the publisher uploaded
+            // (ADR-092), or an empty one so that a client probing it gets an
+            // answer instead of a 404.
             app.MapGet(
                 $"{prefix}/{{serviceName}}/VectorTileServer/resources/fonts/{{fontstack}}/{{range}}.pbf",
                 FontAsync)
@@ -580,14 +581,28 @@ internal static class VectorTileEndpoints
     }
 
     /// <summary>
-    /// The sprite sheet, which is deliberately empty.
+    /// The sprite sheet: the one the service's publisher uploaded, or an empty one.
     /// </summary>
     /// <remarks>
-    /// <b>Empty, and that is honest rather than lazy.</b> There is no icon
-    /// library to ship and no way yet for anybody to upload one — style document
-    /// management does not exist. What this prevents is a 404 on a resource
-    /// every ArcGIS and Mapbox client probes, which is the difference between
-    /// <em>this service has no icons</em> and <em>this service is broken</em>.
+    /// <para>
+    /// <b>Uploaded since ADR-092; empty before it, and still empty for a service nobody gave
+    /// icons.</b> The empty answer stays because every ArcGIS and Mapbox client probes this
+    /// resource, and a 404 is the difference between <em>this service has no icons</em> and
+    /// <em>this service is broken</em>.
+    /// </para>
+    /// <para>
+    /// <b><c>@2x</c> falls back to the 1x sheet.</b> A client on a high-density screen asks only for
+    /// <c>@2x</c>; a publisher who uploaded one sheet still sees their icons there, drawn from the
+    /// 1x picture at the ratio its index states.
+    /// </para>
+    /// <para>
+    /// <b>Revalidated, not immutable, since the sheet stopped being a constant.</b> The empty sheet
+    /// was sent <c>immutable</c> for a year because nothing could change it; an uploaded sheet
+    /// changes when its publisher uploads the next one, so every answer — the empty one included,
+    /// or a browser would keep it past the first upload — carries an ETag computed from the bytes
+    /// and <c>no-cache</c>, which makes an unchanged sheet a 304. Public only for an anonymous
+    /// caller of a public service: the rule the tiles follow, for the reason they follow it.
+    /// </para>
     /// </remarks>
     private static async Task SpriteAsync(
         HttpContext context,
@@ -596,48 +611,73 @@ internal static class VectorTileEndpoints
         CatalogFallback catalog,
         CancellationToken cancellation)
     {
-        if (await TileableAsync(context, serviceName, catalog, cancellation)
-                .ConfigureAwait(false) is null)
+        // Matched exactly rather than by extension, so the name in the URL never
+        // becomes a lookup of any kind.
+        (int ratio, bool image) = sprite switch
+        {
+            "sprite.json" => (1, false),
+            "sprite.png" => (1, true),
+            "sprite@2x.json" => (2, false),
+            "sprite@2x.png" => (2, true),
+            _ => (0, false),
+        };
+
+        PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
+            .ConfigureAwait(false);
+
+        if (service is null)
         {
             return;
         }
 
-        context.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
-
-        // Matched exactly rather than by extension, so the name in the URL never
-        // becomes a lookup of any kind.
-        switch (sprite)
+        if (ratio == 0)
         {
-            case "sprite.json":
-            case "sprite@2x.json":
-                await Results.Content("{}", "application/json; charset=utf-8")
-                    .ExecuteAsync(context).ConfigureAwait(false);
-                return;
-
-            case "sprite.png":
-            case "sprite@2x.png":
-                await Results.Bytes(EmptySheet, "image/png").ExecuteAsync(context)
-                    .ConfigureAwait(false);
-                return;
-
-            default:
-                await Results.Json(
-                    new
+            await Results.Json(
+                new
+                {
+                    error = new
                     {
-                        error = new
-                        {
-                            code = 404,
-                            message =
-                                "A sprite sheet is sprite.json, sprite.png, sprite@2x.json or "
-                                + "sprite@2x.png. This service ships an empty one: it has no "
-                                + "icons, because there is no way to give it any yet.",
-                            details = Array.Empty<string>(),
-                        },
+                        code = 404,
+                        message =
+                            "A sprite sheet is sprite.json, sprite.png, sprite@2x.json or "
+                            + "sprite@2x.png. A service with no uploaded sheet answers an empty one.",
+                        details = Array.Empty<string>(),
                     },
-                    statusCode: StatusCodes.Status404NotFound)
-                    .ExecuteAsync(context).ConfigureAwait(false);
-                return;
+                },
+                statusCode: StatusCodes.Status404NotFound)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
         }
+
+        // <b>Straight to the catalogue, past the fallback, as a related record is read</b> — there is no
+        // remembered copy of a sheet to serve from, so while the store is unreachable this read fails and the
+        // caller is told so, rather than being handed an empty sheet as though it were this service's.
+        Graticula.Platform.Admin.StoredSprite? stored = catalog.Catalog is { } layers
+            ? await layers.FindSpriteAsync(service.Id, ratio, image, cancellation).ConfigureAwait(false)
+            : null;
+
+        byte[] bytes = image
+            ? stored?.Image ?? EmptySheet
+            : System.Text.Encoding.UTF8.GetBytes(stored?.Index ?? "{}");
+
+        context.Response.Headers.CacheControl = QueryResponseCaching.RevalidateFor(context, service.Layers);
+
+        // Weak, as the query face's is: the index is JSON, which the compression middleware may send
+        // brotli, gzip or identity under the one tag (ADR-068).
+        string etag = "W/\"" + Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(bytes).AsSpan(0, 16)) + "\"";
+
+        context.Response.Headers.ETag = etag;
+
+        if (Matches(context.Request.Headers.IfNoneMatch, etag))
+        {
+            context.Response.StatusCode = StatusCodes.Status304NotModified;
+            context.Response.Headers.ContentLength = null;
+            return;
+        }
+
+        await Results.Bytes(bytes, image ? "image/png" : "application/json; charset=utf-8")
+            .ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>A one-pixel transparent PNG: an atlas with nothing in it.</summary>
@@ -670,7 +710,33 @@ internal static class VectorTileEndpoints
         // that no longer fits gives way to the generated one, which always does, and says so in the server log.
         if (service.Style is { Length: > 0 } stored)
         {
-            if (StoredStyleFits(stored, [.. service.Layers.Select(l => l.Definition.Name)], out string? stale))
+            // <b>The sprite sheet's icon names, read only when the style could need them — ADR-092.</b> A style that
+            // draws no icon is checked against its layers alone, as before, and pays nothing for the sheet.
+            //
+            // <b>And skipped when the store cannot be reached.</b> The service itself may be the remembered one
+            // (ADR-026, Q-95), and a sheet is not remembered; refusing the style over that would take the map down to
+            // protect its icons. The icons would be missing anyway — the sprite routes cannot read the sheet either.
+            IReadOnlyList<string>? icons = null;
+            bool checkable = true;
+
+            if (stored.Contains("icon-image", StringComparison.Ordinal) && catalog.Catalog is { } sprites)
+            {
+                try
+                {
+                    icons = await sprites.FindSpriteAsync(service.Id, 1, withImage: false, cancellation)
+                            .ConfigureAwait(false) is { } sheet
+                        ? SpriteSheet.IconNames(sheet.Index)
+                        : null;
+                }
+                catch (Exception e) when (CatalogFallback.IsUnreachable(e))
+                {
+                    checkable = false;
+                }
+            }
+
+            string? stale = null;
+
+            if (!checkable || StoredStyleFits(stored, [.. service.Layers.Select(l => l.Definition.Name)], icons, out stale))
             {
                 await Results.Content(stored, "application/json; charset=utf-8")
                     .ExecuteAsync(context).ConfigureAwait(false);
@@ -707,10 +773,12 @@ internal static class VectorTileEndpoints
     /// </summary>
     /// <param name="stored">The style as stored.</param>
     /// <param name="layers">The service's layers now, by name.</param>
+    /// <param name="icons">The service's 1x sprite sheet's icon names, or null when it has no sheet (ADR-092).</param>
     /// <param name="stale">Why it no longer fits, or null.</param>
     /// <returns>Whether it may be served.</returns>
-    internal static bool StoredStyleFits(string stored, IReadOnlyList<string> layers, out string? stale) =>
-        StyleDocument.TryValidate(stored, layers, out stale);
+    internal static bool StoredStyleFits(
+        string stored, IReadOnlyList<string> layers, IReadOnlyList<string>? icons, out string? stale) =>
+        StyleDocument.TryValidate(stored, layers, icons, out stale);
 
     /// <summary>One tile.</summary>
     /// <remarks>

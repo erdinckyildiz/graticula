@@ -1481,6 +1481,129 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
+    /// <summary>
+    /// The columns a sprite read returns, with the picture's bytes only when asked for.
+    /// </summary>
+    /// <remarks>
+    /// <b>The size is read out of the stored header rather than stored twice.</b> Bytes 16 to 23 of a
+    /// PNG are its width and height, big-endian, and nothing reaches this table without
+    /// <c>SpriteSheet</c> having checked that they are there; <c>get_byte</c> reads them without
+    /// carrying the rest of the picture out of the database.
+    /// </remarks>
+    internal static string SpriteColumns(bool withImage) =>
+        "sp.pixel_ratio, sp.index_json, "
+        + (withImage ? "sp.image" : "null::bytea")
+        + ", octet_length(sp.image), "
+        + "(get_byte(sp.image, 16)::bigint << 24) + (get_byte(sp.image, 17) << 16) "
+        + "  + (get_byte(sp.image, 18) << 8) + get_byte(sp.image, 19), "
+        + "(get_byte(sp.image, 20)::bigint << 24) + (get_byte(sp.image, 21) << 16) "
+        + "  + (get_byte(sp.image, 22) << 8) + get_byte(sp.image, 23), "
+        + "sp.updated_at";
+
+    /// <summary>Reads one row of <see cref="SpriteColumns"/>.</summary>
+    internal static StoredSprite ReadSprite(NpgsqlDataReader reader) =>
+        new(
+            reader.GetInt16(0),
+            reader.GetString(1),
+            reader.IsDBNull(2) ? null : reader.GetFieldValue<byte[]>(2),
+            reader.GetInt32(3),
+            (int)reader.GetInt64(4),
+            (int)reader.GetInt64(5),
+            reader.GetFieldValue<DateTimeOffset>(6));
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<StoredSprite>> ListSpritesAsync(
+        string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"select {SpriteColumns(withImage: false)} "
+            + "from service_sprite sp join service s on s.id = sp.service_id "
+            + "where lower(s.name) = lower(@name) "
+            + "order by sp.pixel_ratio");
+
+        command.Parameters.AddWithValue("name", name);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        List<StoredSprite> sprites = [];
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            sprites.Add(ReadSprite(reader));
+        }
+
+        return sprites;
+    }
+
+    /// <inheritdoc/>
+    public async Task<StoredSprite?> FindSpriteAsync(
+        string name, int pixelRatio, bool withImage, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"select {SpriteColumns(withImage)} "
+            + "from service_sprite sp join service s on s.id = sp.service_id "
+            + "where lower(s.name) = lower(@name) and sp.pixel_ratio = @ratio");
+
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("ratio", (short)pixelRatio);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadSprite(reader) : null;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetSpriteAsync(
+        string name, int pixelRatio, string index, byte[] image, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(image);
+
+        // <b>One statement, so a replacement is never half a sheet.</b> The index and the picture it
+        // indexes are written together or not at all; a client reading between two writes would cut
+        // the old rectangles out of the new picture.
+        const string Sql = """
+            insert into service_sprite (service_id, pixel_ratio, index_json, image)
+            select s.id, @ratio, @index, @image
+              from service s
+             where lower(s.name) = lower(@name)
+            on conflict (service_id, pixel_ratio) do update
+               set index_json = excluded.index_json,
+                   image      = excluded.image,
+                   updated_at = now()
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("ratio", (short)pixelRatio);
+        command.Parameters.AddWithValue("index", index);
+        command.Parameters.Add(new NpgsqlParameter("image", NpgsqlDbType.Bytea) { Value = image });
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<int> DeleteSpritesAsync(string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand("""
+            delete from service_sprite
+             where service_id in (select id from service where lower(name) = lower(@name))
+            """);
+
+        command.Parameters.AddWithValue("name", name);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     /// <inheritdoc/>
     /// <remarks>
     /// <para>

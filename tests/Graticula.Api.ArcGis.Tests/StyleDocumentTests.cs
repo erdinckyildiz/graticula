@@ -27,7 +27,7 @@ public sealed class StyleDocumentTests
     private static readonly string[] Layers = ["parcels", "buildings"];
 
     private static bool Valid(string json, out string? error) =>
-        StyleDocument.TryValidate(json, Layers, out error);
+        StyleDocument.TryValidate(json, Layers, icons: null, out error);
 
     private const string Good = """
         {
@@ -217,7 +217,7 @@ public sealed class StyleDocumentTests
     [InlineData("""{"version":8,"layers":["not an object"]}""")]
     public void A_document_that_is_not_a_style_is_refused(string? json)
     {
-        Assert.False(StyleDocument.TryValidate(json, Layers, out string? error));
+        Assert.False(StyleDocument.TryValidate(json, Layers, icons: null, out string? error));
         Assert.False(string.IsNullOrWhiteSpace(error));
     }
 
@@ -228,7 +228,7 @@ public sealed class StyleDocumentTests
         string huge = """{"version":8,"layers":[],"pad":"""
                       + "\"" + new string('x', StyleDocument.MaximumBytes) + "\"}";
 
-        Assert.False(StyleDocument.TryValidate(huge, Layers, out string? error));
+        Assert.False(StyleDocument.TryValidate(huge, Layers, icons: null, out string? error));
         Assert.Contains("KB", error!, StringComparison.Ordinal);
     }
 
@@ -245,7 +245,7 @@ public sealed class StyleDocumentTests
         string deep = """{"version":8,"layers":[],"x":"""
                       + new string('[', 200) + new string(']', 200) + "}";
 
-        Assert.False(StyleDocument.TryValidate(deep, Layers, out string? error));
+        Assert.False(StyleDocument.TryValidate(deep, Layers, icons: null, out string? error));
         Assert.NotNull(error);
     }
 
@@ -254,34 +254,134 @@ public sealed class StyleDocumentTests
     public void A_service_with_no_layers_accepts_only_a_style_that_draws_nothing()
     {
         Assert.True(StyleDocument.TryValidate(
-            """{"version":8,"layers":[]}""", Array.Empty<string>(), out _));
+            """{"version":8,"layers":[]}""", Array.Empty<string>(), icons: null, out _));
 
         Assert.False(StyleDocument.TryValidate(
             """{"version":8,"layers":[{"id":"a","type":"fill","source-layer":"parcels"}]}""",
-            Array.Empty<string>(), out _));
+            Array.Empty<string>(), icons: null, out _));
+    }
+
+    // ---------- icons, against the service's sprite sheet (ADR-092) ----------
+
+    private static readonly string[] Icons = ["marker", "school", "hospital"];
+
+    private static readonly string[] MarkerAndSchool = ["marker", "school"];
+
+    private static string Pins(string iconImage) => $$$"""
+        {"version":8,"layers":[
+          {"id":"pins","type":"symbol","source-layer":"parcels",
+           "layout":{"icon-image":{{{iconImage}}}}}]}
+        """;
+
+    /// <summary>
+    /// A style that draws an icon on a service with no sprite sheet is refused, and says what to do.
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-027 condition 5 and ADR-028 condition 4, discharged by ADR-092.</b> Until sheets could
+    /// be uploaded every <c>icon-image</c> was refused; that blanket refusal is deleted, and what is
+    /// left is the case where there is still nothing to draw from.
+    /// </remarks>
+    [Fact]
+    public void An_icon_on_a_service_with_no_sprite_sheet_is_refused_and_says_to_upload_one()
+    {
+        Assert.False(Valid(Pins("\"marker\""), out string? error));
+
+        Assert.Contains("pins", error!, StringComparison.Ordinal);
+        Assert.Contains("no sprite sheet", error!, StringComparison.Ordinal);
+        Assert.Contains("/sprite", error!, StringComparison.Ordinal);
+    }
+
+    /// <summary>Even an expression is refused when there is no sheet, since it can name nothing.</summary>
+    [Fact]
+    public void An_icon_expression_on_a_service_with_no_sprite_sheet_is_refused()
+    {
+        Assert.False(Valid(Pins("""["get","kind"]"""), out string? error));
+        Assert.Contains("no sprite sheet", error!, StringComparison.Ordinal);
+    }
+
+    /// <summary>A literal icon the sheet has is accepted — the check the blanket refusal became.</summary>
+    [Theory]
+    [InlineData("\"marker\"")]
+    [InlineData("""["literal","school"]""")]
+    public void An_icon_the_sprite_sheet_has_is_accepted(string iconImage)
+    {
+        Assert.True(
+            StyleDocument.TryValidate(Pins(iconImage), Layers, Icons, out string? error), error);
     }
 
     /// <summary>
-    /// A style that draws an icon is refused while the sprite sheet is empty.
+    /// A literal icon the sheet does not have is refused, naming it and what the sheet has.
     /// </summary>
     /// <remarks>
-    /// <b>ADR-027 condition 5, answered a third way.</b> The condition offered
-    /// two options — fill the sheet, or stop advertising it. Neither is right
-    /// yet: there is no icon library to ship and clients probe the sheet
-    /// regardless. Refusing the style that would silently draw nothing is the
-    /// remaining honest option, and it removes the harm without pretending the
-    /// feature exists. The check deletes itself the day sprites can be uploaded.
+    /// The mistyped <c>source-layer</c> check applied to icons: a missing name draws nothing and
+    /// reports nothing.
     /// </remarks>
-    [Fact]
-    public void An_icon_nobody_can_supply_is_refused_rather_than_drawn_as_nothing()
+    [Theory]
+    [InlineData("\"markr\"", "markr")]
+    [InlineData("""["literal","hospitl"]""", "hospitl")]
+    public void A_literal_icon_the_sprite_sheet_lacks_is_refused_and_named(string iconImage, string named)
     {
-        Assert.False(Valid("""
-            {"version":8,"layers":[
-              {"id":"pins","type":"symbol","source-layer":"parcels",
-               "layout":{"icon-image":"marker"}}]}
-            """, out string? error));
+        Assert.False(StyleDocument.TryValidate(Pins(iconImage), Layers, Icons, out string? error));
 
-        Assert.Contains("sprite", error!, StringComparison.Ordinal);
+        Assert.Contains($"'{named}'", error!, StringComparison.Ordinal);
+        Assert.Contains("marker", error!, StringComparison.Ordinal);
+    }
+
+    /// <summary>Case matters, because a client looks the name up exactly.</summary>
+    [Fact]
+    public void An_icon_name_differing_only_in_case_is_refused()
+    {
+        Assert.False(StyleDocument.TryValidate(Pins("\"Marker\""), Layers, Icons, out _));
+    }
+
+    /// <summary>
+    /// An expression is accepted when a sheet exists, and not resolved.
+    /// </summary>
+    /// <remarks>
+    /// Which names an expression produces depends on the features, so checking them would mean
+    /// reading the data at write time. A legacy <c>{token}</c> string is an expression too.
+    /// </remarks>
+    [Theory]
+    [InlineData("""["get","kind"]""")]
+    [InlineData("""["match",["get","kind"],"a","marker","school"]""")]
+    [InlineData("\"{kind}-15\"")]
+    public void An_icon_expression_is_accepted_when_there_is_a_sheet(string iconImage)
+    {
+        Assert.True(
+            StyleDocument.TryValidate(Pins(iconImage), Layers, Icons, out string? error), error);
+    }
+
+    /// <summary>An empty sheet has a name for nothing, so every literal is missing from it.</summary>
+    [Fact]
+    public void A_literal_icon_against_an_empty_sheet_is_refused()
+    {
+        Assert.False(StyleDocument.TryValidate(Pins("\"marker\""), Layers, [], out string? error));
+        Assert.Contains("names no icons", error!, StringComparison.Ordinal);
+    }
+
+    /// <summary>A null <c>icon-image</c> draws no icon and needs no sheet.</summary>
+    [Fact]
+    public void A_null_icon_needs_no_sheet()
+    {
+        Assert.True(Valid(Pins("null"), out string? error), error);
+    }
+
+    /// <summary>The literal names a stored style uses, which is what a sheet may not take away.</summary>
+    [Fact]
+    public void The_literal_icons_of_a_style_are_listed_once_and_expressions_are_skipped()
+    {
+        IReadOnlyList<string> names = StyleDocument.LiteralIcons("""
+            {"version":8,"layers":[
+              {"id":"a","type":"symbol","source-layer":"parcels","layout":{"icon-image":"marker"}},
+              {"id":"b","type":"symbol","source-layer":"parcels","layout":{"icon-image":["literal","school"]}},
+              {"id":"c","type":"symbol","source-layer":"parcels","layout":{"icon-image":["get","kind"]}},
+              {"id":"d","type":"symbol","source-layer":"parcels","layout":{"icon-image":"{kind}"}},
+              {"id":"e","type":"symbol","source-layer":"parcels","layout":{"icon-image":"marker"}}]}
+            """);
+
+        Assert.Equal(MarkerAndSchool, names);
+        Assert.Empty(StyleDocument.LiteralIcons(null));
+        Assert.Empty(StyleDocument.LiteralIcons("not json"));
     }
 
     /// <summary>A text symbol is fine, because glyphs exist.</summary>

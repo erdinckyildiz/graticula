@@ -719,6 +719,46 @@ public sealed class PostgresLayerCatalog
         return services.Count == 0 ? null : services[0];
     }
 
+    /// <summary>
+    /// The sprite sheet a vector tile client asked for, or the nearest one below it — ADR-092.
+    /// </summary>
+    /// <param name="serviceId">The service, already resolved and authorised by the caller.</param>
+    /// <param name="pixelRatio">The ratio asked for: 1, or 2 for <c>@2x</c>.</param>
+    /// <param name="withImage">Whether to read the picture's bytes; only the image route needs them.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The sheet, or null when the service has none at or below that ratio.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Beside the service read rather than inside it</b>, because the service row is read on every
+    /// request every face answers and the sheet only on four routes. The style rides the service row;
+    /// eight megabytes of picture would not have been a reasonable passenger.
+    /// </para>
+    /// <para>
+    /// <b>At or below, highest first, so <c>@2x</c> falls back to 1x in the same statement.</b> A
+    /// MapLibre client on a high-density screen asks only for <c>@2x</c>; a service that uploaded
+    /// only the 1x sheet still draws its icons there, softer, because the 1x index states its ratio.
+    /// </para>
+    /// </remarks>
+    public async Task<Graticula.Platform.Admin.StoredSprite?> FindSpriteAsync(
+        Guid serviceId, int pixelRatio, bool withImage, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"select {PostgresAdminCatalog.SpriteColumns(withImage)} "
+            + "from service_sprite sp "
+            + "where sp.service_id = @service and sp.pixel_ratio <= @ratio "
+            + "order by sp.pixel_ratio desc limit 1");
+
+        command.Parameters.AddWithValue("service", serviceId);
+        command.Parameters.AddWithValue("ratio", (short)pixelRatio);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+            ? PostgresAdminCatalog.ReadSprite(reader)
+            : null;
+    }
+
     private async Task<IReadOnlyList<PublishedService>> ReadServicesAsync(
         NpgsqlCommand command, CancellationToken cancellationToken)
     {

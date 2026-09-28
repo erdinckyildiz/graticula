@@ -26,14 +26,45 @@ public sealed class AStyleThatOutlivesItsLayersIsNotServedTests
     [Fact]
     public void A_style_that_draws_only_the_services_layers_is_served()
     {
-        Assert.True(VectorTileEndpoints.StoredStyleFits(TwoLayers, ["parcels", "roads"], out string? stale));
+        Assert.True(VectorTileEndpoints.StoredStyleFits(TwoLayers, ["parcels", "roads"], icons: null, out string? stale));
         Assert.Null(stale);
     }
 
     [Fact]
     public void A_style_that_draws_a_layer_the_service_no_longer_has_is_not_and_says_which()
     {
-        Assert.False(VectorTileEndpoints.StoredStyleFits(TwoLayers, ["parcels"], out string? stale));
+        Assert.False(VectorTileEndpoints.StoredStyleFits(TwoLayers, ["parcels"], icons: null, out string? stale));
         Assert.Contains("roads", stale, System.StringComparison.Ordinal);
+    }
+
+    private const string Pins = """
+        {
+          "version": 8,
+          "layers": [
+            { "id": "pins", "type": "symbol", "source-layer": "parcels", "layout": { "icon-image": "marker" } }
+          ]
+        }
+        """;
+
+    private static readonly string[] Parcels = ["parcels"];
+
+    private static readonly string[] Marker = ["marker"];
+
+    /// <summary>A style drawing an icon the service's sprite sheet has is served — ADR-092.</summary>
+    [Fact]
+    public void A_style_drawing_an_icon_the_sheet_has_is_served()
+    {
+        Assert.True(VectorTileEndpoints.StoredStyleFits(Pins, Parcels, Marker, out string? stale), stale);
+    }
+
+    /// <summary>
+    /// A style drawing an icon the service no longer has a sheet for is not, and says so — the sheet's routes refuse
+    /// to take a literal icon away, and this is the check at the door they cannot see.
+    /// </summary>
+    [Fact]
+    public void A_style_drawing_an_icon_with_no_sheet_behind_it_is_not_served()
+    {
+        Assert.False(VectorTileEndpoints.StoredStyleFits(Pins, Parcels, icons: null, out string? stale));
+        Assert.Contains("sprite", stale, System.StringComparison.Ordinal);
     }
 }

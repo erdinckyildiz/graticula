@@ -48,10 +48,19 @@ public static class StyleDocument
     /// </summary>
     /// <param name="json">The document as it was sent.</param>
     /// <param name="sourceLayers">The layer names the service actually has.</param>
+    /// <param name="icons">
+    /// The icon names the service's sprite sheet defines — the 1x sheet's, which is the one every
+    /// client can fall back to — or null when the service has no sheet at all (ADR-092). Null and
+    /// empty are different answers: null refuses any <c>icon-image</c> and says to upload a sheet,
+    /// empty refuses every literal name as missing from the one that is there.
+    /// </param>
     /// <param name="error">Why it was refused, naming what to change.</param>
     /// <returns>True when it is safe to store.</returns>
     public static bool TryValidate(
-        string? json, IReadOnlyCollection<string> sourceLayers, out string? error)
+        string? json,
+        IReadOnlyCollection<string> sourceLayers,
+        IReadOnlyCollection<string>? icons,
+        out string? error)
     {
         ArgumentNullException.ThrowIfNull(sourceLayers);
 
@@ -88,12 +97,15 @@ public static class StyleDocument
 
         using (document)
         {
-            return Check(document.RootElement, sourceLayers, out error);
+            return Check(document.RootElement, sourceLayers, icons, out error);
         }
     }
 
     private static bool Check(
-        JsonElement root, IReadOnlyCollection<string> sourceLayers, out string? error)
+        JsonElement root,
+        IReadOnlyCollection<string> sourceLayers,
+        IReadOnlyCollection<string>? icons,
+        out string? error)
     {
         error = null;
 
@@ -127,7 +139,7 @@ public static class StyleDocument
             return false;
         }
 
-        return Layers(layers, sourceLayers, out error);
+        return Layers(layers, sourceLayers, icons, out error);
     }
 
     /// <summary>
@@ -224,21 +236,147 @@ public static class StyleDocument
 
 
     /// <summary>
-    /// Whether a layer draws an icon this server cannot supply.
+    /// Whether a layer draws an icon the service's sprite sheet can supply — ADR-092.
     /// </summary>
     /// <remarks>
-    /// <b>Refused rather than allowed to fail quietly.</b> The sprite sheet
-    /// exists and is empty (ADR-027 condition 5), so an <c>icon-image</c>
-    /// renders nothing, logs nothing, and looks like a data problem. Telling the
-    /// author at the moment they store the style is the whole point of
-    /// validating here — and this check disappears the day sprites can be
-    /// uploaded, which is the trigger written into the condition.
+    /// <para>
+    /// <b>Until 2026-09-29 every <c>icon-image</c> was refused</b>, because the sheet was empty and
+    /// nobody could fill it (ADR-027 condition 5, ADR-028 condition 4). That refusal is deleted, as
+    /// both conditions asked, rather than relaxed: what replaces it is the source-layer check's
+    /// shape applied to icons.
+    /// </para>
+    /// <para>
+    /// <b>No sheet, no icons.</b> An <c>icon-image</c> on a service with no sprite sheet renders
+    /// nothing and logs nothing, so it is refused with the one step that fixes it.
+    /// </para>
+    /// <para>
+    /// <b>A literal name must be in the sheet</b> — a string, or <c>["literal", name]</c> — for the
+    /// reason a mistyped source layer must be in the service: a missing icon is a blank with no
+    /// error anywhere. <b>An expression is accepted and not resolved</b>, because which names it
+    /// produces depends on the features; so is a legacy <c>{token}</c> string, which is an
+    /// expression spelled as text.
+    /// </para>
     /// </remarks>
-    private static bool UsesAnIcon(JsonElement layer) =>
-        layer.TryGetProperty("layout", out JsonElement layout)
-        && layout.ValueKind == JsonValueKind.Object
-        && layout.TryGetProperty("icon-image", out JsonElement icon)
-        && icon.ValueKind is not JsonValueKind.Null;
+    private static bool Icon(
+        JsonElement layer, string id, IReadOnlyCollection<string>? icons, out string? error)
+    {
+        error = null;
+
+        if (!layer.TryGetProperty("layout", out JsonElement layout)
+            || layout.ValueKind != JsonValueKind.Object
+            || !layout.TryGetProperty("icon-image", out JsonElement icon)
+            || icon.ValueKind is JsonValueKind.Null)
+        {
+            return true;
+        }
+
+        if (icons is null)
+        {
+            error = $"Layer '{id}' sets \"icon-image\", and this service has no sprite sheet to draw it "
+                  + "from. Upload one first — PUT /admin/services/{name}/sprite with the sheet's sprite.json "
+                  + "and sprite.png — and then store this style. Without it the layer would render nothing "
+                  + "and report nothing, so it is refused here instead.";
+            return false;
+        }
+
+        if (LiteralIcon(icon) is { } named && !icons.Contains(named, StringComparer.Ordinal))
+        {
+            error = $"Layer '{id}' draws icon '{named}', which this service's sprite sheet does not have. "
+                  + (icons.Count == 0
+                      ? "The sheet names no icons at all. "
+                      : $"It has {icons.Count} icon{(icons.Count == 1 ? "" : "s")}, among them: "
+                        + string.Join(", ", icons.Take(20)) + (icons.Count > 20 ? ", …" : "") + ". ")
+                  + "A style naming an icon that is not there draws nothing where it should be and reports "
+                  + "nothing, which is why this is refused rather than stored.";
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// The icon name an <c>icon-image</c> value names outright, or null when it is an expression.
+    /// </summary>
+    /// <param name="icon">The layout value.</param>
+    /// <returns>The name, or null.</returns>
+    private static string? LiteralIcon(JsonElement icon)
+    {
+        if (icon.ValueKind == JsonValueKind.String)
+        {
+            string text = icon.GetString()!;
+
+            // `{name}` substitutes a feature's attribute: the legacy token syntax, which is an
+            // expression written as a string.
+            return text.Contains('{', StringComparison.Ordinal) ? null : text;
+        }
+
+        if (icon.ValueKind == JsonValueKind.Array
+            && icon.GetArrayLength() == 2
+            && icon[0].ValueKind == JsonValueKind.String
+            && string.Equals(icon[0].GetString(), "literal", StringComparison.Ordinal)
+            && icon[1].ValueKind == JsonValueKind.String)
+        {
+            return icon[1].GetString();
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Every icon name a style's layers draw outright, for refusing a sprite sheet that would take
+    /// one away — ADR-092.
+    /// </summary>
+    /// <param name="json">A stored style.</param>
+    /// <returns>
+    /// The literal names, each once, in the order the layers use them; empty when the document
+    /// cannot be read.
+    /// </returns>
+    /// <remarks>
+    /// <b>The other direction of the same check.</b> <see cref="TryValidate"/> refuses a style naming
+    /// an icon the sheet lacks; this lets the sheet's own routes refuse a replacement or a removal
+    /// that would leave a stored style in that state. Expressions are skipped here for the reason
+    /// they are accepted there.
+    /// </remarks>
+    public static IReadOnlyList<string> LiteralIcons(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 32 });
+
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("layers", out JsonElement layers)
+                || layers.ValueKind != JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            List<string> names = [];
+
+            foreach (JsonElement layer in layers.EnumerateArray())
+            {
+                if (layer.ValueKind == JsonValueKind.Object
+                    && layer.TryGetProperty("layout", out JsonElement layout)
+                    && layout.ValueKind == JsonValueKind.Object
+                    && layout.TryGetProperty("icon-image", out JsonElement icon)
+                    && LiteralIcon(icon) is { } named
+                    && !names.Contains(named, StringComparer.Ordinal))
+                {
+                    names.Add(named);
+                }
+            }
+
+            return names;
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
 
     /// <summary>
     /// Every layer must name a source layer that exists.
@@ -250,7 +388,10 @@ public static class StyleDocument
     /// for the bug everywhere except the one line that has it.
     /// </remarks>
     private static bool Layers(
-        JsonElement layers, IReadOnlyCollection<string> sourceLayers, out string? error)
+        JsonElement layers,
+        IReadOnlyCollection<string> sourceLayers,
+        IReadOnlyCollection<string>? icons,
+        out string? error)
     {
         error = null;
 
@@ -291,13 +432,8 @@ public static class StyleDocument
                 return false;
             }
 
-            if (UsesAnIcon(layer))
+            if (!Icon(layer, id.GetString()!, icons, out error))
             {
-                error = $"Layer '{id.GetString()}' sets \"icon-image\", and this server has no "
-                      + "sprite sheet to draw it from — the one it serves is deliberately empty "
-                      + "because there is no way to upload icons yet (ADR-027). The layer would "
-                      + "render nothing and report nothing, so it is refused here instead. Use a "
-                      + "circle or a text symbol until sprites exist.";
                 return false;
             }
 

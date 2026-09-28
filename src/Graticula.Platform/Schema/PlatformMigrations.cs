@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(59);
+    public static SchemaVersion ComponentSchemaVersion => new(60);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -94,7 +94,48 @@ public static class PlatformMigrations
         DirectoriesAndGroupMappingV57,
         SamlSignInV58,
         TheDefaultPageSizeGoesV59,
+        AServiceMayCarryASpriteSheetV60,
     ]);
+
+    /// <summary>
+    /// A vector tile service's sprite sheet, uploaded by its publisher — ADR-092.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Its own table, not two columns on <c>service</c>.</b> The service row is read on every
+    /// request any face answers, and the style already rides it; an eight-megabyte picture there would
+    /// be carried by every catalogue read to be used by one route. Here it is read only by the sprite
+    /// routes, and the image bytes only by the one that serves the image.
+    /// </para>
+    /// <para>
+    /// <b>One row per pixel ratio, 1 and 2</b>, because those are the two sheets a MapLibre client asks
+    /// for — <c>sprite</c> and <c>sprite@2x</c>. The index is text for the reason the style is:
+    /// it is a document somebody made and will diff against their own copy.
+    /// </para>
+    /// <para>
+    /// <b>The bounds are the validator's, stated again where a second writer cannot pass them</b> —
+    /// a megabyte of index and eight of image, the pattern migration 14 set for the style.
+    /// </para>
+    /// <para><b>Expand.</b> A new table; nothing existing is read differently, and a service with no row
+    /// here serves the empty sheet it always has.</para>
+    /// </remarks>
+    private static Migration AServiceMayCarryASpriteSheetV60 => Migration.Expand(
+        new SchemaVersion(60),
+        "A vector tile service may carry an uploaded sprite sheet, at pixel ratio 1 and 2 (ADR-092).",
+
+        """
+        create table if not exists service_sprite (
+            service_id  uuid        not null references service (id) on delete cascade,
+            pixel_ratio smallint    not null,
+            index_json  text        not null,
+            image       bytea       not null,
+            updated_at  timestamptz not null default now(),
+            primary key (service_id, pixel_ratio),
+            constraint service_sprite_ratio_known check (pixel_ratio in (1, 2)),
+            constraint service_sprite_index_is_bounded check (length(index_json) <= 1048576),
+            constraint service_sprite_image_is_bounded check (octet_length(image) <= 8388608)
+        )
+        """);
 
     /// <summary>
     /// A server's own settings, and a service's page size as one number — V-70.
