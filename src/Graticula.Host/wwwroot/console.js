@@ -5740,7 +5740,15 @@ async function saveShare() {
           ? ` and ${groups} group${groups === 1 ? "" : "s"}` : ""}.`
     : `Some group changes did not apply — ${failed.join("; ")}`, failed.length === 0);
 
+  const shared = sharing.qualified;
   sharing = null;
+
+  // <b>The item page too, when it is the one shared from</b> — its pill and facts said the old level until
+  // a reload (verification review, 2026-09-30).
+  if (serviceOpen && serviceOpen.qualified === shared) {
+    await showService(shared);
+    return;
+  }
 
   await section("your content", loadMyContent, "contentRows").then(paintPreviews);
 }
@@ -6381,7 +6389,12 @@ function serviceSettingsMarkup(name, folder) {
           ["organization", "Organization", "Anybody who can sign in."],
           ["public", "Public",
             "Anybody, without a token — what an ArcGIS client with no credential sees."],
-        ].map(([value, label, said]) => `<label class="scopecard">
+          // <b>The fourth state, shown when it is the state — 2026-09-30.</b> A group-scoped service had
+          // no radio checked here, and pressing *Private* stored `private` with the group rows left in
+          // place: the share reached nobody while the Share dialog still showed the groups.
+          ["group", "Private, and its groups",
+            "The owner, and members of the groups it is shared with. Groups are chosen in <b>Share</b>."],
+        ].map(([value, label, said]) => `<label class="scopecard"${value === "group" ? ' data-only-when="group" hidden' : ""}>
           <input type="radio" name="capSharing" value="${value}"
             data-service-sharing="${h(name || "")}" data-folder="${h(folder || "")}">
           <span><b>${label}</b><span class="said">${said}</span></span>
@@ -6390,9 +6403,8 @@ function serviceSettingsMarkup(name, folder) {
       <p class="hint">Applied the moment it is chosen, not on Save — an owner narrowing who may see
         a service has to be able to trust that it happened rather than press Save afterwards
         (ADR-031 §2b, the same rule the role select follows).</p>
-      <p class="hint"><b>Shared with groups</b> is set in the <b>Share</b> dialog: with <b>Private</b>
-        chosen there, members of the groups you pick can read it. <b>Organization</b> and <b>Public</b>
-        already include every group member.</p>
+      <p class="hint"><b>Groups</b> are chosen in the <b>Share</b> dialog. <b>Organization</b> and
+        <b>Public</b> already include every group member.</p>
       <p class="hint"><b>One scope per service, and every layer inside it is read under that
         scope.</b> There is no per-layer version: <code>service.sharing</code> is what the serving
         path reads, and the console used to offer this page once per layer — D-61.</p>
@@ -10495,7 +10507,10 @@ async function loadServices() {
   // shows the root, empty or not.
   // And only while the address is still the bare services screen: the list is read asynchronously, and
   // a reader who has gone on to another screen meanwhile must not be pulled back by its answer.
-  const stillLanding = /^(#\/?)?(services\/?)?$/.test(location.hash);
+  // <b>And only on Server.</b> The list is also read on Studio's boot, for an administrator; this rewrote
+  // Studio's empty hash to `#/services/hosted`, which the router then sent to Server — so `/console`,
+  // meant to land in Studio, sent administrators to Server. Found by the verification review, 2026-09-30.
+  const stillLanding = surfaceOfPath() === "server" && /^(#\/?)?(services\/?)?$/.test(location.hash);
 
   if (!servicesLanded && selectedFolder === null && stillLanding) {
     servicesLanded = true;
@@ -14438,6 +14453,9 @@ async function loadServiceCapabilities(name, folderGiven) {
     if (row?.sharing) {
       const one = $("capSharing").querySelector(
         `input[name="capSharing"][value="${CSS.escape(row.sharing)}"]`);
+
+      const grouped = $("capSharing").querySelector('[data-only-when="group"]');
+      if (grouped) grouped.hidden = row.sharing !== "group";
 
       if (one) one.checked = true;
     }
@@ -20322,7 +20340,10 @@ function addFieldRow(name = "", type = "Text") {
  */
 function openCreated(created, chosen) {
   const address = String(created?.services?.feature || "");
-  const found = /\/rest\/services\/(.+)\/FeatureServer\/?$/.exec(address);
+  // <b>The layer's address, `…/FeatureServer/0`, is what an import answers with</b> (HostedDataEndpoints); the
+  // first version of this matched the service's only, so it never matched and every upload fell back to the
+  // old emptied form. The index is optional so either shape opens the item.
+  const found = /\/rest\/services\/(.+)\/FeatureServer(?:\/\d+)?\/?$/.exec(address);
 
   if (!found) {
     reportNew(created);
@@ -23528,6 +23549,22 @@ document.addEventListener("change", async event => {
   }
 
   if (d.serviceSharing) {
+    // <b>Groups are chosen in the Share dialog</b>, which keeps the level and the groups together; choosing
+    // the group state here would be a level with no way to say which groups.
+    if (event.target.value === "group") {
+      openShare(`${event.target.dataset.folder ? event.target.dataset.folder + "/" : ""}${d.serviceSharing}`);
+      return;
+    }
+
+    const wasGrouped = !!$("capSharing")?.querySelector('[data-only-when="group"]:not([hidden])');
+
+    if (wasGrouped && event.target.value === "private"
+        && !confirm("Make it private to its owner? Members of the groups it is shared with lose it too.")) {
+      const back = $("capSharing").querySelector('input[value="group"]');
+      if (back) back.checked = true;
+      return;
+    }
+
     try {
       const at = event.target.dataset.folder || "";
       const r = await api(
@@ -23538,6 +23575,17 @@ document.addEventListener("change", async event => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sharing: event.target.value }),
         });
+      // Out of its groups too, so no group row is left that the Share dialog would show as a share.
+      if (wasGrouped && event.target.value === "private") {
+        const qualified = `${at ? at + "/" : ""}${d.serviceSharing}`;
+        const item = ((await api("/content/items"))?.items || []).find(i => i.name === qualified);
+        for (const g of item?.sharedWith || []) {
+          await api(`/admin/groups/${encodeURIComponent(g.name)}/items/${encodeURIComponent(d.serviceSharing)}`
+            + `?folder=${encodeURIComponent(at)}`, { method: "DELETE" }).catch(() => null);
+        }
+        const grouped = $("capSharing")?.querySelector('[data-only-when="group"]');
+        if (grouped) grouped.hidden = true;
+      }
       toast(`${d.serviceSharing}: shared ${r.from} → ${r.to}`, true);
     } catch (e) { toast(e.message); }
     return;

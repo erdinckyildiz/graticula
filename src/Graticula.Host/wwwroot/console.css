@@ -4321,17 +4321,6 @@ a.btn.primary:hover { filter: brightness(.9); }
 }
 .thumb.mapthumb { display: grid; place-items: center; }
 
-/*
-  <b>The row's actions stay on screen, 2026-09-30.</b> At 1280 pixels the services table was 858 wide
-  in a 665-pixel panel, so Stop and ⋯ sat behind a sideways scroll on the width most people use; the
-  design review measured 42 pixels still clipped at 1440. The last column holds where the panel ends,
-  and the rest of the row scrolls under it.
-*/
-#serverMain .widetable td:last-child, #serverMain .widetable th:last-child {
-  position: sticky; right: 0; background: var(--surface);
-  box-shadow: -8px 0 8px -8px rgba(0, 0, 0, .12);
-}
-
 /* The Caching page's area map and its Advanced section — 2026-09-30. */
 .seedmap { height: 300px; border: 1px solid var(--rule); border-radius: var(--round); margin: var(--gap-2) 0 var(--gap-4); }
 #page-caching .lede { max-width: 70ch; }
