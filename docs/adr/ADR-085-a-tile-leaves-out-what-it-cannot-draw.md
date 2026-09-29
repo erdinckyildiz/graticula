@@ -187,4 +187,6 @@ None recorded.
    either.
 3. **The dashed boundaries are gone in ArcGIS Pro** — `hosted/tr_il` at 1:10.7 million, on the release that
    ships §5.1's amendment — since the defect was seen there and the tests above prove only that the pieces are in
-   the tile. Added 2026-09-29 with the amendment; open.
+   the tile. Added 2026-09-29 with the amendment.
+   *(Discharged 2026-09-29 — the owner added `hosted/tr_il` to ArcGIS Pro 3.x on v1.0.202, with Pro's local
+   cache cleared, and at 1:10.7 million the province boundaries drew continuous where they had been dashed.)*

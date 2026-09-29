@@ -289,7 +289,7 @@ pre .k{color:var(--accent)}
           <span><b>5</b> service types</span>
           <span><b>18</b> of 22 geometry operations</span>
           <span><b>1</b> process, <b>1</b> database</span>
-          <span><b>58</b> decision records</span>
+          <span><b>98</b> decision records</span>
         </p>
       </div>
 
@@ -421,10 +421,16 @@ pre .k{color:var(--accent)}
             <i class="sw half"><span class="vh">Partial.</span></i>
             <div>
               <h3>Vector tile services</h3>
-              <p>Tiles from hosted data and GeoParquet files, with a style document and a checked-in glyph set, so a
-              label actually draws instead of silently rendering nothing.
-              <b>A publisher uploads a sprite sheet per service</b>, so a style can draw icons; the
-              server checks the style's icon names against it. There is no shared icon library.</p>
+              <p>Tiles from hosted data, registered PostGIS tables and GeoParquet or DuckDB sources,
+              with a style document and a checked-in glyph set, so a label actually draws instead of
+              silently rendering nothing. A service may carry several named styles, and
+              <b>a publisher uploads a sprite sheet per service</b>, so a style can draw icons; the
+              server checks the style's icon names against it. The cache can be seeded before the
+              first request, and an expired tile stands in while its source refuses. A service may
+              be cut on a TUREF grid instead of Web Mercator. <b>A registered table's tiles can lag
+              its edits by their cache lifetime</b>, five minutes by default. A layer's own picture
+              markers are not carried into a tile style, and there is no shared icon library.</p>
+              <p class="ops"><code>tile</code><code>resources/styles</code><code>exportTiles</code></p>
             </div>
           </div>
 
@@ -456,7 +462,8 @@ pre .k{color:var(--accent)}
           <div>
             <h3>ArcGIS Pro</h3>
             <p>Add a <b>portal</b> connection, sign in, browse My Content, add a layer and edit
-            it. Measured against Pro over seven rounds, each read out of the request log.</p>
+            it. Measured against Pro over seven rounds, each read out of the request log. Vector
+            tile services draw in Pro 3.x, classified styles included.</p>
           </div>
           <div>
             <!--
@@ -484,6 +491,18 @@ pre .k{color:var(--accent)}
             empty schema and fill it through <code>applyEdits</code>. A table already in a
             database you registered needs no import at all: it is composed into a service where
             it lies.</p>
+          </div>
+          <div>
+            <h3>OGC clients</h3>
+            <p>The same layers over OGC API &ndash; Features, WFS 2.0 and WMS 1.3.0, and the same
+            vector tiles over OGC API &ndash; Tiles, TileJSON 3.0 and WMTS 1.0. No client has been
+            watched reading the three tile faces yet.</p>
+          </div>
+          <div>
+            <h3>Tiles to take offline</h3>
+            <p>A vector tile service exports as a VTPK, through ArcGIS&rsquo;s
+            <code>exportTiles</code>, or as a PMTiles archive &mdash; off until the service&rsquo;s
+            owner turns it on. <b>Not yet opened in Field Maps, Pro or a PMTiles reader.</b></p>
           </div>
         </div>
       </div>
@@ -532,8 +551,9 @@ pre .k{color:var(--accent)}
             <div>
               <h3>No offline editing</h3>
               <p>No <code>createReplica</code> and no sync, so Field Maps offline areas and
-              Pro&rsquo;s <em>Download Map</em> do not work against this server. Deferred from v1
-              by decision, not overlooked.</p>
+              Pro&rsquo;s <em>Download Map</em> cannot take this server&rsquo;s features offline.
+              Deferred from v1 by decision, not overlooked. Vector tiles can be exported as a
+              package, which has not yet been tried in either.</p>
             </div>
           </div>
 
