@@ -124,6 +124,20 @@ public sealed class PmTilesWriterTests
     }
 
     [Fact]
+    public async Task The_header_states_the_levels_that_have_tiles_not_the_levels_asked_for()
+    {
+        // 0-14 asked for, and only 10 and 11 had anything in them: small features vanish at the low levels and an
+        // empty tile is left out. `pmtiles verify` refuses a MinZoom with no tile at it, and a centre outside the range
+        // (2026-09-29, the fixture's parcels).
+        byte[] archive = await WriteAsync([(10, 600, 390, [1]), (11, 1200, 780, [2]), (11, 1201, 780, [3])], 0, 14);
+
+        TilePackageReaders.PmHeader h = TilePackageReaders.PmTilesHeader(archive);
+
+        Assert.Equal((10, 11), (h.MinZoom, h.MaxZoom));
+        Assert.Equal(10, h.CenterZoom);
+    }
+
+    [Fact]
     public async Task A_tile_is_found_by_z_x_y_through_the_readers_own_addressing()
     {
         List<(int, int, int, byte[])> tiles = [];

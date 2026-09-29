@@ -183,7 +183,11 @@ public sealed class AnExportedTileIsAServedTileTests : ArcGisClient
 
         TilePackageReaders.PmHeader header = TilePackageReaders.PmTilesHeader(archive);
         Assert.Equal(1, header.TileType);
-        Assert.Equal((from, to), (header.MinZoom, header.MaxZoom));
+        // The header states the levels that have tiles, which lie inside the ones asked for; the centre lies in them.
+        Assert.True(
+            header.Addressed == 0 || (from <= header.MinZoom && header.MinZoom <= header.MaxZoom && header.MaxZoom <= to),
+            $"Asked for {from}-{to}; the header says {header.MinZoom}-{header.MaxZoom}.");
+        Assert.InRange(header.CenterZoom, header.MinZoom, header.MaxZoom);
 
         // A served tile of the top level with something in it is in the archive, byte for byte.
         bool compared = false;

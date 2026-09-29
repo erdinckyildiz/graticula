@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `MEDIUM` — both formats are written from their published specifications and read back in the tests by independent readers of the same specifications; no ArcGIS client, `pmtiles` tool or MapLibre map has opened a package this server wrote (§6, conditions) |
+| **Confidence** | `MEDIUM` — both formats are written from their published specifications and read back in the tests by independent readers of the same specifications; `pmtiles verify` accepts an exported archive and MapLibre draws it (condition 2, after a header repair it found); no ArcGIS client has opened a VTPK this server wrote (condition 1) |
 | **Decided** | 2026-09-29, by owner decision. The owner asked for the vector tile face's remaining gaps to be closed one at a time; this is item 11 on that list, and the owner opened it directly: **offline tile packages** — ArcGIS's `exportTiles`, so that Field Maps offline areas and ArcGIS Pro's *Download Map* can take tiles from this server — **together with PMTiles export**, moved here from item 12 by [ADR-097](ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md) §5.8. The owner also said how: a job that walks the grid through the seed's own machinery, VTPK in compact cache V2 bundles, PMTiles v3 for Web Mercator only, the capability off for existing services, a download that re-checks access. Every number, address and shape below is this session's design and is marked **INFERRED** where it matters (§12). |
 | **Depends on** | [ADR-093](ADR-093-seeding-the-tile-cache.md), [ADR-096](ADR-096-a-vector-tile-service-may-be-tiled-in-another-reference.md), [ADR-097](ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md), [ADR-011](ADR-011-job-system.md), [ADR-017](ADR-017-admin-api.md), [ADR-021](ADR-021-tile-encoding.md), [ADR-010](ADR-010-caching.md), [ADR-031](ADR-031-service-capability-configuration.md), [ADR-075](ADR-075-a-layer-is-edited-by-its-owner.md) |
 | **Amends** | [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) — offline *basemaps* are in; replica sync is still out. [ADR-097](ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md) §5.8 — PMTiles is built, as an export. |
@@ -133,9 +133,9 @@ address still carries a 128-bit random token, so it is unguessable as well as go
 | The PMTiles writer's header fields, varints, run-length and deduplicated entries, leaf directories, and tile lookup by z/x/y through an independently written Hilbert id agree with the specification | `PmTilesWriterTests` (14), including every tile of levels 0–6 and `12/3423/1763` against the reader's own `xy2d` | this change |
 | The VTPK zip: paths, a bundle per level and block, every entry stored (compression method 0 in every local header), a tile read back by z/x/y and gunzipped | `VectorTilePackageTests`, `TileExportTests` (Host) | this change |
 | The estimate's arithmetic; the capability gating; the service document advertised with the two documented properties and nothing else changed; ArcGIS's level lists; tokens and file names | `TileExportTests` (Host, 30 cases) | this change |
-| The store: the budget checked with the insert, progress only from the holder, finishing with size and expiry in one statement, cancel only an export, removal marked once, a lost lease run again once then failed, the policy off until set | `TileExportStoreTests` (Platform.Postgres, 11) | this change. **Written and compiled; not run by the authoring session, which had no database** |
+| The store: the budget checked with the insert, progress only from the holder, finishing with size and expiry in one statement, cancel only an export, removal marked once, a lost lease run again once then failed, the policy off until set | `TileExportStoreTests` (Platform.Postgres, 11) | this change. **Run 2026-09-29 against the VPS fixture's database: 11/11** (condition 3) |
 | A cookie-only `exportTiles` is refused unless `Sec-Fetch-Site: same-origin`; a token in the query, a bearer header or the ArcGIS header is not asked; an anonymous request is not asked | `TileExportTests` (Host); `AnExportedTileIsAServedTileTests.A_cookie_alone_cannot_start_an_export_and_a_token_can` (conformance, not run) | this change |
-| A tile in a VTPK made through `exportTiles`, and in a PMTiles archive made through the admin route, equals the served tile; the estimate counts the same tiles; a range is a 206; a caller who may not export cannot download, a guessed name is a 404, and turning the export off stops the ArcGIS address at once | `AnExportedTileIsAServedTileTests` (conformance, 4) | this change. **Written and compiled; not run by the authoring session, which had no server** |
+| A tile in a VTPK made through `exportTiles`, and in a PMTiles archive made through the admin route, equals the served tile; the estimate counts the same tiles; a range is a 206; a caller who may not export cannot download, a guessed name is a 404, and turning the export off stops the ArcGIS address at once | `AnExportedTileIsAServedTileTests` (conformance, 4) | this change. **Run 2026-09-29 on the VPS fixture: 4/4** (condition 3) |
 | The tile route's bytes did not change | `TilePipelineVersionTests`: the hash moved, `TilePipeline.Version` did not | this change |
 
 ## 5. Decision
@@ -371,9 +371,21 @@ None recorded.
    is written back here, and the INFERRED rows of §4 are marked with what was seen. Web Mercator and a TUREF service
    both.
 2. **A PMTiles reader takes an archive.** `pmtiles verify` and `pmtiles show` (the Protomaps command-line tool) accept an
-   exported archive, and MapLibre with the `pmtiles://` protocol draws it.
+   exported archive, and MapLibre with the `pmtiles://` protocol draws it. **DISCHARGED 2026-09-29, after a repair it
+   found.** `pmtiles` 1.31.2 (`protomaps/go-pmtiles`) first **refused** an archive of the fixture's `hosted/ci_parcels`
+   exported over levels 0-14: *header MinZoom=0 does not match min tile z 10*. The parcels vanish below level 10, an
+   empty tile is left out as §5.2 says, and the header still stated the levels asked for, with the centre at 0.
+   `PmTiles.Plan` now states the levels that have tiles and draws the centre level into them
+   (`PmTilesWriterTests.The_header_states_the_levels_that_have_tiles_not_the_levels_asked_for`), and the conformance
+   test that had asserted the asked-for range now asserts the stated one lies inside it. After that, `pmtiles verify`
+   passes and `pmtiles show` reads levels 10-14, centre 10, ten addressed tiles and the `ci_parcels` layer; MapLibre GL
+   JS 5 with `pmtiles` 4's protocol, in headless Chrome, drew the archive and `queryRenderedFeatures` found 12 distinct
+   parcels — the layer's whole count.
 3. **The Postgres and conformance suites written with this ADR are run** against a database and a server with
-   `GRATICULA_TEST_TILE_SERVICE` set — `TileExportStoreTests` and `AnExportedTileIsAServedTileTests` — and pass.
+   `GRATICULA_TEST_TILE_SERVICE` set — `TileExportStoreTests` and `AnExportedTileIsAServedTileTests` — and pass. **DISCHARGED
+   2026-09-29.** On the VPS fixture with `GRATICULA_TEST_TILE_SERVICE=hosted/ci_parcels`: `TileExportStoreTests` 11/11
+   against its database and `AnExportedTileIsAServedTileTests` 4/4 against its server, before and after the repair
+   under condition 2.
 
 ## 12. INFERRED, for confirmation
 

@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>2c9f4ee</code> · 2026-09-29 21:44</p>
+<p class="stamp">Generated from commit <code>4b0bc9f</code> · 2026-09-29 22:54</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">100</div><div class="kpi-l">ADRs</div><div class="kpi-n">26 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">236/313</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">74 live · 3 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">238/313</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">72 live · 3 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">160 answered</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">open debts</div><div class="kpi-n">267 repaid · 6 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">4263</div><div class="kpi-l">tests</div><div class="kpi-n">404 source files, 178,985 lines</div></div>
+<div class="kpi good"><div class="kpi-v">4264</div><div class="kpi-l">tests</div><div class="kpi-n">404 source files, 178,994 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">87 items</span></div><p><b>74 ADR conditions</b> outstanding across 48 decisions — the largest commitment on this page.</p><p><b>9 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">85 items</span></div><p><b>72 ADR conditions</b> outstanding across 48 decisions — the largest commitment on this page.</p><p><b>9 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -134,7 +134,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-078 · A hosted layer can keep its histor</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">6</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-086 · The operator chooses the map groun</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-098 · Vector tiles can be exported as a </div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-017 · Admin API Shape</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
@@ -179,6 +178,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-085 · A tile leaves out what it cannot d</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-098 · Vector tiles can be exported as a </div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>Review gates (§66)</h2>
@@ -294,7 +294,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">095</td><td>Registered PostGIS layers serve vector tiles</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
 <tr><td class="id">096</td><td>A vector tile service may be tiled in another reference</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the grid arithmetic is tested by hand-worked numbers; what an ArcGIS client does…</td><td class="num"></td></tr>
 <tr><td class="id">097</td><td>Vector tiles are served through OGC API Tiles, TileJSON and WMTS</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the grids, documents and refusals are tested against numbers typed in from the…</td><td class="num"></td></tr>
-<tr><td class="id">098</td><td>Vector tiles can be exported as a package</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — both formats are written from their published specifications and read back in…</td><td class="num">0/3</td></tr>
+<tr><td class="id">098</td><td>Vector tiles can be exported as a package</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — both formats are written from their published specifications and read back in…</td><td class="num">2/3</td></tr>
 <tr><td class="id">099</td><td>Picture markers are drawn on every face</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — every face is written and unit-tested, and the Skia drawing is read back from…</td><td class="num"></td></tr>
 <tr><td class="id">100</td><td>Labels in more scripts</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the glyph ranges are generated, decoded and pinned by tests, and the raster…</td><td class="num"></td></tr>
 </tbody></table></div></section>
@@ -418,7 +418,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1177</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:63.5%"></div></div><div class="bar-n">747</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:63.6%"></div></div><div class="bar-n">748</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.5%"></div></div><div class="bar-n">618</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:44.0%"></div></div><div class="bar-n">518</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:34.5%"></div></div><div class="bar-n">406</div></div>
@@ -432,6 +432,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>4b0bc9f</code><time>2026-09-29</time><span>ADR-100: labels in more scripts — Arabic, Hebrew, Armenian, Georgian, Devanagari, Bengali, Tamil and Thai</span></li>
 <li><code>2c9f4ee</code><time>2026-09-29</time><span>Merge remote-tracking branch &#x27;origin/main&#x27;</span></li>
 <li><code>c563378</code><time>2026-09-29</time><span>Picture markers are drawn on every face, and the tile face makes its own sprite for them</span></li>
 <li><code>f930be0</code><time>2026-09-29</time><span>Merge pull request #1 from erdinckyildiz/claude/relaxed-fermi-3jyse4</span></li>
@@ -445,7 +446,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>fee27af</code><time>2026-09-29</time><span>ArcGIS Pro draws a classified tile style, and a service may be tiled on a TUREF grid</span></li>
 <li><code>a7b92be</code><time>2026-09-29</time><span>Registered PostGIS layers serve vector tiles, and a moved data source forgets its tiles</span></li>
 <li><code>c46a467</code><time>2026-09-29</time><span>A service may carry several named styles, and a style may use sources an administrator allowed</span></li>
-<li><code>8aa3d69</code><time>2026-09-29</time><span>A cold tile takes a connection permit, and a seed says whether the cache can keep it</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

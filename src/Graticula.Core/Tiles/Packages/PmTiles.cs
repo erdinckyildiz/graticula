@@ -21,13 +21,13 @@ namespace Graticula.Tiles.Packages;
 public readonly record struct PmTile(int Z, int X, int Y, int Length, UInt128 Content, long Key);
 
 /// <summary>What a PMTiles archive says about itself beyond its tiles.</summary>
-/// <param name="MinZoom">The lowest level with tiles.</param>
-/// <param name="MaxZoom">The highest.</param>
+/// <param name="MinZoom">The lowest level asked for. The header states the lowest level that has a tile, and this only when none has.</param>
+/// <param name="MaxZoom">The highest, likewise.</param>
 /// <param name="MinLongitude">The west edge, in degrees.</param>
 /// <param name="MinLatitude">The south edge.</param>
 /// <param name="MaxLongitude">The east edge.</param>
 /// <param name="MaxLatitude">The north edge.</param>
-/// <param name="CenterZoom">The level a reader may open at.</param>
+/// <param name="CenterZoom">The level a reader may open at, drawn into the levels the header states.</param>
 /// <param name="CenterLongitude">The centre's longitude.</param>
 /// <param name="CenterLatitude">The centre's latitude.</param>
 /// <param name="MetadataJson">The metadata object, UTF-8 JSON; for vector tiles it must hold <c>vector_layers</c>.</param>
@@ -334,11 +334,20 @@ public static class PmTiles
         h[97] = CompressionGzip;      // internal compression: the directories and the metadata
         h[98] = tileCompression;
         h[99] = TileTypeMvt;
-        h[100] = (byte)description.MinZoom;
-        h[101] = (byte)description.MaxZoom;
+        // <b>The levels are the ones that have tiles, not the ones asked for.</b> An empty tile is left out, so an
+        // export of small features over 0-14 can hold nothing below 10; the specification's MinZoom and MaxZoom are
+        // the archive's own, and `pmtiles verify` refuses a header that claims a level with no tile in it
+        // (2026-09-29, found by exporting the fixture's parcels). The centre level is drawn into that range.
+        (int minZoom, int maxZoom) = sorted.Count == 0
+            ? (description.MinZoom, description.MaxZoom)
+            : (sorted[0].Tile.Z, sorted[^1].Tile.Z);
+        int centerZoom = Math.Clamp(description.CenterZoom, minZoom, maxZoom);
+
+        h[100] = (byte)minZoom;
+        h[101] = (byte)maxZoom;
         Position(h[102..], description.MinLongitude, description.MinLatitude);
         Position(h[110..], description.MaxLongitude, description.MaxLatitude);
-        h[118] = (byte)description.CenterZoom;
+        h[118] = (byte)centerZoom;
         Position(h[119..], description.CenterLongitude, description.CenterLatitude);
 
         return new Layout(header, root, metadata, leaves, contents, dataOffset + (long)dataLength);
