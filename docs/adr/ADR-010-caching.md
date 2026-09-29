@@ -196,6 +196,18 @@ Required:
 The last one matters most. A cache is an optimisation, and an optimisation that
 can fail a request is a liability.
 
+> **2026-09-29 — the eviction is no longer plain LRU, by owner decision
+> ([ADR-093](ADR-093-seeding-the-tile-cache.md) §5.9).** Over the budget the cache evicts tiles another
+> pipeline version wrote first, then the **highest level first**, then the least recently used within a
+> level, so the low levels §6a calls the most valuable are the last to go; and a seed is estimated before it
+> starts and refused, unless forced, when it would evict tiles it had itself built. The budget is `Graticula:TileCacheBudgetMB`,
+> 2 GB by default, and the service's cache read-back now shows it with what is used. **The per-service quota
+> above is still not built, and it was not built with this**: this section asks for one and does not say
+> what happens at it — refuse the write, evict the service's own oldest, or evict by level within the
+> service — nor whether it is per service or per layer, nor how it meets a seed that is larger than it. The
+> one setting that carries the name, `Graticula:TileCacheLayerBudgetMB`, is a ceiling on a single tile (§11a).
+> Listed for the owner.
+
 ### L3 lookup should not need the index (N2)
 
 If the storage path is derivable from the cache key, a platform store outage
@@ -286,6 +298,15 @@ workload.
 *wrong* class in §5.1. A purged entry stays purged even if the source is down,
 because that path includes permission changes, and serving a purged tile during
 an outage would turn an availability event into a disclosure.
+
+> **Still not built, checked 2026-09-29 — and what is undecided here is now felt.** This section decides
+> *that* a stale tile is served during an outage and that a purged one never is. It does not name the
+> header, does not bound how stale a tile may be and still be served, and says *unreachable* — which leaves
+> open whether a refusal by this server's own `ConnectionBudget`, or an operator's quiesce, is an outage in
+> its sense. **That became live the same day**: [D-277](../architecture-debt.md)'s repair makes a map's cold
+> tile take a permit, and a refused one is a 503 even when an expired copy is still on disk. The owner's
+> instruction was to build stale-while-error with D-277 only if this section had decided its shape; it had
+> decided half, so it was not built. [D-278](../architecture-debt.md).
 
 ### 5.2 The problem we cannot fully solve
 
@@ -554,7 +575,7 @@ disk**, 4×, and every hit is one fewer query against the datastore that
 | §2 | Tiles cached | **built** |
 | §2 | Negative caching — empty as a marker | **built**, a zero-length file |
 | §3 | L3 mandatory, filesystem | **built** |
-| §3 | Total size budget, LRU eviction | **built**, 2 GB default |
+| §3 | Total size budget, LRU eviction | **built**, 2 GB default. *(2026-09-29: the order is no longer plain LRU — another pipeline's tiles first, then the highest level, then least recently used; and a seed that would evict its own tiles is refused before it starts unless forced — [ADR-093](ADR-093-seeding-the-tile-cache.md) §5.9.)* |
 | §3 | Per-service quota | ~~**built**, a quarter of the total~~ **Overstated — corrected 2026-09-09 ([Q-61](../open-questions.md)).** `_perLayerBudget` is read in exactly one place: refusing to cache a *single tile* larger than a quarter of the total. There is no per-layer accounting and no per-layer eviction, so one busy layer can still hold the whole 2 GB. What is built is the **global** budget with LRU eviction; the per-service share is a ceiling on one object, not a quota |
 | §3 | Writes fail soft | **built**, and tested by blocking the directory |
 | §3 (N2) | Lookup needs no index | **built** — the path derives from the key |
@@ -565,7 +586,7 @@ disk**, 4×, and every hit is one fewer query against the datastore that
 | §3 | L1, context-scoped | **not built.** [ServiceContexts](../../src/Graticula.Host/ServiceContexts.cs) is the nearest thing and holds shapes, not tiles |
 | §3 | L2 distributed | **not built, and never mandatory** |
 | §4 | Grant fingerprint | **not built and not needed yet** — no row or field filtering exists, so authorization for a tile is uniform |
-| §5.1a | Stale-while-error | **not built.** The cache expires during a source outage exactly when it would be most useful |
+| §5.1a | Stale-while-error | **not built.** The cache expires during a source outage exactly when it would be most useful. *(2026-09-29: and a refused cold tile is now a 503 with its expired copy on disk — [D-278](../architecture-debt.md); §5.1a's header, bound and meaning of *outage* wait on the owner.)* |
 | §5.2 | Change detection, schema-drift polling | **not built.** TTL is the only mechanism, which §5.2 says is the floor |
 | §5.3 | Per-layer volatility | ~~**not built**, and it is the largest gap — see below~~ **Built — corrected 2026-09-09.** [D-25](../architecture-debt.md) closed 2026-08-15, `PUT /admin/layers/{name}/cache` sets it, and the tile path reads it: `VectorTileEndpoints` resolves `layer.CacheLifetime ?? defaultLifetime`. This ADR's own condition 2 discharge already said *"60 minutes for a tile **or the layer's own setting**"*, so the document contradicted itself two sections apart for three weeks |
 | §6 | Seeding | ~~**not built**~~ **Built 2026-09-29 — [ADR-093](ADR-093-seeding-the-tile-cache.md).** A job per service over a zoom range and an area, lowest level first, resumable and cancellable, a `ConnectionBudget` lease per build, capped at 250,000 tiles. Not measured: A-020 is still `UNVALIDATED` |
@@ -642,6 +663,9 @@ grant fingerprint is the fix — not a purge.
    source pauses the seed rather than failing its tiles. **Found on the way, and recorded
    rather than fixed: serving a tile takes no such lease**
    ([D-277](../architecture-debt.md)), so the seed is held to a bound the maps beside it are not.
+   *(Repaired 2026-09-29 by owner decision: a map's cold tile takes the same permit, through the same
+   `AdmitTileBuildAsync`, inside the shared build — so a cached tile takes none, one build takes one however
+   many wait on it, and a refusal is a 503 with `Retry-After`. D-277.)*
 4. **A-029 must be checked against real traffic** before the §2 restraint is
    treated as settled.
 

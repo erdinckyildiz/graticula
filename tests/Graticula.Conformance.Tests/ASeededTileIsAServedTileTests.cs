@@ -159,6 +159,92 @@ public sealed class ASeededTileIsAServedTileTests : ArcGisClient
         Assert.Contains("fit", refusal.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
     }
 
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-093 §3, owner decision 2026-09-29: a seed carries a size, measured against the cache.</b>
+    /// The dry run says what the seed would add, the budget, what is in use and free, what outranks the
+    /// seed and what eviction leaves, whether it fits — keeps every tile it builds (§5.9) — and the
+    /// highest level that does; the read-back says the budget and what is used. A start that does not
+    /// fit is a 400 marked <c>exceedsCacheBudget</c> naming the same numbers.
+    /// </para>
+    /// <para>
+    /// <b>The refusal is checked only when the fixture's cache makes it reachable.</b> The world to
+    /// level 8 is 87,381 tiles — under the cap — and at the default guess of a megabyte a tile far past
+    /// any budget; but a fixture whose cache already holds enough of those levels, mostly empty, estimates
+    /// from them and may fit. Then the numbers are still checked and the refusal is not. <c>force</c> is
+    /// not exercised here, since what it does is start the seed that was refused.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_seed_says_its_size_and_one_that_does_not_fit_the_cache_is_refused()
+    {
+        (_, _, string name, string qualified) = await ServiceAsync();
+        string cache = $"/admin/services/{Uri.EscapeDataString(name)}/cache{FolderQuery(qualified)}";
+        string seeds = $"/admin/services/{Uri.EscapeDataString(name)}/cache/seeds";
+
+        JsonElement about = await AdminJsonAsync(HttpMethod.Get, cache);
+        JsonElement budget = Require(about, "budget", "The cache read-back names no budget.");
+
+        Assert.True(budget.GetProperty("bytes").GetInt64() > 0, $"The read-back's budget is {budget}.");
+        Assert.True(budget.GetProperty("usedBytes").GetInt64() >= 0, $"The read-back's budget is {budget}.");
+
+        string world = JsonSerializer.Serialize(new
+        {
+            minZoom = 0,
+            maxZoom = 8,
+            extent = new { xmin = -Half, ymin = -Half, xmax = Half, ymax = Half, spatialReference = new { wkid = 3857 } },
+        });
+
+        (int counted, string countedBody) = await AdminAsync(
+            HttpMethod.Post, $"{seeds}{FolderQuery(qualified)}&dryRun=true", world);
+
+        Assert.True(counted == 200, $"A dry run of the world to level 8 answered {counted}: {countedBody}");
+
+        JsonElement dry = JsonDocument.Parse(countedBody).RootElement;
+        JsonElement estimate = Require(dry, "estimate", "The dry run carries no size estimate.");
+
+        long bytes = estimate.GetProperty("bytes").GetInt64();
+        long free = estimate.GetProperty("free").GetInt64();
+        bool fits = estimate.GetProperty("fits").GetBoolean();
+
+        // A seed that fits in the free space always fits; one past it fits when what outranks it, with
+        // the seed, fits in what eviction leaves — §5.9. Past both it cannot fit.
+        long outranking = estimate.GetProperty("protectedBytes").GetInt64();
+        long target = estimate.GetProperty("evictionTarget").GetInt64();
+
+        if (bytes <= free)
+        {
+            Assert.True(fits, $"A seed inside the free space was said not to fit: {estimate}");
+        }
+
+        if (bytes > free && outranking + bytes > target)
+        {
+            Assert.False(fits, $"A seed past the free space and past what eviction leaves was said to fit: {estimate}");
+        }
+        Assert.Equal(
+            bytes,
+            dry.GetProperty("levels").EnumerateArray().Sum(level => level.GetProperty("estimatedBytes").GetInt64()));
+
+        if (fits)
+        {
+            return;
+        }
+
+        Assert.Equal(JsonValueKind.String, dry.GetProperty("refusal").ValueKind);
+
+        (int started, string said) = await AdminAsync(HttpMethod.Post, $"{seeds}{FolderQuery(qualified)}", world);
+
+        Assert.True(started == 400, $"A seed estimated at {bytes} bytes with {free} free answered {started}: {said}");
+
+        JsonElement refusal = JsonDocument.Parse(said).RootElement;
+
+        Assert.Contains(
+            "exceedsCacheBudget",
+            refusal.GetProperty("error").GetProperty("details").EnumerateArray().Select(d => d.GetString()));
+        Assert.Contains("force", refusal.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.False(refusal.GetProperty("estimate").GetProperty("fits").GetBoolean(), said);
+    }
+
     [Fact]
     public async Task A_running_seed_can_be_cancelled_and_says_so()
     {

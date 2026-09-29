@@ -61,6 +61,14 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     /// </remarks>
     public TimeSpan DefaultLifetime { get; }
 
+    /// <summary>How many bytes the cache may hold — <c>Graticula:TileCacheBudgetMB</c>.</summary>
+    /// <remarks>
+    /// <b>Readable so that a seed can be measured against it before it starts</b> — ADR-093 §3. A seed
+    /// that does not fit is a seed that evicts, and the operator is owed that sentence before the job
+    /// runs rather than a cache read-back that has quietly stopped matching the seed's own counts.
+    /// </remarks>
+    public long Budget => _budget;
+
     private readonly TimeProvider _clock;
     private readonly ILogger _log;
 
@@ -356,28 +364,64 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
         string path = key.Path();
         long now = _clock.GetUtcNow().ToUnixTimeMilliseconds();
 
+        // A key this process made is of the pipeline running now by construction: Path() wrote it.
         _index.AddOrUpdate(
             path,
             _ =>
             {
                 Interlocked.Add(ref _bytes, size);
-                return new Entry(size, now);
+                return new Entry(size, now, key.Address.Z, Current: true);
             },
             (_, existing) =>
             {
                 Interlocked.Add(ref _bytes, size - existing.Size);
-                return new Entry(size, now);
+                return new Entry(size, now, key.Address.Z, Current: true);
             });
     }
 
     /// <summary>
-    /// Drops least-recently-used entries until the cache is inside its budget.
+    /// Drops entries until the cache is inside its budget: another pipeline's first, then the highest
+    /// level first, and the least recently used first within a level.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>Down to 90%, not to exactly the budget.</b> Evicting to the line means
     /// the next write is over it again and every subsequent write pays an
     /// eviction — a cache that spends most of its time deleting. The headroom
     /// makes eviction occasional and bulk instead of constant and single.
+    /// </para>
+    /// <para>
+    /// <b>The level comes before the recency, by owner decision on 2026-09-29</b> — ADR-093 §3. Plain
+    /// least-recently-used evicted the wrong end of a seed: a seed walks lowest level first, so the
+    /// tiles it built first are the oldest in the cache, and a seed larger than the budget threw away
+    /// its own low levels to make room for its high ones. ADR-010 §6a measured the low levels as the
+    /// most expensive to build and the most valuable to hold, which is exactly backwards.
+    /// </para>
+    /// <para>
+    /// <b>A strict order rather than recency weighted by level, because weighting does not give the
+    /// property.</b> Any finite bonus per level is overtaken by a seed that runs long enough: a level-5
+    /// tile written two hours before a level-14 tile loses to it under every weight that still lets
+    /// recency matter at all. A strict order holds however long the seed runs, and the grid bounds it —
+    /// over any area, every level below <c>z</c> together holds about a third as many tiles as level
+    /// <c>z</c>, so what it protects is always the small end of the pyramid.
+    /// </para>
+    /// <para>
+    /// <b>What it costs, said rather than hidden.</b> A map browsing deep levels works in whatever the
+    /// lower levels leave free, and a deep tile read a second ago goes before a shallow one nobody has
+    /// read since the seed. That is the trade the decision made: a shallow tile is the one every map
+    /// passes through, and the one that takes longest to build again.
+    /// </para>
+    /// <para>
+    /// <b>Another pipeline's tiles go before any of that</b>, because nothing can read them again:
+    /// <see cref="TilePipeline.Version"/> is in every key (D-155), so after an upgrade the old
+    /// generation's pyramid is unreachable, and a strict level order alone would keep its low levels in
+    /// preference to the new generation's live high ones. A tile orphaned by a changed fingerprint is
+    /// not recognised — nothing in its path says so — and is bounded by the same third; the refresh
+    /// that notices the change purges the layer anyway.
+    /// </para>
+    /// <para>
+    /// <b>No dearer than before</b>: the same one sort over the index, by three keys instead of one.
+    /// </para>
     /// </remarks>
     private async Task EvictIfOverBudgetAsync()
     {
@@ -395,10 +439,12 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
 
         try
         {
-            long target = (long)(_budget * 0.9);
+            long target = TargetOf(_budget);
 
             foreach (KeyValuePair<string, Entry> entry in
-                     _index.OrderBy(e => e.Value.LastUsed))
+                     _index.OrderBy(e => e.Value.Current)
+                           .ThenByDescending(e => e.Value.Zoom)
+                           .ThenBy(e => e.Value.LastUsed))
             {
                 if (Interlocked.Read(ref _bytes) <= target)
                 {
@@ -457,7 +503,8 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
                 FileInfo info = new(file);
                 string relative = System.IO.Path.GetRelativePath(_root, file).Replace('\\', '/');
 
-                _index[relative] = new Entry(info.Length, now);
+                (int zoom, bool current) = LevelOf(relative);
+                _index[relative] = new Entry(info.Length, now, zoom, current);
                 Interlocked.Add(ref _bytes, info.Length);
             }
 
@@ -502,6 +549,152 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
         }
     }
 
-    /// <summary>Size and last use, for eviction and reporting only.</summary>
-    private readonly record struct Entry(long Size, long LastUsed);
+    /// <summary>
+    /// The level of an adopted file, and whether the pipeline running now wrote it — read from the
+    /// path, which is <see cref="TileCacheKey.Path"/>'s <c>{layer}/v{version}/{fingerprint}/{z}/{x}/{y}.mvt</c>.
+    /// </summary>
+    /// <param name="relative">The file's path under the root, with forward slashes.</param>
+    /// <returns>The level, and whether it is of the current pipeline.</returns>
+    /// <remarks>
+    /// <b>A path that does not parse is evicted first</b>: it is not a key anything asks for, so it is
+    /// the same garbage another pipeline's tile is.
+    /// </remarks>
+    internal static (int Zoom, bool Current) LevelOf(string relative)
+    {
+        ArgumentNullException.ThrowIfNull(relative);
+
+        string[] parts = relative.Split('/');
+
+        if (parts.Length != 6
+            || !int.TryParse(parts[3], NumberStyles.None, CultureInfo.InvariantCulture, out int zoom))
+        {
+            return (int.MaxValue, false);
+        }
+
+        return (zoom, string.Equals(
+            parts[1],
+            string.Create(CultureInfo.InvariantCulture, $"v{TilePipeline.Version}"),
+            StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// What the cache holds of one layer, level by level — how many of its tiles and bytes, and how
+    /// many of a seed's rectangle are already there — for a seed's size estimate.
+    /// </summary>
+    /// <param name="layer">Any key of the layer as serving asks for it now: its layer, fingerprint and
+    /// pipeline generation are read from it, and its address is not.</param>
+    /// <param name="ranges">The seed's rectangle at each level.</param>
+    /// <returns>The holding at each level where the cache has anything of the layer.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>From the index, in one pass, and it opens no file.</b> The samples are every entry of the
+    /// layer at the level, whatever fingerprint or generation wrote it — an older shape's tiles are as
+    /// good a guide to size as the current one's. What is <em>present</em> is narrower: the entries a
+    /// seed would find under the key it writes, inside its rectangle, because only those it will not
+    /// add again. An expired one counts as present too, since the seed rewrites it in place.
+    /// </para>
+    /// <para>
+    /// <b>The prefix is cut from <see cref="TileCacheKey.Path"/> itself</b>, as <see cref="FreshIn"/>
+    /// finds its directory, so this cannot come to disagree with where a tile is written.
+    /// </para>
+    /// </remarks>
+    internal IReadOnlyDictionary<int, TileSeedEstimate.Holding> HoldingOf(
+        TileCacheKey layer, IReadOnlyList<TileRange> ranges)
+    {
+        ArgumentNullException.ThrowIfNull(ranges);
+
+        string id = layer.LayerId.ToString("N", CultureInfo.InvariantCulture) + "/";
+        string current = PrefixOf(layer);
+
+        Dictionary<int, TileRange> wanted = ranges.ToDictionary(range => range.Z);
+        Dictionary<int, TileSeedEstimate.Holding> found = [];
+
+        foreach (KeyValuePair<string, Entry> entry in _index)
+        {
+            if (!entry.Key.StartsWith(id, StringComparison.Ordinal)
+                || !wanted.TryGetValue(entry.Value.Zoom, out TileRange range))
+            {
+                continue;
+            }
+
+            found.TryGetValue(range.Z, out TileSeedEstimate.Holding held);
+
+            bool present = entry.Key.StartsWith(current, StringComparison.Ordinal)
+                && Within(entry.Key, current.Length, range);
+
+            found[range.Z] = new TileSeedEstimate.Holding(
+                held.Samples + 1, held.SampleBytes + entry.Value.Size, held.Present + (present ? 1 : 0));
+        }
+
+        return found;
+    }
+
+    /// <summary>What eviction brings the cache down to once it is over its budget: 90% of it.</summary>
+    /// <param name="budget">The budget.</param>
+    /// <returns>The target, in bytes.</returns>
+    /// <remarks>
+    /// A function rather than a literal inside the eviction because a seed's estimate asks the same
+    /// question — how much is left once the cache has evicted — and two copies of 0.9 would drift.
+    /// </remarks>
+    internal static long TargetOf(long budget) => (long)(budget * 0.9);
+
+    /// <summary>
+    /// The bytes the cache holds at each level, counting only tiles the pipeline running now wrote —
+    /// the ones eviction ranks by level (<see cref="EvictIfOverBudgetAsync"/>).
+    /// </summary>
+    /// <returns>Bytes by level; a level holding nothing is absent.</returns>
+    /// <remarks>
+    /// <b>For a seed's estimate</b> (ADR-093 §5.9): whatever sits at a level below a seed tile's
+    /// outranks it and is kept in its place, so these are the bytes a seed cannot make room from.
+    /// Another pipeline's tiles are left out, because they go before anything.
+    /// </remarks>
+    internal IReadOnlyDictionary<int, long> CurrentBytesByLevel()
+    {
+        Dictionary<int, long> held = [];
+
+        foreach (KeyValuePair<string, Entry> entry in _index)
+        {
+            if (entry.Value.Current)
+            {
+                held[entry.Value.Zoom] = held.GetValueOrDefault(entry.Value.Zoom) + entry.Value.Size;
+            }
+        }
+
+        return held;
+    }
+
+    /// <summary><c>{layer}/v{version}/{fingerprint}/</c>, cut from the key's own path.</summary>
+    private static string PrefixOf(TileCacheKey layer)
+    {
+        string path = (layer with { Address = new TileAddress(0, 0, 0) }).Path();
+
+        // Drop "0/0/0.mvt", the three segments the address wrote.
+        int cut = path.Length;
+
+        for (int i = 0; i < 3; i++)
+        {
+            cut = path.LastIndexOf('/', cut - 1);
+        }
+
+        return path[..(cut + 1)];
+    }
+
+    /// <summary>Whether the <c>{z}/{x}/{y}.mvt</c> after the prefix lies inside the rectangle.</summary>
+    private static bool Within(string key, int start, TileRange range)
+    {
+        string[] parts = key[start..].Split('/');
+
+        return parts.Length == 3
+            && parts[2].EndsWith(".mvt", StringComparison.Ordinal)
+            && int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out int x)
+            && int.TryParse(parts[2].AsSpan(0, parts[2].Length - 4), NumberStyles.None, CultureInfo.InvariantCulture, out int y)
+            && x >= range.MinX && x <= range.MaxX && y >= range.MinY && y <= range.MaxY;
+    }
+
+    /// <summary>Size, last use, level and generation, for eviction and reporting only.</summary>
+    /// <param name="Size">The file's length.</param>
+    /// <param name="LastUsed">When it was last read or written, in Unix milliseconds.</param>
+    /// <param name="Zoom">Its level, which eviction orders by before recency.</param>
+    /// <param name="Current">Whether the pipeline running now wrote it; a tile it did not write is unreachable.</param>
+    private readonly record struct Entry(long Size, long LastUsed, int Zoom, bool Current);
 }

@@ -11595,6 +11595,22 @@ function seedDuration(seconds) {
   return `about ${(seconds / 3600).toFixed(1)} hours`;
 }
 
+// Plain text, for `textContent`: `bytes()` above writes markup.
+function seedSize(value) {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let n = value ?? 0, i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n < 10 && i > 0 ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
+}
+
+// ADR-093 §3: the cache's budget beside the seed, because a seed is measured against it.
+function seedBudget(b) {
+  if (!b) return "";
+  return `<p class="hint">The tile cache holds ${h(seedSize(b.usedBytes))} of its ${h(seedSize(b.bytes))}
+    budget (${h(seedSize(b.freeBytes))} free); ${h(seedSize(b.serviceBytes))} of it is this service's.
+    When it is full it evicts the highest levels first, so a seed's lowest levels are kept longest.</p>`;
+}
+
 function seedCounts(s) {
   return `${num(s.built)} built · ${num(s.present)} already cached · ${num(s.empty)} empty · `
     + `${num(s.failed)} failed${s.skipped ? ` · ${num(s.skipped)} at levels nothing draws at` : ""}`;
@@ -11633,10 +11649,12 @@ function drawSeed(name, where, r) {
     <div class="row" style="margin-top:10px">
       <button type="button" class="ghost" id="seedCount">Count tiles</button>
       <button type="button" id="seedStart">Start</button>
+      <button type="button" class="danger" id="seedForce" hidden>Seed anyway</button>
     </div>`;
 
   box.innerHTML = `
     ${progress}
+    ${seedBudget(r.budget)}
     <p class="hint" id="seedSays" role="status" aria-live="polite">${last ? `The last seed was
       ${h(last.status)}${last.finished ? ` ${seedWhen(last.finished)}` : ""}: ${seedCounts(last)}.${
       last.failure ? ` ${h(last.failure)}` : ""}` : ""}</p>
@@ -11676,23 +11694,47 @@ function drawSeed(name, where, r) {
     body: JSON.stringify(body),
   });
 
+  // <b>A seed that would evict its own tiles is refused, and the refusal is not the end</b> — ADR-093
+  // §5.9. The server names the estimate, what the cache keeps ahead of it and the levels that fit; *Seed anyway* sends the
+  // same request with `force`, for an operator who has raised the budget or accepts the eviction. It
+  // appears only after the refusal has been read, so the override is never the first thing offered.
+  const offerForce = shown => { const f = $("seedForce"); if (f) f.hidden = !shown; };
+
   $("seedCount")?.addEventListener("click", async () => {
     says("Counting…");
+    offerForce(false);
     try {
       const c = await post(asked(), true);
       const idle = c.levels.filter(l => !l.drawn).map(l => l.zoom);
-      says(`${num(c.tiles)} tiles over levels ${c.minZoom} to ${c.maxZoom}${
-        idle.length ? ` — levels ${idle.join(", ")} are skipped, because no layer draws there` : ""}.`);
+      // Fits means the seed keeps what it builds: a seed larger than the free space still fits when
+      // the cache can make its room from deeper tiles of other maps (ADR-093 §5.9).
+      // A zero estimate is either every tile already cached or levels whose cached tiles are empty;
+      // both mean the seed stores next to nothing, which is what is said, rather than "about 0 B".
+      const size = !c.estimate ? ""
+        : c.estimate.bytes === 0 ? ", adding next to nothing to the cache"
+        : `, about ${seedSize(c.estimate.bytes)} more in the cache${c.estimate.fits
+          ? ", which keeps every tile it builds" : ""}`;
+      says(`${num(c.tiles)} tiles over levels ${c.minZoom} to ${c.maxZoom}${size}${
+        idle.length ? ` — levels ${idle.join(", ")} are skipped, because no layer draws there` : ""}.${
+        c.estimate && !c.estimate.fits && c.refusal ? ` ${c.refusal}` : ""}`);
+      offerForce(!!(c.estimate && !c.estimate.fits));
     } catch (e) { says(e.message); }
   });
 
-  $("seedStart")?.addEventListener("click", async () => {
+  const start = async force => {
     says("Starting…");
+    offerForce(false);
     try {
-      await post(asked(), false);
+      await post(force ? { ...asked(), force: true } : asked(), false);
       await loadSeed(name);
-    } catch (e) { says(e.message); }
-  });
+    } catch (e) {
+      says(e.message);
+      offerForce(!force && (e.details || []).includes("exceedsCacheBudget"));
+    }
+  };
+
+  $("seedStart")?.addEventListener("click", () => start(false));
+  $("seedForce")?.addEventListener("click", () => start(true));
 
   $("seedCancel")?.addEventListener("click", async event => {
     const id = event.currentTarget.dataset.id;

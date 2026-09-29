@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -299,6 +300,158 @@ public sealed class FileSystemTileCacheTests : IDisposable
         Assert.Equal(
             TileCacheOutcome.Hit,
             (await cache.ReadAsync(Key(x: 1), Lifetime, CancellationToken.None)).Outcome);
+    }
+
+    /// <remarks>
+    /// <b>A seed larger than the budget keeps its low levels</b> — ADR-093 §3, owner decision
+    /// 2026-09-29. A seed writes lowest level first, so under plain least-recently-used its low levels
+    /// were the oldest thing in the cache and the first to go; now the highest level goes first, however
+    /// old the low levels are.
+    /// </remarks>
+    [Fact]
+    public async Task A_seed_larger_than_the_budget_loses_its_highest_level_and_keeps_its_lowest()
+    {
+        using FileSystemTileCache cache = Build(budget: 1000, perLayer: 1000);
+
+        // What a seed does: level 3 first, long before anything else, then levels 4 and 5.
+        await cache.WriteAsync(Key(z: 3, x: 0), Tile(100), CancellationToken.None);
+        await cache.WriteAsync(Key(z: 3, x: 1), Tile(100), CancellationToken.None);
+        _clock.Advance(TimeSpan.FromHours(2));
+
+        for (int x = 0; x < 4; x++)
+        {
+            await cache.WriteAsync(Key(z: 4, x: x), Tile(100), CancellationToken.None);
+            _clock.Advance(TimeSpan.FromSeconds(1));
+        }
+
+        for (int x = 0; x < 6; x++)
+        {
+            await cache.WriteAsync(Key(z: 5, x: x), Tile(100), CancellationToken.None);
+            _clock.Advance(TimeSpan.FromSeconds(1));
+        }
+
+        Assert.True(cache.Report(null).Bytes <= 1000, $"the cache holds {cache.Report(null).Bytes} bytes");
+
+        foreach (int x in new[] { 0, 1 })
+        {
+            Assert.Equal(
+                TileCacheOutcome.Hit,
+                (await cache.ReadAsync(Key(z: 3, x: x), TimeSpan.FromDays(1), CancellationToken.None)).Outcome);
+        }
+
+        for (int x = 0; x < 4; x++)
+        {
+            Assert.Equal(
+                TileCacheOutcome.Hit,
+                (await cache.ReadAsync(Key(z: 4, x: x), TimeSpan.FromDays(1), CancellationToken.None)).Outcome);
+        }
+    }
+
+    /// <remarks>
+    /// <b>Within a level the old rule still holds</b>: what is being read stays and the coldest goes.
+    /// </remarks>
+    [Fact]
+    public async Task Within_a_level_the_least_recently_used_goes_first()
+    {
+        using FileSystemTileCache cache = Build(budget: 500, perLayer: 500);
+
+        await cache.WriteAsync(Key(z: 9, x: 1), Tile(100), CancellationToken.None);
+        await cache.WriteAsync(Key(z: 9, x: 2), Tile(100), CancellationToken.None);
+
+        for (int i = 0; i < 4; i++)
+        {
+            _clock.Advance(TimeSpan.FromSeconds(1));
+            await cache.ReadAsync(Key(z: 9, x: 1), Lifetime, CancellationToken.None);
+            await cache.WriteAsync(Key(z: 9, x: 10 + i), Tile(100), CancellationToken.None);
+        }
+
+        Assert.Equal(TileCacheOutcome.Hit, (await cache.ReadAsync(Key(z: 9, x: 1), Lifetime, CancellationToken.None)).Outcome);
+        Assert.Equal(TileCacheOutcome.Miss, (await cache.ReadAsync(Key(z: 9, x: 2), Lifetime, CancellationToken.None)).Outcome);
+    }
+
+    /// <remarks>
+    /// <b>Another pipeline's tiles go before any level of this one's</b>, because nothing can ask for
+    /// them again (D-155): after an upgrade the old generation's low levels would otherwise outlive the
+    /// new generation's high ones.
+    /// </remarks>
+    [Fact]
+    public async Task Another_pipelines_tiles_are_evicted_before_any_of_this_ones()
+    {
+        string stale = Path.Combine(_root, Layer.ToString("N"), "v0", "abcd1234", "0", "0", "0.mvt");
+        Directory.CreateDirectory(Path.GetDirectoryName(stale)!);
+        await File.WriteAllBytesAsync(stale, Tile(300));
+
+        using FileSystemTileCache cache = Build(budget: 1000, perLayer: 1000);
+
+        for (int x = 0; x < 8; x++)
+        {
+            await cache.WriteAsync(Key(z: 14, x: x), Tile(100), CancellationToken.None);
+        }
+
+        Assert.False(File.Exists(stale), "The level-0 tile of an older pipeline outlived this pipeline's level 14.");
+        Assert.Equal(
+            TileCacheOutcome.Hit,
+            (await cache.ReadAsync(Key(z: 14, x: 7), Lifetime, CancellationToken.None)).Outcome);
+    }
+
+    /// <remarks>
+    /// <b>What a seed's estimate counts as outranking it</b> (ADR-093 §5.9): this pipeline's bytes by
+    /// level, and not another pipeline's, which eviction takes before anything.
+    /// </remarks>
+    [Fact]
+    public async Task The_bytes_by_level_count_only_this_pipelines_tiles()
+    {
+        string stale = Path.Combine(_root, Layer.ToString("N"), "v0", "abcd1234", "3", "0", "0.mvt");
+        Directory.CreateDirectory(Path.GetDirectoryName(stale)!);
+        await File.WriteAllBytesAsync(stale, Tile(300));
+
+        using FileSystemTileCache cache = Build();
+
+        await cache.WriteAsync(Key(z: 3, x: 1), Tile(100), CancellationToken.None);
+        await cache.WriteAsync(Key(z: 3, x: 2, layer: Other), Tile(50), CancellationToken.None);
+        await cache.WriteAsync(Key(z: 9, x: 1), Tile(70), CancellationToken.None);
+
+        IReadOnlyDictionary<int, long> held = cache.CurrentBytesByLevel();
+
+        Assert.Equal(2, held.Count);
+        Assert.Equal(150, held[3]);
+        Assert.Equal(70, held[9]);
+    }
+
+    [Fact]
+    public void An_adopted_paths_level_and_generation_are_read_from_it()
+    {
+        string current = Key(z: 11, x: 3, y: 4).Path();
+
+        Assert.Equal((11, true), FileSystemTileCache.LevelOf(current));
+        Assert.Equal((2, false), FileSystemTileCache.LevelOf($"{Layer:N}/v0/abcd1234/2/1/1.mvt"));
+        Assert.Equal((int.MaxValue, false), FileSystemTileCache.LevelOf("stray/file.mvt"));
+    }
+
+    /// <remarks>
+    /// <b>ADR-093 §3's estimate reads what the cache holds</b>: every entry of the layer at a level is
+    /// a sample of its size, whatever key wrote it; only entries under the key a seed writes, inside its
+    /// rectangle, are tiles it will not add again.
+    /// </remarks>
+    [Fact]
+    public async Task A_layers_holding_counts_samples_by_level_and_present_tiles_inside_the_rectangle()
+    {
+        using FileSystemTileCache cache = Build();
+
+        await cache.WriteAsync(Key(z: 6, x: 1, y: 1), Tile(100), CancellationToken.None);
+        await cache.WriteAsync(Key(z: 6, x: 2, y: 1), [], CancellationToken.None);
+        await cache.WriteAsync(Key(z: 6, x: 9, y: 9), Tile(300), CancellationToken.None);          // outside
+        await cache.WriteAsync(
+            new TileCacheKey(Layer, "ffff0000", new TileAddress(6, 1, 1)), Tile(200), CancellationToken.None); // older shape
+        await cache.WriteAsync(Key(z: 6, x: 1, y: 1, layer: Other), Tile(500), CancellationToken.None);    // another layer
+        await cache.WriteAsync(Key(z: 7, x: 1, y: 1), Tile(50), CancellationToken.None);          // a level not asked
+
+        IReadOnlyDictionary<int, TileSeedEstimate.Holding> held = cache.HoldingOf(Key(z: 0, x: 0, y: 0), [new TileRange(6, 0, 0, 3, 3)]);
+
+        TileSeedEstimate.Holding six = Assert.Single(held).Value;
+        Assert.Equal(4, six.Samples);
+        Assert.Equal(600, six.SampleBytes);
+        Assert.Equal(2, six.Present);
     }
 
     [Fact]

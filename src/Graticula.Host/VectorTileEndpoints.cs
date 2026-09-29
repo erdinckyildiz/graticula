@@ -878,9 +878,16 @@ internal static class VectorTileEndpoints
                 continue;
             }
 
+            // <b>A cold tile takes a permit from `ConnectionBudget`, as a seed's does — D-277, owner
+            // decision 2026-09-29.</b> `LayerConnections.AdmitTileBuildAsync` is the one admission a
+            // seed already takes: quiesce, breaker, budget, keyed on the source. Only a build asks for
+            // it, so a tile the cache answers costs no permit; a refusal propagates to the exception
+            // handler, which answers it as every read path's is answered — 503 with `Retry-After`.
             LayerPart part = await LayerPartAsync(
                     layer, address, defaultLifetime, contexts, connections, cache, building,
-                    projector, datumShifts, loggerFactory, geoParquet, admit: null, cancellation)
+                    projector, datumShifts, loggerFactory, geoParquet,
+                    admit: permit => connections.AdmitTileBuildAsync(layer, permit),
+                    cancellation)
                 .ConfigureAwait(false);
 
             if (part.Lifetime < shortest)
@@ -1018,10 +1025,10 @@ internal static class VectorTileEndpoints
     /// <param name="loggerFactory">For the datum notice.</param>
     /// <param name="geoParquet">For a GeoParquet layer's file version.</param>
     /// <param name="admit">
-    /// Taken before a build and released after it, or null. <b>Null for serving, which is
-    /// unchanged</b>; a seed passes a lease from <c>ConnectionBudget</c> here — ADR-093 §5.5 — so it
-    /// is bounded by the same limiter every read path draws from and a tile it merely finds cached
-    /// costs no permit.
+    /// Taken before a build and released after it, or null for none. <b>Serving and a seed both pass
+    /// <c>LayerConnections.AdmitTileBuildAsync</c> here</b> — ADR-093 §5.5 for the seed, and since
+    /// 2026-09-29 for serving too (D-277) — so a build is bounded by the same limiter every read path
+    /// draws from, and a tile merely found cached costs no permit.
     /// </param>
     /// <param name="cancellation">The caller's; a shared build does not carry it.</param>
     /// <returns>The part.</returns>
@@ -1096,6 +1103,45 @@ internal static class VectorTileEndpoints
         bool revalidate =
             layer.CacheLifetime is null && QueryResponseCaching.Editable(layer, description.Writable);
 
+        return await CachedOrBuiltAsync(
+                key, address, layer.Definition.Name, lifetime, revalidate, cache, building,
+                () => connections.TileSourceFor(layer, attributes), admit, cancellation)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// One layer's part from the cache when it is fresh there; otherwise built once — admitted once —
+    /// stored, and shared with whoever else is waiting for it.
+    /// </summary>
+    /// <param name="key">The part's cache key, from <see cref="KeyOf"/>.</param>
+    /// <param name="address">The tile.</param>
+    /// <param name="layerName">The layer's name, which the encoder writes into the part.</param>
+    /// <param name="lifetime">How long the layer's tiles stay fresh.</param>
+    /// <param name="revalidate">Whether a browser must ask before reusing it — V-56.</param>
+    /// <param name="cache">The tile cache.</param>
+    /// <param name="building">The builds in flight — §2c.</param>
+    /// <param name="sourceFor">The layer's tile source, asked for only on a miss.</param>
+    /// <param name="admit">Taken around a build, or null — see <see cref="LayerPartAsync"/>.</param>
+    /// <param name="cancellation">The caller's; a shared build does not carry it.</param>
+    /// <returns>The part.</returns>
+    /// <remarks>
+    /// <b>Split from <see cref="LayerPartAsync"/> on 2026-09-29, unchanged, so the order of the three
+    /// things D-277 is about can be tested without a database</b> — the cache read before any permit,
+    /// the permit inside the shared build, and one permit per build however many callers wait on it
+    /// (<c>TileBuildAdmissionTests</c>).
+    /// </remarks>
+    internal static async Task<LayerPart> CachedOrBuiltAsync(
+        TileCacheKey key,
+        TileAddress address,
+        string layerName,
+        TimeSpan lifetime,
+        bool revalidate,
+        ITileCache cache,
+        TileSingleFlight building,
+        Func<ITileSource> sourceFor,
+        Func<CancellationToken, ValueTask<IDisposable>>? admit,
+        CancellationToken cancellation)
+    {
         CachedTile cached = await cache.ReadAsync(key, lifetime, cancellation)
             .ConfigureAwait(false);
 
@@ -1104,7 +1150,7 @@ internal static class VectorTileEndpoints
             return new LayerPart(cached.Bytes, PartCame.Cached, cached.Written, lifetime, revalidate);
         }
 
-        ITileSource source = connections.TileSourceFor(layer, attributes);
+        ITileSource source = sourceFor();
 
         // <b>One build per cold tile, however many callers arrive at
         // once.</b> Measured before this existed: twelve simultaneous
@@ -1114,15 +1160,17 @@ internal static class VectorTileEndpoints
             key,
             async () =>
             {
-                // <b>Inside the shared build, so only a build takes a permit.</b> A seed that
-                // joins a build a request started waits without holding one, and a request that
-                // joins a seed's build is admitted by the seed's permit — one build, one permit.
+                // <b>Inside the shared build, so only a build takes a permit.</b> A caller that
+                // joins a build somebody else started waits without holding one — a request behind
+                // a seed's build, a seed behind a request's, or eleven requests behind a twelfth —
+                // one build, one permit. A refusal is the build's outcome, so everyone waiting on
+                // it is refused together rather than each asking the budget again (§2c, D-277).
                 using IDisposable? admitted = admit is null
                     ? null
                     : await admit(CancellationToken.None).ConfigureAwait(false);
 
                 byte[] bytes = await source
-                    .BuildAsync(address, layer.Definition.Name, CancellationToken.None)
+                    .BuildAsync(address, layerName, CancellationToken.None)
                     .ConfigureAwait(false);
 
                 // Written inside the shared build, so the waiters do not

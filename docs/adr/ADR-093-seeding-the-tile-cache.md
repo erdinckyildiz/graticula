@@ -85,12 +85,38 @@ database can take the load. An automatic seed of every service after every upgra
 
 ## 3. Counterarguments to the preferred option
 
-- **The cache's size budget still applies, and it evicts the wrong end.** `FileSystemTileCache` evicts by
+- ~~**The cache's size budget still applies, and it evicts the wrong end.** `FileSystemTileCache` evicts by
   least recent use. A seed larger than the budget (2 GB by default) evicts the tiles it built first — the
-  low levels, which §6a calls the most valuable. The start response says so; nothing prevents it.
-- **Serving a tile takes no permit, and a seed does.** `LayerConnections.TileSourceFor` hands out a source
+  low levels, which §6a calls the most valuable. The start response says so; nothing prevents it.~~
+  **Answered 2026-09-29 by owner decision, in two halves (§5.9).** The cache now evicts the **highest level
+  first** — another pipeline's tiles before any, then by level descending, then least recently used — so a
+  seed larger than the budget loses its top levels and keeps its low ones. And a seed is **estimated before
+  it starts**: the bytes it will add, and whether it would keep them — one that would evict tiles it had
+  itself built is refused unless the operator sends `force`. A seed that only makes room from other maps'
+  deeper tiles is not refused: that is the cache working. The budget still applies, and a forced seed
+  still evicts its own top levels; what changed is which end, and that the operator is told first.
+- ~~**Serving a tile takes no permit, and a seed does.** `LayerConnections.TileSourceFor` hands out a source
   with no `ConnectionBudget` lease, so a cold tile a map asks for is not counted against the source. A seed
-  is therefore more polite than the maps it runs beside. Recorded as [D-277](../architecture-debt.md).
+  is therefore more polite than the maps it runs beside. Recorded as [D-277](../architecture-debt.md).~~
+  **Repaired 2026-09-29 by owner decision ([D-277](../architecture-debt.md)).** A map's cold tile takes the
+  same permit a seed's does, inside the shared build, so a seed and a map compete on equal terms and a tile
+  the cache answers still costs nothing. A refused cold tile is a 503 with `Retry-After`, as a refused query
+  is; the owner accepted that. An expired copy on disk is not offered in its place —
+  [D-278](../architecture-debt.md), which waits on [ADR-010](ADR-010-caching.md) §5.1a's undecided half.
+- **The size estimate is a guess until the cache has seen the service (§5.9).** Where the cache holds fewer
+  than 16 of a layer's tiles at a level, each is assumed to cost a default that doubles per level below 16.
+  A first seed of a dense layer can be under-estimated and still evict; a first seed of a sparse one can be
+  refused when it would have fitted, and `force` is the way through.
+- ~~**On a busy server the free space is small by construction.** … most seeds of any size are refused until
+  the operator forces them.~~ *(Withdrawn the same day: the fit is no longer the free space — §5.9. A warm
+  cache full of other maps' deep tiles takes a seed without a refusal.)*
+- **A seed that fits still evicts other maps' tiles**, the deepest first. That is what the owner's rule
+  allows on purpose; the refusal is only for a seed that would lose its own.
+- **The fit is a model of eviction, not a reservation.** It assumes the tiles already at a seed level are
+  not read while the seed runs (within a level the least recently used goes first, and the seed's are the
+  newest), and nothing holds the room once counted — maps writing shallow tiles during a long seed can
+  still push its top level out. And every service's shallow tiles outrank the seed, so on a cache that is
+  mostly low levels a seed of deeper ones is refused even though the whole cache is working as designed.
 - **A seed that crashes its own process comes back after every restart.** A resumable job is queued again
   whenever its lease is lost (§5.4), without the retry cap a harmless job has. Somebody must cancel it.
 - **The estimate is pessimistic.** It is the straight line from the rate so far, and the time since each
@@ -110,6 +136,11 @@ database can take the load. An automatic seed of every service after every upgra
 | One seed per service at a time, even when six starts race; only the holder checkpoints; cancel reaches only a seed; a lost seed is queued again with its progress, however often | `TileSeedStoreTests` (Platform.Postgres) | this change. **Written and compiled; not run by the authoring session, which had no database** |
 | A seeded tile is a `HIT` with the bytes a request built before the seed; over the cap is a 400 with the count; a second seed is a 409; cancel works; another folder's service is 403 or 404 | `ASeededTileIsAServedTileTests`, `AServiceIsAddressedByItsFolderTests` (conformance) | this change. **Written and compiled; not run by the authoring session, which had no server** |
 | The tile route's bytes did not change | `TilePipelineVersionTests`: the hash moved, `TilePipeline.Version` did not | this change |
+| The cache evicts the highest level first and another pipeline's tiles before any; within a level, least recently used | `FileSystemTileCacheTests.A_seed_larger_than_the_budget_loses_its_highest_level_and_keeps_its_lowest`, `Within_a_level_the_least_recently_used_goes_first`, `Another_pipelines_tiles_are_evicted_before_any_of_this_ones` — the first and third fail with the order put back to recency alone | 2026-09-29, §5.9 |
+| The estimate: the default per level, samples replacing it at 16, present tiles adding nothing, a level no layer draws adding nothing; the fit — a seed past the free space fits when only deeper tiles make its room, a seed inside the free space fits whatever outranks it, and another service's tiles at a level inside the seed's range outrank its higher levels; the highest level that fits; no overflow | `TileSeedEstimateTests` (24 cases, each number worked by hand), `FileSystemTileCacheTests.A_layers_holding_counts_samples_by_level_and_present_tiles_inside_the_rectangle`, `The_bytes_by_level_count_only_this_pipelines_tiles` | 2026-09-29, §5.9 |
+| A map's cold tile takes one permit per build and none for a cached tile; a refusal is shared by every caller waiting on the build and answered 503 | `TileBuildAdmissionTests` (6 cases, a real `ConnectionBudget`) | 2026-09-29, D-277. **The wiring — that the route passes the admission — is read, not tested** |
+| The dry run and the read-back carry the estimate and the budget; a seed that does not fit is refused with `exceedsCacheBudget` | `ASeededTileIsAServedTileTests.A_seed_says_its_size_and_one_that_does_not_fit_the_cache_is_refused` (conformance) | 2026-09-29. **Written and compiled; not run by the authoring session, which had no server.** It checks the refusal only when the fixture's cache makes it reachable |
+| The default guess is near a real estate's tile sizes | — | **not measured**, INFERRED (§5.9) |
 | How long a realistic estate takes to seed | — | **not measured.** [A-020](../architecture-assumptions.md) stays `UNVALIDATED` |
 
 ## 5. Decision
@@ -181,14 +212,16 @@ owner or an administrator (ADR-075). Reading needs that the caller may read the 
 
 | Route | Answer |
 |---|---|
-| `POST /admin/services/{name}/cache/seeds` `{minZoom?, maxZoom?, extent?}` | **202** with the job id and where to watch it; **400** over the cap, with the count; **409** while a seed of the service is queued or running, naming it; **404/403** as every service route |
-| `POST …/cache/seeds?dryRun=true` | **200** with the count per level and whether a layer draws there; nothing is written |
+| `POST /admin/services/{name}/cache/seeds` `{minZoom?, maxZoom?, extent?, force?}` | **202** with the job id, where to watch it and the size estimate; **400** over the cap, with the count; **400** marked `exceedsCacheBudget` when the seed would evict tiles it had itself built and `force` is not `true` (§5.9); **409** while a seed of the service is queued or running, naming it; **404/403** as every service route |
+| `POST …/cache/seeds?dryRun=true` | **200** with the count per level, whether a layer draws there and each level's `estimatedBytes`; `estimate` — `bytes`, `budget`, `used`, `free`, `protectedBytes`, `evictionTarget`, `fits`, `maxZoomThatFits`, `sampled`; and `refusal`, the sentence a start would be refused with, when it does not fit. Nothing is written. Over the cap it is the start's 400 |
 | `GET /admin/services/{name}/cache/seeds` | The service's seeds, newest first |
 | `GET …/cache/seeds/{id}` | One seed: status, per level `tiles`/`done`/`built`/`present`/`empty`/`failed`/`skipped`, started and finished, the pause, and the estimated time left from the observed rate |
 | `DELETE …/cache/seeds/{id}` | **200** cancelled; **409** when it has already ended |
-| `GET /admin/services/{name}/cache` | [ADR-010](ADR-010-caching.md) §6b: for each level a seed has finished, when, over what area, how many tiles the area holds, and how many are cached and fresh **now** for every layer drawn there; any running seed; the defaults, the cap and the concurrency |
+| `GET /admin/services/{name}/cache` | [ADR-010](ADR-010-caching.md) §6b: for each level a seed has finished, when, over what area, how many tiles the area holds, and how many are cached and fresh **now** for every layer drawn there; any running seed; the defaults, the cap and the concurrency; and since 2026-09-29 `budget` — the cache's budget, what the whole cache uses and has free, and this service's share (§5.9) |
 
-Starting and cancelling are audited as `service.cache.seed` and `service.cache.seed.cancel`. A seed is also
+Starting and cancelling are audited as `service.cache.seed` and `service.cache.seed.cancel`. Since 2026-09-29 a
+start's record carries the estimate, the free space, what outranked the seed, whether it fitted, and
+`force`, so a seed that evicted its own top levels is traceable to the person who was told it would and went on. A seed is also
 a job, so `/admin/jobs` lists it as `tile.seed`.
 
 **INFERRED, listed for confirmation:** the routes' shape under `/cache`; that a service's manager, not only
@@ -206,6 +239,54 @@ the levels (defaulted by the server), the area (the whole service, or the map's 
 is showing), *Count tiles* (the dry run), *Start*, and while a seed runs, its progress polled every two
 seconds and *Cancel*. Under it is the per-level table from §5.6. Every request sends the folder.
 
+### 5.9 Size, and which end the cache evicts — added 2026-09-29
+
+Owner decision, 2026-09-29: *a seed warns before it outgrows the cache, and low levels are evicted last.*
+
+- **The estimate.** Before a seed starts, and in the dry run, the server estimates the bytes it will add
+  (`TileSeedEstimate`). For each level and each layer drawn there: the tiles of the seed's rectangle not
+  already cached under the key the seed writes, times the average size of that layer's cached tiles at that
+  level when the cache holds at least 16 of them, and otherwise a default — **16 KB at level 16 and above,
+  doubling for each level below, up to 1 MB**, per layer. Empty tiles are zero-length markers and average in
+  as zero.
+- **What *fits* means — amended the same day, by the coordinator's review.** The owner's worry is a seed
+  evicting **its own** tiles, not a seed evicting anybody's. The first version compared the estimate with
+  the free space — the budget (`Graticula:TileCacheBudgetMB`, 2,048 by default, a setting since before this
+  ADR) less what the cache holds — and so refused almost every seed on a warm cache, whose LRU keeps it near
+  its budget; the warning became noise. Under the eviction order below, a seed makes its room from whatever
+  sits deeper than it and loses a tile of its own only when what outranks that tile does not leave room. So
+  a level `L` of the seed is **kept** when the seed's bytes up to `L` fit in the free space (nothing is
+  evicted), **or** when they fit, together with everything the cache holds of this pipeline at levels below
+  `L`, in the 90% eviction brings it down to. The seed **fits** when its highest level is kept, and
+  `maxZoomThatFits` is the highest level that is. `free` stays in the answer as information.
+- **Why every level below `L`, and not only those below the seed's first level.** The coordinator's rule
+  counted only the tiles below the seed's lowest level, which outrank every seed tile. Another service's
+  tiles at a level **inside** the seed's range outrank the seed's higher levels too: a seed of levels 15–16
+  over a cache holding other maps' level 15 loses its own level 16 before their level 15, and the narrower
+  rule would call it a fit (`TileSeedEstimateTests.Tiles_held_below_a_seed_level_outrank_it_even_inside_the_seeds_range`).
+  The per-level rule is the same rule applied to each level; it reduces to the coordinator's when nothing is
+  held inside the seed's range.
+- **The refusal.** A seed that does not fit is a **400** with `details: ["exceedsCacheBudget"]`, naming the
+  estimate, the bytes that outrank its top level, the eviction target and budget, the highest level that
+  keeps every tile, and — as information — the free space and use: the cap's refusal (§5.2) in shape. The cap
+  is checked first and cannot be overridden; this can.
+- **The override.** `"force": true` in the body starts the seed anyway, for an operator who has raised the
+  budget or accepts the eviction. It is in the audit record.
+- **The eviction order.** `FileSystemTileCache` evicts, down to 90% of the budget as before: tiles another
+  pipeline version wrote first (they are unreachable, D-155), then the **highest level first**, then the
+  least recently used within a level. A strict order and not recency weighted by level, because any finite
+  weight is overtaken by a seed that runs long enough; it is bounded because every level below `z` together
+  holds about a third as many tiles as `z` over any area. The cost is that a map browsing deep levels works
+  in what the low levels leave free.
+- **The console** shows the estimate beside the count, the refusal when it does not fit and *Seed anyway*,
+  which sends `force`; the cache's budget and use are shown under the box.
+
+**INFERRED, listed for confirmation:** the default guess and its shape; 16 samples as enough; 400 rather than
+409 for a seed that does not fit (the owner allowed either; 400 matches the cap); the fit counting every
+level below each seed level, rather than only below its first (the coordinator's wording, widened for the
+case above); the 90% target rather than the budget as the line once eviction starts; a strict level order
+rather than a weighted one; another pipeline's tiles first.
+
 ## 6. Consequences
 
 **Positive.**
@@ -216,7 +297,9 @@ seconds and *Cancel*. Under it is the per-level table from §5.6. Every request 
 
 **Negative.**
 - One seed at a time per node, across all services.
-- The cache's LRU budget can evict what a large seed built first (§3).
+- ~~The cache's LRU budget can evict what a large seed built first (§3).~~ *(2026-09-29: it evicts the highest
+  level first now, and a seed that would evict its own tiles is refused unless forced — §5.9.)* A seed that
+  fits still evicts other maps' deeper tiles, by design.
 - A seed that kills its process is retried after every restart until cancelled (§3).
 - A build older than migration 61 cannot list jobs once a seed row exists: it reads an unknown kind and
   throws, as a build before migration 29 did.
@@ -254,8 +337,12 @@ on this node, one at a time.
 - A seed measured against a realistic estate. A-020 is validated or invalidated, and Alternative C may come
   back.
 - An operator asks for seeds of several services to run at once on one node.
-- A seed is seen evicting its own low levels (§3). The cache budget then needs a notion of seeded tiles.
-- D-277 is decided. If serving takes a permit too, a seed and a map compete on equal terms.
+- ~~A seed is seen evicting its own low levels (§3). The cache budget then needs a notion of seeded tiles.~~
+  *(Answered before it was seen, 2026-09-29: the highest level is evicted first — §5.9.)* What replaces it: a
+  map browsing deep levels is seen starved by a seeded pyramid, or a seed's estimate is seen far from what it
+  wrote.
+- ~~D-277 is decided. If serving takes a permit too, a seed and a map compete on equal terms.~~ *(Decided
+  2026-09-29: serving takes one, and they do.)*
 - An import is made cancellable. `CancelAsync`'s kind restriction moves.
 
 ## 10. Dissent

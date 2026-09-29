@@ -61,7 +61,11 @@ internal static partial class AdminEndpoints
     /// <param name="MinZoom">The lowest level, or null for the lowest the service draws at.</param>
     /// <param name="MaxZoom">The highest level, or null for <see cref="DefaultSeedCeiling"/> or the highest the service draws at, whichever is lower.</param>
     /// <param name="Extent">The area, or null for the service's whole extent.</param>
-    internal sealed record SeedRequest(int? MinZoom, int? MaxZoom, SeedExtent? Extent);
+    /// <param name="Force">
+    /// True to start a seed estimated to evict tiles it had itself built — for an operator who has
+    /// raised the budget, or who accepts that its highest levels will not all stay. Audited.
+    /// </param>
+    internal sealed record SeedRequest(int? MinZoom, int? MaxZoom, SeedExtent? Extent, bool? Force = null);
 
     /// <summary>An area, as an ArcGIS envelope: in Web Mercator or in WGS 84 degrees.</summary>
     internal sealed record SeedExtent(
@@ -196,6 +200,7 @@ internal static partial class AdminEndpoints
             name = service.Name,
             folder = service.Folder,
             pipeline = TilePipeline.Version,
+            budget = BudgetOf(cache, service),
             levels,
             running = running is null ? null : Wire(running, service, DateTimeOffset.UtcNow),
             seeds = recent.Select(seed => Wire(seed, service, DateTimeOffset.UtcNow)),
@@ -210,6 +215,140 @@ internal static partial class AdminEndpoints
                   + "are in the cache and fresh now, for every layer drawn at that level.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// The cache's budget, what the whole cache holds, and what this service's layers hold of it —
+    /// or null for a cache that has no budget to report.
+    /// </summary>
+    /// <remarks>
+    /// <b>On the service's read-back because a seed is measured against it</b> — ADR-093 §3. A seed
+    /// that did not fit is refused with these numbers, and an operator deciding whether to raise the
+    /// budget or narrow the seed needs them where the seed is started, not only on
+    /// <c>/admin/health</c>. The whole cache and the service's share are both given, because the
+    /// budget is shared by every service and a seed competes with all of them for it.
+    /// </remarks>
+    private static object? BudgetOf(ITileCache cache, PublishedService service)
+    {
+        if (cache is not FileSystemTileCache disk)
+        {
+            return null;
+        }
+
+        (int entries, long used) = disk.Report(null);
+        int serviceEntries = 0;
+        long serviceBytes = 0;
+
+        foreach (PublishedLayer layer in service.Layers)
+        {
+            (int held, long bytes) = disk.Report(layer.Id);
+            serviceEntries += held;
+            serviceBytes += bytes;
+        }
+
+        return new
+        {
+            bytes = disk.Budget,
+            usedBytes = used,
+            freeBytes = Math.Max(0, disk.Budget - used),
+            entries,
+            serviceBytes,
+            serviceEntries,
+            setting = "Graticula:TileCacheBudgetMB",
+            eviction = "When the cache is over its budget it evicts tiles another pipeline version wrote first, "
+                + "then the highest levels first, and the least recently used within a level; so a seed's low "
+                + "levels are the last thing it loses.",
+        };
+    }
+
+    /// <summary>
+    /// How many bytes a seed of the plan would add to the cache and whether they fit — ADR-093 §3 — or
+    /// null for a cache that has no budget to measure against.
+    /// </summary>
+    /// <remarks>
+    /// <b>Each layer's key is the one serving asks for now</b> (<see cref="VectorTileEndpoints.KeyOf"/>),
+    /// so the tiles counted as already there are the ones the seed will find and leave alone.
+    /// </remarks>
+    private static async Task<TileSeedEstimate.Result?> EstimateAsync(
+        PublishedService service,
+        TileSeedPlan plan,
+        ServiceContexts contexts,
+        ITileCache cache,
+        GeoParquetSources geoParquet,
+        CancellationToken cancellation)
+    {
+        if (cache is not FileSystemTileCache disk)
+        {
+            return null;
+        }
+
+        List<TileSeedEstimate.Layer> layers = [];
+
+        foreach (PublishedLayer layer in service.Layers)
+        {
+            (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+            TileCacheKey key = VectorTileEndpoints.KeyOf(
+                layer, VectorTileEndpoints.AttributesOf(layer, description), new TileAddress(0, 0, 0), geoParquet);
+
+            layers.Add(new TileSeedEstimate.Layer(
+                layer.VisibleRange.CarriesVectorTile, disk.HoldingOf(key, plan.Levels)));
+        }
+
+        return TileSeedEstimate.Of(
+            plan.Levels, layers, disk.Budget, disk.Report(null).Bytes, disk.CurrentBytesByLevel());
+    }
+
+    /// <summary>A seed's estimate on the wire: what it adds, the cache it is measured against, and whether it fits.</summary>
+    private static object Wire(TileSeedEstimate.Result estimate) => new
+    {
+        bytes = estimate.Bytes,
+        budget = estimate.Budget,
+        used = estimate.Used,
+        // Information: a seed larger than this still fits when eviction can make the room from tiles
+        // that rank below the seed's own (§5.9).
+        free = estimate.Free,
+
+        // What eviction keeps ahead of the seed's top level, and what it brings the cache down to.
+        protectedBytes = estimate.Protected,
+        evictionTarget = estimate.Target,
+        fits = estimate.Fits,
+        maxZoomThatFits = estimate.HighestLevelThatFits,
+
+        // Whether every level came from the cache's own tiles or some from the default guess.
+        sampled = estimate.Sampled,
+    };
+
+    /// <summary>The refusal for a seed that would evict tiles it had itself just built.</summary>
+    /// <remarks>
+    /// <b>It says why this seed and not any seed larger than the free space.</b> The cache makes room by
+    /// evicting the highest levels first, so a seed displacing other maps' deeper tiles is the cache
+    /// working; what is refused is the seed that would lose its own, and the sentence names the bytes
+    /// that outrank its top level and the level it is kept up to.
+    /// </remarks>
+    internal static string TooLargeForTheCache(TileSeedPlan plan, TileSeedEstimate.Result estimate)
+    {
+        int first = plan.Levels[0].Z;
+        int last = plan.Levels[^1].Z;
+
+        return $"Levels {first} to {last} over this area are estimated at {TileSeedEstimate.Size(estimate.Bytes)} in the "
+            + $"tile cache. The cache keeps the {TileSeedEstimate.Size(estimate.Protected)} it holds below level {last} ahead "
+            + $"of any tile the seed builds at level {last}, and evicts down to {TileSeedEstimate.Size(estimate.Target)} — "
+            + $"90% of its {TileSeedEstimate.Size(estimate.Budget)} budget (Graticula:TileCacheBudgetMB) — so this seed would "
+            + "evict tiles it had just built, from its highest level down. "
+            + (estimate.HighestLevelThatFits is { } top
+                ? $"Levels {first} to {top} keep every tile they build. "
+                : $"Even level {first} alone would lose some of its own tiles. ")
+            + (estimate.Sampled
+                ? "The estimate is the average size of this service's tiles already in the cache, level by level. "
+                : "Where the cache holds too few of this service's tiles to average, the estimate assumes "
+                  + "16 KB per layer at level 16, doubling for each level below, up to 1 MB. ")
+            + "Making room from other maps' deeper tiles is what the cache does anyway and is not refused. Lower the "
+            + "highest level, draw a smaller extent, raise the budget, or send \"force\": true to seed anyway "
+            + $"({TileSeedEstimate.Size(estimate.Free)} is free now, of {TileSeedEstimate.Size(estimate.Used)} in use).";
+    }
+
+    /// <summary>What a refusal of a seed that would evict its own tiles says it is, for a client that branches on it.</summary>
+    private static readonly string[] TooLargeForTheCacheDetail = ["exceedsCacheBudget"];
 
     /// <summary>Starts a seed, or with <c>?dryRun=true</c> counts one without starting it.</summary>
     /// <remarks>
@@ -227,6 +366,17 @@ internal static partial class AdminEndpoints
     /// Start would do before it is pressed. It asks the same permission as the start: counting reads
     /// the extents of the service's layers, and it is the owner's question.
     /// </para>
+    /// <para>
+    /// <b>And a size beside the count, measured against what the cache would keep — ADR-093 §5.9, owner
+    /// decision 2026-09-29.</b> A seed that would evict tiles it had itself built (<see cref="TileSeedEstimate.Of"/>)
+    /// is a 400 that names the estimate, what outranks it, the budget and the highest level that keeps
+    /// everything, as the cap's refusal names its count — unless the request says <c>"force": true</c>,
+    /// which is audited. A seed merely larger than the free space is not refused: eviction makes its room
+    /// from other maps' deeper tiles. The dry run is not
+    /// refused for it: it carries the same numbers and <c>estimate.fits</c>, because it exists to say
+    /// what Start would do. The cap is checked first and cannot be forced; the budget is the
+    /// operator's to spend.
+    /// </para>
     /// </remarks>
     private static async Task StartSeedAsync(
         HttpContext context,
@@ -240,6 +390,8 @@ internal static partial class AdminEndpoints
         JobSignal signal,
         IAuditLog audit,
         HostSettings settings,
+        ITileCache cache,
+        GeoParquetSources geoParquet,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishTiles).ConfigureAwait(false))
@@ -358,28 +510,6 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        object counted = new
-        {
-            name = service.Name,
-            folder = service.Folder,
-            minZoom,
-            maxZoom,
-            area = Wire(plan.Area),
-            whole,
-            tiles = plan.Total,
-            levels = plan.Levels.Select(level => new
-            {
-                zoom = level.Z,
-                tiles = level.Count,
-
-                // ADR-070: a level no layer draws at is skipped whole, and costs nothing.
-                drawn = service.Layers.Any(layer => layer.VisibleRange.CarriesVectorTile(level.Z)),
-            }),
-            cap = settings.TileSeedMaximumTiles,
-            withinCap = plan.Total <= settings.TileSeedMaximumTiles,
-            concurrency = settings.TileSeedConcurrency,
-        };
-
         if (plan.Total > settings.TileSeedMaximumTiles)
         {
             await Results.Json(
@@ -399,9 +529,59 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // After the cap, so the estimate is only ever of a seed that could be started.
+        TileSeedEstimate.Result? estimate =
+            await EstimateAsync(service, plan, contexts, cache, geoParquet, cancellation).ConfigureAwait(false);
+
+        bool force = request?.Force == true;
+
         if (dryRun)
         {
-            await Results.Json(counted).ExecuteAsync(context).ConfigureAwait(false);
+            await Results.Json(new
+            {
+                name = service.Name,
+                folder = service.Folder,
+                minZoom,
+                maxZoom,
+                area = Wire(plan.Area),
+                whole,
+                tiles = plan.Total,
+                levels = plan.Levels.Select((level, i) => new
+                {
+                    zoom = level.Z,
+                    tiles = level.Count,
+
+                    // ADR-070: a level no layer draws at is skipped whole, and costs nothing.
+                    drawn = service.Layers.Any(layer => layer.VisibleRange.CarriesVectorTile(level.Z)),
+                    estimatedBytes = estimate?.Levels[i].Bytes,
+                    sampled = estimate?.Levels[i].Sampled,
+                }),
+                cap = settings.TileSeedMaximumTiles,
+                withinCap = plan.Total <= settings.TileSeedMaximumTiles,
+                concurrency = settings.TileSeedConcurrency,
+                estimate = estimate is null ? null : Wire(estimate),
+
+                // What Start would say, so the console can show it before Start is pressed.
+                refusal = estimate is { Fits: false } over ? TooLargeForTheCache(plan, over) : null,
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        if (estimate is { Fits: false } tooLarge && !force)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message = TooLargeForTheCache(plan, tooLarge),
+                        details = TooLargeForTheCacheDetail,
+                    },
+                    tiles = plan.Total,
+                    estimate = Wire(tooLarge),
+                },
+                statusCode: 400).ExecuteAsync(context).ConfigureAwait(false);
             return;
         }
 
@@ -442,7 +622,21 @@ internal static partial class AdminEndpoints
 
         await AuditAsync(
             context, audit, "service.cache.seed", service.QualifiedName,
-            Detail(new { job = started.Job.Id, minZoom, maxZoom, tiles = plan.Total, whole }),
+            // <b>The override is in the record, with the numbers it overrode</b>: a seed that evicted
+            // half the cache should be traceable to the person who was told it would and went on.
+            Detail(new
+            {
+                job = started.Job.Id,
+                minZoom,
+                maxZoom,
+                tiles = plan.Total,
+                whole,
+                estimatedBytes = estimate?.Bytes,
+                cacheFreeBytes = estimate?.Free,
+                protectedBytes = estimate?.Protected,
+                fits = estimate?.Fits,
+                force,
+            }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
         string watch = SeedAddress(service, started.Job.Id);
@@ -456,10 +650,11 @@ internal static partial class AdminEndpoints
                 watch,
                 jobStatus = $"/admin/jobs/{started.Job.Id}",
                 seed = Wire(started, service, DateTimeOffset.UtcNow),
+                estimate = estimate is null ? null : Wire(estimate),
                 note = "The seed runs on a job worker, lowest level first, and builds each tile the way a "
                     + "request would, holding a permit against the layer's source as a request does. A tile "
-                    + "already cached and fresh is left as it is. The cache's size budget still applies: a "
-                    + "seed larger than the budget evicts the tiles it built first.",
+                    + "already cached and fresh is left as it is. The cache's size budget still applies: past "
+                    + "it the cache evicts the highest levels first, so a seed's low levels are the last it loses.",
             },
             statusCode: 202).ExecuteAsync(context).ConfigureAwait(false);
     }

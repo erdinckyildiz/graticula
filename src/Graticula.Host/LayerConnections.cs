@@ -644,7 +644,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     }
 
     /// <summary>
-    /// A permit to build one tile of a layer, taken exactly as a read takes one — for a seed.
+    /// A permit to build one tile of a layer, taken exactly as a read takes one — for a seed and for
+    /// a map's cold tile alike.
     /// </summary>
     /// <param name="layer">The layer about to be built.</param>
     /// <param name="cancellationToken">Cancellation.</param>
@@ -661,11 +662,21 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// requests it runs beside share one bound per source and one per worker. ADR-093 §5.5.
     /// </para>
     /// <para>
-    /// <b>Serving a tile does not call this, and that was found here rather than decided here.</b>
-    /// <see cref="TileSourceFor"/> hands out a source over the pool with no permit, so a cold tile
-    /// requested by a map takes no lease today; only the layer's describe does. The seed takes one
-    /// because ADR-010 condition 3 requires it of a seed by name. Whether serving should is
-    /// [D-277](../../docs/architecture-debt.md).
+    /// <b>Serving a tile calls this too, since 2026-09-29 — [D-277](../../docs/architecture-debt.md),
+    /// by owner decision.</b> Until then <see cref="TileSourceFor"/> handed a map's cold tile a source
+    /// over the pool with no permit, so a burst of cold tiles was bounded by the pool and not by the
+    /// per-source limit every feature read is held to, and a seed was more polite to a source than the
+    /// maps beside it. The permit is taken inside the shared build
+    /// (<c>VectorTileEndpoints.CachedOrBuiltAsync</c>), so a tile the cache answers takes none and the
+    /// callers waiting on one build share its one permit. A refusal is answered as a query's is — 503
+    /// with <c>Retry-After</c> — which means a map can now be refused a cold tile under load; the owner
+    /// accepted that.
+    /// </para>
+    /// <para>
+    /// <b>The source's breaker hears a seed's builds and not a map's</b>
+    /// (<see cref="ObserveTileBuild"/>): serving takes the breaker's answer before a build and does not
+    /// report the build's outcome to it, as it did not before. The layer's describe, which goes through
+    /// <see cref="SourceFor"/>, still does.
     /// </para>
     /// </remarks>
     public async ValueTask<IDisposable> AdmitTileBuildAsync(PublishedLayer layer, CancellationToken cancellationToken)

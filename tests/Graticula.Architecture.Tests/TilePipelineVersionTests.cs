@@ -143,7 +143,11 @@ public sealed class TilePipelineVersionTests
         // became `VectorTileEndpoints.LayerPartAsync` and `KeyOf`, unchanged, so a seed builds and stores a tile
         // through the route's own code; the one addition is an optional permit taken around a build, which serving
         // passes as null. Same key, same source, same bytes.
-        "161c55ea4ee26e7d27b9786f43065d8cf011d6fb794fcb148d20a1a7afe9273c";
+        // <b>Moved again 2026-09-29 for D-277, and the version did not move.</b> Serving now passes the permit a
+        // seed passes (`LayerConnections.AdmitTileBuildAsync`), and the cache-or-build half of `LayerPartAsync`
+        // became `CachedOrBuiltAsync`, unchanged, so the admission can be tested without a database. Whether a
+        // cold tile is built now or refused with a 503 changed; the bytes of a tile that is built did not.
+        "8e6e30c2f29e92ace317b99749e720e70c96b68e46a639890f53b80cc097f35d";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 2;
