@@ -143,7 +143,7 @@ public static partial class CimStyle
         {
             if (Layer(projection, level, layerName, losses) is { } one)
             {
-                Vary(one, projection, losses);
+                Vary(one, projection, losses, shape[level] is CimPicture icon ? icon.Picture.SheetHeight : 1);
                 layers.Add(one);
             }
         }
@@ -186,7 +186,12 @@ public static partial class CimStyle
     /// <param name="layer">The style layer, already painted from its classes.</param>
     /// <param name="projection">What the renderer says.</param>
     /// <param name="losses">Collects what could not be carried.</param>
-    private static void Vary(JsonObject layer, CimProjection projection, List<string> losses)
+    /// <param name="iconHeight">
+    /// For a picture's `symbol` layer, the first class's icon height in the sprite sheet, which a
+    /// size variable's `icon-size` is a ratio to; 1 for every other layer.
+    /// </param>
+    private static void Vary(
+        JsonObject layer, CimProjection projection, List<string> losses, double iconHeight)
     {
         if (projection.Vary.Count == 0)
         {
@@ -195,6 +200,7 @@ public static partial class CimStyle
 
         string kind = (string?)layer["type"] ?? string.Empty;
         JsonObject paint = layer["paint"] as JsonObject ?? [];
+        JsonObject layout = layer["layout"] as JsonObject ?? [];
 
         foreach (CimVary variable in projection.Vary)
         {
@@ -207,14 +213,29 @@ public static partial class CimStyle
                 (CimVaries.Opacity, "fill") => "fill-opacity",
                 (CimVaries.Opacity, "line") => "line-opacity",
                 (CimVaries.Opacity, "circle") => "circle-opacity",
+                (CimVaries.Opacity, "symbol") => "icon-opacity",
 
                 // <b>A fill has no size.</b> Saying so beats widening its outline instead,
                 // which is what a renderer guessing here would do.
                 (CimVaries.Size, "line") => "line-width",
                 (CimVaries.Size, "circle") => "circle-radius",
 
+                // <b>A picture grows by `icon-size`, which is a ratio rather than a length</b> —
+                // ADR-099. `Sliding` divides by the icon's height in the sheet.
+                (CimVaries.Size, "symbol") => "icon-size",
+
                 _ => null,
             };
+
+            if (property is null && variable.What == CimVaries.Colour && kind == "symbol")
+            {
+                losses.Add(
+                    $"The renderer varies colour by `{variable.Field}`, and a picture marker is drawn "
+                    + "in the picture's own colours. That variable is kept in the stored document and "
+                    + "changes nothing on this layer.");
+
+                continue;
+            }
 
             if (property is null)
             {
@@ -229,7 +250,11 @@ public static partial class CimStyle
                 continue;
             }
 
-            if (paint[property] is JsonArray existing
+            // <b>`icon-size` is a layout property in the style specification, not a paint one</b>, so
+            // it is written where a client reads it.
+            JsonObject block = property == "icon-size" ? layout : paint;
+
+            if (block[property] is JsonArray existing
                 && (existing.ElementAtOrDefault(0) as JsonValue)?.ToString() is "match" or "step")
             {
                 losses.Add(
@@ -238,10 +263,15 @@ public static partial class CimStyle
                     + "continuous value means; the class colours are still in the legend.");
             }
 
-            paint[property] = Sliding(variable, property);
+            block[property] = Sliding(variable, property, iconHeight);
         }
 
         layer["paint"] = paint;
+
+        if (layout.Count > 0 && layer["layout"] is null)
+        {
+            layer["layout"] = layout;
+        }
     }
 
     /// <summary>One paint value as an `interpolate` over the variable's field.</summary>
@@ -252,8 +282,9 @@ public static partial class CimStyle
     /// </remarks>
     /// <param name="variable">What varies.</param>
     /// <param name="property">The property being written, so radius can halve.</param>
+    /// <param name="iconHeight">What an `icon-size` is a ratio to, in pixels.</param>
     /// <returns>The expression.</returns>
-    private static JsonArray Sliding(CimVary variable, string property)
+    private static JsonArray Sliding(CimVary variable, string property, double iconHeight = 1)
     {
         List<(double Stop, JsonNode? Output)> pairs = [];
 
@@ -268,10 +299,13 @@ public static partial class CimStyle
                 // meant -- which is the kind of value that makes a document look wrong.
                 CimVaries.Size => i < variable.Numbers.Count
                     ? Num(Math.Round(
-                        property == "circle-radius"
-                            ? variable.Numbers[i] / 0.75 / 2
-                            : variable.Numbers[i] / 0.75,
-                        3,
+                        property switch
+                        {
+                            "circle-radius" => variable.Numbers[i] / 0.75 / 2,
+                            "icon-size" => variable.Numbers[i] / 0.75 / iconHeight,
+                            _ => variable.Numbers[i] / 0.75,
+                        },
+                        property == "icon-size" ? 4 : 3,
                         MidpointRounding.AwayFromZero))
                     : null,
 
@@ -394,6 +428,9 @@ public static partial class CimStyle
 
                 return layer;
 
+            case CimPicture:
+                return Icon(projection, level, layer, losses);
+
             default:
                 losses.Add(
                     $"A symbol layer at level {level} is of a kind this derivation does not "
@@ -401,6 +438,147 @@ public static partial class CimStyle
 
                 return null;
         }
+    }
+
+    /// <summary>A picture marker's level, as a `symbol` layer drawing an icon from the sprite sheet.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-099: the shape Esri's own vector styles draw icons with.</b> A `symbol` layer with a
+    /// literal `icon-image` per class, cut from the service's sprite sheet, is what ArcGIS Pro draws
+    /// in its own basemaps; a picture drawn any other way — a `circle` with a pattern, an image
+    /// source — is one it does not. The icon's name is the picture's content hash, so the sheet the
+    /// sprite routes generate carries every name this style asks for (<see cref="MarkerPicture.Name"/>).
+    /// </para>
+    /// <para>
+    /// <b>Sizes are ratios to the icon's height in the sheet.</b> `icon-size` scales the icon's own
+    /// pixels; the sheet holds each picture at <see cref="MarkerPicture.SheetHeight"/>, so a marker of
+    /// <i>s</i> points is <c>s / 0.75 / SheetHeight</c>. `icon-offset` is in the icon's pixels
+    /// <i>before</i> that scaling, per the style specification, so the marker's offset in points is
+    /// divided by the same ratio — and its <i>y</i> is turned over, because CIM's offset is upward and
+    /// the style's is downward. `icon-rotate` is clockwise and CIM's rotation is not.
+    /// </para>
+    /// <para>
+    /// <b>Every point is drawn</b>: `icon-allow-overlap` and `icon-ignore-placement`, because ArcGIS
+    /// draws every feature of a point layer, and a style whose icons thin out as the reader zooms
+    /// out would be a different map from the one the renderer describes.
+    /// </para>
+    /// </remarks>
+    /// <param name="projection">What the renderer says.</param>
+    /// <param name="level">Which layer of the stack.</param>
+    /// <param name="layer">The style layer, with its id and source already written.</param>
+    /// <param name="losses">Collects what could not be carried.</param>
+    /// <returns>The layer.</returns>
+    private static JsonObject Icon(
+        CimProjection projection, int level, JsonObject layer, List<string> losses)
+    {
+        layer["type"] = "symbol";
+
+        JsonObject layout = new()
+        {
+            ["icon-image"] = Per(projection, level, IconName, losses),
+            ["icon-size"] = Per(projection, level, IconSize, losses),
+        };
+
+        IEnumerable<CimPicture> pictures = projection.Classes
+            .Select(c => c.Symbol.Paints.ElementAtOrDefault(level))
+            .Append(projection.Default?.Paints.ElementAtOrDefault(level))
+            .OfType<CimPicture>();
+
+        // <b>Written only when some class needs it</b>, so a plain picture's style says nothing it
+        // does not mean.
+        if (pictures.Any(p => p.Rotation != 0))
+        {
+            layout["icon-rotate"] = Per(projection, level, IconRotate, losses);
+        }
+
+        if (pictures.Any(p => p.OffsetX != 0 || p.OffsetY != 0))
+        {
+            layout["icon-offset"] = Unwrapped(Per(projection, level, IconOffset, losses));
+        }
+
+        if (pictures.Any(p => Math.Abs(p.ScaleX - 1) > 1e-6))
+        {
+            losses.Add(
+                "A picture marker is stretched sideways (`scaleX`). The tile face scales an icon by "
+                + "one number, so it draws the picture in its own proportions at the marker's height; "
+                + "this server's own drawing and the Esri face keep the stretch.");
+        }
+
+        layout["icon-allow-overlap"] = true;
+        layout["icon-ignore-placement"] = true;
+
+        layer["layout"] = layout;
+        layer["paint"] = new JsonObject();
+
+        return layer;
+    }
+
+    /// <summary>A constant `["literal", value]` as the value itself.</summary>
+    /// <remarks>
+    /// <b>An array output inside a `match` must be wrapped and a constant need not be</b>, and the
+    /// constant is what ArcGIS Pro is given (D-280), so the wrapping is taken off where it can be.
+    /// </remarks>
+    /// <param name="node">The property's value.</param>
+    /// <returns>The value, unwrapped when it was a wrapped constant.</returns>
+    private static JsonNode? Unwrapped(JsonNode? node) =>
+        node is JsonArray { Count: 2 } wrapped
+            && (wrapped[0] as JsonValue)?.ToString() == "literal"
+            ? wrapped[1]?.DeepClone()
+            : node;
+
+    /// <summary>The icon a class draws, by its name in the sprite sheet.</summary>
+    /// <param name="paint">The symbol layer.</param>
+    /// <returns>The value, or null.</returns>
+    /// <remarks>
+    /// <b>A class whose layer at this level is not a picture draws no icon</b>, rather than falling back to
+    /// another class's picture. That happens when a stored picture could not be used and was read as a grey
+    /// marker (ADR-099 §5.1) while its neighbours' pictures could: a style layer has one shape for every class,
+    /// the difference is already reported, and drawing the school's icon for the clinic would be a map that is
+    /// wrong without looking wrong.
+    /// </remarks>
+    private static JsonNode? IconName(CimPaint? paint) =>
+        paint switch
+        {
+            CimPicture picture => JsonValue.Create(picture.Picture.Name),
+            null => null,
+            _ => JsonValue.Create(string.Empty),
+        };
+
+    /// <summary>How large a class's icon is drawn, as a ratio to its height in the sheet.</summary>
+    /// <param name="paint">The symbol layer.</param>
+    /// <returns>The value, or null.</returns>
+    private static JsonNode? IconSize(CimPaint? paint) =>
+        paint is CimPicture picture ? Num(IconScale(picture)) : null;
+
+    /// <summary>`icon-size` for a picture: its height in style pixels over its height in the sheet.</summary>
+    /// <param name="picture">The picture.</param>
+    /// <returns>The ratio.</returns>
+    internal static double IconScale(CimPicture picture) =>
+        Math.Round(picture.Size / 0.75 / picture.Picture.SheetHeight, 4, MidpointRounding.AwayFromZero);
+
+    /// <summary>How far a class's icon is turned, clockwise, as the style measures.</summary>
+    /// <param name="paint">The symbol layer.</param>
+    /// <returns>The value, or null.</returns>
+    private static JsonNode? IconRotate(CimPaint? paint) =>
+        paint is CimPicture picture ? Num(picture.Rotation == 0 ? 0 : -picture.Rotation) : null;
+
+    /// <summary>How far a class's icon is moved, in the icon's own unscaled pixels, downward.</summary>
+    /// <param name="paint">The symbol layer.</param>
+    /// <returns>The value, wrapped as a literal so that it can be a `match` output.</returns>
+    private static JsonNode? IconOffset(CimPaint? paint)
+    {
+        if (paint is not CimPicture picture)
+        {
+            return null;
+        }
+
+        double scale = IconScale(picture);
+
+        return new JsonArray(
+            "literal",
+            new JsonArray(
+                Num(Math.Round(picture.OffsetX / 0.75 / scale, 3, MidpointRounding.AwayFromZero)),
+                Num(Math.Round(-picture.OffsetY / 0.75 / scale, 3, MidpointRounding.AwayFromZero))));
     }
 
     /// <summary>The fill colour at a level, as a hex string.</summary>
@@ -789,10 +967,27 @@ public static partial class CimStyle
     /// </remarks>
     /// <param name="style">The MapLibre style.</param>
     /// <param name="geometry">What the layer is made of.</param>
+    /// <param name="pictures">
+    /// The pictures an `icon-image` may name, by <see cref="MarkerPicture.Name"/>, or null for none —
+    /// ADR-099. A style carries no pictures of its own, only names in a sprite sheet, so an icon this
+    /// server can store has to be one it already holds: in practice the ones the layer's current
+    /// symbology draws, which is what a style downloaded from the tile face names.
+    /// </param>
     /// <returns>The renderer, and what could not be carried.</returns>
-    public static CimWrite FromMapLibre(JsonObject style, GeometryKind geometry)
+    public static CimWrite FromMapLibre(
+        JsonObject style,
+        GeometryKind geometry,
+        IReadOnlyDictionary<string, MarkerPicture>? pictures = null)
     {
         ArgumentNullException.ThrowIfNull(style);
+
+        // <b>No dictionary is not an empty one.</b> A caller that passes none is reading a document
+        // stored before ADR-099 (`SymbologyConversion.ToCim`), where an icon layer was never stored as a
+        // picture and is reported as it always was; a caller that passes one is a write, where an icon
+        // this server cannot turn back into a picture is refused with the way forward.
+        bool readsIcons = pictures is not null;
+
+        pictures ??= new Dictionary<string, MarkerPicture>(StringComparer.Ordinal);
 
         // <b>The per-class form this server publishes is read as the expressions it came
         // from.</b> Since 2026-09-29 <see cref="ToMapLibre"/> writes one filtered style layer per
@@ -848,6 +1043,32 @@ public static partial class CimStyle
                 continue;
             }
 
+            // <b>A `symbol` layer with an icon is a picture marker, since ADR-099</b> — the shape
+            // this server's own tile style draws one with. Its text, when it has any, is still a
+            // label, and labels are still not stored.
+            if (kind == "symbol" && readsIcons && (layer["layout"] as JsonObject)?["icon-image"] is not null)
+            {
+                painting.Add(layer);
+
+                JsonObject layout = (JsonObject)layer["layout"]!;
+                string[] foreign = [.. layout
+                    .Select(p => p.Key)
+                    .Where(k => k is not ("icon-image" or "icon-size" or "icon-rotate" or "icon-offset"
+                        or "icon-allow-overlap" or "icon-ignore-placement"))];
+
+                if (foreign.Length > 0)
+                {
+                    losses.Add(
+                        $"The `{(string?)layer["id"] ?? kind}` layer sets "
+                        + string.Join(", ", foreign.Select(k => $"`{k}`"))
+                        + ". A picture marker stores which picture, its size, its offset and its "
+                        + "rotation; the rest is not stored"
+                        + (layout["text-field"] is not null ? ", and the text is a label, which v1 does not store." : "."));
+                }
+
+                continue;
+            }
+
             if (kind == "symbol")
             {
                 losses.Add(
@@ -865,8 +1086,8 @@ public static partial class CimStyle
         if (painting.Count == 0)
         {
             throw new SymbologyException(
-                "The style has no `fill`, `line` or `circle` layer, so there is nothing to draw "
-                + "with.");
+                "The style has no `fill`, `line` or `circle` layer and no `symbol` layer with an "
+                + "`icon-image`, so there is nothing to draw with.");
         }
 
         // <b>The keys come from whichever layer classifies by the most.</b> A style that paints
@@ -912,14 +1133,14 @@ public static partial class CimStyle
             }
         }
 
-        JsonArray variables = Continuous(painting, losses);
+        JsonArray variables = Continuous(painting, losses, pictures);
 
         int classes = classified?.Keys.Count ?? 1;
         JsonArray symbols = [];
 
         for (int i = 0; i < classes; i++)
         {
-            symbols.Add(Symbol(painting, geometry, classified, i, losses));
+            symbols.Add(Symbol(painting, geometry, classified, i, losses, pictures));
         }
 
         if (classified is not { } over)
@@ -951,7 +1172,7 @@ public static partial class CimStyle
         JsonNode? otherwise = over.Kind == "match"
             && over.Fallback is not null
             && collapsed?.HasDefault != false
-                ? Symbol(painting, geometry, classified, -1, losses)
+                ? Symbol(painting, geometry, classified, -1, losses, pictures)
                 : null;
 
         JsonObject built = over.Kind == "match"
@@ -1102,13 +1323,15 @@ public static partial class CimStyle
     /// <param name="classified">What the style classifies by, or null.</param>
     /// <param name="index">Which class.</param>
     /// <param name="losses">Collects what could not be carried.</param>
+    /// <param name="pictures">The pictures an `icon-image` may name.</param>
     /// <returns>The symbol reference.</returns>
     private static JsonObject Symbol(
         List<JsonObject> painting,
         GeometryKind geometry,
         Classified? classified,
         int index,
-        List<string> losses)
+        List<string> losses,
+        IReadOnlyDictionary<string, MarkerPicture> pictures)
     {
         JsonArray layers = [];
 
@@ -1198,6 +1421,11 @@ public static partial class CimStyle
 
                     break;
 
+                case "symbol":
+                    layers.Add(PictureIn(
+                        layer["layout"] as JsonObject ?? [], classified, index, losses, pictures));
+                    break;
+
                 default:
                     losses.Add($"A `{kind}` layer is not stored.");
                     break;
@@ -1218,6 +1446,68 @@ public static partial class CimStyle
                 ["symbolLayers"] = layers,
             },
         };
+    }
+
+    /// <summary>One class's picture marker, read out of an icon layer's layout — the inverse of <see cref="Icon"/>.</summary>
+    /// <remarks>
+    /// <b>The picture is looked up, never fetched.</b> An `icon-image` is a name in a sprite sheet; the
+    /// names this server can turn back into a picture are the ones it generated itself, and only for a
+    /// picture it holds (ADR-099). Any other name is refused with the reason, because storing a picture
+    /// marker with no picture would be storing a symbol that draws nothing.
+    /// </remarks>
+    /// <param name="layout">The icon layer's layout.</param>
+    /// <param name="classified">What the style classifies by, or null.</param>
+    /// <param name="index">Which class.</param>
+    /// <param name="losses">Collects what could not be carried.</param>
+    /// <param name="pictures">The pictures an `icon-image` may name.</param>
+    /// <returns>The `CIMPictureMarker`.</returns>
+    private static JsonObject PictureIn(
+        JsonObject layout,
+        Classified? classified,
+        int index,
+        List<string> losses,
+        IReadOnlyDictionary<string, MarkerPicture> pictures)
+    {
+        string? name = (Choose(layout["icon-image"], "icon-image", classified, index, losses) as JsonValue)
+            ?.ToString();
+
+        if (name is null || !pictures.TryGetValue(name, out MarkerPicture? picture))
+        {
+            throw new SymbologyException(
+                $"The style draws the icon '{name ?? "(an expression)"}', and this server can store an "
+                + "icon only as a picture it already holds: the icons its own tile style names, "
+                + $"`{MarkerPicture.NamePrefix}…`, for pictures this layer draws now. A sprite sheet's "
+                + "other icons are not pictures this server can read back. Send the picture itself — a "
+                + "`CIMPictureMarker` with a data URI, or an `esriPMS` with `imageData`.");
+        }
+
+        double scale = Figure(Choose(layout["icon-size"], "icon-size", classified, index, losses)) ?? 1;
+
+        // <b>A constant pair is data, not an expression</b>, and `Choose` would read its first number
+        // as an operator's name.
+        JsonNode? given = layout["icon-offset"];
+        JsonNode? chosen = given is JsonArray { Count: > 0 } constant
+            && constant[0] is JsonValue first && !first.TryGetValue(out string? _)
+                ? given
+                : Choose(given, "icon-offset", classified, index, losses);
+
+        double[] offset = chosen switch
+        {
+            JsonArray { Count: 2 } wrapped when (wrapped[0] as JsonValue)?.ToString() == "literal"
+                && wrapped[1] is JsonArray pair => [Figure(pair.ElementAtOrDefault(0)) ?? 0, Figure(pair.ElementAtOrDefault(1)) ?? 0],
+            JsonArray pair => [Figure(pair.ElementAtOrDefault(0)) ?? 0, Figure(pair.ElementAtOrDefault(1)) ?? 0],
+            _ => [0, 0],
+        };
+
+        double rotate = Figure(Choose(layout["icon-rotate"], "icon-rotate", classified, index, losses)) ?? 0;
+
+        return Cim.PictureLayer(new CimPicture(
+            picture,
+            Points(scale * picture.SheetHeight),
+            1,
+            Points(offset[0] * scale),
+            Points(-offset[1] * scale) + 0.0,
+            rotate == 0 ? 0 : -rotate));
     }
 
     /// <summary>A colour and its separate opacity, together.</summary>
@@ -1352,16 +1642,25 @@ public static partial class CimStyle
         Math.Round(pixels * 0.75, 4, MidpointRounding.AwayFromZero);
 
     /// <summary>The paint properties this server reads out of one style layer.</summary>
+    /// <remarks>
+    /// <b>An icon layer's layout too</b>, because a picture's class is its `icon-image` and that is a
+    /// layout property (ADR-099).
+    /// </remarks>
     /// <param name="layer">The style layer.</param>
     /// <returns>Its values.</returns>
     private static IEnumerable<JsonNode?> Paints(JsonObject layer)
     {
-        if (layer["paint"] is not JsonObject paint)
+        foreach (KeyValuePair<string, JsonNode?> each in layer["paint"] as JsonObject ?? [])
+        {
+            yield return each.Value;
+        }
+
+        if ((string?)layer["type"] != "symbol")
         {
             yield break;
         }
 
-        foreach (KeyValuePair<string, JsonNode?> each in paint)
+        foreach (KeyValuePair<string, JsonNode?> each in layer["layout"] as JsonObject ?? [])
         {
             yield return each.Value;
         }
@@ -1543,20 +1842,35 @@ public static partial class CimStyle
     /// </remarks>
     /// <param name="painting">The style's painting layers.</param>
     /// <param name="losses">Collects what could not be carried.</param>
+    /// <param name="pictures">The pictures an `icon-image` may name, for what an `icon-size` is a ratio to.</param>
     /// <returns>The `visualVariables` array, possibly empty.</returns>
-    private static JsonArray Continuous(List<JsonObject> painting, List<string> losses)
+    private static JsonArray Continuous(
+        List<JsonObject> painting,
+        List<string> losses,
+        IReadOnlyDictionary<string, MarkerPicture> pictures)
     {
         JsonArray variables = [];
         HashSet<string> seen = new(StringComparer.Ordinal);
 
         foreach (JsonObject layer in painting)
         {
-            if (layer["paint"] is not JsonObject paint)
+            // <b>An icon's size slides in its layout</b>, as a ratio to the icon's height in the sheet;
+            // the height is the picture the layer draws when no class says otherwise.
+            double iconHeight = (layer["layout"] as JsonObject)?["icon-image"] switch
             {
-                continue;
-            }
+                JsonValue literal when pictures.TryGetValue(literal.ToString(), out MarkerPicture? one) => one.SheetHeight,
+                JsonArray { Count: > 2 } expression when expression[^1] is JsonValue last
+                    && pictures.TryGetValue(last.ToString(), out MarkerPicture? fallback) => fallback.SheetHeight,
+                _ => 1,
+            };
 
-            foreach (KeyValuePair<string, JsonNode?> property in paint)
+            IEnumerable<KeyValuePair<string, JsonNode?>> properties =
+                (layer["paint"] as JsonObject ?? []).Concat(
+                    (string?)layer["type"] == "symbol"
+                        ? (layer["layout"] as JsonObject ?? []).Where(p => p.Key == "icon-size")
+                        : []);
+
+            foreach (KeyValuePair<string, JsonNode?> property in properties)
             {
                 if (property.Value is not JsonArray expression
                     || Continuous(expression) is not { } over)
@@ -1574,7 +1888,7 @@ public static partial class CimStyle
                     continue;
                 }
 
-                if (Written(what, over, losses) is { } written)
+                if (Written(what, over, losses, iconHeight) is { } written)
                 {
                     variables.Add(written);
                 }
@@ -1585,11 +1899,12 @@ public static partial class CimStyle
     }
 
     /// <summary>One visual variable, in the vocabulary CIM keeps it in.</summary>
-    /// <param name="what">`color`, `width`, `radius` or `opacity`.</param>
+    /// <param name="what">`color`, `width`, `radius`, `size` or `opacity`.</param>
     /// <param name="over">The field and the stops.</param>
     /// <param name="losses">Collects what could not be carried.</param>
+    /// <param name="iconHeight">What an `icon-size` is a ratio to, in pixels.</param>
     /// <returns>The variable, or null when this property does not become one.</returns>
-    private static JsonObject? Written(string what, Slide over, List<string> losses)
+    private static JsonObject? Written(string what, Slide over, List<string> losses, double iconHeight)
     {
         string field = over.Field;
 
@@ -1646,11 +1961,14 @@ public static partial class CimStyle
 
             case "width":
             case "radius":
+            case "size":
                 List<double> sizes = [];
 
                 foreach (JsonNode? output in over.Outputs)
                 {
-                    sizes.Add(Points(Figure(output) ?? 0) * (what == "radius" ? 2 : 1));
+                    sizes.Add(what == "size"
+                        ? Points((Figure(output) ?? 0) * iconHeight)
+                        : Points(Figure(output) ?? 0) * (what == "radius" ? 2 : 1));
                 }
 
                 return new JsonObject

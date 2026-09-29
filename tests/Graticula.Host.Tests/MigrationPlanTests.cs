@@ -103,4 +103,18 @@ public sealed class MigrationPlanTests
         Assert.Equal("simple", layers[0].GetProperty("drawingInfo").GetProperty("renderer").GetProperty("type").GetString());
         Assert.Equal(JsonValueKind.Null, layers[1].GetProperty("table").ValueKind);
     }
+
+    /// <summary>
+    /// <c>apply</c> stores a layer's drawing asking for an unusable picture to be kept as a loss — ADR-099 §5.1.
+    /// </summary>
+    /// <remarks>
+    /// A real server's <c>esriPMS</c> may name its picture only by URL; refused, the whole drawing would be lost
+    /// and every class drawn in the generated appearance. What the route then does is
+    /// <c>PictureMarkerTests.The_migrate_path_keeps_a_url_only_picture_as_a_loss_and_carries_image_data_with_its_picture</c>.
+    /// </remarks>
+    [Fact]
+    public void Apply_asks_the_symbology_route_to_keep_a_picture_it_cannot_use()
+    {
+        Assert.Equal("?pictures=keep", MigrationPlan.SymbologyQuery);
+    }
 }

@@ -905,6 +905,19 @@ public interface IAdminCatalog
         string? folder, string name, CancellationToken cancellationToken);
 
     /// <summary>
+    /// The stored symbology of each of a service's layers that has one — ADR-099.
+    /// </summary>
+    /// <param name="serviceId">The service.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The documents, in layer order; a layer with none is left out.</returns>
+    /// <remarks>
+    /// <b>For the style check, which has to know the icons the served sprite sheet carries.</b> Since ADR-099
+    /// that is the uploaded sheet's icons and the pictures the layers draw, and the second half is in these
+    /// documents.
+    /// </remarks>
+    Task<IReadOnlyList<string>> ListLayerSymbologiesAsync(Guid serviceId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// One of a service's sprite sheets, with or without its picture — ADR-092.
     /// </summary>
     /// <param name="folder">The service's folder, or null for the root.</param>

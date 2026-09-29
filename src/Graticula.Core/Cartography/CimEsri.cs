@@ -37,8 +37,15 @@ public static class CimEsri
     /// </summary>
     /// <param name="drawingInfo">The document, with its <c>renderer</c>.</param>
     /// <param name="geometry">What the layer is made of.</param>
+    /// <param name="keepUnusablePictures">
+    /// False, the default, refuses an <c>esriPMS</c> whose picture this server cannot use. True keeps it
+    /// as a <c>CIMPictureMarker</c> carrying what it was given, reported as a loss — ADR-099 §5.1, for
+    /// <c>graticula tools migrate</c>, which carries a real server's layers across and must not lose a
+    /// layer's whole drawing because one class names its picture by URL.
+    /// </param>
     /// <returns>The renderer, and what could not be carried.</returns>
-    public static CimWrite FromDrawingInfo(JsonObject drawingInfo, GeometryKind geometry)
+    public static CimWrite FromDrawingInfo(
+        JsonObject drawingInfo, GeometryKind geometry, bool keepUnusablePictures = false)
     {
         ArgumentNullException.ThrowIfNull(drawingInfo);
 
@@ -48,7 +55,7 @@ public static class CimEsri
                 "A `drawingInfo` has a `renderer`, and this document has none.");
         }
 
-        List<string> losses = [];
+        List<string> losses = keepUnusablePictures ? new KeptPictures() : new List<string>();
         string kind = Text(renderer["type"]) ?? string.Empty;
 
         JsonObject built = kind switch
@@ -693,12 +700,24 @@ public static class CimEsri
                     ["symbolLayers"] = layers,
                 };
 
-            case "esriPFS":
             case "esriPMS":
+                layers.Add(Picture(symbol, where, losses));
+
+                return new JsonObject
+                {
+                    ["type"] = "CIMPointSymbol",
+                    ["symbolLayers"] = layers,
+                };
+
+            case "esriPFS":
+                // <b>A picture fill is still refused, and ADR-099 says why it is different.</b> A
+                // picture marker is one image at a point, which every face can draw; a picture fill
+                // tiles an image across an area, which the tile face would need a `fill-pattern`
+                // sprite for and the raster faces a pattern shader, and nobody has asked for either.
                 throw new SymbologyException(
-                    $"The symbol at {where} is a `{kind}`, which paints with an image. This "
-                    + "server has no sprite or image library — ADR-027 condition 5 — so a "
-                    + "picture symbol is refused rather than stored and drawn as a flat colour.");
+                    $"The symbol at {where} is an `esriPFS`, which fills an area with a repeated "
+                    + "picture. This server draws picture markers (`esriPMS`) but not picture fills, "
+                    + "so it is refused rather than stored and drawn as a flat colour.");
 
             case "esriTS":
                 throw new SymbologyException(
@@ -708,7 +727,7 @@ public static class CimEsri
             default:
                 throw new SymbologyException(
                     $"'{kind}' at {where} is not a symbol this server reads. It reads `esriSFS`, "
-                    + "`esriSLS` and `esriSMS`.");
+                    + "`esriSLS`, `esriSMS` and `esriPMS`.");
         }
     }
 
@@ -775,6 +794,102 @@ public static class CimEsri
 
         return built;
     }
+
+    /// <summary>An <c>esriPMS</c> as a <c>CIMPictureMarker</c>.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-099: the picture comes from <c>imageData</c>, never from <c>url</c>.</b> ArcGIS writes
+    /// both, and its <c>url</c> is usually a name relative to a layer's image resources on the server
+    /// that wrote it — which this server does not hold and will not fetch. A document with
+    /// <c>imageData</c> carries the picture itself; one without it is refused, and a <c>url</c> that
+    /// is a <c>data:</c> URI is read like CIM's.
+    /// </para>
+    /// <para>
+    /// <b><c>width</c> and <c>height</c> are points, and the height becomes CIM's <c>size</c>.</b> A
+    /// width out of proportion to the picture becomes <c>scaleX</c>. The web map specification puts
+    /// <c>angle</c> counter-clockwise from east and CIM turns counter-clockwise by default, so it is
+    /// copied as the vector marker's is.
+    /// </para>
+    /// </remarks>
+    /// <param name="marker">The Esri marker.</param>
+    /// <param name="where">Where it sits.</param>
+    /// <param name="losses">Collects what could not be carried.</param>
+    /// <returns>The CIM layer.</returns>
+    private static JsonObject Picture(JsonObject marker, string where, List<string> losses)
+    {
+        MarkerPicture picture;
+
+        try
+        {
+            picture = Text(marker["imageData"]) is { Length: > 0 } data
+                ? MarkerPicture.FromBase64(data, Text(marker["contentType"]), where)
+                : MarkerPicture.FromUrl(Text(marker["url"]), where);
+        }
+        catch (SymbologyException why) when (losses is KeptPictures)
+        {
+            return Kept(marker, where, why.Message, losses);
+        }
+
+        double height = Number(marker["height"]) is { } tall && tall > 0
+            ? tall
+            : Math.Round(picture.PixelHeight * PointsPerPixel, 4);
+
+        double width = Number(marker["width"]) is { } wide && wide > 0
+            ? wide
+            : height * picture.Aspect;
+
+        double scaleX = Math.Round(width / (height * picture.Aspect), 6);
+
+        if (marker["outline"] is JsonObject)
+        {
+            losses.Add(
+                $"The picture marker at {where} has an `outline`, which a picture marker does not "
+                + "draw. It is not stored.");
+        }
+
+        return Cim.PictureLayer(new CimPicture(
+            picture,
+            height,
+            scaleX > 0 ? scaleX : 1,
+            Number(marker["xoffset"]) ?? 0,
+            Number(marker["yoffset"]) ?? 0,
+            Number(marker["angle"]) ?? 0));
+    }
+
+    /// <summary>
+    /// An <c>esriPMS</c> whose picture cannot be used, kept as the <c>CIMPictureMarker</c> it says — ADR-099 §5.1.
+    /// </summary>
+    /// <remarks>
+    /// <b>Kept rather than dropped, because it is the source's.</b> ADR-052 stores what it does not understand
+    /// rather than losing it, and a picture named by URL is exactly that: a later edit with the picture in it
+    /// replaces it, and nothing here ever fetches the URL. Read back, the marker is a loss and — where it is the
+    /// symbol's only layer — a grey marker of its size, as <c>Cim.Project</c> reads any unusable picture.
+    /// </remarks>
+    private static JsonObject Kept(JsonObject marker, string where, string why, List<string> losses)
+    {
+        losses.Add(
+            why + " It is kept in the stored document as it was given, and drawn as a grey marker of its size "
+            + "until the picture itself is stored.");
+
+        string url = Text(marker["imageData"]) is { Length: > 0 } data
+            ? $"data:{Text(marker["contentType"]) ?? "image/png"};base64,{data}"
+            : Text(marker["url"]) ?? string.Empty;
+
+        return new JsonObject
+        {
+            ["type"] = "CIMPictureMarker",
+            ["enable"] = true,
+            ["anchorPointUnits"] = "Relative",
+            ["size"] = Num(Number(marker["height"]) ?? Number(marker["width"]) ?? 8),
+            ["rotation"] = Num(Number(marker["angle"]) ?? 0),
+            ["offsetX"] = Num(Number(marker["xoffset"]) ?? 0),
+            ["offsetY"] = Num(Number(marker["yoffset"]) ?? 0),
+            ["url"] = url,
+        };
+    }
+
+    /// <summary>The losses of a read that keeps an unusable picture rather than refusing it.</summary>
+    private sealed class KeptPictures : List<string>;
 
     /// <summary>An <c>esriSMS</c> as a <c>CIMVectorMarker</c>.</summary>
     /// <param name="marker">The Esri marker.</param>
@@ -1006,9 +1121,27 @@ public static class CimEsri
         // last of each kind is the one on top.
         CimFill? fill = symbol.Paints.OfType<CimFill>().LastOrDefault();
         CimStroke? stroke = symbol.Paints.OfType<CimStroke>().LastOrDefault();
-        CimMarker? marker = symbol.Paints.OfType<CimMarker>().LastOrDefault();
 
-        int carried = (fill is null ? 0 : 1) + (stroke is null ? 0 : 1) + (marker is null ? 0 : 1);
+        // <b>A picture and a vector marker are both the one marker an Esri symbol has</b>, so the
+        // topmost of the two is published — ADR-099.
+        CimPaint? topMarker = symbol.Paints.LastOrDefault(p => p is CimMarker or CimPicture);
+        CimMarker? marker = topMarker as CimMarker;
+
+        int carried = (fill is null ? 0 : 1) + (stroke is null ? 0 : 1) + (topMarker is null ? 0 : 1);
+
+        if (topMarker is CimPicture picture)
+        {
+            if (symbol.Paints.Count > carried || stroke is not null || fill is not null)
+            {
+                losses.Add(
+                    $"The symbol for {where} draws a picture with {symbol.Paints.Count - 1} other "
+                    + "layer(s). An Esri picture marker is the picture alone, so this face publishes "
+                    + "the picture; the rest is drawn by this server and by the tile style, and is "
+                    + "kept in the stored document.");
+            }
+
+            return PictureOut(picture);
+        }
 
         if (symbol.Paints.Count > carried)
         {
@@ -1065,6 +1198,30 @@ public static class CimEsri
         throw new SymbologyException(
             $"The symbol at {where} has no layer that becomes an Esri symbol.");
     }
+
+    /// <summary>A picture as an <c>esriPMS</c>, with the picture in it.</summary>
+    /// <remarks>
+    /// <b><c>imageData</c> is what makes a client draw it.</b> ArcGIS Pro, the JavaScript SDK and
+    /// Field Maps read a picture marker's image from <c>imageData</c> and <c>contentType</c> when they
+    /// are present, and fetch <c>url</c> relative to the layer only when they are not — and this
+    /// server serves no per-layer image resource to fetch. <c>url</c> carries the picture's name in
+    /// the generated sprite sheet so that two symbols using one picture are visibly the same.
+    /// </remarks>
+    /// <param name="picture">The picture and how it is drawn.</param>
+    /// <returns>The Esri symbol.</returns>
+    private static JsonObject PictureOut(CimPicture picture) =>
+        new()
+        {
+            ["type"] = "esriPMS",
+            ["url"] = picture.Picture.Name,
+            ["imageData"] = picture.Picture.Base64,
+            ["contentType"] = picture.Picture.ContentType,
+            ["width"] = Num(Math.Round(picture.Width, 4)),
+            ["height"] = Num(Math.Round(picture.Size, 4)),
+            ["angle"] = Num(picture.Rotation),
+            ["xoffset"] = Num(picture.OffsetX),
+            ["yoffset"] = Num(picture.OffsetY),
+        };
 
     /// <summary>A stroke as an <c>esriSLS</c>.</summary>
     /// <param name="stroke">The stroke.</param>

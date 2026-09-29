@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Api.ArcGis;
+using Graticula.Cartography;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
@@ -64,7 +65,7 @@ internal static partial class AdminEndpoints
         CancellationToken cancellation)
     {
         IReadOnlyList<string>? icons =
-            await SpriteIconsAsync(catalog, service.Folder, service.Name, cancellation).ConfigureAwait(false);
+            await SpriteIconsAsync(catalog, service, cancellation).ConfigureAwait(false);
 
         IReadOnlyList<StyleOrigin> allowed = StyleDocument.MayNameAnotherHost(style)
             ? await origins.CurrentAsync(cancellation).ConfigureAwait(false)
@@ -511,6 +512,10 @@ internal static partial class AdminEndpoints
     /// <b>Every style, not only the default.</b> A sheet that loses an icon the <c>dark</c> style names leaves
     /// <c>dark</c> drawing nothing where the icon was, and nothing says so — exactly what the check was for,
     /// arriving through a style the check did not read.
+    /// <b>Not the generated icons — ADR-099 §5.4.</b> An icon named with <see cref="MarkerPicture.NamePrefix"/> is
+    /// packed into the served sheet from a layer's picture marker, never from the uploaded sheet, so no upload can
+    /// take it away and no upload is held for it; whether the layers still draw it is checked where the style is
+    /// served.
     /// </remarks>
     internal static IReadOnlyList<(string Icon, IReadOnlyList<string> Styles)> IconsTheStylesDraw(
         IReadOnlyList<StoredStyle> styles)
@@ -523,6 +528,11 @@ internal static partial class AdminEndpoints
         {
             foreach (string icon in StyleDocument.LiteralIcons(style.Style))
             {
+                if (icon.StartsWith(MarkerPicture.NamePrefix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
                 int at = uses.FindIndex(u => string.Equals(u.Icon, icon, StringComparison.Ordinal));
 
                 if (at < 0)

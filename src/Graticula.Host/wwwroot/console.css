@@ -3293,6 +3293,11 @@ input[type="color"].sw-point::-moz-color-swatch { border-radius: 50%; }
   padding: 7px 9px; margin-bottom: 6px;
 }
 .symstack .setting.symlayer .symlayerkind { min-width: 0; font-size: 12.5px; }
+/* ADR-099: a picture marker's row shows the picture where another layer shows its colour. */
+.symstack .setting.symlayer .sympicture {
+  width: 22px; height: 22px; object-fit: contain;
+  border: 1px solid var(--rule); border-radius: 3px; background: var(--surface);
+}
 .symstack .setting.symlayer .symmeasures {
   display: flex; gap: 6px; align-items: center; min-width: 0;
 }

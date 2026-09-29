@@ -396,6 +396,10 @@ public sealed class DotDensityTests
         public void DrawMarker(double x, double y, MapSymbol.Marker symbol) =>
             Where.Add((x, y));
 
+        public void DrawPicture(double x, double y, MapSymbol.Picture symbol)
+        {
+        }
+
         public PixelBox MeasureLabel(string text, MapSymbol.Label symbol, double x, double y) =>
             new(x, y, x, y);
 

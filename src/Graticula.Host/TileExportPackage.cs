@@ -208,6 +208,7 @@ internal static class TileExportPackage
         GlyphStore glyphs,
         StyleOriginList origins,
         PostgresLayerCatalog? store,
+        Graticula.Cartography.IMapCanvasFactory canvases,
         CancellationToken cancellationToken)
     {
         VectorTileScheme scheme = service.TileScheme;
@@ -266,7 +267,7 @@ internal static class TileExportPackage
 
         Dictionary<string, byte[]> resources = new(StringComparer.Ordinal);
 
-        await SpritesAsync(service, store, resources, cancellationToken).ConfigureAwait(false);
+        await SpritesAsync(service, store, canvases, resources, cancellationToken).ConfigureAwait(false);
         Fonts(style, glyphs, resources);
 
         // <b>The resource list the documented <c>resources/info</c> resource answers, from the route's own code</b> —
@@ -390,22 +391,27 @@ internal static class TileExportPackage
         return JsonSerializer.Serialize(VectorTileEndpoints.GeneratedStyle(service, glyphs), Web);
     }
 
-    /// <summary>The four sprite files, as the sprite routes serve them: the uploaded sheet, or the empty one.</summary>
+    /// <summary>
+    /// The four sprite files, as the sprite routes serve them: the uploaded sheet, or the empty one, with the
+    /// layers' picture markers packed in beneath it.
+    /// </summary>
+    /// <remarks>
+    /// <b>The routes' own code, so the style a package carries finds its icons in the sheet beside it</b> — ADR-099
+    /// §5.4. Until then this read the uploaded sheet itself, which was the same answer while the routes served
+    /// nothing else.
+    /// </remarks>
     private static async Task SpritesAsync(
         PublishedService service,
         PostgresLayerCatalog? store,
+        Graticula.Cartography.IMapCanvasFactory canvases,
         Dictionary<string, byte[]> resources,
         CancellationToken cancellationToken)
     {
         foreach ((string name, int ratio, bool image) in SpriteFiles)
         {
-            Graticula.Platform.Admin.StoredSprite? sprite = store is null
-                ? null
-                : await store.FindSpriteAsync(service.Id, ratio, image, cancellationToken).ConfigureAwait(false);
-
-            resources["sprites/" + name] = image
-                ? sprite?.Image ?? VectorTileEndpoints.EmptySheet
-                : Encoding.UTF8.GetBytes(sprite?.Index ?? "{}");
+            resources["sprites/" + name] = await GeneratedSprites
+                .FileAsync(service, ratio, image, store, canvases, cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 

@@ -178,8 +178,17 @@ public sealed class CimEsriTests
         Assert.Equal(2, ((JsonArray)style.Style["layers"]!).Count);
     }
 
+    /// <summary>
+    /// A picture marker with no picture in it is refused, because nothing is fetched.
+    /// </summary>
+    /// <remarks>
+    /// <b>This test asserted the opposite premise until 2026-09-29</b> — every `esriPMS` refused, because
+    /// there was no sprite library. ADR-099 accepts one that carries its picture as `imageData`
+    /// (<c>PictureMarkerTests</c>); what is still refused is one that only names a file, since reading it
+    /// would mean fetching it.
+    /// </remarks>
     [Fact]
-    public void A_picture_symbol_is_refused_because_there_is_no_sprite_library()
+    public void A_picture_symbol_that_only_names_its_file_is_refused_because_nothing_is_fetched()
     {
         JsonObject drawingInfo = Simple(
             """{"type":"esriPMS","url":"pin.png","width":12,"height":12}""");
@@ -187,8 +196,8 @@ public sealed class CimEsriTests
         SymbologyException why = Assert.Throws<SymbologyException>(
             () => CimEsri.FromDrawingInfo(drawingInfo, GeometryKind.Point));
 
-        Assert.Contains("esriPMS", why.Message, StringComparison.Ordinal);
-        Assert.Contains("ADR-027", why.Message, StringComparison.Ordinal);
+        Assert.Contains("pin.png", why.Message, StringComparison.Ordinal);
+        Assert.Contains("imageData", why.Message, StringComparison.Ordinal);
     }
 
     /// <summary>Wraps one Esri symbol in the simplest renderer.</summary>

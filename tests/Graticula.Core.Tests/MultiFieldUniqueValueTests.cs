@@ -258,6 +258,10 @@ public sealed class MultiFieldUniqueValueTests
         {
         }
 
+        public void DrawPicture(double x, double y, MapSymbol.Picture symbol)
+        {
+        }
+
         public PixelBox MeasureLabel(string text, MapSymbol.Label symbol, double x, double y) =>
             new(x, y, x, y);
 

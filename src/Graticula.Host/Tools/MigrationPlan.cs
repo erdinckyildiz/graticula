@@ -49,6 +49,9 @@ internal static class MigrationPlan
         JsonElement? DrawingInfo,
         string Note);
 
+    /// <summary>What <c>apply</c> asks of the symbology route: keep a picture it cannot use as a loss (ADR-099 §5.1).</summary>
+    internal const string SymbologyQuery = "?pictures=keep";
+
     /// <summary>A name as a table and a layer are compared: its last dotted part, letters and digits, lower case.</summary>
     /// <remarks>
     /// <b>The last dotted part</b>, because an enterprise geodatabase names its feature classes
@@ -347,10 +350,15 @@ internal static class MigrationPlan
 
             // <b>The drawing, as the source drew it.</b> Refused or partly converted is said, not fatal: the
             // layer is published and draws with a generated appearance until somebody restyles it.
+            //
+            // <b>`?pictures=keep` — ADR-099 §5.1.</b> A picture marker the source gives with `imageData` migrates
+            // with its picture; one it gives only by `url` is kept as it was, reported as a loss and drawn as a grey
+            // marker, rather than refusing the whole drawing and leaving every class generated. The target never
+            // fetches the URL.
             if (layer.TryGetProperty("drawingInfo", out JsonElement drawing) && drawing.ValueKind == JsonValueKind.Object)
             {
                 (int styled, string why) = await SendAsync(
-                    http, HttpMethod.Put, target, $"/admin/layers/{Uri.EscapeDataString(name)}/symbology", session,
+                    http, HttpMethod.Put, target, $"/admin/layers/{Uri.EscapeDataString(name)}/symbology{SymbologyQuery}", session,
                     drawing.GetRawText(), cancellationToken).ConfigureAwait(false);
 
                 also.Add(styled is 200 or 201 or 204 ? "its drawing" : $"not its drawing ({Message(why)})");

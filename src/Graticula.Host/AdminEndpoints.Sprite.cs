@@ -59,11 +59,27 @@ internal static partial class AdminEndpoints
     /// <b>The 1x sheet, because it is the one every client can reach.</b> A client asking for
     /// <c>@2x</c> falls back to it, and a client asking for 1x never sees the other.
     /// </remarks>
+    /// <remarks>
+    /// <b>And the icons the layers' picture markers put in the served sheet — ADR-099 §5.4.</b> The sprite
+    /// routes pack them beneath the uploaded picture, so a style may name them; a service with no upload and
+    /// no picture markers still answers null, which is what refuses every icon there.
+    /// </remarks>
     private static async Task<IReadOnlyList<string>?> SpriteIconsAsync(
-        IAdminCatalog catalog, string? folder, string name, CancellationToken cancellation) =>
-        await catalog.FindSpriteAsync(folder, name, 1, withImage: false, cancellation).ConfigureAwait(false) is { } sheet
-            ? SpriteSheet.IconNames(sheet.Index)
-            : null;
+        IAdminCatalog catalog, StyledService service, CancellationToken cancellation)
+    {
+        IReadOnlyList<string>? uploaded =
+            await catalog.FindSpriteAsync(service.Folder, service.Name, 1, withImage: false, cancellation)
+                .ConfigureAwait(false) is { } sheet
+                ? SpriteSheet.IconNames(sheet.Index)
+                : null;
+
+        IReadOnlyList<Graticula.Cartography.MarkerPicture> pictures = Graticula.Cartography.SpriteLayout.PicturesOf(
+            await catalog.ListLayerSymbologiesAsync(service.Id, cancellation).ConfigureAwait(false));
+
+        return pictures.Count == 0
+            ? uploaded
+            : [.. uploaded ?? [], .. pictures.Select(p => p.Name)];
+    }
 
     /// <summary>What is stored: for each sheet, how many icons, how large, and since when.</summary>
     /// <remarks>
@@ -459,7 +475,10 @@ internal static partial class AdminEndpoints
     {
         HashSet<string> has = new(icons, StringComparer.Ordinal);
 
-        return [.. StyleDocument.LiteralIcons(style).Where(icon => !has.Contains(icon))];
+        // A generated icon is never the uploaded sheet's to supply — ADR-099 §5.4, as IconsTheStylesDraw says.
+        return [.. StyleDocument.LiteralIcons(style).Where(icon =>
+            !has.Contains(icon)
+            && !icon.StartsWith(Graticula.Cartography.MarkerPicture.NamePrefix, StringComparison.Ordinal))];
     }
 
     /// <summary>Reads one part, or returns null when it is longer than the bound.</summary>

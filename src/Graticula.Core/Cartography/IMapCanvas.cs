@@ -63,6 +63,28 @@ public interface IMapCanvas : IDisposable
     /// <param name="symbol">The marker.</param>
     void DrawMarker(double x, double y, MapSymbol.Marker symbol);
 
+    /// <summary>Draws a picture centred on a point, moved by its offset and turned by its rotation.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-099, and the one method here that takes encoded bytes.</b> <see cref="DrawImage"/> takes
+    /// colours because a coverage's colours are cartography — the stretch and the ramp are decided
+    /// in Tier 1. A picture marker's colours are the picture's own and nobody decides them, so
+    /// decoding it is mechanical, and it is the rasteriser that holds a decoder. The picture has been
+    /// bounded from its header before it reaches this port (<see cref="MarkerPicture"/>), so an
+    /// implementation decodes something already known to be small.
+    /// </para>
+    /// <para>
+    /// <b>A picture that cannot be decoded draws nothing and does not fail the map.</b> Its header
+    /// was read and bounded when it was stored; bytes that pass that and still do not decode are a
+    /// damaged file, and one damaged icon taking down every map of its layer would be the wrong
+    /// trade.
+    /// </para>
+    /// </remarks>
+    /// <param name="x">The point's pixel x.</param>
+    /// <param name="y">The point's pixel y.</param>
+    /// <param name="symbol">The picture and how it is drawn.</param>
+    void DrawPicture(double x, double y, MapSymbol.Picture symbol);
+
     /// <summary>
     /// Measures text without drawing it, so a label can be rejected before it paints.
     /// </summary>

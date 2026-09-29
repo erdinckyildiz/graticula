@@ -104,10 +104,24 @@ public static class SymbologyConversion
     /// see <see cref="NotNumbers"/>. On the end and optional, because everything before it had
     /// callers.
     /// </param>
+    /// <param name="pictures">
+    /// The pictures a MapLibre style's `icon-image` may name, by <see cref="MarkerPicture.Name"/> —
+    /// ADR-099. A style carries names, not pictures, so the host passes the ones the layer draws now,
+    /// which are the names its own tile style publishes. Null is the same as none: an icon is then
+    /// refused with the way forward.
+    /// </param>
+    /// <param name="keepUnusablePictures">
+    /// False, the default, refuses a picture this server cannot use — a URL, an SVG, one past the
+    /// bounds — with the reason. True keeps it in the document as it was given and reports it as a loss
+    /// (ADR-099 §5.1): what <c>graticula tools migrate</c> asks for, so that a real server's layer whose
+    /// picture is only a URL keeps the rest of its drawing.
+    /// </param>
     public static SymbologyWrite Read(
         string document,
         GeometryKind geometry,
-        IReadOnlyList<FieldDescription>? fields = null)
+        IReadOnlyList<FieldDescription>? fields = null,
+        IReadOnlyDictionary<string, MarkerPicture>? pictures = null,
+        bool keepUnusablePictures = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(document);
 
@@ -159,7 +173,9 @@ public static class SymbologyConversion
         // argument for the reversal.
         if (Cim.IsRenderer(body))
         {
-            CimProjection projection = Cim.Project(body);
+            // <b>Strict, because this is a write</b> — ADR-099 §5.1: a picture that cannot be used is refused
+            // here with its reason, and only read leniently once it is stored.
+            CimProjection projection = Cim.Project(body, strict: !keepUnusablePictures);
 
             return new SymbologyWrite(
                 Serialise(body),
@@ -169,7 +185,7 @@ public static class SymbologyConversion
 
         if (body.ContainsKey("renderer"))
         {
-            CimWrite written = CimEsri.FromDrawingInfo(body, geometry);
+            CimWrite written = CimEsri.FromDrawingInfo(body, geometry, keepUnusablePictures);
 
             return new SymbologyWrite(
                 Serialise(written.Renderer), written.Losses, "drawingInfo");
@@ -184,7 +200,10 @@ public static class SymbologyConversion
             // them exist because a style got through that should not have.
             List<string> losses = new();
             JsonObject normalised = Normalise(body, geometry, losses);
-            CimWrite written = CimStyle.FromMapLibre(normalised, geometry);
+            CimWrite written = CimStyle.FromMapLibre(
+                normalised,
+                geometry,
+                pictures ?? new Dictionary<string, MarkerPicture>(StringComparer.Ordinal));
 
             losses.AddRange(written.Losses);
 
@@ -225,6 +244,22 @@ public static class SymbologyConversion
         ArgumentException.ThrowIfNullOrWhiteSpace(canonical);
         ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
 
+        // <b>A document with pictures is derived once per text — ADR-099 §5.2</b>, and handed out as a copy,
+        // because a caller may put the node into a document of its own and a node has one parent.
+        if (PictureDocuments.Carries(canonical))
+        {
+            DerivedDrawingInfo kept = PictureDocuments.Get(
+                canonical, "drawingInfo|" + layerName, (int)geometry, () => DrawingInfoOf(canonical, layerName, geometry));
+
+            return kept with { DrawingInfo = kept.DrawingInfo.DeepClone() };
+        }
+
+        return DrawingInfoOf(canonical, layerName, geometry);
+    }
+
+    /// <summary>The <c>drawingInfo</c> derivation itself.</summary>
+    private static DerivedDrawingInfo DrawingInfoOf(string canonical, string layerName, GeometryKind geometry)
+    {
         CimWrite stored = ToCim(canonical, geometry);
         DerivedDrawingInfo derived = CimEsri.ToDrawingInfo(stored.Renderer, layerName);
 
@@ -246,6 +281,21 @@ public static class SymbologyConversion
         ArgumentException.ThrowIfNullOrWhiteSpace(canonical);
         ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
 
+        // Once per text for a document with pictures, as the drawingInfo above.
+        if (PictureDocuments.Carries(canonical))
+        {
+            DerivedStyle kept = PictureDocuments.Get(
+                canonical, "style|" + layerName, (int)geometry, () => StyleOf(canonical, layerName, geometry));
+
+            return kept with { Style = (JsonObject)kept.Style.DeepClone() };
+        }
+
+        return StyleOf(canonical, layerName, geometry);
+    }
+
+    /// <summary>The style derivation itself.</summary>
+    private static DerivedStyle StyleOf(string canonical, string layerName, GeometryKind geometry)
+    {
         CimWrite stored = ToCim(canonical, geometry);
         DerivedStyle derived = CimStyle.ToMapLibre(stored.Renderer, layerName);
 
@@ -429,7 +479,15 @@ public static class SymbologyConversion
 
         string wanted = MapLibreTypeFor(geometry);
 
-        if (!kept.OfType<JsonObject>().Any(l =>
+        // <b>A point layer may be drawn by icons alone</b> — ADR-099. An icon layer is a `symbol`
+        // layer with an `icon-image`, which is how this server's own tile style draws a picture
+        // marker, and refusing it for having no `circle` would refuse the style this server wrote.
+        bool icons = wanted == "circle"
+            && kept.OfType<JsonObject>().Any(l =>
+                string.Equals(Text(l["type"]), "symbol", StringComparison.Ordinal)
+                && (l["layout"] as JsonObject)?["icon-image"] is not null);
+
+        if (!icons && !kept.OfType<JsonObject>().Any(l =>
                 string.Equals(Text(l["type"]), wanted, StringComparison.Ordinal)))
         {
             throw new SymbologyException(

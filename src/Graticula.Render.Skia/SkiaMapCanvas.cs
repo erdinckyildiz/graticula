@@ -248,6 +248,145 @@ public sealed class SkiaMapCanvas : IMapCanvas
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>Turned about the point, then moved, then drawn centred</b> — which is how the style
+    /// specification places an `icon-offset` under an `icon-rotate`, so this canvas and a browser put
+    /// a turned, offset icon in the same place (ADR-099).
+    /// </para>
+    /// <para>
+    /// <b>Linear sampling with mipmaps</b>, because a picture is nearly always drawn smaller than its
+    /// pixels and a nearest-neighbour minification is a shimmer of dropped detail; the same reason
+    /// <see cref="DrawImage"/> gives for a coverage.
+    /// </para>
+    /// </remarks>
+    public void DrawPicture(double x, double y, MapSymbol.Picture symbol)
+    {
+        ArgumentNullException.ThrowIfNull(symbol);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (symbol.Width <= 0 || symbol.Height <= 0 || symbol.Opacity <= 0)
+        {
+            return;
+        }
+
+        bool cached = Cacheable(symbol.Image);
+        SKImage? image = cached ? Decoded(symbol.Image) : Decode(symbol.Image);
+
+        if (image is null)
+        {
+            return;
+        }
+
+        int saved = _canvas.Save();
+
+        try
+        {
+            _canvas.Translate((float)x, (float)y);
+
+            if (symbol.Rotation != 0)
+            {
+                _canvas.RotateDegrees((float)symbol.Rotation);
+            }
+
+            float left = (float)(symbol.OffsetX - (symbol.Width / 2));
+            float top = (float)(symbol.OffsetY - (symbol.Height / 2));
+
+            using SKPaint paint = new()
+            {
+                IsAntialias = true,
+                Color = new SKColor(255, 255, 255, (byte)Math.Round(Math.Clamp(symbol.Opacity, 0, 1) * 255)),
+            };
+
+            _canvas.DrawImage(
+                image,
+                new SKRect(left, top, left + (float)symbol.Width, top + (float)symbol.Height),
+                new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear),
+                paint);
+        }
+        finally
+        {
+            _canvas.RestoreToCount(saved);
+
+            if (!cached)
+            {
+                image.Dispose();
+            }
+        }
+    }
+
+    /// <summary>Decoded pictures, by the hash of their bytes, shared by every canvas in the process.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Decoded once, not once per feature.</b> A point layer of ten thousand features drawn with one
+    /// icon asks for the same picture ten thousand times, and decoding a PNG per point would be most of
+    /// the map's cost. The key is the content hash, so an edited picture is a new entry rather than a
+    /// stale one.
+    /// </para>
+    /// <para>
+    /// <b>Bounded by forgetting</b>: past <see cref="MostDecoded"/> entries the table is emptied and
+    /// refilled on demand. Nothing is disposed when it is emptied, because another canvas may be
+    /// drawing with an image at that moment; the images are released by their finalisers once no
+    /// canvas holds them. Only marker-sized pictures are kept here — a sprite sheet being composed is
+    /// decoded, drawn once and disposed.
+    /// </para>
+    /// </remarks>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SKImage?> DecodedPictures =
+        new(StringComparer.Ordinal);
+
+    /// <summary>How many decoded pictures the process keeps before it forgets them all.</summary>
+    private const int MostDecoded = 512;
+
+    /// <summary>Whether a picture is small enough to keep decoded.</summary>
+    private static bool Cacheable(MarkerPicture picture) =>
+        (long)picture.PixelWidth * picture.PixelHeight <= (long)MarkerPicture.MaximumSide * MarkerPicture.MaximumSide;
+
+    /// <summary>A marker-sized picture, decoded, from the table or into it.</summary>
+    private static SKImage? Decoded(MarkerPicture picture)
+    {
+        if (DecodedPictures.TryGetValue(picture.Hash, out SKImage? held))
+        {
+            return held;
+        }
+
+        if (DecodedPictures.Count >= MostDecoded)
+        {
+            DecodedPictures.Clear();
+        }
+
+        return DecodedPictures.GetOrAdd(picture.Hash, _ => Decode(picture));
+    }
+
+    /// <summary>
+    /// Decodes a picture, after asking the decoder what size it will be.
+    /// </summary>
+    /// <remarks>
+    /// <b>The codec's own size must be the header's.</b> The picture was bounded from its header when it
+    /// was stored; a file whose decoder reports a different size is one whose header lied, and it is
+    /// not decoded. Null for anything that does not decode — the caller draws nothing, as the port
+    /// promises.
+    /// </remarks>
+    private static SKImage? Decode(MarkerPicture picture)
+    {
+        using SKData data = SKData.CreateCopy(picture.Bytes.Span);
+        using SKCodec? codec = SKCodec.Create(data);
+
+        if (codec is null
+            || codec.Info.Width != picture.PixelWidth
+            || codec.Info.Height != picture.PixelHeight)
+        {
+            return null;
+        }
+
+        SKImageInfo info = new(
+            codec.Info.Width, codec.Info.Height, SKColorType.Rgba8888, SKAlphaType.Premul);
+
+        using SKBitmap? bitmap = SKBitmap.Decode(codec, info);
+
+        return bitmap is null ? null : SKImage.FromBitmap(bitmap);
+    }
+
+    /// <inheritdoc/>
     public PixelBox MeasureLabel(string text, MapSymbol.Label symbol, double x, double y)
     {
         ArgumentException.ThrowIfNullOrEmpty(text);

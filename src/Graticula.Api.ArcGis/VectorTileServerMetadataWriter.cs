@@ -338,6 +338,19 @@ public static class VectorTileServerMetadataWriter
             ["esri"] = new { type = "vector", url = "../../" },
         };
 
+        // A dictionary rather than an anonymous type, because the style spec
+        // spells it "source-layer" and a C# member cannot carry a hyphen.
+        // The alternative is a naming policy on the serialiser, which would
+        // then apply to every other document this assembly writes and rename
+        // fields ArcGIS clients match exactly.
+        object[] layers = [.. sourceLayers
+            .SelectMany(source => Narrowed(
+                StyleLayers(source),
+                ranges is not null && ranges.TryGetValue(source.Name, out Graticula.Cartography.VisibleScaleRange r)
+                    ? r
+                    : default,
+                level0Scale))];
+
         if (fontStack is { Length: > 0 })
         {
             // <b>{fontstack} and {range} are the client's placeholders, not
@@ -348,25 +361,24 @@ public static class VectorTileServerMetadataWriter
             style["glyphs"] = "../fonts/{fontstack}/{range}.pbf";
             style["sprite"] = "../sprites/sprite";
         }
-
-        return Merge(style, new
+        else if (layers.Any(DrawsAnIcon))
         {
+            // <b>A picture marker needs the sprite whether or not the server has glyphs</b> — ADR-099.
+            // The sheet is where its icon is, and a style naming an icon with no `sprite` draws nothing.
+            style["sprite"] = "../sprites/sprite";
+        }
 
-            // A dictionary rather than an anonymous type, because the style spec
-            // spells it "source-layer" and a C# member cannot carry a hyphen.
-            // The alternative is a naming policy on the serialiser, which would
-            // then apply to every other document this assembly writes and rename
-            // fields ArcGIS clients match exactly.
-            layers = sourceLayers
-                .SelectMany(source => Narrowed(
-                    StyleLayers(source),
-                    ranges is not null && ranges.TryGetValue(source.Name, out Graticula.Cartography.VisibleScaleRange r)
-                        ? r
-                        : default,
-                    level0Scale))
-                .ToArray(),
-        });
+        return Merge(style, new { layers });
     }
+
+    /// <summary>Whether a style layer draws an icon from the sprite sheet.</summary>
+    /// <param name="layer">One of the layers <see cref="StyleLayers"/> built.</param>
+    /// <returns>True for a `symbol` layer with an `icon-image`.</returns>
+    private static bool DrawsAnIcon(object layer) =>
+        layer is Dictionary<string, object> one
+        && one.TryGetValue("layout", out object? layout)
+        && layout is System.Text.Json.Nodes.JsonObject block
+        && block.ContainsKey("icon-image");
 
     /// <summary>
     /// The style layers a stored symbology asks for, or null when there is none.

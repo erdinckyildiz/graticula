@@ -22,6 +22,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\shared\TestPictures.cs" Link="TestPictures.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\Graticula.Raster.Tiff.Tests\corpus\**\*.tif"
           Link="corpus\%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />

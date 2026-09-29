@@ -428,8 +428,9 @@ pre .k{color:var(--accent)}
               server checks the style's icon names against it. The cache can be seeded before the
               first request, and an expired tile stands in while its source refuses. A service may
               be cut on a TUREF grid instead of Web Mercator. <b>A registered table's tiles can lag
-              its edits by their cache lifetime</b>, five minutes by default. A layer's own picture
-              markers are not carried into a tile style, and there is no shared icon library.</p>
+              its edits by their cache lifetime</b>, five minutes by default. <b>A layer's own picture
+              markers are drawn on every face</b>: the server packs them into the service's sprite sheet
+              and the style draws them from it. There is no shared icon library.</p>
               <p class="ops"><code>tile</code><code>resources/styles</code><code>exportTiles</code></p>
             </div>
           </div>

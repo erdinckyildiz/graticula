@@ -254,6 +254,18 @@ public static class SpriteSheet
                 return false;
             }
 
+            // <b>The generated icons' prefix is the server's — ADR-099 §5.4.</b> The sprite routes pack every
+            // picture marker of the service's layers into the served sheet under this prefix, below the
+            // uploaded picture; an uploaded icon of the same name would be one of the two rectangles a client
+            // silently never draws.
+            if (name.StartsWith(Graticula.Cartography.MarkerPicture.NamePrefix, StringComparison.Ordinal))
+            {
+                error = $"The icon name '{name}' begins '{Graticula.Cartography.MarkerPicture.NamePrefix}', which is "
+                      + "reserved: this server names the icons it generates from layers' picture markers that way and "
+                      + "packs them into the same sheet. Rename the icon.";
+                return false;
+            }
+
             if (!seen.Add(name))
             {
                 error = $"The sprite index names '{name}' twice. A client keeps whichever it read last, so "

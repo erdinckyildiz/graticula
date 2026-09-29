@@ -742,9 +742,17 @@ internal static class VectorTileEndpoints
     }
 
     /// <summary>
-    /// The sprite sheet: the one the service's publisher uploaded, or an empty one.
+    /// The sprite sheet: the one the service's publisher uploaded, or an empty one — with the layers'
+    /// picture markers packed in beneath it since ADR-099.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// <b>Generated icons join the uploaded ones, under a prefix an upload may not use — ADR-099
+    /// §5.4.</b> A layer whose symbology draws a picture is drawn by the derived style from an icon
+    /// named after the picture's hash; <see cref="GeneratedSprites"/> packs every such picture of the
+    /// service below the uploaded picture, whose own rectangles do not move. A service with no picture
+    /// markers serves exactly what it served before.
+    /// </para>
     /// <para>
     /// <b>Uploaded since ADR-092; empty before it, and still empty for a service nobody gave
     /// icons.</b> The empty answer stays because every ArcGIS and Mapbox client probes this
@@ -770,6 +778,7 @@ internal static class VectorTileEndpoints
         string serviceName,
         string sprite,
         CatalogFallback catalog,
+        IMapCanvasFactory canvases,
         CancellationToken cancellation)
     {
         // Matched exactly rather than by extension, so the name in the URL never
@@ -813,13 +822,9 @@ internal static class VectorTileEndpoints
         // <b>Straight to the catalogue, past the fallback, as a related record is read</b> — there is no
         // remembered copy of a sheet to serve from, so while the store is unreachable this read fails and the
         // caller is told so, rather than being handed an empty sheet as though it were this service's.
-        Graticula.Platform.Admin.StoredSprite? stored = catalog.Catalog is { } layers
-            ? await layers.FindSpriteAsync(service.Id, ratio, image, cancellation).ConfigureAwait(false)
-            : null;
-
-        byte[] bytes = image
-            ? stored?.Image ?? EmptySheet
-            : System.Text.Encoding.UTF8.GetBytes(stored?.Index ?? "{}");
+        byte[] bytes = await GeneratedSprites.FileAsync(
+                service, ratio, image, catalog.Catalog, canvases, cancellation)
+            .ConfigureAwait(false);
 
         context.Response.Headers.CacheControl = QueryResponseCaching.RevalidateFor(context, service.Layers);
 
@@ -1057,6 +1062,15 @@ internal static class VectorTileEndpoints
             {
                 checkable = false;
             }
+        }
+
+        // <b>And the icons the layers' pictures put in the sheet — ADR-099.</b> The sheet the route
+        // serves carries them beside the uploaded ones, so a stored style may draw them; they come from
+        // the service the caller already holds and need no store to read.
+        if (stored.Contains("icon-image", StringComparison.Ordinal)
+            && GeneratedSprites.Names(service) is { Count: > 0 } generated)
+        {
+            icons = [.. icons ?? [], .. generated];
         }
 
         // <b>The allowed origins, read only when the style could name one — ADR-094.</b> An origin taken off

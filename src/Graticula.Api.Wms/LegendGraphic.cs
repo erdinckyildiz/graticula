@@ -360,6 +360,11 @@ public static class LegendGraphic
                         (box.MinX + box.MaxX) / 2.0, (box.MinY + box.MaxY) / 2.0, Fit(marker, box));
                     break;
 
+                case MapSymbol.Picture picture:
+                    canvas.DrawPicture(
+                        (box.MinX + box.MaxX) / 2.0, (box.MinY + box.MaxY) / 2.0, Fit(picture, box));
+                    break;
+
                 default:
                     // A label layer has nothing to show in a swatch: the text it
                     // would draw comes from a feature, and there is no feature.
@@ -387,6 +392,29 @@ public static class LegendGraphic
         return marker.Radius <= room
             ? marker
             : marker with { Radius = Math.Max(1, room) };
+    }
+
+    /// <summary>
+    /// A picture shrunk to fit and centred, when it is larger than the swatch or set off its point.
+    /// </summary>
+    /// <remarks>
+    /// <b>Centred, because a swatch has no point to be offset from</b> — ADR-099. The offset says
+    /// where a picture sits beside its feature; in a legend there is no feature, and an offset icon
+    /// would be cut by the swatch's edge.
+    /// </remarks>
+    private static MapSymbol.Picture Fit(MapSymbol.Picture picture, PixelBox box)
+    {
+        double room = Math.Min(box.MaxX - box.MinX, box.MaxY - box.MinY) - 2;
+        double longest = Math.Max(picture.Width, picture.Height);
+        double shrink = longest > room && longest > 0 ? Math.Max(1, room) / longest : 1;
+
+        return picture with
+        {
+            Width = picture.Width * shrink,
+            Height = picture.Height * shrink,
+            OffsetX = 0,
+            OffsetY = 0,
+        };
     }
 
     private static PixelPath Ring(PixelBox box, double inset)

@@ -87,6 +87,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["GeoParquetFolder._attachedExtents"] = "one per table in one attached database, replaced when the table's version changes (ADR-067 §5.3)",
         ["GeoParquetFolder._remoteTables"] = "one per table name at one remote location, and only names the location's own listing holds (ADR-067 §5.2); replaced after the metadata lifetime",
         ["LogEndpoints._seen"] = "explicit capacity; cleared when full",
+        ["GeneratedSprites.Composed"] = "explicit capacity of 32 composed sprite pictures; cleared when full (ADR-099)",
         ["ServiceContexts._entries"] = "one per table, and expires",
         ["ServiceThumbnails._held"] =
             "explicit capacity of 256 pictures with oldest-drawn eviction; an evicted "

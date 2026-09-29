@@ -82,6 +82,7 @@ internal sealed class TileExporter : BackgroundService
     private readonly GeoParquetSources _geoParquet;
     private readonly GlyphStore _glyphs;
     private readonly StyleOriginList _origins;
+    private readonly IMapCanvasFactory _canvases;
     private readonly HostSettings _settings;
     private readonly TimeProvider _clock;
     private readonly ILogger<TileExporter> _log;
@@ -110,6 +111,7 @@ internal sealed class TileExporter : BackgroundService
         GeoParquetSources geoParquet,
         GlyphStore glyphs,
         StyleOriginList origins,
+        IMapCanvasFactory canvases,
         HostSettings settings,
         TimeProvider clock,
         ILogger<TileExporter> log)
@@ -129,6 +131,7 @@ internal sealed class TileExporter : BackgroundService
         _geoParquet = geoParquet;
         _glyphs = glyphs;
         _origins = origins;
+        _canvases = canvases;
         _settings = settings;
         _clock = clock;
         _log = log;
@@ -613,7 +616,7 @@ internal sealed class TileExporter : BackgroundService
             if (state.Format == TileExportFormat.Vtpk)
             {
                 TileExportPackage.VtpkDocuments documents = await TileExportPackage.VtpkDocumentsAsync(
-                        service, plan, job.Id, now, _contexts, _projector, _glyphs, _origins, _catalog, working)
+                        service, plan, job.Id, now, _contexts, _projector, _glyphs, _origins, _catalog, _canvases, working)
                     .ConfigureAwait(false);
 
                 await TileExportPackage.WriteVtpkAsync(output, staging, documents, working).ConfigureAwait(false);

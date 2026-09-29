@@ -320,6 +320,12 @@ Measured 2026-09-03 rather than assumed:
   The per-layer document this ADR is about has no sheet of its own, so a picture marker and a marker
   shape are still refused here — the sprite store this paragraph asks for exists now, and pointing a
   layer's symbol at it is the work that remains.)*
+  *(Amended 2026-09-29 by [ADR-099](ADR-099-picture-markers-are-drawn-on-every-face.md), owner decision:
+  **a picture marker is no longer refused.** A `CIMPictureMarker` carrying its picture as a `data:` URI, and
+  an `esriPMS` carrying `imageData`, are stored in this document and drawn by every face — the raster faces
+  through `IMapCanvas.DrawPicture`, the Esri face as `esriPMS`, the tile face from a sprite sheet the server
+  generates for the service from its layers' pictures. The library above still ships no pictures; a marker
+  shape — square, triangle, star — is still not drawn.)*
 
 So marker shapes are not a small addition to this library: they need either a sprite store —
 upload, licensing, a size ceiling, a served sheet — or a second route from CIM to the renderer

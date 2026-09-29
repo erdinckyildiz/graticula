@@ -149,6 +149,17 @@ public sealed class SymbologyPlan
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(document);
 
+        // <b>Once per text for a document with pictures — ADR-099 §5.2.</b> A plan is not changed by drawing
+        // with it, so the kept one is handed out as it is.
+        return PictureDocuments.Carries(document)
+            ? PictureDocuments.Get(document, "plan", 0, () => Compiled(document))
+            : Compiled(document);
+    }
+
+    /// <summary>The compilation itself.</summary>
+    private static SymbologyPlan Compiled(string document)
+    {
+
         JsonNode root;
 
         try
@@ -166,6 +177,12 @@ public sealed class SymbologyPlan
             throw new SymbologyException("A symbology document is an object.");
         }
 
+        // <b>The pictures the style's icons stand for, by name — ADR-099.</b> The derived style names
+        // each icon by its picture's hash, as the tile face does; the bytes are in the stored renderer
+        // and nowhere else, so they are collected here while the renderer is in hand. A MapLibre
+        // document stored before ADR-052 carries none, and its icon layers are skipped as before.
+        Dictionary<string, MarkerPicture> pictures = new(StringComparer.Ordinal);
+
         // <b>CIM is compiled through the style derivation, not through a second reader
         // (ADR-052 §3.5).</b> Everything below understands MapLibre paint expressions and is
         // the most tested code in this area; a CIM front end here would be a second
@@ -181,6 +198,11 @@ public sealed class SymbologyPlan
             // drift from, and the alternative is emitting an invented layer type into a style
             // that real clients read and validate. ADR-052 §3.15.
             CimProjection projection = Cim.Project(body);
+
+            foreach (MarkerPicture picture in projection.Pictures())
+            {
+                pictures[picture.Name] = picture;
+            }
 
             if (projection.Dots is { } scattered)
             {
@@ -239,7 +261,7 @@ public sealed class SymbologyPlan
                     + "paint with `match` or `step`.");
             }
 
-            PlanLayer? compiled = CompileLayer(layer, ref margin);
+            PlanLayer? compiled = CompileLayer(layer, ref margin, pictures);
 
             if (compiled is null)
             {
@@ -393,7 +415,8 @@ public sealed class SymbologyPlan
     private static StyleExpression Constant(double value) =>
         StyleExpression.Compile(JsonValue.Create(value));
 
-    private static PlanLayer? CompileLayer(JsonObject layer, ref double margin)
+    private static PlanLayer? CompileLayer(
+        JsonObject layer, ref double margin, Dictionary<string, MarkerPicture> pictures)
     {
         string type = layer["type"]?.GetValue<string>() ?? string.Empty;
 
@@ -455,10 +478,14 @@ public sealed class SymbologyPlan
 
                     if (field is null)
                     {
-                        // A symbol layer with no text is an icon layer, and this
-                        // server stores no sprites. Skipped rather than refused:
-                        // the rest of the style still draws.
-                        return null;
+                        // <b>A symbol layer with no text is an icon layer</b>, and since ADR-099 it
+                        // is drawn when its icons are pictures the stored renderer carries. One whose
+                        // icons are not — a MapLibre document stored before ADR-052 made the stored
+                        // document CIM, naming a sprite this server never held — is skipped rather
+                        // than refused, as it always was: the rest of the style still draws.
+                        return layout["icon-image"] is { } image && pictures.Count > 0
+                            ? IconLayer(layout, paint, image, ref margin, pictures, minimum, maximum)
+                            : null;
                     }
 
                     Widen(ref margin, (Static(layout["text-size"]) ?? 12) * 4);
@@ -518,6 +545,47 @@ public sealed class SymbologyPlan
             default:
                 return null;
         }
+    }
+
+    /// <summary>An icon layer, compiled.</summary>
+    /// <remarks>
+    /// <b>The margin is the largest icon at the largest size the style can state.</b> A point just
+    /// outside the picture still puts half an icon inside it, so the reader has to be given it; when
+    /// the size is an expression rather than a number, the fallback covers a 96-point marker.
+    /// </remarks>
+    private static PlanLayer.Icon IconLayer(
+        JsonObject layout,
+        JsonObject paint,
+        JsonNode image,
+        ref double margin,
+        IReadOnlyDictionary<string, MarkerPicture> pictures,
+        double? minimum,
+        double? maximum)
+    {
+        int side = 0;
+
+        foreach (MarkerPicture picture in pictures.Values)
+        {
+            side = Math.Max(side, Math.Max(picture.SheetWidth, picture.SheetHeight));
+        }
+
+        double reach = Static(layout["icon-size"]) is { } scale
+            ? side * scale
+            : MarkerPicture.SheetSide;
+
+        Widen(ref margin, reach);
+
+        return new PlanLayer.Icon(
+            StyleExpression.Compile(image),
+            layout["icon-size"] is { } size ? StyleExpression.Compile(size) : Constant(1),
+            layout["icon-offset"] is { } offset ? StyleExpression.Compile(offset) : null,
+            layout["icon-rotate"] is { } rotate ? StyleExpression.Compile(rotate) : null,
+            paint["icon-opacity"] is { } opacity ? StyleExpression.Compile(opacity) : null,
+            pictures)
+        {
+            MinimumZoom = minimum,
+            MaximumZoom = maximum,
+        };
     }
 
     /// <summary>The colours of an interpolate over the heat map's own density.</summary>

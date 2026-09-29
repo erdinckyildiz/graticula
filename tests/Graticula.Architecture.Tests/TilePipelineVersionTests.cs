@@ -194,7 +194,12 @@ public sealed class TilePipelineVersionTests
         // write. The key, the encoder, the parts and their joining are what they were — a stale answer is bytes this
         // pipeline already wrote, under the key it already reads. Moved once more the same day when a stale tile's
         // `max-age` became its `Age` plus the minute and `WriteTileAsync` took the age from its caller: headers only.
-        "c2a5c1b606afd86663ee9818c44e40ccf4abffc6ac02115410691be2874dde69";
+        // <b>Moved again 2026-09-29 for ADR-099, and the version did not move.</b> The sprite route serves the sheet
+        // `GeneratedSprites` builds — the uploaded sheet with the layers' picture markers packed in beneath it — and a
+        // stored style is checked against the generated icons' names as well as the uploaded ones. A picture marker is
+        // drawn by the style from the sprite, beside the tiles; the tile route, the key, the encoder and every byte of
+        // a tile are what they were.
+        "afdc3ee9d8681bb79b1605f3c3cfdad41bb9a5a45c935deb080f1a916d0e56e1";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 3;

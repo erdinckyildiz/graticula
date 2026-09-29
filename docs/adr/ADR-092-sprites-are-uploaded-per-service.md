@@ -15,6 +15,13 @@
 > with 409 when any stored style names an icon it would take away by literal, and the refusal names the
 > styles. The read-back's `styleUses` covers every style.
 
+> **Amended 2026-09-29 by [ADR-099](ADR-099-picture-markers-are-drawn-on-every-face.md).** The sheet the sprite
+> routes serve is the uploaded one **with the service's picture markers packed in below it**, under names beginning
+> `graticula-` that an upload may no longer use; with no upload, it is the generated icons alone, and with neither it
+> is the empty sheet as before. To compose the two, the uploaded picture is decoded — §2C's objection, now taken on
+> for a picture already bounded at upload. A style is checked against the uploaded icons and the generated ones, and a
+> generated icon never holds an upload.
+
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
 > Confidence: `HIGH`, `MEDIUM`, `LOW`.
@@ -170,8 +177,10 @@ checked against it.
 - An `icon-image` expression is not checked (§3).
 - A browser holding the old immutable empty sheet may keep it until its cache is cleared (§3).
 - A sheet is made with a tool outside this product.
-- The per-layer symbology document ([ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md)) still
-  refuses a picture marker. A per-layer document has no sheet of its own, and this ADR does not give it one.
+- ~~The per-layer symbology document ([ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md)) still
+  refuses a picture marker. A per-layer document has no sheet of its own, and this ADR does not give it one.~~
+  *(Superseded 2026-09-29 by [ADR-099](ADR-099-picture-markers-are-drawn-on-every-face.md): a layer's picture
+  markers are stored in its document and packed into the service's served sheet.)*
 
 **Ports created.** None.
 
@@ -202,7 +211,8 @@ does; nothing is cached in the process.
 - Somebody asks to upload a single icon, or an SVG. Alternative C comes back, with its parser.
 - A style whose `icon-image` expression names a missing icon is reported as a blank map. §3's first
   counterargument has then cost somebody something.
-- A per-layer picture marker is asked for. ADR-052's refusal needs a sheet to point at.
+- ~~A per-layer picture marker is asked for. ADR-052's refusal needs a sheet to point at.~~ *(Fired 2026-09-29:
+  [ADR-099](ADR-099-picture-markers-are-drawn-on-every-face.md).)*
 
 ## 10. Dissent
 

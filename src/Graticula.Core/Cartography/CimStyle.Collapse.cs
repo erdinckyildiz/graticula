@@ -184,27 +184,63 @@ public static partial class CimStyle
 
         foreach (KeyValuePair<string, JsonNode?> property in first)
         {
-            if (property.Key is not ("id" or "filter" or "paint"))
+            if (property.Key is not ("id" or "filter" or "paint" or "layout"))
             {
                 one[property.Key] = property.Value?.DeepClone();
             }
         }
 
+        // <b>Layout is folded as paint is, since ADR-099.</b> A picture's class is its `icon-image`,
+        // which is a layout property; copying the first cell's layout, as this did, folded every
+        // class of an icon layer into the first class's picture.
+        if (cells.Any(c => c.Layer["layout"] is JsonObject))
+        {
+            if (FoldBlock(cells, "layout") is not { } layout)
+            {
+                return null;
+            }
+
+            one["layout"] = layout;
+        }
+
+        if (FoldBlock(cells, "paint") is not { } paint)
+        {
+            return null;
+        }
+
+        one["paint"] = paint;
+
+        return one;
+    }
+
+    /// <summary>One block of a level's cells — the paint or the layout — folded into one.</summary>
+    /// <param name="cells">The level's layers and what each one's filter says.</param>
+    /// <param name="name">`paint` or `layout`.</param>
+    /// <returns>The block, or null when a property is not a function of one axis.</returns>
+    private static JsonObject? FoldBlock(List<(JsonObject Layer, Cut Cut)> cells, string name)
+    {
         List<string> properties = [.. cells
-            .SelectMany(c => (c.Layer["paint"] as JsonObject ?? []).Select(p => p.Key))
+            .SelectMany(c => (c.Layer[name] as JsonObject ?? []).Select(p => p.Key))
             .Distinct(StringComparer.Ordinal)];
 
         JsonObject paint = [];
 
         foreach (string property in properties)
         {
-            List<JsonNode?> values = [.. cells.Select(c => (c.Layer["paint"] as JsonObject)?[property])];
+            List<JsonNode?> values = [.. cells.Select(c => (c.Layer[name] as JsonObject)?[property])];
 
             if (values.Select(v => v?.ToJsonString()).Distinct(StringComparer.Ordinal).Count() == 1)
             {
                 paint[property] = values[0]?.DeepClone();
                 continue;
             }
+
+            // <b>An array value is wrapped before it becomes an output</b>: a `match` or a `step`
+            // reads a bare array as an expression, and `icon-offset` is a pair of numbers.
+            values = [.. values.Select(v => v is JsonArray { Count: > 0 } array
+                && array[0] is JsonValue head && !head.TryGetValue(out string? _)
+                    ? new JsonArray("literal", v.DeepClone())
+                    : v)];
 
             JsonNode? expression = null;
 
@@ -233,9 +269,7 @@ public static partial class CimStyle
             paint[property] = expression;
         }
 
-        one["paint"] = paint;
-
-        return one;
+        return paint;
     }
 
     /// <summary>Whether a property's value is decided by one part of the cell alone.</summary>

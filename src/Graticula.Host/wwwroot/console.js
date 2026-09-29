@@ -6530,6 +6530,12 @@ function wireSymbologyForm() {
       return;
     }
 
+    if (e.target.id === "symPictureFile") {
+      await symPictureChosen(e.target);
+
+      return;
+    }
+
     await symEdited(e.target, true);
   });
 
@@ -6764,6 +6770,20 @@ function wireSymbologyForm() {
       return;
     }
 
+    // <b>A picture is a file, so adding one opens the file chooser</b> — ADR-099. The layer is made
+    // when the file has been read, in `symPictureChosen`; a picture marker with no picture would be a
+    // layer the server refuses.
+    if (t.dataset.addLayer === "CIMPictureMarker" || t.classList.contains("sympicturereplace")) {
+      e.preventDefault();
+      symPictureTarget = t.dataset.addLayer ? -1 : Number(t.dataset.layer);
+
+      const chooser = $("symPictureFile");
+
+      if (chooser) chooser.click();
+
+      return;
+    }
+
     if (t.dataset.addLayer) {
       e.preventDefault();
       symStack().push(symNewLayer(t.dataset.addLayer));
@@ -6793,6 +6813,95 @@ function wireSymbologyForm() {
       }
     }
   });
+}
+
+/** Which symbol layer the file chooser replaces the picture of, or -1 to add a new one. */
+let symPictureTarget = -1;
+
+/** The largest picture a marker may carry, as the server bounds it (ADR-099). */
+const SYM_PICTURE_BYTES = 256 * 1024;
+
+/** The widest or tallest picture a marker may carry, in pixels. */
+const SYM_PICTURE_SIDE = 512;
+
+/**
+ * Reads the chosen file into the selected class's symbol, as a picture marker.
+ *
+ * <b>Checked here as the server checks it, so the answer comes before Store.</b> PNG or JPEG, at
+ * most 256 KB and 512 pixels a side — the server refuses anything else, and saying so while the
+ * file is still in the chooser is kinder than a refusal after pressing Store. The server's check is
+ * the one that decides; this one only reads the same numbers first.
+ *
+ * <b>A new picture goes on top of the stack</b>, because a picture added under a circle is hidden
+ * by it, and the arrows move it if that is what was meant.
+ *
+ * @param {HTMLInputElement} input the file input
+ */
+async function symPictureChosen(input) {
+  const file = input.files && input.files[0];
+
+  // Emptied so that choosing the same file again is still a change.
+  input.value = "";
+
+  if (!file) return;
+
+  if (file.type !== "image/png" && file.type !== "image/jpeg") {
+    toast(`${file.name} is not a PNG or a JPEG. A picture marker is one of those two; convert an SVG or a GIF first.`);
+    return;
+  }
+
+  if (file.size > SYM_PICTURE_BYTES) {
+    toast(`${file.name} is ${num(file.size)} bytes, and a marker's picture may be at most 256 KB.`);
+    return;
+  }
+
+  const url = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+  const size = await new Promise(resolve => {
+    const image = new Image();
+
+    image.onload = () => resolve([image.naturalWidth, image.naturalHeight]);
+    image.onerror = () => resolve(null);
+    image.src = url;
+  });
+
+  if (!size) {
+    toast(`${file.name} could not be read as a picture.`);
+    return;
+  }
+
+  if (size[0] > SYM_PICTURE_SIDE || size[1] > SYM_PICTURE_SIDE) {
+    toast(`${file.name} is ${size[0]} × ${size[1]} pixels, and a marker's picture may be at most `
+      + `${SYM_PICTURE_SIDE} on each side. Scale it down first.`);
+    return;
+  }
+
+  const layers = symStack();
+  const target = layers[symPictureTarget];
+
+  if (target && target.type === "CIMPictureMarker") {
+    target.url = url;
+  } else {
+    layers.unshift({
+      type: "CIMPictureMarker",
+      enable: true,
+      anchorPointUnits: "Relative",
+      size: 12,
+      scaleX: 1,
+      rotation: 0,
+      offsetX: 0,
+      offsetY: 0,
+      url,
+    });
+  }
+
+  await symSettled({ classes: true, stack: true });
 }
 
 /** How many classes the last classification made, and from which field, for its own sentence. */
@@ -7887,10 +7996,10 @@ function varyStarted(kind) {
 // polygon whose edge is heavier than its fill — the cases ADR-052 was decided for and the ones
 // nobody builds by hand twice.
 //
-// <b>No sprites, and that is a boundary rather than an omission.</b> A picture marker needs a
-// sprite sheet, which [ADR-027](../../../docs/adr/ADR-027-glyphs-and-sprites.md) condition 5
-// still refuses; every symbol here is drawn from solid fills, solid strokes and vector markers,
-// which is exactly what `MapRenderer` paints.
+// <b>No pictures in the library, and that is a choice rather than a boundary now.</b> Until
+// 2026-09-29 a picture marker could not be stored at all; ADR-099 carries one, and it is added to
+// a class's symbol with *+ Picture*, from a file the publisher chooses. A gallery of stock icons
+// would be pictures this project has to license and ship, and nobody has asked for them.
 
 /** A CIMRGBColor, written the short way these presets are read in. */
 const symRgb = (r, g, b, a = 100) => ({ type: "CIMRGBColor", values: [r, g, b, a] });
@@ -8413,6 +8522,9 @@ function symThematicLayer(layers) {
 
 function symLayerColour(layer) {
   if (!layer) return null;
+
+  // A picture is drawn in its own colours, so there is no colour on it to read or set.
+  if (layer.type === "CIMPictureMarker") return null;
 
   if (layer.type === "CIMVectorMarker") {
     const inner = (layer.markerGraphics || [])[0];
@@ -9014,8 +9126,31 @@ function drawSymbolLayers() {
       || layer.type === "CIMSolidStroke"
       || layer.type === "CIMVectorMarker";
 
-    const name = { CIMSolidFill: "Fill", CIMSolidStroke: "Stroke", CIMVectorMarker: "Marker" }
-      [layer.type] || layer.type;
+    const name = { CIMSolidFill: "Fill", CIMSolidStroke: "Stroke", CIMVectorMarker: "Marker",
+      CIMPictureMarker: "Picture" }[layer.type] || layer.type;
+
+    const buttons = `<span class="symbuttons">
+        <button class="tiny ghost symup" data-layer="${i}" title="Move up"${i === 0 ? " disabled" : ""}>↑</button>
+        <button class="tiny ghost symdown" data-layer="${i}" title="Move down"${
+          i === layers.length - 1 ? " disabled" : ""}>↓</button>
+        <button class="tiny ghost symlayerdrop" data-layer="${i}" title="Remove this layer">×</button>
+      </span>`;
+
+    // <b>A picture has no colour, so its row is the picture, its size and a way to replace it</b> —
+    // ADR-099. The thumbnail is the stored data URI itself, so what is shown is what Store sends.
+    if (layer.type === "CIMPictureMarker") {
+      return `<div class="setting symlayer" data-layer="${i}">
+      <span class="q symlayerkind">${h(name)}</span>
+      <img class="sympicture" src="${h(String(layer.url || "").startsWith("data:image/") ? layer.url : "")}"
+        alt="The picture this marker draws" width="22" height="22">
+      <span class="symmeasures"><span class="pair"><input type="number" class="symsize" data-layer="${i}"
+          min="1" max="96" step="1" title="How tall this picture is drawn, in points"
+          value="${h(String(layer.size ?? 12))}"><span class="u">pt</span></span>
+        <button class="tiny ghost sympicturereplace" data-layer="${i}"
+          title="Choose another picture: PNG or JPEG, at most 256 KB and 512 × 512 pixels">Replace…</button></span>
+      ${buttons}
+    </div>`;
+    }
 
     // <b>A layer this console cannot edit is shown, not hidden.</b> It is in the document and
     // it is drawn or reported by the server; a form that skipped it would make Store look like
@@ -11464,7 +11599,13 @@ function showLayer(name, page, pending = null) {
                 <button class="tiny" data-add-layer="CIMSolidFill">+ Fill</button>
                 <button class="tiny" data-add-layer="CIMSolidStroke">+ Stroke</button>
                 <button class="tiny" data-add-layer="CIMVectorMarker">+ Marker</button>
+                <button class="tiny" data-add-layer="CIMPictureMarker"
+                  title="A picture from a file: PNG or JPEG, at most 256 KB and 512 × 512 pixels">+ Picture</button>
+                <input type="file" id="symPictureFile" accept="image/png,image/jpeg" hidden
+                  aria-label="The picture for a picture marker">
               </div>
+              <p class="hint" id="symPictureHint">A picture is a PNG or JPEG of at most 256 KB and
+                512 × 512 pixels. It is stored in the layer's symbology and drawn on every face.</p>
             </div>
           </div>
 

@@ -3657,7 +3657,8 @@ internal static partial class AdminEndpoints
         {
             try
             {
-                candidate = SymbologyConversion.Read(body, symbolised.Geometry).Canonical;
+                candidate = SymbologyConversion.Read(
+                    body, symbolised.Geometry, pictures: PicturesDrawnBy(symbolised.Symbology)).Canonical;
             }
             catch (SymbologyException why)
             {
@@ -3989,7 +3990,15 @@ internal static partial class AdminEndpoints
 
         try
         {
-            written = SymbologyConversion.Read(body, layer.Geometry, columns);
+            // <b>`?pictures=keep` keeps a picture this server cannot use as a loss instead of refusing it</b> —
+            // ADR-099 §5.1, for `graticula tools migrate`, which carries a real server's drawing across and must
+            // not lose a whole layer's appearance because one class names its picture by URL. The URL is kept,
+            // never fetched. Anybody else is refused with the reason, as before.
+            bool keep = string.Equals(
+                context.Request.Query["pictures"].ToString(), "keep", StringComparison.OrdinalIgnoreCase);
+
+            written = SymbologyConversion.Read(
+                body, layer.Geometry, columns, PicturesDrawnBy(layer.Symbology), keep);
         }
         catch (SymbologyException e)
         {
@@ -4050,6 +4059,20 @@ internal static partial class AdminEndpoints
                     + "from a client's rendering later.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// The pictures a layer's stored symbology draws, by the names its tile style gives them — ADR-099.
+    /// </summary>
+    /// <remarks>
+    /// <b>What a MapLibre style's <c>icon-image</c> may name when it is stored back.</b> A style carries a name
+    /// in a sprite sheet and no picture; the names this server can turn back into pictures are the ones its own
+    /// tile style published for this layer, which are the pictures the layer draws now. Changing a class's
+    /// picture in a style is therefore done by sending CIM or a <c>drawingInfo</c>, which carry the picture.
+    /// </remarks>
+    /// <param name="stored">The layer's stored document, or null.</param>
+    /// <returns>The pictures, by name.</returns>
+    private static Dictionary<string, MarkerPicture> PicturesDrawnBy(string? stored) =>
+        SpriteLayout.PicturesOf([stored]).ToDictionary(p => p.Name, StringComparer.Ordinal);
 
     /// <summary>
     /// Clears a layer's symbology, which puts back the generated appearance.

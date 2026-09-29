@@ -138,8 +138,10 @@ public static partial class CimStyle
             bool classed = false;
             SortedDictionary<string, List<double>> slides = new(StringComparer.Ordinal);
 
-            foreach (KeyValuePair<string, JsonNode?> property in
-                     layer["paint"] as JsonObject ?? [])
+            // <b>Layout as well as paint, since ADR-099.</b> A picture's class is its `icon-image`,
+            // which the style specification puts in `layout`; reading paint alone left a classified
+            // icon layer looking unclassified, and it was published as one `match` Pro cannot draw.
+            foreach (KeyValuePair<string, JsonNode?> property in Properties(layer))
             {
                 if (property.Value is not JsonArray expression
                     || (expression.ElementAtOrDefault(0) as JsonValue)?.ToString() is not { } head)
@@ -314,7 +316,7 @@ public static partial class CimStyle
 
         foreach (KeyValuePair<string, JsonNode?> property in layer)
         {
-            if (property.Key is not ("id" or "paint"))
+            if (property.Key is not ("id" or "paint" or "layout"))
             {
                 one[property.Key] = property.Value?.DeepClone();
             }
@@ -326,19 +328,43 @@ public static partial class CimStyle
         }
 
         StyleExpression.Context context = new(attributes, 0);
-        JsonObject paint = [];
 
-        foreach (KeyValuePair<string, JsonNode?> property in layer["paint"] as JsonObject ?? [])
+        // <b>Layout is settled as paint is</b> — a picture's `icon-image`, `icon-size`, `icon-rotate`
+        // and `icon-offset` are layout properties (ADR-099), and a layout with no expression in it
+        // comes out exactly as it went in.
+        if (layer["layout"] is JsonObject layout)
+        {
+            one["layout"] = SettledBlock(layout, context);
+        }
+
+        one["paint"] = SettledBlock(layer["paint"] as JsonObject ?? [], context);
+
+        return one;
+    }
+
+    /// <summary>A layer's paint and layout properties together, which is where a class can show.</summary>
+    /// <param name="layer">The style layer.</param>
+    /// <returns>Every property of both blocks.</returns>
+    private static IEnumerable<KeyValuePair<string, JsonNode?>> Properties(JsonObject layer) =>
+        (layer["paint"] as JsonObject ?? []).Concat(layer["layout"] as JsonObject ?? []);
+
+    /// <summary>One block of a layer with every expression settled for one class.</summary>
+    /// <param name="block">The paint or the layout.</param>
+    /// <param name="context">A feature of the class.</param>
+    /// <returns>The settled block.</returns>
+    private static JsonObject SettledBlock(JsonObject block, in StyleExpression.Context context)
+    {
+        JsonObject settled = [];
+
+        foreach (KeyValuePair<string, JsonNode?> property in block)
         {
             if (Settled(property.Key, property.Value, context) is { } value)
             {
-                paint[property.Key] = value;
+                settled[property.Key] = value;
             }
         }
 
-        one["paint"] = paint;
-
-        return one;
+        return settled;
     }
 
     /// <summary>One paint value, as the constant it is for one class.</summary>
@@ -374,6 +400,15 @@ public static partial class CimStyle
         if (answer is bool flag)
         {
             return JsonValue.Create(flag);
+        }
+
+        // <b>An array answer is data</b> — an `icon-offset` taken out of the `["literal", …]` a `match`
+        // output has to wear — and a constant needs no wrapping.
+        if (answer is object?[] values)
+        {
+            return new JsonArray([.. values.Select(v => StyleExpression.AsNumber(v) is { } n
+                ? (JsonNode?)Num(Math.Round(n, 3, MidpointRounding.AwayFromZero))
+                : JsonValue.Create(StyleExpression.Text(v)))]);
         }
 
         // <b>Rounded as the expression form rounds</b>: sizes to three places, as `Pixels` does,

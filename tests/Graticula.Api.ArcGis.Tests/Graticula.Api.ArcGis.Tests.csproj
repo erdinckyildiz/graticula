@@ -13,6 +13,7 @@
   <ItemGroup>
     <!-- Decodes a pbf answer without the writer's own types: ADR-073. -->
     <Compile Include="..\shared\PbfReader.cs" Link="PbfReader.cs" />
+    <Compile Include="..\shared\TestPictures.cs" Link="TestPictures.cs" />
   </ItemGroup>
 
   <ItemGroup>

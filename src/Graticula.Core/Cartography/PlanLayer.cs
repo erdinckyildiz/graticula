@@ -226,6 +226,89 @@ public abstract class PlanLayer
         }
     }
 
+    /// <summary>A picture at each point — ADR-099.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Compiled from the `symbol` layer the tile face publishes, so the two cannot disagree.</b>
+    /// The icon is looked up by the name the style gives it, which is the picture's content hash, in
+    /// the pictures the stored renderer carries; `icon-size` scales the icon's height in the sprite
+    /// sheet, exactly as a client scales it, so a marker is drawn here at the size a browser draws it.
+    /// </para>
+    /// <para>
+    /// <b>`icon-offset` is multiplied by `icon-size`</b>, as the style specification defines it, and
+    /// `icon-rotate` is clockwise.
+    /// </para>
+    /// </remarks>
+    /// <param name="image">Which icon, by its name in the sprite sheet.</param>
+    /// <param name="size">How large, as a ratio to the icon's height in the sheet.</param>
+    /// <param name="offset">How far it is moved, in the icon's unscaled pixels, or null for not at all.</param>
+    /// <param name="rotate">How far it is turned clockwise, or null for not at all.</param>
+    /// <param name="opacity">How opaque it is, or null for fully.</param>
+    /// <param name="pictures">The pictures the names stand for.</param>
+    public sealed class Icon(
+        StyleExpression image,
+        StyleExpression size,
+        StyleExpression? offset,
+        StyleExpression? rotate,
+        StyleExpression? opacity,
+        IReadOnlyDictionary<string, MarkerPicture> pictures) : PlanLayer
+    {
+        /// <inheritdoc/>
+        public override MapSymbol? Resolve(in StyleExpression.Context context)
+        {
+            if (StyleExpression.Text(image.Evaluate(context)) is not { } name
+                || !pictures.TryGetValue(name, out MarkerPicture? picture))
+            {
+                return null;
+            }
+
+            double scale = Number(size, context, 1);
+            double alpha = Math.Clamp(Number(opacity, context, 1), 0, 1);
+
+            if (scale <= 0 || alpha <= 0)
+            {
+                return null;
+            }
+
+            double dx = 0;
+            double dy = 0;
+
+            if (offset?.Evaluate(context) is object?[] { Length: 2 } pair)
+            {
+                dx = (StyleExpression.AsNumber(pair[0]) ?? 0) * scale;
+                dy = (StyleExpression.AsNumber(pair[1]) ?? 0) * scale;
+            }
+
+            return new MapSymbol.Picture(
+                picture,
+                picture.SheetWidth * scale,
+                picture.SheetHeight * scale,
+                dx,
+                dy,
+                Number(rotate, context, 0),
+                alpha);
+        }
+
+        /// <inheritdoc/>
+        public override void Fields(ISet<string> into)
+        {
+            image.Fields(into);
+            size.Fields(into);
+            offset?.Fields(into);
+            rotate?.Fields(into);
+            opacity?.Fields(into);
+        }
+
+        /// <inheritdoc/>
+        public override void Classes(ICollection<StyleExpression.Classification> into)
+        {
+            // <b>Which picture is the class</b>, so a unique-value renderer of icons gets a legend row
+            // per icon, as one of colours gets a row per colour.
+            image.Classes(into);
+            size.Classes(into);
+        }
+    }
+
     /// <summary>A density surface over points.</summary>
     /// <remarks>
     /// <para>

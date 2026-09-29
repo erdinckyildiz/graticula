@@ -150,16 +150,28 @@ public static class Cim
     /// <summary>
     /// Projects a CIM renderer onto what this server can draw.
     /// </summary>
+    /// <remarks>
+    /// <b>Strict on the way in, tolerant on the way out — ADR-099 §5.1.</b> A picture this server cannot
+    /// use — a URL, an SVG, a picture past the bounds, bytes that are not a picture — is refused when a
+    /// document is <i>written</i>, with the reason, because that is when somebody can act on it. A document
+    /// already <i>stored</i> is read with the picture as a loss: the rest of the renderer projects, and the
+    /// layer does not fall back to its generated appearance because of one symbol layer, which would change
+    /// a live map's look with nobody asking. So every face reads with <paramref name="strict"/> false and
+    /// only the write path passes true.
+    /// </remarks>
     /// <param name="body">The stored renderer.</param>
+    /// <param name="strict">
+    /// True on a write: an unusable picture, or pictures past the layer's bound, are refused.
+    /// </param>
     /// <returns>The projection, and one sentence per thing it could not carry.</returns>
-    public static CimProjection Project(JsonObject body)
+    public static CimProjection Project(JsonObject body, bool strict = false)
     {
         ArgumentNullException.ThrowIfNull(body);
 
-        List<string> notDrawn = [];
+        ReadLosses notDrawn = new();
         string kind = Text(body["type"]) ?? string.Empty;
 
-        return kind switch
+        CimProjection projection = kind switch
         {
             Simple => ProjectSimple(body, notDrawn) with { Vary = Varying(body, notDrawn) },
             UniqueValue => ProjectUniqueValue(body, notDrawn) with
@@ -184,6 +196,46 @@ public static class Cim
                 + "server does not hold, and a representation renderer needs a geodatabase's "
                 + "representation classes. Neither is a matter of effort."),
         };
+
+        if (strict)
+        {
+            if (notDrawn.Refused.Count > 0)
+            {
+                throw new SymbologyException(notDrawn.Refused[0]);
+            }
+
+            Bounded(projection);
+        }
+
+        return projection;
+    }
+
+    /// <summary>Refuses a renderer whose pictures together are more than one layer may carry.</summary>
+    /// <remarks>
+    /// <b>Counted per distinct picture, not per use.</b> A unique-value renderer that draws forty
+    /// classes with one icon stores that icon forty times in the document but draws one picture, and
+    /// the generated sprite sheet holds it once. The bound is on what the pictures cost a reader of
+    /// the document — ADR-099 §5.1 — and the per-picture bound was already applied as each was read.
+    /// </remarks>
+    /// <param name="projection">The projection.</param>
+    /// <exception cref="SymbologyException">The pictures are larger than the bound.</exception>
+    private static void Bounded(CimProjection projection)
+    {
+        long total = 0;
+
+        foreach (MarkerPicture picture in projection.Pictures())
+        {
+            total += picture.Bytes.Length;
+        }
+
+        if (total > MarkerPicture.MaximumLayerBytes)
+        {
+            throw new SymbologyException(
+                $"The renderer's pictures are {total.ToString("N0", CultureInfo.InvariantCulture)} "
+                + $"bytes together, and one layer's may be at most {MarkerPicture.MaximumLayerBytes / 1024} "
+                + "KB. They travel inside the layer's symbology document, which every face reads; use "
+                + "smaller pictures, or fewer distinct ones.");
+        }
     }
 
     /// <summary>One symbol for every feature.</summary>
@@ -381,6 +433,11 @@ public static class Cim
             if (paint is CimMarker marker)
             {
                 return marker.Size;
+            }
+
+            if (paint is CimPicture picture)
+            {
+                return picture.Size;
             }
         }
 
@@ -1282,6 +1339,9 @@ public static class Cim
         List<CimPaint> paints = [];
         double[]? dashes = null;
 
+        // The size of the first picture marker that could not be used, when one could not.
+        double? unusable = null;
+
         foreach (JsonObject effect in Objects(symbol["effects"]))
         {
             if (Text(effect["type"]) == "CIMGeometricEffectDashes")
@@ -1326,11 +1386,23 @@ public static class Cim
                         MarkerColour(part, where, notDrawn)));
                     break;
 
+                case "CIMPictureMarker":
+                    if (Picture(part, where, notDrawn) is { } picture)
+                    {
+                        paints.Add(picture);
+                    }
+                    else
+                    {
+                        unusable ??= Number(part["size"]) is { } size && size > 0 ? size : 8;
+                    }
+
+                    break;
+
                 default:
                     notDrawn.Add(
                         $"The symbol at {where} has a `{Text(part["type"]) ?? "(unnamed)"}` "
-                        + "layer. This server paints solid fills, solid strokes and vector "
-                        + "markers, so that layer is not drawn. It is kept in the stored "
+                        + "layer. This server paints solid fills, solid strokes, vector markers and "
+                        + "picture markers, so that layer is not drawn. It is kept in the stored "
                         + "document.");
                     break;
             }
@@ -1346,14 +1418,131 @@ public static class Cim
         // under it and there would be nothing anywhere to say so.
         paints.Reverse();
 
+        // <b>A symbol that was only an unusable picture is drawn as a grey marker of its size — ADR-099 §5.1.</b>
+        // Before ADR-099 this was the "no layer this server can paint with" refusal below, which on a read sends
+        // the whole layer to its generated appearance. That was harmless while such a document could not be
+        // stored; one kept by `graticula tools migrate` from a picture the source server gave only by URL can
+        // be, and a stored layer must not change its look on its own. The grey is what this reader already
+        // draws a marker in when it cannot read the marker's colour.
+        if (paints.Count == 0 && unusable is { } kept)
+        {
+            paints.Add(new CimMarker(kept, new Rgba(136, 136, 136, 255)));
+        }
+
         if (paints.Count == 0)
         {
             throw new SymbologyException(
                 $"The symbol at {where} has no layer this server can paint with. It reads "
-                + "`CIMSolidFill`, `CIMSolidStroke` and `CIMVectorMarker`.");
+                + "`CIMSolidFill`, `CIMSolidStroke`, `CIMVectorMarker` and `CIMPictureMarker`.");
         }
 
         return new CimSymbol(paints);
+    }
+
+    /// <summary>A <c>CIMPictureMarker</c>, with its picture read and bounded.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ADR-099: carried rather than reported.</b> Until 2026-09-29 this layer fell to the default
+    /// branch above and was listed as not drawn, so a point symbol made only of a picture was refused
+    /// for having nothing to paint with and one with a picture over a circle drew the circle. The
+    /// picture is read out of <c>url</c>, which must be a <c>data:</c> URI; an address is refused,
+    /// never fetched (<see cref="MarkerPicture.FromUrl"/>).
+    /// </para>
+    /// <para>
+    /// <b>The rotation is stored counter-clockwise, which is CIM's default.</b> A CIM marker turns
+    /// counter-clockwise unless <c>rotateClockwise</c> says otherwise, so a clockwise one is turned
+    /// round here once and every face reads one convention. <c>size</c> is the picture's height in
+    /// points and <c>scaleX</c> stretches its width, per the specification's
+    /// <c>CIMPictureMarker</c>.
+    /// </para>
+    /// </remarks>
+    /// <param name="part">The marker layer.</param>
+    /// <param name="where">Where this symbol sits.</param>
+    /// <param name="notDrawn">Collects what could not be carried, and on a write what was refused.</param>
+    /// <returns>The paint, or null when the picture cannot be used.</returns>
+    private static CimPicture? Picture(JsonObject part, string where, List<string> notDrawn)
+    {
+        MarkerPicture picture;
+
+        try
+        {
+            picture = MarkerPicture.FromUrl(Text(part["url"]), where);
+        }
+        catch (SymbologyException why)
+        {
+            // <b>Refused on a write, a loss on a read</b> — see <see cref="Project"/>. The reason is the same
+            // sentence either way, so what a reader of the losses learns is what a writer would have been told.
+            if (notDrawn is ReadLosses read)
+            {
+                read.Refused.Add(why.Message);
+            }
+
+            notDrawn.Add(
+                why.Message + " This picture is kept in the stored document and not drawn; where it was the "
+                + "symbol's only layer, a grey marker of its size is drawn in its place.");
+
+            return null;
+        }
+
+        double rotation = Number(part["rotation"]) ?? 0;
+
+        if (part["rotateClockwise"] is JsonValue turn && turn.TryGetValue(out bool clockwise) && clockwise)
+        {
+            rotation = -rotation;
+        }
+
+        double scaleX = Number(part["scaleX"]) is { } stretch && stretch > 0 ? stretch : 1;
+
+        if (part["tintColor"] is JsonObject tint
+            && Colour(tint, where, []) is var tinted
+            && !(tinted.R == 255 && tinted.G == 255 && tinted.B == 255))
+        {
+            notDrawn.Add(
+                $"The picture marker at {where} is tinted. This server draws the picture in its own "
+                + "colours, so the tint is kept in the stored document and not drawn.");
+        }
+
+        if (part["anchorPoint"] is JsonObject anchor
+            && ((Number(anchor["x"]) ?? 0) != 0 || (Number(anchor["y"]) ?? 0) != 0))
+        {
+            notDrawn.Add(
+                $"The picture marker at {where} is anchored off its centre. This server centres a "
+                + "picture on its point and moves it by `offsetX` and `offsetY` only, so the anchor "
+                + "is kept in the stored document and not drawn.");
+        }
+
+        return new CimPicture(
+            picture,
+            Number(part["size"]) is { } size && size > 0 ? size : 8,
+            scaleX,
+            Number(part["offsetX"]) ?? 0,
+            Number(part["offsetY"]) ?? 0,
+            rotation);
+    }
+
+    /// <summary>Writes a <c>CIMPictureMarker</c>, the inverse of <see cref="Picture"/>.</summary>
+    /// <remarks>
+    /// <b>Counter-clockwise, and so without <c>rotateClockwise</c></b>, which is the specification's
+    /// default and what <see cref="Picture"/> normalises every marker to.
+    /// </remarks>
+    /// <param name="picture">The picture and how it is drawn.</param>
+    /// <returns>The symbol layer.</returns>
+    public static JsonObject PictureLayer(CimPicture picture)
+    {
+        ArgumentNullException.ThrowIfNull(picture);
+
+        return new JsonObject
+        {
+            ["type"] = "CIMPictureMarker",
+            ["enable"] = true,
+            ["anchorPointUnits"] = "Relative",
+            ["size"] = Num(picture.Size),
+            ["scaleX"] = Num(picture.ScaleX),
+            ["rotation"] = Num(picture.Rotation),
+            ["offsetX"] = Num(picture.OffsetX),
+            ["offsetY"] = Num(picture.OffsetY),
+            ["url"] = picture.Picture.DataUri,
+        };
     }
 
     /// <summary>A stroke's own dash template, when it carries one.</summary>
@@ -1574,6 +1763,20 @@ public static class Cim
     }
 }
 
+/// <summary>
+/// What a reader could not carry, and — separately — what a write must refuse.
+/// </summary>
+/// <remarks>
+/// <b>One list for both, because a sentence about an unusable picture is the same sentence whether it is
+/// a refusal or a loss</b> (ADR-099 §5.1). The readers add a picture they cannot use to
+/// <see cref="Refused"/> as well as to the losses, and only the caller knows which it is.
+/// </remarks>
+internal sealed class ReadLosses : List<string>
+{
+    /// <summary>The reasons a write would be refused, in the order they were met.</summary>
+    public List<string> Refused { get; } = [];
+}
+
 /// <summary>What a CIM renderer says, in the terms this server draws in.</summary>
 /// <param name="Kind">Which of the three renderers it is.</param>
 /// <param name="Field">The field it classifies by, or null for a simple renderer.</param>
@@ -1738,6 +1941,42 @@ public sealed record CimProjection(
         return named;
     }
 
+    /// <summary>
+    /// Every distinct picture this renderer draws, in the order its symbols first name them.
+    /// </summary>
+    /// <remarks>
+    /// <b>The classes, the default symbol and a chart's base, which are every place a symbol can
+    /// be.</b> The raster faces look a picture up by <see cref="MarkerPicture.Name"/>, the tile face
+    /// packs each into the service's sprite sheet under that name, and the per-layer bound is counted
+    /// over this list — three readers that must agree on what the pictures are.
+    /// </remarks>
+    /// <returns>The pictures, without repeats.</returns>
+    public IReadOnlyList<MarkerPicture> Pictures()
+    {
+        List<MarkerPicture> found = [];
+
+        void From(CimSymbol? symbol)
+        {
+            foreach (CimPaint paint in symbol?.Paints ?? [])
+            {
+                if (paint is CimPicture picture && !found.Contains(picture.Picture))
+                {
+                    found.Add(picture.Picture);
+                }
+            }
+        }
+
+        foreach (CimClass one in Classes)
+        {
+            From(one.Symbol);
+        }
+
+        From(Default);
+        From(Pie?.Base);
+
+        return found;
+    }
+
     /// <summary>The chart, for a chart renderer. Null for every other.</summary>
     public CimPie? Pie { get; init; }
 
@@ -1883,3 +2122,27 @@ public sealed record CimStroke(
 /// <param name="Size">Across, in points.</param>
 /// <param name="Colour">What it is filled with.</param>
 public sealed record CimMarker(double Size, Rgba Colour) : CimPaint;
+
+/// <summary>A point marker drawn with a picture.</summary>
+/// <remarks>
+/// <b>ADR-099.</b> The picture's own colours are what is drawn, so there is no colour here; what a
+/// renderer can vary between classes is which picture, how large, how far off the point and how
+/// turned.
+/// </remarks>
+/// <param name="Picture">The picture, already read and bounded.</param>
+/// <param name="Size">Its height, in points.</param>
+/// <param name="ScaleX">How much its width is stretched beyond its own proportions; 1 for none.</param>
+/// <param name="OffsetX">How far right of the point it is drawn, in points.</param>
+/// <param name="OffsetY">How far above the point it is drawn, in points.</param>
+/// <param name="Rotation">How far it is turned, in degrees counter-clockwise.</param>
+public sealed record CimPicture(
+    MarkerPicture Picture,
+    double Size,
+    double ScaleX,
+    double OffsetX,
+    double OffsetY,
+    double Rotation) : CimPaint
+{
+    /// <summary>Its width in points: its height, in the picture's own proportions, stretched.</summary>
+    public double Width => Size * Picture.Aspect * ScaleX;
+}

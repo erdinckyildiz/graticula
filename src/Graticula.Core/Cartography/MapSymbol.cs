@@ -49,6 +49,29 @@ public abstract record MapSymbol
     public sealed record Marker(
         Rgba Colour, double Radius, Rgba OutlineColour, double OutlineWidth) : MapSymbol;
 
+    /// <summary>A picture drawn at a point — ADR-099.</summary>
+    /// <remarks>
+    /// <b>The offset turns with the picture</b>, which is what the style specification says of
+    /// `icon-offset` combined with `icon-rotate`, so the raster faces and the tile face put a turned,
+    /// offset icon in the same place. Whether ArcGIS turns the offset too is not something its
+    /// published documents say; <b>INFERRED</b>, ADR-099 §5.3.
+    /// </remarks>
+    /// <param name="Image">The picture, encoded; decoding it is the rasteriser's job.</param>
+    /// <param name="Width">How wide it is drawn, in pixels.</param>
+    /// <param name="Height">How tall it is drawn, in pixels.</param>
+    /// <param name="OffsetX">How far right of the point its centre is, in pixels, before turning.</param>
+    /// <param name="OffsetY">How far below the point its centre is, in pixels, before turning.</param>
+    /// <param name="Rotation">How far it is turned, in degrees clockwise.</param>
+    /// <param name="Opacity">How opaque it is drawn, from 0 to 1.</param>
+    public sealed record Picture(
+        MarkerPicture Image,
+        double Width,
+        double Height,
+        double OffsetX,
+        double OffsetY,
+        double Rotation,
+        double Opacity) : MapSymbol;
+
     /// <summary>Text drawn beside a feature.</summary>
     /// <remarks>
     /// <b>The halo is not decoration.</b> Unhaloed text over a busy map is

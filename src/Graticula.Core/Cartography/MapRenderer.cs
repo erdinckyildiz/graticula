@@ -469,6 +469,9 @@ public sealed class MapRenderer
             case MapSymbol.Marker marker:
                 return Markers(geometry, marker);
 
+            case MapSymbol.Picture picture:
+                return Pictures(geometry, picture);
+
             case MapSymbol.Label label:
                 return Label(layer, geometry, label, context);
 
@@ -525,6 +528,38 @@ public sealed class MapRenderer
                 if (GeometryMeasures.LabelPoint(geometry) is { } anchor)
                 {
                     _canvas.DrawMarker(_transform.X(anchor.X), _transform.Y(anchor.Y), symbol);
+                    return true;
+                }
+
+                return false;
+        }
+    }
+
+    /// <summary>Draws a picture at each point of a geometry — ADR-099.</summary>
+    /// <remarks>
+    /// <b>The same places a circle marker takes</b>: every part of a multipoint, and the label point of
+    /// a line or an area, so a picture renderer over a mixed layer draws where a marker renderer would.
+    /// </remarks>
+    private bool Pictures(Geometry geometry, MapSymbol.Picture symbol)
+    {
+        switch (geometry)
+        {
+            case Graticula.Geometries.Point point:
+                _canvas.DrawPicture(_transform.X(point.X), _transform.Y(point.Y), symbol);
+                return true;
+
+            case MultiPoint many:
+                foreach (Graticula.Geometries.Point part in many.Parts)
+                {
+                    _canvas.DrawPicture(_transform.X(part.X), _transform.Y(part.Y), symbol);
+                }
+
+                return many.Parts.Count > 0;
+
+            default:
+                if (GeometryMeasures.LabelPoint(geometry) is { } anchor)
+                {
+                    _canvas.DrawPicture(_transform.X(anchor.X), _transform.Y(anchor.Y), symbol);
                     return true;
                 }
 

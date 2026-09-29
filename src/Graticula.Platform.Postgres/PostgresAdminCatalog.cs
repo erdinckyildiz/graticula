@@ -1974,6 +1974,30 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlyList<string>> ListLayerSymbologiesAsync(
+        Guid serviceId, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "select l.symbology from layer l "
+            + "where l.service_id = @service and l.symbology is not null "
+            + "order by l.layer_index, l.name");
+
+        command.Parameters.AddWithValue("service", serviceId);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        List<string> documents = [];
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            documents.Add(reader.GetString(0));
+        }
+
+        return documents;
+    }
+
+    /// <inheritdoc/>
     public async Task<StoredSprite?> FindSpriteAsync(
         string? folder, string name, int pixelRatio, bool withImage, CancellationToken cancellationToken)
     {
