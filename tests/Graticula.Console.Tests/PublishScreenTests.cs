@@ -628,6 +628,13 @@ public sealed class PublishScreenTests : ConsoleTest
             await Browser.EvaluateAsync<string>(
                 "document.activeElement?.getAttribute('data-pubact') || ''"));
 
+        // <b>Redrawn while the menu is open, on purpose rather than by luck.</b> The tree is
+        // rewritten whenever the reference's name or a layer's extent comes back from the server,
+        // and when that landed inside this test the button the menu came from was gone. It failed
+        // one run in four on 2026-09-24 and once over an SSH tunnel on 2026-09-29, each time on
+        // the network's timing; forcing the redraw makes both orders happen on every run.
+        await Browser.EvaluateAsync<bool>("(pubDraw(), true)");
+
         await Browser.EvaluateAsync<bool>("""
         (() => {
           document.activeElement.dispatchEvent(new KeyboardEvent("keydown",
@@ -640,6 +647,15 @@ public sealed class PublishScreenTests : ConsoleTest
             "document.activeElement?.id === 'pubRootMenu'",
             "Escape shut the menu and left focus inside it — which for a keyboard user is focus "
             + "on nothing, at the end of the document, with no way back but Tab.");
+
+        // <b>And redrawn again after Escape, which is the order the SSH tunnel produced.</b> Focus
+        // was on the button, the late answer rewrote the tree, and the button focus was on no
+        // longer existed.
+        await Browser.EvaluateAsync<bool>("(pubDraw(), true)");
+
+        Assert.Equal(
+            "pubRootMenu",
+            await Browser.EvaluateAsync<string>("document.activeElement?.id || ''"));
 
         NothingWentWrong(await PageErrorsAsync());
     }

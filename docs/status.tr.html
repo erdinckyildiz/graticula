@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>ba4b3c4</code> · 2026-09-29 14:26</p>
+<p class="stamp">Şu commit’ten üretildi: <code>896dce8</code> · 2026-09-29 15:16</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">98</div><div class="kpi-l">ADR</div><div class="kpi-n">24 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">235/313</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">75 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
-<div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık borç</div><div class="kpi-n">265 ödendi · 6 tetiğini bekliyor · 2 kısmen</div></div>
+<div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık borç</div><div class="kpi-n">266 ödendi · 6 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">4166</div><div class="kpi-l">test</div><div class="kpi-n">399 kaynak dosya, 176,141 satır</div></div>
@@ -319,7 +319,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-282</td><td>An exported tile package lives on the server that wrote it, and the console&#x27;s download holds it in the browser&#x27;s memory.</td><td class="muted-t">A deployment runs more than one server against one catalogue and exports; or an operator reports the console failing on…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-285</td><td>ArcGIS Pro names a vector tile service added by its URL &quot;Vector Tile Layer&quot;, not after the service.</td><td class="muted-t">Already fired.</td><td><span class="pill cond">PARTLY</span></td></tr>
 </tbody></table></div>
-<p class="sub">265 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">266 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -430,6 +430,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.5%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>896dce8</code><time>2026-09-29</time><span>A line shorter than a pixel stays in its tile, so a boundary made of short pieces is drawn whole</span></li>
 <li><code>ba4b3c4</code><time>2026-09-29</time><span>An expired tile stands in while its source refuses, and a service may have a cache quota</span></li>
 <li><code>2c82fa3</code><time>2026-09-29</time><span>A vector tile service can be exported as a VTPK or PMTiles package for offline use</span></li>
 <li><code>298a9ef</code><time>2026-09-29</time><span>Vector tiles are served through OGC API Tiles, TileJSON and WMTS as well</span></li>
@@ -443,7 +444,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>0f8d687</code><time>2026-09-29</time><span>A tile&#x27;s ETag is weak, because a compressed tile is not byte-identical</span></li>
 <li><code>738e461</code><time>2026-09-29</time><span>A vector tile service can carry an uploaded sprite sheet, so a style may draw icons</span></li>
 <li><code>a761c60</code><time>2026-09-29</time><span>The tile pipeline&#x27;s recorded hash follows a comment, and its version does not move</span></li>
-<li><code>59266bd</code><time>2026-09-28</time><span>Vector tiles, glyphs and pbf query answers are compressed, because the benchmark said so</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

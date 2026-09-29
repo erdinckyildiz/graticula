@@ -16237,13 +16237,18 @@ function pubMenuShut() {
   // extent or preview arrives, which can happen while the menu is open; the root row's button is then a
   // new element with the same id, and the one remembered is gone — so Escape put focus nowhere. CI caught
   // it one run in four (2026-09-24), which is how often a redraw landed inside the test's half-second.
-  const back = pubMenuCameFrom?.isConnected
-    ? pubMenuCameFrom
-    : (pubMenuCameFrom?.id ? document.getElementById(pubMenuCameFrom.id) : null);
+  //
+  // <b>Found again by what identified it, not only by id.</b> The first repair looked the opener up
+  // by id, and a Contents row has none — opened from a row with the context-menu key, a redraw
+  // while the menu was open still left Escape with nowhere to go. {@link pubFocusHeld} is how
+  // `pubDraw` finds the same row again, so the menu uses it too (2026-09-29). A redraw *after*
+  // Escape is `pubDraw`'s to survive, and it does, for the same reason.
+  const back = pubMenuCameFrom?.isConnected ? pubMenuCameFrom : pubFocusFind(pubMenuCameFromHeld);
 
   if (inside && back) back.focus();
 
   pubMenuCameFrom = null;
+  pubMenuCameFromHeld = null;
 }
 
 /**
@@ -16333,12 +16338,16 @@ function pubMenuAt(x, y, id) {
   // tabbing to it means tabbing past every control of every layer ahead of it. ADR-057
   // condition 3 is about compositions of a thousand layers.
   pubMenuCameFrom = document.activeElement;
+  pubMenuCameFromHeld = pubFocusHeld(pubMenuCameFrom);
 
   menu.querySelector("[data-pubact]:not([disabled])")?.focus();
 }
 
 /** Where focus was when the menu opened, so Escape can put it back. */
 let pubMenuCameFrom = null;
+
+/** The same place as {@link pubMenuCameFrom}, described so that a redraw cannot lose it. */
+let pubMenuCameFromHeld = null;
 
 /**
  * Arrow keys, Home and End inside the menu, which is what its role advertises.
@@ -16576,12 +16585,21 @@ function pubPick(id, event) {
  * <b>An attribute rather than the element.</b> The element is about to stop existing; what
  * survives the redraw is what identified it.
  *
+ * <b>A control with an id first, and only inside the two panes this rewrites.</b> The root row's
+ * own button is not a row and carries none of the row attributes, so a redraw took the cursor
+ * off it: Escape shut the menu and put focus back on `#pubRootMenu`, and then the
+ * reference's name arrived from the server, `pubReference` redrew the tree, and the button focus
+ * had just been given to stopped existing. Over a slow link that answer lands after Escape rather
+ * than before it, which is why the keyboard walk failed once over an SSH tunnel and never
+ * locally (2026-09-29). An id outside the panes is left alone, because nothing here rewrites it.
+ *
+ * @param {?Element} [active] the element to describe; the focused one when left out
  * @returns {?{what: string, which: string}} the attribute and its value, or null
  */
-function pubFocusHeld() {
-  const active = document.activeElement;
-
+function pubFocusHeld(active = document.activeElement) {
   if (!active?.closest) return null;
+
+  if (active.id && active.closest("#pubTree, #pubDbTree")) return { what: "id", which: active.id };
 
   for (const what of ["data-pubnode", "data-pubdb", "data-pubschema", "data-pubtable"]) {
     const row = active.closest(`[${what}]`);
@@ -16603,9 +16621,19 @@ function pubFocusHeld() {
  * @returns {void}
  */
 function pubFocusRestore(held) {
-  if (!held) return;
+  pubFocusFind(held)?.focus?.();
+}
 
-  document.querySelector(`[${held.what}="${CSS.escape(held.which)}"]`)?.focus?.();
+/**
+ * The element a {@link pubFocusHeld} description names now, after however many redraws.
+ *
+ * @param {?{what: string, which: string}} held what {@link pubFocusHeld} returned
+ * @returns {?Element} the element, or null when it no longer exists
+ */
+function pubFocusFind(held) {
+  if (!held) return null;
+
+  return document.querySelector(`[${held.what}="${CSS.escape(held.which)}"]`);
 }
 
 function pubDraw() {
