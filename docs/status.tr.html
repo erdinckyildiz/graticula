@@ -110,29 +110,30 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>c61f61c</code> · 2026-09-29 23:42</p>
+<p class="stamp">Şu commit’ten üretildi: <code>dd38e1d</code> · 2026-09-30 01:18</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">100</div><div class="kpi-l">ADR</div><div class="kpi-n">26 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">238/313</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">72 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">101</div><div class="kpi-l">ADR</div><div class="kpi-n">26 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">238/317</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">76 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">267 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4268</div><div class="kpi-l">test</div><div class="kpi-n">404 kaynak dosya, 179,019 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4283</div><div class="kpi-l">test</div><div class="kpi-n">404 kaynak dosya, 179,269 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">86 madde</span></div><p><b>72 ADR conditions</b> outstanding across 48 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">90 madde</span></div><p><b>76 ADR conditions</b> outstanding across 49 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-078 · A hosted layer can keep its histor</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">6</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">4</div></div>
+<div class="bar"><div class="bar-l">ADR-101 · Studio is walked the way a Portal </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-086 · The operator chooses the map groun</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
@@ -297,6 +298,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">098</td><td>Vector tiles can be exported as a package</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — both formats are written from their published specifications and read back in…</td><td class="num">2/3</td></tr>
 <tr><td class="id">099</td><td>Picture markers are drawn on every face</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — every face is written and unit-tested, and the Skia drawing is read back from…</td><td class="num"></td></tr>
 <tr><td class="id">100</td><td>Labels in more scripts</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the glyph ranges are generated, decoded and pinned by tests, and the raster…</td><td class="num"></td></tr>
+<tr><td class="id">101</td><td>Studio is walked the way a Portal user walks it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every change below was reproduced in a browser before it was made and is pinned…</td><td class="num">0/4</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -418,21 +420,24 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1178</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:63.8%"></div></div><div class="bar-n">751</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.5%"></div></div><div class="bar-n">618</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:44.0%"></div></div><div class="bar-n">518</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:34.5%"></div></div><div class="bar-n">406</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:18.3%"></div></div><div class="bar-n">215</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1180</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:63.6%"></div></div><div class="bar-n">751</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.7%"></div></div><div class="bar-n">622</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.9%"></div></div><div class="bar-n">518</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:34.4%"></div></div><div class="bar-n">406</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:19.0%"></div></div><div class="bar-n">224</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:17.5%"></div></div><div class="bar-n">206</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:10.5%"></div></div><div class="bar-n">124</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.8%"></div></div><div class="bar-n">115</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.7%"></div></div><div class="bar-n">115</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:4.2%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.9%"></div></div><div class="bar-n">46</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>dd38e1d</code><time>2026-09-30</time><span>The Share dialog keeps the level chosen before the group screen, and Owner with a group is saved as the group scope</span></li>
+<li><code>c89b9fd</code><time>2026-09-30</time><span>A purged layer&#x27;s tiles are moved aside in one rename, so a delete that fails part-way no longer leaves tiles a read serves</span></li>
+<li><code>6cb3ef1</code><time>2026-09-30</time><span>A tile size guess reads another grid&#x27;s level by its pixel, so a TUREF export is no longer estimated at 85 GB</span></li>
 <li><code>c61f61c</code><time>2026-09-29</time><span>README: an edit through this server empties a layer&#x27;s tiles at once; the lag is for edits made in another tool</span></li>
 <li><code>b556434</code><time>2026-09-29</time><span>A PMTiles archive&#x27;s header states the levels that have tiles, so pmtiles verify accepts it</span></li>
 <li><code>4b0bc9f</code><time>2026-09-29</time><span>ADR-100: labels in more scripts — Arabic, Hebrew, Armenian, Georgian, Devanagari, Bengali, Tamil and Thai</span></li>
@@ -444,9 +449,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>6ad848d</code><time>2026-09-29</time><span>Focus stays on the Publish screen&#x27;s root button when the tree is redrawn after Escape</span></li>
 <li><code>896dce8</code><time>2026-09-29</time><span>A line shorter than a pixel stays in its tile, so a boundary made of short pieces is drawn whole</span></li>
 <li><code>ba4b3c4</code><time>2026-09-29</time><span>An expired tile stands in while its source refuses, and a service may have a cache quota</span></li>
-<li><code>2c82fa3</code><time>2026-09-29</time><span>A vector tile service can be exported as a VTPK or PMTiles package for offline use</span></li>
-<li><code>298a9ef</code><time>2026-09-29</time><span>Vector tiles are served through OGC API Tiles, TileJSON and WMTS as well</span></li>
-<li><code>fee27af</code><time>2026-09-29</time><span>ArcGIS Pro draws a classified tile style, and a service may be tiled on a TUREF grid</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

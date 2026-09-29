@@ -1244,6 +1244,24 @@ public interface IAdminCatalog
         SharingScope sharing,
         CancellationToken cancellationToken);
 
+    /// <summary>Replaces a service's description, addressed by folder and name.</summary>
+    /// <param name="serviceName">The service.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="description">The new text, or null to clear it.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>True when the service exists and was changed.</returns>
+    /// <remarks>
+    /// <b>2026-09-30: the column existed and nothing wrote it after publishing.</b> The item page said
+    /// <i>No description. A service with one is easier to find</i> and offered no way to give it one; the
+    /// only writer was the publish composition. Portal edits an item's summary and description from its
+    /// page, and so does Studio now.
+    /// </remarks>
+    Task<bool> SetServiceDescriptionAsync(
+        string serviceName,
+        string? folder,
+        string? description,
+        CancellationToken cancellationToken);
+
     /// <summary>Changes a service's sharing scope, addressed by one of its layers.</summary>
     /// <param name="layerId">A layer in the service, by catalogue id.</param>
     /// <param name="sharing">The new scope.</param>

@@ -2245,6 +2245,31 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     /// statement that replaces it — the same reason <see cref="SetSharingAsync"/> is written this
     /// way.
     /// </remarks>
+    public async Task<bool> SetServiceDescriptionAsync(
+        string serviceName,
+        string? folder,
+        string? description,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
+        // Matched as SetServiceSharingAsync matches: case-insensitive, the folder through `coalesce`.
+        const string Sql = """
+            update service
+               set description = @description, updated_at = now()
+             where lower(name) = lower(@name)
+               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("description", (object?)description ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<SharingScope?> SetServiceSharingAsync(
         string serviceName,
         string? folder,

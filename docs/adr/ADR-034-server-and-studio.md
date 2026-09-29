@@ -10,6 +10,8 @@
 | **Amends** | [ADR-020](ADR-020-admin-console-and-service-status.md) — one console becomes two surfaces over the same API |
 
 
+> **Amended 2026-09-30 by [ADR-101](ADR-101-studio-is-walked-the-way-a-portal-user-walks-it.md).** Studio's sidebar has *Map*, a link to the web map viewer after *My content* — Portal has Map beside Content, and the viewer was reachable only from under the content table. The split this ADR decides is unchanged.
+
 > **Amended 2026-09-25 by [ADR-091](ADR-091-server-sidebar-five-rows.md).** Server's sidebar is five rows —
 > Services, Data sources, Members, Settings, Operations. Roles, Sign-in and Apps are pages of Settings,
 > Logs is a page of Operations and Publish a page of Services. Every screen keeps its address and its

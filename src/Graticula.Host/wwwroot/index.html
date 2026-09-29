@@ -474,7 +474,7 @@
 
       <div id="serverMain">
         <div class="toolbar">
-          <input type="search" id="serviceFilter" placeholder="Filter services in this folder&hellip;"
+          <input type="search" id="serviceFilter" placeholder="Search services in every folder&hellip;"
                  autocomplete="off">
           <span class="val" id="serviceCount"></span>
           <span style="flex:1"></span>
@@ -540,7 +540,13 @@
         <h2>My content</h2>
         <p>What you own, and what other people have shared with you.</p>
       </div>
-      <div class="right"><div id="pageActionContent"></div></div>
+      <!--
+        <b>New map beside New item, 2026-09-30.</b> It was at the foot of a second table under every
+        service, so the way to start a map moved further away with each thing published — the design
+        review measured it as a scroll that grows with the content. Maps are rows of the one list now.
+      -->
+      <div class="right"><button class="ghost" id="newMap" type="button"><span
+        class="plus" aria-hidden="true">+</span>New map</button><div id="pageActionContent"></div></div>
     </div>
 
     <!--
@@ -572,48 +578,42 @@
     -->
     <nav class="tabstrip" id="contentScopes" aria-label="Content"></nav>
 
+    <!--
+      <b>Search, type and order are always there, 2026-09-30.</b> The search box appeared only once a
+      scope held more than one page, so it was absent exactly when a new user looked for it, and the
+      rows came in the order of the service path — case-sensitive, so a layer just uploaded landed last.
+      Portal's list opens newest first with the search box in place, and so does this one.
+    -->
     <div class="toolbar">
-      <input type="search" id="contentFilter" placeholder="Search your content&hellip;"
-             autocomplete="off" hidden>
+      <input type="search" id="contentFilter" placeholder="Search by name, owner or folder&hellip;"
+             autocomplete="off" aria-label="Search your content">
+      <select id="contentType" aria-label="Type"><option value="">All types</option></select>
+      <select id="contentSort" aria-label="Order">
+        <option value="modified">Newest first</option>
+        <option value="title">Name A&ndash;Z</option>
+        <option value="type">Type</option>
+      </select>
       <span class="val" id="contentCount"></span>
     </div>
 
-    <p class="hint" id="contentNote"></p>
+    <p class="hint" id="contentNote" role="status" aria-live="polite"></p>
 
+    <!--
+      <b>Five columns, where there were seven.</b> *Where* repeated the folder on every row and
+      *Status* said "started" on every row; both are now in the line under the name, and a stopped
+      service says so there in red. Saved maps are rows of this table rather than a second table below
+      it (ADR-079 §5.5 kept them apart on the grounds that four of seven cells would be blank; with five,
+      a map fills all of them).
+    -->
     <div class="panel widetable">
       <table>
         <thead><tr>
-          <th colspan="2">Layer</th><th>Where</th><th>Status</th>
-          <th>Sharing</th><th>Last change</th><th></th>
+          <th colspan="2">Name</th><th>Sharing</th><th>Modified</th><th></th>
         </tr></thead>
         <tbody id="contentRows"></tbody>
       </table>
     </div>
     <div id="contentRowsPager"></div>
-
-    <!--
-      <b>Maps, beside the services — ADR-079 §5.5.</b> A saved web map is an item with no service
-      behind it, so it is not a row of the table above (which is one row per service and draws a
-      thumbnail from a layer). Its own short list, with the one verb that makes one.
-    -->
-    <div class="pagehead" style="margin-top:22px">
-      <div>
-        <h2 style="font-size:16px">Maps</h2>
-        <p>Maps you saved, and maps other people shared with you. A map puts layers from several
-          services together, with filters, and anyone it is shared with opens it as you left it.</p>
-      </div>
-      <div class="right"><button class="primary" id="newMap"><span
-        class="plus" aria-hidden="true">+</span>New map</button></div>
-    </div>
-    <p class="hint" id="mapNote" role="status" aria-live="polite"></p>
-    <div class="panel widetable">
-      <table>
-        <thead><tr>
-          <th>Map</th><th>Owner</th><th>Sharing</th><th>Last change</th><th></th>
-        </tr></thead>
-        <tbody id="mapRows"></tbody>
-      </table>
-    </div>
   </section>
 
   <!-- ------------------------------------------------------------- sources -->

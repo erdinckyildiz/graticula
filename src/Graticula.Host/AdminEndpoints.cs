@@ -327,6 +327,9 @@ internal sealed record RolePrivilegesRequest(IReadOnlyList<string>? Privileges);
 /// <summary>A change of sharing scope.</summary>
 internal sealed record SharingRequest(string? Sharing);
 
+/// <summary>A service's description, as the item page writes it. Empty or null clears it.</summary>
+internal sealed record DescriptionRequest(string? Description);
+
 /// <summary>
 /// What a service is configured to offer. Null means unset, everywhere.
 /// </summary>
@@ -645,6 +648,7 @@ internal static partial class AdminEndpoints
 
         app.MapGet("/admin/services", ListSystemServicesAsync);
         app.MapPut("/admin/services/{name}/sharing", SetServiceSharingAsync);
+        app.MapPut("/admin/services/{name}/description", SetServiceDescriptionAsync);
 
         // <b>A system service can be stopped, since 2026-08-17.</b> The owner asked why the
         // geometry service had no start and no stop, and the answer was that nothing had given
@@ -4506,6 +4510,64 @@ internal static partial class AdminEndpoints
     /// a system service is tried first because its names are fixed and few.
     /// </para>
     /// </remarks>
+    /// <summary>The longest description the item page may store.</summary>
+    internal const int MaximumDescriptionLength = 4000;
+
+    /// <summary>
+    /// Replaces an ordinary service's description — its owner's act, or an administrator's (ADR-075).
+    /// </summary>
+    /// <remarks>
+    /// <b>2026-09-30.</b> The column has been on <c>service</c> since the catalogue began and only the
+    /// publish composition wrote it, so the item page asked for a description it gave no way to write.
+    /// Bounded, because it is shown in every listing and audited in full.
+    /// </remarks>
+    private static async Task SetServiceDescriptionAsync(
+        HttpContext context,
+        string name,
+        string? folder,
+        DescriptionRequest request,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        PostgresLayerCatalog owners,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        string? text = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+
+        if (text is { Length: > MaximumDescriptionLength })
+        {
+            await Refuse(context, 400,
+                $"A description may be at most {MaximumDescriptionLength} characters; this one is {text.Length}.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (!await ManagesServiceAsync(context, owners, at, name, "describe", cancellation).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (!await catalog.SetServiceDescriptionAsync(name, at, text, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404,
+                $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "service.describe", name,
+            Detail(new { folder = at, description = text }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { name, folder = at, description = text })
+            .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
     private static async Task SetServiceSharingAsync(
         HttpContext context,
         string name,

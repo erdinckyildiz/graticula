@@ -192,6 +192,9 @@ function wmRedraw(container, markup) {
 
 // ----------------------------------------------------------------------------- the map
 
+/** The operator's map ground, drawn in its services' own styles, bottom first — ADR-086. */
+const wmGround = new ol.layer.Group({ zIndex: 0, visible: false });
+
 const wmBase = new ol.layer.Tile({
   zIndex: 0,
   source: new ol.source.XYZ({
@@ -231,7 +234,7 @@ const wmMeasured = new ol.layer.Vector({
 
 const wmMap = new ol.Map({
   target: "map",
-  layers: [wmBase, wmHighlight, wmMeasured],
+  layers: [wmBase, wmGround, wmHighlight, wmMeasured],
   view: new ol.View({ projection: WM_MERCATOR, center: [0, 0], zoom: 2 }),
   controls: ol.control.defaults.defaults({ attribution: true }).extend([
     new ol.control.ScaleLine({ units: "metric", target: wm$("stripScale") }),
@@ -252,21 +255,28 @@ function wmQueryBox(extent) {
   ];
 }
 
-/** Fits the view to a box once the map has a size; a map with no size yet fits to nothing. */
-function wmFit(extent, frames = 0) {
+/**
+ * Fits the view to a box once the map has a size; a map with no size yet fits to nothing.
+ *
+ * <b>`margin` is for framing data, and a saved view takes none — 2026-09-30.</b> The saved viewpoint is
+ * the box the author was looking at; fitting it inside a 40-pixel margin zoomed out by that margin, and
+ * saving the result stored the larger box. The design review measured zoom 13.77 → 13.63 → 13.49 over
+ * three save-and-reopen rounds, on a map Studio promises opens *as you left it*.
+ */
+function wmFit(extent, frames = 0, margin = 40) {
   if (!extent || !extent.every(Number.isFinite)) return;
 
   const size = wmMap.getSize();
 
   if (!size || !size[0] || !size[1]) {
-    if (frames < 60) requestAnimationFrame(() => wmFit(extent, frames + 1));
+    if (frames < 60) requestAnimationFrame(() => wmFit(extent, frames + 1, margin));
     return;
   }
 
   const degenerate = extent[2] - extent[0] < 1 && extent[3] - extent[1] < 1;
   const box = degenerate ? ol.extent.buffer(extent, 250) : extent;
 
-  wmMap.getView().fit(box, { padding: [40, 40, 40, 40], maxZoom: 18 });
+  wmMap.getView().fit(box, { padding: [margin, margin, margin, margin], maxZoom: 18 });
 }
 
 // ----------------------------------------------------------------------------- the document
@@ -283,7 +293,30 @@ function wmEmptyDocument() {
   };
 }
 
+/**
+ * The operator's map ground as Web Map basemap layers — ADR-086, 2026-09-30.
+ *
+ * <b>The same list the portal publishes as `defaultBasemap`</b>, so a map saved with it opens on the same
+ * ground in Map Viewer and in Pro. Until 2026-09-30 this page offered OpenStreetMap or nothing, while
+ * every other page of the server drew the ground the operator chose on the Settings screen.
+ */
+function wmGroundBaseMapLayers() {
+  const ids = typeof SERVER_GROUND !== "undefined" && Array.isArray(SERVER_GROUND) ? SERVER_GROUND : [];
+  return ids.map(id => ({
+    id,
+    layerType: "VectorTileLayer",
+    title: id.split("/").pop(),
+    styleUrl: `${location.origin}/rest/services/${id}/VectorTileServer/resources/styles/root.json`,
+    visibility: true,
+    opacity: 1,
+  }));
+}
+
 function wmBaseMapJson(which) {
+  if (which === "ground") {
+    return { baseMapLayers: wmGroundBaseMapLayers(), title: "Map ground" };
+  }
+
   return which === "none"
     ? { baseMapLayers: [], title: "No basemap" }
     : {
@@ -301,7 +334,40 @@ function wmBaseMapJson(which) {
 /** Which basemap the document asks for, in the two words this page can draw. */
 function wmBaseMapOf(doc) {
   const layers = (doc.baseMap && doc.baseMap.baseMapLayers) || [];
-  return layers.length === 0 ? "none" : "osm";
+  if (layers.length === 0) return "none";
+  return layers.some(l => l.layerType === "VectorTileLayer") ? "ground" : "osm";
+}
+
+/** Builds the ground layers named by a basemap once, from each service's own style. */
+function wmDrawGround(baseMapLayers) {
+  const drawn = wmGround.getLayers();
+  drawn.clear();
+
+  for (const entry of baseMapLayers.filter(l => l.layerType === "VectorTileLayer")) {
+    const service = entry.styleUrl
+      ? entry.styleUrl.slice(0, entry.styleUrl.indexOf("/VectorTileServer") + "/VectorTileServer".length)
+      : `${location.origin}/rest/services/${entry.id}/VectorTileServer`;
+
+    const tiles = new ol.layer.VectorTile({
+      declutter: true,
+      source: new ol.source.VectorTile({ format: new ol.format.MVT(), url: `${service}/tile/{z}/{y}/{x}.pbf`, maxZoom: 22 }),
+      style: wmPlainStyle("#b8c2cc"),
+    });
+
+    wmFetch(entry.styleUrl || `${service}/resources/styles/root.json`)
+      .then(style => { if (style && Array.isArray(style.layers)) tiles.setStyle(wmGlStyle(style)); })
+      .catch(() => { /* a plain grey ground rather than none */ });
+
+    drawn.push(tiles);
+  }
+}
+
+/** Shows the basemap a document asks for: the ground, OpenStreetMap, or nothing. */
+function wmShowBaseMap(doc) {
+  const which = wmBaseMapOf(doc);
+  wmBase.setVisible(which === "osm");
+  wmGround.setVisible(which === "ground");
+  if (which === "ground") wmDrawGround((doc.baseMap && doc.baseMap.baseMapLayers) || []);
 }
 
 function wmLayers() {
@@ -394,6 +460,136 @@ function wmSymbolStyle(symbol, fallback) {
 }
 
 /** A plain style in one colour, for a layer whose renderer this page cannot read. */
+/**
+ * Draws vector tiles the way the service's own style says — the style ArcGIS Pro and the ArcGIS Maps SDK
+ * read from `resources/styles/root.json`.
+ *
+ * <b>2026-09-30, from the design review.</b> A vector tile layer on a web map was drawn in one flat
+ * palette colour: this viewer never read the style, so a layer classified orange and blue on its item
+ * page was blue here, and the same service looked different in the two places a publisher checks it.
+ *
+ * <b>The part of the style language this server writes, and nothing more.</b> `VectorTileServerMetadataWriter`
+ * emits fill, line and circle layers, each with a `source-layer`, legacy filters (`==`, `!=`, `in`,
+ * `!in`, `all`, `any`, comparisons) and constant paint values; a zoom-dependent value is read as its
+ * `stops`. Symbol layers — labels and icons — are not drawn here, and a filter this does not understand
+ * lets the feature through rather than hiding it, so the failure is *drawn without its class* rather
+ * than *missing*. A full interpreter is ADR territory (the design review proposed MapLibre); this is
+ * the repair that makes today's viewer honest.
+ */
+function wmGlFilter(filter, feature) {
+  if (!Array.isArray(filter) || filter.length === 0) return true;
+
+  const [op, ...args] = filter;
+  const value = key => key === "$type"
+    ? ({ Point: "Point", MultiPoint: "Point", LineString: "LineString", MultiLineString: "LineString",
+         Polygon: "Polygon", MultiPolygon: "Polygon" })[feature.getType ? feature.getType() : ""]
+    : feature.get(key);
+
+  switch (op) {
+    case "all": return args.every(f => wmGlFilter(f, feature));
+    case "any": return args.some(f => wmGlFilter(f, feature));
+    case "none": return !args.some(f => wmGlFilter(f, feature));
+    case "has": return value(args[0]) !== undefined;
+    case "!has": return value(args[0]) === undefined;
+    // eslint-disable-next-line eqeqeq
+    case "==": return value(args[0]) == args[1];
+    // eslint-disable-next-line eqeqeq
+    case "!=": return value(args[0]) != args[1];
+    case "in": { const v = value(args[0]); return args.slice(1).some(x => x == v); } // eslint-disable-line eqeqeq
+    case "!in": { const v = value(args[0]); return !args.slice(1).some(x => x == v); } // eslint-disable-line eqeqeq
+    case "<": return value(args[0]) < args[1];
+    case "<=": return value(args[0]) <= args[1];
+    case ">": return value(args[0]) > args[1];
+    case ">=": return value(args[0]) >= args[1];
+    default: return true;
+  }
+}
+
+/** A paint value at a zoom: a constant, or the last `stops` entry at or below the zoom. */
+function wmGlValue(value, zoom, fallback) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    return Array.isArray(value) ? fallback : value;
+  }
+  const stops = Array.isArray(value.stops) ? value.stops : [];
+  let chosen = stops.length ? stops[0][1] : fallback;
+  for (const [z, v] of stops) if (zoom >= z) chosen = v;
+  return chosen;
+}
+
+/** A colour with an opacity folded in. */
+function wmGlColour(colour, opacity) {
+  try {
+    const [r, g, b, a] = ol.color.asArray(colour || "#000");
+    return [r, g, b, (a ?? 1) * (Number.isFinite(opacity) ? opacity : 1)];
+  } catch {
+    return [0, 0, 0, Number.isFinite(opacity) ? opacity : 1];
+  }
+}
+
+/** An OpenLayers style function for a style document's fill, line and circle layers. */
+function wmGlStyle(style) {
+  const layers = (style.layers || []).filter(l => ["fill", "line", "circle"].includes(l.type));
+  const cache = new Map();
+
+  return (feature, resolution) => {
+    const zoom = Math.log2(156543.03392804097 / resolution);
+    const sourceLayer = feature.get("layer");
+    const out = [];
+
+    for (const l of layers) {
+      if (l["source-layer"] && l["source-layer"] !== sourceLayer) continue;
+      if (Number.isFinite(l.minzoom) && zoom < l.minzoom) continue;
+      if (Number.isFinite(l.maxzoom) && zoom >= l.maxzoom) continue;
+      if (!wmGlFilter(l.filter, feature)) continue;
+
+      const key = `${l.id}@${Math.floor(zoom)}`;
+      let drawn = cache.get(key);
+
+      if (!drawn) {
+        const paint = l.paint || {};
+
+        if (l.type === "fill") {
+          const opacity = wmGlValue(paint["fill-opacity"], zoom, 1);
+          const outline = wmGlValue(paint["fill-outline-color"], zoom, null);
+          drawn = new ol.style.Style({
+            fill: new ol.style.Fill({ color: wmGlColour(wmGlValue(paint["fill-color"], zoom, "#000"), opacity) }),
+            stroke: outline ? new ol.style.Stroke({ color: wmGlColour(outline, opacity), width: 1 }) : undefined,
+          });
+        } else if (l.type === "line") {
+          const width = wmGlValue(paint["line-width"], zoom, 1);
+          const dash = wmGlValue(paint["line-dasharray"], zoom, null);
+          drawn = new ol.style.Style({
+            stroke: new ol.style.Stroke({
+              color: wmGlColour(wmGlValue(paint["line-color"], zoom, "#000"), wmGlValue(paint["line-opacity"], zoom, 1)),
+              width,
+              lineDash: Array.isArray(dash) ? dash.map(d => d * width) : undefined,
+            }),
+          });
+        } else {
+          const opacity = wmGlValue(paint["circle-opacity"], zoom, 1);
+          const edge = wmGlValue(paint["circle-stroke-width"], zoom, 0);
+          drawn = new ol.style.Style({
+            image: new ol.style.Circle({
+              radius: wmGlValue(paint["circle-radius"], zoom, 5),
+              fill: new ol.style.Fill({ color: wmGlColour(wmGlValue(paint["circle-color"], zoom, "#000"), opacity) }),
+              stroke: edge > 0
+                ? new ol.style.Stroke({ color: wmGlColour(wmGlValue(paint["circle-stroke-color"], zoom, "#fff"), opacity), width: edge })
+                : undefined,
+            }),
+          });
+        }
+
+        cache.set(key, drawn);
+      }
+
+      out.push(drawn);
+    }
+
+    return out;
+  };
+}
+
 function wmPlainStyle(colour) {
   return new ol.style.Style({
     fill: new ol.style.Fill({ color: colour + "44" }),
@@ -588,16 +784,36 @@ function wmBuildLayer(layer, run, index) {
   }
 
   if (kind === "tiles") {
-    const style = wmPlainStyle(colour);
-    return new ol.layer.VectorTile({
+    const drawn = new ol.layer.VectorTile({
       declutter: true,
       source: new ol.source.VectorTile({
         format: new ol.format.MVT(),
         url: `${wmTileService(layer)}/tile/{z}/{y}/{x}.pbf`,
         maxZoom: 22,
       }),
-      style,
+      // The palette colour until the service's own style has been read, and for good if it cannot be.
+      style: wmPlainStyle(colour),
     });
+
+    // <b>The style the layer names, or the service's default</b> — Web Map `styleUrl` first, since an
+    // author may have pointed a layer at a named style (ADR-054).
+    const styleUrl = layer.styleUrl || `${wmTileService(layer)}/resources/styles/root.json`;
+
+    wmFetch(styleUrl)
+      .then(style => {
+        if (style && Array.isArray(style.layers)) {
+          drawn.setStyle(wmGlStyle(style));
+          run.ownStyle = true;
+          // The legend swatches from the same style, so the line in the list matches the map.
+          run.swatches = [...new Set(style.layers.map(l => (l.paint || {})["fill-color"]
+            || (l.paint || {})["line-color"] || (l.paint || {})["circle-color"])
+            .filter(c => typeof c === "string"))].slice(0, 4);
+          wmDrawLayerList();
+        }
+      })
+      .catch(() => { /* the palette colour stays, which is what this drew before */ });
+
+    return drawn;
   }
 
   return null;
@@ -1621,6 +1837,10 @@ function wmDrawMapForm() {
   wm$("mapTitle").value = meta.title || "";
   wm$("mapSnippet").value = meta.snippet || "";
   wm$("mapSharing").value = meta.sharing || "private";
+  const groundOption = wm$("mapBasemap").querySelector('option[value="ground"]');
+  if (groundOption) {
+    groundOption.hidden = wmGroundBaseMapLayers().length === 0 && wmBaseMapOf(wmState.doc) !== "ground";
+  }
   wm$("mapBasemap").value = wmBaseMapOf(wmState.doc);
 
   // <b>Not changed while saving</b> — see wmSave — so these only say whether saving is possible.
@@ -1764,7 +1984,7 @@ wm$("mapSharing").addEventListener("change", () => {
 wm$("mapBasemap").addEventListener("change", () => {
   const which = wm$("mapBasemap").value;
   wmState.doc.baseMap = wmBaseMapJson(which);
-  wmBase.setVisible(which !== "none");
+  wmShowBaseMap(wmState.doc);
   wmMarkDirty();
 });
 
@@ -1813,6 +2033,18 @@ async function wmSave(asNew, invoker = null) {
     wmShowTab("map");
     wmSayIn("mapStatus", "A map needs a title.", true);
     wm$("mapTitle").focus();
+    return;
+  }
+
+  // <b>A first save asks for a name, once — 2026-09-30.</b> A new map saved from the header became
+  // *Untitled map* without a word, and a list of those is a list nobody can tell apart. The title box is
+  // shown with the placeholder name selected; pressing Save again keeps it, if that is what was meant.
+  if (!wmState.id && !asNew && title === "Untitled map" && !wmState.named) {
+    wmState.named = true;
+    wmShowTab("map");
+    wmSayIn("mapStatus", "Give the map a name, then press Save again.");
+    wm$("mapTitle").focus();
+    wm$("mapTitle").select();
     return;
   }
 
@@ -1930,7 +2162,7 @@ async function wmOpen(doc) {
     if (!layer.id) layer.id = wmNewId();
   }
 
-  wmBase.setVisible(wmBaseMapOf(wmState.doc) !== "none");
+  wmShowBaseMap(wmState.doc);
 
   const target = wmState.doc.initialState && wmState.doc.initialState.viewpoint
     && wmState.doc.initialState.viewpoint.targetGeometry;
@@ -1940,7 +2172,7 @@ async function wmOpen(doc) {
     const wkid = reference.latestWkid || reference.wkid || 102100;
     try {
       wmFit(ol.proj.transformExtent([target.xmin, target.ymin, target.xmax, target.ymax],
-        wkid === 102100 || wkid === 3857 ? WM_MERCATOR : `EPSG:${wkid}`, WM_MERCATOR));
+        wkid === 102100 || wkid === 3857 ? WM_MERCATOR : `EPSG:${wkid}`, WM_MERCATOR), 0, 0);
     } catch {
       // A view in a reference this page does not know opens at the world instead.
     }
@@ -1972,6 +2204,9 @@ function wmSaySummary() {
 }
 
 async function wmStart() {
+  // The portal's answer first, so a map's basemap choices include the operator's ground (ADR-086).
+  if (typeof SERVER_GROUND_READY !== "undefined") await SERVER_GROUND_READY.catch(() => null);
+
   try {
     let me = await wmFetch("/rest/whoami");
 
@@ -1987,6 +2222,13 @@ async function wmStart() {
   } catch {
     // Anonymous, or the server is not answering; the map will say which when it loads.
   }
+
+  // <b>A reader who is not signed in reads the map; nothing about it is theirs to change — 2026-09-30.</b>
+  // The design review opened a public map signed out and was offered Add layer, Remove, a filter box and
+  // a *My content* link that led to a sign-in. Moving the view and switching layers stay: those are
+  // reading. The Studio link becomes the way to sign in.
+  document.body.classList.toggle("reader", !wmMe.authenticated);
+  if (!wmMe.authenticated && wm$("studio")) wm$("studio").textContent = "Sign in";
 
   const id = WM_QUERY.get("id");
   const service = WM_QUERY.get("service");
@@ -2026,6 +2268,10 @@ async function wmStart() {
   }
 
   wmState.doc = wmEmptyDocument();
+
+  // <b>A new map starts on the server's ground when the operator chose one</b> — the portal's default
+  // basemap, as a new map in Map Viewer starts on the organisation's (ADR-086 §5.3).
+  if (wmGroundBaseMapLayers().length > 0) wmState.doc.baseMap = wmBaseMapJson("ground");
 
   if (service) {
     wmState.meta.title = service.split("/").pop();

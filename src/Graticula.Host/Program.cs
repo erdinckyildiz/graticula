@@ -1413,7 +1413,12 @@ public static class Program
         app.MapGet("/console/{**rest}", (string? rest) =>
             Results.Redirect($"/server/{rest}", permanent: true));
 
-        app.MapGet("/console", () => Results.Redirect("/server/", permanent: true));
+        // <b>The bare address opens Studio, 2026-09-30.</b> An administrator signing in landed on Server's
+        // root folder — empty on most servers, whose services are in `hosted` — and a publisher was bounced
+        // from there with a refusal. Studio's content list is where both of them start, as a Portal user
+        // starts on Content; Server is one switch away. Not permanent, so a browser that cached the old
+        // answer is not stuck with it.
+        app.MapGet("/console", () => Results.Redirect("/studio/"));
 
         MapEndpoints(app);
 

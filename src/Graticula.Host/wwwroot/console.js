@@ -2212,6 +2212,12 @@ const SURFACES = {
       ["domains", "Domains"],
     ],
     action: { id: "newLayer", label: "New item" },
+
+    // <b>Map — 2026-09-30, the design review's first finding on this surface.</b> Portal's top bar has
+    // Map beside Content; here the map viewer was reachable only from a button under the content table or
+    // a row's ⋯ menu. It is a link out of this app to the viewer (ADR-079), not a screen of it, so it is
+    // not a tab: a tab is an address this app routes, and the surface table holds only those (D-115).
+    links: [{ after: "content", key: "map", label: "Map", href: "/studio/webmap.html" }],
   },
 };
 
@@ -2335,8 +2341,8 @@ function route() {
   // This is the only place that knows their privileges, which is why the redirect from
   // /console cannot make this decision.
   if (!may(SURFACES[surface].needs)) {
-    toast(`${SURFACES[surface].title} administers this server, which needs `
-      + `${SURFACES[surface].needs}. You are in Studio, where your own content is.`);
+    toast(`${SURFACES[surface].title} is for the people who administer this server. `
+      + `You are in Studio, where your content is.`);
     location.replace(surfaceHref("studio", SURFACES.studio.home));
     return;
   }
@@ -2552,7 +2558,11 @@ function drawSurfaces(surface) {
        <span class="ico" aria-hidden="true">${SECTION_GLYPH[name] ?? "·"}</span>
        <span class="label">${h(label)}</span>${
        name === "services" ? '<span class="count" id="cServices"></span>' : ""}${
-       name === "sources" ? '<span class="count" id="cSources"></span>' : ""}</a>`).join("");
+       name === "sources" ? '<span class="count" id="cSources"></span>' : ""}</a>${
+       (config.links || []).filter(l => l.after === name).map(l =>
+         `<a href="${h(l.href)}" data-link="${h(l.key)}" aria-label="${h(l.label)}">
+            <span class="ico" aria-hidden="true">${SECTION_GLYPH[l.key] ?? "·"}</span>
+            <span class="label">${h(l.label)}</span></a>`).join("")}`).join("");
 
   // <b>One slot, because the other copy was a second element with the same id.</b> This wrote the
   // action into both page heads and said so — *"naming them apart and asking for both is what keeps
@@ -2593,6 +2603,9 @@ const SECTION_GLYPH = {
   settings: "◇",
   logs: "≡",
   content: "◈",
+  map: "◫",
+  groups: "◍",
+  domains: "▤",
   anonymous: "◌",
 };
 
@@ -2677,11 +2690,7 @@ function openScreen(surface, screen, folder) {
   }
 
   if (screen === "content") {
-    const contentRead = section("your content", loadMyContent, "contentRows");
-    contentRead.then(paintPreviews);
-
-    // After the content, because the maps' first-run sentence depends on whether there is any.
-    contentRead.then(() => section("your maps", loadMyMaps, "mapRows"));
+    section("your content", loadMyContent, "contentRows").then(paintPreviews);
   }
   if (screen === "members") section("members", loadMembers, "members");
   if (screen === "roles") section("roles", loadRoles, "roleRows");
@@ -3525,19 +3534,81 @@ let contentFilter = "";
  *   is the fourth thing in the row. The Services screen already obeys the owner's brief — name
  *   strongest, one verb, the rest behind `⋯` — and this screen did not.
  */
+/** A content row's own name, without its folder. */
+const bareOf = i => i.bare || String(i.name || "").split("/").pop();
+
+/** What the content screen last read, so a keystroke, a type or an order redraws without asking again. */
+let contentAnswer = null;
+
+/** The type the content list is narrowed to, or "" for all of them. */
+let contentType = "";
+
+/** The order of the content list. */
+let contentSort = "modified";
+
+/** A saved web map as a row of the content list — the same fields a service row reads. */
+function mapAsItem(m) {
+  return {
+    map: m,
+    name: m.title || "Untitled map",
+    bare: m.title || "Untitled map",
+    kind: "Web map",
+    description: m.snippet || "",
+    owner: m.owner,
+    sharing: m.sharing || "private",
+    manages: m.manages,
+    updated: m.modified,
+    // <b>The scope from ownership first, then from how it was shared</b> — the rule the server applies to
+    // services (`scope` beside `because`); a map somebody else keeps private reaches this reader only by
+    // the administrative override.
+    scope: m.mine ? "mine"
+      : m.sharing === "public" ? "public"
+      : m.sharing === "organization" ? "organization"
+      : m.sharing === "group" ? "group"
+      : "administrative",
+  };
+}
+
 async function loadMyContent() {
-  const answer = await api("/content/items") || {};
-  const items = answer.items || [];
+  const [answer, layers, maps] = await Promise.all([
+    api("/content/items").then(a => a || {}),
+    api("/content/layers").then(a => a || {}),
+    // <b>A failure to list maps does not blank the services.</b> They were two sections until
+    // 2026-09-30, each failing on its own; one list keeps that by treating the maps as optional.
+    api("/content/webmaps").then(a => a || {}).catch(() => ({ webMaps: [] })),
+  ]);
 
   // `content` still keys by layer name for the map, which reads it by name when a row is drawn. The
   // per-layer listing stays the map's source; this screen is about items.
-  const layers = await api("/content/layers") || {};
-
   content = new Map(
     [...(layers.mine || []), ...(layers.shared || []), ...(layers.notShared || [])]
       .map(e => [e.name, e]));
 
-  const counts = answer.counts || {};
+  contentAnswer = { answer, maps };
+
+  const button = $("newMap");
+
+  if (button) {
+    button.disabled = maps.mayCreate === false;
+    button.title = maps.mayCreate === false
+      ? "Your role cannot create content, so it cannot save a map. You can still open maps shared with you."
+      : "A new map, from the services you can read";
+  }
+
+  drawMyContent();
+}
+
+/** The content list, from what `loadMyContent` last read. */
+function drawMyContent() {
+  if (!contentAnswer) return;
+
+  const { answer, maps } = contentAnswer;
+  const mapItems = (maps.webMaps || []).map(mapAsItem);
+  const items = [...(answer.items || []), ...mapItems];
+  const counts = { ...(answer.counts || {}) };
+
+  for (const m of mapItems) counts[m.scope] = (counts[m.scope] || 0) + 1;
+
   const total = items.length;
 
   // <b>The administrative scope appears only when it holds something.</b> And its own tab rather than
@@ -3566,16 +3637,34 @@ async function loadMyContent() {
 
   const needle = contentFilter.trim().toLowerCase();
 
-  const visible = needle
-    ? inScope.filter(i => [i.name, i.kind, i.description, i.owner, i.folder]
-        .some(v => (v || "").toLowerCase().includes(needle)))
-    : inScope;
+  // <b>The types offered are the ones present</b>, so the select never offers a filter that empties the list.
+  const kinds = [...new Set(items.map(i => i.kind).filter(Boolean))].sort();
+  const typeBox = $("contentType");
 
-  $("contentFilter").hidden = inScope.length <= PAGE_SIZE && !needle;
+  if (typeBox) {
+    if (contentType && !kinds.includes(contentType)) contentType = "";
+    typeBox.innerHTML = `<option value="">All types</option>${kinds.map(k =>
+      `<option value="${h(k)}"${k === contentType ? " selected" : ""}>${h(k)}</option>`).join("")}`;
+    typeBox.hidden = kinds.length < 2;
+  }
+
+  const byName = (x, y) => bareOf(x).localeCompare(bareOf(y), undefined, { sensitivity: "base" });
+
+  const order = {
+    modified: (x, y) => String(y.updated || "").localeCompare(String(x.updated || "")) || byName(x, y),
+    title: byName,
+    type: (x, y) => String(x.kind || "").localeCompare(String(y.kind || "")) || byName(x, y),
+  }[contentSort] || byName;
+
+  const visible = inScope
+    .filter(i => !contentType || i.kind === contentType)
+    .filter(i => !needle || [i.name, bareOf(i), i.kind, i.description, i.owner, i.folder]
+      .some(v => (v || "").toLowerCase().includes(needle)))
+    .sort(order);
 
   $("contentCount").textContent = inScope.length === 0
     ? ""
-    : needle
+    : needle || contentType
       ? `showing ${num(visible.length)} of ${num(inScope.length)}`
       : `${num(inScope.length)} item${inScope.length === 1 ? "" : "s"}`;
 
@@ -3612,17 +3701,20 @@ async function loadMyContent() {
   // ADR-034 §5j renamed the page action — so the one instruction this screen gave named a control that
   // is not on it. D-83's exact shape: the page's own instruction unfollowable.
   $("contentRows").innerHTML = total === 0
-    ? `<tr><td colspan="7" class="empty">${h(answer.note || "Nothing here yet.")}
+    ? `<tr><td colspan="5" class="empty">${h(answer.note || "Nothing here yet.")}
          <b>New item</b> publishes one.</td></tr>`
     : inScope.length === 0
-      ? `<tr><td colspan="7" class="empty">Nothing arrived this way.
+      ? `<tr><td colspan="5" class="empty">Nothing arrived this way.
            ${contentScope === "mine"
              ? `<b>New item</b> publishes something of your own.`
              : `<b>Everything</b> shows all ${num(total)} you can see.`}</td></tr>`
       : visible.length === 0
-        ? `<tr><td colspan="7" class="empty">Nothing matches <b>${h(contentFilter)}</b>. The search
-             reads a service's name, kind, description, owner and folder.</td></tr>`
+        ? `<tr><td colspan="5" class="empty">Nothing matches${contentFilter
+             ? ` <b>${h(contentFilter)}</b>` : ""}${contentType ? ` among ${h(contentType)} items` : ""}.
+             The search reads a name, its type, description, owner and folder.</td></tr>`
         : pageOf("contentRows", visible).map(i => {
+          if (i.map) return mapRow(i);
+
           // The map is driven per layer, and a service's cover layer is the one this row draws and
           // shows. A multi-layer service is opened from its own page for the rest.
           const key = i.cover ? i.cover.layer : null;
@@ -3659,14 +3751,12 @@ async function loadMyContent() {
                    data-thumb="${h(thumbnailFor(i.cover.url))}"></a>`
               : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
             <td class="name"><a href="#/service/${
-              i.name.split("/").map(encodeURIComponent).join("/")}">${h(i.name)}</a>
-              <div class="rowmeta">${h(i.kind)} · ${num(i.layers)}
-                layer${i.layers === 1 ? "" : "s"}${i.description
+              i.name.split("/").map(encodeURIComponent).join("/")}" title="${h(i.name)}">${h(bareOf(i))}</a>
+              <div class="rowmeta">${stopped ? `${pill("stopped")} ` : ""}${h(i.kind)} · ${num(i.layers)}
+                layer${i.layers === 1 ? "" : "s"} · in ${i.folder ? h(i.folder) : "root"}${i.description
                   ? ` · ${h(i.description)}` : ""}${i.owner && i.scope !== "mine"
                   ? ` · ${h(i.owner)}` : ""}${(i.throughGroups || []).length > 0
                   ? ` · via ${i.throughGroups.map(h).join(", ")}` : ""}</div></td>
-            <td class="val">${i.folder ? h(i.folder) : "root"}</td>
-            <td>${pill(i.status)}</td>
 
             <!-- ADR-034 5l: the pill is the control, because it is already the thing that says who
                  can reach this and the reader is going to press it either way. -->
@@ -3687,7 +3777,8 @@ async function loadMyContent() {
               : `${stopped
                   ? ""
                   : `<button class="tiny ${isShown ? "on" : ""}" data-show="${h(key)}"
-                       >${isShown ? "Hide" : "Map"}</button>`}
+                       title="A quick look at this layer on its own page — Open in Map Viewer is in ⋯"
+                       >${isShown ? "Hide" : "Preview"}</button>`}
                 <details class="menu">
                   <summary title="More" aria-label="More actions">⋯</summary>
                   <div class="sheet">
@@ -3697,7 +3788,7 @@ async function loadMyContent() {
                            >${shown.has(tileKey(key))
                              ? "Hide the service's tiles" : "Draw the whole service's tiles"}</button>` : ""}
                     ${stopped ? "" : `<a href="/studio/webmap.html?service=${encodeURIComponent(i.name)}"
-                      >Open in new map</a>`}
+                      >Open in Map Viewer</a>`}
                     <a href="${h(i.cover.url)}?f=json" target="_blank" rel="noreferrer"
                       >The layer document</a>
                     <div class="note">${stopped
@@ -3714,63 +3805,35 @@ async function loadMyContent() {
 
 
 /**
- * The saved web maps this reader can open — ADR-079 §5.5, beside the services on *My content*.
+ * A saved web map, as a row of the content list — ADR-079 §5.5.
  *
- * <b>Its own list rather than rows in the table above.</b> That table is one row per service, with a
- * thumbnail drawn from a layer and a status a map does not have; forcing a map into it would leave four
- * of its seven cells saying *not applicable*.
- *
- * <b>The first-run sentence depends on whether there is anything to put on a map.</b> *New map* with
- * no services to add is a blank map and a dead end, so the empty state says what comes first.
+ * <b>A row of the one list since 2026-09-30</b>, where it was a second table below every service. The
+ * cells mean what they mean for a service: the name opens it, the pill says who can reach it, the date is
+ * its last save. Its sharing is set in the map itself, so the pill reports and does not open the dialog.
  */
-async function loadMyMaps() {
-  const answer = await api("/content/webmaps") || {};
-  const maps = answer.webMaps || [];
-  const button = $("newMap");
+function mapRow(i) {
+  const m = i.map;
+  const open = `/studio/webmap.html?id=${encodeURIComponent(m.id)}`;
 
-  if (button) {
-    button.disabled = answer.mayCreate === false;
-    button.title = answer.mayCreate === false
-      ? "Your role cannot create content, so it cannot save a map. You can still open maps shared with you."
-      : "A new map, from the services you can read";
-  }
-
-  // Layers the content listing drew; none means there is nothing to put on a map yet.
-  const services = content.size;
-
-  // <b>One sentence, in the table.</b> The note above it said *No maps yet* and the empty row said it
-  // again; the row is where a reader looks for rows, so it carries the whole of it and the note is
-  // kept for what happens here (a deletion).
-  $("mapNote").textContent = "";
-
-  const empty = answer.mayCreate === false
-    ? "No maps shared with you yet. Your role cannot save maps; ones others share with you appear here."
-    : services === 0
-      ? "No maps yet, and nothing to put on one: a map is made of services, so publish one first "
-        + "(New item, above). Then New map puts it on a map you can save and share."
-      : "No maps yet. New map starts one: add layers from the services you can read, filter them, "
-        + "and save it.";
-
-  $("mapRows").innerHTML = maps.length === 0
-    ? `<tr><td colspan="5" class="empty">${h(empty)}</td></tr>`
-    : maps.map(m => `<tr>
-        <td class="name"><a href="/studio/webmap.html?id=${encodeURIComponent(m.id)}">${h(m.title)}</a>${
-          m.snippet ? `<div class="rowmeta">${h(m.snippet)}</div>` : ""}</td>
-        <td class="val">${m.mine ? "you" : h(m.owner)}</td>
-        <td>${pill(m.sharing)}</td>
-        <td class="val">${day(m.modified)}</td>
-        <td style="text-align:right;white-space:nowrap">
-          <a class="tiny" href="/studio/webmap.html?id=${encodeURIComponent(m.id)}"
-            aria-label="Open ${h(m.title)}">Open</a>
-          ${m.manages
-            ? `<button class="tiny ghost" data-map-delete="${h(m.id)}" data-map-title="${h(m.title)}"
-                aria-label="Delete ${h(m.title)}">Delete</button>`
-            : ""}
-        </td>
-      </tr>`).join("");
+  return `<tr>
+    <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}"
+      ><div class="thumb empty mapthumb" aria-hidden="true"></div></a></td>
+    <td class="name"><a href="${open}">${h(i.name)}</a>
+      <div class="rowmeta">Web map${i.description ? ` · ${h(i.description)}` : ""}${
+        i.scope !== "mine" && i.owner ? ` · ${h(i.owner)}` : ""}</div></td>
+    <td><span title="Set in the map, under Map › Who can open it">${pill(i.sharing)}</span></td>
+    <td class="val">${day(i.updated)}</td>
+    <td style="text-align:right;white-space:nowrap">
+      <a class="tiny" href="${open}" aria-label="Open ${h(i.name)}">Open</a>
+      ${m.manages
+        ? `<button class="tiny ghost" data-map-delete="${h(m.id)}" data-map-title="${h(i.name)}"
+            aria-label="Delete ${h(i.name)}">Delete</button>`
+        : ""}
+    </td>
+  </tr>`;
 }
 
-// <b>Delegated once, for the rows `loadMyMaps` redraws.</b> Deleting moves focus to the list's own
+// <b>Delegated once, for the map rows `drawMyContent` redraws.</b> Deleting moves focus to the list's own
 // status line, because the button that had it is gone with its row.
 document.addEventListener("click", async event => {
   const target = event.target instanceof Element ? event.target : null;
@@ -3794,10 +3857,11 @@ document.addEventListener("click", async event => {
   try {
     await api(`/content/webmaps/${encodeURIComponent(del.dataset.mapDelete)}`, { method: "DELETE" });
     toast(`Deleted the map “${title}”.`, true);
-    await section("your maps", loadMyMaps, "mapRows");
-    $("mapNote").textContent = `Deleted the map “${title}”. ` + $("mapNote").textContent;
-    $("mapNote").tabIndex = -1;
-    $("mapNote").focus();
+    await section("your content", loadMyContent, "contentRows");
+    paintPreviews();
+    $("contentNote").textContent = `Deleted the map “${title}”.`;
+    $("contentNote").tabIndex = -1;
+    $("contentNote").focus();
   } catch (e) {
     del.disabled = false;
     toast(e.message || String(e));
@@ -4877,8 +4941,8 @@ async function drawServiceDetails(qualified, knownKind) {
       ...(spatial ? [["Spatial ref", spatial]] : []),
       ["Layers", `<span title="${num(serviceEntries)} entr${serviceEntries === 1 ? "y" : "ies"} in the service document, which counts a group layer and what is nested under it">${
         num(item.layers || serviceLayers.length || 0)}</span>`],
-      ["Published", item.created ? h(String(item.created).slice(0, 10)) : `<span class="val">—</span>`],
-      ["Updated", item.updated ? h(String(item.updated).slice(0, 10)) : `<span class="val">—</span>`],
+      ["Published", item.created ? h(day(item.created)) : `<span class="val">—</span>`],
+      ["Updated", item.updated ? h(day(item.updated)) : `<span class="val">—</span>`],
     ];
 
     $("svcFacts").innerHTML = rows.map(([label, value]) =>
@@ -4891,10 +4955,13 @@ async function drawServiceDetails(qualified, knownKind) {
     // *public* again in the line after it is the page saying one fact twice in two shapes. And
     // it stays that function's element — two writers for one pill is how a className set by one
     // gets cleared by the other.
+    // <b>The state alone, 2026-09-30.</b> It said *started · ci*; the owner is in the subtitle now, so it
+    // was said twice. The state stays — an empty line here read as a page that gave up (D-200).
     if ($("serviceFacts")) {
-      $("serviceFacts").textContent = [item.status, item.owner].filter(Boolean).join(" · ");
+      $("serviceFacts").textContent = item.status || "";
     }
 
+    serviceItem = item;
     drawServiceHead(item);
   } catch {
     // The column's own reason — the address — is already on screen and needed no request. A failure
@@ -4911,6 +4978,17 @@ async function drawServiceDetails(qualified, knownKind) {
  * cell is not information.
  */
 let dataView = "table";
+
+/**
+ * Where the Data table stands: which layer, which page, which order.
+ *
+ * <b>2026-09-30, from the design review's comparison with Portal's Data tab.</b> The table was a fixed
+ * first twenty rows and first twelve columns, with no total, no paging, no order and no way out of the
+ * browser — Portal's users live in that tab, sorting a column and pressing *Export Data*. Kept per layer
+ * so that paging one layer and switching to another does not leave the second on page nine.
+ */
+const dataTable = { key: null, offset: 0, order: null, descending: false };
+const DATA_PAGE = 50;
 
 function drawServiceData() {
   const picker = $("dataLayer");
@@ -5206,36 +5284,137 @@ async function loadServiceData() {
       return;
     }
 
-    // <b>Twenty rows and no geometry in the cells.</b> The count is what makes a table readable at a
-    // glance and the geometry is what makes it unreadable: `returnGeometry=false` keeps the request
-    // small, and the geometry's presence is a fact about the layer rather than about a row.
-    const shown = fields.filter(f => (f.type || "") !== "esriFieldTypeGeometry").slice(0, 12);
+    // <b>Every column, a page of fifty, a total, an order — and no geometry in the cells.</b> The
+    // geometry's presence is a fact about the layer (Fields states it); a WKB blob in a cell is not.
+    const shown = fields.filter(f => (f.type || "") !== "esriFieldTypeGeometry");
+    const key = `${serviceOpen.qualified}/${index}`;
 
-    const answer = await api(`${root}/query?where=1%3D1&outFields=*&returnGeometry=false`
-      + `&resultRecordCount=20&resultOffset=0&f=json`);
+    if (dataTable.key !== key) Object.assign(dataTable, { key, offset: 0, order: null, descending: false });
+
+    const order = dataTable.order && shown.some(f => f.name === dataTable.order)
+      ? `&orderByFields=${encodeURIComponent(`${dataTable.order} ${dataTable.descending ? "DESC" : "ASC"}`)}`
+      : "";
+
+    const [answer, counted] = await Promise.all([
+      api(`${root}/query?where=1%3D1&outFields=*&returnGeometry=false${order}`
+        + `&resultRecordCount=${DATA_PAGE}&resultOffset=${dataTable.offset}&f=json`),
+      api(`${root}/query?where=1%3D1&returnCountOnly=true&f=json`).catch(() => ({})),
+    ]);
 
     const rows = answer.features || [];
+    const total = Number.isFinite(counted.count) ? counted.count : null;
+    const first = rows.length ? dataTable.offset + 1 : 0;
+    const last = dataTable.offset + rows.length;
+    const more = total === null ? rows.length === DATA_PAGE : last < total;
+
+    const arrow = f => dataTable.order !== f.name ? "" : dataTable.descending ? " ▼" : " ▲";
 
     box.innerHTML = `
-      <table>
-        <thead><tr>${shown.map(f => `<th>${h(f.alias || f.name)}</th>`).join("")}</tr></thead>
-        <tbody>${rows.length === 0
-          ? `<tr><td colspan="${Math.max(1, shown.length)}" class="empty">No rows in this layer
-               yet.</td></tr>`
-          : rows.map(feature => `<tr>${shown.map(f => {
-              const value = (feature.attributes || {})[f.name];
-              return `<td${typeof value === "number" ? ' class="num"' : ""}>${
-                value === null || value === undefined ? '<span class="val">—</span>' : h(String(value))
-              }</td>`;
-            }).join("")}</tr>`).join("")}</tbody>
-      </table>
-      <p class="hint">The first ${num(rows.length)} row${rows.length === 1 ? "" : "s"}${
-        shown.length < fields.length - 1
-          ? ` and the first ${num(shown.length)} of ${num(fields.length)} columns`
-          : ""}. The geometry is not asked for — a layer's geometry is a fact about the layer, and
-        <b>Fields</b> states it.</p>`;
+      <div class="toolbar datatools">
+        <span class="val" id="dataCount">${rows.length === 0 ? "" : `Showing ${num(first)}–${num(last)}${
+          total === null ? "" : ` of ${num(total)}`}`}</span>
+        <span style="flex:1"></span>
+        <button type="button" class="tiny ghost" data-data-page="-1" ${dataTable.offset === 0 ? "disabled" : ""}
+          >Previous</button>
+        <button type="button" class="tiny ghost" data-data-page="1" ${more ? "" : "disabled"}>Next</button>
+        <button type="button" class="tiny" data-data-export="csv">Export CSV</button>
+        <button type="button" class="tiny" data-data-export="geojson">Export GeoJSON</button>
+      </div>
+      <div class="widetable">
+        <table>
+          <thead><tr>${shown.map(f => `<th aria-sort="${dataTable.order !== f.name ? "none"
+            : dataTable.descending ? "descending" : "ascending"}"><button type="button" class="thsort"
+              data-data-sort="${h(f.name)}" title="Order by ${h(f.alias || f.name)}">${h(f.alias || f.name)}${
+              arrow(f)}</button></th>`).join("")}</tr></thead>
+          <tbody>${rows.length === 0
+            ? `<tr><td colspan="${Math.max(1, shown.length)}" class="empty">No rows in this layer
+                 yet.</td></tr>`
+            : rows.map(feature => `<tr>${shown.map(f => {
+                const value = (feature.attributes || {})[f.name];
+                const shownValue = value !== null && value !== undefined && (f.type || "") === "esriFieldTypeDate"
+                  && Number.isFinite(value) ? new Date(value).toLocaleString() : value;
+                return `<td${typeof value === "number" && (f.type || "") !== "esriFieldTypeDate" ? ' class="num"' : ""}>${
+                  value === null || value === undefined ? '<span class="val">—</span>' : h(String(shownValue))
+                }</td>`;
+              }).join("")}</tr>`).join("")}</tbody>
+        </table>
+      </div>
+      <p class="hint" id="dataSays" role="status" aria-live="polite">Click a column's name to order by it.
+        Export writes every row of this layer${total === null ? "" : ` (${num(total)})`}; GeoJSON with the
+        geometry, CSV without.</p>`;
   } catch (e) {
     box.innerHTML = `<p class="hint">${h(e.message || String(e))}</p>`;
+  }
+}
+
+/**
+ * Writes every row of the layer on the Data tab to a file — CSV of the attributes, or GeoJSON with the
+ * geometry.
+ *
+ * <b>Read in pages through the layer's own query</b>, the same one any ArcGIS client uses, so what is
+ * exported is exactly what this reader may read, and nothing new is exposed on the server. Stopped at
+ * 100,000 rows and said so, because a browser tab holding more is the wrong tool; the layer's REST
+ * address is the right one, and the note names it.
+ */
+async function exportServiceData(format, button) {
+  const index = $("dataLayer")?.value;
+  if (!serviceOpen || index === undefined || index === "") return;
+
+  const root = `/rest/services/${
+    serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer/${encodeURIComponent(index)}`;
+  const says = text => { const s = $("dataSays"); if (s) s.textContent = text; };
+  const cap = 100000;
+  const page = 2000;
+  const geojson = format === "geojson";
+  const features = [];
+  let fields = null;
+
+  button.disabled = true;
+
+  try {
+    for (let offset = 0; offset < cap; offset += page) {
+      says(`Reading rows ${num(offset + 1)} onward…`);
+      const answer = await api(`${root}/query?where=1%3D1&outFields=*&returnGeometry=${geojson}`
+        + `&resultRecordCount=${page}&resultOffset=${offset}${geojson ? "&outSR=4326&f=geojson" : "&f=json"}`);
+      const got = answer.features || [];
+      if (!fields && answer.fields) fields = answer.fields;
+      features.push(...got);
+      if (got.length < page && !answer.exceededTransferLimit
+          && !(answer.properties && answer.properties.exceededTransferLimit)) break;
+    }
+
+    const name = (serviceOpen.qualified.split("/").pop() || "layer") + (index === "0" ? "" : `_${index}`);
+    let blob;
+
+    if (geojson) {
+      blob = new Blob([JSON.stringify({ type: "FeatureCollection", features })], { type: "application/geo+json" });
+    } else {
+      const names = (fields || []).map(f => f.name).filter(Boolean);
+      const columns = names.length ? names : [...new Set(features.flatMap(f => Object.keys(f.attributes || {})))];
+      const cell = v => {
+        if (v === null || v === undefined) return "";
+        const text = String(v);
+        return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+      };
+      const lines = [columns.map(cell).join(","),
+        ...features.map(f => columns.map(c => cell((f.attributes || {})[c])).join(","))];
+      // A byte-order mark, so a spreadsheet opens Turkish letters as letters.
+      blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    }
+
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${name}.${geojson ? "geojson" : "csv"}`;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => { URL.revokeObjectURL(link.href); link.remove(); }, 1000);
+
+    says(`${num(features.length)} row${features.length === 1 ? "" : "s"} written to ${link.download}.${
+      features.length >= cap ? ` Stopped at ${num(cap)}; for more, query ${root} directly.` : ""}`);
+  } catch (e) {
+    says(`Not exported: ${e.message || e}`);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -5580,6 +5759,9 @@ async function saveShare() {
  * mechanism — and it is drawn from the layer's geometry and symbology rather than stored, which
  * is why a product with no thumbnail storage can still show a picture.
  */
+/** The item the service page is showing, as `/content/items` described it. */
+let serviceItem = null;
+
 function drawServiceHead(item) {
   const box = $("serviceHead");
   if (!box) return;
@@ -5596,24 +5778,36 @@ function drawServiceHead(item) {
           was the only thing on the page that said what the service is; with a 33-pixel title
           above it, printing them again in 15-pixel bold is the same fact at two sizes.
         -->
-        ${item.description
-          ? `<p class="lede">${h(item.description)}</p>`
-          : `<p class="hint">No description. A service with one is easier to find in a listing
-             than one identified only by its name.</p>`}
-        <div class="footnote">${item.updated ? `Updated ${h(String(item.updated).slice(0, 10))}` : ""}${
-          item.created ? ` · published ${h(String(item.created).slice(0, 10))}` : ""}</div>
+        <div id="serviceDescription">${describedAs(item)}</div>
+        <!--
+          <b>The dates as every list shows them, 2026-09-30.</b> This sliced the ISO string, so the page
+          said 2026-09-29 in UTC while My content said Sep 30 in local time for the same save.
+        -->
+        <div class="footnote">${item.updated ? `Updated ${h(day(item.updated))}` : ""}${
+          item.created ? ` · published ${h(day(item.created))}` : ""}</div>
+      </div>
+      <!--
+        <b>The two things a Portal item page offers first, 2026-09-30.</b> *Open in Map Viewer* was a
+        row's ⋯ entry on My content and nowhere here; *Share* was a pill in the corner. Both are the
+        actions somebody arrives at an item to take.
+      -->
+      <div class="itemactions">
+        ${item.status === "stopped" ? "" : `<a class="btn primary"
+          href="/studio/webmap.html?service=${encodeURIComponent(item.name)}">Open in Map Viewer</a>`}
+        ${item.manages === false ? "" : `<button type="button" data-share="${h(item.name)}">Share</button>`}
       </div>
     </div>`;
 
-  // <b>The subtitle is the line this panel used to carry.</b> Kind, how many layers and who may
-  // read it: three facts that qualify the name, which is what a subtitle is for.
+  // <b>The subtitle is the line this panel used to carry.</b> Kind, how many layers and whose it is. Who
+  // may read it is the Sharing pill's, once — it was here, in the pill and in the facts column, three
+  // times on one screen.
   const sub = $("serviceSub");
 
   if (sub) {
     sub.textContent = [
       item.kind || "feature service",
       `${num(item.layers || 0)} layer${(item.layers || 0) === 1 ? "" : "s"}`,
-      item.sharing || "",
+      item.owner ? `owner ${item.owner}` : "",
     ].filter(Boolean).join(" · ");
   }
 
@@ -5622,6 +5816,62 @@ function drawServiceHead(item) {
   // simply empty. Saying which of the two it is takes one canvas read of an image the page has
   // already fetched.
   paintPreviews().then(() => explainBlankCover());
+}
+
+/**
+ * The description, and the control that changes it for whoever may.
+ *
+ * <b>2026-09-30.</b> The page asked for a description and offered no way to write one; the column was
+ * written only when a service was published from the composer. `PUT /admin/services/{name}/description`
+ * is the owner's act or an administrator's, as sharing is, so the control is drawn only for them.
+ */
+function describedAs(item) {
+  const edit = item.manages === false ? "" : `<button type="button" class="tiny ghost"
+    data-describe="${h(item.name)}">${item.description ? "Edit" : "Add a description"}</button>`;
+
+  return item.description
+    ? `<p class="lede">${h(item.description)}</p>${edit}`
+    : `<p class="hint">No description yet. A few words on what this is and where it came from make it
+         easier to find and to trust.</p>${edit}`;
+}
+
+/** Turns the description into a box to type in, with Save and Cancel. */
+function editDescription(qualified) {
+  const box = $("serviceDescription");
+  if (!box) return;
+
+  const item = serviceItem && serviceItem.name === qualified ? serviceItem : null;
+
+  box.innerHTML = `<label class="field" style="display:block">Description
+      <textarea id="describeText" rows="4" maxlength="4000" style="width:100%">${h(item?.description || "")}</textarea>
+    </label>
+    <div class="row" style="gap:var(--gap-2);margin-top:var(--gap-2)">
+      <button type="button" class="primary" data-describe-save="${h(qualified)}">Save</button>
+      <button type="button" class="ghost" data-describe-cancel="${h(qualified)}">Cancel</button>
+    </div>`;
+
+  $("describeText").focus();
+}
+
+/** Stores the description typed in, and redraws the paragraph. */
+async function saveDescription(qualified) {
+  const { folder, name } = splitService(qualified);
+  const text = ($("describeText")?.value || "").trim();
+
+  try {
+    await api(`/admin/services/${encodeURIComponent(name)}/description`
+      + `?folder=${encodeURIComponent(folder || "")}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description: text }),
+    });
+
+    if (serviceItem && serviceItem.name === qualified) serviceItem.description = text;
+    $("serviceDescription").innerHTML = describedAs(serviceItem || { name: qualified, description: text });
+    toast(text ? "Description saved." : "Description removed.", true);
+  } catch (e) {
+    toast(e.message || String(e));
+  }
 }
 
 /**
@@ -5780,12 +6030,19 @@ function drawServiceVis() {
         if (serviceOpen?.qualified !== asked || visTiled === answer) return;
         visTiled = answer;
         drawServiceVis();
-      }, () => { if (serviceOpen?.qualified === asked) visTiled = false; });
+      }, () => {
+        if (serviceOpen?.qualified !== asked) return;
+        visTiled = false;
+        drawServiceVis();
+      });
   }
 
   const tiled = visTiled === true;
 
-  if (!tiled && visMode === "tiles") visMode = "features";
+  // <b>Only once the answer is no, 2026-09-30.</b> This reset a requested `mode=tiles` on the first
+  // pass, before the probe had answered, so a link to a service's tiles — the row menu's *Draw the whole
+  // service's tiles* — arrived drawing features. While the question is open, nothing is drawn yet.
+  if (visTiled === false && visMode === "tiles") visMode = "features";
 
   // <b>Appended, not rewritten.</b> The list only ever gains Tiles, at the end, when the probe answers —
   // and rewriting it took the focus off the Features link a keyboard reader was on, and swallowed a click
@@ -5805,6 +6062,12 @@ function drawServiceVis() {
     const current = link.dataset.visMode === visMode;
     if (current) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
+  }
+
+  if (visMode === "tiles" && !tiled) {
+    $("mapPanel").hidden = false;
+    $("legend").textContent = "Asking whether this service has tiles…";
+    return;
   }
 
   drawVisNow();
@@ -10165,8 +10428,11 @@ const bytesPlain = value => bytes(value).replace(/<[^>]+>/g, " ").trim();
 /** Which folder the Server services screen is looking at: null is the root. */
 let selectedFolder = null;
 
-/** The filter over the services in that folder. */
+/** The filter over the services — every folder's once something is typed. */
 let serviceFilter = "";
+
+/** Whether the services screen has been drawn once in this tab, for where it first lands. */
+let servicesLanded = false;
 
 /**
  * The folder rail — ADR-034 §5h.
@@ -10223,7 +10489,38 @@ async function loadServices() {
 
   SERVICE_ROWS = services || [];
 
-  const inFolder = (folder) => (folder ?? "") === (selectedFolder ?? "");
+  // <b>The first landing goes where the services are, 2026-09-30.</b> The screen opened on *Site
+  // (root)* — "0 services, nothing in the root" on a server whose every service is in `hosted`, which is
+  // most of them, since an upload lands there. Only the first time: pressing *Site (root)* afterwards
+  // shows the root, empty or not.
+  // And only while the address is still the bare services screen: the list is read asynchronously, and
+  // a reader who has gone on to another screen meanwhile must not be pulled back by its answer.
+  const stillLanding = /^(#\/?)?(services\/?)?$/.test(location.hash);
+
+  if (!servicesLanded && selectedFolder === null && stillLanding) {
+    servicesLanded = true;
+    const all = [...(services || []), ...(system.services || [])];
+
+    if (!all.some(s => !s.folder)) {
+      const counted = new Map();
+      for (const s of all) if (s.folder) counted.set(s.folder, (counted.get(s.folder) || 0) + 1);
+      const busiest = [...counted].sort((x, y) => y[1] - x[1])[0];
+
+      if (busiest) {
+        selectedFolder = busiest[0];
+        history.replaceState(null, "", `#/services/${encodeURIComponent(busiest[0])}`);
+        section("folders", loadFolders);
+      }
+    }
+  }
+  servicesLanded = true;
+
+  const needle = serviceFilter.trim().toLowerCase();
+
+  // <b>A search reads every folder, 2026-09-30.</b> It read the open folder only, so typing a service's
+  // name on the root answered "0 of 0" while the service sat one folder over — Server Manager's filter
+  // is site-wide. The folder rail still narrows the list when nothing is typed.
+  const inFolder = (folder) => needle !== "" || (folder ?? "") === (selectedFolder ?? "");
 
   const rows = [
     ...(services || []).filter(s => inFolder(s.folder)).map(s => ({
@@ -10282,7 +10579,6 @@ async function loadServices() {
     })),
   ];
 
-  const needle = serviceFilter.trim().toLowerCase();
   const shown_ = needle
     ? rows.filter(r => [r.qualified, r.kind, r.owner].some(v => (v || "").toLowerCase().includes(needle)))
     : rows;
@@ -10301,7 +10597,7 @@ async function loadServices() {
   $("services").innerHTML = shown_.length === 0
     ? `<tr><td colspan="6" class="empty">${rows.length === 0
         ? `Nothing in ${h(where)}. Publishing a layer creates a service; a folder can hold none.`
-        : `Nothing in ${h(where)} matches <b>${h(serviceFilter)}</b>.`}</td></tr>`
+        : `No service in any folder matches <b>${h(serviceFilter)}</b>.`}</td></tr>`
     : onPage.map(r => {
       const held = [
         r.layers ? `${r.layers} layer${r.layers === 1 ? "" : "s"}` : "",
@@ -10695,7 +10991,7 @@ const LAYER_PAGES = {
   // 2026-08-17 broke up, and this is the half that stayed with the layer. It is Studio's for the
   // reason that section gives — *"Delete layer is a decision about content, and the person who
   // published it unpublishes it."*
-  maintenance: "studio",
+  // (Listed last since 2026-09-30 — see the end of this object.)
 
   // <b>Symbology is a layer's own, and it is the one appearance fact that is.</b> ADR-033
   // §5a stores a canonical document per layer, and the endpoint behind this page asks for
@@ -10716,6 +11012,11 @@ const LAYER_PAGES = {
   history: "studio",
 
   caching: "studio",
+
+  // <b>Last, so it is not the page a layer opens on — 2026-09-30.</b> A surface's first page here is where
+  // `#/layer/{name}` lands, and a click on a layer's name in the item's Overview landed on a page whose
+  // only content was *Delete layer*. Portal opens a sublayer on what it is; its removal is one tab over.
+  maintenance: "studio",
 };
 
 const EDIT_PAGES = Object.keys(LAYER_PAGES);
@@ -11081,33 +11382,54 @@ function showLayer(name, page, pending = null) {
     </section>
 
     <section class="page" id="page-caching">
-      <h4>Tile cache</h4>
+      <!--
+        <b>Rebuilt 2026-09-30 around what the cache does, not how it is tuned.</b> The owner called this
+        page's logic *tamamen çağ dışı*, and the design review found why: the engine builds tiles on first
+        view and empties them on every edit, and the page led with seconds, hours, megabytes, level numbers
+        and a seed job, which is how a 2010 map cache was run. What it does now comes first, in one
+        sentence; pre-building an area is an option with a map to show the area on; everything tuned in
+        numbers is under *Advanced*.
+      -->
+      <h4>Tiles</h4>
       <!-- tileable, not hosted (D-264): a GeoParquet layer is tiled (ADR-066 section 9) and is never
            hosted, so this page told its operator there was no cache while the tiles were being cached. -->
       ${l.tileable ? `
-      <div class="setting"><span class="q">How long a tile stays fresh:</span>
-        <input type="number" id="ttl" min="0" step="1" placeholder="${l.cacheSeconds == null && l.tileLifetimeSeconds != null ? `default, ${h(String(l.tileLifetimeSeconds))}` : "server default"}"><span class="u">seconds</span></div>
-      ${l.coherence === "best-effort" ? `<p class="hint">Other tools can change this layer's data without
-        this server knowing, so its tiles catch up only when they expire. Edits made through this server
-        clear them at once (ADR-095).</p>` : ""}
-      <div class="row" style="margin-top:10px">
-        <button data-cache="${h(name)}">Set</button>
-        <button data-cache="${h(name)}" data-clear="1" class="ghost">Use the server's</button>
+      <p class="lede">Built the first time somebody views an area, and cleared as soon as this service's
+        data changes through this server.${l.coherence === "best-effort" ? ` Other tools can change this
+        layer's data without this server knowing; their changes show once the tiles expire.` : ""}</p>
+      <div id="tilesStatus"><p class="hint">Reading the service's cache…</p></div>
+
+      <h4>Pre-build tiles for an area</h4>
+      <p class="hint">For the area people will look at first, so its tiles are ready before anybody asks. An
+        edit clears pre-built tiles like any other, so this helps most for data that rarely changes, or for
+        the zoomed-out levels, which are the slowest to build.</p>
+      <div id="seedBox"><p class="hint">Reading the service's cache…</p></div>
+      <div id="seedMapWrap" hidden>
+        <p class="hint" id="seedMapSays">Move and zoom the map to the area. The outline is where this
+          service's data is.</p>
+        <div id="seedMap" class="seedmap"></div>
       </div>
 
-      <div id="cacheLimits"></div>
+      <h4>Offline packages</h4>
+      <p class="hint">One file with this service's tiles, to take offline: a VTPK for ArcGIS Field Maps and ArcGIS
+        Pro, or a PMTiles archive for MapLibre. It is built in the background and kept for a limited time.</p>
+      <div id="exportBox"><p class="hint">Reading the service's exports…</p></div>
 
-      <h4>Seed the cache</h4>
-      <p class="hint">A tile is built the first time somebody asks for it. A seed builds tiles before
-        anybody asks, for every layer of this service, on a background worker. After an upgrade that
-        changes how tiles are drawn, the cache starts empty and nothing seeds it automatically.</p>
-      <div id="seedBox"><p class="hint">Reading the service's cache…</p></div>
+      <details class="advanced">
+        <summary>Advanced</summary>
+        <div class="setting"><span class="q">How long a browser and this server may keep a tile before
+          asking again:</span>
+          <input type="number" id="ttl" min="0" step="1" placeholder="${l.cacheSeconds == null && l.tileLifetimeSeconds != null ? `default, ${h(String(l.tileLifetimeSeconds))}` : "server default"}"><span class="u">seconds</span></div>
+        <p class="hint">An edit through this server clears the tiles either way. On a layer people edit,
+          a long time here means a browser can go on showing the old tile after an edit.</p>
+        <div class="row" style="margin-top:10px">
+          <button data-cache="${h(name)}">Set</button>
+          <button data-cache="${h(name)}" data-clear="1" class="ghost">Use the server's</button>
+        </div>
 
-      <h4>Export tiles</h4>
-      <p class="hint">An export writes this service's tiles into one file that can be taken offline: a VTPK for ArcGIS
-        Field Maps and ArcGIS Pro, or a PMTiles archive for MapLibre and the pmtiles tools. It runs on a background
-        worker, like a seed, and the file is kept for a limited time.</p>
-      <div id="exportBox"><p class="hint">Reading the service's exports…</p></div>`
+        <div id="cacheLimits"></div>
+        <div id="cacheDetails"></div>
+      </details>`
       : `<p class="hint">No tile cache: this layer stays in its own database, and this server serves it as
          features only. Tiles come from layers this server holds itself — data in its datastore, and
          GeoParquet files it reads directly. To get tiles, publish a copy into the datastore.</p>`}
@@ -12019,6 +12341,134 @@ function drawLimits(name, where, r) {
   $("quotaClear")?.addEventListener("click", () => setQuota(true));
 }
 
+/**
+ * A level as somebody picks it: the scale, what that scale shows, and the level number small.
+ *
+ * <b>2026-09-30.</b> The seed and export forms asked for *From level 0 / To level 14* as numbers; ArcGIS's
+ * *Manage Tiles* and *Build tiles* offer scales. Web Mercator's scale at level z is 591,657,527.59 / 2^z
+ * (the ArcGIS Online scheme); another grid (ADR-096) is offered by its level numbers, since this page does
+ * not know its scales.
+ */
+function levelLabel(z, scheme) {
+  if (scheme && scheme !== "webmercator") return `Level ${z}`;
+  const scale = 591657527.591555 / Math.pow(2, z);
+  const round = scale >= 1e6 ? `${(scale / 1e6).toFixed(scale >= 1e7 ? 0 : 1)}M`
+    : scale >= 1e3 ? `${Math.round(scale / 1e3)}k` : String(Math.round(scale));
+  const what = z <= 2 ? "world" : z <= 4 ? "continent" : z <= 6 ? "country" : z <= 8 ? "region"
+    : z <= 10 ? "province" : z <= 12 ? "city" : z <= 14 ? "town" : z <= 16 ? "neighbourhood"
+    : z <= 18 ? "street" : "building";
+  return `1:${round} — ${what} (level ${z})`;
+}
+
+function levelOptions(chosen, top, scheme) {
+  let out = "";
+  for (let z = 0; z <= top; z++) {
+    out += `<option value="${z}"${z === Number(chosen) ? " selected" : ""}>${h(levelLabel(z, scheme))}</option>`;
+  }
+  return out;
+}
+
+/** The map the seed and export forms take an area from, built once per page. */
+let seedMap = null;
+let seedMapFor = null;
+
+/** Shows the area map when either form asks for it, and builds it on first need. */
+async function showSeedMap(name) {
+  const wrap = $("seedMapWrap");
+  if (!wrap) return;
+
+  const wanted = $("seedArea")?.value === "map" || $("exportArea")?.value === "map";
+  wrap.hidden = !wanted;
+  if (!wanted) return;
+
+  if (seedMap && seedMapFor === name) { seedMap.updateSize(); return; }
+
+  if (!await loadOpenLayers()) {
+    $("seedMapSays").textContent = "The map could not be loaded, so an area cannot be picked here.";
+    return;
+  }
+
+  $("seedMap").innerHTML = "";
+  const outline = new ol.source.Vector();
+
+  seedMap = new ol.Map({
+    target: $("seedMap"),
+    layers: [
+      new ol.layer.Tile({ source: new ol.source.OSM() }),
+      new ol.layer.Vector({
+        source: outline,
+        style: new ol.style.Style({ stroke: new ol.style.Stroke({ color: "#0b6157", width: 2, lineDash: [6, 4] }) }),
+      }),
+    ],
+    view: new ol.View({ center: [3350000, 4700000], zoom: 5 }),
+    controls: [new ol.control.Zoom()],
+  });
+  seedMapFor = name;
+
+  // The service's own extent, outlined and fitted, so the reader starts from where the data is.
+  try {
+    const at = placeOf(name);
+    const doc = await api(`/rest/services/${[at.folder, at.bare].filter(Boolean).map(encodeURIComponent).join("/")}/FeatureServer?f=json`);
+    const e = doc.fullExtent || doc.initialExtent;
+    const wkid = e?.spatialReference?.latestWkid || e?.spatialReference?.wkid;
+
+    if (e && Number.isFinite(e.xmin) && [102100, 3857, 4326].includes(wkid)) {
+      const box = ol.proj.transformExtent([e.xmin, e.ymin, e.xmax, e.ymax],
+        wkid === 4326 ? "EPSG:4326" : "EPSG:3857", "EPSG:3857");
+      outline.addFeature(new ol.Feature(ol.geom.Polygon.fromExtent(box)));
+      seedMap.getView().fit(box, { padding: [24, 24, 24, 24], maxZoom: 16 });
+    }
+  } catch { /* the world, then; the reader can still move to the area */ }
+}
+
+/** The area shown on the area map, as a seed or an export takes it, or null when none is shown. */
+function seedMapExtent() {
+  if (!seedMap || $("seedMapWrap")?.hidden) return null;
+  const [xmin, ymin, xmax, ymax] = seedMap.getView().calculateExtent(seedMap.getSize());
+  return { xmin, ymin, xmax, ymax, spatialReference: { wkid: 102100 } };
+}
+
+/**
+ * What the cache holds for this service now, and the one control that empties it.
+ *
+ * <b>*Clear cached tiles* is new, 2026-09-30.</b> A publisher had no way to clear their own tiles; the one
+ * control that did was Server's *Forget remembered shape*, admin-only and named for something else.
+ */
+function drawTilesStatus(name, where, r) {
+  const box = $("tilesStatus");
+  if (!box) return;
+
+  const b = r.budget || {};
+  const seeded = (r.levels || []).filter(l => l.lastSeeded).map(l => l.zoom);
+  const last = (r.levels || []).map(l => l.lastSeeded).filter(Boolean).sort().pop();
+  const scheme = r.tilingScheme?.id;
+
+  box.innerHTML = `
+    <dl class="facts">
+      <dt>Cached now</dt><dd>${num(b.serviceEntries || 0)} tile${b.serviceEntries === 1 ? "" : "s"} ·
+        ${h(seedSize(b.serviceBytes || 0))}</dd>
+      <dt>Pre-built</dt><dd>${seeded.length
+        ? `${h(levelLabel(Math.min(...seeded), scheme).split(" — ")[0])} to ${h(levelLabel(Math.max(...seeded), scheme).split(" — ")[0])}${last ? `, ${seedWhen(last)}` : ""}`
+        : "nothing — every tile is built when first viewed"}</dd>
+      ${r.stale?.served ? `<dt>Served while the data source was down</dt><dd>${num(r.stale.served)} times,
+        the last ${seedWhen(r.stale.lastServed)}</dd>` : ""}
+    </dl>
+    <div class="row" style="margin-top:10px">
+      <button type="button" class="ghost" id="tilesClear">Clear cached tiles</button>
+    </div>
+    <p class="hint" id="tilesSays" role="status" aria-live="polite"></p>`;
+
+  $("tilesClear")?.addEventListener("click", async () => {
+    const n = b.serviceEntries || 0;
+    if (n > 0 && !confirm(`Clear ${num(n)} cached tile${n === 1 ? "" : "s"}? The next view of each area builds it again.`)) return;
+    try {
+      const c = await api(`${where.base}/clear${where.folder}`, { method: "POST" });
+      toast(c.note, true);
+      await loadSeed(name);
+    } catch (e) { $("tilesSays").textContent = e.message; }
+  });
+}
+
 function seedCounts(s) {
   return `${num(s.built)} built · ${num(s.present)} already cached · ${num(s.empty)} empty · `
     + `${num(s.failed)} failed${s.skipped ? ` · ${num(s.skipped)} at levels nothing draws at` : ""}`;
@@ -12028,11 +12478,15 @@ function drawSeed(name, where, r) {
   const box = $("seedBox");
   const run = r.running;
   const last = !run && r.seeds && r.seeds.length ? r.seeds[0] : null;
-  const mapShown = !!(view && view.extent && $("mapPanel").classList.contains("on"));
   const d = r.defaults || { minZoom: 0, maxZoom: 0 };
+  const scheme = r.tilingScheme?.id;
+  const top = (r.tilingScheme?.levels ?? 23) - 1;
+  const area = $("seedArea")?.value || "whole";
+
+  drawTilesStatus(name, where, r);
 
   const progress = run ? `
-    <p class="hint"><b>Seeding levels ${h(run.minZoom)} to ${h(run.maxZoom)}:</b>
+    <p class="hint"><b>Pre-building ${h(levelLabel(run.minZoom, scheme).split(" — ")[0])} to ${h(levelLabel(run.maxZoom, scheme).split(" — ")[0])}:</b>
       ${num(run.done)} of ${num(run.tiles)} tiles (${h(run.percent)}%)${
       run.status === "queued" ? " — waiting for a worker" : ""}.</p>
     <p class="hint">${seedCounts(run)}</p>
@@ -12040,56 +12494,65 @@ function drawSeed(name, where, r) {
       ${h(run.pausedBecause || "")}</p>` : ""}
     <p class="hint">Time left: ${h(seedDuration(run.estimatedRemainingSeconds))}.</p>
     <div class="row" style="margin-top:10px">
-      <button type="button" class="ghost" id="seedCancel" data-id="${h(run.id)}">Cancel the seed</button>
+      <button type="button" class="ghost" id="seedCancel" data-id="${h(run.id)}">Stop</button>
     </div>` : `
-    <div class="setting"><label class="q" for="seedFrom">From level:</label>
-      <input type="number" id="seedFrom" min="0" max="22" step="1" value="${h(d.minZoom)}"></div>
-    <div class="setting"><label class="q" for="seedTo">To level:</label>
-      <input type="number" id="seedTo" min="0" max="22" step="1" value="${h(d.maxZoom)}"></div>
     <div class="setting"><label class="q" for="seedArea">Area:</label>
       <select id="seedArea">
-        <option value="whole">The whole service</option>
-        <option value="map" ${mapShown ? "" : "disabled"}>The map's current extent</option>
+        <option value="whole"${area === "whole" ? " selected" : ""}>Everywhere this service has data</option>
+        <option value="map"${area === "map" ? " selected" : ""}>The area I show on a map</option>
       </select></div>
-    <p class="hint">A seed covers every layer of the service, lowest level first. One seed covers at
-      most ${num(r.cap)} tiles, and it builds ${num(r.concurrency)} at a time, each holding a connection
-      to the data source as a map's request does.</p>
+    <div class="setting"><label class="q" for="seedFrom">From:</label>
+      <select id="seedFrom">${levelOptions(d.minZoom, top, scheme)}</select></div>
+    <div class="setting"><label class="q" for="seedTo">To:</label>
+      <select id="seedTo">${levelOptions(d.maxZoom, top, scheme)}</select></div>
     <div class="row" style="margin-top:10px">
-      <button type="button" class="ghost" id="seedCount">Count tiles</button>
-      <button type="button" id="seedStart">Start</button>
-      <button type="button" class="danger" id="seedForce" hidden>Seed anyway</button>
+      <button type="button" class="ghost" id="seedCount">Estimate</button>
+      <button type="button" class="primary" id="seedStart">Build tiles</button>
+      <button type="button" class="danger" id="seedForce" hidden>Build anyway — may push out the most detailed tiles</button>
     </div>`;
 
   box.innerHTML = `
     ${progress}
-    ${seedBudget(r.budget)}
-    ${seedQuota(r.quota)}
-    <p class="hint" id="seedSays" role="status" aria-live="polite">${last ? `The last seed was
+    <p class="hint" id="seedSays" role="status" aria-live="polite">${last ? `The last run
       ${h(last.status)}${last.finished ? ` ${seedWhen(last.finished)}` : ""}: ${seedCounts(last)}.${
-      last.failure ? ` ${h(last.failure)}` : ""}` : ""}</p>
-    ${r.levels && r.levels.length ? `
-      <table>
-        <thead><tr><th class="num">Level</th><th class="num">Tiles in the seeded area</th><th class="num">Cached now</th><th>Last seeded</th></tr></thead>
-        <tbody>${r.levels.map(l => `
-          <tr>
-            <td class="num">${h(l.zoom)}</td>
-            <td class="num">${num(l.tiles)}</td>
-            <td class="num">${l.cached == null ? "—" : num(l.cached)}</td>
-            <td>${seedWhen(l.lastSeeded)}</td>
-          </tr>`).join("")}</tbody>
-      </table>` : `<p class="hint">${h(r.note || "")}</p>`}`;
+      last.failure ? ` ${h(last.failure)}` : ""}` : ""}</p>`;
+
+  // <b>The numbers behind it, under Advanced</b> — the cache's budget, this service's quota, how a run is
+  // paced, and the per-level read-back. True and useful to whoever tunes the server; not the first thing
+  // a publisher needs to see.
+  const details = $("cacheDetails");
+  if (details) {
+    details.innerHTML = `
+      <h4>The cache's numbers</h4>
+      ${seedBudget(r.budget)}
+      ${seedQuota(r.quota)}
+      <p class="hint">A pre-build covers every layer of the service, lowest level first, at most
+        ${num(r.cap)} tiles a run, ${num(r.concurrency)} at a time — each holding a connection to the data
+        source, as a map's request does.</p>
+      ${r.levels && r.levels.length ? `
+        <table>
+          <thead><tr><th>Level</th><th class="num">Tiles in the pre-built area</th><th class="num">Cached now</th><th>Last pre-built</th></tr></thead>
+          <tbody>${r.levels.map(l => `
+            <tr>
+              <td>${h(levelLabel(l.zoom, scheme))}</td>
+              <td class="num">${num(l.tiles)}</td>
+              <td class="num">${l.cached == null ? "—" : num(l.cached)}</td>
+              <td>${seedWhen(l.lastSeeded)}</td>
+            </tr>`).join("")}</tbody>
+        </table>` : `<p class="hint">${h(r.note || "")}</p>`}`;
+  }
+
+  $("seedArea")?.addEventListener("change", () => showSeedMap(name));
+  showSeedMap(name);
 
   const says = text => { const s = $("seedSays"); if (s) s.textContent = text; };
 
   const asked = () => {
     const body = { minZoom: Number($("seedFrom").value), maxZoom: Number($("seedTo").value) };
 
-    if ($("seedArea").value === "map" && view && view.extent) {
-      const e = view.extent;
-      body.extent = {
-        xmin: e.xmin, ymin: e.ymin, xmax: e.xmax, ymax: e.ymax,
-        spatialReference: { wkid: e.spatialReference?.wkid ?? 102100 },
-      };
+    if ($("seedArea").value === "map") {
+      const e = seedMapExtent();
+      if (e) body.extent = e;
     }
 
     return body;
@@ -12125,7 +12588,8 @@ function drawSeed(name, where, r) {
           ? ", which keeps every tile it builds" : ""}`;
       // The refusal is the budget's or, when the budget fits, the service's quota's (ADR-010 §3).
       const over = !!((c.estimate && !c.estimate.fits) || (c.quotaEstimate && !c.quotaEstimate.fits));
-      says(`${num(c.tiles)} tiles over levels ${c.minZoom} to ${c.maxZoom}${size}${
+      says(`${num(c.tiles)} tiles from ${levelLabel(c.minZoom, scheme).split(" — ")[0]} to ${
+        levelLabel(c.maxZoom, scheme).split(" — ")[0]}${size}${
         idle.length ? ` — levels ${idle.join(", ")} are skipped, because no layer draws there` : ""}.${
         over && c.refusal ? ` ${c.refusal}` : ""}`);
       offerForce(over);
@@ -12217,7 +12681,11 @@ function exportRow(e) {
   const what = running
     ? `${num(e.done)} of ${num(e.tiles)} tiles (${h(e.percent)}%)${e.status === "queued" ? ", waiting for a worker" : ""}`
     : e.status === "done" && !e.removed
-      ? `${h(seedSize(e.bytes))}, kept until ${seedWhen(e.expires)}`
+      ? e.stored === 0
+        // <b>Not "0 · done" beside a 4 MB file</b>, which read as a failure (design review 2026-09-30): the
+        // package holds the service's style and fonts, and no tile had data in that area at those levels.
+        ? `No tiles with data in this area at these levels; the ${h(seedSize(e.bytes))} file holds the style and fonts`
+        : `${h(seedSize(e.bytes))}, kept until ${seedWhen(e.expires)}`
       : e.removed ? "removed" : h(e.failure || e.status);
   return `
     <tr>
@@ -12237,9 +12705,9 @@ function drawExport(name, where, r) {
   const box = $("exportBox");
   const p = r.policy || {};
   const d = r.defaults || { minZoom: 0, maxZoom: 0 };
-  const mapShown = !!(view && view.extent && $("mapPanel").classList.contains("on"));
   const formats = r.formats || ["vtpk"];
   const top = (r.tilingScheme?.levels ?? 23) - 1;
+  const scheme = r.tilingScheme?.id;
 
   box.innerHTML = `
     <div class="setting"><label class="q" for="exportAllowed">Readers may export these tiles:</label>
@@ -12261,15 +12729,15 @@ function drawExport(name, where, r) {
       </select></div>
     ${formats.includes("pmtiles") ? "" : `<p class="hint">PMTiles uses the Web Mercator grid only, and this
       service is tiled on ${h(r.tilingScheme?.id || "another grid")}.</p>`}
-    <div class="setting"><label class="q" for="exportFrom">From level:</label>
-      <input type="number" id="exportFrom" min="0" max="${h(top)}" step="1" value="${h(d.minZoom)}"></div>
-    <div class="setting"><label class="q" for="exportTo">To level:</label>
-      <input type="number" id="exportTo" min="0" max="${h(top)}" step="1" value="${h(d.maxZoom)}"></div>
     <div class="setting"><label class="q" for="exportArea">Area:</label>
       <select id="exportArea">
-        <option value="whole">The whole service</option>
-        <option value="map" ${mapShown ? "" : "disabled"}>The map's current extent</option>
+        <option value="whole">Everywhere this service has data</option>
+        <option value="map">The area I show on the map above</option>
       </select></div>
+    <div class="setting"><label class="q" for="exportFrom">From:</label>
+      <select id="exportFrom">${levelOptions(d.minZoom, top, scheme)}</select></div>
+    <div class="setting"><label class="q" for="exportTo">To:</label>
+      <select id="exportTo">${levelOptions(d.maxZoom, top, scheme)}</select></div>
     <p class="hint">One export holds at most ${num(r.cap)} tiles. Exports share
       ${h(seedSize(r.budget?.bytes))} of disk (${h(seedSize(r.budget?.freeBytes))} free now), and a file is kept for
       ${h(r.budget?.retentionHours)} hours.</p>
@@ -12280,11 +12748,13 @@ function drawExport(name, where, r) {
     <p class="hint" id="exportSays" role="status" aria-live="polite"></p>
     ${r.exports && r.exports.length ? `
       <table>
-        <thead><tr><th>Format</th><th>Levels</th><th class="num">Tiles</th><th>Status</th><th>Details</th><th></th></tr></thead>
+        <thead><tr><th>Format</th><th>Levels</th><th class="num">Tiles with data</th><th>Status</th><th>Details</th><th></th></tr></thead>
         <tbody>${r.exports.map(exportRow).join("")}</tbody>
       </table>` : `<p class="hint">No exports of this service yet.</p>`}`;
 
   const says = text => { const s = $("exportSays"); if (s) s.textContent = text; };
+
+  $("exportArea")?.addEventListener("change", () => showSeedMap(name));
 
   $("exportAllowed")?.addEventListener("change", event => {
     const anonymous = $("exportAnonymous");
@@ -12317,12 +12787,9 @@ function drawExport(name, where, r) {
       maxZoom: Number($("exportTo").value),
     };
 
-    if ($("exportArea").value === "map" && view && view.extent) {
-      const e = view.extent;
-      body.extent = {
-        xmin: e.xmin, ymin: e.ymin, xmax: e.xmax, ymax: e.ymax,
-        spatialReference: { wkid: e.spatialReference?.wkid ?? 102100 },
-      };
+    if ($("exportArea").value === "map") {
+      const e = seedMapExtent();
+      if (e) body.extent = e;
     }
 
     return body;
@@ -19376,9 +19843,9 @@ function drawImportForm() {
           placeholder="4326"><span class="u"></span></label>
       </div>
       <p class="hint" id="iChosen" hidden></p>
-      <p class="hint" id="iNote">Leave the coordinate system empty for GeoJSON, which is always
-        WGS 84 longitude, latitude by its own specification. A shapefile carries a
-        <code>.prj</code> and this server will not guess a code from it.</p>
+      <p class="hint" id="iNote">Leave the coordinate system empty: it is read from a GeoJSON
+        file, which is always WGS 84, and from a shapefile's <code>.prj</code>. Fill it in only for a
+        shapefile that has no <code>.prj</code>.</p>
     </form>
     <div id="newResult" class="group" style="display:none"></div>`;
 
@@ -19465,9 +19932,8 @@ function drawRegisteredForm() {
           <input type="text" id="rService" list="serviceNames" placeholder="a service of its own">
         </label>
       </div>
-      <p class="hint">Which column identifies a feature for the life of the layer. It is your
-        nomination, not something read from the table (Q-57): we will not synthesise one, because
-        a row number is not stable and a side mapping table would drift on the owner's first
+      <p class="hint">Which column identifies a feature for the life of the layer. This server will
+        not make one up: a row number is not stable, and a side table would drift on the first
         edit.</p>
       <datalist id="serviceNames"></datalist>
       <p class="hint">Naming an existing service adds this layer to it at the next free index —
@@ -19664,8 +20130,17 @@ async function loadRegisteredTables() {
     return;
   }
 
+  // <b>Not the tables this server made for its own hosted layers, 2026-09-30.</b> The `hosted` schema is
+  // where an upload lands (PostGisImporter.HostedSchema); offering its tables here republished a hosted
+  // layer's storage — `hosted.ci_parcels_1b2299d6` — as a second, registered layer, which nobody means.
   for (const t of tables) {
+    if (t.schemaName === "hosted") continue;
     probed.set(`${t.schemaName}.${t.tableName}`, t);
+  }
+
+  if (probed.size === 0) {
+    select.innerHTML = `<option value="">no table here besides this server's own hosted layers</option>`;
+    return;
   }
 
   select.innerHTML = `<option value="">choose a table…</option>` +
@@ -19686,6 +20161,12 @@ function showChosenTable() {
   // one table almost always wants, and is still editable.
   if (!$("rName").value.trim()) $("rName").value = t.tableName;
 
+  // <b>The column the probe found, filled in and still editable, 2026-09-30.</b> The design review watched
+  // the form say *the probe found objectid* beside an empty field; nominating it took a second button.
+  // Identity stays the publisher's nomination (Q-57) — the field is theirs to change — but the common
+  // answer no longer has to be typed.
+  if (t.objectIdColumn) $("rIdentity").value = t.objectIdColumn;
+
   facts.style.display = "";
   facts.innerHTML = `<dl class="facts">
       <dt>Geometry</dt><dd>${h(t.geometryType)} in <code>${h(t.geometryColumn)}</code>${t.ordinates
@@ -19698,15 +20179,13 @@ function showChosenTable() {
       <dt>Writable</dt><dd>${t.writable ? "yes" : "read only"}</dd>
     </dl>`
     + (t.objectIdColumn
-      ? `<p class="hint">The probe found <code>${h(t.objectIdColumn)}</code> as an integer
-         object-id column. <button type="button" class="ghost tiny" id="rUseOid">Nominate
-         ${h(t.objectIdColumn)}</button> — or name a different column, if identity and the ArcGIS
-         object id are not the same thing in this table.</p>`
+      ? `<p class="hint"><code>${h(t.objectIdColumn)}</code> is an integer column that identifies
+         each row, so it is filled in as the identity column. Name a different one if identity and the
+         ArcGIS object id are not the same thing in this table.</p>`
       : `<p class="hint bad-inline">This table has no integer object-id column, so the layer will
          publish and will <b>not</b> be servable through the ArcGIS surface — ADR-013 §2a. It
-         stays servable natively. The identity column is still required, and per Q-57 a table
-         keyed by UUID or text is exactly the case that needs DDL before a client can read
-         it.</p>`);
+         stays servable natively. The identity column is still required; a table keyed by UUID or
+         text needs an integer column added before an ArcGIS client can read it.</p>`);
 
   // Wired here rather than once at open, because the paragraph holding it is
   // rebuilt for every table.
@@ -19833,6 +20312,32 @@ function addFieldRow(name = "", type = "Text") {
 // Reports what the server said rather than "done". The import response carries
 // the row count, the inferred field types and the reprojection note — all of
 // which are things somebody uploading a file wants to check before trusting it.
+/**
+ * Takes the reader to what they just made.
+ *
+ * <b>2026-09-30, from the design review.</b> A successful import left the dialog open on an emptied form
+ * whose primary button still said *Import and publish*, with the result as two links to raw REST
+ * documents; seeing the new item took closing the dialog and finding the row. Portal lands on the new
+ * item's page, and so does this. `reportNew` stays for the case where the answer names no service.
+ */
+function openCreated(created, chosen) {
+  const address = String(created?.services?.feature || "");
+  const found = /\/rest\/services\/(.+)\/FeatureServer\/?$/.exec(address);
+
+  if (!found) {
+    reportNew(created);
+    return;
+  }
+
+  const path = found[1];
+  const sharing = created.sharing || chosen || "private";
+
+  $("addItem")?.close();
+  toast(`${path.split("/").pop()} is published${sharing === "private"
+    ? ". Only you can see it until you share it." : "."}`, true);
+  location.hash = `#/service/${path}`;
+}
+
 function reportNew(created) {
   const fields = (created.fields || [])
     .map(f => `${h(f.name)} <span class="val">${h(f.type)}</span>`).join(", ");
@@ -20475,7 +20980,7 @@ async function createDesigned(event) {
   })).filter(f => f.name);
 
   try {
-    reportNew(await api("/admin/hosted/define", {
+    openCreated(await api("/admin/hosted/define", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -20484,7 +20989,7 @@ async function createDesigned(event) {
         sharing: $("dShare").value,
         fields,
       }),
-    }));
+    }), $("dShare").value);
     $("dName").value = "";
     $("dFields").innerHTML = "";
     addFieldRow();
@@ -20531,9 +21036,9 @@ async function createImported(event) {
       return;
     }
 
-    reportNew(answer);
     $("iName").value = "";
     $("iFile").value = "";
+    openCreated(answer, $("iShare")?.value);
     await loadLayers();
   } catch (e) {
     const box = $("newResult");
@@ -22396,6 +22901,13 @@ async function handleClick(event) {
     return;
   }
 
+  if (t.dataset?.describe) { editDescription(t.dataset.describe); return; }
+  if (t.dataset?.describeSave) { await saveDescription(t.dataset.describeSave); return; }
+  if (t.dataset?.describeCancel) {
+    $("serviceDescription").innerHTML = describedAs(serviceItem || { name: t.dataset.describeCancel });
+    return;
+  }
+
   if (t.id === "shareEditGroups") {
     sharing.step = "groups";
     drawShare();
@@ -22454,6 +22966,26 @@ async function handleClick(event) {
     event.preventDefault();
     visLayerIndex = t.dataset.visLayer;
     drawServiceVis();
+    return;
+  }
+
+  if (t.closest?.("[data-data-sort]")) {
+    const field = t.closest("[data-data-sort]").dataset.dataSort;
+    dataTable.descending = dataTable.order === field ? !dataTable.descending : false;
+    dataTable.order = field;
+    dataTable.offset = 0;
+    await loadServiceData();
+    return;
+  }
+
+  if (t.dataset?.dataPage !== undefined) {
+    dataTable.offset = Math.max(0, dataTable.offset + Number(t.dataset.dataPage) * DATA_PAGE);
+    await loadServiceData();
+    return;
+  }
+
+  if (t.dataset?.dataExport !== undefined) {
+    await exportServiceData(t.dataset.dataExport, t);
     return;
   }
 
@@ -23028,6 +23560,15 @@ document.addEventListener("change", async event => {
   // moment it is chosen, like sharing and for the same reason (ADR-031 §2b): an administrator
   // revoking somebody's ability to publish has to be able to trust that it happened, rather than
   // press Save afterwards.
+  if (event.target?.id === "contentType" || event.target?.id === "contentSort") {
+    if (event.target.id === "contentType") contentType = event.target.value;
+    else contentSort = event.target.value;
+    resetPage("contentRows");
+    drawMyContent();
+    paintPreviews();
+    return;
+  }
+
   if (event.target?.name === "shareScope") {
     if (sharing) sharing.chosen = event.target.value;
     for (const row of $("shareBody").querySelectorAll(".pickrow")) {
@@ -23221,7 +23762,7 @@ document.addEventListener("input", async event => {
   if (event.target.id === "contentFilter") {
     contentFilter = event.target.value;
     resetPage("contentRows");
-    await section("your content", loadMyContent, "contentRows");
+    drawMyContent();
     paintPreviews();
     return;
   }
