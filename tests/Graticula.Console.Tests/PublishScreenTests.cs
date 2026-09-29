@@ -805,6 +805,14 @@ public sealed class PublishScreenTests : ConsoleTest
 
         await WaitForAsync(Shown("#pubTree"), "The Publish screen drew no contents pane.");
 
+        // <b>And the reference box set up, which happens after the data sources arrive.</b> The marks
+        // below are computed against the served reference; composed before the box has its 3857, the
+        // tree is drawn for "each layer in its own" and carries no mark. Over a slow link that is what
+        // this test kept failing on (2026-09-29), with nothing wrong on the screen.
+        await WaitForAsync(
+            "document.getElementById('pubSrid')?.dataset.wired === '1'",
+            "The Publish screen never set up its reference box.");
+
         await Browser.EvaluateAsync<bool>("""
         (() => {
           const layer = (name, srid, type) => ({

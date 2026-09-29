@@ -1328,6 +1328,14 @@ let idpGroupsOpenName = null;
 
 async function loadSignin() {
   idpSay("");
+
+  // <b>Add a provider waits for this answer — 2026-09-29.</b> The form it opens shows the redirect URI and
+  // reply URL to register at the provider, and the roles to choose from, and all three come from here. Pressed
+  // before the answer, it drew both addresses empty and no roles; the answer then redrew the form and took what
+  // had been typed with it (the race 6de454e fixed for domains). Over a slow link the two console tests that
+  // read the redirect URI straight after the press failed on it. drawIdpForm shows the button again.
+  if (!idpEditing) $("idpNew").hidden = true;
+
   const answer = await api("/admin/identity-providers") || {};
   idpList = answer.providers || [];
   idpMeta = {
@@ -13650,7 +13658,12 @@ async function loadPublish() {
 
   if (chooser && !chooser.dataset.wired) {
     chooser.dataset.wired = "1";
-    chooser.value = "3857";
+
+    // <b>The default only into an empty box — 2026-09-29.</b> This block runs after the data sources
+    // arrive, and the box is on the screen before that: a code typed in the meantime was put back to
+    // 3857 without a word, and the name looked up below was 3857's. Over a slow link that is what
+    // PublishScreenTests.Any_code_is_named… kept failing on. The lookup below reads whatever is there.
+    if (!chooser.value.trim()) chooser.value = "3857";
 
     // <b>The five most-typed, until the server answers.</b> They are a first paint rather than
     // the list: `pubSuggest` replaces them with what the projection database actually holds as
