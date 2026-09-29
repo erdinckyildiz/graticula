@@ -3,6 +3,8 @@
   <img alt="Graticula — a GIS server and its portal, from one container and one Postgres. v1, PostGIS, Elastic License 2.0." src="docs/banner-light.png">
 </picture>
 
+<p align="center"><a href="https://graticula.com"><b>graticula.com</b></a></p>
+
 **A GIS server and its portal, in one process.** `Server` does what a GIS Server site
 does — services at `/rest/services`, published out of PostGIS, opened by the clients you
 already have. `Studio` does what the portal does for content and people — items, members,
