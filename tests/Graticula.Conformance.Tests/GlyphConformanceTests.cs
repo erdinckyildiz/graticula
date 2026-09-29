@@ -160,6 +160,100 @@ public sealed class GlyphConformanceTests : ArcGisClient
         Assert.True(glyphs > 100, $"Latin Extended-A came back with {glyphs} glyphs");
     }
 
+    // ---------- the scripts ADR-100 added ----------
+
+    /// <summary>
+    /// A range in each script group the composite stack added answers with glyphs.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-100](../../docs/adr/ADR-100-labels-in-more-scripts.md), 2026-09-29.</b> The stack a
+    /// style names as <c>DejaVu Sans Regular</c> is DejaVu followed by Noto Sans and a Noto family
+    /// per script. <b>A count cannot tell a glyph from a box</b>: before it, <c>2304-2559</c>
+    /// answered with 256 of DejaVu's boxes and would have passed a count as well. Which font drew
+    /// each glyph is <c>GlyphCompositeTests</c>' question, answered from the generator's own
+    /// record; this one asks whether the running server serves the ranges at all, through the
+    /// substitution a real style exercises.
+    /// </para>
+    /// <para>
+    /// <b>The presentation forms are the Arabic a MapLibre client actually fetches</b>: its RTL
+    /// plugin turns Arabic into them before it asks for glyphs.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("DejaVu%20Sans%20Regular", "1536-1791", 230)]   // Arabic
+    [InlineData("DejaVu%20Sans%20Regular", "65024-65279", 140)] // Arabic presentation forms B
+    [InlineData("DejaVu%20Sans%20Regular", "64512-64767", 200)] // Arabic presentation forms A
+    [InlineData("DejaVu%20Sans%20Regular", "2304-2559", 150)]   // Devanagari, Bengali
+    [InlineData("DejaVu%20Sans%20Regular", "3584-3839", 130)]   // Thai, and DejaVu's Lao
+    [InlineData("Arial%20Unicode%20MS%20Regular", "1536-1791", 230)] // substituted, and still Arabic
+    public async Task A_range_in_a_script_the_stack_added_is_served(string fontstack, string range, int least)
+    {
+        using HttpClient http = Client();
+
+        using HttpResponseMessage response = await http.GetAsync(
+            new Uri($"{await ResourcesAsync()}/fonts/{fontstack}/{range}.pbf"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        (_, int glyphs, int withBitmaps) = Describe(await response.Content.ReadAsByteArrayAsync());
+
+        Assert.True(glyphs >= least, $"{range} came back with {glyphs} glyphs; the stack draws at least {least}.");
+        Assert.True(withBitmaps > least / 2, $"{range} came back with {withBitmaps} glyphs that carry a bitmap.");
+    }
+
+    /// <summary>
+    /// A range no font in the stack covers is still refused, not answered in another script.
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-027 §5's rule, which ADR-100 keeps — and which was not quite true before it.</b>
+    /// Gurmukhi's range answered 200 with 256 boxes until 2026-09-29, because the generator drew
+    /// the font's box for every codepoint the font lacked and served it as a glyph. A client that
+    /// is handed a box draws a box; a client that is handed a 404 can fall back.
+    /// </remarks>
+    [Theory]
+    [InlineData("DejaVu%20Sans%20Regular", "2560-2815")] // Gurmukhi, Gujarati
+    [InlineData("Arial%20Unicode%20MS%20Regular", "3072-3327")] // Telugu, Kannada
+    public async Task A_range_no_font_covers_is_refused(string fontstack, string range)
+    {
+        using HttpClient http = Client();
+
+        using HttpResponseMessage response = await http.GetAsync(
+            new Uri($"{await ResourcesAsync()}/fonts/{fontstack}/{range}.pbf"));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    /// <summary>
+    /// Han answers with Han, or not at all — never with Latin.
+    /// </summary>
+    /// <remarks>
+    /// <b>Two right answers, because CJK is a build choice — ADR-100 §4.</b> An image built with
+    /// <c>GLYPHS_CJK=1</c> carries every Unified Ideograph and answers with 256 of them; one built
+    /// without refuses. What must never happen is the third thing: a 200 with Latin glyphs in it,
+    /// which a client would draw as mojibake.
+    /// </remarks>
+    [Fact]
+    public async Task A_Han_range_is_Han_or_refused()
+    {
+        using HttpClient http = Client();
+
+        using HttpResponseMessage response = await http.GetAsync(
+            new Uri($"{await ResourcesAsync()}/fonts/DejaVu%20Sans%20Regular/19968-20223.pbf"));
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return;
+        }
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        (_, int glyphs, int withBitmaps) = Describe(await response.Content.ReadAsByteArrayAsync());
+
+        Assert.Equal(256, glyphs);
+        Assert.Equal(256, withBitmaps);
+    }
+
     // ---------- what is refused ----------
 
     /// <summary>

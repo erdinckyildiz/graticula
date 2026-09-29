@@ -26,6 +26,9 @@
 #   docker run --rm -v "$PWD:/repo" graticula-glyphs:pinned \
 #          python /repo/tools/make-glyphs.py /repo/src/Graticula.Host/glyphs
 #
+# `deploy/server.Dockerfile` builds its CJK glyph stage from the same base and the same pins
+# (`GLYPHS_CJK=1`, ADR-100 §4), so the ranges in that image are made the way these are.
+#
 # <b>The base image is pinned by digest, because a tag moves.</b> `python:3.12-slim` today is
 # not `python:3.12-slim` next month, and a floating base defeats the whole point of this file:
 # the FreeType that matters is the one in the image, and it changes with the image.
@@ -33,9 +36,15 @@ FROM python@sha256:7a8b475003c4fe15a2cd4e55e5cfc2f3560bdc9333d624f24cdd6d4340fd7
 
 # Pinned to what produced the ranges recorded in `src/Graticula.Host/glyphs/provenance.json`.
 # Changing any of these changes the bytes, which `tools/glyphs-check.py` will say out loud.
+#
+# <b>fontTools since ADR-100</b>, for one thing: reading each font's `cmap`, which is how the
+# composite decides which font a codepoint comes from. It draws nothing, so it is not one of
+# the versions that decide the bytes; it is pinned because *which codepoints a font has* is an
+# answer it gives, and an answer should not move with the day's `pip`.
 RUN pip install --no-cache-dir \
         numpy==1.26.4 \
         pillow==12.2.0 \
-        scipy==1.15.3
+        scipy==1.15.3 \
+        fonttools==4.62.1
 
 WORKDIR /repo

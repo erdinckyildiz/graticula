@@ -40,9 +40,11 @@ internal static class TileExportPackage
 {
     /// <summary>What the documents of a package are allowed for in its estimate: glyphs, sprites and JSON.</summary>
     /// <remarks>
-    /// <b>Eight megabytes</b>: the shipped glyphs are 4.3 MB for every range of the one stack, and an uploaded sprite
+    /// <b>Eight megabytes</b>: the shipped glyphs are 4.1 MB for every range of the one stack (ADR-100), and an uploaded sprite
     /// sheet is at most 8 MB at each ratio (migration 60) — so this is a fair allowance for most packages and an
     /// underestimate for one with two large sheets, which the budget's margin absorbs.
+    /// <b>Not for an image built with CJK</b>, whose stack is 40 MB, and a package from one is estimated about
+    /// 32 MB low — ADR-100 §6 records it rather than sizing every build for the one that opted in.
     /// </remarks>
     internal const long DocumentAllowance = 8L * 1024 * 1024;
 
@@ -420,7 +422,8 @@ internal static class TileExportPackage
     /// </summary>
     /// <remarks>
     /// <b>Every range the server has, not the ones the data needs</b>, because which characters an offline map will
-    /// label is not known when it is packed; the shipped font is 31 ranges and 4.3 MB. A stack the server does not have
+    /// label is not known when it is packed; the shipped stack is 48 ranges and 4.1 MB, or 207 and 40 MB in an image built
+    /// with CJK (ADR-100). A stack the server does not have
     /// is answered with the one it does, exactly as the font route answers it.
     /// </remarks>
     internal static void Fonts(string style, GlyphStore glyphs, Dictionary<string, byte[]> resources)

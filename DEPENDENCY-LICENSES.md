@@ -58,6 +58,10 @@ fact.
 | **SkiaSharp.NativeAssets.Linux.NoDependencies** | 3.119.2 | **MIT** | same package family, same expression | **Yes** |
 | **BitMiracle.LibTiff.NET** | 2.4.660 | **BSD-3-Clause**, with **IJG JPEG** and **libtiff** BSD-style notices bundled | the project's own licence page, cited from its nuspec `licenseUrl` | **Yes**, and the three notices go in `NOTICE` |
 | **DejaVu Sans** (font, redistributed) | 2.37 | **Bitstream Vera** (permissive) + public-domain DejaVu changes | the licence text shipped in [tools/fonts/LICENSE-DejaVu.txt](tools/fonts/LICENSE-DejaVu.txt) | **Yes**, with one obligation that is not the usual one — see below. **Redistributed twice since 2026-08-25**: as the SDF glyphs under `glyphs/` (ADR-027) and now embedded in `Graticula.Render.Skia` as the drawn face ([D-161](docs/architecture-debt.md)). One file, one licence, one obligation — the renderer was given the font the tile face already used rather than a second family |
+| **Noto Sans**, **Noto Sans Arabic**, **Hebrew**, **Armenian**, **Georgian**, **Devanagari**, **Bengali**, **Tamil**, **Thai** (fonts, redistributed) | 2.015 · 2.013 · 3.001 · 2.008 · 2.005 · 2.007 · 3.011 · 2.004 · 2.002, each read from the file's own `name` table | **OFL-1.1** (SIL Open Font License) | each file's `name` table (IDs 0, 13 and 14: *"This Font Software is licensed under the SIL Open Font License, Version 1.1"*), and the text shipped in [tools/fonts/OFL.txt](tools/fonts/OFL.txt); files pinned by SHA-256 in [tools/fonts/stack.json](tools/fonts/stack.json), fetched from `notofonts/notofonts.github.io` at commit `3ec599d8` | **Yes** — added 2026-09-29, [ADR-100](docs/adr/ADR-100-labels-in-more-scripts.md). Redistributed like DejaVu, twice: as glyph ranges under `glyphs/` and embedded in `Graticula.Render.Skia`. See *The fonts are not like the other rows* |
+| **Noto Sans CJK SC** (font, redistributed **only by an image built with `GLYPHS_CJK=1`**) | 2.004 | **OFL-1.1** | the file's `name` table (ID 13) and the `LICENSE` at the `Sans2.004` tag of `notofonts/noto-cjk`; pinned by SHA-256 in [tools/fonts/stack.json](tools/fonts/stack.json), **not checked in** | **Yes** — [ADR-100](docs/adr/ADR-100-labels-in-more-scripts.md) §4. The default image does not carry it; one that opts in carries the `.otf` in `/app/fonts` beside `OFL.txt` |
+| **SkiaSharp.HarfBuzz** | 3.119.2 | **MIT** | nuspec `<license type="expression">MIT</license>` | **Yes** — added 2026-09-29, [ADR-100](docs/adr/ADR-100-labels-in-more-scripts.md): the raster face's shaper |
+| **HarfBuzzSharp** and **HarfBuzzSharp.NativeAssets.Linux** | 8.3.1.3 | **MIT** (the binding); HarfBuzz itself is under its *"Old MIT"* notice | nuspec `<license type="expression">MIT</license>` | **Yes**. The Linux library needs only libc, libm and libpthread (its ELF `NEEDED` entries, read 2026-09-29), so the air-gapped image needs no system package for it |
 
 > **AMENDED 2026-08-21. Four packages were shipping and not in this table.**
 > The gate ran on 2026-08-15 and passed on six packages; SkiaSharp and its two
@@ -130,6 +134,25 @@ The generated ranges are derived from the outlines and are covered by the same
 permission. They are not a separate licence question, and they are not a
 different obligation.
 
+### The Noto fonts, since 2026-09-29
+
+**[ADR-100](docs/adr/ADR-100-labels-in-more-scripts.md) added nine Noto families to the
+stack, and Noto Sans CJK to an image that asks for it.** Everything said above about
+DejaVu holds for them in the SIL Open Font License's own terms:
+
+- **Redistributed, not linked**: the `.ttf` files are in
+  [tools/fonts](tools/fonts), their outlines are in the glyph ranges, and they are embedded
+  in `Graticula.Render.Skia`.
+- **The licence travels with them.** OFL-1.1 requires the copyright notice and the licence
+  with every copy of the Font Software. [tools/fonts/OFL.txt](tools/fonts/OFL.txt) carries
+  both — each file's copyright line as its own `name` table states it, then the licence —
+  and the serving image carries it at `/app/fonts/OFL.txt`.
+- **The fonts may not be sold by themselves.** They are not: they ship inside a server, which
+  OFL §1 permits.
+- **A modified font may not keep a Reserved Font Name.** None of these files declares one;
+  nothing here modifies them, and the served stack keeps the name `DejaVu Sans Regular`,
+  which is a stack name and not a font's.
+
 ## Transitive dependencies — enumerated 2026-08-24
 
 **[D-06](docs/architecture-debt.md)'s missing step, which was one command.** The §66
@@ -143,7 +166,7 @@ matters: no copyleft anywhere.**
 
 | Licence | Packages |
 |---|---|
-| MIT | `DuckDB.NET.Data.Full` · `DuckDB.NET.Bindings.Full` (2026-09-13, ADR-066) · `MaxRev.Gdal.Core` and its four runtime packages · `SkiaSharp` and its four native-asset packages · `Newtonsoft.Json` · `Konscious.Security.Cryptography.Argon2` · `Konscious.Security.Cryptography.Blake2` · `Microsoft.Extensions.DependencyInjection.Abstractions` · `Microsoft.Extensions.Logging.Abstractions` · `System.Memory` · `System.Reflection.Metadata` · `Microsoft.CodeCoverage` · `Microsoft.Extensions.TimeProvider.Testing` · `Microsoft.NET.Test.Sdk` · `Microsoft.TestPlatform.ObjectModel` · `Microsoft.TestPlatform.TestHost` · `Microsoft.AspNetCore.TestHost` (2026-09-13, ADR-068) · `Microsoft.IdentityModel.Protocols.OpenIdConnect` and `Microsoft.IdentityModel.JsonWebTokens` with what they bring — `Microsoft.IdentityModel.Protocols`, `.Tokens`, `.Logging`, `.Abstractions` and `System.IdentityModel.Tokens.Jwt`, all 8.23.0, nuspec `<license type="expression">MIT` (2026-09-24, ADR-088; they parse and validate, and open no connection of their own — `OidcClient` fetches) · `System.DirectoryServices.Protocols` 9.0.9, nuspec `<license type="expression">MIT` (2026-09-24, ADR-089; on Linux it loads OpenLDAP's `libldap` from the image — `libldap2`, OpenLDAP Public License, a permissive BSD-style licence, installed from the distribution and not linked into anything we ship) · what `ITfoxtec.Identity.Saml2` brings — `System.Security.Cryptography.Xml` and `System.Security.Cryptography.Pkcs` 9.0.20, `Microsoft.IdentityModel.Tokens.Saml` 8.22.0, `System.ServiceModel.Primitives` 8.1.2, `Microsoft.Extensions.Http` 9.0.8, nuspec `<license type="expression">MIT` (2026-09-24, ADR-090; `System.Security.Cryptography.Xml` is also referenced directly by the conformance suite, whose SAML provider signs with it) |
+| MIT | `DuckDB.NET.Data.Full` · `DuckDB.NET.Bindings.Full` (2026-09-13, ADR-066) · `MaxRev.Gdal.Core` and its four runtime packages · `SkiaSharp` and its four native-asset packages · `SkiaSharp.HarfBuzz`, `HarfBuzzSharp` and its native-asset packages (2026-09-29, ADR-100) · `Newtonsoft.Json` · `Konscious.Security.Cryptography.Argon2` · `Konscious.Security.Cryptography.Blake2` · `Microsoft.Extensions.DependencyInjection.Abstractions` · `Microsoft.Extensions.Logging.Abstractions` · `System.Memory` · `System.Reflection.Metadata` · `Microsoft.CodeCoverage` · `Microsoft.Extensions.TimeProvider.Testing` · `Microsoft.NET.Test.Sdk` · `Microsoft.TestPlatform.ObjectModel` · `Microsoft.TestPlatform.TestHost` · `Microsoft.AspNetCore.TestHost` (2026-09-13, ADR-068) · `Microsoft.IdentityModel.Protocols.OpenIdConnect` and `Microsoft.IdentityModel.JsonWebTokens` with what they bring — `Microsoft.IdentityModel.Protocols`, `.Tokens`, `.Logging`, `.Abstractions` and `System.IdentityModel.Tokens.Jwt`, all 8.23.0, nuspec `<license type="expression">MIT` (2026-09-24, ADR-088; they parse and validate, and open no connection of their own — `OidcClient` fetches) · `System.DirectoryServices.Protocols` 9.0.9, nuspec `<license type="expression">MIT` (2026-09-24, ADR-089; on Linux it loads OpenLDAP's `libldap` from the image — `libldap2`, OpenLDAP Public License, a permissive BSD-style licence, installed from the distribution and not linked into anything we ship) · what `ITfoxtec.Identity.Saml2` brings — `System.Security.Cryptography.Xml` and `System.Security.Cryptography.Pkcs` 9.0.20, `Microsoft.IdentityModel.Tokens.Saml` 8.22.0, `System.ServiceModel.Primitives` 8.1.2, `Microsoft.Extensions.Http` 9.0.8, nuspec `<license type="expression">MIT` (2026-09-24, ADR-090; `System.Security.Cryptography.Xml` is also referenced directly by the conformance suite, whose SAML provider signs with it) |
 | BSD-3-Clause | `NetTopologySuite` · `ITfoxtec.Identity.Saml2` 4.21.0, nuspec `<license type="expression">BSD-3-Clause` (2026-09-24, ADR-090; it checks SAML signatures and opens no connection of its own — `SamlMetadata` fetches) |
 | PostgreSQL Licence (BSD-style) | `Npgsql` |
 | Apache-2.0 | `Apache.Arrow` · `Apache.Arrow.Scalars` (2026-09-13, with DuckDB.NET) · the `xunit` family — `xunit`, `xunit.assert`, `xunit.core`, `xunit.analyzers`, `xunit.abstractions`, `xunit.extensibility.core`, `xunit.extensibility.execution`, `xunit.runner.visualstudio` |

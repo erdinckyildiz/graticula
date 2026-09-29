@@ -1,0 +1,105 @@
+{
+  "comment": "The label font stack, in order -- ADR-100. Read by tools/make-glyphs.py, which draws the tile face's glyph ranges from it, and embedded in Graticula.Render.Skia, which draws the raster face's labels from it, so the two faces cannot disagree about which font a codepoint comes from. A codepoint is drawn by the first font that claims its block and has it, else by the first font that has it. An optional font is not checked in: make-glyphs.py --cjk fetches it from url at build time and refuses it unless its SHA-256 matches, and the renderer uses it only when it sits in the fonts directory beside the server.",
+  "stack": "DejaVu Sans Regular",
+  "fonts": [
+    {
+      "file": "DejaVuSans.ttf",
+      "family": "DejaVu Sans",
+      "version": "2.35",
+      "sha256": "3fdf69cabf06049ea70a00b5919340e2ce1e6d02b0cc3c4b44fb6801bd1e0d22",
+      "licence": "Bitstream Vera (LICENSE-DejaVu.txt)",
+      "claims": []
+    },
+    {
+      "file": "NotoSans-Regular.ttf",
+      "family": "Noto Sans",
+      "version": "2.015",
+      "sha256": "478c558ea716033cd60c03438f628dfa75694dcf6b5f6d505a2f05fd2b4f3823",
+      "source": "https://raw.githubusercontent.com/notofonts/notofonts.github.io/3ec599d8ea849413786a184f20e473c3fcbc4082/fonts/NotoSans/hinted/ttf/NotoSans-Regular.ttf",
+      "licence": "OFL-1.1 (OFL.txt)",
+      "claims": []
+    },
+    {
+      "file": "NotoSansArabic-Regular.ttf",
+      "family": "Noto Sans Arabic",
+      "version": "2.013",
+      "sha256": "bdff3e5659d67e67def05b33f749683b9376ae819d65d3dd62ac4640b3aaef48",
+      "source": "https://raw.githubusercontent.com/notofonts/notofonts.github.io/3ec599d8ea849413786a184f20e473c3fcbc4082/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Regular.ttf",
+      "licence": "OFL-1.1 (OFL.txt)",
+      "claims": ["0600-06FF", "0750-077F", "0870-08FF", "FB50-FDFF", "FE70-FEFF"]
+    },
+    {
+      "file": "NotoSansHebrew-Regular.ttf",
+      "family": "Noto Sans Hebrew",
+      "version": "3.001",
+      "sha256": "cdefaf8efd47045f6820928eba84db5bed7557539328952b5f828315485e02ee",
+      "source": "https://raw.githubusercontent.com/notofonts/notofonts.github.io/3ec599d8ea849413786a184f20e473c3fcbc4082/fonts/NotoSansHebrew/hinted/ttf/NotoSansHebrew-Regular.ttf",
+      "licence": "OFL-1.1 (OFL.txt)",
+      "claims": ["0590-05FF", "FB1D-FB4F"]
+    },
+    {
+      "file": "NotoSansArmenian-Regular.ttf",
+      "family": "Noto Sans Armenian",
+      "version": "2.008",
+      "sha256": "720df88c332417a235b4d6209d14ec2e2bf4bfe2a954b7453d869ea593bfce1e",
+      "source": "https://raw.githubusercontent.com/notofonts/notofonts.github.io/3ec599d8ea849413786a184f20e473c3fcbc4082/fonts/NotoSansArmenian/hinted/ttf/NotoSansArmenian-Regular.ttf",
+      "licence": "OFL-1.1 (OFL.txt)",
+      "claims": ["0530-058F", "FB13-FB17"]
+    },
+    {
+      "file": "NotoSansGeorgian-Regular.ttf",
+      "family": "Noto Sans Georgian",
+      "version": "2.005",
+      "sha256": "d3e33254b09e7bb2c5cf0f17e554b80462056c5a107097f258d495168c3a9346",
+      "source": "https://raw.githubusercontent.com/notofonts/notofonts.github.io/3ec599d8ea849413786a184f20e473c3fcbc4082/fonts/NotoSansGeorgian/hinted/ttf/NotoSansGeorgian-Regular.ttf",
+      "licence": "OFL-1.1 (OFL.txt)",
+      "claims": ["10A0-10FF", "1C90-1CBF", "2D00-2D2F"]
+    },
+    {
+      "file": "NotoSansDevanagari-Regular.ttf",
+      "family": "Noto Sans Devanagari",
+      "version": "2.007",
+      "sha256": "4e3c66638958c3e2ab5d37f47a8deb89fffeb7be9985c665a519bbc7ba762313",
+      "source": "https://raw.githubusercontent.com/notofonts/notofonts.github.io/3ec599d8ea849413786a184f20e473c3fcbc4082/fonts/NotoSansDevanagari/hinted/ttf/NotoSansDevanagari-Regular.ttf",
+      "licence": "OFL-1.1 (OFL.txt)",
+      "claims": ["0900-097F", "A8E0-A8FF", "1CD0-1CFF"]
+    },
+    {
+      "file": "NotoSansBengali-Regular.ttf",
+      "family": "Noto Sans Bengali",
+      "version": "3.011",
+      "sha256": "b55c62ee531e3214da6c0701daecea89a52ba42db7d8206b92e6b51f397a3193",
+      "source": "https://raw.githubusercontent.com/notofonts/notofonts.github.io/3ec599d8ea849413786a184f20e473c3fcbc4082/fonts/NotoSansBengali/hinted/ttf/NotoSansBengali-Regular.ttf",
+      "licence": "OFL-1.1 (OFL.txt)",
+      "claims": ["0980-09FF"]
+    },
+    {
+      "file": "NotoSansTamil-Regular.ttf",
+      "family": "Noto Sans Tamil",
+      "version": "2.004",
+      "sha256": "3c0a186feb3c63c7f6d63e1511dcdc144e745ae09b98e217c83f3e317974f6f9",
+      "source": "https://raw.githubusercontent.com/notofonts/notofonts.github.io/3ec599d8ea849413786a184f20e473c3fcbc4082/fonts/NotoSansTamil/hinted/ttf/NotoSansTamil-Regular.ttf",
+      "licence": "OFL-1.1 (OFL.txt)",
+      "claims": ["0B80-0BFF"]
+    },
+    {
+      "file": "NotoSansThai-Regular.ttf",
+      "family": "Noto Sans Thai",
+      "version": "2.002",
+      "sha256": "61cf814eec46b294d6ea4401ac295d0cecd5207bd2331dcc5a15e7301d30ee44",
+      "source": "https://raw.githubusercontent.com/notofonts/notofonts.github.io/3ec599d8ea849413786a184f20e473c3fcbc4082/fonts/NotoSansThai/hinted/ttf/NotoSansThai-Regular.ttf",
+      "licence": "OFL-1.1 (OFL.txt)",
+      "claims": ["0E00-0E7F"]
+    },
+    {
+      "file": "NotoSansCJKsc-Regular.otf",
+      "family": "Noto Sans CJK SC",
+      "version": "2.004",
+      "sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf",
+      "licence": "OFL-1.1 (OFL.txt)",
+      "optional": true,
+      "claims": ["1100-11FF", "2E80-2FDF", "2FF0-303F", "3040-33FF", "3400-4DBF", "4E00-9FFF", "A960-A97F", "AC00-D7FF", "F900-FAFF", "FE10-FE1F", "FE30-FE4F", "FF00-FFEF"]
+    }
+  ]
+}

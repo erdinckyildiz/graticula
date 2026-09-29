@@ -10,3 +10,6 @@ benchmarks/
 experiments/
 docs/
 *.md
+# Noto Sans CJK, if a checkout has fetched it: the GLYPHS_CJK=1 stage fetches and checks its own
+# copy (ADR-100), and 16 MB of context for a build that does not use it is 16 MB for nothing.
+tools/fonts/*.otf

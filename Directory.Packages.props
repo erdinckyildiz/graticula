@@ -115,6 +115,15 @@
     <PackageVersion Include="SkiaSharp" Version="3.119.2" />
     <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />
     <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.2" />
+    <!-- ADR-100. HarfBuzz, so a raster label in Arabic joins and runs right to left and a
+         Devanagari conjunct is one glyph rather than its parts. Skia draws glyphs; it does
+         not choose them, and without a shaper every script whose letters change shape
+         with their neighbours is drawn as a row of isolated letters. MIT, as HarfBuzz
+         itself is (its "Old MIT" notice). The Linux payload is its own package, like
+         Skia's, and self-contained. Confined to Graticula.Render.Skia by
+         NativeDependencyTests. -->
+    <PackageVersion Include="SkiaSharp.HarfBuzz" Version="3.119.2" />
+    <PackageVersion Include="HarfBuzzSharp.NativeAssets.Linux" Version="8.3.1.3" />
   </ItemGroup>
   <ItemGroup Label="Testing">
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />

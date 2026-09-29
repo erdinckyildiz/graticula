@@ -5,6 +5,15 @@
 # image and this one stays as it is — that separation is the whole reason there
 # is more than one image.
 
+# <b>Whether the image carries Chinese, Japanese and Korean labels — ADR-100 §4.</b> `0` by
+# default, because Noto Sans CJK adds 36 MB of glyph ranges and a 16 MB font to an image most
+# deployments of this product never label in those scripts with; `1` builds them in:
+#
+#   docker build -f deploy/server.Dockerfile --build-arg GLYPHS_CJK=1 -t graticula:cjk .
+#
+# Declared before the first `FROM` because a `FROM` below names a stage by it.
+ARG GLYPHS_CJK=0
+
 # ---------------------------------------------------------------------------
 # <b>`$BUILDPLATFORM`, so a two-architecture build compiles once — D-262.</b> The publish
 # below is portable (`UseAppHost=false`, no runtime identifier), so its output runs on amd64
@@ -116,6 +125,20 @@ RUN rm -f /app/runtimes/osx/native/libduckdb.dylib \
  && cp "${bindings}LICENSE-DuckDB.txt" /app/LICENSE-DuckDB.txt \
  && cp "${bindings}LICENSE.md" /app/LICENSE-DuckDB.NET.txt
 
+# <b>Skia's and HarfBuzz's native libraries for the two architectures too, and for the same
+# reason — ADR-100.</b> Adding the shaper is what made this visible: a portable publish copies
+# HarfBuzz for sixteen runtime identifiers, **103 MB**, and measuring that showed Skia had been
+# doing the same since ADR-041 — **513 MB between them** of Windows, macOS, musl, 32-bit ARM,
+# LoongArch and RISC-V builds in an image that runs on glibc amd64 and arm64 and nothing else.
+# Only `native` directories are touched: `runtimes/unix` and `runtimes/linux` hold managed
+# assemblies other packages need, and this does not go near them.
+RUN find /app/runtimes -path '*/native/*' \( -iname '*SkiaSharp*' -o -iname '*HarfBuzzSharp*' \) \
+      ! -path '/app/runtimes/linux-x64/*' ! -path '/app/runtimes/linux-arm64/*' -delete \
+ && test -f /app/runtimes/linux-x64/native/libSkiaSharp.so \
+ && test -f /app/runtimes/linux-arm64/native/libSkiaSharp.so \
+ && test -f /app/runtimes/linux-x64/native/libHarfBuzzSharp.so \
+ && test -f /app/runtimes/linux-arm64/native/libHarfBuzzSharp.so
+
 # <b>DuckDB's httpfs extension, for remote GeoParquet — ADR-067 §5.2.</b> Fetched here, at build,
 # for the version of DuckDB the package restored, and never at run time: the server loads it by
 # path with autoinstall and autoload off. DuckDB checks the extension's signature when it loads,
@@ -131,6 +154,45 @@ RUN version="v$(sed -n 's/.*Include="DuckDB.NET.Data.Full" Version="\([^"]*\)".*
          | gunzip > "/duckdb-extensions/${platform}/httpfs.duckdb_extension" \
       && test -s "/duckdb-extensions/${platform}/httpfs.duckdb_extension" || exit 1; \
     done
+
+# <b>The glyph ranges come from their own stage, not from the publish above — ADR-100.</b> The
+# publish carries the checked-in ranges and they are removed there, so the one place an image's
+# glyphs come from is the stage chosen here, and a default image does not carry them twice.
+RUN rm -rf /app/glyphs
+
+# ---------------------------------------------------------------------------
+# <b>Without CJK: the checked-in ranges, as they are.</b> They are the generator's output, and
+# CI regenerates them in the pinned container and fails on a byte of difference (ADR-027
+# condition 3), so there is nothing to build. `/out/fonts` carries the Noto licence, since the
+# Noto faces are compiled into `Graticula.Render.Skia.dll` and the OFL's one requirement is that
+# its text travels with them.
+FROM scratch AS glyphs-0
+COPY src/Graticula.Host/glyphs/ /out/glyphs/
+COPY tools/fonts/OFL.txt /out/fonts/OFL.txt
+
+# <b>With CJK: the whole composite regenerated, with Noto Sans CJK appended — ADR-100 §4.</b>
+# Regenerated rather than added to, because a CJK font also fills codepoints in ranges the
+# default build already writes, and a range is one file. The base and the four versions that
+# decide the bytes are `tools/glyphs.Dockerfile`'s, so every range the default build has comes
+# out byte-identical to the checked-in one and only the CJK font's contributions are new. The
+# font is fetched here, at build, from its pinned tag and refused unless its SHA-256 is the one
+# `tools/fonts/stack.json` records; nothing is fetched at run time (Q-15). Python is in this
+# stage and not in the image, which is A-016's rule. And the font itself is kept, in
+# `/app/fonts`, because the raster face draws its labels from outlines, not from ranges.
+FROM --platform=$BUILDPLATFORM python@sha256:7a8b475003c4fe15a2cd4e55e5cfc2f3560bdc9333d624f24cdd6d4340fd7a17 AS glyphs-1
+RUN pip install --no-cache-dir \
+        numpy==1.26.4 \
+        pillow==12.2.0 \
+        scipy==1.15.3 \
+        fonttools==4.62.1
+WORKDIR /repo
+COPY tools/make-glyphs.py tools/make-glyphs.py
+COPY tools/fonts/ tools/fonts/
+RUN python tools/make-glyphs.py /out/glyphs --cjk \
+ && mkdir -p /out/fonts \
+ && cp tools/fonts/NotoSansCJKsc-Regular.otf tools/fonts/OFL.txt /out/fonts/
+
+FROM glyphs-${GLYPHS_CJK} AS glyphs
 
 # ---------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS runtime
@@ -171,6 +233,10 @@ RUN mkdir -p /var/cache/graticula/tiles /var/cache/graticula/import \
 
 WORKDIR /app
 COPY --from=build /app ./
+
+# The glyph ranges, and the fonts directory the renderer looks in for faces it does not carry
+# compiled in: Noto Sans CJK in a `GLYPHS_CJK=1` image, and whatever a deployment mounts there.
+COPY --from=glyphs /out/ ./
 
 # ADR-067 §5.1.4: this architecture's extensions only. DuckDB names its builds amd64 and arm64,
 # as Docker names its architectures, so the one argument selects both.

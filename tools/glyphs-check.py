@@ -59,7 +59,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GLYPHS = os.path.join(ROOT, "src", "Graticula.Host", "glyphs")
 PROVENANCE = os.path.join(GLYPHS, "provenance.json")
 GENERATOR = os.path.join(ROOT, "tools", "make-glyphs.py")
-FONT = os.path.join(ROOT, "tools", "fonts", "DejaVuSans.ttf")
+FONTS = os.path.join(ROOT, "tools", "fonts")
 
 
 def digest(path):
@@ -114,14 +114,37 @@ def manifest_layer(provenance):
                 name + " is on disk and not in provenance.json. It came from somewhere other "
                 "than the generator, or the manifest is stale.")
 
-    if os.path.exists(FONT):
-        font = digest(FONT)
+    # <b>Every font of the stack, since ADR-100</b> -- the ranges are a composite, so a
+    # changed Noto file makes stale every range it contributed to, exactly as a changed DejaVu
+    # makes all of them stale. A font the manifest names and the checkout lacks is the
+    # optional CJK font of a `--cjk` build, which is never checked in, and is said rather
+    # than failed.
+    fonts = provenance.get("fonts") or {}
 
-        if font != provenance.get("fontSha256"):
+    if not fonts:
+        problems.append(
+            "provenance.json names no fonts, so nothing says what the ranges were drawn "
+            "from. Run `python tools/make-glyphs.py`.")
+
+    for name, expected in sorted(fonts.items()):
+        path = os.path.join(FONTS, name)
+
+        if not os.path.exists(path):
+            if provenance.get("cjk"):
+                continue
+
+            problems.append(
+                name + " is in provenance.json and not in tools/fonts, so the ranges it "
+                "drew cannot be regenerated.")
+            continue
+
+        font = digest(path)
+
+        if font != expected:
             problems.append(
                 "The font has changed since the ranges were generated: provenance.json "
-                "records " + str(provenance.get("fontSha256"))[:16] + " and "
-                "tools/fonts/DejaVuSans.ttf is " + font[:16] + ". Every range is stale.")
+                "records " + expected[:16] + " and tools/fonts/" + name + " is "
+                + font[:16] + ". Every range it drew is stale.")
 
     return problems
 
@@ -131,6 +154,7 @@ def environment():
     try:
         import platform
 
+        import fontTools  # noqa: F401 -- the generator reads each font's cmap with it
         import numpy
         import PIL
         import scipy
@@ -154,8 +178,10 @@ def regeneration_layer(provenance):
     fresh = tempfile.mkdtemp(prefix="graticula-glyphs-")
 
     try:
+        # The same stack the manifest was made with: a `--cjk` build regenerated without the
+        # CJK font would report every range it touched as drift.
         run = subprocess.run(
-            [sys.executable, GENERATOR, fresh],
+            [sys.executable, GENERATOR, fresh] + (["--cjk"] if provenance.get("cjk") else []),
             capture_output=True, text=True, cwd=ROOT, timeout=900)
 
         if run.returncode != 0:
@@ -178,6 +204,17 @@ def regeneration_layer(provenance):
                     + digest(here)[:16] + " (" + str(os.path.getsize(here)) + " bytes), "
                     "regenerated " + digest(there)[:16] + " ("
                     + str(os.path.getsize(there)) + " bytes).")
+
+        # And the other direction: a range the generator now writes and nobody committed is
+        # a label that draws on a regenerated build and not on this one.
+        for folder, _, files in os.walk(fresh):
+            for name in files:
+                if name.endswith(".pbf"):
+                    relative = os.path.relpath(os.path.join(folder, name), fresh)
+
+                    if not os.path.exists(os.path.join(GLYPHS, relative)):
+                        problems.append(
+                            relative + " is produced by the generator and not checked in.")
 
         return problems
 
@@ -206,16 +243,17 @@ def main():
         return 1
 
     print(str(len(provenance.get("ranges", {})))
-          + " glyph ranges match provenance.json, and so does the font.")
+          + " glyph ranges match provenance.json, and so do the "
+          + str(len(provenance.get("fonts") or {})) + " fonts they were drawn from.")
 
     here = environment()
     recorded = provenance.get("environment", {})
 
     if here is None:
         print(
-            "Not regenerating: numpy, Pillow or scipy is not installed here, so this run "
+            "Not regenerating: numpy, Pillow, scipy or fontTools is not installed here, so this run "
             "proves the bytes are unedited and does not prove they are the generator's "
-            "output. `python -m pip install numpy pillow scipy` on a machine matching "
+            "output. `python -m pip install numpy pillow scipy fonttools` on a machine matching "
             + json.dumps(recorded, sort_keys=True) + ".")
         return 0
 

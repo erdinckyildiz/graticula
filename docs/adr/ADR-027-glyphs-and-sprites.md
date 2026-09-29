@@ -8,6 +8,7 @@
 | **Depends on** | [ADR-021](ADR-021-tile-encoding.md) |
 | **Supersedes** | — |
 | **Superseded by** | — |
+| **Amended by** | [ADR-100](ADR-100-labels-in-more-scripts.md), 2026-09-29 — the one typeface became a composite stack, and §5's claims about what the ranges hold are corrected |
 
 ---
 
@@ -131,6 +132,12 @@ Recorded in the tool so nobody repeats it.
 files.** The font is **DejaVu Sans** under the Bitstream Vera licence —
 permissive, redistributable, and covering Turkish, which the audience needs.
 31 ranges, 7,720 glyphs, 4.3 MB.
+*(Amended 2026-09-29 by [ADR-100](ADR-100-labels-in-more-scripts.md): the stack served under this
+name is a composite — DejaVu Sans first, then Noto Sans and a Noto family each for Arabic, Hebrew,
+Armenian, Georgian, Devanagari, Bengali, Tamil and Thai, and Noto Sans CJK in an image built with
+`GLYPHS_CJK=1`. 48 ranges, 7,172 glyphs, 4.1 MB. **3,800 of the 7,720 above were the font's box**,
+drawn for codepoints DejaVu does not have and served as glyphs, and no range carried a space;
+ADR-100 §1 records both.)*
 
 The server serves
 `/rest/services/{service}/VectorTileServer/resources/fonts/{fontstack}/{range}.pbf`,
@@ -146,6 +153,10 @@ grid. Nothing is sanitised — a check that rejects beats a filter that repairs.
 in `X-Font-Stack`. **A range the font does not cover is not substituted**: Latin
 glyphs answering a request for the Japanese range renders mojibake, and a client
 can draw a box for a missing glyph but cannot un-draw a wrong one.
+*(Corrected 2026-09-29, [ADR-100](ADR-100-labels-in-more-scripts.md) §1: this was not true of
+the ranges shipped. The generator drew DejaVu's box for every codepoint the font lacked, so the
+Devanagari through Tibetan ranges answered 200 with boxes. Since ADR-100 a range is written only
+from codepoints a font's `cmap` has, and a range no font in the stack covers answers 404.)*
 
 **The sprite sheet is served and is empty** — `{}` and a one-pixel transparent
 PNG for `sprite.json`, `sprite.png` and their `@2x` forms. There is no icon
@@ -173,7 +184,8 @@ both keys and still serves tiles.
 
 - **4.3 MB of generated binaries in the repository**, which git will keep
   forever and which no reviewer will read.
-- **One typeface, and no CJK.** Condition 2.
+- ~~**One typeface, and no CJK.** Condition 2.~~ *A composite stack in eight more scripts, and CJK
+  in an image that opts in, since 2026-09-29 — [ADR-100](ADR-100-labels-in-more-scripts.md).*
 - **A font substitution changes label metrics** relative to what a style's
   author designed against.
 - **Text far above the design size is half a pixel blocky.** §4.
@@ -194,7 +206,7 @@ deployment that needs another script regenerates the files rather than configuri
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-069 | One Latin/Greek/Cyrillic typeface serves the deployments this product is for | `UNVALIDATED`, and known to be false for a CJK deployment. Taken because the audience is a Turkish-speaking organisation leaving ArcGIS Enterprise (ADR-018 §1) |
+| A-069 | ~~One Latin/Greek/Cyrillic typeface serves the deployments this product is for~~ | **Retired 2026-09-29 by [ADR-100](ADR-100-labels-in-more-scripts.md)**. Was `UNVALIDATED`, and known to be false for a CJK deployment |
 | A-070 | Substituting an unavailable font is better than refusing | `UNVALIDATED` by use. Reasoned from what a client does with a 404 — drops every label and reports a fetch failure — which is a worse failure than a different typeface |
 
 ## 8. Dependencies
@@ -211,6 +223,8 @@ sheet stops being allowed to be empty.
 
 - **A deployment needs a script DejaVu does not cover.** The block list and the
   generator both change, and so does the one-font assumption.
+  *(Fired 2026-09-29 by owner decision — [ADR-100](ADR-100-labels-in-more-scripts.md). The block list
+  is gone: the generator walks every range and asks each font's `cmap`.)*
 - **Somebody asks to use their own typeface.** The rebuild story is the answer
   today and it is not a good one.
 - **Style document management ships.** Users will supply styles naming fonts and
@@ -238,6 +252,12 @@ sheet stops being allowed to be empty.
    Chinese, Japanese, Korean or Devanagari* reads as the limit it is. Found live while
    sweeping this ADR's conditions; the repository had been public for days with the
    limitation stated only here.)*
+   ***(Amended 2026-09-29 — [ADR-100](ADR-100-labels-in-more-scripts.md).)*** The condition asked for
+   an absence to be stated; most of it is no longer absent. What `README.md`, the overview page and
+   the completeness register now state is **per script and per client**: Arabic, Hebrew, Armenian,
+   Georgian and Thai served on every face; Devanagari, Bengali and Tamil served and **drawn unshaped
+   by MapLibre**; CJK only in an image built with `GLYPHS_CJK=1`. The principle survives the
+   amendment — say what is missing where a stranger reads it — and is still met.
 3. **The checked-in ranges are provably the output of the checked-in tool.** A
    regeneration that changes the bytes should fail something. ~~Today nothing
    notices, and generated artefacts drifting from their generator is a matter of

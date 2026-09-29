@@ -423,7 +423,9 @@ pre .k{color:var(--accent)}
               <h3>Vector tile services</h3>
               <p>Tiles from hosted data, registered PostGIS tables and GeoParquet or DuckDB sources,
               with a style document and a checked-in glyph set, so a label actually draws instead of
-              silently rendering nothing. A service may carry several named styles, and
+              silently rendering nothing. <b>Labels draw in Latin, Greek, Cyrillic, Arabic, Hebrew,
+              Armenian, Georgian and Thai</b>; Devanagari, Bengali and Tamil are served and MapLibre
+              draws them unshaped; Chinese, Japanese and Korean need an image built for them. A service may carry several named styles, and
               <b>a publisher uploads a sprite sheet per service</b>, so a style can draw icons; the
               server checks the style's icon names against it. The cache can be seeded before the
               first request, and an expired tile stands in while its source refuses. A service may
@@ -606,12 +608,13 @@ pre .k{color:var(--accent)}
           </div>
 
           <div class="gap">
-            <i class="sw none"><span class="vh">Not built.</span></i>
+            <i class="sw half"><span class="vh">Partial.</span></i>
             <div>
-              <h3>Labels in three scripts</h3>
-              <p>The shipped glyph set covers Latin, Greek and Cyrillic. Chinese, Japanese,
-              Korean and Devanagari are not in it, so a map cannot be labelled in them without
-              generating further ranges first.</p>
+              <h3>Labels, script by script</h3>
+              <p>Latin, Greek, Cyrillic, Armenian, Georgian, Thai, Arabic and Hebrew label on
+              every face; MapLibre needs its RTL text plugin for Arabic and Hebrew. Devanagari,
+              Bengali and Tamil are drawn correctly on map images and unshaped by MapLibre.
+              Chinese, Japanese and Korean need an image built with <code>GLYPHS_CJK=1</code>.</p>
             </div>
           </div>
 

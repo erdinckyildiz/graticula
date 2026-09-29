@@ -99,6 +99,13 @@ public sealed class NativeDependencyTests
          + "Tier 1, and the port is what makes that possible. A second project naming the library "
          + "is the port stopping being a port."),
 
+        ("HarfBuzzSharp",
+         "Graticula.Render.Skia",
+         "The shaper is part of the rasteriser, ADR-100: it chooses which glyphs a label is drawn "
+         + "with, so an Arabic word joins and a Devanagari conjunct is one glyph. It sits behind "
+         + "IMapCanvas beside Skia, and a second project naming it would be a second place labels "
+         + "are laid out."),
+
         ("BitMiracle.LibTiff",
          "Graticula.Raster.Tiff",
          "The raster reader is Tier 2 behind ICoverageReader. ADR-043 §3.5 draws the line at the "

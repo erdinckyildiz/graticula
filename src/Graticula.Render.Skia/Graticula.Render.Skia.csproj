@@ -44,9 +44,23 @@
     exists to prevent: the renderer would fall back to the system face and draw
     boxes again, on a build that claims to carry a font.
   -->
+  <!--
+    ADR-100, 2026-09-29: the rest of the tile face's stack, so a WMS map and a vector
+    tile of the same layer are still labelled from the same fonts now that the tile face
+    draws Arabic, Hebrew, Armenian, Georgian, Devanagari, Bengali, Tamil and Thai. The
+    list and its order are tools/fonts/stack.json, embedded beside them and read at
+    startup, so the two faces cannot disagree about which font a codepoint comes from.
+    The optional font in that list, Noto Sans CJK, is not embedded: it is 16 MB, and the
+    renderer finds it in the fonts directory beside the server when an image was built
+    with it.
+  -->
   <ItemGroup>
     <EmbeddedResource Include="..\..\tools\fonts\DejaVuSans.ttf"
                       LogicalName="Graticula.Render.Skia.fonts.DejaVuSans.ttf" />
+    <EmbeddedResource Include="..\..\tools\fonts\NotoSans*.ttf"
+                      LogicalName="Graticula.Render.Skia.fonts.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\tools\fonts\stack.json"
+                      LogicalName="Graticula.Render.Skia.fonts.stack.json" />
   </ItemGroup>
 
   <ItemGroup>
@@ -57,6 +71,9 @@
          are declared so that the confinement rule sees the whole family. -->
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />
+    <!-- ADR-100: the shaper, and its Linux payload. -->
+    <PackageReference Include="SkiaSharp.HarfBuzz" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.Linux" />
   </ItemGroup>
 
 </Project>
