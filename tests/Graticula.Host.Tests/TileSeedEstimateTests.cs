@@ -54,6 +54,22 @@ public sealed class TileSeedEstimateTests
     }
 
     [Fact]
+    public void On_another_grid_a_level_costs_the_default_of_the_mercator_level_with_its_pixel()
+    {
+        // TM30's level 8 is 4.59 m a pixel — Mercator's level 14 — so 10 tiles × 64 KB, not 10 × 1 MB as a
+        // Mercator level 8 would be. 2026-09-30: an export of levels 0-8 on TM30 was estimated at 85 GB.
+        TileSeedEstimate.Result estimate = TileSeedEstimate.Of(
+            [new TileRange(8, 0, 0, 4, 1)],
+            [Everywhere()],
+            budget: 10_000_000,
+            used: 0,
+            Empty,
+            VectorTileSchemes.Find("turef-tm30")!.Scheme);
+
+        Assert.Equal(655_360, estimate.Bytes);
+    }
+
+    [Fact]
     public void Enough_cached_tiles_replace_the_default_with_their_average_and_present_ones_add_nothing()
     {
         // 20 samples of 2,000 bytes on average; 5 of the 12 tiles are already there: 7 × 2,000.

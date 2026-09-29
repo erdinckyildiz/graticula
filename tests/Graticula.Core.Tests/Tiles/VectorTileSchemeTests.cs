@@ -30,6 +30,17 @@ public sealed class VectorTileSchemeTests
 {
     private const double Half = TileAddress.WebMercatorHalfExtent;
 
+    [Theory]
+    [InlineData(0, 6)]
+    [InlineData(8, 14)]
+    [InlineData(16, 22)]
+    public void A_levels_mercator_equivalent_is_the_mercator_level_with_the_same_pixel(int level, int mercator)
+    {
+        // TM30's level 0 is 1,173.83 m a pixel and Mercator's level 6 is 1,222.99 m; both halve per level.
+        Assert.Equal(mercator, Tm30.MercatorLevelOf(level));
+        Assert.Equal(level, VectorTileScheme.WebMercator.MercatorLevelOf(level));
+    }
+
     private static VectorTileScheme Tm30 => VectorTileSchemes.Find("turef-tm30")!.Scheme;
 
     // ---------- Web Mercator is what it was ----------

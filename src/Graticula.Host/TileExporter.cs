@@ -288,7 +288,7 @@ internal sealed class TileExporter : BackgroundService
         }
 
         TileSeedEstimate.Result result = TileSeedEstimate.Of(
-            plan.Levels, layers, long.MaxValue, 0, new Dictionary<int, long>());
+            plan.Levels, layers, long.MaxValue, 0, new Dictionary<int, long>(), service.TileScheme);
 
         return (result.Bytes, result.Sampled);
     }

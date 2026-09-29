@@ -528,7 +528,7 @@ internal static partial class AdminEndpoints
         }
 
         TileSeedEstimate.Result budget = TileSeedEstimate.Of(
-            plan.Levels, layers, disk.Budget, disk.Report(null).Bytes, disk.CurrentBytesByLevel());
+            plan.Levels, layers, disk.Budget, disk.Report(null).Bytes, disk.CurrentBytesByLevel(), service.TileScheme);
 
         return (budget, AgainstQuota(disk, service, plan, layers));
     }
@@ -564,7 +564,8 @@ internal static partial class AdminEndpoints
 
         HashSet<Guid> own = [.. service.Layers.Select(layer => layer.Id)];
 
-        return TileSeedEstimate.Of(plan.Levels, layers, quota, disk.HeldBy(own), disk.CurrentBytesByLevel(own));
+        return TileSeedEstimate.Of(
+            plan.Levels, layers, quota, disk.HeldBy(own), disk.CurrentBytesByLevel(own), service.TileScheme);
     }
 
     /// <summary>A seed's estimate on the wire: what it adds, the cache it is measured against, and whether it fits.</summary>

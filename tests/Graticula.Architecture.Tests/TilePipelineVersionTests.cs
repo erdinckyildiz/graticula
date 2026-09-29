@@ -79,6 +79,10 @@ public sealed class TilePipelineVersionTests
     /// its own question.
     /// </remarks>
     private const string RecordedHash =
+        // <b>Moved 2026-09-30 for a size guess, and the version deliberately did not move.</b>
+        // `VectorTileScheme.MercatorLevelOf` was added so a seed's or an export's size guess reads another grid's
+        // level as the Mercator level of the same pixel (TM30's level 8 had been guessed at 1 MB a tile, 85 GB for
+        // levels 0-8). Nothing that cuts, encodes or addresses a tile calls it; not one byte of a tile changed.
         // <b>Raised to version 3 on 2026-09-29 — ADR-085 §5.1 amended, D-284.</b> A line is no longer left out of a
         // tile for being smaller than a pixel: the showcase's province boundaries, stored as 5,433 short lines, drew
         // dashed in ArcGIS Pro at 1:10.7 million because every piece under a pixel was dropped. A low-zoom tile of a
@@ -199,7 +203,7 @@ public sealed class TilePipelineVersionTests
         // stored style is checked against the generated icons' names as well as the uploaded ones. A picture marker is
         // drawn by the style from the sprite, beside the tiles; the tile route, the key, the encoder and every byte of
         // a tile are what they were.
-        "afdc3ee9d8681bb79b1605f3c3cfdad41bb9a5a45c935deb080f1a916d0e56e1";
+        "458187f2c6cee1e26bab4438031a5f6600dcd04a53c9341c0039ab48cb803cfb";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 3;

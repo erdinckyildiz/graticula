@@ -146,6 +146,9 @@ internal static class TileSeedEstimate
     /// <param name="used">What the cache holds now, in bytes.</param>
     /// <param name="heldByLevel">What the cache holds now at each level, of the pipeline running now —
     /// <c>FileSystemTileCache.CurrentBytesByLevel</c>.</param>
+    /// <param name="scheme">The service's grid, or null for Web Mercator. <see cref="DefaultPartBytes"/> is a curve
+    /// over Mercator levels, so another grid's level is read as the Mercator level of the same pixel
+    /// (<see cref="VectorTileScheme.MercatorLevelOf"/>).</param>
     /// <returns>The estimate.</returns>
     /// <remarks>
     /// <para>
@@ -182,7 +185,8 @@ internal static class TileSeedEstimate
         IReadOnlyList<Layer> layers,
         long budget,
         long used,
-        IReadOnlyDictionary<int, long> heldByLevel)
+        IReadOnlyDictionary<int, long> heldByLevel,
+        VectorTileScheme? scheme = null)
     {
         ArgumentNullException.ThrowIfNull(ranges);
         ArgumentNullException.ThrowIfNull(layers);
@@ -220,7 +224,7 @@ internal static class TileSeedEstimate
                 }
                 else
                 {
-                    each = DefaultPartBytes(range.Z);
+                    each = DefaultPartBytes(scheme?.MercatorLevelOf(range.Z) ?? range.Z);
                     sampled = false;
                 }
 

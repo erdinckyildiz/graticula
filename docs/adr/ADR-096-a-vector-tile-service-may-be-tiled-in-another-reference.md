@@ -112,6 +112,20 @@ VectorTileServer contract (`tileInfo` with its own `spatialReference`, `origin` 
 `initialExtent` in the same reference; `minLOD`/`maxLOD`), and the conformance test walks it as a client would;
 whether a client accepts it is the first thing to measure (§9).
 
+**Measured 2026-09-30: ArcGIS Pro draws one, in its own grid and in the right place.** The owner switched the
+showcase's `turkiye/tr_ref` (a registered PostGIS layer) to TUREF / TM30 from the console — 2,327 cached tiles purged —
+and added `…/turkiye/tr_ref/VectorTileServer` to an empty map with *Add Data From Path*. Pro took the map's reference
+from the layer (*Map Properties › Coordinate Systems*: TUREF TM30, EPSG:5254) and drew the tiles; with the same
+layer's FeatureServer added over it, projected by Pro itself, a polygon near Eskişehir (x ≈ 630,000) lay on the tile
+polygon with no visible offset at 1:50,982. **What it showed besides:** the grid is the level-0 tile, 512 pixels at
+1,173.83 m, so x 364,000–965,000 and y 3,992,000–4,593,000 — the zone and some 3.5° east of it. Data outside that
+square is on no tile (a tile address outside it is a 400), so Thrace and İzmir, west of the origin, and everything
+east of about 35°E were not drawn while `fullExtent` still named them (D-288). **And a guess keyed on the level number:** asked to
+export levels 0–8 of the same service with its cache just purged, the console estimated **85.34 GB** and refused it.
+The seed's size guess (`TileSeedEstimate.DefaultPartBytes`, ADR-093) is a curve over Mercator levels and read TM30's
+level 8 as Mercator's, 1 MB a tile; its pixel, 4.59 m, is Mercator's level 14, 64 KB. The guess now takes
+`VectorTileScheme.MercatorLevelOf`, the rule §5.7 already applies to generalisation.
+
 **A style's zooms on another grid are INFERRED.** `minzoom` and `maxzoom` narrowed from a visible range are
 written in the scheme's own levels (level *n* is the level-0 scale over 2^*n*). That is how the ArcGIS Maps SDK
 is documented to read a style against a non-Mercator service; it has not been watched.

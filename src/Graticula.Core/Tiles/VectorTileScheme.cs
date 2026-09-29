@@ -258,6 +258,26 @@ public sealed class VectorTileScheme
         return new Envelope(minX, maxY - span, minX + span, maxY);
     }
 
+    /// <summary>The Web Mercator level whose pixel is nearest in size to this level's.</summary>
+    /// <param name="level">The level.</param>
+    /// <returns>The level itself on Web Mercator; otherwise the nearest Mercator level, 0 to <see cref="TileAddress.MaxZoom"/>.</returns>
+    /// <remarks>
+    /// <b>For what was written against a Mercator level number but means a pixel's size</b> — the reason
+    /// <see cref="Simplifies"/> keys on the pixel. TM30's level 8 is 4.59 m a pixel, Mercator's level 14
+    /// (2026-09-30: an export's size guess read level 8 as Mercator's and asked for 85 GB).
+    /// </remarks>
+    public int MercatorLevelOf(int level)
+    {
+        if (IsWebMercator)
+        {
+            return CheckLevel(level);
+        }
+
+        double mercatorLevel0 = TileAddress.WebMercatorHalfExtent * 2.0 / TileSize;
+
+        return (int)Math.Clamp(Math.Round(Math.Log2(mercatorLevel0 / Resolution(level))), 0, TileAddress.MaxZoom);
+    }
+
     /// <summary>Whether a level's tiles are simplified at half a pixel — ADR-085, keyed on the pixel's size.</summary>
     /// <param name="level">The level.</param>
     /// <returns>True where a pixel is at least <see cref="SimplifiedDownToResolution"/> on the ground.</returns>
