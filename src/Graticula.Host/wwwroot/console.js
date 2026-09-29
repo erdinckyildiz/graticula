@@ -5291,6 +5291,14 @@ async function openShare(qualified) {
 
     sharing.scope = item.sharing || "private";
 
+    // <b>The level as the dialog shows it, and the one the reader has chosen.</b> A group-scoped item is,
+    // in this dialog's words, *Owner* plus the groups listed under it — the server's fourth scope is how
+    // those two choices are stored, not a fifth radio. `chosen` survives the trip to the group screen and
+    // back; before 2026-09-30 the radio was redrawn from the stored scope on return, so choosing
+    // *Organization*, ticking a group and pressing Back put the radio on *Owner* and Save wrote `private`
+    // under a success toast.
+    sharing.chosen = sharing.scope === "group" ? "private" : sharing.scope;
+
     // <b>Absent means *not yours to know*, and it is not the same as empty.</b> The endpoint returns
     // `sharedWith` only to an owner or an administrator (§5l), so a null here is a reader who may see
     // the item and may not set its sharing — and the dialog says so rather than showing an empty list
@@ -5319,9 +5327,9 @@ function drawShare() {
   $("shareBody").innerHTML = `
     <p class="picklede">Set sharing level.</p>
     ${SHARE_SCOPES.map(([key, label, said]) => `
-      <label class="pickrow${key === sharing.scope ? " on" : ""}" data-scope="${key}">
+      <label class="pickrow${key === sharing.chosen ? " on" : ""}" data-scope="${key}">
         <input type="radio" name="shareScope" value="${key}"
-          ${key === sharing.scope ? "checked" : ""}${readOnly ? " disabled" : ""}>
+          ${key === sharing.chosen ? "checked" : ""}${readOnly ? " disabled" : ""}>
         <span><b>${icon(key)} ${h(label)}</b><span class="lede">${h(said)}</span></span>
       </label>`).join("")}
 
@@ -5376,9 +5384,9 @@ async function drawShareGroups() {
   $("shareTitle").textContent = "Group sharing";
 
   $("shareFoot").innerHTML = `
-    <button type="button" class="ghost" id="shareBack">Back</button>
     <span class="fill"></span>
-    <button type="button" class="ghost" id="shareCancel">Cancel</button>`;
+    <button type="button" class="ghost" id="shareCancel">Cancel</button>
+    <button type="button" class="primary" id="shareBack">Done</button>`;
 
   if (!sharing.available) {
     $("shareBody").innerHTML = `<p class="hint">Reading your groups…</p>`;
@@ -5403,7 +5411,8 @@ async function drawShareGroups() {
       <span style="flex:1"></span>
       <span class="val" id="shareShown"></span>
     </div>
-    <p class="hint">Choices here are kept if you go <b>Back</b> — nothing is sent until <b>Save</b>.</p>
+    <p class="hint">Members of the groups you tick can read it. <b>Done</b> returns to the first screen;
+      nothing is sent until you press <b>Save</b> there.</p>
     <div id="shareRows"></div>`;
 
   drawShareRows();
@@ -5480,26 +5489,16 @@ function drawShareRows() {
 async function saveShare() {
   if (!sharing) return;
 
-  const chosen = $("shareBody").querySelector(`input[name="shareScope"]:checked`);
-  const scope = chosen ? chosen.value : sharing.scope;
+  const level = sharing.chosen || sharing.scope;
+
+  // <b>*Owner* with groups ticked is the group scope.</b> The server reads group membership only for an
+  // item whose scope is `group` (LayerAccess.Evaluate), so saving *Owner* plus a group as `private` — what
+  // this did until 2026-09-30 — stored a share that gave its members nothing, and the group's own Content
+  // tab said so. *Organization* and *Everyone* already include every group member.
+  const scope = level === "private" && sharing.wanted?.size > 0 ? "group" : level;
 
   const { folder, name } = splitService(sharing.qualified);
   const failed = [];
-
-  try {
-    if (scope !== sharing.scope) {
-      await api(`/admin/services/${encodeURIComponent(name)}/sharing`
-        + `?folder=${encodeURIComponent(folder || "")}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sharing: scope }),
-      });
-    }
-  } catch (e) {
-    toast(e.message);
-    return;
-  }
-
   const had = new Set((sharing.groups || []).map(g => g.name).filter(Boolean));
 
   // <b>The bare name in the path and the folder in a query, which the group's own picker already
@@ -5517,12 +5516,29 @@ async function saveShare() {
       + `?folder=${encodeURIComponent(folder)}`;
   };
 
+  // <b>Groups added first, then the level, then groups removed.</b> The server refuses a group-scoped item
+  // shared with no group, so moving to `group` needs a group in place before the scope changes, and
+  // leaving it needs the scope changed before the last group goes.
   for (const group of sharing.wanted) {
     if (had.has(group)) continue;
 
     try {
       await api(where(group), { method: "PUT" });
     } catch (e) { failed.push(`${group}: ${e.message}`); }
+  }
+
+  try {
+    if (scope !== sharing.scope) {
+      await api(`/admin/services/${encodeURIComponent(name)}/sharing`
+        + `?folder=${encodeURIComponent(folder || "")}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sharing: scope }),
+      });
+    }
+  } catch (e) {
+    toast(e.message);
+    return;
   }
 
   for (const group of had) {
@@ -5535,9 +5551,14 @@ async function saveShare() {
 
   $("share").close();
 
+  const said = { private: "Owner", group: "Owner", organization: "Organization", public: "Everyone" };
+  const groups = sharing.wanted.size;
+
   toast(failed.length === 0
-    ? `${sharing.qualified}: shared ${scope}${sharing.wanted.size
-        ? ` and with ${sharing.wanted.size} group${sharing.wanted.size === 1 ? "" : "s"}` : ""}.`
+    ? scope === "group"
+      ? `${sharing.qualified}: shared with ${groups} group${groups === 1 ? "" : "s"}.`
+      : `${sharing.qualified}: shared with ${said[scope] || scope}${groups
+          ? ` and ${groups} group${groups === 1 ? "" : "s"}` : ""}.`
     : `Some group changes did not apply — ${failed.join("; ")}`, failed.length === 0);
 
   sharing = null;
@@ -6106,8 +6127,9 @@ function serviceSettingsMarkup(name, folder) {
       <p class="hint">Applied the moment it is chosen, not on Save — an owner narrowing who may see
         a service has to be able to trust that it happened rather than press Save afterwards
         (ADR-031 §2b, the same rule the role select follows).</p>
-      <p class="hint"><b>Shared into a group</b> is a fourth state and it is not set here: it is
-        set on the item, and it adds readers on top of whichever of these three is chosen.</p>
+      <p class="hint"><b>Shared with groups</b> is set in the <b>Share</b> dialog: with <b>Private</b>
+        chosen there, members of the groups you pick can read it. <b>Organization</b> and <b>Public</b>
+        already include every group member.</p>
       <p class="hint"><b>One scope per service, and every layer inside it is read under that
         scope.</b> There is no per-layer version: <code>service.sharing</code> is what the serving
         path reads, and the console used to offer this page once per layer — D-61.</p>
@@ -23007,6 +23029,7 @@ document.addEventListener("change", async event => {
   // revoking somebody's ability to publish has to be able to trust that it happened, rather than
   // press Save afterwards.
   if (event.target?.name === "shareScope") {
+    if (sharing) sharing.chosen = event.target.value;
     for (const row of $("shareBody").querySelectorAll(".pickrow")) {
       row.classList.toggle("on", row.dataset.scope === event.target.value);
     }
