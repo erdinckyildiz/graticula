@@ -10,6 +10,11 @@
 | **Supersedes** | — |
 | **Superseded by** | — |
 
+> **Amended 2026-09-29 by [ADR-094](ADR-094-several-styles-and-allowed-origins.md).** A service may carry
+> several styles now, and the sheet is checked against **all of them**: a replacement or a removal is refused
+> with 409 when any stored style names an icon it would take away by literal, and the refusal names the
+> styles. The read-back's `styleUses` covers every style.
+
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
 > Confidence: `HIGH`, `MEDIUM`, `LOW`.
@@ -138,6 +143,8 @@ checked against it.
   - `GET /admin/services/{name}/sprite` says, per ratio, how many icons, the picture's size and when it was
     uploaded, and which icons the stored style names.
   - `DELETE /admin/services/{name}/sprite` removes both ratios. 409 while the stored style names an icon.
+  - *(Amended 2026-09-29 by [ADR-094](ADR-094-several-styles-and-allowed-origins.md): "the stored style" is
+    every stored style of the service, the default and the named ones.)*
 - **Serving.** `sprite.json` and `sprite.png` serve the 1x sheet; `sprite@2x.json` and `sprite@2x.png` serve
   the @2x sheet, or the 1x one when there is no @2x sheet. No sheet stored is the empty sheet, as before.
   Every answer carries an ETag from its bytes, answers `If-None-Match` with 304, and is `no-cache` — public

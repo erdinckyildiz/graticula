@@ -147,7 +147,11 @@ public sealed class TilePipelineVersionTests
         // seed passes (`LayerConnections.AdmitTileBuildAsync`), and the cache-or-build half of `LayerPartAsync`
         // became `CachedOrBuiltAsync`, unchanged, so the admission can be tested without a database. Whether a
         // cold tile is built now or refused with a 503 changed; the bytes of a tile that is built did not.
-        "8e6e30c2f29e92ace317b99749e720e70c96b68e46a639890f53b80cc097f35d";
+        // <b>Moved again 2026-09-29 for ADR-094, and the version did not move.</b> `VectorTileEndpoints` serves a
+        // service's named styles at `resources/styles/{name}.json` beside `root.json`, and checks a stored style
+        // against the origins an administrator allows before serving it. Both are the style document, a resource
+        // beside the tiles; the tile route is untouched and not one byte of a tile is decided differently.
+        "2911023e929706d7299e4a2678e802e092538121e4759725fb31c9988dbebbda";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 2;

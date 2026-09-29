@@ -587,6 +587,7 @@ internal static partial class AdminEndpoints
         MapThumbnails(app);      // ADR-071 — AdminEndpoints.Thumbnails.cs
         MapHistory(app);         // ADR-078 — AdminEndpoints.History.cs
         MapSprite(app);          // ADR-092 — AdminEndpoints.Sprite.cs
+        MapStyles(app);          // ADR-094 — AdminEndpoints.Styles.cs
         MapTileSeed(app);        // ADR-093 — AdminEndpoints.TileSeed.cs
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a,
             PostgresLayerCatalog p, IAuditLog l, CancellationToken t) =>
@@ -4023,6 +4024,7 @@ internal static partial class AdminEndpoints
         string? folder,
         IAdminCatalog catalog,
         PostgresLayerCatalog owners,
+        StyleOriginList origins,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -4077,15 +4079,16 @@ internal static partial class AdminEndpoints
 
         // ADR-028 condition 3: a stored style the service's layers have since outgrown is not served to clients, and
         // the author reading it back is told why, beside the document — which stays byte for byte what they sent.
-        if (!StyleDocument.TryValidate(
-                service.Style,
-                service.SourceLayers,
-                await SpriteIconsAsync(catalog, service.Folder, service.Name, cancellation).ConfigureAwait(false),
-                out string? stale))
+        // Since ADR-094 the same is true of a style naming an origin an administrator has since taken off the list.
+        if (await StyleRefusalAsync(service.Style, service, catalog, origins, cancellation).ConfigureAwait(false)
+            is { } stale)
         {
             context.Response.Headers["Graticula-Style-Stale"] =
                 Uri.EscapeDataString("Not served: the generated style is, because " + stale);
         }
+
+        // Which of the service's styles this is, for a reader who knows there can be several.
+        context.Response.Headers["Graticula-Style-Name"] = service.StyleName ?? StyleNames.Default;
 
         // The document as it was stored, byte for byte. An author diffing this
         // against their file should see nothing.
@@ -4117,6 +4120,7 @@ internal static partial class AdminEndpoints
         IAdminCatalog catalog,
         IAuditLog audit,
         PostgresLayerCatalog owners,
+        StyleOriginList origins,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
@@ -4145,62 +4149,15 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        string body;
-
-        // <b>Bounded before it is read, not after.</b> Reading an unbounded body
-        // and then measuring it is an accounting exercise: the memory is already
-        // spent. The cap is one more byte than the limit so that a document
-        // exactly at the limit is accepted and one over is refused.
-        // <b>Refused when it hits the bound rather than passed on in part</b>, for the reason
-        // `SetSymbologyAsync` gives above: a truncated document is reported as a malformed one,
-        // which sends the reader to look for a bracket they never left out.
-        (body, bool tooLong) = await BoundedBodyAsync(
-            context, StyleDocument.MaximumBytes, cancellation).ConfigureAwait(false);
-
-        if (tooLong)
-        {
-            await Refuse(
-                context, 413,
-                $"A style document may be at most {StyleDocument.MaximumBytes:N0} characters and "
-                + "this request is longer. It was not read rather than being read in part.")
-                .ConfigureAwait(false);
-            return;
-        }
-
-        // ADR-092: an icon the style draws by name must be in the service's sprite sheet, as a source layer it draws
-        // must be in the service — and an icon on a service with no sheet is refused with the step that fixes it.
-        if (!StyleDocument.TryValidate(
-                body,
-                service.SourceLayers,
-                await SpriteIconsAsync(catalog, service.Folder, service.Name, cancellation).ConfigureAwait(false),
-                out string? error))
-        {
-            await Refuse(context, 400, error!).ConfigureAwait(false);
-            return;
-        }
-
-        if (!await catalog.SetStyleAsync(service.Folder, service.Name, body, cancellation).ConfigureAwait(false))
-        {
-            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
-            return;
-        }
-
-        // The document is not in the audit record. It can be a megabyte, it is
-        // readable through the API anyway, and an audit log that copies its
-        // subject is a second place to keep the same thing correct.
-        await AuditAsync(
-            context, audit, "service.style", name,
-            Detail(new { folder = service.Folder, bytes = body.Length, replaced = service.Style is not null }),
-            succeeded: true, cancellation).ConfigureAwait(false);
-
-        await Results.Json(new
-        {
-            name = service.Name,
-            folder = service.Folder,
-            stored = true,
-            bytes = body.Length,
-            replaced = service.Style is not null,
-        }).ExecuteAsync(context).ConfigureAwait(false);
+        // <b>An alias for the default style since ADR-094</b>, whatever it is called, so every console, script
+        // and test that stored a service's one style goes on storing the one <c>root.json</c> serves. A service with
+        // no default takes this one as its default and calls it <c>default</c>, as it always did.
+        //
+        // <b>Bounded before it is read, not after</b>, and refused at the bound rather than passed on in part —
+        // `StoreStyleAsync` carries both.
+        await StoreStyleAsync(
+            context, service, service.StyleName ?? StyleNames.Default, catalog, audit, origins, cancellation)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -4382,7 +4339,12 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        await catalog.SetStyleAsync(service.Folder, service.Name, null, cancellation).ConfigureAwait(false);
+        // By id, and by the default's own name: the alias removes the default and leaves the service's other
+        // styles where they are (ADR-094), so root.json goes back to the generated style as it always did.
+        if (service.StyleName is { } defaultName)
+        {
+            await catalog.DeleteNamedStyleAsync(service.Id, defaultName, cancellation).ConfigureAwait(false);
+        }
 
         await AuditAsync(
             context, audit, "service.style.clear", name,

@@ -838,6 +838,31 @@
 
       <p class="hint" id="groundSays" aria-live="polite"></p>
     </div>
+
+    <!--
+      <b>ADR-094, the owner's decision of 2026-09-29:</b> a style may name sources on other servers, but only
+      hosts an administrator has allowed. Empty is the rule styles always had: nothing leaves this server. One
+      origin a line, because the list is short and an operator pastes it from a vendor's documentation.
+    -->
+    <div class="panel pad settingcard">
+      <h4>Style sources</h4>
+      <p class="hint">Other servers a vector tile style may fetch tiles, fonts or icons from, such as a basemap
+        vendor. A style is fetched by every viewer's browser, so only an administrator decides where it may send
+        them. Write each as <code>https://host</code>, <code>https://host:port</code> or
+        <code>https://*.host</code> for every name under a host. With none listed, a style may use only this
+        server's own resources.</p>
+
+      <label class="q" for="styleOrigins">Allowed origins, one a line:</label>
+      <textarea id="styleOrigins" rows="4" disabled spellcheck="false" autocomplete="off"
+        aria-describedby="styleOriginsSource" placeholder="https://tiles.example.com"></textarea>
+      <p class="hint" id="styleOriginsSource"></p>
+
+      <div class="row">
+        <button class="primary" id="styleOriginsSave" disabled>Save style sources</button>
+      </div>
+
+      <p class="hint" id="styleOriginsSays" aria-live="polite"></p>
+    </div>
   </section>
 
   <section class="view" id="view-operations">

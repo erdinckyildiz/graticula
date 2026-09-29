@@ -425,9 +425,71 @@ public readonly record struct SymbolisedLayer(
 /// <param name="Name">Its name.</param>
 /// <param name="Folder">Its folder, or null for the root.</param>
 /// <param name="SourceLayers">The layer names a style may draw.</param>
-/// <param name="Style">The stored style, or null for the generated one.</param>
+/// <param name="Style">The stored default style, or null for the generated one.</param>
+/// <param name="Id">
+/// Its catalogue id, which every write after the ownership check addresses — D-276's rule, that a check
+/// and the write it guards name one row.
+/// </param>
+/// <param name="StyleName">
+/// What the default style is called — ADR-094 — or null when there is no stored default. A default
+/// stored through the <c>/style</c> route, which has no name, is called <c>default</c>.
+/// </param>
 public readonly record struct StyledService(
-    string Name, string? Folder, IReadOnlyList<string> SourceLayers, string? Style);
+    string Name,
+    string? Folder,
+    IReadOnlyList<string> SourceLayers,
+    string? Style,
+    Guid Id = default,
+    string? StyleName = null);
+
+/// <summary>
+/// One of a service's named styles, as stored — ADR-094.
+/// </summary>
+/// <param name="Name">Its name, spelled as it was first stored.</param>
+/// <param name="Style">The document, byte for byte.</param>
+/// <param name="IsDefault">Whether it is the one <c>resources/styles/root.json</c> serves.</param>
+/// <param name="UpdatedAt">When it was last written, when the store knows.</param>
+public sealed record StoredStyle(string Name, string Style, bool IsDefault, DateTimeOffset? UpdatedAt);
+
+/// <summary>What storing a named style did — ADR-094.</summary>
+public enum StyleWrite
+{
+    /// <summary>The service is gone.</summary>
+    NoService,
+
+    /// <summary>A new style would pass the per-service bound; nothing was written.</summary>
+    TooMany,
+
+    /// <summary>A new style, beside the default.</summary>
+    Added,
+
+    /// <summary>A new style, which became the default because the service had none.</summary>
+    AddedAsDefault,
+
+    /// <summary>A style of that name was there and was replaced.</summary>
+    Replaced,
+
+    /// <summary>
+    /// A style of that name was there, not as the default, and the service had no default, so it became one.
+    /// </summary>
+    ReplacedAsDefault,
+}
+
+/// <summary>What choosing a service's default style did — ADR-094.</summary>
+public enum DefaultStyleChange
+{
+    /// <summary>The service is gone.</summary>
+    NoService,
+
+    /// <summary>No style of that name is stored.</summary>
+    NoSuchStyle,
+
+    /// <summary>It already was the default; nothing moved.</summary>
+    Unchanged,
+
+    /// <summary>The default is now the named style, or the generated one.</summary>
+    Changed,
+}
 
 /// <summary>
 /// One of a service's sprite sheets, as stored — ADR-092.
@@ -742,6 +804,58 @@ public interface IAdminCatalog
     /// <returns>True when a service was found and written.</returns>
     Task<bool> SetStyleAsync(
         string? folder, string name, string? style, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every style a service carries, the default first — ADR-094.
+    /// </summary>
+    /// <param name="serviceId">The service's id, from <see cref="FindServiceForStyleAsync"/>.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The styles; empty when there are none.</returns>
+    Task<IReadOnlyList<StoredStyle>> ListStylesAsync(Guid serviceId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Stores a named style, replacing one of that name — ADR-094.
+    /// </summary>
+    /// <param name="serviceId">The service's id, after the ownership check asked about it.</param>
+    /// <param name="name">The name, already checked by <c>StyleNames</c>.</param>
+    /// <param name="style">The document, already checked by <c>StyleDocument</c>.</param>
+    /// <param name="most">How many styles, the default among them, the service may carry after the write.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What happened.</returns>
+    /// <remarks>
+    /// <b>A service with no default takes the first style stored as its default</b>, whatever it is
+    /// called — which is what the <c>/style</c> route always did, and what keeps that route an alias
+    /// for "the default style" rather than a second meaning.
+    /// </remarks>
+    Task<StyleWrite> SetNamedStyleAsync(
+        Guid serviceId, string name, string style, int most, CancellationToken cancellationToken);
+
+    /// <summary>Removes a named style, the default included — ADR-094.</summary>
+    /// <param name="serviceId">The service's id.</param>
+    /// <param name="name">The name, compared without case.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>True when a style was removed.</returns>
+    /// <remarks>
+    /// <b>Removing the default promotes nothing.</b> <c>root.json</c> goes back to the generated style,
+    /// as it did before there were names, and the other styles stay where they are; choosing which of
+    /// them is the new default is a decision, and this does not make it on the caller's behalf.
+    /// </remarks>
+    Task<bool> DeleteNamedStyleAsync(Guid serviceId, string name, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Makes a stored style the default, or makes the generated style the default again — ADR-094.
+    /// </summary>
+    /// <param name="serviceId">The service's id.</param>
+    /// <param name="name">The style to serve at <c>root.json</c>, or null for the generated one.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What happened.</returns>
+    /// <remarks>
+    /// <b>A swap, in one transaction.</b> The chosen document moves into <c>service.style</c> and the old
+    /// default moves out to its own row under its own name, so no style is lost and no instant has two
+    /// defaults or a default a reader cannot find.
+    /// </remarks>
+    Task<DefaultStyleChange> SetDefaultStyleAsync(
+        Guid serviceId, string? name, CancellationToken cancellationToken);
 
     /// <summary>
     /// A service's sprite sheets, without their pictures — ADR-092.

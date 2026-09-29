@@ -599,6 +599,9 @@ public static class Program
         builder.Services.AddSingleton<ServerPageSize>();
         builder.Services.AddSingleton<ServerGround>();
 
+        // ADR-094: the external origins a style may fetch from, in the same store.
+        builder.Services.AddSingleton<StyleOriginList>();
+
         // <b>Behind the breaker, D-127.</b> A capabilities document needs one projection call
         // per distinct spatial reference and cannot be written without them; during an outage
         // each of those waited out a connect nothing answered, which is what a WFS document

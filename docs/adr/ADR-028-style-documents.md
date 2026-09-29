@@ -19,6 +19,11 @@
 > per-layer document cannot express. Read §2A here before proposing a bespoke symbology
 > model: it is the argument that later killed one.
 
+> **Amended 2026-09-29 by [ADR-094](ADR-094-several-styles-and-allowed-origins.md).** A service may carry
+> several named styles, one of them the default (condition 2, discharged), and a style may name https
+> origins an administrator has allowed (§5's URL rule, amended). With no origin allowed — the default — §5
+> reads as it always did.
+
 ---
 
 ## 1. Context
@@ -165,6 +170,10 @@ generated one.**
 `source-layer` that the service actually has (background layers excepted); no
 URL anywhere leaves this server; and no layer sets `icon-image`, because the
 sprite sheet is empty and the icon would silently not draw.
+*(Amended 2026-09-29 by [ADR-094](ADR-094-several-styles-and-allowed-origins.md): a URL may also be https on
+an origin an administrator has allowed at `/admin/settings/style-origins`; the list is checked again where
+the style is served, so a style naming an origin taken off the list gives way to the generated one. The check
+now also reads an array `sprite` and a video source's `urls`, which it had missed.)*
 *(Amended 2026-09-29 by [ADR-092](ADR-092-sprites-are-uploaded-per-service.md): the last check is
 deleted. An `icon-image` is checked against the service's uploaded sprite sheet instead — refused when
 there is no sheet, and when a literal name is not in it.)*
@@ -185,7 +194,8 @@ by a column constraint so a second writer cannot bypass it.
 
 **Negative.**
 
-- **One style per service.** Condition 2.
+- ~~**One style per service.** Condition 2.~~ *Several since 2026-09-29 —
+  [ADR-094](ADR-094-several-styles-and-allowed-origins.md).*
 - **A style can rot.** Removing a layer from a service leaves a style naming a
   source that no longer exists, and nothing revalidates it. Condition 3.
 - **The validator will eventually refuse something valid**, because the
@@ -206,7 +216,7 @@ none.
 
 | ID | Assumption | Status |
 |---|---|---|
-| A-071 | One style per service is enough to be useful, even though it is not enough to be finished | `UNVALIDATED`. Light/dark is the obvious counterexample and it is expected to arrive |
+| A-071 | One style per service is enough to be useful, even though it is not enough to be finished | **Answered 2026-09-29** — the owner asked for light and dark; [ADR-094](ADR-094-several-styles-and-allowed-origins.md) |
 | A-072 | Refusing a style at write time costs an author less than a blank map costs them at read time | `UNVALIDATED` by use, and it is the premise of the whole validator |
 
 ## 8. Dependencies
@@ -222,7 +232,8 @@ sprite upload, which deletes the `icon-image` check — [ADR-092](ADR-092-sprite
 ## 9. Revisit triggers
 
 - **Somebody asks for a second style on one service.** Light and dark is the
-  case, and it is when condition 2 becomes work rather than a note.
+  case, and it is when condition 2 becomes work rather than a note. *(Fired 2026-09-29 —
+  [ADR-094](ADR-094-several-styles-and-allowed-origins.md).)*
 - **The validator refuses a style that is valid.** Then the check is behind the
   specification and the trade in §3 has stopped paying.
 - **Sprites become uploadable.** The `icon-image` refusal is deleted, not
@@ -237,6 +248,11 @@ sprite upload, which deletes the `icon-image` check — [ADR-092](ADR-092-sprite
    for this reason.)*
 2. **More than one style per service**, before anybody is told this product
    supports theming. Light and dark is not an exotic request.
+   *(Discharged 2026-09-29 by owner decision — [ADR-094](ADR-094-several-styles-and-allowed-origins.md).)*
+   A service carries up to twenty named styles; the default stays in the column this ADR created, so
+   `resources/styles/root.json` and `/admin/services/{name}/style` mean what they meant, and the others are
+   served at `resources/styles/{name}.json`. ArcGIS has no address for a second style on a service, so that
+   one is this server's own.
 3. **A style is revalidated when the service's layers change.** Unpublishing a
    layer today leaves a style that draws a source which no longer exists, and
    nothing notices — which is the exact failure the write-time check was built

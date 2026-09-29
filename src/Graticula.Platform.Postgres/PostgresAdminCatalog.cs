@@ -1319,12 +1319,14 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
         const string Sql = """
             select s.name, s.folder, s.style,
-                   coalesce(array_agg(l.name) filter (where l.name is not null), '{}')
+                   coalesce(array_agg(l.name) filter (where l.name is not null), '{}'),
+                   s.id,
+                   case when s.style is null then null else coalesce(s.style_name, 'default') end
             from service s
             left join layer l on l.service_id = s.id
             where lower(s.name) = lower(@name)
               and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '')
-            group by s.id, s.name, s.folder, s.style
+            group by s.id, s.name, s.folder, s.style, s.style_name
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
@@ -1343,7 +1345,9 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             reader.GetString(0),
             reader.IsDBNull(1) ? null : reader.GetString(1),
             reader.GetFieldValue<string[]>(3),
-            reader.IsDBNull(2) ? null : reader.GetString(2));
+            reader.IsDBNull(2) ? null : reader.GetString(2),
+            reader.GetGuid(4),
+            reader.IsDBNull(5) ? null : reader.GetString(5));
     }
 
     /// <inheritdoc/>
@@ -1494,7 +1498,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             update service
                set style = @style::text,
                    style_updated_at =
-                     case when @style::text is null then null else now() end
+                     case when @style::text is null then null else now() end,
+                   style_name = case when @style::text is null then null else style_name end
              where lower(name) = lower(@name)
                and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
             """;
@@ -1505,6 +1510,350 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         command.Parameters.AddWithValue("style", (object?)style ?? DBNull.Value);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The default from <c>service.style</c>, the rest from <c>service_style</c> — migration 62.</b>
+    /// One statement, so a default being swapped while this reads is either before or after the swap,
+    /// never half of it.
+    /// </remarks>
+    public async Task<IReadOnlyList<StoredStyle>> ListStylesAsync(Guid serviceId, CancellationToken cancellationToken)
+    {
+        // <b>Ordered by the name without its case, in the "C" collation</b> — the default first, then the
+        // rest. Left to the database's collation, the order was whatever its locale said (dark before
+        // Light on the fixture, the reverse under C), so a list read twice on two servers could disagree.
+        await using NpgsqlCommand command = _dataSource.CreateCommand("""
+            select name, style, is_default, updated_at
+              from (
+                select coalesce(s.style_name, 'default') as name, s.style, true as is_default,
+                       s.style_updated_at as updated_at, 0 as rank
+                  from service s
+                 where s.id = @service and s.style is not null
+                union all
+                select st.name, st.style, false, st.updated_at, 1
+                  from service_style st
+                 where st.service_id = @service
+              ) styles
+             order by rank, lower(name) collate "C", name collate "C"
+            """);
+
+        command.Parameters.AddWithValue("service", serviceId);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        List<StoredStyle> styles = [];
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            styles.Add(new StoredStyle(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetBoolean(2),
+                reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3)));
+        }
+
+        return styles;
+    }
+
+    /// <summary>
+    /// Locks a service's row for the rest of a transaction and reads its default style's name.
+    /// </summary>
+    /// <returns>
+    /// Whether the service exists, and the default's name — null when it has no stored default.
+    /// </returns>
+    /// <remarks>
+    /// <b>The lock is what the missing constraint would have been.</b> A non-default style may not take
+    /// the default's name, and the two live in two tables; two writers each checking and then writing
+    /// could otherwise both pass. Every writer of a service's styles takes this lock first, so they run
+    /// one at a time per service and never across services.
+    /// </remarks>
+    private static async Task<(bool Found, string? DefaultName, string? DefaultStyle, DateTimeOffset? DefaultAt)> LockStylesAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, Guid serviceId, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = new(
+            """
+            select style is not null, coalesce(style_name, 'default'), style, style_updated_at
+              from service where id = @service for update
+            """,
+            connection,
+            transaction);
+
+        command.Parameters.AddWithValue("service", serviceId);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return (false, null, null, null);
+        }
+
+        return reader.GetBoolean(0)
+            ? (true, reader.GetString(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3))
+            : (true, null, null, null);
+    }
+
+    /// <inheritdoc/>
+    public async Task<StyleWrite> SetNamedStyleAsync(
+        Guid serviceId, string name, string style, int most, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(style);
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        (bool found, string? defaultName, _, _) =
+            await LockStylesAsync(connection, transaction, serviceId, cancellationToken).ConfigureAwait(false);
+
+        if (!found)
+        {
+            return StyleWrite.NoService;
+        }
+
+        StyleWrite outcome;
+
+        if (defaultName is not null && string.Equals(defaultName, name, StringComparison.OrdinalIgnoreCase))
+        {
+            // The default, by its name: the column the ArcGIS address and every older build read.
+            await using NpgsqlCommand command = new(
+                "update service set style = @style, style_updated_at = now() where id = @service",
+                connection,
+                transaction);
+
+            command.Parameters.AddWithValue("service", serviceId);
+            command.Parameters.AddWithValue("style", style);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return StyleWrite.Replaced;
+        }
+
+        bool exists;
+
+        await using (NpgsqlCommand count = new(
+            """
+            select count(*) filter (where lower(name) = lower(@name)), count(*)
+              from service_style where service_id = @service
+            """,
+            connection,
+            transaction))
+        {
+            count.Parameters.AddWithValue("service", serviceId);
+            count.Parameters.AddWithValue("name", name);
+
+            await using NpgsqlDataReader reader =
+                await count.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+
+            exists = reader.GetInt64(0) > 0;
+
+            // Every style counts against the bound, the default among them.
+            long after = reader.GetInt64(1) + (defaultName is null ? 0 : 1) + (exists ? 0 : 1);
+
+            if (after > most)
+            {
+                return StyleWrite.TooMany;
+            }
+        }
+
+        if (defaultName is null)
+        {
+            // <b>No default: this becomes it</b>, and a row of the same name — left there by a default made
+            // generated again, or by an older build clearing the column — is what it replaces, so the name
+            // stays one style.
+            await using (NpgsqlCommand gone = new(
+                "delete from service_style where service_id = @service and lower(name) = lower(@name)",
+                connection,
+                transaction))
+            {
+                gone.Parameters.AddWithValue("service", serviceId);
+                gone.Parameters.AddWithValue("name", name);
+                await gone.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await using NpgsqlCommand command = new(
+                """
+                update service
+                   set style = @style, style_updated_at = now(),
+                       style_name = case when @name::text = 'default' then null else @name::text end
+                 where id = @service
+                """,
+                connection,
+                transaction);
+
+            command.Parameters.AddWithValue("service", serviceId);
+            command.Parameters.AddWithValue("style", style);
+            command.Parameters.AddWithValue("name", name);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+            outcome = exists ? StyleWrite.ReplacedAsDefault : StyleWrite.AddedAsDefault;
+        }
+        else
+        {
+            await using NpgsqlCommand command = new(
+                """
+                insert into service_style (service_id, name, style) values (@service, @name, @style)
+                on conflict (service_id, lower(name)) do update
+                   set style = excluded.style, updated_at = now()
+                """,
+                connection,
+                transaction);
+
+            command.Parameters.AddWithValue("service", serviceId);
+            command.Parameters.AddWithValue("name", name);
+            command.Parameters.AddWithValue("style", style);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+            outcome = exists ? StyleWrite.Replaced : StyleWrite.Added;
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return outcome;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> DeleteNamedStyleAsync(Guid serviceId, string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        (bool found, string? defaultName, _, _) =
+            await LockStylesAsync(connection, transaction, serviceId, cancellationToken).ConfigureAwait(false);
+
+        if (!found)
+        {
+            return false;
+        }
+
+        int removed;
+
+        if (defaultName is not null && string.Equals(defaultName, name, StringComparison.OrdinalIgnoreCase))
+        {
+            // <b>The name goes with the document</b>, so a default stored later through `/style` is called
+            // `default` again rather than inheriting the name of one that is gone.
+            await using NpgsqlCommand command = new(
+                "update service set style = null, style_updated_at = null, style_name = null where id = @service",
+                connection,
+                transaction);
+
+            command.Parameters.AddWithValue("service", serviceId);
+            removed = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await using NpgsqlCommand command = new(
+                "delete from service_style where service_id = @service and lower(name) = lower(@name)",
+                connection,
+                transaction);
+
+            command.Parameters.AddWithValue("service", serviceId);
+            command.Parameters.AddWithValue("name", name);
+            removed = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return removed > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<DefaultStyleChange> SetDefaultStyleAsync(
+        Guid serviceId, string? name, CancellationToken cancellationToken)
+    {
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        (bool found, string? defaultName, string? defaultStyle, DateTimeOffset? defaultAt) =
+            await LockStylesAsync(connection, transaction, serviceId, cancellationToken).ConfigureAwait(false);
+
+        if (!found)
+        {
+            return DefaultStyleChange.NoService;
+        }
+
+        if (name is null ? defaultName is null : string.Equals(defaultName, name, StringComparison.OrdinalIgnoreCase))
+        {
+            return DefaultStyleChange.Unchanged;
+        }
+
+        (string Name, string Style, DateTimeOffset At)? chosen = null;
+
+        if (name is not null)
+        {
+            await using NpgsqlCommand take = new(
+                """
+                delete from service_style where service_id = @service and lower(name) = lower(@name)
+                returning name, style, updated_at
+                """,
+                connection,
+                transaction);
+
+            take.Parameters.AddWithValue("service", serviceId);
+            take.Parameters.AddWithValue("name", name);
+
+            await using NpgsqlDataReader reader =
+                await take.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                return DefaultStyleChange.NoSuchStyle;
+            }
+
+            chosen = (reader.GetString(0), reader.GetString(1), reader.GetFieldValue<DateTimeOffset>(2));
+        }
+
+        // The old default keeps its name and its date as an ordinary style: nothing is lost by the swap.
+        if (defaultName is not null)
+        {
+            await using NpgsqlCommand keep = new(
+                """
+                insert into service_style (service_id, name, style, updated_at)
+                values (@service, @name, @style, coalesce(@at::timestamptz, now()))
+                """,
+                connection,
+                transaction);
+
+            keep.Parameters.AddWithValue("service", serviceId);
+            keep.Parameters.AddWithValue("name", defaultName);
+            keep.Parameters.AddWithValue("style", defaultStyle!);
+            keep.Parameters.AddWithValue("at", (object?)defaultAt ?? DBNull.Value);
+            await keep.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await using (NpgsqlCommand set = new(
+            """
+            update service
+               set style = @style::text,
+                   style_updated_at = @at::timestamptz,
+                   style_name = case when @name::text = 'default' then null else @name::text end
+             where id = @service
+            """,
+            connection,
+            transaction))
+        {
+            set.Parameters.AddWithValue("service", serviceId);
+            set.Parameters.AddWithValue("style", (object?)chosen?.Style ?? DBNull.Value);
+            set.Parameters.AddWithValue("at", (object?)chosen?.At ?? DBNull.Value);
+            set.Parameters.AddWithValue("name", (object?)chosen?.Name ?? DBNull.Value);
+            await set.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return DefaultStyleChange.Changed;
     }
 
     /// <summary>

@@ -759,6 +759,45 @@ public sealed class PostgresLayerCatalog
             : null;
     }
 
+    /// <summary>
+    /// One of a service's styles by name, for <c>resources/styles/{name}.json</c> — ADR-094.
+    /// </summary>
+    /// <param name="serviceId">The service.</param>
+    /// <param name="name">The style's name, compared without case.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The document, and whether it is the default; null when no style has that name.</returns>
+    /// <remarks>
+    /// <b>Straight from the store, like the sprite sheet.</b> The service read that the rest of the face
+    /// uses carries the default only; the others are read here on each request, and there is no
+    /// remembered copy to fall back on, so while the store is unreachable this fails rather than
+    /// answering with another style.
+    /// </remarks>
+    public async Task<(string Style, bool IsDefault)?> FindNamedStyleAsync(
+        Guid serviceId, string name, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand("""
+            select s.style, true
+              from service s
+             where s.id = @service and s.style is not null
+               and lower(coalesce(s.style_name, 'default')) = lower(@name)
+            union all
+            select st.style, false
+              from service_style st
+             where st.service_id = @service and lower(st.name) = lower(@name)
+            limit 1
+            """);
+
+        command.Parameters.AddWithValue("service", serviceId);
+        command.Parameters.AddWithValue("name", name);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+            ? (reader.GetString(0), reader.GetBoolean(1))
+            : null;
+    }
+
     private async Task<IReadOnlyList<PublishedService>> ReadServicesAsync(
         NpgsqlCommand command, CancellationToken cancellationToken)
     {

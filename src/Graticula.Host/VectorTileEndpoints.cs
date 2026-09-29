@@ -60,6 +60,11 @@ internal static class VectorTileEndpoints
             app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/resources/styles/root.json", StyleAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // ADR-094: a service's other named styles, beside the default. The literal route above wins for
+            // root.json; this one answers every other name.
+            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/resources/styles/{{style}}.json", NamedStyleAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
             // <b>The resources a style needs to draw a label.</b> Without the
             // fonts a client with a text-field renders no text at all and logs a
             // fetch error, which reads as a broken server rather than a missing
@@ -689,6 +694,7 @@ internal static class VectorTileEndpoints
         string serviceName,
         CatalogFallback catalog,
         GlyphStore glyphs,
+        StyleOriginList origins,
         ILoggerFactory logs,
         CancellationToken cancellation)
     {
@@ -700,6 +706,90 @@ internal static class VectorTileEndpoints
             return;
         }
 
+        await ServeStyleAsync(context, service, service.Style, catalog, glyphs, origins, logs, cancellation)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// One of the service's named styles, at <c>resources/styles/{name}.json</c> — ADR-094.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ArcGIS has no address for a second style on a service, so this one is ours.</b> An ArcGIS
+    /// VectorTileServer serves one style, at <c>resources/styles/root.json</c>; other styles of the same
+    /// tiles are separate portal items, each carrying its own <c>root.json</c>. There is no portal item
+    /// model here (ADR-019), so the others sit beside <c>root.json</c> under their names, where a
+    /// MapLibre client can be pointed at them and an ArcGIS client, which never asks, is not disturbed.
+    /// </para>
+    /// <para>
+    /// <b>The same checks as the default, and the same way out.</b> A named style that no longer fits
+    /// its layers, its sprite sheet or the allowed origins is not served; the generated style is, with
+    /// the header saying so — a client asked for a map, and a map it can draw is the better answer
+    /// than an error it cannot act on. A name the service does not carry is a 404: that is an address
+    /// that does not exist, not a style that went stale.
+    /// </para>
+    /// <para>
+    /// <b>The literal <c>root.json</c> route wins in routing</b>, so this never sees it; a default asked
+    /// for by its own name is served as the default is.
+    /// </para>
+    /// </remarks>
+    private static async Task NamedStyleAsync(
+        HttpContext context,
+        string serviceName,
+        string style,
+        CatalogFallback catalog,
+        GlyphStore glyphs,
+        StyleOriginList origins,
+        ILoggerFactory logs,
+        CancellationToken cancellation)
+    {
+        PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
+            .ConfigureAwait(false);
+
+        if (service is null)
+        {
+            return;
+        }
+
+        // Matched against the name rule before it reaches the store, so the path segment is never a lookup of
+        // anything it is not allowed to be.
+        (string Style, bool IsDefault)? found =
+            StyleNames.TryValidate(style, out _) && catalog.Catalog is { } store
+                ? await store.FindNamedStyleAsync(service.Id, style, cancellation).ConfigureAwait(false)
+                : null;
+
+        if (found is not { } named)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 404,
+                        message = $"This service has no style '{style}'. Its default style is resources/styles/root.json.",
+                        details = Array.Empty<string>(),
+                    },
+                },
+                statusCode: StatusCodes.Status404NotFound)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        await ServeStyleAsync(context, service, named.Style, catalog, glyphs, origins, logs, cancellation)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>A stored style when it still fits the service, else the generated one.</summary>
+    private static async Task ServeStyleAsync(
+        HttpContext context,
+        PublishedService service,
+        string? stored,
+        CatalogFallback catalog,
+        GlyphStore glyphs,
+        StyleOriginList origins,
+        ILoggerFactory logs,
+        CancellationToken cancellation)
+    {
         // <b>A stored style wins, unchanged — while it still fits the service.</b> Nothing here rewrites it: a
         // cartographer should get back the file they sent, not a normalised version of it (ADR-028).
         //
@@ -708,7 +798,7 @@ internal static class VectorTileEndpoints
         // noticed: the write-time check had been passed once, by a service that has since changed. Every door that
         // changes a service's layers arrives here, so this is the one place the check cannot be missed. A style
         // that no longer fits gives way to the generated one, which always does, and says so in the server log.
-        if (service.Style is { Length: > 0 } stored)
+        if (stored is { Length: > 0 })
         {
             // <b>The sprite sheet's icon names, read only when the style could need them — ADR-092.</b> A style that
             // draws no icon is checked against its layers alone, as before, and pays nothing for the sheet.
@@ -734,9 +824,24 @@ internal static class VectorTileEndpoints
                 }
             }
 
+            // <b>The allowed origins, read only when the style could name one — ADR-094.</b> An origin taken off
+            // the list stops a style that names it being served, here, where every viewer's browser would
+            // otherwise be sent to it. Unlike the icons this is not skipped when the store is unreachable: the
+            // list fails closed (StyleOriginList), because an origin nobody can confirm is still allowed is one
+            // the browser should not be sent to.
+            IReadOnlyList<StyleOrigin> allowed = StyleDocument.MayNameAnotherHost(stored)
+                ? await origins.CurrentAsync(cancellation).ConfigureAwait(false)
+                : [];
+
             string? stale = null;
 
-            if (!checkable || StoredStyleFits(stored, [.. service.Layers.Select(l => l.Definition.Name)], icons, out stale))
+            if (StoredStyleFits(
+                    stored,
+                    [.. service.Layers.Select(l => l.Definition.Name)],
+                    icons,
+                    allowed,
+                    out stale,
+                    iconsCheckable: checkable))
             {
                 await Results.Content(stored, "application/json; charset=utf-8")
                     .ExecuteAsync(context).ConfigureAwait(false);
@@ -779,6 +884,40 @@ internal static class VectorTileEndpoints
     internal static bool StoredStyleFits(
         string stored, IReadOnlyList<string> layers, IReadOnlyList<string>? icons, out string? stale) =>
         StyleDocument.TryValidate(stored, layers, icons, out stale);
+
+    /// <summary>
+    /// Whether a stored style still fits the service and names only allowed origins — ADR-028 condition 3,
+    /// ADR-092, ADR-094.
+    /// </summary>
+    /// <param name="stored">The style as stored.</param>
+    /// <param name="layers">The service's layers now, by name.</param>
+    /// <param name="icons">The 1x sheet's icon names, or null when there is no sheet.</param>
+    /// <param name="allowed">The origins an administrator allows now.</param>
+    /// <param name="stale">Why it may not be served, or null.</param>
+    /// <param name="iconsCheckable">
+    /// False when the sheet could not be read; the style is then judged on everything but its icons.
+    /// </param>
+    /// <returns>Whether it may be served.</returns>
+    /// <remarks>
+    /// <b>An unreadable sheet excuses the icons and nothing else.</b> Until ADR-094 an unreadable sheet
+    /// skipped the whole check, which was harmless while the check was about layers the service read
+    /// from the same remembered copy. With origins in it, skipping would serve a style naming an origin
+    /// removed from the list, so the icons are judged by the sheet's own absence instead: a style is
+    /// checked as if every literal icon it names were there.
+    /// </remarks>
+    internal static bool StoredStyleFits(
+        string stored,
+        IReadOnlyList<string> layers,
+        IReadOnlyList<string>? icons,
+        IReadOnlyCollection<StyleOrigin> allowed,
+        out string? stale,
+        bool iconsCheckable = true) =>
+        StyleDocument.TryValidate(
+            stored,
+            layers,
+            iconsCheckable ? icons : StyleDocument.LiteralIcons(stored),
+            allowed,
+            out stale);
 
     /// <summary>One tile.</summary>
     /// <remarks>

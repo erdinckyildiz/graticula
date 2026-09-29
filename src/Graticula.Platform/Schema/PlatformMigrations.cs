@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(61);
+    public static SchemaVersion ComponentSchemaVersion => new(62);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -96,7 +96,74 @@ public static class PlatformMigrations
         TheDefaultPageSizeGoesV59,
         AServiceMayCarryASpriteSheetV60,
         ATileCacheMayBeSeededV61,
+        AServiceMayCarrySeveralStylesV62,
     ]);
+
+    /// <summary>
+    /// A vector tile service may carry several named styles, one of them the default — ADR-094.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The default stays in <c>service.style</c>, and the others go beside it.</b> The owner asked
+    /// for light and dark on one service; ADR-028 condition 2 had asked for it since the first style
+    /// was stored. Moving every style into the new table would be the tidier shape, and it would leave
+    /// a build before this one reading a <c>service.style</c> nobody writes any more: after a rollback
+    /// its <c>root.json</c> would serve the generated style for every service that had one. Kept where
+    /// it is, the column goes on meaning exactly what it meant — <em>the style
+    /// <c>resources/styles/root.json</c> serves</em> — and an older build reads and writes it correctly
+    /// without knowing any other style exists. Making another style the default swaps the two
+    /// documents in one transaction, so the column always holds the default.
+    /// </para>
+    /// <para>
+    /// <b><c>service.style_name</c> is the default's name</b>, null for one stored through the old
+    /// <c>/style</c> route — which the reader calls <c>default</c>. An older build that clears the style
+    /// leaves the name behind; the reader ignores a name without a style, so that is harmless.
+    /// </para>
+    /// <para>
+    /// <b>No <c>is_default</c> flag.</b> Which style is the default is <em>where</em> it is stored, so
+    /// two defaults, or none while the column holds one, cannot be written.
+    /// </para>
+    /// <para>
+    /// <b>Names are unique per service without case</b>, by the index, and the name rule is the
+    /// validator's (<c>StyleNames</c>) stated again where a second writer cannot pass it. That a
+    /// non-default style does not take the default's name is kept by the writer, under a lock on the
+    /// service row, because a constraint cannot see across the two tables.
+    /// </para>
+    /// <para>
+    /// <b>The allowed external origins (ADR-094's second half) need no table.</b> They are one named
+    /// value in <c>server_setting</c>, which migration 54 made for exactly this: a server-wide setting
+    /// an operator changes from the console arriving without a migration.
+    /// </para>
+    /// <para><b>Expand.</b> A new column nobody before this reads, and a new table. Nothing existing is
+    /// read differently; the minimum reader does not move.</para>
+    /// </remarks>
+    private static Migration AServiceMayCarrySeveralStylesV62 => Migration.Expand(
+        new SchemaVersion(62),
+        "A vector tile service may carry several named styles, one of them the default (ADR-094).",
+
+        "alter table service add column if not exists style_name text",
+
+        "alter table service drop constraint if exists service_default_style_name_is_a_name",
+
+        """
+        alter table service add constraint service_default_style_name_is_a_name
+          check (style_name is null
+                 or (style_name ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$' and lower(style_name) <> 'root'))
+        """,
+
+        """
+        create table if not exists service_style (
+            service_id uuid        not null references service (id) on delete cascade,
+            name       text        not null,
+            style      text        not null,
+            updated_at timestamptz not null default now(),
+            constraint service_style_name_rule
+              check (name ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$' and lower(name) <> 'root'),
+            constraint service_style_document_is_bounded check (length(style) <= 1048576)
+        )
+        """,
+
+        "create unique index if not exists service_style_name_ci on service_style (service_id, lower(name))");
 
     /// <summary>
     /// A vector tile service's cache may be filled ahead of its callers, as a job — ADR-093.

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -138,12 +140,44 @@ internal static class SecurityHeaders
     /// one that does not load at all.
     /// </para>
     /// </remarks>
-    internal static string ConsolePolicyFor(string mapSdkOrigin) =>
+    internal static string ConsolePolicyFor(string mapSdkOrigin) => ConsolePolicyFor(mapSdkOrigin, []);
+
+    /// <summary>
+    /// The console's policy, widened by the origins an administrator allows styles to fetch from — ADR-094.
+    /// </summary>
+    /// <param name="mapSdkOrigin">The map SDK's origin.</param>
+    /// <param name="styleOrigins">
+    /// The allowed style origins in their normalised spelling — <c>https://host[:port]</c> or
+    /// <c>https://*.host</c>, each already a valid policy source.
+    /// </param>
+    /// <returns>The policy.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A style the server serves and the console's own maps cannot draw is D-44 a third time.</b>
+    /// The console's maps load a service's style through the SDK and fetch what it names from the
+    /// page, so a style drawing a vendor's tiles would be served correctly and drawn blank here,
+    /// with the refusal visible only in the browser's console. The list the style check admits is
+    /// therefore the list this policy admits, spelled once.
+    /// </para>
+    /// <para>
+    /// <b><c>connect-src</c> and <c>img-src</c>, and nothing else.</b> Tiles, TileJSON, glyphs and
+    /// sprite indexes are fetched; a sprite picture may be loaded as an image. Nothing a style names
+    /// is a script, a stylesheet or a frame, so no other directive widens.
+    /// </para>
+    /// </remarks>
+    internal static string ConsolePolicyFor(string mapSdkOrigin, IReadOnlyList<string> styleOrigins)
+    {
+        string extra = styleOrigins is { Count: > 0 } ? " " + string.Join(' ', styleOrigins) : string.Empty;
+
+        return ConsolePolicyWith(mapSdkOrigin, extra);
+    }
+
+    private static string ConsolePolicyWith(string mapSdkOrigin, string extra) =>
         "default-src 'none'; "
         + $"script-src 'self' {mapSdkOrigin}; "
         + $"style-src 'self' 'unsafe-inline' {mapSdkOrigin}; "
-        + $"img-src 'self' data: blob: {mapSdkOrigin} https://tile.openstreetmap.org; "
-        + $"connect-src 'self' {mapSdkOrigin} https://tile.openstreetmap.org; "
+        + $"img-src 'self' data: blob: {mapSdkOrigin} https://tile.openstreetmap.org{extra}; "
+        + $"connect-src 'self' {mapSdkOrigin} https://tile.openstreetmap.org{extra}; "
         + $"font-src {mapSdkOrigin}; "
         + "worker-src blob:; "
         + "form-action 'self'; "
@@ -191,6 +225,23 @@ internal static class SecurityHeaders
 
         app.Use(async (context, next) =>
         {
+            // <b>A surface's policy names the allowed style origins — ADR-094.</b> Read before the
+            // pipeline runs, because the hook below cannot wait on a store; the list is held for thirty
+            // seconds, so this is a memory read on almost every request and a store read on the rest.
+            string surfacePolicy = consolePolicy;
+
+            if (IsSurface(context.Request.Path)
+                && context.RequestServices.GetService(typeof(StyleOriginList)) is StyleOriginList styleOrigins)
+            {
+                IReadOnlyList<Graticula.Api.ArcGis.StyleOrigin> allowed =
+                    await styleOrigins.CurrentAsync(context.RequestAborted).ConfigureAwait(false);
+
+                if (allowed.Count > 0)
+                {
+                    surfacePolicy = ConsolePolicyFor(mapSdkOrigin, [.. allowed.Select(o => o.Text)]);
+                }
+            }
+
             // <b>On starting, not here.</b> Headers set before the pipeline runs
             // would be written even on a response the endpoint replaced, and
             // headers set after it are too late — the response may already be on
@@ -243,7 +294,7 @@ internal static class SecurityHeaders
                 bool console = IsSurface(context.Request.Path);
 
                 Set(headers, "Content-Security-Policy",
-                    console ? consolePolicy : html ? HtmlPolicy : DocumentPolicy);
+                    console ? surfacePolicy : html ? HtmlPolicy : DocumentPolicy);
 
                 if (https)
                 {

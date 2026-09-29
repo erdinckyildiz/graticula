@@ -4329,6 +4329,91 @@ function styleState(stored, note) {
 }
 
 /**
+ * The service's named styles as last read, or null before the override is opened — ADR-094.
+ *
+ * <b>Read when the fold opens and after every write</b>, so the list and the buttons it drives never
+ * describe a service other than the one stamped on them.
+ */
+let styleNamesListed = null;
+
+/** The service and folder the override's buttons are stamped with. */
+function styleAddress() {
+  const node = document.querySelector("#serviceStyle [data-style]");
+  const name = node ? node.getAttribute("data-style") : "";
+  const folder = node ? node.getAttribute("data-folder") || "" : "";
+  return { name, folder, query: `?folder=${encodeURIComponent(folder)}` };
+}
+
+/** The style the buttons act on: the one chosen, or the new name typed. */
+function styleChosen() {
+  const chosen = $("styleName") ? $("styleName").value : "";
+  if (chosen) return chosen;
+  const typed = ($("styleNewName") ? $("styleNewName").value : "").trim();
+  return typed || (styleNamesListed && styleNamesListed.styles.length ? "" : "default");
+}
+
+/**
+ * Reads the service's styles and draws the chooser — ADR-094.
+ *
+ * <b>The default is chosen when there is one</b>, because it is the style every map draws and the one
+ * somebody opening the override most likely came to change.
+ *
+ * @param {string|null} select the name to choose afterwards, when a write just stored it
+ */
+async function loadStyleNames(select = null) {
+  const at = styleAddress();
+  const box = $("styleName");
+  if (!at.name || !box) return;
+
+  try {
+    styleNamesListed = await api(`/admin/services/${encodeURIComponent(at.name)}/styles${at.query}`);
+  } catch (e) {
+    styleNamesListed = null;
+    $("styleNameNote").textContent = e.message;
+    return;
+  }
+
+  const styles = styleNamesListed.styles || [];
+  const want = select || (styles.find(s => s.isDefault) || styles[0] || {}).name || "";
+
+  box.innerHTML = styles.map(s => `<option value="${h(s.name)}"${s.name.toLowerCase() === want.toLowerCase()
+    ? " selected" : ""}>${h(s.name)}${s.isDefault ? " (default)" : ""}${s.stale ? " (not served)" : ""}</option>`).join("")
+    + `<option value=""${styles.some(s => s.name.toLowerCase() === want.toLowerCase()) ? "" : " selected"}>New style&hellip;</option>`;
+
+  // Assigned rather than added, so a second read does not stack a second listener.
+  box.onchange = () => drawStyleChoice();
+  drawStyleChoice();
+}
+
+/** Shows what the chosen style is and which buttons apply to it. */
+function drawStyleChoice() {
+  const styles = (styleNamesListed && styleNamesListed.styles) || [];
+  const chosen = $("styleName").value;
+  const style = styles.find(s => s.name === chosen);
+
+  $("styleNewField").hidden = !!chosen;
+  $("styleNewName").placeholder = styles.length ? "dark" : "default";
+
+  const del = document.querySelector("#serviceStyle [data-style-del]");
+  const make = document.querySelector("#serviceStyle [data-style-default]");
+
+  if (make) make.hidden = !style || style.isDefault;
+  if (del) {
+    del.hidden = !!styles.length && !style;
+    del.textContent = !style || style.isDefault ? "Back to the composition" : "Delete this style";
+  }
+
+  $("styleNameNote").textContent = !styles.length
+    ? "No style is stored. The first one stored becomes the default: resources/styles/root.json serves it."
+    : !style
+      ? "A new style is stored beside the others. It is served at resources/styles/{name}.json, and root.json keeps serving the default."
+      : (style.isDefault
+        ? "The default: resources/styles/root.json serves it."
+        : `Served at resources/styles/${style.name}.json. Make it the default to serve it at root.json.`)
+        + (style.stale ? ` Not served now: ${style.stale}` : "");
+}
+
+/**
  * Says what sprite sheet this service carries, on the page — ADR-092.
  *
  * <b>On the page for the reason the override's state is</b>: whether a sheet is stored decides
@@ -6579,7 +6664,11 @@ function wireSymbologyForm() {
 
     if (fold) {
       e.preventDefault();
-      symShowFold(fold.id, fold.getAttribute("aria-expanded") !== "true");
+      const opening = fold.getAttribute("aria-expanded") !== "true";
+      symShowFold(fold.id, opening);
+
+      // ADR-094: the service's styles are read when the override opens, not with every layer.
+      if (opening && fold.id === "symOverrideHead") loadStyleNames();
 
       return;
     }
@@ -8779,7 +8868,7 @@ function drawSymStrip(name, at, trail) {
   // alone until 2026-09-29, so `a/roads` and `b/roads` were one service to them; the server now
   // reads `?folder=` as every other service route does, and an absent one means the root.
   if (at && at.bare) {
-    for (const attribute of ["data-style", "data-style-put", "data-style-del"]) {
+    for (const attribute of ["data-style", "data-style-put", "data-style-del", "data-style-default"]) {
       const node = document.querySelector(`#serviceStyle [${attribute}]`);
 
       if (node) {
@@ -8801,6 +8890,7 @@ function drawSymStrip(name, at, trail) {
 
   if ($("styleDoc")) $("styleDoc").value = "";
   if ($("styleState")) $("styleState").innerHTML = "<b>Not fetched yet.</b>";
+  styleNamesListed = null;
   if ($("spriteState")) $("spriteState").innerHTML = "<b>Not fetched yet.</b>";
   spriteRefused(null);
 
@@ -11125,9 +11215,23 @@ function showLayer(name, page, pending = null) {
             <button type="button" class="tiny ghost" id="symOverrideHead"
               aria-expanded="false" aria-controls="symOverrideBody">Write one&hellip;</button>
             <div class="symfoldbody" id="symOverrideBody" hidden>
+              <!--
+                <b>Which of the service's styles, since ADR-094.</b> A service may carry several — light
+                and dark — and one of them is what resources/styles/root.json serves. The list is read
+                when this fold opens, not with every layer, and the buttons below act on the one chosen
+                here. "New style" stores under the name typed beside it.
+              -->
+              <div class="row">
+                <label class="field">Style<select id="styleName" aria-describedby="styleNameNote">
+                  <option value="">New style&hellip;</option></select></label>
+                <label class="field" id="styleNewField">Name<input id="styleNewName" maxlength="40"
+                  spellcheck="false" autocomplete="off" placeholder="default"></label>
+              </div>
+              <p class="hint" id="styleNameNote"></p>
               <div class="row">
                 <button data-style="">Fetch current</button>
                 <button data-style-del="" class="ghost">Back to the composition</button>
+                <button data-style-default="" class="ghost" hidden>Make default</button>
                 <button class="primary" data-style-put="">Store the override</button>
               </div>
               <textarea id="styleDoc" rows="8" spellcheck="false"
@@ -17799,6 +17903,11 @@ async function loadSettings() {
 
   // Typing makes the last sentence about a value that is no longer in the box.
   $("setPageSize").oninput = () => settingsSay("");
+
+  // <b>After the page size box is wired, not before</b> — the style sources card has its own round trip,
+  // and awaited above these two lines it left the box without Enter or its input handler for as long as
+  // that answer took (SettingsScreenTests caught it over a slow link, 2026-09-29).
+  await loadStyleOrigins();
 }
 
 /** Says something under Save, marked as a refusal when it is one. */
@@ -18004,6 +18113,66 @@ async function saveGround(services) {
       ? `Untick ${gone[1]}: it is no longer on this server, so it cannot be saved as part of the ground.`
       : e.message, true);
     $("groundSave").focus();
+  }
+}
+
+/**
+ * The origins a style may fetch from — ADR-094.
+ *
+ * <b>The box holds what is stored, normalised by the server</b> — lower case, punycode, no default port —
+ * so what is on screen after Save is exactly what styles are checked against.
+ */
+async function loadStyleOrigins() {
+  styleOriginsSay("");
+
+  // <b>Nothing to type into until the list is in — 2026-09-29.</b> The box is on the screen before this
+  // answer, and the answer then wrote the stored list over whatever had been typed: an administrator who
+  // started at once saved an empty list, or had their lines refused and then found them gone. The same
+  // race Sign-in's Add a provider had. drawStyleOrigins turns both back on.
+  $("styleOrigins").disabled = true;
+  $("styleOriginsSave").disabled = true;
+
+  try {
+    drawStyleOrigins(await api("/admin/settings/style-origins") || {});
+  } catch (e) {
+    styleOriginsSay(e.message, true);
+  }
+}
+
+function drawStyleOrigins(r) {
+  const origins = r.origins || [];
+  $("styleOrigins").value = origins.join("\n");
+  $("styleOrigins").disabled = false;
+  $("styleOriginsSave").disabled = false;
+  $("styleOriginsSource").textContent = (origins.length
+    ? `${origins.length} allowed${r.changedAt ? `, set on ${day(r.changedAt)}` : ""}. `
+    : "None allowed. ")
+    + `Up to ${r.most || 50}. The Server and Studio pages allow the same origins, so their maps draw those styles too.`;
+}
+
+function styleOriginsSay(text, refusal = false) {
+  const says = $("styleOriginsSays");
+  says.textContent = text;
+  says.classList.toggle("bad-inline", refusal);
+  if (refusal) $("styleOrigins").setAttribute("aria-invalid", "true");
+  else $("styleOrigins").removeAttribute("aria-invalid");
+}
+
+async function saveStyleOrigins() {
+  const origins = $("styleOrigins").value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  try {
+    const r = await api("/admin/settings/style-origins", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ origins }),
+    }) || {};
+    drawStyleOrigins(r);
+    styleOriginsSay((origins.length ? "Saved." : "Saved: styles may use only this server's own resources.")
+      + (r.removedNote ? ` ${r.removedNote}` : "")
+      + " Pages already open keep the old list until they are reloaded.");
+  } catch (e) {
+    styleOriginsSay(e.message, true);
+    $("styleOrigins").focus();
   }
 }
 
@@ -20216,7 +20385,15 @@ async function handleClick(event) {
 
   if (d.style) {
     try {
-      const r = await api(`/admin/services/${encodeURIComponent(d.style)}/style`
+      // ADR-094: a named style is read by its name; with none stored the default's alias says so.
+      const chosen = $("styleName") ? $("styleName").value : "";
+      if (styleNamesListed && !chosen) {
+        $("styleDoc").value = "";
+        $("styleNameNote").textContent = "A new style: write or paste it below, name it, and store it.";
+        return;
+      }
+      const r = await api(`/admin/services/${encodeURIComponent(d.style)}/`
+        + (chosen ? `styles/${encodeURIComponent(chosen)}` : "style")
         + `?folder=${encodeURIComponent(d.folder || "")}`);
       // <b>Two different bodies from one endpoint, and putting the wrong one in
       // the box would be a trap.</b> With a style stored, the response *is* the
@@ -20467,25 +20644,58 @@ async function handleClick(event) {
 
   if (d.stylePut) {
     try {
-      const r = await api(`/admin/services/${encodeURIComponent(d.stylePut)}/style`
+      // ADR-094: stored under the chosen name, or the new one typed; before the list has been read this
+      // is the default's alias, as it always was.
+      const name = styleNamesListed ? styleChosen() : "";
+      if (styleNamesListed && !name) {
+        toast("Name the new style first, as in dark or print.");
+        $("styleNewName").focus();
+        return;
+      }
+      const r = await api(`/admin/services/${encodeURIComponent(d.stylePut)}/`
+        + (name ? `styles/${encodeURIComponent(name)}` : "style")
         + `?folder=${encodeURIComponent(d.folder || "")}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: $("styleDoc").value,
       });
-      styleState(true, null);
-      toast(`${r.name}: ${r.replaced ? "style replaced" : "style stored"}, ${num(r.bytes)} bytes.`, true);
+      styleState(true, r.note);
+      toast(`${r.name}: ${r.style ? `style ${r.style} ` : "style "}${r.replaced ? "replaced" : "stored"}, `
+        + `${num(r.bytes)} bytes.${r.note ? " " + r.note : ""}`, true);
+      if (styleNamesListed) await loadStyleNames(r.style || name);
     } catch (e) { toast(e.message); }
     return;
   }
 
   if (d.styleDel) {
     try {
-      const r = await api(`/admin/services/${encodeURIComponent(d.styleDel)}/style`
+      const chosen = styleNamesListed && $("styleName") ? $("styleName").value : "";
+      const style = chosen && (styleNamesListed.styles || []).find(s => s.name === chosen);
+      if (style && !style.isDefault && !confirm(`Delete the style “${chosen}”? Maps using it get nothing at its address.`)) return;
+      const r = await api(`/admin/services/${encodeURIComponent(d.styleDel)}/`
+        + (style ? `styles/${encodeURIComponent(chosen)}` : "style")
         + `?folder=${encodeURIComponent(d.folder || "")}`, { method: "DELETE" });
       $("styleDoc").value = "";
       styleState(false, r.note);
-      toast(r.note || "Back to the composition.", true);
+      toast(r.note || (style && !style.isDefault ? `Style ${chosen} deleted.` : "Back to the composition."), true);
+      if (styleNamesListed) await loadStyleNames();
+    } catch (e) { toast(e.message); }
+    return;
+  }
+
+  // ADR-094: which style root.json serves.
+  if (d.styleDefault) {
+    try {
+      const chosen = $("styleName") ? $("styleName").value : "";
+      if (!chosen) return;
+      const r = await api(`/admin/services/${encodeURIComponent(d.styleDefault)}/default-style`
+        + `?folder=${encodeURIComponent(d.folder || "")}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ style: chosen }),
+      });
+      toast(r.note || `${chosen} is the default style.`, true);
+      await loadStyleNames(chosen);
     } catch (e) { toast(e.message); }
     return;
   }
@@ -21268,6 +21478,11 @@ async function handleClick(event) {
 
   if (t.id === "groundClear") {
     await saveGround([]);
+    return;
+  }
+
+  if (t.id === "styleOriginsSave") {
+    await saveStyleOrigins();
     return;
   }
 

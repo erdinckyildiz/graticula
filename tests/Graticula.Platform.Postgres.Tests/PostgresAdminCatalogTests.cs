@@ -531,6 +531,137 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     }
 
     /// <summary>
+    /// A service's named styles round-trip, the default can be switched and made generated again, and the old
+    /// <c>service.style</c> column always holds the default — ADR-094, migration 62.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The column is the rollback.</b> A build before migration 62 reads <c>service.style</c> and nothing
+    /// else, so after every switch this reads the column the way that build does — through
+    /// <c>FindServiceForStyleAsync</c>, whose <c>Style</c> is the column — and asserts it is the default.
+    /// </para>
+    /// <para>
+    /// <b>Names compare without case and keep their first spelling</b>, and a default made generated again
+    /// is kept as an ordinary style rather than lost.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Named_styles_round_trip_and_the_column_always_holds_the_default()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(Publication(source, "themed"), owner, CancellationToken.None);
+
+        const string Light = "{ \"version\": 8,  \"layers\": [], \"name\": \"light\" }\n";
+        const string Dark = "{\"version\":8,\"layers\":[],\"name\":\"dark\"}";
+        const string Print = "{ \"version\": 8, \"layers\": [], \"name\": \"print\" }";
+
+        StyledService service = (await admin.FindServiceForStyleAsync(null, "themed", CancellationToken.None))!.Value;
+        Guid id = service.Id;
+
+        Assert.NotEqual(Guid.Empty, id);
+        Assert.Null(service.StyleName);
+        Assert.Empty(await admin.ListStylesAsync(id, CancellationToken.None));
+
+        // The first style stored on a service with no default becomes the default.
+        Assert.Equal(StyleWrite.AddedAsDefault, await admin.SetNamedStyleAsync(id, "Light", Light, 20, CancellationToken.None));
+        Assert.Equal(StyleWrite.Added, await admin.SetNamedStyleAsync(id, "dark", Dark, 20, CancellationToken.None));
+        Assert.Equal(StyleWrite.Replaced, await admin.SetNamedStyleAsync(id, "DARK", Dark, 20, CancellationToken.None));
+
+        service = (await admin.FindServiceForStyleAsync(null, "themed", CancellationToken.None))!.Value;
+        Assert.Equal(Light, service.Style);
+        Assert.Equal("Light", service.StyleName);
+
+        IReadOnlyList<StoredStyle> styles = await admin.ListStylesAsync(id, CancellationToken.None);
+        Assert.Equal(["Light", "dark"], styles.Select(s => s.Name));
+        Assert.True(styles[0].IsDefault);
+        Assert.Equal(Dark, styles[1].Style);
+
+        // The bound counts the default: two styles stored, a third refused at two.
+        Assert.Equal(StyleWrite.TooMany, await admin.SetNamedStyleAsync(id, "print", Print, 2, CancellationToken.None));
+
+        // Switching swaps the documents; the old default is kept under its name.
+        Assert.Equal(DefaultStyleChange.Changed, await admin.SetDefaultStyleAsync(id, "Dark", CancellationToken.None));
+
+        service = (await admin.FindServiceForStyleAsync(null, "themed", CancellationToken.None))!.Value;
+        Assert.Equal(Dark, service.Style);
+        Assert.Equal("dark", service.StyleName);
+        Assert.Equal(Light, (await admin.ListStylesAsync(id, CancellationToken.None)).Single(s => s.Name == "Light").Style);
+
+        Assert.Equal(DefaultStyleChange.Unchanged, await admin.SetDefaultStyleAsync(id, "dark", CancellationToken.None));
+        Assert.Equal(DefaultStyleChange.NoSuchStyle, await admin.SetDefaultStyleAsync(id, "nosuch", CancellationToken.None));
+
+        // Back to generated: nothing is lost, and the column is empty.
+        Assert.Equal(DefaultStyleChange.Changed, await admin.SetDefaultStyleAsync(id, null, CancellationToken.None));
+
+        service = (await admin.FindServiceForStyleAsync(null, "themed", CancellationToken.None))!.Value;
+        Assert.Null(service.Style);
+        Assert.Null(service.StyleName);
+        Assert.Equal(["dark", "Light"], (await admin.ListStylesAsync(id, CancellationToken.None)).Select(s => s.Name));
+
+        // With no default, storing under an existing name makes that style the default.
+        Assert.Equal(StyleWrite.ReplacedAsDefault, await admin.SetNamedStyleAsync(id, "light", Light, 20, CancellationToken.None));
+        Assert.Equal("light", (await admin.FindServiceForStyleAsync(null, "themed", CancellationToken.None))!.Value.StyleName);
+        Assert.Equal(2, (await admin.ListStylesAsync(id, CancellationToken.None)).Count);
+
+        // The serving read finds a style by any case of its name, the default too.
+        PostgresLayerCatalog layers = new(DataSource, new SecretProtector(1, new byte[32]));
+
+        Assert.Equal((Light, true), await layers.FindNamedStyleAsync(id, "LIGHT", CancellationToken.None));
+        Assert.Equal((Dark, false), await layers.FindNamedStyleAsync(id, "Dark", CancellationToken.None));
+        Assert.Null(await layers.FindNamedStyleAsync(id, "print", CancellationToken.None));
+
+        // Removing the default puts the generated style back and promotes nothing.
+        Assert.True(await admin.DeleteNamedStyleAsync(id, "LIGHT", CancellationToken.None));
+        Assert.Null((await admin.FindServiceForStyleAsync(null, "themed", CancellationToken.None))!.Value.Style);
+        Assert.True(await admin.DeleteNamedStyleAsync(id, "dark", CancellationToken.None));
+        Assert.False(await admin.DeleteNamedStyleAsync(id, "dark", CancellationToken.None));
+        Assert.Empty(await admin.ListStylesAsync(id, CancellationToken.None));
+    }
+
+    /// <summary>
+    /// The store refuses a name the validator would refuse, and two spellings of one name — migration 62.
+    /// </summary>
+    /// <remarks>
+    /// <b>For a second writer</b>, as the style's size bound is: a writer that skipped <c>StyleNames</c> must not
+    /// be able to store a style called <c>root</c>, or <c>dark</c> beside <c>Dark</c>.
+    /// </remarks>
+    [Fact]
+    public async Task The_store_refuses_a_bad_name_and_a_second_spelling_of_one()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(Publication(source, "guarded"), owner, CancellationToken.None);
+
+        Guid id = (await admin.FindServiceForStyleAsync(null, "guarded", CancellationToken.None))!.Value.Id;
+
+        async Task<bool> InsertAsync(string name)
+        {
+            await using NpgsqlCommand insert = DataSource.CreateCommand(
+                "insert into service_style (service_id, name, style) values (@id, @name, '{}')");
+            insert.Parameters.AddWithValue("id", id);
+            insert.Parameters.AddWithValue("name", name);
+
+            try
+            {
+                await insert.ExecuteNonQueryAsync(CancellationToken.None);
+                return true;
+            }
+            catch (PostgresException)
+            {
+                return false;
+            }
+        }
+
+        Assert.True(await InsertAsync("Dark"));
+        Assert.False(await InsertAsync("dark"));
+        Assert.False(await InsertAsync("root"));
+        Assert.False(await InsertAsync("with space"));
+        Assert.False(await InsertAsync("-lead"));
+        Assert.False(await InsertAsync(new string('a', 41)));
+    }
+
+    /// <summary>
     /// What was written is what is read back, field for field.
     /// </summary>
     /// <remarks>

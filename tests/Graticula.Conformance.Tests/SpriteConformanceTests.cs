@@ -411,7 +411,7 @@ public sealed class SpriteConformanceTests : ArcGisClient, IAsyncLifetime
     // ---------- a PNG, from the format ----------
 
     /// <summary>A real, decodable RGBA PNG of the given size, every pixel opaque grey.</summary>
-    private static byte[] Png(int width, int height)
+    internal static byte[] Png(int width, int height)
     {
         using MemoryStream file = new();
 

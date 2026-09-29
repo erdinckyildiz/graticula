@@ -105,6 +105,9 @@ internal static partial class AdminEndpoints
         IReadOnlyList<StoredSprite> sheets =
             await catalog.ListSpritesAsync(service.Folder, service.Name, cancellation).ConfigureAwait(false);
 
+        IReadOnlyList<(string Icon, IReadOnlyList<string> Styles)> uses = IconsTheStylesDraw(
+            await catalog.ListStylesAsync(service.Id, cancellation).ConfigureAwait(false));
+
         await Results.Json(new
         {
             name = service.Name,
@@ -120,8 +123,10 @@ internal static partial class AdminEndpoints
                 updated = sheet.UpdatedAt,
             }),
 
-            // What the stored style draws by name, which is what a replacement or a removal may not take away.
-            styleUses = StyleDocument.LiteralIcons(service.Style),
+            // What the stored styles draw by name — every one of them since ADR-094 — which is what a replacement
+            // or a removal may not take away; and which style draws each, so the refusal can be acted on.
+            styleUses = uses.Select(u => u.Icon),
+            styleUsesBy = uses.Select(u => new { icon = u.Icon, styles = u.Styles }),
             note = sheets.Count == 0
                 ? "This service has no sprite sheet, so it serves an empty one and a style on it cannot draw icons. "
                   + "Upload sprite.json and sprite.png as the parts 'index' and 'image'."
@@ -327,14 +332,17 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (MissingFromSheet(service.Style, icons) is { Count: > 0 } missing)
+        // <b>Against every stored style, not only the default — ADR-094.</b>
+        if (IconsTheSheetLacks(
+                IconsTheStylesDraw(await catalog.ListStylesAsync(service.Id, cancellation).ConfigureAwait(false)),
+                icons) is { Count: > 0 } missing)
         {
             await Refuse(
                 context, 409,
-                $"This service's stored style draws {Quoted(missing)} by name, and this {(ratio == 1 ? "1x" : "@2x")} "
+                $"This service draws {Drawn(missing)}, and this {(ratio == 1 ? "1x" : "@2x")} "
                 + "sheet does not have " + (missing.Count == 1 ? "it" : "them") + ". Storing it would leave those "
                 + "layers drawing nothing. Add " + (missing.Count == 1 ? "the icon" : "the icons") + " to the sheet, "
-                + "or store a style that does not use " + (missing.Count == 1 ? "it" : "them") + " first.")
+                + "or change those styles so they do not use " + (missing.Count == 1 ? "it" : "them") + " first.")
                 .ConfigureAwait(false);
             return;
         }
@@ -410,12 +418,15 @@ internal static partial class AdminEndpoints
         IReadOnlyList<StoredSprite> stored =
             await catalog.ListSpritesAsync(service.Folder, service.Name, cancellation).ConfigureAwait(false);
 
-        if (stored.Count > 0 && StyleDocument.LiteralIcons(service.Style) is { Count: > 0 } used)
+        // Every stored style holds the sheet, not only the default — ADR-094.
+        if (stored.Count > 0
+            && IconsTheStylesDraw(await catalog.ListStylesAsync(service.Id, cancellation).ConfigureAwait(false))
+                is { Count: > 0 } used)
         {
             await Refuse(
                 context, 409,
-                $"This service's stored style draws {Quoted(used)} by name, so its sprite sheet cannot be removed: "
-                + "those layers would draw nothing. Store a style that uses no icons first, or reset the style.")
+                $"This service draws {Drawn(used)}, so its sprite sheet cannot be removed: those layers would "
+                + "draw nothing. Change or remove those styles first.")
                 .ConfigureAwait(false);
             return;
         }

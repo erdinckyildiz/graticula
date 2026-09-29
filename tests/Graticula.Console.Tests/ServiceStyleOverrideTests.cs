@@ -199,6 +199,54 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
     }
 
     /// <summary>
+    /// Opening the override reads the service's styles and offers them by name — ADR-094.
+    /// </summary>
+    /// <remarks>
+    /// <b>The chooser is read from the server, not drawn empty.</b> A service may carry several styles
+    /// since ADR-094, and the buttons act on the one chosen, so a chooser that never filled would send every
+    /// Store to a style nobody picked. Asserted on what the server's list says, and only for what it
+    /// already holds: this test stores nothing.
+    /// </remarks>
+    /// <returns>The task.</returns>
+    [Fact]
+    public async Task Opening_the_override_lists_the_services_styles()
+    {
+        (string token, _) = await SignInAsync();
+        string service = await AMultiLayerServiceAsync(token);
+
+        await OpenAsync(
+            $"/studio/#/service/{Uri.EscapeDataString(service)}?tab=symbology", token);
+
+        await WaitForAsync(
+            "typeof symModel !== 'undefined' && symModel !== null",
+            "The symbology editor never filled, so the style chooser could not be looked for.");
+
+        await ClickAsync("#symOverrideHead");
+
+        await WaitForAsync(
+            "typeof styleNamesListed !== 'undefined' && styleNamesListed !== null",
+            "Opening the override did not read the service's styles.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "(() => {"
+                + " const box = document.getElementById('styleName');"
+                + " const names = (styleNamesListed.styles || []).map(s => s.name);"
+                + " const offered = [...box.options].map(o => o.value).filter(v => v);"
+                + " return box.offsetParent !== null"
+                + "   && names.length === offered.length && names.every(n => offered.includes(n))"
+                + "   && [...box.options].some(o => o.value === ''); })()"),
+            "The style chooser does not offer exactly the service's styles and a new one.");
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(await Browser.EvaluateAsync<string>(
+                "document.getElementById('styleNameNote').textContent")),
+            "The chooser says nothing about which style root.json serves.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// The two things this screen can store are two differently named buttons.
     /// </summary>
     /// <remarks>

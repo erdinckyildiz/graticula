@@ -60,6 +60,32 @@ public static class StyleDocument
         string? json,
         IReadOnlyCollection<string> sourceLayers,
         IReadOnlyCollection<string>? icons,
+        out string? error) =>
+        TryValidate(json, sourceLayers, icons, allowed: null, out error);
+
+    /// <summary>
+    /// Checks a style against the service it is for and the external origins this server allows — ADR-094.
+    /// </summary>
+    /// <param name="json">The document as it was sent.</param>
+    /// <param name="sourceLayers">The layer names the service actually has.</param>
+    /// <param name="icons">The 1x sprite sheet's icon names, or null when there is no sheet (ADR-092).</param>
+    /// <param name="allowed">
+    /// The origins an administrator allows a style to fetch from, or null (or empty) for none — which is
+    /// ADR-028 §5's rule, unchanged: nothing leaves this server.
+    /// </param>
+    /// <param name="error">Why it was refused, naming what to change.</param>
+    /// <returns>True when it is safe to store, or to serve.</returns>
+    /// <remarks>
+    /// <b>The same call on the way in and on the way out.</b> An origin taken off the list does not
+    /// reach into the store and edit the styles that named it; they stop passing this check where they
+    /// are served, and the generated style is served instead, the way a style that outlived its layers
+    /// is (ADR-028 condition 3).
+    /// </remarks>
+    public static bool TryValidate(
+        string? json,
+        IReadOnlyCollection<string> sourceLayers,
+        IReadOnlyCollection<string>? icons,
+        IReadOnlyCollection<StyleOrigin>? allowed,
         out string? error)
     {
         ArgumentNullException.ThrowIfNull(sourceLayers);
@@ -97,7 +123,7 @@ public static class StyleDocument
 
         using (document)
         {
-            return Check(document.RootElement, sourceLayers, icons, out error);
+            return Check(document.RootElement, sourceLayers, icons, allowed, out error);
         }
     }
 
@@ -105,6 +131,7 @@ public static class StyleDocument
         JsonElement root,
         IReadOnlyCollection<string> sourceLayers,
         IReadOnlyCollection<string>? icons,
+        IReadOnlyCollection<StyleOrigin>? allowed,
         out string? error)
     {
         error = null;
@@ -134,7 +161,7 @@ public static class StyleDocument
             return false;
         }
 
-        if (!Urls(root, out error))
+        if (!Urls(root, allowed, out error))
         {
             return false;
         }
@@ -143,7 +170,7 @@ public static class StyleDocument
     }
 
     /// <summary>
-    /// Nothing in the document may point off this server.
+    /// Nothing in the document may point off this server, except at an origin an administrator allowed.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -159,21 +186,42 @@ public static class StyleDocument
     /// publisher's choosing, and to learn who looked at the map and when.
     /// Relative URLs only, checked rather than rewritten.
     /// </para>
+    /// <para>
+    /// <b>Amended 2026-09-29 by ADR-094: unless an administrator allowed the origin.</b> A basemap
+    /// vendor's tiles are a legitimate thing for a style to draw, and the objection above is to a
+    /// <em>publisher</em> choosing where every viewer's browser goes. An administrator choosing a
+    /// short list of https origins is a different person making a different decision, audited, and
+    /// the same list is what the console's security policy allows. With the list empty — the
+    /// default — the rule is exactly what it was.
+    /// </para>
+    /// <para>
+    /// <b>Every place a style names a URL, not only the four the rule's first draft read.</b> A
+    /// <c>sprite</c> may be an array of <c>{id, url}</c> since MapLibre's multiple sprites; a video
+    /// source has <c>urls</c>. Until 2026-09-29 neither was read at all, so a style could name any
+    /// host through either and pass — the rule was one spelling short of itself.
+    /// </para>
     /// </remarks>
-    private static bool Urls(JsonElement root, out string? error)
+    private static bool Urls(JsonElement root, IReadOnlyCollection<StyleOrigin>? allowed, out string? error)
     {
         error = null;
 
-        foreach (string key in (string[])["glyphs", "sprite"])
+        if (root.TryGetProperty("glyphs", out JsonElement glyphs)
+            && glyphs.ValueKind == JsonValueKind.String
+            && !Allowed(glyphs.GetString(), allowed))
         {
-            if (root.TryGetProperty(key, out JsonElement value)
-                && value.ValueKind == JsonValueKind.String
-                && !IsLocal(value.GetString()))
+            error = Refusal("\"glyphs\"", glyphs.GetString(), allowed);
+            return false;
+        }
+
+        if (root.TryGetProperty("sprite", out JsonElement sprite))
+        {
+            foreach (string? candidate in Strings(sprite, member: "url"))
             {
-                error = $"\"{key}\" must be a relative URL on this server. A style is fetched by "
-                      + "a browser, so an absolute one sends every viewer to somebody else's "
-                      + "host — and it cannot work in an air-gapped deployment.";
-                return false;
+                if (!Allowed(candidate, allowed))
+                {
+                    error = Refusal("\"sprite\"", candidate, allowed);
+                    return false;
+                }
             }
         }
 
@@ -190,23 +238,20 @@ public static class StyleDocument
                 continue;
             }
 
-            foreach (string key in (string[])["url", "tiles", "data"])
+            foreach (string key in (string[])["url", "tiles", "data", "urls"])
             {
                 if (!source.Value.TryGetProperty(key, out JsonElement value))
                 {
                     continue;
                 }
 
-                foreach (string? candidate in value.ValueKind == JsonValueKind.Array
-                             ? value.EnumerateArray().Select(v => v.GetString())
-                             : [value.GetString()])
+                // An inline GeoJSON `data` is an object and names no URL. It was read as a string until
+                // 2026-09-29, which threw — a 500 for a valid style — rather than accepting it.
+                foreach (string? candidate in Strings(value, member: null))
                 {
-                    if (!IsLocal(candidate))
+                    if (!Allowed(candidate, allowed))
                     {
-                        error = $"Source '{source.Name}' points at '{candidate}'. Sources must be "
-                              + "relative URLs on this server: a style is fetched by a browser, "
-                              + "and an absolute URL sends every viewer of this map to another "
-                              + "host.";
+                        error = Refusal($"Source '{source.Name}'", candidate, allowed);
                         return false;
                     }
                 }
@@ -214,6 +259,85 @@ public static class StyleDocument
         }
 
         return true;
+    }
+
+    /// <summary>The strings a URL-bearing value holds: itself, its elements, or each element's <paramref name="member"/>.</summary>
+    private static IEnumerable<string?> Strings(JsonElement value, string? member)
+    {
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            yield return value.GetString();
+            yield break;
+        }
+
+        if (value.ValueKind != JsonValueKind.Array)
+        {
+            yield break;
+        }
+
+        foreach (JsonElement item in value.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String)
+            {
+                yield return item.GetString();
+            }
+            else if (member is not null
+                     && item.ValueKind == JsonValueKind.Object
+                     && item.TryGetProperty(member, out JsonElement inner)
+                     && inner.ValueKind == JsonValueKind.String)
+            {
+                yield return inner.GetString();
+            }
+        }
+    }
+
+    /// <summary>Whether a URL stays on this server or goes to an allowed origin.</summary>
+    private static bool Allowed(string? url, IReadOnlyCollection<StyleOrigin>? allowed) =>
+        IsLocal(url) || StyleOrigins.Admits(url, allowed);
+
+    /// <summary>
+    /// Whether a stored style names any absolute URL — so a caller knows whether the allowlist has to be read at all.
+    /// </summary>
+    /// <param name="json">A stored style.</param>
+    /// <returns>True when the document could name another host.</returns>
+    /// <remarks>
+    /// <b>A cheap over-approximation, on purpose.</b> Serving a style reads the store for the list only
+    /// when the answer could depend on it; a document with no <c>//</c> in it cannot name an https origin,
+    /// and one that has it for another reason pays one extra read.
+    /// </remarks>
+    public static bool MayNameAnotherHost(string? json) =>
+        json is not null && json.Contains("//", StringComparison.Ordinal);
+
+    /// <summary>
+    /// The refusal for a URL that leaves this server, naming its origin and where an administrator allows one.
+    /// </summary>
+    private static string Refusal(string what, string? url, IReadOnlyCollection<StyleOrigin>? allowed)
+    {
+        string? origin = StyleOrigins.OriginOf(url);
+
+        if (origin is null)
+        {
+            // Not an https origin at all — `http:`, `//host`, `javascript:`, a root-relative path, or a URL
+            // with something in its host that a browser could read two ways.
+            StyleOrigins.TryReadUrl(url, out _, out _, out string? why);
+
+            return $"{what} points at '{url}'. A style may name relative URLs on this server, and https URLs "
+                 + "on origins an administrator has allowed"
+                 + (url is { Length: > 0 } && url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                     ? $"; this one cannot be allowed, because {why}. "
+                     : ". ")
+                 + "A style is fetched by every viewer's browser, so an absolute URL sends every viewer of this "
+                 + "map to another host — and it cannot work in an air-gapped deployment.";
+        }
+
+        return $"{what} points at '{url}', on {origin}, which is not an origin this server allows styles to "
+             + "fetch from"
+             + (allowed is { Count: > 0 }
+                 ? $" (it allows {string.Join(", ", allowed.Select(a => a.Text))})"
+                 : " (it allows none)")
+             + ". An administrator can add it under Server › Settings › Style sources, or with "
+             + "PUT /admin/settings/style-origins. A style is fetched by every viewer's browser, so which "
+             + "hosts it may send them to is the server's decision, not the style author's.";
     }
 
     /// <summary>
@@ -332,7 +456,7 @@ public static class StyleDocument
     /// cannot be read.
     /// </returns>
     /// <remarks>
-    /// <b>The other direction of the same check.</b> <see cref="TryValidate"/> refuses a style naming
+    /// <b>The other direction of the same check.</b> <see cref="TryValidate(string?, IReadOnlyCollection{string}, IReadOnlyCollection{string}?, IReadOnlyCollection{StyleOrigin}?, out string?)"/> refuses a style naming
     /// an icon the sheet lacks; this lets the sheet's own routes refuse a replacement or a removal
     /// that would leave a stored style in that state. Expressions are skipped here for the reason
     /// they are accepted there.
