@@ -417,6 +417,10 @@ internal sealed class TileSeeder : BackgroundService
         bool built = false;
         List<byte[]> parts = [];
 
+        // <b>The service's quota, as serving carries it — ADR-010 §3.</b> A seed that ignored it would fill a service
+        // past its quota and leave the next map request to evict what the seed had just built.
+        TileCacheQuota? quota = VectorTileEndpoints.QuotaOf(service);
+
         foreach (PublishedLayer layer in service.Layers)
         {
             // ADR-070 — the test serving applies to each layer before it pays for anything, on the service's
@@ -437,7 +441,8 @@ internal sealed class TileSeeder : BackgroundService
                         projector, datumShifts, unindexed, loggers, geoParquet,
                         admit: permit => connections.AdmitTileBuildAsync(layer, permit),
                         token,
-                        service.TileScheme)
+                        service.TileScheme,
+                        quota)
                     .ConfigureAwait(false);
             }
             catch (Exception failure) when (failure is not OperationCanceledException)

@@ -208,6 +208,30 @@ can fail a request is a liability.
 > one setting that carries the name, `Graticula:TileCacheLayerBudgetMB`, is a ceiling on a single tile (§11a).
 > Listed for the owner.
 
+> **2026-09-29, later the same day — the per-service quota is decided and built, by owner decision.** The four
+> questions the note above left open, answered:
+>
+> - **Per service, not per layer**, because a tile and a seed are the service's. **Off by default**: a service
+>   with no quota is bounded only by the budget, exactly as before. An administrator sets one in megabytes —
+>   `PUT /admin/services/{name}/cache/quota?folder=` with `{"megabytes": n | null}`, the seed routes' privilege
+>   (`content:publishTiles`), ownership check (ADR-075) and audit (`service.cache.quota`) — stored in
+>   `service.tile_cache_quota_mb` (migration 65, expand).
+> - **At the quota the write is never refused; the service's own tiles are evicted** — in the budget's order
+>   (another pipeline's first, then the highest level, then least recently used within a level) down to 90% of
+>   the quota, and no other service's tile is touched. The tile just written is kept, so a quota smaller than one
+>   tile leaves the service that tile. `FileSystemTileCache` keeps a byte count per layer so the check is a sum of
+>   a few counters rather than a pass over the index; the pass happens only when a service is over.
+> - **A seed is measured against the quota as against the budget** ([ADR-093](ADR-093-seeding-the-tile-cache.md)
+>   §5.9, with only the service's own tiles counted as outranking it), refused with `exceedsCacheQuota` in the
+>   budget refusal's shape, and `force` overrides it. The quota travels with every build — serving, a seed and
+>   an export — so a service stays inside it however its tiles are made.
+> - **Read back** on `GET /admin/services/{name}/cache` as `quota`: the megabytes, what the service's tiles hold,
+>   and what the quota has evicted since the process started. The console's *Caching* page sets it.
+>
+> `Graticula:TileCacheLayerBudgetMB` keeps its narrower meaning, a ceiling on one tile. **What is not built**:
+> a quota is enforced on the node that writes the tile, like the budget; a second node (ADR-012) keeps its own
+> counts.
+
 ### L3 lookup should not need the index (N2)
 
 If the storage path is derivable from the cache key, a platform store outage
@@ -307,6 +331,49 @@ an outage would turn an availability event into a disclosure.
 > tile take a permit, and a refused one is a 503 even when an expired copy is still on disk. The owner's
 > instruction was to build stale-while-error with D-277 only if this section had decided its shape; it had
 > decided half, so it was not built. [D-278](../architecture-debt.md).
+
+> **Decided and built 2026-09-29, later the same day, by owner decision — [D-278](../architecture-debt.md)
+> repaired.** The three things left open, answered:
+>
+> - **What an outage is.** A cold tile's build refused or failed because the source cannot build it now: the
+>   breaker is open or the database cannot be reached (`SourceBreaker.Unreachable`, the discriminator every other
+>   fallback uses), this server's `ConnectionBudget` is full, or an operator has quiesced the source (ADR-059).
+>   Nothing else: a query error or a bug is not served stale, because the error is reporting the fault.
+> - **How stale.** Up to **24 hours past the tile's lifetime** by default — `Graticula:TileStaleIfErrorHours`,
+>   zero for off — and per layer, `staleSeconds` on `PUT /admin/layers/{name}/cache` (`?service=` as D-276
+>   addresses it; `layer.stale_seconds`, migration 65; null for the server's figure, zero for never). Past it, the
+>   refusal is the 503 with `Retry-After` it was. A layer whose lifetime is zero is never served from the cache,
+>   stale included.
+> - **The response.** 200 with the stale bytes, **`X-Tile-Cache: STALE`**, `Cache-Control` that keeps it
+>   a minute downstream — `max-age` is the real `Age` plus 60, because RFC 9111 counts a cache's `max-age` from the
+>   `Age` it received and a bare 60 was expired on arrival (corrected the same day) — or `no-cache` for a layer
+>   V-56 revalidates; the real `Age`, and the weak ETag the same bytes
+>   always carry, so `If-None-Match` is a 304 as for any tile. **The metric** is a count per service on
+>   `GET /admin/services/{name}/cache` (`stale.served`, `stale.lastServed`) and a warning in the log at most once
+>   a minute per service (event 1089).
+>
+> **Purged is never stale, and that is structural rather than a check.** An expired entry is simply one
+> `ReadAsync` calls a miss: nothing deletes a file for being old, so it stays on disk, counted against the
+> budget, until a rebuild replaces it or eviction takes it. A purge — an edit (`TilePurgingWriter`), a refresh,
+> an unpublish, a data-source move (ADR-095 §5.4), a tiling-scheme switch (ADR-096) — deletes the layer's
+> directory, and a stale read asks for **the exact key**, so there is no file for it to find; a changed shape,
+> grid, source or pipeline puts the tile under another key it never asks for. Tested both ways in
+> `FileSystemTileCacheTests` and `StaleWhileErrorTests`.
+>
+> **Where it lives.** Only in the one tile path the three faces share (`VectorTileEndpoints.ServeTileAsync`,
+> ADR-097), so ArcGIS, OGC API Tiles and WMTS all do it. The build itself (`LayerPartAsync`) has no fallback, so
+> **a seed and an export never take a stale copy for a built tile**: a seed pauses on the refusal as it did, and
+> an export packages only tiles it built or found fresh — the simpler of the two honest options, because a
+> package has no header to say *stale* with and would carry the old tile until it was exported again.
+>
+> **Two things it needed and one it cannot do.** A quiesced source refuses its describe before its build, and a
+> tile's key is made from the layer's columns, so the fallback reads the shape this process last described
+> (`ServiceContexts.Remembered`, with the layer's overrides applied); a process that restarted during the outage
+> has none and answers 503. For the same reason a fresh tile of a quiesced source is now served too, where
+> before it was refused with the describe. And **what it cannot do** is a second node: a purge deletes files on
+> the node that ran it, so a tile purged there is still on another node's disk and could stand in there. Multi-node
+> is deferred (ADR-012) and §7 already accepts that invalidation must reach every node; this widens that window
+> by the stale limit, and is written down here rather than discovered.
 
 ### 5.2 The problem we cannot fully solve
 
@@ -588,7 +655,7 @@ disk**, 4×, and every hit is one fewer query against the datastore that
 | §2 | Negative caching — empty as a marker | **built**, a zero-length file |
 | §3 | L3 mandatory, filesystem | **built** |
 | §3 | Total size budget, LRU eviction | **built**, 2 GB default. *(2026-09-29: the order is no longer plain LRU — another pipeline's tiles first, then the highest level, then least recently used; and a seed that would evict its own tiles is refused before it starts unless forced — [ADR-093](ADR-093-seeding-the-tile-cache.md) §5.9.)* |
-| §3 | Per-service quota | ~~**built**, a quarter of the total~~ **Overstated — corrected 2026-09-09 ([Q-61](../open-questions.md)).** `_perLayerBudget` is read in exactly one place: refusing to cache a *single tile* larger than a quarter of the total. There is no per-layer accounting and no per-layer eviction, so one busy layer can still hold the whole 2 GB. What is built is the **global** budget with LRU eviction; the per-service share is a ceiling on one object, not a quota |
+| §3 | Per-service quota | ~~**built**, a quarter of the total~~ **Overstated — corrected 2026-09-09 ([Q-61](../open-questions.md)).** `_perLayerBudget` is read in exactly one place: refusing to cache a *single tile* larger than a quarter of the total. There is no per-layer accounting and no per-layer eviction, so one busy layer can still hold the whole 2 GB. What is built is the **global** budget with LRU eviction; the per-service share is a ceiling on one object, not a quota. **Built 2026-09-29 by owner decision (§3's dated note):** off by default, set per service in megabytes, enforced by evicting the service's own tiles in the budget's order, never by refusing a write; seeds are estimated against it |
 | §3 | Writes fail soft | **built**, and tested by blocking the directory |
 | §3 (N2) | Lookup needs no index | **built** — the path derives from the key |
 | §4 | Key is plan identity + schema fingerprint | **built, and the first half was not — corrected 2026-08-25.** The key was `(layer, fingerprint, z/x/y)` and the fingerprint's five inputs are all properties of the *data*, so nothing in it tracked the code that drew the tile: an upgrade kept every key it had ([D-155](../architecture-debt.md)). The path now carries `TilePipeline.Version`, and a test fails the build when the tiling source changes and that number does not — so raising it is a decision somebody takes, which is §8's requirement that a full rebuild be deliberate and visible |
@@ -598,7 +665,7 @@ disk**, 4×, and every hit is one fewer query against the datastore that
 | §3 | L1, context-scoped | **not built.** [ServiceContexts](../../src/Graticula.Host/ServiceContexts.cs) is the nearest thing and holds shapes, not tiles |
 | §3 | L2 distributed | **not built, and never mandatory** |
 | §4 | Grant fingerprint | **not built and not needed yet** — no row or field filtering exists, so authorization for a tile is uniform |
-| §5.1a | Stale-while-error | **not built.** The cache expires during a source outage exactly when it would be most useful. *(2026-09-29: and a refused cold tile is now a 503 with its expired copy on disk — [D-278](../architecture-debt.md); §5.1a's header, bound and meaning of *outage* wait on the owner.)* |
+| §5.1a | Stale-while-error | ~~**not built.** The cache expires during a source outage exactly when it would be most useful. *(2026-09-29: and a refused cold tile is now a 503 with its expired copy on disk — [D-278](../architecture-debt.md); §5.1a's header, bound and meaning of *outage* wait on the owner.)*~~ **Built 2026-09-29 by owner decision (§5.1a's dated note):** the breaker, the budget or a quiesce refusing a build is answered from the expired copy, up to 24 hours past its lifetime by default, as `X-Tile-Cache: STALE`, kept a minute downstream (`max-age` = `Age` + 60); counted per service; never a purged tile. [D-278](../architecture-debt.md) repaired |
 | §5.2 | Change detection, schema-drift polling | **not built.** TTL is the only mechanism, which §5.2 says is the floor |
 | §5.3 | Per-layer volatility | ~~**not built**, and it is the largest gap — see below~~ **Built — corrected 2026-09-09.** [D-25](../architecture-debt.md) closed 2026-08-15, `PUT /admin/layers/{name}/cache` sets it, and the tile path reads it: `VectorTileEndpoints` resolves `layer.CacheLifetime ?? defaultLifetime`. This ADR's own condition 2 discharge already said *"60 minutes for a tile **or the layer's own setting**"*, so the document contradicted itself two sections apart for three weeks |
 | §6 | Seeding | ~~**not built**~~ **Built 2026-09-29 — [ADR-093](ADR-093-seeding-the-tile-cache.md).** A job per service over a zoom range and an area, lowest level first, resumable and cancellable, a `ConnectionBudget` lease per build, capped at 250,000 tiles. Not measured: A-020 is still `UNVALIDATED` |

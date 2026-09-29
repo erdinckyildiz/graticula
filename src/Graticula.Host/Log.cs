@@ -732,4 +732,12 @@ internal static partial class Log
         Level = LogLevel.Warning,
         Message = "The package file {Path} could not be deleted and will be tried again: {Why}")]
     public static partial void ExportFileStuck(ILogger logger, string path, string why);
+
+    [LoggerMessage(
+        EventId = 1089,
+        Level = LogLevel.Warning,
+        Message = "Service '{Service}' is being served stale tiles: its source refused to build them ({Why}), and "
+                + "copies past their lifetime are standing in, marked X-Tile-Cache: STALE. {Count} so far. Said at "
+                + "most once a minute per service; the count is on the service's cache read-back, GET /admin/services/.../cache. ADR-010 §5.1a.")]
+    public static partial void TilesServedStale(ILogger logger, string service, string why, long count);
 }

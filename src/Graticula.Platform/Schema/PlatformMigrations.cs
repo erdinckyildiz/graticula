@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(64);
+    public static SchemaVersion ComponentSchemaVersion => new(65);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -99,7 +99,58 @@ public static class PlatformMigrations
         AServiceMayCarrySeveralStylesV62,
         AServiceMayBeTiledInAnotherReferenceV63,
         AServiceMayBeExportedAsATilePackageV64,
+        ATileMayBeServedStaleAndAServiceHaveAQuotaV65,
     ]);
+
+    /// <summary>
+    /// A layer's tiles may be served past their lifetime while the source cannot build them, for as long as the
+    /// layer says; and a service may hold at most so many megabytes of the tile cache — ADR-010 §3 and §5.1a,
+    /// owner decisions of 2026-09-29.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Two nullable columns, and null is what every existing row means today.</b> <c>layer.stale_seconds</c>
+    /// null is the server's own limit (<c>Graticula:TileStaleIfErrorHours</c>, 24 hours); zero is <em>never
+    /// stale</em>, which is why it is a number and not a flag. <c>service.tile_cache_quota_mb</c> null is no quota:
+    /// only the cache's budget applies, as before. Nothing is backfilled.
+    /// </para>
+    /// <para>
+    /// <b>On the layer and on the service, because that is where each decision is taken.</b> How stale a picture
+    /// may be is the same kind of fact as how long it stays fresh, and that is already the layer's
+    /// (<c>cache_seconds</c>, migration 13); how much of the disk a map may hold is the service's, because a tile
+    /// and a seed are.
+    /// </para>
+    /// <para>
+    /// <b>Megabytes, not bytes</b>, as the budget is configured (<c>Graticula:TileCacheBudgetMB</c>): nobody sets a
+    /// quota to the byte, and an integer of megabytes reaches two petabytes.
+    /// </para>
+    /// <para>
+    /// <b>Rollback.</b> A build before this one never reads either column: it serves no tile stale, as it never
+    /// did, and applies no quota. Nothing written here has to be undone.
+    /// </para>
+    /// <para><b>Expand.</b> Two nullable columns with checks; the minimum reader does not move.</para>
+    /// </remarks>
+    private static Migration ATileMayBeServedStaleAndAServiceHaveAQuotaV65 => Migration.Expand(
+        new SchemaVersion(65),
+        "A layer's tiles may be served stale during a source outage, and a service may have a tile cache quota (ADR-010).",
+
+        "alter table layer add column if not exists stale_seconds integer",
+
+        "alter table layer drop constraint if exists layer_stale_seconds_not_negative",
+
+        """
+        alter table layer add constraint layer_stale_seconds_not_negative
+          check (stale_seconds is null or stale_seconds >= 0)
+        """,
+
+        "alter table service add column if not exists tile_cache_quota_mb integer",
+
+        "alter table service drop constraint if exists service_tile_cache_quota_positive",
+
+        """
+        alter table service add constraint service_tile_cache_quota_positive
+          check (tile_cache_quota_mb is null or tile_cache_quota_mb > 0)
+        """);
 
     /// <summary>
     /// A vector tile service's tiles may be exported as a package — a VTPK or a PMTiles archive — ADR-098.

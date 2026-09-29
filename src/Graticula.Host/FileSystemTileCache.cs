@@ -69,10 +69,34 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     /// </remarks>
     public long Budget => _budget;
 
+    /// <summary>
+    /// How long past its lifetime a tile may still be served while its source cannot build it, when its
+    /// layer names no limit of its own — <c>Graticula:TileStaleIfErrorHours</c>, 24 hours by default.
+    /// </summary>
+    /// <remarks>
+    /// <b>Owner decision 2026-09-29, ADR-010 §5.1a.</b> Readable here beside <see cref="DefaultLifetime"/> for the
+    /// same reason that one is: the tile route asks the cache for its defaults rather than taking a second copy of
+    /// the settings.
+    /// </remarks>
+    public TimeSpan DefaultStaleLimit { get; }
+
+    /// <summary>The stale limit when nothing configures one: 24 hours past a tile's lifetime.</summary>
+    internal const int DefaultStaleIfErrorHours = 24;
+
     private readonly TimeProvider _clock;
     private readonly ILogger _log;
 
     private readonly ConcurrentDictionary<string, Entry> _index = new(StringComparer.Ordinal);
+
+    /// <summary>What each layer's entries hold, kept beside <see cref="_index"/> as <see cref="_bytes"/> is.</summary>
+    /// <remarks>
+    /// <b>So that a service's quota is a sum of a few counters rather than a pass over the index</b> on every
+    /// write — ADR-010 §3. The index is a whole cache's worth of entries; a service has a handful of layers.
+    /// </remarks>
+    private readonly ConcurrentDictionary<Guid, long> _layerBytes = new();
+
+    /// <summary>What each service's quota has evicted since this process started — the read-back's number.</summary>
+    private readonly ConcurrentDictionary<Guid, QuotaEvictions> _quotaEvicted = new();
     private readonly SemaphoreSlim _evicting = new(1, 1);
     private long _bytes;
     private bool _warned;
@@ -85,13 +109,18 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     /// <param name="lifetime">How long an entry is trusted.</param>
     /// <param name="clock">The clock.</param>
     /// <param name="loggerFactory">For the fail-soft warnings.</param>
+    /// <param name="staleLimit">
+    /// How long past its lifetime a tile may be served while its source cannot build it, or null for
+    /// <see cref="DefaultStaleIfErrorHours"/>. Last and optional, so every caller written before it is unchanged.
+    /// </param>
     public FileSystemTileCache(
         string root,
         long budget,
         long perLayerBudget,
         TimeSpan lifetime,
         TimeProvider clock,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        TimeSpan? staleLimit = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
         ArgumentNullException.ThrowIfNull(loggerFactory);
@@ -100,6 +129,7 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
         _budget = budget;
         _perLayerBudget = perLayerBudget;
         DefaultLifetime = lifetime;
+        DefaultStaleLimit = staleLimit ?? TimeSpan.FromHours(DefaultStaleIfErrorHours);
         _clock = clock;
         _log = loggerFactory.CreateLogger("tilecache");
 
@@ -167,7 +197,77 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     }
 
     /// <inheritdoc/>
-    public async Task WriteAsync(TileCacheKey key, byte[] tile, CancellationToken cancellationToken)
+    /// <remarks>
+    /// <para>
+    /// <b>An expired entry is still on the disk because nothing here deletes one for being old.</b>
+    /// <see cref="ReadAsync"/> calls it a miss and leaves it; it goes when it is rebuilt over, when eviction
+    /// reaches it — in the budget's order, where its age earns it nothing — or when its layer is purged. So
+    /// <em>expired</em> is a state an entry passes through on the way to being replaced, and <em>purged</em>
+    /// is its absence: <see cref="Purge"/> deletes the layer's directory, and a key with no file behind it
+    /// answers <see cref="CachedTile.Miss"/> here as it does everywhere.
+    /// </para>
+    /// <para>
+    /// <b>Touched like a hit</b>, because it is being used: an entry keeping a map drawn through an outage is the
+    /// last one the least-recently-used half of eviction should pick within its level.
+    /// </para>
+    /// </remarks>
+    public async Task<CachedTile> ReadExpiredAsync(
+        TileCacheKey key, TimeSpan lifetime, TimeSpan staleLimit, CancellationToken cancellationToken)
+    {
+        if (lifetime <= TimeSpan.Zero)
+        {
+            return CachedTile.Miss;
+        }
+
+        string path = System.IO.Path.Combine(_root, key.Path());
+
+        try
+        {
+            FileInfo file = new(path);
+
+            if (!file.Exists)
+            {
+                return CachedTile.Miss;
+            }
+
+            TimeSpan age = _clock.GetUtcNow() - file.LastWriteTimeUtc;
+
+            if (age > lifetime + (staleLimit > TimeSpan.Zero ? staleLimit : TimeSpan.Zero))
+            {
+                return CachedTile.Miss;
+            }
+
+            Touch(key, file.Length);
+
+            DateTimeOffset written = new(file.LastWriteTimeUtc, TimeSpan.Zero);
+            bool expired = age > lifetime;
+
+            return file.Length == EmptyMarker
+                ? CachedTile.Empty with { Written = written, Expired = expired }
+                : new CachedTile(
+                    TileCacheOutcome.Hit,
+                    await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false),
+                    written,
+                    expired);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            WarnOnce(e);
+            return CachedTile.Miss;
+        }
+    }
+
+    /// <inheritdoc/>
+    public Task WriteAsync(TileCacheKey key, byte[] tile, CancellationToken cancellationToken) =>
+        WriteAsync(key, tile, null, cancellationToken);
+
+    /// <inheritdoc/>
+    public async Task WriteAsync(
+        TileCacheKey key, byte[] tile, TileCacheQuota? quota, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(tile);
 
@@ -207,6 +307,11 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
 
             Touch(key, tile.Length);
             await EvictIfOverBudgetAsync().ConfigureAwait(false);
+
+            if (quota is not null)
+            {
+                await EvictIfOverQuotaAsync(quota, key.Path()).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -233,10 +338,14 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
             if (entry.Key.StartsWith(prefix, StringComparison.Ordinal)
                 && _index.TryRemove(entry.Key, out Entry gone))
             {
-                Interlocked.Add(ref _bytes, -gone.Size);
+                Count(gone.Layer, -gone.Size);
                 removed++;
             }
         }
+
+        // Subtracted entry by entry above rather than dropped wholesale, so a write racing the purge keeps its own
+        // count; the counter itself goes only when it is back to nothing (D-279).
+        _layerBytes.TryRemove(new KeyValuePair<Guid, long>(layerId, 0));
 
         try
         {
@@ -366,18 +475,47 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
         long now = _clock.GetUtcNow().ToUnixTimeMilliseconds();
 
         // A key this process made is of the pipeline running now by construction: Path() wrote it.
-        _index.AddOrUpdate(
-            path,
-            _ =>
+        Entry touched = new(size, now, key.Address.Z, Current: true, key.LayerId);
+
+        // <b>The bytes are counted after the index has taken the change, and only by the call whose change it
+        // took — [D-283](../../docs/architecture-debt.md).</b> This was `AddOrUpdate` with `Interlocked.Add` inside
+        // its two factories, and `ConcurrentDictionary` runs a factory again whenever another thread changed the
+        // key first, keeping only the last result: every lost race counted its delta anyway. The totals drifted
+        // from what the index held under concurrent writes and reads of one tile, and eviction then acted on bytes
+        // that were not there. Here the delta is taken from the entry the swap actually replaced, so each insert or
+        // replace is counted once, whoever wins.
+        while (true)
+        {
+            if (_index.TryGetValue(path, out Entry existing))
             {
-                Interlocked.Add(ref _bytes, size);
-                return new Entry(size, now, key.Address.Z, Current: true);
-            },
-            (_, existing) =>
+                if (_index.TryUpdate(path, touched, existing))
+                {
+                    Count(existing.Layer, size - existing.Size);
+                    return;
+                }
+            }
+            else if (_index.TryAdd(path, touched))
             {
-                Interlocked.Add(ref _bytes, size - existing.Size);
-                return new Entry(size, now, key.Address.Z, Current: true);
-            });
+                Count(key.LayerId, size);
+                return;
+            }
+        }
+    }
+
+    /// <summary>Moves the whole cache's byte count and one layer's by the same delta — the only way either moves.</summary>
+    private void Count(Guid layer, long delta)
+    {
+        Interlocked.Add(ref _bytes, delta);
+        CountLayer(layer, delta);
+    }
+
+    /// <summary>Moves a layer's byte count by a delta.</summary>
+    private void CountLayer(Guid layer, long delta)
+    {
+        if (delta != 0)
+        {
+            _layerBytes.AddOrUpdate(layer, delta, (_, held) => held + delta);
+        }
     }
 
     /// <summary>
@@ -452,20 +590,88 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
                     break;
                 }
 
-                if (!_index.TryRemove(entry.Key, out Entry gone))
+                Evict(entry.Key);
+            }
+        }
+        finally
+        {
+            _evicting.Release();
+        }
+    }
+
+    /// <summary>
+    /// Drops one service's entries until the service is inside its quota — in the order the whole cache evicts
+    /// in, and touching no other service's tiles.
+    /// </summary>
+    /// <param name="quota">The service, its layers and its quota.</param>
+    /// <param name="written">The entry just written, which is never the one evicted to make room for itself.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner decision 2026-09-29, ADR-010 §3: evict the service's own, never refuse the write.</b> The same
+    /// three keys as <see cref="EvictIfOverBudgetAsync"/> — another pipeline's tiles first, then the highest
+    /// level, then the least recently used within a level — so a quota keeps a service's low levels for the
+    /// reason the budget keeps everybody's, and a seed estimated against a quota (ADR-093 §5.9) is estimated
+    /// against the order that will actually run.
+    /// </para>
+    /// <para>
+    /// <b>Down to 90% of the quota, by <see cref="TargetOf"/></b>, for the budget's reason: evicting to the line
+    /// makes every following write of the service pay an eviction.
+    /// </para>
+    /// <para>
+    /// <b>The same lock as the budget's, taken the same way.</b> A write that finds either eviction running
+    /// leaves the work to it or to the next write, rather than two passes deleting at once; a service left over
+    /// its quota by that is brought back by its next tile, which is the only thing that can take it further
+    /// over.
+    /// </para>
+    /// <para>
+    /// <b>The tile just written is kept</b>, which is what <em>never refuse the write</em> means once the write has
+    /// happened: evicting it would be a refusal by another name, and a quota smaller than one tile would leave the
+    /// service with nothing cached at all. Such a service holds that one tile, over its quota, until the next.
+    /// </para>
+    /// <para>
+    /// <b>A pass over the index only when the service is over</b>, which the per-layer counters say without one;
+    /// and evicting to 90% makes that occasional, as it does for the budget.
+    /// </para>
+    /// </remarks>
+    private async Task EvictIfOverQuotaAsync(TileCacheQuota quota, string written)
+    {
+        if (HeldBy(quota.Layers) <= quota.Bytes)
+        {
+            return;
+        }
+
+        if (!await _evicting.WaitAsync(0).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        try
+        {
+            HashSet<Guid> layers = [.. quota.Layers];
+            long target = TargetOf(quota.Bytes);
+            long held = HeldBy(quota.Layers);
+
+            foreach (KeyValuePair<string, Entry> entry in
+                     _index.Where(e => layers.Contains(e.Value.Layer)
+                                       && !string.Equals(e.Key, written, StringComparison.Ordinal))
+                           .OrderBy(e => e.Value.Current)
+                           .ThenByDescending(e => e.Value.Zoom)
+                           .ThenBy(e => e.Value.LastUsed)
+                           .ToList())
+            {
+                if (held <= target)
                 {
-                    continue;
+                    break;
                 }
 
-                Interlocked.Add(ref _bytes, -gone.Size);
+                if (Evict(entry.Key) is { } gone)
+                {
+                    held -= gone.Size;
 
-                try
-                {
-                    File.Delete(System.IO.Path.Combine(_root, entry.Key));
-                }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-                {
-                    WarnOnce(e);
+                    _quotaEvicted.AddOrUpdate(
+                        quota.Service,
+                        new QuotaEvictions(1, gone.Size),
+                        (_, sofar) => new QuotaEvictions(sofar.Entries + 1, sofar.Bytes + gone.Size));
                 }
             }
         }
@@ -474,6 +680,51 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
             _evicting.Release();
         }
     }
+
+    /// <summary>Removes one entry from the index and its file from the disk.</summary>
+    /// <returns>The entry, or null when somebody else removed it first.</returns>
+    private Entry? Evict(string relative)
+    {
+        if (!_index.TryRemove(relative, out Entry gone))
+        {
+            return null;
+        }
+
+        Count(gone.Layer, -gone.Size);
+
+        try
+        {
+            File.Delete(System.IO.Path.Combine(_root, relative));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            WarnOnce(e);
+        }
+
+        return gone;
+    }
+
+    /// <summary>What a set of layers holds in the cache — a service's use against its quota.</summary>
+    /// <param name="layers">The layers.</param>
+    /// <returns>Their bytes, from the per-layer counters, with no pass over the index.</returns>
+    internal long HeldBy(IEnumerable<Guid> layers)
+    {
+        ArgumentNullException.ThrowIfNull(layers);
+
+        long bytes = 0;
+
+        foreach (Guid layer in layers)
+        {
+            bytes += Math.Max(0, _layerBytes.GetValueOrDefault(layer));
+        }
+
+        return bytes;
+    }
+
+    /// <summary>What a service's quota has evicted since this process started.</summary>
+    /// <param name="service">The service.</param>
+    /// <returns>Entries and bytes.</returns>
+    internal QuotaEvictions EvictedByQuota(Guid service) => _quotaEvicted.GetValueOrDefault(service);
 
     /// <summary>
     /// Takes ownership of whatever a previous run left behind.
@@ -505,8 +756,11 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
                 string relative = System.IO.Path.GetRelativePath(_root, file).Replace('\\', '/');
 
                 (int zoom, bool current) = LevelOf(relative);
-                _index[relative] = new Entry(info.Length, now, zoom, current);
-                Interlocked.Add(ref _bytes, info.Length);
+                Guid layer = LayerOf(relative);
+                if (_index.TryAdd(relative, new Entry(info.Length, now, zoom, current, layer)))
+                {
+                    Count(layer, info.Length);
+                }
             }
 
             if (!_index.IsEmpty)
@@ -576,6 +830,18 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
             parts[1],
             string.Create(CultureInfo.InvariantCulture, $"v{TilePipeline.Version}"),
             StringComparison.Ordinal));
+    }
+
+    /// <summary>The layer an adopted file belongs to — the first segment of its path — or empty when it has none.</summary>
+    /// <param name="relative">The file's path under the root, with forward slashes.</param>
+    /// <returns>The layer.</returns>
+    internal static Guid LayerOf(string relative)
+    {
+        ArgumentNullException.ThrowIfNull(relative);
+
+        int cut = relative.IndexOf('/', StringComparison.Ordinal);
+
+        return cut > 0 && Guid.TryParseExact(relative.AsSpan(0, cut), "N", out Guid layer) ? layer : Guid.Empty;
     }
 
     /// <summary>
@@ -649,13 +915,15 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     /// outranks it and is kept in its place, so these are the bytes a seed cannot make room from.
     /// Another pipeline's tiles are left out, because they go before anything.
     /// </remarks>
-    internal IReadOnlyDictionary<int, long> CurrentBytesByLevel()
+    /// <param name="layers">Only these layers' tiles — a service's, for an estimate against its quota — or null
+    /// for the whole cache.</param>
+    internal IReadOnlyDictionary<int, long> CurrentBytesByLevel(IReadOnlySet<Guid>? layers = null)
     {
         Dictionary<int, long> held = [];
 
         foreach (KeyValuePair<string, Entry> entry in _index)
         {
-            if (entry.Value.Current)
+            if (entry.Value.Current && (layers is null || layers.Contains(entry.Value.Layer)))
             {
                 held[entry.Value.Zoom] = held.GetValueOrDefault(entry.Value.Zoom) + entry.Value.Size;
             }
@@ -697,5 +965,11 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     /// <param name="LastUsed">When it was last read or written, in Unix milliseconds.</param>
     /// <param name="Zoom">Its level, which eviction orders by before recency.</param>
     /// <param name="Current">Whether the pipeline running now wrote it; a tile it did not write is unreachable.</param>
-    private readonly record struct Entry(long Size, long LastUsed, int Zoom, bool Current);
+    /// <param name="Layer">The layer it belongs to, for a service's quota; empty for a path that does not parse.</param>
+    private readonly record struct Entry(long Size, long LastUsed, int Zoom, bool Current, Guid Layer);
+
+    /// <summary>What a service's quota has evicted.</summary>
+    /// <param name="Entries">How many entries.</param>
+    /// <param name="Bytes">How many bytes.</param>
+    internal readonly record struct QuotaEvictions(long Entries, long Bytes);
 }

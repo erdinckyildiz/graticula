@@ -180,7 +180,14 @@ public sealed class TilePipelineVersionTests
         // (`GeneratedStyle`); `TileableAsync` and the empty sprite sheet became internal; and the service document says
         // `exportTilesAllowed: true` with `maxExportTilesCount` only for a caller the service lets export — every other
         // caller's document is the object it was. Nothing that builds a tile, keys it or joins its parts moved.
-        "12793a9f88774811d820fb8a0a3b99483e734c586f961455f69c0421dfb0e3ce";
+        // <b>Moved again 2026-09-29 for ADR-010 §5.1a and §3 (D-278), and the version did not move.</b> A refused
+        // build may be answered by the cache's expired copy of the same key (`PartOrStandInAsync`, `StandInAsync`),
+        // marked `X-Tile-Cache: STALE` and kept a minute downstream (`max-age` = `Age` + 60); the response half of `ServeTileAsync` became
+        // `RespondAsync`, unchanged but for that state; and the build carries the service's tile cache quota to the
+        // write. The key, the encoder, the parts and their joining are what they were — a stale answer is bytes this
+        // pipeline already wrote, under the key it already reads. Moved once more the same day when a stale tile's
+        // `max-age` became its `Age` plus the minute and `WriteTileAsync` took the age from its caller: headers only.
+        "7eee46a17a53aa31a4251bb9ce3114c59b95fd419a7684728261e4c4299e722b";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 2;

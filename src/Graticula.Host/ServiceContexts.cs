@@ -369,6 +369,41 @@ internal sealed class ServiceContexts
         failure is not OperationCanceledException && SourceBreaker.Unreachable(failure);
 
     /// <summary>
+    /// The shape a layer's table last described itself as, with the layer's overrides applied — without asking
+    /// the source — or null when this process has never had a successful answer, or has been told to forget it.
+    /// </summary>
+    /// <param name="layer">The layer.</param>
+    /// <returns>The shape, or null.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>For a tile served stale while its source refuses — ADR-010 §5.1a, owner decision 2026-09-29.</b> A tile's
+    /// cache key is built from the layer's columns, so finding the expired copy needs the shape; and the source
+    /// that cannot build the tile cannot describe itself either. <see cref="TableAsync"/> already answers from
+    /// <c>_known</c> when the source is unreachable; a quiesced source or a full budget refuses before that fallback
+    /// is reached — <see cref="LayerConnections.SourceFor"/> throws for a quiesced one — so the tile route asks
+    /// here instead, and only after its own build was refused.
+    /// </para>
+    /// <para>
+    /// <b>The overrides are applied as <see cref="GetAsync"/> applies them</b>, so a column hidden since the shape
+    /// was read stays hidden, and the key built from this is the key the layer has now: a tile built before the
+    /// override changed is under another key and is not found.
+    /// </para>
+    /// <para>
+    /// <b>What it cannot know</b> is a change the table went through while the source was refusing — the DBA's
+    /// <c>ALTER TABLE</c> a quiesce is taken for. The tiles found under this shape were right when they were built,
+    /// and the first describe after the source answers again moves the key, as it does after any change.
+    /// </para>
+    /// </remarks>
+    public LayerDescription? Remembered(PublishedLayer layer)
+    {
+        ArgumentNullException.ThrowIfNull(layer);
+
+        return _known.TryGetValue(Key.Of(layer), out LayerDescription? known)
+            ? FieldOverrides.Apply(known, layer.FieldOverrides)
+            : null;
+    }
+
+    /// <summary>
     /// Forgets a layer's shape.
     /// </summary>
     /// <param name="layer">The layer, or null to forget everything.</param>

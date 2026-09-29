@@ -125,6 +125,9 @@ public sealed class AServiceIsAddressedByItsFolderTests : ArcGisClient, IAsyncLi
             (HttpMethod.Post, $"/admin/services/{Twin}/cache/seeds?folder={Elsewhere}", "{\"minZoom\":0,\"maxZoom\":0}"),
             (HttpMethod.Post, $"/admin/services/{Twin}/cache/seeds?folder={Elsewhere}&dryRun=true", "{}"),
             (HttpMethod.Get, $"/admin/services/{Twin}/cache?folder={Elsewhere}", null),
+
+            // ADR-010 §3: a service's tile cache quota is set by folder and name, by whoever owns it.
+            (HttpMethod.Put, $"/admin/services/{Twin}/cache/quota?folder={Elsewhere}", "{\"megabytes\":1}"),
         })
         {
             (HttpStatusCode status, string said) = await SendAsync(_publisher, method, path, body);

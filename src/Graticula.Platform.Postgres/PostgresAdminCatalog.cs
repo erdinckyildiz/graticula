@@ -681,6 +681,32 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> SetStaleLimitAsync(
+        Guid layerId, int? seconds, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update layer set stale_seconds = @seconds, updated_at = now() where id = @id");
+
+        command.Parameters.AddWithValue("id", layerId);
+        command.Parameters.Add(new NpgsqlParameter("seconds", NpgsqlDbType.Integer) { Value = (object?)seconds ?? DBNull.Value });
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetTileCacheQuotaAsync(
+        Guid serviceId, int? megabytes, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update service set tile_cache_quota_mb = @megabytes, updated_at = now() where id = @id");
+
+        command.Parameters.AddWithValue("id", serviceId);
+        command.Parameters.Add(new NpgsqlParameter("megabytes", NpgsqlDbType.Integer) { Value = (object?)megabytes ?? DBNull.Value });
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> SetVisibleRangeAsync(
         Guid id, double minScale, double maxScale, CancellationToken cancellationToken)
     {

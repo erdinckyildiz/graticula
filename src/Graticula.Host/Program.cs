@@ -387,6 +387,9 @@ public static class Program
         builder.Services.AddSingleton<DatumShiftNotices>();
         builder.Services.AddSingleton<UnindexedLayerNotices>();
 
+        // ADR-010 §5.1a: how many answers each service has had stale, for its cache read-back.
+        builder.Services.AddSingleton<StaleTileNotices>();
+
         // D-237: the datastore's size, held for a minute because Operations samples every five
         // seconds and the answer moves when somebody uploads.
         builder.Services.AddSingleton<DatastoreUsageHold>();
@@ -663,7 +666,8 @@ public static class Program
             settings.TileCacheLayerBudgetBytes,
             settings.TileCacheLifetime,
             services.GetRequiredService<TimeProvider>(),
-            services.GetRequiredService<ILoggerFactory>()));
+            services.GetRequiredService<ILoggerFactory>(),
+            settings.TileStaleIfError));
 
         builder.Services.AddSingleton(services => new ServiceContexts(
             services.GetRequiredService<LayerConnections>(),

@@ -359,6 +359,7 @@ internal static class QueryResponseCaching
             [nameof(PublishedLayer.Id)] = "already in the tag on its own",
             [nameof(PublishedLayer.Definition)] = "its members are listed one by one",
             [nameof(PublishedLayer.CacheLifetime)] = "shapes Cache-Control, not the body",
+            [nameof(PublishedLayer.StaleLimit)] = "decides whether a stale tile may stand in for a refused one (ADR-010 §5.1a), not what any answer says",
             [nameof(PublishedLayer.VisibleRange)] = "a query answers the same rows at every scale (ADR-070)",
             [nameof(PublishedLayer.ConnectionString)] = "a secret; the data source name and definition identify the data",
             [nameof(PublishedLayer.PublishedSrid)] = "derived from ServedSrid and Definition.Srid",

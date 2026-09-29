@@ -125,10 +125,12 @@ public sealed class TileCacheBoxTests : ConsoleTest
             Assert.True(emptied, "There is no tile-lifetime box on this layer's Caching page.");
 
             // Record what the page asks for. `api()` goes through `fetch`, so this sees the
-            // body the console composed rather than anything this test composed.
+            // body the console composed rather than anything this test composed. The address
+            // ends in `/cache` with or without a query: since D-276 the console names the
+            // layer's service in `?service=`.
             await Browser.EvaluateAsync<bool>(
                 "(() => { window.__cachePuts = []; const f = window.fetch; "
-                + "window.fetch = (u, o) => { if (String(u).endsWith('/cache') "
+                + "window.fetch = (u, o) => { if (/\\/cache(\\?|$)/.test(String(u)) "
                 + "&& o && o.method === 'PUT') window.__cachePuts.push(String(o.body || '')); "
                 + "return f(u, o); }; return true; })()");
 

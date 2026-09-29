@@ -93,7 +93,14 @@ public sealed class TilePurgingWriterTests
         public Task<CachedTile> ReadAsync(TileCacheKey key, TimeSpan lifetime, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<CachedTile> ReadExpiredAsync(
+            TileCacheKey key, TimeSpan lifetime, TimeSpan staleLimit, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task WriteAsync(TileCacheKey key, byte[] tile, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task WriteAsync(TileCacheKey key, byte[] tile, TileCacheQuota? quota, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public int Purge(Guid layerId)

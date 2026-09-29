@@ -224,8 +224,16 @@ internal sealed record HostSettings(
 
     // <b>The most tiles one export may hold unless a service says fewer — ADR-098 §5.3.</b> 100,000 is the default
     // ArcGIS documents for <c>maxExportTilesCount</c>; a service's own maximum can only lower it.
-    long TileExportMaximumTiles = TileExporter.DefaultMaximumTiles)
+    long TileExportMaximumTiles = TileExporter.DefaultMaximumTiles,
+
+    // <b>How long past its lifetime a tile may still be served while its source cannot build it — ADR-010
+    // §5.1a, owner decision 2026-09-29.</b> A day: a map keeps its tiles through a night's outage, and a picture
+    // older than that is refused rather than passed off as the map. A layer may set its own; zero turns it off.
+    int TileStaleIfErrorHours = FileSystemTileCache.DefaultStaleIfErrorHours)
 {
+    /// <summary>How long past its lifetime a tile may be served while its source cannot build it.</summary>
+    public TimeSpan TileStaleIfError => TimeSpan.FromHours(TileStaleIfErrorHours);
+
     /// <summary>Where packages are written: the setting, or <c>exports</c> under <see cref="StatePath"/>.</summary>
     public string TileExportDirectory => TileExportPath ?? Path.Combine(StatePath, "exports");
 
@@ -625,7 +633,11 @@ internal sealed record HostSettings(
 
             // At least an hour: a package deleted before anybody could fetch it is an export that did nothing.
             Math.Max(1, keys.Value("TileExportRetentionHours", TileExporter.DefaultRetentionHours)),
-            Math.Max(1L, keys.Value("TileExportMaximumTiles", TileExporter.DefaultMaximumTiles)));
+            Math.Max(1L, keys.Value("TileExportMaximumTiles", TileExporter.DefaultMaximumTiles)),
+
+            // Zero is off — no tile is served past its lifetime — and a negative number is the same zero rather
+            // than a limit that has already passed.
+            Math.Max(0, keys.Value("TileStaleIfErrorHours", FileSystemTileCache.DefaultStaleIfErrorHours)));
     }
 
     /// <summary>

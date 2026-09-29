@@ -482,6 +482,7 @@ internal static class TileFaces
 /// <param name="Unindexed">The unindexed-layer notices.</param>
 /// <param name="Logs">The logger factory.</param>
 /// <param name="GeoParquet">GeoParquet file versions.</param>
+/// <param name="Stale">Where a stale answer is counted — ADR-010 §5.1a.</param>
 internal sealed record TileServing(
     ServiceContexts Contexts,
     LayerConnections Connections,
@@ -491,7 +492,8 @@ internal sealed record TileServing(
     DatumShiftNotices DatumShifts,
     UnindexedLayerNotices Unindexed,
     ILoggerFactory Logs,
-    GeoParquetSources GeoParquet)
+    GeoParquetSources GeoParquet,
+    StaleTileNotices Stale)
 {
     /// <summary>The request's services, resolved by type — the same instances the ArcGIS tile route is handed.</summary>
     /// <param name="context">The request.</param>
@@ -510,7 +512,8 @@ internal sealed record TileServing(
             services.GetRequiredService<DatumShiftNotices>(),
             services.GetRequiredService<UnindexedLayerNotices>(),
             services.GetRequiredService<ILoggerFactory>(),
-            services.GetRequiredService<GeoParquetSources>());
+            services.GetRequiredService<GeoParquetSources>(),
+            services.GetRequiredService<StaleTileNotices>());
     }
 
     /// <summary>Serves one tile of a found service through the one tile path.</summary>
@@ -522,5 +525,5 @@ internal sealed record TileServing(
     public Task ServeAsync(HttpContext context, PublishedService service, TileAddress address, CancellationToken cancellation) =>
         VectorTileEndpoints.ServeTileAsync(
             context, service, address, Contexts, Connections, Cache, Building, Projector, DatumShifts, Unindexed,
-            Logs, GeoParquet, cancellation);
+            Logs, GeoParquet, Stale, cancellation);
 }

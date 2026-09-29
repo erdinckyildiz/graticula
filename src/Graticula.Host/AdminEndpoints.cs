@@ -371,13 +371,24 @@ internal sealed record ServiceCapabilitiesRequest(
     int? MaxEditsPerTransaction = null,
     int? RequestDeadlineSeconds = null);
 
-/// <summary>How long a layer's tiles stay fresh.</summary>
+/// <summary>How long a layer's tiles stay fresh, and how long past that they may stand in for a refused build.</summary>
 /// <param name="Seconds">
 /// Seconds, or null to fall back to the server default. <b>Zero is not
 /// null</b>: zero means never serve a cached tile, which is a real answer for
 /// a layer that changes continuously.
 /// </param>
-internal sealed record CacheLifetimeRequest(int? Seconds);
+/// <param name="StaleSeconds">
+/// How long past its lifetime a tile may be served while the layer's source cannot build it — ADR-010 §5.1a —
+/// or null for the server's own limit; zero for never.
+/// </param>
+/// <remarks>
+/// <b>Both are read as JSON rather than as numbers, so that a property left out is told from one sent as null</b>
+/// (2026-09-29). The stale limit joined a body that already had one field, and a client that sets only the stale
+/// limit must not reset the lifetime by not mentioning it — nor one that sets only the lifetime, which is every
+/// client written before, reset the stale limit. A property that is absent leaves its setting alone; the one
+/// exception keeps the old contract whole: a body naming neither is <c>{"seconds": null}</c>, as it always was.
+/// </remarks>
+internal sealed record CacheLifetimeRequest(JsonElement Seconds = default, JsonElement StaleSeconds = default);
 
 /// <summary>Which column carries a layer's phenomenon time.</summary>
 /// <param name="Field">
@@ -2842,16 +2853,30 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (request.Seconds is < 0)
+        (bool secondsSent, int? seconds, string? secondsWrong) = SecondsIn(request.Seconds, "seconds");
+        (bool staleSent, int? staleSeconds, string? staleWrong) = SecondsIn(request.StaleSeconds, "staleSeconds");
+
+        if ((secondsWrong ?? staleWrong) is { } wrong)
         {
-            await Refuse(context, 400,
-                "'seconds' cannot be negative. Use 0 for 'never serve a cached tile', or omit it "
-                + "to fall back to the server default.").ConfigureAwait(false);
+            await Refuse(context, 400, wrong).ConfigureAwait(false);
             return;
         }
 
-        if (!await catalog.SetCacheLifetimeAsync(layer.Id, request.Seconds, cancellation)
-            .ConfigureAwait(false))
+        // The old contract, kept whole: a body naming neither field is `{"seconds": null}`.
+        if (!secondsSent && !staleSent)
+        {
+            secondsSent = true;
+        }
+
+        if (secondsSent
+            && !await catalog.SetCacheLifetimeAsync(layer.Id, seconds, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        if (staleSent
+            && !await catalog.SetStaleLimitAsync(layer.Id, staleSeconds, cancellation).ConfigureAwait(false))
         {
             await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
             return;
@@ -2859,24 +2884,58 @@ internal static partial class AdminEndpoints
 
         await AuditAsync(
             context, audit, "layer.cache", name,
-            Detail(new { seconds = request.Seconds }),
+            secondsSent && staleSent ? Detail(new { seconds, staleSeconds })
+                : staleSent ? Detail(new { staleSeconds })
+                : Detail(new { seconds }),
             succeeded: true, cancellation).ConfigureAwait(false);
+
+        string? lifetimeNote = !secondsSent ? null : seconds switch
+        {
+            null => "This layer now uses the server's default tile lifetime.",
+            0 => "Tiles for this layer are never served from cache, and Cache-Control says "
+                 + "no-store so nothing downstream keeps one either.",
+            _ => "Tiles for this layer expire after this many seconds, here and in every "
+                 + "cache downstream — the same number is sent as Cache-Control max-age. "
+                 + "Nothing was purged: changing freshness does not make a cached tile wrong.",
+        };
+
+        string? staleNote = !staleSent ? null : staleSeconds switch
+        {
+            null => "While this layer's data source cannot build a tile, the cached copy may stand in for up to "
+                    + "the server's own limit past its lifetime (Graticula:TileStaleIfErrorHours).",
+            0 => "While this layer's data source cannot build a tile, the tile is refused rather than served "
+                 + "past its lifetime.",
+            _ => "While this layer's data source cannot build a tile, a cached copy up to this many seconds past "
+                 + "its lifetime stands in for it, marked X-Tile-Cache: STALE. A tile an edit or a refresh removed "
+                 + "is never served this way.",
+        };
 
         await Results.Json(new
         {
             name,
-            cacheSeconds = request.Seconds,
-            note = request.Seconds switch
-            {
-                null => "This layer now uses the server's default tile lifetime.",
-                0 => "Tiles for this layer are never served from cache, and Cache-Control says "
-                     + "no-store so nothing downstream keeps one either.",
-                _ => "Tiles for this layer expire after this many seconds, here and in every "
-                     + "cache downstream — the same number is sent as Cache-Control max-age. "
-                     + "Nothing was purged: changing freshness does not make a cached tile wrong.",
-            },
+            cacheSeconds = secondsSent ? seconds : layer.CacheLifetime is { } kept ? (int?)kept.TotalSeconds : null,
+            staleSeconds = staleSent ? staleSeconds : layer.StaleLimit is { } held ? (int?)held.TotalSeconds : null,
+            note = string.Join(" ", new[] { lifetimeNote, staleNote }.Where(n => n is not null)),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// A number of seconds from a JSON property: whether it was sent at all, the number or null, and the refusal
+    /// when it is neither — for <see cref="CacheLifetimeRequest"/>, where absent and null mean different things.
+    /// </summary>
+    /// <param name="value">The property as it arrived; <see cref="JsonValueKind.Undefined"/> when it did not.</param>
+    /// <param name="field">Its name, for the refusal.</param>
+    /// <returns>Sent, the value, and the sentence refusing it or null.</returns>
+    internal static (bool Sent, int? Value, string? Wrong) SecondsIn(JsonElement value, string field) =>
+        value.ValueKind switch
+        {
+            JsonValueKind.Undefined => (false, null, null),
+            JsonValueKind.Null => (true, null, null),
+            JsonValueKind.Number when value.TryGetInt32(out int seconds) && seconds >= 0 => (true, seconds, null),
+            _ => (true, null,
+                $"'{field}' must be a whole number of seconds, 0 or more, or null for the server's own figure. "
+                + "Use 0 for 'never', and leave the property out to keep what the layer has."),
+        };
 
     /// <summary>
     /// Declares which column carries a layer's time.

@@ -221,6 +221,68 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     }
 
     /// <summary>
+    /// A layer's stale limit and a service's tile cache quota are what serving reads back — migration 65,
+    /// ADR-010 §5.1a and §3.
+    /// </summary>
+    /// <remarks>
+    /// <b>Written with the admin catalogue and read with the serving one</b>, the round trip the sharing test below
+    /// explains the need for. Null on a new layer and service, which is what every row before the migration is;
+    /// zero survives as zero (<em>never stale</em>), and clearing goes back to null.
+    /// </remarks>
+    [Fact]
+    public async Task A_stale_limit_and_a_tile_cache_quota_are_what_serving_reads_back()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        PublishedLayerAddress published = await admin.PublishLayerAsync(
+            Publication(source, "stale"), owner, CancellationToken.None);
+
+        PostgresLayerCatalog catalog = new(DataSource, new SecretProtector(1, new byte[32]));
+
+        PublishedService before = (await catalog.FindServiceAsync(null, "stale", CancellationToken.None))!;
+
+        Assert.Null(Assert.Single(before.Layers).StaleLimit);
+        Assert.Null(before.TileCacheQuotaMegabytes);
+
+        Assert.True(await admin.SetStaleLimitAsync(published.Id, 0, CancellationToken.None));
+        Assert.True(await admin.SetTileCacheQuotaAsync(before.Id, 512, CancellationToken.None));
+
+        PublishedService after = (await catalog.FindServiceAsync(null, "stale", CancellationToken.None))!;
+
+        Assert.Equal(TimeSpan.Zero, Assert.Single(after.Layers).StaleLimit);
+        Assert.Equal(512, after.TileCacheQuotaMegabytes);
+        Assert.Equal(512L * 1024 * 1024, after.TileCacheQuotaBytes);
+
+        Assert.True(await admin.SetStaleLimitAsync(published.Id, null, CancellationToken.None));
+        Assert.True(await admin.SetTileCacheQuotaAsync(before.Id, null, CancellationToken.None));
+
+        PublishedService cleared = (await catalog.FindServiceAsync(null, "stale", CancellationToken.None))!;
+
+        Assert.Null(Assert.Single(cleared.Layers).StaleLimit);
+        Assert.Null(cleared.TileCacheQuotaMegabytes);
+
+        Assert.False(await admin.SetStaleLimitAsync(Guid.NewGuid(), 60, CancellationToken.None));
+        Assert.False(await admin.SetTileCacheQuotaAsync(Guid.NewGuid(), 60, CancellationToken.None));
+    }
+
+    /// <summary>A quota of nothing, or less, is refused by the schema as well as by the route.</summary>
+    [Fact]
+    public async Task A_quota_of_zero_megabytes_is_refused_by_the_schema()
+    {
+        (PostgresAdminCatalog admin, Guid source, Guid owner) = await ReadyAsync();
+
+        await admin.PublishLayerAsync(Publication(source, "noquota"), owner, CancellationToken.None);
+
+        PostgresLayerCatalog catalog = new(DataSource, new SecretProtector(1, new byte[32]));
+        PublishedService service = (await catalog.FindServiceAsync(null, "noquota", CancellationToken.None))!;
+
+        PostgresException refused = await Assert.ThrowsAsync<PostgresException>(
+            () => admin.SetTileCacheQuotaAsync(service.Id, 0, CancellationToken.None));
+
+        Assert.Equal("23514", refused.SqlState);
+    }
+
+    /// <summary>
     /// A change of sharing is visible to the code that decides who may read.
     /// </summary>
     /// <remarks>

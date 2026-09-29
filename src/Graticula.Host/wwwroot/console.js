@@ -10938,6 +10938,8 @@ function showLayer(name, page, pending = null) {
         <button data-cache="${h(name)}" data-clear="1" class="ghost">Use the server's</button>
       </div>
 
+      <div id="cacheLimits"></div>
+
       <h4>Seed the cache</h4>
       <p class="hint">A tile is built the first time somebody asks for it. A seed builds tiles before
         anybody asks, for every layer of this service, on a background worker. After an upgrade that
@@ -11711,6 +11713,10 @@ async function loadSeed(name) {
 
   drawSeed(name, where, r);
 
+  // Drawn once per layer rather than on every poll, so a number being typed is not wiped by the seed's refresh.
+  const limits = $("cacheLimits");
+  if (limits && limits.dataset.for !== name) drawLimits(name, where, r);
+
   if (r.running) {
     seedState.timer = setTimeout(() => {
       if (seedShowing(name)) section("the tile cache", () => loadSeed(name));
@@ -11743,6 +11749,111 @@ function seedBudget(b) {
   return `<p class="hint">The tile cache holds ${h(seedSize(b.usedBytes))} of its ${h(seedSize(b.bytes))}
     budget (${h(seedSize(b.freeBytes))} free); ${h(seedSize(b.serviceBytes))} of it is this service's.
     When it is full it evicts the highest levels first, so a seed's lowest levels are kept longest.</p>`;
+}
+
+// ADR-010 §3: the service's own quota beside the budget, with what its tiles hold and what it has evicted.
+function seedQuota(q) {
+  if (!q) return "";
+  const evicted = q.evictedEntries
+    ? ` Since the server started, the quota has evicted ${num(q.evictedEntries)} tiles (${h(seedSize(q.evictedBytes))}).`
+    : "";
+  return q.bytes == null ? "" : `<p class="hint">This service's tiles hold ${h(seedSize(q.usedBytes))} of its
+    ${h(seedSize(q.bytes))} cache quota. Over it, the service's own tiles are evicted, highest levels first.${evicted}</p>`;
+}
+
+/**
+ * How long an expired tile may stand in while the data source is down, and the service's cache quota — ADR-010
+ * §5.1a and §3, owner decisions of 2026-09-29.
+ *
+ * <b>The stale limit is the layer's and the quota is the service's</b>, as the server stores them; each box says
+ * which. An empty box means *the server's own figure* for the limit and *no quota* for the quota, never zero — the
+ * lesson D-159 taught the lifetime box above. The stale limit is typed in hours and sent in seconds.
+ *
+ * <b>The layer route is sent `?service=`</b>, so a layer name two services share is not refused as ambiguous
+ * (D-276); the quota route is sent the folder, as every service route is (D-275).
+ */
+function drawLimits(name, where, r) {
+  const box = $("cacheLimits");
+  if (!box) return;
+  box.dataset.for = name;
+
+  const layer = (r.layers || []).find(l => l.name === name);
+  const q = r.quota || {};
+  const stale = r.stale || {};
+  const defaultHours = stale.defaultSeconds != null ? stale.defaultSeconds / 3600 : 24;
+  const ownHours = layer && layer.staleFrom === "layer" ? layer.staleSeconds / 3600 : null;
+  const served = stale.served
+    ? ` This service has been answered from expired tiles ${num(stale.served)} times since the server started, the last
+      ${seedWhen(stale.lastServed)}.`
+    : "";
+
+  box.innerHTML = `
+    <div class="setting"><label class="q" for="staleLimit">Serve an expired tile while the data source is down, for up to:</label>
+      <input type="number" id="staleLimit" min="0" step="1" placeholder="default, ${h(String(defaultHours))}"
+        value="${ownHours == null ? "" : h(String(ownHours))}"><span class="u">hours</span></div>
+    <p class="hint">When this layer's data source cannot build a tile — it is unreachable, busy or quiesced — the
+      cached copy is served, marked as stale, for up to this long past its lifetime. 0 means never. A tile removed
+      by an edit or a refresh is never served this way.${served}</p>
+    <div class="row" style="margin-top:10px">
+      <button type="button" id="staleSet">Set</button>
+      <button type="button" id="staleClear" class="ghost">Use the server's</button>
+    </div>
+
+    <div class="setting"><label class="q" for="cacheQuota">Cache quota for this service:</label>
+      <input type="number" id="cacheQuota" min="1" step="1" placeholder="none"
+        value="${q.megabytes == null ? "" : h(String(q.megabytes))}"><span class="u">MB</span></div>
+    <p class="hint">Its tiles hold ${h(seedSize(q.usedBytes || 0))} now. Over the quota, this service's own tiles are
+      evicted, highest levels first; other services are not touched and no tile is refused. Empty means no quota of
+      its own, only the cache's budget.</p>
+    <div class="row" style="margin-top:10px">
+      <button type="button" id="quotaSet">Set</button>
+      <button type="button" id="quotaClear" class="ghost">No quota</button>
+    </div>
+    <p class="hint" id="limitsSays" role="status" aria-live="polite"></p>`;
+
+  const says = text => { const s = $("limitsSays"); if (s) s.textContent = text; };
+  const again = () => { box.dataset.for = ""; return loadSeed(name); };
+
+  const setStale = async clear => {
+    const typed = $("staleLimit").value.trim();
+    const hours = clear || typed === "" ? null : Number(typed);
+    if (hours !== null && (!Number.isFinite(hours) || hours < 0)) {
+      says(`"${typed}" is not a number of hours.`);
+      return;
+    }
+    try {
+      const c = await api(`/admin/layers/${encodeURIComponent(name)}/cache?service=${encodeURIComponent(where.at.service)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ staleSeconds: hours === null ? null : Math.round(hours * 3600) }),
+      });
+      toast(c.note, true);
+      await again();
+    } catch (e) { says(e.message); }
+  };
+
+  const setQuota = async clear => {
+    const typed = $("cacheQuota").value.trim();
+    const megabytes = clear || typed === "" ? null : Number(typed);
+    if (megabytes !== null && (!Number.isInteger(megabytes) || megabytes < 1)) {
+      says(`"${typed}" is not a whole number of megabytes.`);
+      return;
+    }
+    try {
+      const c = await api(`${where.base}/quota${where.folder}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ megabytes }),
+      });
+      toast(c.note, true);
+      await again();
+    } catch (e) { says(e.message); }
+  };
+
+  $("staleSet")?.addEventListener("click", () => setStale(false));
+  $("staleClear")?.addEventListener("click", () => setStale(true));
+  $("quotaSet")?.addEventListener("click", () => setQuota(false));
+  $("quotaClear")?.addEventListener("click", () => setQuota(true));
 }
 
 function seedCounts(s) {
@@ -11789,6 +11900,7 @@ function drawSeed(name, where, r) {
   box.innerHTML = `
     ${progress}
     ${seedBudget(r.budget)}
+    ${seedQuota(r.quota)}
     <p class="hint" id="seedSays" role="status" aria-live="polite">${last ? `The last seed was
       ${h(last.status)}${last.finished ? ` ${seedWhen(last.finished)}` : ""}: ${seedCounts(last)}.${
       last.failure ? ` ${h(last.failure)}` : ""}` : ""}</p>
@@ -11848,10 +11960,12 @@ function drawSeed(name, where, r) {
         : c.estimate.bytes === 0 ? ", adding next to nothing to the cache"
         : `, about ${seedSize(c.estimate.bytes)} more in the cache${c.estimate.fits
           ? ", which keeps every tile it builds" : ""}`;
+      // The refusal is the budget's or, when the budget fits, the service's quota's (ADR-010 §3).
+      const over = !!((c.estimate && !c.estimate.fits) || (c.quotaEstimate && !c.quotaEstimate.fits));
       says(`${num(c.tiles)} tiles over levels ${c.minZoom} to ${c.maxZoom}${size}${
         idle.length ? ` — levels ${idle.join(", ")} are skipped, because no layer draws there` : ""}.${
-        c.estimate && !c.estimate.fits && c.refusal ? ` ${c.refusal}` : ""}`);
-      offerForce(!!(c.estimate && !c.estimate.fits));
+        over && c.refusal ? ` ${c.refusal}` : ""}`);
+      offerForce(over);
     } catch (e) { says(e.message); }
   });
 
@@ -11863,7 +11977,7 @@ function drawSeed(name, where, r) {
       await loadSeed(name);
     } catch (e) {
       says(e.message);
-      offerForce(!force && (e.details || []).includes("exceedsCacheBudget"));
+      offerForce(!force && (e.details || []).some(d => d === "exceedsCacheBudget" || d === "exceedsCacheQuota"));
     }
   };
 
@@ -20570,8 +20684,14 @@ async function handleClick(event) {
       return;
     }
 
+    // <b>`?service=` names which layer of that name — D-276</b>, as the other layer routes send it: the route
+    // resolves one layer and refuses an ambiguous name, so without it a layer name two services share could not
+    // have its lifetime set from here at all.
+    const place = placeOf(d.cache);
+    const which = place ? `?service=${encodeURIComponent(place.service)}` : "";
+
     try {
-      const r = await api(`/admin/layers/${encodeURIComponent(d.cache)}/cache`, {
+      const r = await api(`/admin/layers/${encodeURIComponent(d.cache)}/cache${which}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ seconds }),

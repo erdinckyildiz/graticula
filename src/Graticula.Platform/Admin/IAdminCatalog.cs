@@ -706,6 +706,36 @@ public interface IAdminCatalog
     Task<bool> SetCacheLifetimeAsync(
         Guid layerId, int? seconds, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Sets how long past its lifetime a layer's tile may be served while its source cannot build it —
+    /// ADR-010 §5.1a, owner decision 2026-09-29.
+    /// </summary>
+    /// <param name="layerId">The layer, by catalogue id — D-276.</param>
+    /// <param name="seconds">Seconds, zero for never, or null for the server's own limit.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the layer existed.</returns>
+    /// <remarks>
+    /// <b>No purge, for <see cref="SetCacheLifetimeAsync"/>'s reason:</b> how long an old tile may stand in for a
+    /// new one changes nothing a cached byte says.
+    /// </remarks>
+    Task<bool> SetStaleLimitAsync(
+        Guid layerId, int? seconds, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Sets how many megabytes of the tile cache a service may hold — ADR-010 §3, owner decision 2026-09-29.
+    /// </summary>
+    /// <param name="serviceId">The service, by catalogue id — D-275: the endpoint resolved it by folder and name.</param>
+    /// <param name="megabytes">The quota, or null for none.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the service existed.</returns>
+    /// <remarks>
+    /// <b>Nothing is evicted by setting it.</b> The quota is applied as the service's next tile is written, which
+    /// is when a service can go over it; an administrator who lowers it sees the service's tiles fall to 90% of
+    /// it as the map is used, not in one sweep that races the requests.
+    /// </remarks>
+    Task<bool> SetTileCacheQuotaAsync(
+        Guid serviceId, int? megabytes, CancellationToken cancellationToken);
+
     /// <summary>Declares which column carries a layer's time, or clears the declaration.</summary>
     /// <param name="layerId">The layer, by catalogue id.</param>
     /// <param name="field">The column, or null to go back to deriving it.</param>

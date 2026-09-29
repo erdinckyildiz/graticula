@@ -1124,6 +1124,7 @@ internal static class VectorTileEndpoints
         UnindexedLayerNotices unindexed,
         ILoggerFactory loggerFactory,
         GeoParquetSources geoParquet,
+        StaleTileNotices stale,
         CancellationToken cancellation)
     {
         PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
@@ -1151,7 +1152,7 @@ internal static class VectorTileEndpoints
 
         await ServeTileAsync(
                 context, service, address, contexts, connections, cache, building, projector, datumShifts,
-                unindexed, loggerFactory, geoParquet, cancellation)
+                unindexed, loggerFactory, geoParquet, stale, cancellation)
             .ConfigureAwait(false);
     }
 
@@ -1171,15 +1172,27 @@ internal static class VectorTileEndpoints
     /// <param name="unindexed">Where a layer with no spatial index is said once.</param>
     /// <param name="loggerFactory">For the notices.</param>
     /// <param name="geoParquet">For a GeoParquet layer's file version.</param>
+    /// <param name="stale">Where a stale answer is counted and said — ADR-010 §5.1a.</param>
     /// <param name="cancellation">The caller's.</param>
     /// <returns>When the response is written.</returns>
     /// <remarks>
+    /// <para>
+    /// <b>Stale-while-error lives here and nowhere below — ADR-010 §5.1a, owner decision 2026-09-29, D-278.</b>
+    /// When a layer's build is refused because its source cannot build it — the breaker is open or the database
+    /// cannot be reached, its <c>ConnectionBudget</c> is full, or an operator has quiesced it — the cache's copy
+    /// of that exact tile stands in if it is no more than the layer's stale limit past its lifetime
+    /// (<see cref="PartOrStandInAsync"/>). A seed and an export call <see cref="LayerPartAsync"/> directly and
+    /// never reach this, so neither ever takes a stale copy for a built tile: a seed pauses on the refusal as it
+    /// did, and an export packages only tiles built or fresh.
+    /// </para>
+    /// <para>
     /// <b>Split out of the tile route unchanged on 2026-09-29 so the standard tile faces serve through it —
     /// ADR-097.</b> OGC API Tiles and WMTS each find the service and the address in their own vocabulary,
     /// and from here on a tile is a tile: the same keys, the same single-flight, the same admission, the
     /// same bytes, the same <c>Cache-Control</c>, <c>Age</c>, weak ETag and 304, and the same
     /// <c>X-Tile-Cache</c>. A second copy of this loop would be the seed's old risk (ADR-093 §5.5) on three
     /// faces — a cache filled under keys one of them never reads.
+    /// </para>
     /// </remarks>
     internal static async Task ServeTileAsync(
         HttpContext context,
@@ -1194,6 +1207,7 @@ internal static class VectorTileEndpoints
         UnindexedLayerNotices unindexed,
         ILoggerFactory loggerFactory,
         GeoParquetSources geoParquet,
+        StaleTileNotices stale,
         CancellationToken cancellation)
     {
         VectorTileScheme scheme = service.TileScheme;
@@ -1209,26 +1223,21 @@ internal static class VectorTileEndpoints
         // serve three-layer tiles from every warm entry in the pyramid. Per
         // layer, a new layer simply has no entries yet and the other three keep
         // theirs.
-        List<byte[]> parts = [];
-        bool builtSomething = false;
-        bool waitedForSomething = false;
+        List<(PublishedLayer Layer, LayerPart Part)> parts = [];
 
-        // <b>The shortest of the service's layers wins.</b> One tile carries
-        // every layer, so it can only be as fresh as its most volatile part —
-        // telling a browser to keep it for a day because two of three layers
-        // are static would serve the third stale for a day.
         TimeSpan defaultLifetime = cache is FileSystemTileCache disk
             ? disk.DefaultLifetime
             : TimeSpan.FromHours(1);
 
-        TimeSpan shortest = TimeSpan.MaxValue;
+        // The server's stale limit, for a layer that names none; a cache that cannot say has none to offer.
+        TimeSpan defaultStaleLimit = cache is FileSystemTileCache held ? held.DefaultStaleLimit : TimeSpan.Zero;
 
-        // Whether any layer in the tile is one a browser must ask about before reusing — V-56.
-        bool revalidate = false;
+        // <b>The service's quota travels with every write — ADR-010 §3</b>, so the service's own tiles make room for
+        // this one when it is over; null for a service with none, which is the ordinary case and costs nothing.
+        TileCacheQuota? quota = QuotaOf(service);
 
-        // <b>The stalest cached part, for `Age`.</b> `MaxValue` means nothing came
-        // from the cache, which is the case where there is no age to report.
-        DateTimeOffset oldest = DateTimeOffset.MaxValue;
+        // What refused a build that a stale copy then stood in for — the log line's reason.
+        Exception? refusedFor = null;
 
         foreach (PublishedLayer layer in service.Layers)
         {
@@ -1251,13 +1260,107 @@ internal static class VectorTileEndpoints
             // seed already takes: quiesce, breaker, budget, keyed on the source. Only a build asks for
             // it, so a tile the cache answers costs no permit; a refusal propagates to the exception
             // handler, which answers it as every read path's is answered — 503 with `Retry-After`.
-            LayerPart part = await LayerPartAsync(
-                    layer, address, defaultLifetime, contexts, connections, cache, building,
-                    projector, datumShifts, unindexed, loggerFactory, geoParquet,
-                    admit: permit => connections.AdmitTileBuildAsync(layer, permit),
-                    cancellation,
-                    scheme)
+            //
+            // <b>And a refusal is where stale-while-error begins — ADR-010 §5.1a.</b> The refusal is caught for this
+            // layer alone, and the cache's copy of this layer's part stands in when there is one young enough; when
+            // there is not, the refusal goes on to the handler exactly as before.
+            (LayerPart part, Exception? refused) = await PartOrStandInAsync(
+                    () => LayerPartAsync(
+                        layer, address, defaultLifetime, contexts, connections, cache, building,
+                        projector, datumShifts, unindexed, loggerFactory, geoParquet,
+                        admit: permit => connections.AdmitTileBuildAsync(layer, permit),
+                        cancellation,
+                        scheme,
+                        quota),
+                    () => StandInAsync(
+                        layer, address, defaultLifetime, defaultStaleLimit, contexts, cache, geoParquet, scheme,
+                        cancellation))
                 .ConfigureAwait(false);
+
+            if (part.Came == PartCame.Stale)
+            {
+                refusedFor ??= refused;
+            }
+
+            parts.Add((layer, part));
+        }
+
+        if (refusedFor is not null)
+        {
+            stale.Note(service.Id, service.QualifiedName, refusedFor.Message, loggerFactory.CreateLogger("tiles"));
+        }
+
+        await RespondAsync(context, parts, defaultLifetime, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// How much longer a browser or a proxy may keep a tile that went out stale: a minute — owner decision
+    /// 2026-09-29. Sent as <c>max-age</c> = the tile's <c>Age</c> plus this.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Short, because the source may be back in a minute and the stale copy should not outlive the outage
+    /// downstream.</b> A layer a browser must revalidate (V-56) still gets <c>no-cache</c>, which is shorter.
+    /// </para>
+    /// <para>
+    /// <b>Added to the <c>Age</c>, not sent alone — corrected the same day, by owner direction.</b> RFC 9111 §4.2.3
+    /// has a downstream cache compare <c>max-age</c> with the response's current age, which starts at the
+    /// <c>Age</c> header. A stale tile is by definition older than its lifetime and so nearly always older than a
+    /// minute, and a bare <c>max-age=60</c> made every browser and proxy that honours <c>Age</c> treat it as expired
+    /// on arrival — the minute was never kept. The real <c>Age</c> is still sent; <c>max-age</c> is that age plus a
+    /// minute, so the minute is counted from receipt.
+    /// </para>
+    /// </remarks>
+    internal static readonly TimeSpan StaleMaxAge = TimeSpan.FromMinutes(1);
+
+    /// <summary>The whole seconds since the stalest cached part was written, or zero when nothing came from the cache.</summary>
+    private static long AgeOf(DateTimeOffset oldest, DateTimeOffset now) =>
+        oldest == DateTimeOffset.MaxValue ? 0 : (long)Math.Max(0, (now - oldest).TotalSeconds);
+
+    /// <summary>
+    /// The one tile's response, from its layers' parts: the joined bytes, <c>X-Tile-Cache</c>, <c>Cache-Control</c>,
+    /// <c>Age</c>, the weak ETag and its 304 — or 204.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="parts">Each drawn layer and its part, in the service's order.</param>
+    /// <param name="defaultLifetime">The server's tile lifetime, for a tile no layer drew.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>When the response is written.</returns>
+    /// <remarks>
+    /// <b>Split out of <see cref="ServeTileAsync"/> on 2026-09-29, unchanged but for the stale state, so what a
+    /// stale tile's headers are can be tested without a database</b> — <c>StaleWhileErrorTests</c>.
+    /// </remarks>
+    internal static Task RespondAsync(
+        HttpContext context,
+        IReadOnlyList<(PublishedLayer Layer, LayerPart Part)> parts,
+        TimeSpan defaultLifetime,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(parts);
+
+        List<byte[]> bytes = [];
+        List<PublishedLayer> layers = [];
+        bool builtSomething = false;
+        bool waitedForSomething = false;
+        bool staleSomething = false;
+
+        // <b>The shortest of the service's layers wins.</b> One tile carries
+        // every layer, so it can only be as fresh as its most volatile part —
+        // telling a browser to keep it for a day because two of three layers
+        // are static would serve the third stale for a day.
+        TimeSpan shortest = TimeSpan.MaxValue;
+
+        // Whether any layer in the tile is one a browser must ask about before reusing — V-56.
+        bool revalidate = false;
+
+        // <b>The stalest cached part, for `Age`.</b> `MaxValue` means nothing came
+        // from the cache, which is the case where there is no age to report.
+        DateTimeOffset oldest = DateTimeOffset.MaxValue;
+
+        foreach ((PublishedLayer layer, LayerPart part) in parts)
+        {
+            layers.Add(layer);
 
             if (part.Lifetime < shortest)
             {
@@ -1273,22 +1376,26 @@ internal static class VectorTileEndpoints
             // several layers' parts with different lifetimes and different write
             // times, and `Age` means *how long ago this response was generated* — so
             // the answer for a composite is the staleness of its stalest piece.
-            // Anything else would understate it. D-248.
+            // Anything else would understate it. D-248. A stale part's is its real age, past its lifetime.
             if (part.Written is { } when && when < oldest)
             {
                 oldest = when;
             }
 
-            if (part.Came == PartCame.Built)
+            switch (part.Came)
             {
-                builtSomething = true;
-            }
-            else if (part.Came == PartCame.Coalesced)
-            {
-                waitedForSomething = true;
+                case PartCame.Built:
+                    builtSomething = true;
+                    break;
+                case PartCame.Coalesced:
+                    waitedForSomething = true;
+                    break;
+                case PartCame.Stale:
+                    staleSomething = true;
+                    break;
             }
 
-            parts.Add(part.Bytes);
+            bytes.Add(part.Bytes);
         }
 
         // <b>Three states, not two, because the third is the one worth
@@ -1296,23 +1403,191 @@ internal static class VectorTileEndpoints
         // COALESCED means it wanted a cold tile and got somebody else's build
         // for free — which is the whole point of TileSingleFlight, and is
         // invisible if both are reported as a miss.
-        string disposition = builtSomething
-            ? "MISS"
-            : waitedForSomething ? "COALESCED" : "HIT";
+        //
+        // <b>And STALE before all of them — ADR-010 §5.1a's explicit header.</b> One stale part makes the whole
+        // tile one a client should know is old, whatever its other layers were.
+        string disposition = staleSomething
+            ? "STALE"
+            : builtSomething
+                ? "MISS"
+                : waitedForSomething ? "COALESCED" : "HIT";
 
-        await WriteTileAsync(
+        TimeSpan lifetime = shortest == TimeSpan.MaxValue ? defaultLifetime : shortest;
+
+        // One clock reading for both headers, so `max-age` is exactly the `Age` sent plus the stale minute.
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        long age = AgeOf(oldest, now);
+
+        return WriteTileAsync(
             context,
-            Concatenate(parts),
+            Concatenate(bytes),
             disposition,
             revalidate
-                ? QueryResponseCaching.RevalidateFor(context, service.Layers)
+                ? QueryResponseCaching.RevalidateFor(context, layers)
                 : QueryResponseCaching.CacheControlFor(
                     context,
-                    service.Layers,
-                    shortest == TimeSpan.MaxValue ? defaultLifetime : shortest),
-            oldest,
-            cancellation)
-            .ConfigureAwait(false);
+                    layers,
+                    staleSomething && lifetime > TimeSpan.Zero
+                        ? TimeSpan.FromSeconds(age) + StaleMaxAge
+                        : lifetime),
+            oldest == DateTimeOffset.MaxValue ? null : age,
+            cancellation);
+    }
+
+    /// <summary>
+    /// A layer's part, or — when its source refused to build it — the cache's copy standing in for it, with the
+    /// refusal it stood in for.
+    /// </summary>
+    /// <param name="build">The part as <see cref="LayerPartAsync"/> makes it.</param>
+    /// <param name="standIn">The cached copy, or null when there is none young enough — <see cref="StandInAsync"/>.</param>
+    /// <returns>The part, and the refusal when a stand-in answered.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Only the refusals that mean <em>the source cannot build this now</em> — owner decision 2026-09-29.</b>
+    /// <see cref="SourceRefused"/>: the breaker open or the database unreachable, the budget full, the source
+    /// quiesced. A query error, a bad tile address or a bug is not an outage, and a stale tile over it would hide
+    /// the fault the error is reporting.
+    /// </para>
+    /// <para>
+    /// <b>With no stand-in, the refusal is rethrown as it was</b>, so the answer is the 503 with
+    /// <c>Retry-After</c> it was before this existed.
+    /// </para>
+    /// </remarks>
+    internal static async Task<(LayerPart Part, Exception? Refused)> PartOrStandInAsync(
+        Func<Task<LayerPart>> build, Func<Task<LayerPart?>> standIn)
+    {
+        ArgumentNullException.ThrowIfNull(build);
+        ArgumentNullException.ThrowIfNull(standIn);
+
+        try
+        {
+            return (await build().ConfigureAwait(false), null);
+        }
+        catch (Exception refused) when (SourceRefused(refused))
+        {
+            if (await standIn().ConfigureAwait(false) is { } held)
+            {
+                return (held, refused);
+            }
+
+            throw;
+        }
+    }
+
+    /// <summary>Whether a failure means the layer's source cannot build a tile now, rather than that something is wrong.</summary>
+    /// <param name="failure">What the build threw.</param>
+    /// <returns>True for the three refusals ADR-010 §5.1a serves stale over.</returns>
+    /// <remarks>
+    /// <b>Unreachable is <see cref="SourceBreaker.Unreachable"/>'s answer, called rather than restated</b> — the
+    /// same discriminator <c>ServiceContexts</c> falls back on — so a <c>PostgresException</c> that is an answer
+    /// from a live database is never read as an outage here and there differently.
+    /// </remarks>
+    internal static bool SourceRefused(Exception failure) =>
+        failure is not OperationCanceledException
+        && (failure is ConnectionBudgetFullException or SourceQuiescedException
+            || SourceBreaker.Unreachable(failure));
+
+    /// <summary>
+    /// A layer's cached part as it stands in for a refused build: fresh, or past its lifetime by no more than its
+    /// stale limit — or null.
+    /// </summary>
+    /// <param name="layer">The layer.</param>
+    /// <param name="address">The tile.</param>
+    /// <param name="defaultLifetime">The server's tile lifetime, for a layer that set none.</param>
+    /// <param name="defaultStaleLimit">The server's stale limit, for a layer that set none.</param>
+    /// <param name="contexts">Where the layer's last shape is remembered.</param>
+    /// <param name="cache">The tile cache.</param>
+    /// <param name="geoParquet">For a GeoParquet layer's file version.</param>
+    /// <param name="scheme">The service's grid.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The part, or null.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The key is the one <see cref="LayerPartAsync"/> reads, built from the shape this process last read</b>
+    /// (<c>ServiceContexts.Remembered</c>) because the source that will not build cannot describe either. Same
+    /// layer, same pipeline, same grid, same columns: so only this exact tile's copy is found, and a copy an edit,
+    /// a refresh, a data-source move (ADR-095), a scheme switch (ADR-096) or a new pipeline made unreachable or
+    /// deleted is not — ADR-010 §5.1's <em>wrong</em> class stays purged.
+    /// </para>
+    /// <para>
+    /// <b>A fresh copy is found too</b>, and goes out as a hit: a quiesced source refuses its describe before its
+    /// build, so a tile still in its lifetime needs this door as much as an expired one.
+    /// </para>
+    /// <para>
+    /// <b>Anything that goes wrong here answers null</b>, so the caller rethrows the refusal it was standing in
+    /// for: this is the cache failing soft, and the operator is owed the source's sentence rather than the cache's.
+    /// </para>
+    /// </remarks>
+    internal static async Task<LayerPart?> StandInAsync(
+        PublishedLayer layer,
+        TileAddress address,
+        TimeSpan defaultLifetime,
+        TimeSpan defaultStaleLimit,
+        ServiceContexts contexts,
+        ITileCache cache,
+        GeoParquetSources geoParquet,
+        VectorTileScheme scheme,
+        CancellationToken cancellation)
+    {
+        try
+        {
+            if (contexts.Remembered(layer) is not { } description)
+            {
+                return null;
+            }
+
+            return await StaleOrNothingAsync(
+                    KeyOf(layer, AttributesOf(layer, description), address, geoParquet, scheme),
+                    LifetimeOf(layer, defaultLifetime),
+                    layer.StaleLimit ?? defaultStaleLimit,
+                    layer.CacheLifetime is null && QueryResponseCaching.Editable(layer, description.Writable),
+                    cache,
+                    cancellation)
+                .ConfigureAwait(false);
+        }
+        catch (Exception failure) when (failure is not OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The cache's copy of one key as a stand-in part, or null — the half of <see cref="StandInAsync"/> that
+    /// needs no description, so it can be tested on a cache alone.</summary>
+    /// <param name="key">The part's key.</param>
+    /// <param name="lifetime">How long the layer's tiles stay fresh.</param>
+    /// <param name="staleLimit">How long past that a copy may stand in.</param>
+    /// <param name="revalidate">Whether a browser must ask before reusing it — V-56.</param>
+    /// <param name="cache">The tile cache.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The part — <see cref="PartCame.Stale"/> when past its lifetime — or null.</returns>
+    internal static async Task<LayerPart?> StaleOrNothingAsync(
+        TileCacheKey key,
+        TimeSpan lifetime,
+        TimeSpan staleLimit,
+        bool revalidate,
+        ITileCache cache,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(cache);
+
+        CachedTile held = await cache.ReadExpiredAsync(key, lifetime, staleLimit, cancellation).ConfigureAwait(false);
+
+        return held.Answered
+            ? new LayerPart(
+                held.Bytes, held.Expired ? PartCame.Stale : PartCame.Cached, held.Written, lifetime, revalidate)
+            : null;
+    }
+
+    /// <summary>The service's tile cache quota as a write carries it, or null for a service with none — ADR-010 §3.</summary>
+    /// <param name="service">The service.</param>
+    /// <returns>The quota.</returns>
+    internal static TileCacheQuota? QuotaOf(PublishedService service)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+
+        return service.TileCacheQuotaBytes is { } bytes
+            ? new TileCacheQuota(service.Id, [.. service.Layers.Select(layer => layer.Id)], bytes)
+            : null;
     }
 
     /// <summary>Where one layer's part of a tile came from.</summary>
@@ -1326,6 +1601,12 @@ internal static class VectorTileEndpoints
 
         /// <summary>Somebody else was building it, and this caller waited for their build.</summary>
         Coalesced,
+
+        /// <summary>
+        /// Its source refused to build it and the cache's copy, past its lifetime, stood in — ADR-010 §5.1a. Only
+        /// <see cref="ServeTileAsync"/> makes one; a seed and an export never see it.
+        /// </summary>
+        Stale,
     }
 
     /// <summary>One layer's encoded part of a tile, and what serving needs to know about it.</summary>
@@ -1425,6 +1706,8 @@ internal static class VectorTileEndpoints
     /// The grid the layer's service is cut on, or null for Web Mercator — ADR-096. It decides the key, the
     /// source's envelope and the reference the datum notice names; serving and a seed pass the service's.
     /// </param>
+    /// <param name="quota">The service's tile cache quota, or null — ADR-010 §3. Serving, a seed and an export
+    /// all pass it, so a service stays inside it however its tiles are built.</param>
     /// <returns>The part.</returns>
     /// <remarks>
     /// <para>
@@ -1454,7 +1737,8 @@ internal static class VectorTileEndpoints
         GeoParquetSources geoParquet,
         Func<CancellationToken, ValueTask<IDisposable>>? admit,
         CancellationToken cancellation,
-        VectorTileScheme? scheme = null)
+        VectorTileScheme? scheme = null,
+        TileCacheQuota? quota = null)
     {
         scheme ??= VectorTileScheme.WebMercator;
 
@@ -1519,7 +1803,7 @@ internal static class VectorTileEndpoints
         return await CachedOrBuiltAsync(
                 key, address, layer.Definition.Name, lifetime, revalidate, cache, building,
                 () => connections.TileSourceFor(layer, attributes, scheme.IsWebMercator ? null : scheme),
-                admit, cancellation)
+                admit, cancellation, quota)
             .ConfigureAwait(false);
     }
 
@@ -1537,6 +1821,7 @@ internal static class VectorTileEndpoints
     /// <param name="sourceFor">The layer's tile source, asked for only on a miss.</param>
     /// <param name="admit">Taken around a build, or null — see <see cref="LayerPartAsync"/>.</param>
     /// <param name="cancellation">The caller's; a shared build does not carry it.</param>
+    /// <param name="quota">The service's tile cache quota, or null — carried to the write.</param>
     /// <returns>The part.</returns>
     /// <remarks>
     /// <b>Split from <see cref="LayerPartAsync"/> on 2026-09-29, unchanged, so the order of the three
@@ -1554,7 +1839,8 @@ internal static class VectorTileEndpoints
         TileSingleFlight building,
         Func<ITileSource> sourceFor,
         Func<CancellationToken, ValueTask<IDisposable>>? admit,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        TileCacheQuota? quota = null)
     {
         CachedTile cached = await cache.ReadAsync(key, lifetime, cancellation)
             .ConfigureAwait(false);
@@ -1596,7 +1882,7 @@ internal static class VectorTileEndpoints
                 // pyramid is emptiness and rebuilding the ocean on every
                 // request is the waste ADR-010 §2's negative caching exists
                 // to stop.
-                await cache.WriteAsync(key, bytes, CancellationToken.None)
+                await cache.WriteAsync(key, bytes, quota, CancellationToken.None)
                     .ConfigureAwait(false);
 
                 return bytes;
@@ -1674,7 +1960,7 @@ internal static class VectorTileEndpoints
         byte[] tile,
         string cacheState,
         string cacheControl,
-        DateTimeOffset oldest,
+        long? age,
         CancellationToken cancellation)
     {
         context.Response.Headers["X-Tile-Cache"] = cacheState;
@@ -1692,11 +1978,11 @@ internal static class VectorTileEndpoints
         // an age of zero and `Age: 0` is legal, but saying it on every miss would make
         // the header noise rather than a signal — and the number this cache can stand
         // behind is the one it stamped, not one inferred for a response it just made.
-        if (oldest != DateTimeOffset.MaxValue)
+        //
+        // <b>Computed by the caller since 2026-09-29</b> (`RespondAsync`), from the same clock reading a stale
+        // tile's `max-age` is built from, so the two cannot disagree by the second between two reads.
+        if (age is { } seconds)
         {
-            long seconds = (long)Math.Max(
-                0, (DateTimeOffset.UtcNow - oldest).TotalSeconds);
-
             context.Response.Headers["Age"] =
                 seconds.ToString(CultureInfo.InvariantCulture);
         }

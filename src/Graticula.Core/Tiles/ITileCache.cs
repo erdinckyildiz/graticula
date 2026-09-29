@@ -44,8 +44,13 @@ public enum TileCacheOutcome
 /// staleness was ours plus theirs, per layer of cache, and nothing in the response
 /// said so.
 /// </remarks>
+/// <param name="Expired">
+/// True when the entry is past its lifetime and was handed out anyway, by
+/// <see cref="ITileCache.ReadExpiredAsync"/> — ADR-010 §5.1a. Never true from
+/// <see cref="ITileCache.ReadAsync"/>, which treats an expired entry as a miss.
+/// </param>
 public readonly record struct CachedTile(
-    TileCacheOutcome Outcome, byte[] Bytes, DateTimeOffset? Written = null)
+    TileCacheOutcome Outcome, byte[] Bytes, DateTimeOffset? Written = null, bool Expired = false)
 {
     /// <summary>Nothing held.</summary>
     public static CachedTile Miss => new(TileCacheOutcome.Miss, []);
@@ -106,11 +111,53 @@ public interface ITileCache
     Task<CachedTile> ReadAsync(
         TileCacheKey key, TimeSpan lifetime, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Looks a tile up while its source cannot build it: the entry when it is fresh, or past its
+    /// lifetime by no more than <paramref name="staleLimit"/> — ADR-010 §5.1a.
+    /// </summary>
+    /// <param name="key">Which tile, and of what shape.</param>
+    /// <param name="lifetime">How long an entry for this layer stays fresh.</param>
+    /// <param name="staleLimit">How long past that an entry may still be served; zero for never.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What was found, with <see cref="CachedTile.Expired"/> saying whether it is past its lifetime.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A second method rather than a flag on <see cref="ReadAsync"/>, because the two are asked at
+    /// different moments.</b> <see cref="ReadAsync"/> is asked before a build and must call an expired entry
+    /// a miss, or nothing would ever be rebuilt. This is asked only after the build was refused — the
+    /// source's breaker is open, its budget is full, an operator quiesced it — when the alternative is a
+    /// 503 rather than a rebuild. Owner decision 2026-09-29, D-278.
+    /// </para>
+    /// <para>
+    /// <b>Only the exact key, so only what <see cref="Purge"/> left.</b> An entry an edit, a refresh or an
+    /// unpublish purged is gone from the disk and cannot be found here; an entry a changed shape, grid,
+    /// source or pipeline made unreachable is under another key and cannot be asked for. So §5.1's
+    /// <em>wrong</em> class never comes back through this door, and only its <em>stale</em> class does.
+    /// </para>
+    /// <para>
+    /// <b>A zero lifetime answers nothing, stale included.</b> It is an administrator saying <em>never serve
+    /// this layer from a cache</em>, and an outage does not change what they asked for.
+    /// </para>
+    /// </remarks>
+    Task<CachedTile> ReadExpiredAsync(
+        TileCacheKey key, TimeSpan lifetime, TimeSpan staleLimit, CancellationToken cancellationToken);
+
     /// <summary>Stores a tile, or the fact that it is empty.</summary>
     /// <param name="key">Which tile.</param>
     /// <param name="tile">The bytes, or empty to remember an absence.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     Task WriteAsync(TileCacheKey key, byte[] tile, CancellationToken cancellationToken);
+
+    /// <summary>Stores a tile, then holds its service inside the service's own quota.</summary>
+    /// <param name="key">Which tile.</param>
+    /// <param name="tile">The bytes, or empty to remember an absence.</param>
+    /// <param name="quota">The service's quota, or null for none — only the cache's own budget applies.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <remarks>
+    /// <b>The write is never refused for the quota</b> — owner decision 2026-09-29, ADR-010 §3. A service over
+    /// its quota evicts its own tiles, in the order the whole cache evicts, and the tile just built is kept.
+    /// </remarks>
+    Task WriteAsync(TileCacheKey key, byte[] tile, TileCacheQuota? quota, CancellationToken cancellationToken);
 
     /// <summary>
     /// Removes everything held for a layer.
@@ -136,3 +183,16 @@ public interface ITileCache
     /// </remarks>
     (int Entries, long Bytes) Report(Guid? layerId);
 }
+
+/// <summary>
+/// How many bytes of the cache one service's tiles may hold — ADR-010 §3's per-service quota.
+/// </summary>
+/// <param name="Service">The service, by catalogue id — what the quota's evictions are counted under.</param>
+/// <param name="Layers">Its layers, whose tiles are the service's: a tile is cached per layer.</param>
+/// <param name="Bytes">The quota.</param>
+/// <remarks>
+/// <b>Carried with the write rather than kept by the cache</b>, because the cache is keyed by layer and knows
+/// nothing of services, and the catalogue that does is read on every request anyway. A quota changed by an
+/// administrator is therefore in force on the next tile built, with nothing to invalidate.
+/// </remarks>
+public sealed record TileCacheQuota(Guid Service, System.Collections.Generic.IReadOnlyList<Guid> Layers, long Bytes);

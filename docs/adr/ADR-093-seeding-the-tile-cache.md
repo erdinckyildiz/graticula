@@ -140,6 +140,9 @@ database can take the load. An automatic seed of every service after every upgra
 | The estimate: the default per level, samples replacing it at 16, present tiles adding nothing, a level no layer draws adding nothing; the fit — a seed past the free space fits when only deeper tiles make its room, a seed inside the free space fits whatever outranks it, and another service's tiles at a level inside the seed's range outrank its higher levels; the highest level that fits; no overflow | `TileSeedEstimateTests` (24 cases, each number worked by hand), `FileSystemTileCacheTests.A_layers_holding_counts_samples_by_level_and_present_tiles_inside_the_rectangle`, `The_bytes_by_level_count_only_this_pipelines_tiles` | 2026-09-29, §5.9 |
 | A map's cold tile takes one permit per build and none for a cached tile; a refusal is shared by every caller waiting on the build and answered 503 | `TileBuildAdmissionTests` (6 cases, a real `ConnectionBudget`) | 2026-09-29, D-277. **The wiring — that the route passes the admission — is read, not tested** |
 | The dry run and the read-back carry the estimate and the budget; a seed that does not fit is refused with `exceedsCacheBudget` | `ASeededTileIsAServedTileTests.A_seed_says_its_size_and_one_that_does_not_fit_the_cache_is_refused` (conformance) | 2026-09-29. **Written and compiled; not run by the authoring session, which had no server.** It checks the refusal only when the fixture's cache makes it reachable |
+| A service over its quota evicts its own tiles in the budget's order and nobody else's, keeps the tile just written, and counts what it evicted; a seed is estimated against the quota counting only the service's own tiles, and refused with a sentence naming the quota and `force` | `FileSystemTileCacheTests.A_service_over_its_quota_evicts_its_own_tiles_highest_level_first_and_nobody_elses`, `Within_a_quota_another_pipelines_tiles_go_first`, `A_write_is_never_refused_for_the_quota_and_the_tile_just_written_is_kept`, `A_seed_larger_than_its_services_quota_is_refused_though_the_budget_has_room` | 2026-09-29, §5.9's quota, owner decision |
+| A seed never takes a stale copy for a built tile | `StaleWhileErrorTests.The_build_alone_never_takes_a_stale_copy` — the build a seed and an export call has no fallback; only serving does ([ADR-010](ADR-010-caching.md) §5.1a) | 2026-09-29, D-278 |
+| The quota is set, read back and cleared, and refused at zero; another folder's service is 403 or 404 | `AStaleTileStandsInForARefusedOneTests.A_services_quota_is_set_read_back_and_cleared`, `AServiceIsAddressedByItsFolderTests` (conformance) | 2026-09-29. **Written and compiled; not run by the authoring session, which had no server** |
 | The default guess is near a real estate's tile sizes | — | **not measured**, INFERRED (§5.9) |
 | How long a realistic estate takes to seed | — | **not measured.** [A-020](../architecture-assumptions.md) stays `UNVALIDATED` |
 
@@ -218,12 +221,13 @@ owner or an administrator (ADR-075). Reading needs that the caller may read the 
 
 | Route | Answer |
 |---|---|
-| `POST /admin/services/{name}/cache/seeds` `{minZoom?, maxZoom?, extent?, force?}` | **202** with the job id, where to watch it and the size estimate; **400** over the cap, with the count; **400** marked `exceedsCacheBudget` when the seed would evict tiles it had itself built and `force` is not `true` (§5.9); **409** while a seed of the service is queued or running, naming it; **404/403** as every service route |
-| `POST …/cache/seeds?dryRun=true` | **200** with the count per level, whether a layer draws there and each level's `estimatedBytes`; `estimate` — `bytes`, `budget`, `used`, `free`, `protectedBytes`, `evictionTarget`, `fits`, `maxZoomThatFits`, `sampled`; and `refusal`, the sentence a start would be refused with, when it does not fit. Nothing is written. Over the cap it is the start's 400 |
+| `POST /admin/services/{name}/cache/seeds` `{minZoom?, maxZoom?, extent?, force?}` | **202** with the job id, where to watch it and the size estimate; **400** over the cap, with the count; **400** marked `exceedsCacheBudget` when the seed would evict tiles it had itself built and `force` is not `true` (§5.9); since 2026-09-29 **400** marked `exceedsCacheQuota` when it would do so inside its service's quota, with `quotaEstimate` beside `estimate` (§5.9); **409** while a seed of the service is queued or running, naming it; **404/403** as every service route |
+| `POST …/cache/seeds?dryRun=true` | **200** with the count per level, whether a layer draws there and each level's `estimatedBytes`; `estimate` — `bytes`, `budget`, `used`, `free`, `protectedBytes`, `evictionTarget`, `fits`, `maxZoomThatFits`, `sampled`; `quotaEstimate`, the same fields against the service's quota (where `budget` is the quota), or null for a service with none; and `refusal`, the sentence a start would be refused with, when it does not fit either. Nothing is written. Over the cap it is the start's 400 |
+| `PUT /admin/services/{name}/cache/quota` `{megabytes}` | Added 2026-09-29 ([ADR-010](ADR-010-caching.md) §3): sets the service's tile cache quota, or clears it with `null`; **400** for zero or less; audited as `service.cache.quota` with what it was and became. The privilege, the address and the ownership check are this section's |
 | `GET /admin/services/{name}/cache/seeds` | The service's seeds, newest first |
 | `GET …/cache/seeds/{id}` | One seed: status, per level `tiles`/`done`/`built`/`present`/`empty`/`failed`/`skipped`, started and finished, the pause, and the estimated time left from the observed rate |
 | `DELETE …/cache/seeds/{id}` | **200** cancelled; **409** when it has already ended |
-| `GET /admin/services/{name}/cache` | [ADR-010](ADR-010-caching.md) §6b: for each level a seed has finished, when, over what area, how many tiles the area holds, and how many are cached and fresh **now** for every layer drawn there; any running seed; the defaults, the cap and the concurrency; and since 2026-09-29 `budget` — the cache's budget, what the whole cache uses and has free, and this service's share (§5.9) |
+| `GET /admin/services/{name}/cache` | [ADR-010](ADR-010-caching.md) §6b: for each level a seed has finished, when, over what area, how many tiles the area holds, and how many are cached and fresh **now** for every layer drawn there; any running seed; the defaults, the cap and the concurrency; and since 2026-09-29 `budget` — the cache's budget, what the whole cache uses and has free, and this service's share (§5.9); `quota` — the service's quota in megabytes or null, what its tiles hold, and what the quota has evicted since the process started; `stale` — how many answers were served stale ([ADR-010](ADR-010-caching.md) §5.1a) and the server's limit; and per layer its `staleSeconds` and whether it is the layer's own |
 
 Starting and cancelling are audited as `service.cache.seed` and `service.cache.seed.cancel`. Since 2026-09-29 a
 start's record carries the estimate, the free space, what outranked the seed, whether it fitted, and
@@ -244,6 +248,11 @@ The layer's *Caching* page, under *Tile cache*, has a *Seed the cache* box for t
 the levels (defaulted by the server), the area (the whole service, or the map's current extent when the map
 is showing), *Count tiles* (the dry run), *Start*, and while a seed runs, its progress polled every two
 seconds and *Cancel*. Under it is the per-level table from §5.6. Every request sends the folder.
+
+Since 2026-09-29 the page also sets, above the seed box, the layer's **stale limit** — how many hours past its
+lifetime a tile may stand in while the source is down, empty for the server's own — and the service's **cache
+quota** in megabytes, empty for none; the service's use against its quota and what it has evicted are shown
+under the budget line ([ADR-010](ADR-010-caching.md) §3 and §5.1a).
 
 ### 5.9 Size, and which end the cache evicts — added 2026-09-29
 
@@ -286,6 +295,19 @@ Owner decision, 2026-09-29: *a seed warns before it outgrows the cache, and low 
   in what the low levels leave free.
 - **The console** shows the estimate beside the count, the refusal when it does not fit and *Seed anyway*,
   which sends `force`; the cache's budget and use are shown under the box.
+
+- **The service's quota — added 2026-09-29, owner decision** ([ADR-010](ADR-010-caching.md) §3). A service may
+  have a quota of its own, and a seed of it is measured against the quota by **the same rule**, with the quota in
+  the budget's place: a level is kept when the seed's bytes up to it fit in what the quota leaves free, or when
+  they fit, with **the service's own** tiles of this pipeline below it, in 90% of the quota. Only the service's
+  own tiles, because a quota evicts nothing else — another service's low levels outrank nothing inside it. A
+  seed that fits the budget and not the quota is a **400** marked `exceedsCacheQuota`, in the budget refusal's
+  shape and naming the quota; the budget is checked first, and `force` overrides either. Every build a seed
+  makes carries the quota to the write, as serving's does, so a forced seed evicts its own highest levels
+  inside the quota rather than other services' tiles.
+- **A refused build pauses a seed, and is never answered stale for it.** [ADR-010](ADR-010-caching.md) §5.1a,
+  built the same day, answers a map's refused tile from the expired copy; that fallback is in the serving path
+  only, so a seed's refused tile is the pause of §5.4 as before, and a seed's `present` never counts a stale copy.
 
 **INFERRED, listed for confirmation:** the default guess and its shape; 16 samples as enough; 400 rather than
 409 for a seed that does not fit (the owner allowed either; 400 matches the cap); the fit counting every

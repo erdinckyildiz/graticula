@@ -238,11 +238,18 @@ public sealed class TileBuildAdmissionTests
                 ? new CachedTile(bytes.Length == 0 ? TileCacheOutcome.Empty : TileCacheOutcome.Hit, bytes, DateTimeOffset.UtcNow)
                 : CachedTile.Miss);
 
+        public Task<CachedTile> ReadExpiredAsync(
+            TileCacheKey key, TimeSpan lifetime, TimeSpan staleLimit, CancellationToken cancellationToken) =>
+            ReadAsync(key, lifetime, cancellationToken);
+
         public Task WriteAsync(TileCacheKey key, byte[] tile, CancellationToken cancellationToken)
         {
             _held[key] = tile;
             return Task.CompletedTask;
         }
+
+        public Task WriteAsync(TileCacheKey key, byte[] tile, TileCacheQuota? quota, CancellationToken cancellationToken) =>
+            WriteAsync(key, tile, cancellationToken);
 
         public int Purge(Guid layerId) => 0;
 

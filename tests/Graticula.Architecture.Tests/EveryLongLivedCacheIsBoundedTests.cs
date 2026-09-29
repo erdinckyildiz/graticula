@@ -68,6 +68,13 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["ConnectionBudget._sources"] = "one semaphore per data source",
         ["ConnectionBudget._waiting"] = "one counter per data source",
         ["FileSystemTileCache._index"] = "byte budget with least-recently-used eviction",
+
+        // ADR-010 §3, 2026-09-29: the per-layer counters a service's quota is summed from, and what each quota evicted.
+        ["FileSystemTileCache._layerBytes"] = "one per layer with a tile in the cache, so the catalogue bounds it; removed when the layer is purged",
+        ["FileSystemTileCache._quotaEvicted"] = "one per service whose quota has evicted a tile since the process started, so the catalogue bounds it",
+
+        // ADR-010 §5.1a, 2026-09-29.
+        ["StaleTileNotices._served"] = "one per service answered with a stale tile since the process started, so the catalogue bounds it",
         ["FeatureServerQueryWriter._fields"] = "one per column of the layer being queried; the writer is built per request and does not outlive it",
         ["InventoryScan.ServiceTypes"] = "fixed: the ArcGIS service types the inventory names, written once",
         ["FeatureCollectionPbfWriter._fields"] = "one per column of the layer being queried; the pbf writer is built per request and does not outlive it",

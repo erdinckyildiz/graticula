@@ -132,6 +132,17 @@ public sealed class PublishedLayer
     public TimeSpan? CacheLifetime { get; }
 
     /// <summary>
+    /// How long past <see cref="CacheLifetime"/> this layer's tiles may still be served while its source cannot
+    /// build them, or null for the server's own figure (<c>Graticula:TileStaleIfErrorHours</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-010 §5.1a, owner decision 2026-09-29 (migration 65).</b> Null and zero differ as they do for the
+    /// lifetime: zero is <em>never serve this layer stale</em>, for a layer whose old picture would mislead more
+    /// than a blank one.
+    /// </remarks>
+    public TimeSpan? StaleLimit { get; init; }
+
+    /// <summary>
     /// What one request may cost the service this layer belongs to (Q-113).
     /// </summary>
     /// <remarks>

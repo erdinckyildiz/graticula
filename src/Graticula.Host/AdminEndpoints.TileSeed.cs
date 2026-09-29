@@ -52,6 +52,7 @@ internal static partial class AdminEndpoints
     private static void MapTileSeed(WebApplication app)
     {
         app.MapGet("/admin/services/{name}/cache", GetServiceCacheAsync);
+        app.MapPut("/admin/services/{name}/cache/quota", SetCacheQuotaAsync);
         app.MapPost("/admin/services/{name}/cache/seeds", StartSeedAsync);
         app.MapGet("/admin/services/{name}/cache/seeds", ListSeedsAsync);
         app.MapGet("/admin/services/{name}/cache/seeds/{id:guid}", GetSeedAsync);
@@ -68,6 +69,10 @@ internal static partial class AdminEndpoints
     /// </param>
     internal sealed record SeedRequest(int? MinZoom, int? MaxZoom, SeedExtent? Extent, bool? Force = null);
 
+    /// <summary>A service's tile cache quota on the wire — ADR-010 §3.</summary>
+    /// <param name="Megabytes">The quota, or null for none: only the cache's own budget applies.</param>
+    internal sealed record CacheQuotaRequest(int? Megabytes);
+
     /// <summary>An area, as an ArcGIS envelope: in Web Mercator or in WGS 84 degrees.</summary>
     internal sealed record SeedExtent(
         double Xmin, double Ymin, double Xmax, double Ymax,
@@ -75,6 +80,32 @@ internal static partial class AdminEndpoints
 
     /// <summary>An envelope's spatial reference.</summary>
     internal sealed record SeedReference(int? Wkid, int? LatestWkid);
+
+    /// <summary>
+    /// A layer's description for the cache report: fresh when the source answers, the last one this server
+    /// read when it does not, and null when there is neither.
+    /// </summary>
+    /// <remarks>
+    /// <b>The report has to answer while the source is refusing — found 2026-09-29.</b> It read every layer's
+    /// description from its source, so while a data source was quiesced the whole report was a 503: the
+    /// stale-tile counter it carries could not be read at exactly the moment stale tiles were being served.
+    /// A refusal is <c>VectorTileEndpoints.SourceRefused</c>'s, the same rule the tile path's stand-in uses,
+    /// and the fallback is the same remembered description (<c>ServiceContexts.Remembered</c>). With neither,
+    /// the fields that need a description say null rather than a guess.
+    /// </remarks>
+    private static async Task<LayerDescription?> DescribedForReportAsync(
+        ServiceContexts contexts, PublishedLayer layer, CancellationToken cancellation)
+    {
+        try
+        {
+            (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+            return described;
+        }
+        catch (Exception refused) when (VectorTileEndpoints.SourceRefused(refused))
+        {
+            return contexts.Remembered(layer);
+        }
+    }
 
     /// <summary>
     /// The levels a seed of this service covers when the caller names none — the lowest it draws at,
@@ -129,6 +160,7 @@ internal static partial class AdminEndpoints
         ITileCache cache,
         GeoParquetSources geoParquet,
         HostSettings settings,
+        StaleTileNotices stale,
         CancellationToken cancellation)
     {
         if (await ReadableSeedServiceAsync(context, owners, name, folder, cancellation).ConfigureAwait(false)
@@ -141,6 +173,7 @@ internal static partial class AdminEndpoints
             await seeds.LastSeededAsync(service.Id, cancellation).ConfigureAwait(false);
 
         TimeSpan defaultLifetime = cache is FileSystemTileCache disk ? disk.DefaultLifetime : TimeSpan.FromHours(1);
+        TimeSpan defaultStaleLimit = cache is FileSystemTileCache held ? held.DefaultStaleLimit : TimeSpan.Zero;
 
         List<object> levels = [];
         VectorTileScheme scheme = service.TileScheme;
@@ -167,8 +200,12 @@ internal static partial class AdminEndpoints
 
                 foreach (PublishedLayer layer in drawn)
                 {
-                    (_, LayerDescription description) =
-                        await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+                    if (await DescribedForReportAsync(contexts, layer, cancellation).ConfigureAwait(false)
+                        is not { } description)
+                    {
+                        all = null;
+                        break;
+                    }
 
                     TileCacheKey key = VectorTileEndpoints.KeyOf(
                         layer, VectorTileEndpoints.AttributesOf(layer, description),
@@ -186,7 +223,7 @@ internal static partial class AdminEndpoints
                     }
                 }
 
-                cached = all?.Count ?? 0;
+                cached = all?.Count;
             }
 
             levels.Add(new
@@ -212,7 +249,8 @@ internal static partial class AdminEndpoints
 
         foreach (PublishedLayer layer in service.Layers)
         {
-            (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+            LayerDescription? described =
+                await DescribedForReportAsync(contexts, layer, cancellation).ConfigureAwait(false);
             bool hosted = layer.Definition.IsHosted;
             string kind = GeoParquetLocator.KindOf(layer.ConnectionString);
 
@@ -223,8 +261,12 @@ internal static partial class AdminEndpoints
                 hosted,
                 lifetimeSeconds = (long)VectorTileEndpoints.LifetimeOf(layer, defaultLifetime).TotalSeconds,
                 lifetimeFrom = layer.CacheLifetime is null ? "default" : "layer",
+
+                // ADR-010 §5.1a: how long past that lifetime a tile may stand in while the source cannot build it.
+                staleSeconds = (long)(layer.StaleLimit ?? defaultStaleLimit).TotalSeconds,
+                staleFrom = layer.StaleLimit is null ? "default" : "layer",
                 coherence = TileSources.CoherenceOf(hosted, kind),
-                spatialIndex = described.SpatiallyIndexed,
+                spatialIndex = described?.SpatiallyIndexed,
             });
         }
 
@@ -241,6 +283,8 @@ internal static partial class AdminEndpoints
             // ADR-096: the grid the levels below are counted on.
             tilingScheme = new { id = scheme.Id, wkid = scheme.Srid, levels = scheme.LevelCount },
             budget = BudgetOf(cache, service),
+            quota = QuotaReportOf(cache, service),
+            stale = StaleReportOf(stale, service, defaultStaleLimit),
             layers,
             levels,
             running = running is null ? null : Wire(running, service, DateTimeOffset.UtcNow),
@@ -254,6 +298,92 @@ internal static partial class AdminEndpoints
                   + "version the cache starts empty and nothing seeds it by itself (ADR-093 §5.7)."
                 : "For each level a seed has finished: how many tiles its area holds and how many of them "
                   + "are in the cache and fresh now, for every layer drawn at that level.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Sets how many megabytes of the tile cache a service's tiles may hold, or clears it — ADR-010 §3, owner
+    /// decision 2026-09-29.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The seed routes' permission and address</b>: <c>content:publishTiles</c>, whose service it is (ADR-075),
+    /// and <c>?folder=</c> with absent meaning the root and never <em>any folder</em> (D-275). Audited with what it
+    /// was and what it became.
+    /// </para>
+    /// <para>
+    /// <b>No quota is the default, and it is what every service had before</b>: its tiles are bounded only by the
+    /// cache's budget. A quota is applied as the service's next tile is written — over it, the service's own tiles
+    /// are evicted in the cache's order down to 90% — so lowering one takes effect as the map is used rather than
+    /// in a sweep, and nothing is refused for it.
+    /// </para>
+    /// </remarks>
+    private static async Task SetCacheQuotaAsync(
+        HttpContext context,
+        string name,
+        string? folder,
+        CacheQuotaRequest? request,
+        PostgresLayerCatalog owners,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        ITileCache cache,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishTiles).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string? at = FolderOf(folder);
+
+        if (await owners.FindServiceAsync(at, name, cancellation).ConfigureAwait(false) is not { } service)
+        {
+            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
+            return;
+        }
+
+        if (!await ManagesServiceAsync(
+                context, owners, service.Folder, service.Name, "set the tile cache quota of", cancellation)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (request is null || request.Megabytes is <= 0)
+        {
+            await Refuse(context, 400,
+                "Send {\"megabytes\": n} with a whole number of megabytes above zero, or {\"megabytes\": null} for no "
+                + "quota — the service's tiles are then bounded only by the cache's own budget.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (!await catalog.SetTileCacheQuotaAsync(service.Id, request.Megabytes, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "service.cache.quota", service.QualifiedName,
+            Detail(new { from = service.TileCacheQuotaMegabytes, to = request.Megabytes }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        long used = cache is FileSystemTileCache disk ? disk.HeldBy(service.Layers.Select(layer => layer.Id)) : 0;
+
+        await Results.Json(new
+        {
+            name = service.Name,
+            folder = service.Folder,
+            megabytes = request.Megabytes,
+            usedBytes = used,
+            note = request.Megabytes is { } megabytes
+                ? $"This service's tiles may now hold {megabytes} MB of the tile cache. When they are over it, its "
+                  + "own tiles are evicted — another pipeline's first, then the highest levels, then the least "
+                  + "recently used — down to 90% of it, as its next tiles are written; other services' tiles are not "
+                  + "touched and no tile is refused. A seed that would not fit is refused before it starts unless "
+                  + "forced."
+                : "This service has no quota of its own: its tiles are bounded only by the cache's budget.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -302,6 +432,57 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>
+    /// The service's tile cache quota, what its tiles hold against it and what it has evicted — ADR-010 §3 — or
+    /// null for a cache that keeps no accounts.
+    /// </summary>
+    /// <remarks>
+    /// <b>Present with <c>megabytes: null</c> for a service with no quota</b>, because <c>usedBytes</c> is what an
+    /// administrator reads to choose one. The evictions are counted since this process started.
+    /// </remarks>
+    private static object? QuotaReportOf(ITileCache cache, PublishedService service)
+    {
+        if (cache is not FileSystemTileCache disk)
+        {
+            return null;
+        }
+
+        FileSystemTileCache.QuotaEvictions evicted = disk.EvictedByQuota(service.Id);
+
+        return new
+        {
+            megabytes = service.TileCacheQuotaMegabytes,
+            bytes = service.TileCacheQuotaBytes,
+            usedBytes = disk.HeldBy(service.Layers.Select(layer => layer.Id)),
+            evictedEntries = evicted.Entries,
+            evictedBytes = evicted.Bytes,
+            setting = "PUT /admin/services/{name}/cache/quota",
+            eviction = service.TileCacheQuotaMegabytes is null
+                ? "No quota: this service's tiles are bounded only by the cache's own budget."
+                : "When this service's tiles are over the quota, its own tiles are evicted — tiles another pipeline "
+                  + "version wrote first, then the highest levels, then the least recently used within a level — "
+                  + "down to 90% of it. Other services' tiles are not touched, and a tile is never refused for it.",
+        };
+    }
+
+    /// <summary>How often the service has been answered stale, and the server's stale limit — ADR-010 §5.1a.</summary>
+    private static object StaleReportOf(StaleTileNotices stale, PublishedService service, TimeSpan defaultStaleLimit)
+    {
+        (long served, DateTimeOffset? last) = stale.Of(service.Id);
+
+        return new
+        {
+            served,
+            lastServed = last,
+            defaultSeconds = (long)defaultStaleLimit.TotalSeconds,
+            setting = "Graticula:TileStaleIfErrorHours, or staleSeconds on PUT /admin/layers/{name}/cache",
+            note = "A tile whose data source cannot build it — its breaker open or unreachable, its connection budget "
+                + "full, or quiesced — is answered from the cache's expired copy, up to this long past its lifetime, "
+                + "marked X-Tile-Cache: STALE. A tile an edit, a refresh or a purge removed is never served stale. "
+                + "Counted since this process started.",
+        };
+    }
+
+    /// <summary>
     /// How many bytes a seed of the plan would add to the cache and whether they fit — ADR-093 §3 — or
     /// null for a cache that has no budget to measure against.
     /// </summary>
@@ -309,7 +490,15 @@ internal static partial class AdminEndpoints
     /// <b>Each layer's key is the one serving asks for now</b> (<see cref="VectorTileEndpoints.KeyOf"/>),
     /// so the tiles counted as already there are the ones the seed will find and leave alone.
     /// </remarks>
-    private static async Task<TileSeedEstimate.Result?> EstimateAsync(
+    /// <remarks>
+    /// <para>
+    /// <b>And against the service's quota when it has one — ADR-010 §3, owner decision 2026-09-29</b> — by the same
+    /// rule (§5.9) with the quota in the budget's place, the service's own tiles in the cache's, and only the
+    /// service's own tiles below a level counted as outranking the seed: a quota evicts nobody else's, so nobody
+    /// else's outranks anything in it.
+    /// </para>
+    /// </remarks>
+    private static async Task<(TileSeedEstimate.Result? Budget, TileSeedEstimate.Result? Quota)> EstimateAsync(
         PublishedService service,
         TileSeedPlan plan,
         ServiceContexts contexts,
@@ -319,7 +508,7 @@ internal static partial class AdminEndpoints
     {
         if (cache is not FileSystemTileCache disk)
         {
-            return null;
+            return (null, null);
         }
 
         List<TileSeedEstimate.Layer> layers = [];
@@ -338,8 +527,44 @@ internal static partial class AdminEndpoints
                 level => service.TileScheme.Draws(range, level), disk.HoldingOf(key, plan.Levels)));
         }
 
-        return TileSeedEstimate.Of(
+        TileSeedEstimate.Result budget = TileSeedEstimate.Of(
             plan.Levels, layers, disk.Budget, disk.Report(null).Bytes, disk.CurrentBytesByLevel());
+
+        return (budget, AgainstQuota(disk, service, plan, layers));
+    }
+
+    /// <summary>
+    /// A seed's estimate against its service's quota, or null for a service with none — ADR-010 §3 with ADR-093
+    /// §5.9's rule.
+    /// </summary>
+    /// <param name="disk">The cache.</param>
+    /// <param name="service">The service, whose quota and layers are read.</param>
+    /// <param name="plan">The seed.</param>
+    /// <param name="layers">The service's layers as the estimate needs them.</param>
+    /// <returns>The estimate, or null.</returns>
+    /// <remarks>
+    /// <b>The service's own bytes only, in both places the budget's estimate uses the whole cache's</b>: what it
+    /// holds now, and what it holds below each level. A quota evicts nothing but the service's tiles, so another
+    /// service's low levels outrank nothing in it — counting them would refuse a seed that fits.
+    /// </remarks>
+    internal static TileSeedEstimate.Result? AgainstQuota(
+        FileSystemTileCache disk,
+        PublishedService service,
+        TileSeedPlan plan,
+        IReadOnlyList<TileSeedEstimate.Layer> layers)
+    {
+        ArgumentNullException.ThrowIfNull(disk);
+        ArgumentNullException.ThrowIfNull(service);
+        ArgumentNullException.ThrowIfNull(plan);
+
+        if (service.TileCacheQuotaBytes is not { } quota)
+        {
+            return null;
+        }
+
+        HashSet<Guid> own = [.. service.Layers.Select(layer => layer.Id)];
+
+        return TileSeedEstimate.Of(plan.Levels, layers, quota, disk.HeldBy(own), disk.CurrentBytesByLevel(own));
     }
 
     /// <summary>A seed's estimate on the wire: what it adds, the cache it is measured against, and whether it fits.</summary>
@@ -393,6 +618,32 @@ internal static partial class AdminEndpoints
 
     /// <summary>What a refusal of a seed that would evict its own tiles says it is, for a client that branches on it.</summary>
     private static readonly string[] TooLargeForTheCacheDetail = ["exceedsCacheBudget"];
+
+    /// <summary>The refusal for a seed that would evict its own tiles to stay inside its service's quota.</summary>
+    /// <remarks>
+    /// <b><see cref="TooLargeForTheCache"/>'s sentence with the quota in the budget's place</b> — owner decision
+    /// 2026-09-29: the same rule, the same shape and the same <c>force</c>.
+    /// </remarks>
+    internal static string TooLargeForTheQuota(TileSeedPlan plan, TileSeedEstimate.Result estimate)
+    {
+        int first = plan.Levels[0].Z;
+        int last = plan.Levels[^1].Z;
+
+        return $"Levels {first} to {last} over this area are estimated at {TileSeedEstimate.Size(estimate.Bytes)} in the "
+            + $"tile cache, and this service's cache quota is {TileSeedEstimate.Size(estimate.Budget)}. Its own tiles below "
+            + $"level {last} — {TileSeedEstimate.Size(estimate.Protected)} — are kept ahead of any tile the seed builds at "
+            + $"level {last}, and over the quota the service's tiles are evicted down to {TileSeedEstimate.Size(estimate.Target)} "
+            + "(90% of it), so this seed would evict tiles it had just built, from its highest level down. "
+            + (estimate.HighestLevelThatFits is { } top
+                ? $"Levels {first} to {top} keep every tile they build. "
+                : $"Even level {first} alone would lose some of its own tiles. ")
+            + "Lower the highest level, draw a smaller extent, raise the quota (PUT /admin/services/{name}/cache/quota), "
+            + "or send \"force\": true to seed anyway "
+            + $"(the service holds {TileSeedEstimate.Size(estimate.Used)} of it now).";
+    }
+
+    /// <summary>What a refusal of a seed that would not fit its service's quota says it is.</summary>
+    private static readonly string[] TooLargeForTheQuotaDetail = ["exceedsCacheQuota"];
 
     /// <summary>Starts a seed, or with <c>?dryRun=true</c> counts one without starting it.</summary>
     /// <remarks>
@@ -528,7 +779,7 @@ internal static partial class AdminEndpoints
         }
 
         // After the cap, so the estimate is only ever of a seed that could be started.
-        TileSeedEstimate.Result? estimate =
+        (TileSeedEstimate.Result? estimate, TileSeedEstimate.Result? quotaEstimate) =
             await EstimateAsync(service, plan, contexts, cache, geoParquet, cancellation).ConfigureAwait(false);
 
         bool force = request?.Force == true;
@@ -559,8 +810,14 @@ internal static partial class AdminEndpoints
                 concurrency = settings.TileSeedConcurrency,
                 estimate = estimate is null ? null : Wire(estimate),
 
+                // ADR-010 §3: the same estimate against the service's quota, where `budget` is the quota; null
+                // for a service with none.
+                quotaEstimate = quotaEstimate is null ? null : Wire(quotaEstimate),
+
                 // What Start would say, so the console can show it before Start is pressed.
-                refusal = estimate is { Fits: false } over ? TooLargeForTheCache(plan, over) : null,
+                refusal = estimate is { Fits: false } over ? TooLargeForTheCache(plan, over)
+                    : quotaEstimate is { Fits: false } overQuota ? TooLargeForTheQuota(plan, overQuota)
+                    : null,
             }).ExecuteAsync(context).ConfigureAwait(false);
             return;
         }
@@ -578,6 +835,27 @@ internal static partial class AdminEndpoints
                     },
                     tiles = plan.Total,
                     estimate = Wire(tooLarge),
+                },
+                statusCode: 400).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        // <b>The same refusal against the service's quota — ADR-010 §3, owner decision 2026-09-29</b>, after the
+        // budget's so a seed too large for both is told about the larger fact first; `force` overrides either.
+        if (quotaEstimate is { Fits: false } quotaTooLarge && !force)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message = TooLargeForTheQuota(plan, quotaTooLarge),
+                        details = TooLargeForTheQuotaDetail,
+                    },
+                    tiles = plan.Total,
+                    estimate = estimate is null ? null : Wire(estimate),
+                    quotaEstimate = Wire(quotaTooLarge),
                 },
                 statusCode: 400).ExecuteAsync(context).ConfigureAwait(false);
             return;
@@ -649,6 +927,9 @@ internal static partial class AdminEndpoints
                 cacheFreeBytes = estimate?.Free,
                 protectedBytes = estimate?.Protected,
                 fits = estimate?.Fits,
+                quotaBytes = quotaEstimate?.Budget,
+                quotaUsedBytes = quotaEstimate?.Used,
+                fitsQuota = quotaEstimate?.Fits,
                 force,
             }),
             succeeded: true, cancellation).ConfigureAwait(false);
@@ -665,6 +946,7 @@ internal static partial class AdminEndpoints
                 jobStatus = $"/admin/jobs/{started.Job.Id}",
                 seed = Wire(started, service, DateTimeOffset.UtcNow),
                 estimate = estimate is null ? null : Wire(estimate),
+                quotaEstimate = quotaEstimate is null ? null : Wire(quotaEstimate),
                 note = "The seed runs on a job worker, lowest level first, and builds each tile the way a "
                     + "request would, holding a permit against the layer's source as a request does. A tile "
                     + "already cached and fresh is left as it is. The cache's size budget still applies: past "

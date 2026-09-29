@@ -686,4 +686,374 @@ public sealed class FileSystemTileCacheTests : IDisposable
         // answer, and "forever" is the wrong one.
         Assert.Equal(Lifetime, Build().DefaultLifetime);
     }
+
+    /// <remarks>
+    /// <b>D-283: every byte counted once, however the writes and reads race.</b> The accounting lived inside
+    /// <c>ConcurrentDictionary.AddOrUpdate</c>'s factories, which run again whenever another thread changed the key
+    /// first; each lost race counted its delta anyway. Sixteen threads write and read the same eight tiles with
+    /// changing sizes; afterwards the cache's running total, the layer's counter and the sum of the entries the
+    /// index actually holds must be one number.
+    /// </remarks>
+    [Fact]
+    public async Task Concurrent_writes_and_reads_of_the_same_tiles_count_each_byte_once()
+    {
+        using FileSystemTileCache cache = Build(budget: long.MaxValue / 4, perLayer: long.MaxValue / 4);
+
+        using Barrier start = new(16);
+
+        Task[] workers =
+        [
+            .. Enumerable.Range(0, 16).Select(thread => Task.Run(async () =>
+            {
+                start.SignalAndWait();
+
+                for (int i = 0; i < 200; i++)
+                {
+                    int x = (thread + i) % 8;
+
+                    await cache.WriteAsync(Key(x: x), Tile(10 + ((thread * 7 + i) % 50)), CancellationToken.None);
+                    await cache.ReadAsync(Key(x: (x + 3) % 8), Lifetime, CancellationToken.None);
+                }
+            })),
+        ];
+
+        await Task.WhenAll(workers);
+
+        (int entries, long indexed) = cache.Report(Layer);
+
+        Assert.Equal(8, entries);
+        Assert.Equal(indexed, cache.Report(null).Bytes);
+        Assert.Equal(indexed, cache.HeldBy([Layer]));
+    }
+
+    // ---------- stale-while-error: ADR-010 §5.1a, owner decision 2026-09-29 ----------
+
+    private static readonly TimeSpan Day = TimeSpan.FromHours(24);
+
+    /// <remarks>
+    /// <b>Expired is a state an entry is in, not a reason to delete it.</b> A read calls it a miss so that it is
+    /// rebuilt; the file stays, counted against the budget, until a rebuild replaces it or eviction takes it —
+    /// which is what lets it stand in for a refused build in the meantime.
+    /// </remarks>
+    [Fact]
+    public async Task An_expired_entry_is_kept_on_disk_until_eviction_takes_it()
+    {
+        using FileSystemTileCache cache = Build(budget: 250, perLayer: 250);
+        byte[] tile = Tile(100);
+
+        await cache.WriteAsync(Key(z: 5), tile, CancellationToken.None);
+        _clock.Advance(Lifetime + TimeSpan.FromMinutes(1));
+
+        Assert.Equal(TileCacheOutcome.Miss, (await cache.ReadAsync(Key(z: 5), Lifetime, CancellationToken.None)).Outcome);
+        Assert.True(File.Exists(Path.Combine(_root, Key(z: 5).Path())), "An expired tile was deleted for being old.");
+        Assert.Equal((1, 100L), cache.Report(Layer));
+
+        CachedTile stale = await cache.ReadExpiredAsync(Key(z: 5), Lifetime, Day, CancellationToken.None);
+
+        Assert.Equal(TileCacheOutcome.Hit, stale.Outcome);
+        Assert.True(stale.Expired);
+        Assert.Equal(tile, stale.Bytes);
+
+        // Two lower-level tiles push the cache over its budget; the highest level goes first, and that is the
+        // expired one.
+        await cache.WriteAsync(Key(z: 3, x: 0), Tile(100), CancellationToken.None);
+        await cache.WriteAsync(Key(z: 3, x: 1), Tile(100), CancellationToken.None);
+
+        Assert.False(File.Exists(Path.Combine(_root, Key(z: 5).Path())), "Eviction did not take the expired tile.");
+        Assert.Equal(
+            TileCacheOutcome.Miss,
+            (await cache.ReadExpiredAsync(Key(z: 5), Lifetime, Day, CancellationToken.None)).Outcome);
+    }
+
+    /// <remarks>
+    /// <b>§5.1's wrong class stays purged, outage or not</b>: a purge deletes the layer's directory, so there is
+    /// nothing under the key for a stale read to find.
+    /// </remarks>
+    [Fact]
+    public async Task A_purged_entry_is_gone_and_is_never_served_stale()
+    {
+        using FileSystemTileCache cache = Build();
+
+        await cache.WriteAsync(Key(), Tile(), CancellationToken.None);
+        _clock.Advance(Lifetime + TimeSpan.FromMinutes(1));
+
+        Assert.Equal(1, cache.Purge(Layer));
+
+        Assert.False(Directory.Exists(Path.Combine(_root, Layer.ToString("N"))), "The purge left the layer's tiles on disk.");
+        Assert.Equal(
+            TileCacheOutcome.Miss,
+            (await cache.ReadExpiredAsync(Key(), Lifetime, Day, CancellationToken.None)).Outcome);
+    }
+
+    [Fact]
+    public async Task An_expired_entry_is_served_up_to_its_stale_limit_and_not_a_second_past_it()
+    {
+        using FileSystemTileCache cache = Build();
+
+        await cache.WriteAsync(Key(), Tile(), CancellationToken.None);
+
+        _clock.Advance(Lifetime + Day);
+        Assert.True((await cache.ReadExpiredAsync(Key(), Lifetime, Day, CancellationToken.None)).Expired);
+
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(
+            TileCacheOutcome.Miss,
+            (await cache.ReadExpiredAsync(Key(), Lifetime, Day, CancellationToken.None)).Outcome);
+
+        // A longer limit, which is the layer's own, still finds it — the file was never touched.
+        Assert.True((await cache.ReadExpiredAsync(Key(), Lifetime, Day * 2, CancellationToken.None)).Expired);
+    }
+
+    [Fact]
+    public async Task A_fresh_entry_is_found_as_fresh_and_a_zero_limit_finds_only_fresh_ones()
+    {
+        using FileSystemTileCache cache = Build();
+
+        await cache.WriteAsync(Key(), Tile(), CancellationToken.None);
+
+        CachedTile fresh = await cache.ReadExpiredAsync(Key(), Lifetime, TimeSpan.Zero, CancellationToken.None);
+        Assert.Equal(TileCacheOutcome.Hit, fresh.Outcome);
+        Assert.False(fresh.Expired);
+
+        _clock.Advance(Lifetime + TimeSpan.FromSeconds(1));
+        Assert.Equal(
+            TileCacheOutcome.Miss,
+            (await cache.ReadExpiredAsync(Key(), Lifetime, TimeSpan.Zero, CancellationToken.None)).Outcome);
+    }
+
+    /// <remarks>
+    /// <b>A zero lifetime is an administrator saying <em>never from a cache</em></b>, and an outage does not change
+    /// what they asked for.
+    /// </remarks>
+    [Fact]
+    public async Task A_zero_lifetime_is_never_served_stale_either()
+    {
+        using FileSystemTileCache cache = Build();
+
+        await cache.WriteAsync(Key(), Tile(), CancellationToken.None);
+
+        Assert.Equal(
+            TileCacheOutcome.Miss,
+            (await cache.ReadExpiredAsync(Key(), TimeSpan.Zero, Day, CancellationToken.None)).Outcome);
+    }
+
+    [Fact]
+    public async Task An_expired_empty_tile_stands_in_as_empty()
+    {
+        using FileSystemTileCache cache = Build();
+
+        await cache.WriteAsync(Key(), [], CancellationToken.None);
+        _clock.Advance(Lifetime + TimeSpan.FromMinutes(1));
+
+        CachedTile stale = await cache.ReadExpiredAsync(Key(), Lifetime, Day, CancellationToken.None);
+
+        Assert.Equal(TileCacheOutcome.Empty, stale.Outcome);
+        Assert.True(stale.Expired);
+    }
+
+    [Fact]
+    public void The_stale_limit_is_a_day_unless_the_server_says_otherwise()
+    {
+        Assert.Equal(Day, Build().DefaultStaleLimit);
+
+        using FileSystemTileCache configured = new(
+            _root, 1_000_000, 1_000_000, Lifetime, _clock, NullLoggerFactory.Instance, TimeSpan.FromHours(3));
+
+        Assert.Equal(TimeSpan.FromHours(3), configured.DefaultStaleLimit);
+    }
+
+    // ---------- a service's quota: ADR-010 §3, owner decision 2026-09-29 ----------
+
+    private static readonly Guid Service = Guid.NewGuid();
+
+    private static TileCacheQuota QuotaOf(long bytes) => new(Service, [Layer], bytes);
+
+    /// <remarks>
+    /// <b>The service's own tiles go, in the budget's order, and nobody else's.</b> Another service's tiles sit at
+    /// a higher level — the first thing the budget would take — and are untouched, because the cache is far inside
+    /// its budget and a quota evicts only its service. Within the service the highest level goes first and the
+    /// least recently used within it, down to 90% of the quota.
+    /// </remarks>
+    [Fact]
+    public async Task A_service_over_its_quota_evicts_its_own_tiles_highest_level_first_and_nobody_elses()
+    {
+        using FileSystemTileCache cache = Build();
+
+        for (int x = 0; x < 5; x++)
+        {
+            await cache.WriteAsync(Key(z: 12, x: x, layer: Other), Tile(100), CancellationToken.None);
+        }
+
+        TileCacheQuota quota = QuotaOf(500);
+
+        // 100 at level 3, 200 at level 4, then level 5 three times: the sixth write is 600, over 500, and
+        // eviction goes to 450 — the two oldest level-5 tiles, never the one just written.
+        await cache.WriteAsync(Key(z: 3), Tile(100), quota, CancellationToken.None);
+
+        foreach ((int z, int x) in new[] { (4, 0), (4, 1), (5, 0), (5, 1), (5, 2) })
+        {
+            _clock.Advance(TimeSpan.FromSeconds(1));
+            await cache.WriteAsync(Key(z: z, x: x), Tile(100), quota, CancellationToken.None);
+        }
+
+        Assert.Equal(400, cache.HeldBy([Layer]));
+        Assert.Equal(new FileSystemTileCache.QuotaEvictions(2, 200), cache.EvictedByQuota(Service));
+
+        Assert.Equal(TileCacheOutcome.Miss, (await cache.ReadAsync(Key(z: 5, x: 0), Lifetime, CancellationToken.None)).Outcome);
+        Assert.Equal(TileCacheOutcome.Miss, (await cache.ReadAsync(Key(z: 5, x: 1), Lifetime, CancellationToken.None)).Outcome);
+
+        foreach ((int z, int x) in new[] { (3, 1), (4, 0), (4, 1), (5, 2) })
+        {
+            Assert.Equal(
+                TileCacheOutcome.Hit,
+                (await cache.ReadAsync(Key(z: z, x: x), Lifetime, CancellationToken.None)).Outcome);
+        }
+
+        for (int x = 0; x < 5; x++)
+        {
+            Assert.Equal(
+                TileCacheOutcome.Hit,
+                (await cache.ReadAsync(Key(z: 12, x: x, layer: Other), Lifetime, CancellationToken.None)).Outcome);
+        }
+
+        Assert.Equal(new FileSystemTileCache.QuotaEvictions(0, 0), cache.EvictedByQuota(Guid.NewGuid()));
+    }
+
+    /// <remarks>
+    /// <b>Within a quota, as within the budget, a tile nothing can ask for again goes before any live one</b> —
+    /// another pipeline's (D-155), even at level 0.
+    /// </remarks>
+    [Fact]
+    public async Task Within_a_quota_another_pipelines_tiles_go_first()
+    {
+        string old = Path.Combine(_root, Layer.ToString("N"), "v0", "abcd1234", "0", "0", "0.mvt");
+        Directory.CreateDirectory(Path.GetDirectoryName(old)!);
+        await File.WriteAllBytesAsync(old, Tile(100));
+
+        using FileSystemTileCache cache = Build();
+
+        Assert.Equal(100, cache.HeldBy([Layer]));
+
+        await cache.WriteAsync(Key(z: 14, x: 0), Tile(100), QuotaOf(150), CancellationToken.None);
+
+        Assert.False(File.Exists(old), "An older pipeline's level-0 tile outlived this pipeline's level 14 inside the quota.");
+        Assert.Equal(TileCacheOutcome.Hit, (await cache.ReadAsync(Key(z: 14, x: 0), Lifetime, CancellationToken.None)).Outcome);
+        Assert.Equal(100, cache.HeldBy([Layer]));
+    }
+
+    /// <remarks>
+    /// <b>Never refuse the write</b>: a quota smaller than one tile leaves the service that one tile, rather than
+    /// evicting the tile it was just asked to keep.
+    /// </remarks>
+    [Fact]
+    public async Task A_write_is_never_refused_for_the_quota_and_the_tile_just_written_is_kept()
+    {
+        using FileSystemTileCache cache = Build();
+
+        await cache.WriteAsync(Key(x: 1), Tile(100), QuotaOf(50), CancellationToken.None);
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        await cache.WriteAsync(Key(x: 2), Tile(100), QuotaOf(50), CancellationToken.None);
+
+        Assert.Equal(TileCacheOutcome.Miss, (await cache.ReadAsync(Key(x: 1), Lifetime, CancellationToken.None)).Outcome);
+        Assert.Equal(TileCacheOutcome.Hit, (await cache.ReadAsync(Key(x: 2), Lifetime, CancellationToken.None)).Outcome);
+    }
+
+    [Fact]
+    public async Task A_service_with_no_quota_is_bounded_only_by_the_budget()
+    {
+        using FileSystemTileCache cache = Build();
+
+        for (int x = 0; x < 10; x++)
+        {
+            await cache.WriteAsync(Key(x: x), Tile(100), null, CancellationToken.None);
+        }
+
+        Assert.Equal(1000, cache.HeldBy([Layer]));
+        Assert.Equal(default, cache.EvictedByQuota(Service));
+    }
+
+    /// <remarks>
+    /// <b>Adopted tiles count against their layer</b>, as they do against the budget: a restart must not reset a
+    /// service's use to zero and let it fill past its quota again.
+    /// </remarks>
+    [Fact]
+    public async Task What_a_layer_holds_survives_a_restart_and_a_purge_empties_it()
+    {
+        using (FileSystemTileCache first = Build())
+        {
+            await first.WriteAsync(Key(x: 1), Tile(100), CancellationToken.None);
+            await first.WriteAsync(Key(x: 2, layer: Other), Tile(30), CancellationToken.None);
+        }
+
+        using FileSystemTileCache second = Build();
+
+        Assert.Equal(100, second.HeldBy([Layer]));
+        Assert.Equal(130, second.HeldBy([Layer, Other]));
+
+        second.Purge(Layer);
+
+        Assert.Equal(0, second.HeldBy([Layer]));
+        Assert.Equal(30, second.HeldBy([Other]));
+    }
+
+    /// <remarks>
+    /// <b>A seed is measured against its service's quota with the rule it is measured against the budget with</b>
+    /// (ADR-093 §5.9), counting only the service's own tiles — another service's low levels outrank nothing
+    /// inside a quota that never evicts them. Owner decision 2026-09-29.
+    /// </remarks>
+    [Fact]
+    public async Task A_seed_larger_than_its_services_quota_is_refused_though_the_budget_has_room()
+    {
+        using FileSystemTileCache cache = Build(budget: 1L << 40, perLayer: 1L << 40);
+
+        // Another service's tiles below every level of the seed: they would outrank it against the budget, and do
+        // not against this service's quota.
+        await cache.WriteAsync(Key(z: 0, x: 0, layer: Other), Tile(500), CancellationToken.None);
+
+        const double Half = TileAddress.WebMercatorHalfExtent;
+        TileSeedPlan plan = TileSeedPlan.For(new Graticula.Geometries.Envelope(-Half, -Half, Half, Half), 0, 2);
+        TileSeedEstimate.Layer[] layers = [new(_ => true, new Dictionary<int, TileSeedEstimate.Holding>())];
+
+        TileSeedEstimate.Result budget = TileSeedEstimate.Of(
+            plan.Levels, layers, cache.Budget, cache.Report(null).Bytes, cache.CurrentBytesByLevel());
+
+        Assert.True(budget.Fits);
+
+        // 1 + 4 + 16 tiles at the default megabyte against a 4 MB quota: level 0 fits, levels 0 and 1 are 5 MB.
+        Graticula.Platform.Catalog.PublishedService service = Service4MB();
+        TileSeedEstimate.Result quota = AdminEndpoints.AgainstQuota(cache, service, plan, layers)!;
+
+        Assert.False(quota.Fits);
+        Assert.Equal(4L * 1024 * 1024, quota.Budget);
+        Assert.Equal(0, quota.Used);
+        Assert.Equal(0, quota.Protected);
+        Assert.Equal(0, quota.HighestLevelThatFits);
+
+        string said = AdminEndpoints.TooLargeForTheQuota(plan, quota);
+
+        Assert.Contains("cache quota is 4 MB", said, StringComparison.Ordinal);
+        Assert.Contains("Levels 0 to 0 keep every tile they build", said, StringComparison.Ordinal);
+        Assert.Contains("\"force\": true", said, StringComparison.Ordinal);
+
+        // No quota, no estimate against one.
+        Assert.Null(AdminEndpoints.AgainstQuota(cache, Service4MB(quota: null), plan, layers));
+    }
+
+    private static Graticula.Platform.Catalog.PublishedService Service4MB(int? quota = 4) =>
+        new(
+            Service, "roads", null, "FeatureServer", null, null,
+            Graticula.Platform.Identity.SharingScope.Public,
+            Graticula.Platform.Catalog.ServiceStatus.Started,
+            [new Graticula.Platform.Catalog.PublishedLayer(
+                Layer,
+                new Graticula.Catalog.LayerDefinition("roads", "public", "roads", "geom", 3857, "objectid", "objectid", isHosted: true),
+                "datastore",
+                "Host=db;Database=tiles",
+                Graticula.Geometries.GeometryKind.Polygon,
+                owner: null,
+                Graticula.Platform.Identity.SharingScope.Public,
+                Graticula.Platform.Catalog.ServiceStatus.Started)])
+        {
+            TileCacheQuotaMegabytes = quota,
+        };
 }

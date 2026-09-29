@@ -113,7 +113,12 @@ public sealed class PostgresLayerCatalog
 
         -- Whether ArcGIS's exportTiles is offered, to whom, and how large (ADR-098, migration 64). On the end, read
         -- by name; false, false and null on every service that existed before it.
-        s.export_tiles_allowed, s.export_tiles_anonymous, s.max_export_tiles
+        s.export_tiles_allowed, s.export_tiles_anonymous, s.max_export_tiles,
+
+        -- How long past its lifetime a layer's tile may be served while its source refuses, and how much of the
+        -- tile cache the service may hold (ADR-010 §5.1a and §3, migration 65). On the end, read by name; null on
+        -- every row that existed before it.
+        l.stale_seconds, s.tile_cache_quota_mb
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -518,6 +523,11 @@ public sealed class PostgresLayerCatalog
             VisibleRange = new Graticula.Cartography.VisibleScaleRange(
                 reader.IsDBNull(reader.GetOrdinal("min_scale")) ? 0 : reader.GetDouble(reader.GetOrdinal("min_scale")),
                 reader.IsDBNull(reader.GetOrdinal("max_scale")) ? 0 : reader.GetDouble(reader.GetOrdinal("max_scale"))),
+
+            // ADR-010 §5.1a: null is the server's own limit, zero is never stale.
+            StaleLimit = reader.IsDBNull(reader.GetOrdinal("stale_seconds"))
+                ? null
+                : TimeSpan.FromSeconds(reader.GetInt32(reader.GetOrdinal("stale_seconds"))),
         };
     }
 
@@ -823,7 +833,8 @@ public sealed class PostgresLayerCatalog
         Dictionary<Guid, (string Name, string? Folder, string Kind, string? Description,
             Guid? Owner, SharingScope Sharing, ServiceStatus Status, string? Style,
             ServiceCapabilityLimits Limits, Guid[] SharedWith, int? Srid,
-            string? SridWkt, DateTimeOffset Created, DateTimeOffset Modified, string? TilingScheme)> heads = [];
+            string? SridWkt, DateTimeOffset Created, DateTimeOffset Modified, string? TilingScheme,
+            int? TileCacheQuota)> heads = [];
         List<Guid> order = [];
 
         // <b>Its own scope, so the reader is closed before the group query
@@ -882,7 +893,12 @@ public sealed class PostgresLayerCatalog
                         reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("service_updated_at")),
 
                         // ADR-096: the stored grid, parsed where the service is made.
-                        Nullable(reader, "tiling_scheme"));
+                        Nullable(reader, "tiling_scheme"),
+
+                        // ADR-010 §3: the service's tile cache quota, by name like the rest.
+                        reader.IsDBNull(reader.GetOrdinal("tile_cache_quota_mb"))
+                            ? null
+                            : reader.GetInt32(reader.GetOrdinal("tile_cache_quota_mb")));
                 }
 
                 // A left join, so a service with no layers arrives as one row of
@@ -953,6 +969,7 @@ public sealed class PostgresLayerCatalog
                 Modified = head.Modified,
                 TileScheme = scheme,
                 TileSchemeUnreadable = unreadable,
+                TileCacheQuotaMegabytes = head.TileCacheQuota,
             });
         }
 

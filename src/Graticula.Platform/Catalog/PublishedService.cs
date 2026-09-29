@@ -176,6 +176,21 @@ public sealed class PublishedService
     /// <summary>Why the stored tiling scheme could not be read, or null — the tile face refuses rather than guessing a grid.</summary>
     public string? TileSchemeUnreadable { get; init; }
 
+    /// <summary>
+    /// How many megabytes of the tile cache this service's tiles may hold, or null for no quota of its own —
+    /// only the cache's budget applies, as it did before there were quotas.
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-010 §3's per-service quota, owner decision 2026-09-29 (migration 65).</b> Over it, the service's
+    /// own tiles are evicted in the cache's order down to 90% of it; a write is never refused for it. Per
+    /// service rather than per layer because a tile is the service's — every layer's part of one address is
+    /// one map tile — and a seed, which a quota is measured against, is a service's.
+    /// </remarks>
+    public int? TileCacheQuotaMegabytes { get; init; }
+
+    /// <summary>The quota in bytes, or null for none.</summary>
+    public long? TileCacheQuotaBytes => TileCacheQuotaMegabytes is { } megabytes ? megabytes * 1024L * 1024L : null;
+
     /// <summary>When the service was first published, or null where the reader did not say.</summary>
     /// <remarks>A portal item reports it as <c>created</c>; ArcGIS clients sort <i>My Content</i> by it.</remarks>
     public DateTimeOffset? Created { get; init; }
