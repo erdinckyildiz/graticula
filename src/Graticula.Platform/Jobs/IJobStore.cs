@@ -42,17 +42,29 @@ public enum JobKind
     /// takes a lease from <c>ConnectionBudget</c> against the layer's source, as a read does.
     /// </remarks>
     TileSeed,
+
+    /// <summary>
+    /// Writing a vector tile service's tiles into a package a client can take offline — a VTPK or a PMTiles
+    /// archive — <see href="../../../docs/adr/ADR-098-vector-tiles-can-be-exported-as-a-package.md">ADR-098</see>.
+    /// </summary>
+    /// <remarks>
+    /// <b>A seed's walk with a file at the end of it.</b> Every tile is the tile the route would serve, taken from
+    /// the cache or built under the same permit a seed takes; what is new is that the bytes are also kept, and
+    /// written into one file the caller downloads.
+    /// </remarks>
+    TileExport,
 }
 
 /// <summary>Where a job has got to.</summary>
 /// <remarks>
 /// <para>
-/// <b>Five states, and <see cref="Cancelled"/> is reached by one kind only.</b> It is in the schema
+/// <b>Five states, and <see cref="Cancelled"/> is reached by two kinds only.</b> It is in the schema
 /// because a job somebody can watch is a job somebody will want to stop, and widening a check
 /// constraint later is cheaper than discovering the state was needed. **A tile seed can be cancelled
-/// since ADR-093; nothing else can**, because stopping a worker mid-write needs a decision about
-/// what it leaves behind, and a seed is the one kind where that decision is easy: what it leaves is
-/// cached tiles, each of which is exactly what serving would have written. An import leaves a
+/// since ADR-093, and a tile export since ADR-098; nothing else can**, because stopping a worker
+/// mid-write needs a decision about what it leaves behind. A seed leaves cached tiles, each of which
+/// is exactly what serving would have written; an export leaves those too, and its half-written
+/// package is deleted — nobody can download it, so there is nothing to keep. An import leaves a
 /// half-filled table, and that decision has not been taken. Until 2026-09-29 this paragraph said
 /// the state was reachable by nothing.
 /// </para>
@@ -76,7 +88,7 @@ public enum JobStatus
     /// <summary>It stopped and <see cref="JobRecord.Failure"/> says why.</summary>
     Failed,
 
-    /// <summary>Stopped on purpose. <b>Only a tile seed can reach this state</b> — see the type's remarks.</summary>
+    /// <summary>Stopped on purpose. <b>Only a tile seed or a tile export can reach this state</b> — see the type's remarks.</summary>
     Cancelled,
 }
 

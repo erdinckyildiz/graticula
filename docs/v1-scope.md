@@ -194,7 +194,8 @@ geocoding.**
 > it was the *MVT + TileJSON* of [protocol-surface.md](protocol-surface.md)'s tile row, and it is in
 > with the other two. **PMTiles stays on this list, and not for the old reason**: the owner moved it
 > to item 11 of the vector tile list, where it is built with offline packages (VTPK) as an
-> *export* of tiles already cut, not as a served face. *Struck rather than deleted, so the change of
+> *export* of tiles already cut, not as a served face — **and it was built so on the same day,
+> [ADR-098](adr/ADR-098-vector-tiles-can-be-exported-as-a-package.md)**, which is why it stays on this list: an archive is written and downloaded, never served. *Struck rather than deleted, so the change of
 > mind stays visible.* Unlike WFS on 2026-08-19 (ADR-039, which kept this list as it was), this is an
 > amendment of the cut, because the owner asked for it to be one.
 
@@ -218,7 +219,9 @@ geocoding.**
 - **Q-84 defers** with the geocoder, including the reference-data question.
 - **Offline sync is out — [ADR-082](adr/ADR-082-offline-sync-is-not-in-v1.md), owner decision
   2026-09-23.** `createReplica`, `synchronizeReplica`, `unRegisterReplica` and `extractChanges`
-  are not served, and every layer says `supportsDisconnectedEditing: false`.
+  are not served, and every layer says `supportsDisconnectedEditing: false`. **Offline tiles are in since
+  2026-09-29 — [ADR-098](adr/ADR-098-vector-tiles-can-be-exported-as-a-package.md), owner decision:** a vector tile service may offer
+  `exportTiles` (off until its owner turns it on), and packages its tiles as a VTPK or a PMTiles archive.
 - **Q-86's §82 debt shrinks to the handful of things actually in v1.**
 
 ### 3e. Formats

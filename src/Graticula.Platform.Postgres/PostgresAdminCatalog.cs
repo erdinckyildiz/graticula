@@ -2142,7 +2142,10 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                    max_response_bytes,
                    max_request_bytes,
                    max_edits_per_transaction,
-                   request_deadline_seconds
+                   request_deadline_seconds,
+                   export_tiles_allowed,
+                   export_tiles_anonymous,
+                   max_export_tiles
               from service
              where lower(name) = lower(@name)
                and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
@@ -2179,7 +2182,10 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 maximumResponseBytes: Bytes(5),
                 maximumRequestBytes: Bytes(6),
                 maximumEditsPerTransaction: Number(7),
-                requestDeadline: Number(8) is { } seconds ? TimeSpan.FromSeconds(seconds) : null));
+                requestDeadline: Number(8) is { } seconds ? TimeSpan.FromSeconds(seconds) : null))
+
+            // ADR-098: read so the settings page can show it; written only by its own route.
+            .With(PostgresLayerCatalog.ReadExport(reader));
     }
 
     /// <inheritdoc/>

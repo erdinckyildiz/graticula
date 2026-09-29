@@ -293,7 +293,9 @@ other. WMTS uses the same id as its layer identifier. *INFERRED* acceptable (§1
 
 ### 5.8 What is not built
 
-- **PMTiles** — by owner decision, with offline packages (VTPK) as an export (item 11).
+- ~~**PMTiles** — by owner decision, with offline packages (VTPK) as an export (item 11).~~ **Built 2026-09-29 as an
+  export — [ADR-098](ADR-098-vector-tiles-can-be-exported-as-a-package.md):** a PMTiles v3 archive of a Web Mercator service's tiles, written by a job
+  and downloaded, beside the VTPK. It is still not a served face.
 - **Dataset tilesets** (`/tiles` at the root): a tile is one service's, and a server-wide tileset would mix grids.
 - **`collections`, `datetime` and `subset` parameters**, **OpenAPI** (`oas30`), **XML** tileset metadata, and
   **map (raster) tiles**. None is claimed.
@@ -350,7 +352,7 @@ OGC face's conventions), [ADR-018](ADR-018-authorization-and-roles.md) and [ADR-
 (what may be seen), [ADR-049](ADR-049-a-face-refuses-in-its-own-vocabulary.md), [ADR-068](ADR-068-responses-are-compressed.md),
 [ADR-069](ADR-069-query-responses-carry-the-layer-s-cache-lifetime.md), [ADR-070](ADR-070-a-layer-has-a-visible-scale-range.md).
 
-**Depended on by:** item 11 of the vector tile list — PMTiles and VTPK as an export — which will package tiles
+**Depended on by:** [ADR-098](ADR-098-vector-tiles-can-be-exported-as-a-package.md) — PMTiles and VTPK as an export — which packages the tiles
 from the same path.
 
 ## 9. Revisit triggers

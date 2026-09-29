@@ -678,4 +678,58 @@ internal static partial class Log
                 + "registered database (ADR-002 §4.2). Said once per layer; the list is on /admin/health under "
                 + "unindexedLayers. ADR-095 §5.2.")]
     public static partial void TiledWithoutSpatialIndex(ILogger logger, string layer);
+
+    [LoggerMessage(
+        EventId = 1081,
+        Level = LogLevel.Warning,
+        Message = "The tile exporter could not claim work and will try again shortly. The platform "
+                + "database is the thing it asks, so this is usually that being briefly away.")]
+    public static partial void ExporterClaimFailed(ILogger logger, System.Exception? exception);
+
+    [LoggerMessage(
+        EventId = 1082,
+        Level = LogLevel.Information,
+        Message = "Export {Job} of {Service} started: a {Format} of {Tiles} tiles over levels {From} to {To}.")]
+    public static partial void ExportStarted(
+        ILogger logger, System.Guid job, string service, string format, long tiles, int from, int to);
+
+    [LoggerMessage(
+        EventId = 1083,
+        Level = LogLevel.Information,
+        Message = "Export {Job} of {Service} is written: {Stored} tiles with something in them, {Bytes} bytes. It is "
+                + "kept until {Expires:u}.")]
+    public static partial void ExportFinished(
+        ILogger logger, System.Guid job, string service, long stored, long bytes, System.DateTimeOffset expires);
+
+    [LoggerMessage(
+        EventId = 1084,
+        Level = LogLevel.Warning,
+        Message = "Export {Job} failed and its partial package was deleted: {Why}")]
+    public static partial void ExportFailed(ILogger logger, System.Guid job, string why, System.Exception? exception);
+
+    [LoggerMessage(
+        EventId = 1085,
+        Level = LogLevel.Information,
+        Message = "Export {Job} stopped: it was cancelled, or its job was taken back by another worker. Its partial "
+                + "package was deleted.")]
+    public static partial void ExportReleased(ILogger logger, System.Guid job);
+
+    [LoggerMessage(
+        EventId = 1086,
+        Level = LogLevel.Warning,
+        Message = "Export {Job} could not build tile {Tile}: {Why}")]
+    public static partial void ExportTileFailed(
+        ILogger logger, System.Guid job, string tile, string why, System.Exception? exception);
+
+    [LoggerMessage(
+        EventId = 1087,
+        Level = LogLevel.Information,
+        Message = "Removed the package of export {Job}: it expired, or its export ended without one.")]
+    public static partial void ExportRemoved(ILogger logger, System.Guid job);
+
+    [LoggerMessage(
+        EventId = 1088,
+        Level = LogLevel.Warning,
+        Message = "The package file {Path} could not be deleted and will be tried again: {Why}")]
+    public static partial void ExportFileStuck(ILogger logger, string path, string why);
 }

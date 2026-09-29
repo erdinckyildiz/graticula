@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(63);
+    public static SchemaVersion ComponentSchemaVersion => new(64);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -98,7 +98,92 @@ public static class PlatformMigrations
         ATileCacheMayBeSeededV61,
         AServiceMayCarrySeveralStylesV62,
         AServiceMayBeTiledInAnotherReferenceV63,
+        AServiceMayBeExportedAsATilePackageV64,
     ]);
+
+    /// <summary>
+    /// A vector tile service's tiles may be exported as a package — a VTPK or a PMTiles archive — ADR-098.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A fourth job kind, and one table beside the job, for migration 61's reason.</b> What an export has that the
+    /// job row has no column for is a package on disk: its format, its levels and area, its size, the random token
+    /// that names the file and makes its address unguessable, and when it expires. The walk's progress is two
+    /// counts rather than a row per level, because an export restarts from the beginning rather than resuming
+    /// (ADR-098 §5.4), so there is no cursor worth keeping.
+    /// </para>
+    /// <para>
+    /// <b>Three columns on the service for the policy</b> — whether <c>exportTiles</c> is offered, whether an
+    /// anonymous caller may use it, and the most tiles one export may hold. <b>Off for every service that exists</b>:
+    /// the default is false and nothing is backfilled, so every service document goes on saying
+    /// <c>exportTilesAllowed: false</c> until somebody turns it on.
+    /// </para>
+    /// <para>
+    /// <b>The token is unique and is 32 hexadecimal characters, checked here</b> as well as where it is made, so no
+    /// other writer can store one that is a path.
+    /// </para>
+    /// <para><b>Expand.</b> A wider check constraint, three columns with defaults and a new table. A build before this
+    /// one reads a job of the new kind as a kind it does not know and refuses the listing that holds it — migration
+    /// 61's consequence, again — and never reads the new columns.</para>
+    /// </remarks>
+    private static Migration AServiceMayBeExportedAsATilePackageV64 => Migration.Expand(
+        new SchemaVersion(64),
+        "A vector tile service's tiles may be exported as a VTPK or PMTiles package, as a job (ADR-098).",
+
+        "alter table job drop constraint if exists job_kind_known",
+
+        """
+        alter table job add constraint job_kind_known
+          check (kind in ('geodatabase.inspect', 'geodatabase.import', 'tile.seed', 'tile.export'))
+        """,
+
+        "alter table service add column if not exists export_tiles_allowed boolean not null default false",
+        "alter table service add column if not exists export_tiles_anonymous boolean not null default false",
+        "alter table service add column if not exists max_export_tiles integer",
+
+        "alter table service drop constraint if exists service_max_export_tiles_positive",
+
+        """
+        alter table service add constraint service_max_export_tiles_positive
+          check (max_export_tiles is null or max_export_tiles > 0)
+        """,
+
+        """
+        create table if not exists tile_export (
+            job_id          uuid             not null primary key references job (id) on delete cascade,
+            service_id      uuid             not null references service (id) on delete cascade,
+            format          text             not null,
+            levels          smallint[]       not null,
+            min_x           double precision not null,
+            min_y           double precision not null,
+            max_x           double precision not null,
+            max_y           double precision not null,
+            whole           boolean          not null,
+            total           bigint           not null,
+            done            bigint           not null default 0,
+            stored          bigint           not null default 0,
+            estimated_bytes bigint           not null,
+            bytes           bigint           null,
+            token           text             not null,
+            scheme          text             not null,
+            origin          text             not null,
+            expires_at      timestamptz      null,
+            removed_at      timestamptz      null,
+            paused_until    timestamptz      null,
+            paused_because  text             null,
+            constraint tile_export_format_known check (format in ('vtpk', 'pmtiles')),
+            constraint tile_export_origin_known check (origin in ('admin', 'arcgis')),
+            constraint tile_export_levels_known
+              check (cardinality(levels) between 1 and 31 and 0 <= all (levels) and 30 >= all (levels)),
+            constraint tile_export_area_ordered check (min_x <= max_x and min_y <= max_y),
+            constraint tile_export_counts check (total >= 0 and done between 0 and total and stored between 0 and done),
+            constraint tile_export_sizes check (estimated_bytes >= 0 and (bytes is null or bytes >= 0)),
+            constraint tile_export_token_is_a_name check (token ~ '^[0-9a-f]{32}$')
+        )
+        """,
+
+        "create unique index if not exists tile_export_token on tile_export (token)",
+        "create index if not exists tile_export_by_service on tile_export (service_id)");
 
     /// <summary>
     /// A vector tile service may be cut on a grid in another reference — ADR-096.

@@ -96,6 +96,8 @@ public sealed class EveryLongLivedCacheIsBoundedTests
             "one per data source; removed when its window ends or an operator resumes it",
         ["TileSingleFlight._building"] = "one per tile being built right now",
         ["TileSeeder._running"] = "one per seed this worker is running, which is one at a time; removed when the seed ends (ADR-093)",
+        ["TileExporter._running"] = "one per export this worker is running, which is one at a time; removed when the export ends (ADR-098)",
+        ["TileExportStaging._tiles"] = "one per non-empty tile of the export being written, capped by maxExportTilesCount; gone with the export (ADR-098)",
         ["CatalogFallback._last"] = "explicit capacity; cleared when full",
         ["DatumShiftNotices._seen"] =
             "explicit ceiling of 256 layer-and-reference pairs; stops recording rather "

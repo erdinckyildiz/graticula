@@ -122,6 +122,15 @@ public static class JobKinds
         // checkpoint a second run goes on from. ADR-093 §5.4.
         JobKind.TileSeed => JobRerun.Resumable,
 
+        // <b>Writes one file of its own, from the start, every time — ADR-098 §5.4.</b> A second run walks
+        // the same tiles (the cache already holds most of them, so it is quick) and writes the same package
+        // over its own half-written one, under the export's own name; nothing outside the export's file is
+        // written except cached tiles, which are the seed's harmless case. So it is `Harmless` and not
+        // `Resumable`: the package is not appended to across runs, because a half-written zip or archive
+        // has no durable cursor to go on from, and a lost lease gives it one more try and then fails it,
+        // which is what an export that kills its process should get.
+        JobKind.TileExport => JobRerun.Harmless,
+
         _ => throw new ArgumentOutOfRangeException(
             nameof(kind),
             kind,

@@ -10942,7 +10942,13 @@ function showLayer(name, page, pending = null) {
       <p class="hint">A tile is built the first time somebody asks for it. A seed builds tiles before
         anybody asks, for every layer of this service, on a background worker. After an upgrade that
         changes how tiles are drawn, the cache starts empty and nothing seeds it automatically.</p>
-      <div id="seedBox"><p class="hint">Reading the service's cache…</p></div>`
+      <div id="seedBox"><p class="hint">Reading the service's cache…</p></div>
+
+      <h4>Export tiles</h4>
+      <p class="hint">An export writes this service's tiles into one file that can be taken offline: a VTPK for ArcGIS
+        Field Maps and ArcGIS Pro, or a PMTiles archive for MapLibre and the pmtiles tools. It runs on a background
+        worker, like a seed, and the file is kept for a limited time.</p>
+      <div id="exportBox"><p class="hint">Reading the service's exports…</p></div>`
       : `<p class="hint">No tile cache: this layer stays in its own database, and this server serves it as
          features only. Tiles come from layers this server holds itself — data in its datastore, and
          GeoParquet files it reads directly. To get tiles, publish a copy into the datastore.</p>`}
@@ -11656,6 +11662,11 @@ function showEditPage(page) {
   if (page === "caching" && editing && $("seedBox")) {
     section("the tile cache", () => loadSeed(editing.name));
   }
+
+  // ADR-098: the service's tile exports, read on arrival beside the seed.
+  if (page === "caching" && editing && $("exportBox")) {
+    section("the tile exports", () => loadExport(editing.name));
+  }
 }
 
 /**
@@ -11867,6 +11878,237 @@ function drawSeed(name, where, r) {
       await loadSeed(name);
     } catch (e) { toast(e.message); }
   });
+}
+
+/**
+ * The service's tile exports, on the layer's Caching page — ADR-098.
+ *
+ * <b>Beside the seed and built the same way</b>: about the whole service, addressed by folder and name
+ * (D-275), with a count and a size before the button that spends them, and polled every two seconds while an
+ * export runs and this page is the one showing.
+ *
+ * <b>Two halves.</b> The first says whether the service's readers may export it themselves through ArcGIS's
+ * `exportTiles` — off until the owner turns it on. The second is the owner's own export, which does not wait
+ * for that switch.
+ *
+ * <b>The download is fetched with the session's token and handed to the browser as a file</b>, because a plain
+ * link would carry no credential; the server re-checks access on every download.
+ */
+const exportState = { name: null, timer: null };
+
+function exportAddress(name) {
+  const at = placeOf(name);
+  if (!at) return null;
+  const folder = at.folder ? `?folder=${encodeURIComponent(at.folder)}` : "";
+  return { at, base: `/admin/services/${encodeURIComponent(at.bare)}/exports`, folder };
+}
+
+function exportShowing(name) {
+  return !!(editing && editing.name === name
+    && $("page-caching")?.classList.contains("on") && $("exportBox"));
+}
+
+async function loadExport(name) {
+  clearTimeout(exportState.timer);
+  exportState.name = name;
+
+  const where = exportAddress(name);
+  if (!where || !$("exportBox")) return;
+
+  const r = await api(`${where.base}${where.folder}`);
+  if (!exportShowing(name)) return;
+
+  drawExport(name, where, r);
+
+  if ((r.exports || []).some(e => e.status === "queued" || e.status === "running")) {
+    exportState.timer = setTimeout(() => {
+      if (exportShowing(name)) section("the tile exports", () => loadExport(name));
+    }, 2000);
+  }
+}
+
+function exportLevels(levels) {
+  if (!levels || !levels.length) return "—";
+  const first = levels[0], last = levels[levels.length - 1];
+  return levels.length === last - first + 1
+    ? (first === last ? `level ${first}` : `levels ${first} to ${last}`)
+    : `levels ${levels.join(", ")}`;
+}
+
+function exportRow(e) {
+  const running = e.status === "queued" || e.status === "running";
+  const what = running
+    ? `${num(e.done)} of ${num(e.tiles)} tiles (${h(e.percent)}%)${e.status === "queued" ? ", waiting for a worker" : ""}`
+    : e.status === "done" && !e.removed
+      ? `${h(seedSize(e.bytes))}, kept until ${seedWhen(e.expires)}`
+      : e.removed ? "removed" : h(e.failure || e.status);
+  return `
+    <tr>
+      <td>${h(e.format.toUpperCase())}</td>
+      <td>${h(exportLevels(e.levels))}</td>
+      <td class="num">${num(e.stored)}</td>
+      <td>${h(e.status)}</td>
+      <td>${what}</td>
+      <td class="row">
+        ${e.download ? `<button type="button" class="ghost" data-export-download="${h(e.id)}" data-export-format="${h(e.format)}">Download</button>` : ""}
+        <button type="button" class="${running ? "ghost" : "danger"}" data-export-delete="${h(e.id)}">${running ? "Cancel" : "Delete"}</button>
+      </td>
+    </tr>`;
+}
+
+function drawExport(name, where, r) {
+  const box = $("exportBox");
+  const p = r.policy || {};
+  const d = r.defaults || { minZoom: 0, maxZoom: 0 };
+  const mapShown = !!(view && view.extent && $("mapPanel").classList.contains("on"));
+  const formats = r.formats || ["vtpk"];
+  const top = (r.tilingScheme?.levels ?? 23) - 1;
+
+  box.innerHTML = `
+    <div class="setting"><label class="q" for="exportAllowed">Readers may export these tiles:</label>
+      <input type="checkbox" id="exportAllowed" ${p.allowed ? "checked" : ""}></div>
+    <div class="setting"><label class="q" for="exportAnonymous">Also readers who are not signed in:</label>
+      <input type="checkbox" id="exportAnonymous" ${p.anonymous ? "checked" : ""} ${p.allowed ? "" : "disabled"}></div>
+    <div class="setting"><label class="q" for="exportMax">Most tiles in one export:</label>
+      <input type="number" id="exportMax" min="1" step="1" value="${h(p.maxExportTilesCount ?? "")}"
+        placeholder="server default, ${h(num(p.serverMaxExportTilesCount))}"></div>
+    <p class="hint">When this is on, the service tells ArcGIS clients that it can be exported, and Field Maps and
+      ArcGIS Pro can download its tiles for offline use. A reader still needs to be able to see the service.</p>
+    <div class="row" style="margin-top:10px">
+      <button type="button" id="exportPolicySave">Save</button>
+    </div>
+
+    <div class="setting"><label class="q" for="exportFormat">Format:</label>
+      <select id="exportFormat">
+        ${formats.map(f => `<option value="${h(f)}">${f === "vtpk" ? "VTPK (ArcGIS vector tile package)" : "PMTiles"}</option>`).join("")}
+      </select></div>
+    ${formats.includes("pmtiles") ? "" : `<p class="hint">PMTiles uses the Web Mercator grid only, and this
+      service is tiled on ${h(r.tilingScheme?.id || "another grid")}.</p>`}
+    <div class="setting"><label class="q" for="exportFrom">From level:</label>
+      <input type="number" id="exportFrom" min="0" max="${h(top)}" step="1" value="${h(d.minZoom)}"></div>
+    <div class="setting"><label class="q" for="exportTo">To level:</label>
+      <input type="number" id="exportTo" min="0" max="${h(top)}" step="1" value="${h(d.maxZoom)}"></div>
+    <div class="setting"><label class="q" for="exportArea">Area:</label>
+      <select id="exportArea">
+        <option value="whole">The whole service</option>
+        <option value="map" ${mapShown ? "" : "disabled"}>The map's current extent</option>
+      </select></div>
+    <p class="hint">One export holds at most ${num(r.cap)} tiles. Exports share
+      ${h(seedSize(r.budget?.bytes))} of disk (${h(seedSize(r.budget?.freeBytes))} free now), and a file is kept for
+      ${h(r.budget?.retentionHours)} hours.</p>
+    <div class="row" style="margin-top:10px">
+      <button type="button" class="ghost" id="exportCount">Estimate size</button>
+      <button type="button" id="exportStart">Export</button>
+    </div>
+    <p class="hint" id="exportSays" role="status" aria-live="polite"></p>
+    ${r.exports && r.exports.length ? `
+      <table>
+        <thead><tr><th>Format</th><th>Levels</th><th class="num">Tiles</th><th>Status</th><th>Details</th><th></th></tr></thead>
+        <tbody>${r.exports.map(exportRow).join("")}</tbody>
+      </table>` : `<p class="hint">No exports of this service yet.</p>`}`;
+
+  const says = text => { const s = $("exportSays"); if (s) s.textContent = text; };
+
+  $("exportAllowed")?.addEventListener("change", event => {
+    const anonymous = $("exportAnonymous");
+    if (!anonymous) return;
+    anonymous.disabled = !event.currentTarget.checked;
+    if (anonymous.disabled) anonymous.checked = false;
+  });
+
+  $("exportPolicySave")?.addEventListener("click", async () => {
+    const max = $("exportMax").value.trim();
+    try {
+      const c = await api(`${where.base}/policy${where.folder}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          allowed: $("exportAllowed").checked,
+          anonymous: $("exportAnonymous").checked,
+          maxExportTilesCount: max === "" ? null : Number(max),
+        }),
+      });
+      toast(c.note, true);
+      await loadExport(name);
+    } catch (e) { says(e.message); }
+  });
+
+  const asked = () => {
+    const body = {
+      format: $("exportFormat").value,
+      minZoom: Number($("exportFrom").value),
+      maxZoom: Number($("exportTo").value),
+    };
+
+    if ($("exportArea").value === "map" && view && view.extent) {
+      const e = view.extent;
+      body.extent = {
+        xmin: e.xmin, ymin: e.ymin, xmax: e.xmax, ymax: e.ymax,
+        spatialReference: { wkid: e.spatialReference?.wkid ?? 102100 },
+      };
+    }
+
+    return body;
+  };
+
+  // The folder is sent on every call — D-275.
+  const post = (body, dry) => api(`${where.base}${where.folder}${
+    dry ? `${where.folder ? "&" : "?"}dryRun=true` : ""}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  $("exportCount")?.addEventListener("click", async () => {
+    says("Counting…");
+    try {
+      const c = await post(asked(), true);
+      says(`${num(c.tiles)} tiles, about ${seedSize(c.estimatedBytes)} or less${
+        c.sampled ? "" : " (partly a guess: the cache holds too few of these tiles to measure)"}${
+        c.fits ? "." : `. That does not fit the ${seedSize(Math.max(0, c.budget - c.heldBytes))} of export space left.`}`);
+    } catch (e) { says(e.message); }
+  });
+
+  $("exportStart")?.addEventListener("click", async () => {
+    says("Starting…");
+    try {
+      await post(asked(), false);
+      await loadExport(name);
+    } catch (e) { says(e.message); }
+  });
+
+  box.querySelectorAll("[data-export-delete]").forEach(button => button.addEventListener("click", async event => {
+    const id = event.currentTarget.dataset.exportDelete;
+    try {
+      const c = await api(`${where.base}/${encodeURIComponent(id)}${where.folder}`, { method: "DELETE" });
+      toast(c.note, true);
+      await loadExport(name);
+    } catch (e) { toast(e.message); }
+  }));
+
+  box.querySelectorAll("[data-export-download]").forEach(button => button.addEventListener("click", async event => {
+    const id = event.currentTarget.dataset.exportDownload;
+    const format = event.currentTarget.dataset.exportFormat;
+    says("Downloading…");
+    try {
+      const headers = token ? { Authorization: "Bearer " + token } : {};
+      const response = await fetch(`${where.base}/${encodeURIComponent(id)}/download${where.folder}`, { headers });
+      if (!response.ok) {
+        let message = `${response.status}`;
+        try { message = (await response.json()).error.message; } catch { /* not json */ }
+        throw new Error(message);
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${where.at.bare}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      says("");
+    } catch (e) { says(e.message); }
+  }));
 }
 
 /**

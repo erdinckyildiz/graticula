@@ -74,6 +74,13 @@ is better than advertising a surface that fails on a device in a place with no s
 
 ## 5. Decision
 
+> **Amended 2026-09-29 by [ADR-098](ADR-098-vector-tiles-can-be-exported-as-a-package.md), owner decision: offline *tiles* are in, offline *sync* is
+> not.** A vector tile service may now offer ArcGIS's `exportTiles` — off for every service until its owner turns it
+> on — and writes a VTPK (or, from the admin API, a PMTiles archive) that Field Maps and Pro can take offline as a
+> basemap. Nothing below changes: `createReplica`, `synchronizeReplica`, `unRegisterReplica` and `extractChanges`
+> are still not served, and every layer still says `supportsDisconnectedEditing: false`. §6's first consequence is
+> now half true — an offline area's basemap can come from this server, and its editable layers still cannot.
+
 **Offline sync — `createReplica`, `synchronizeReplica`, `unRegisterReplica`,
 `extractChanges` — is not in v1.** It is added to [v1-scope](../v1-scope.md) §3d beside the
 other deferred protocol surface, and the layer document goes on saying

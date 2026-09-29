@@ -205,8 +205,32 @@ internal sealed record HostSettings(
     // source's permits from the maps being served off it: `PerSourceConcurrency` is 24 by default
     // and a seed holds at most this many of them. Raising it makes a seed faster by the same
     // arithmetic and takes the permits from the same place.
-    int TileSeedConcurrency = TileSeeder.DefaultConcurrency)
+    int TileSeedConcurrency = TileSeeder.DefaultConcurrency,
+
+    // <b>Where exported tile packages are written — ADR-098 §5.6 — and under StatePath by default, by owner
+    // direction.</b> Unlike the tile cache, a package is something a person was handed an address for and may not
+    // have fetched yet, so it has to survive a restart; the cost is that a backup of StatePath carries whatever
+    // packages are live, which is why the budget below bounds them and a deployment may move this elsewhere.
+    string? TileExportPath = null,
+
+    // <b>The most bytes every live package may hold together — ADR-098 §5.6.</b> Ten gigabytes: a few city-sized
+    // offline areas at once. An export that would not fit is refused before it starts, as a seed that would not
+    // keep its tiles is.
+    long TileExportBudgetBytes = TileExporter.DefaultBudgetBytes,
+
+    // <b>How long a written package is kept before it is deleted — ADR-098 §5.6.</b> A day: long enough for a
+    // device to come back into signal and fetch it, short enough that the disk is not a download archive.
+    int TileExportRetentionHours = TileExporter.DefaultRetentionHours,
+
+    // <b>The most tiles one export may hold unless a service says fewer — ADR-098 §5.3.</b> 100,000 is the default
+    // ArcGIS documents for <c>maxExportTilesCount</c>; a service's own maximum can only lower it.
+    long TileExportMaximumTiles = TileExporter.DefaultMaximumTiles)
 {
+    /// <summary>Where packages are written: the setting, or <c>exports</c> under <see cref="StatePath"/>.</summary>
+    public string TileExportDirectory => TileExportPath ?? Path.Combine(StatePath, "exports");
+
+    /// <summary>How long a written package is kept.</summary>
+    public TimeSpan TileExportRetention => TimeSpan.FromHours(TileExportRetentionHours);
 
     /// <summary>
     /// Where the map SDK comes from unless a deployment says otherwise.
@@ -591,7 +615,17 @@ internal sealed record HostSettings(
             Math.Clamp(
                 keys.Value("TileSeedConcurrency", TileSeeder.DefaultConcurrency),
                 1,
-                keys.Value("PerSourceConcurrency", 24) is > 0 and int bound ? bound : int.MaxValue));
+                keys.Value("PerSourceConcurrency", 24) is > 0 and int bound ? bound : int.MaxValue),
+
+            keys.Text("TileExportPath"),
+
+            // Megabytes on the wire, bytes in the record, like the cache's budget. Clamped at one megabyte: a budget
+            // of nothing would refuse every export with a sentence about a number.
+            Math.Max(1L, keys.Value("TileExportBudgetMB", TileExporter.DefaultBudgetBytes / (1024 * 1024))) * 1024 * 1024,
+
+            // At least an hour: a package deleted before anybody could fetch it is an export that did nothing.
+            Math.Max(1, keys.Value("TileExportRetentionHours", TileExporter.DefaultRetentionHours)),
+            Math.Max(1L, keys.Value("TileExportMaximumTiles", TileExporter.DefaultMaximumTiles)));
     }
 
     /// <summary>

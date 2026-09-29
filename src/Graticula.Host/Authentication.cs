@@ -414,6 +414,46 @@ internal sealed class Authentication
     /// than discovered later.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Whether this request's credential, if it has one, is the session cookie alone — no bearer header, no ArcGIS
+    /// header, and no <c>token=</c> this server reads.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <returns>True when only the cookie could have signed the caller in.</returns>
+    /// <remarks>
+    /// <b>For the one <c>GET</c> that is a write — ArcGIS's <c>exportTiles</c>, ADR-098 §5.7.</b> The rule above is that
+    /// the cookie authenticates reads only; the ArcGIS specification makes starting an export a <c>GET</c>, so the route
+    /// asks this to hold the cookie to the rule the method no longer can. The query channel is counted only where the
+    /// deployment reads it (D-120), so a <c>token=</c> the server ignores does not make a cookie request look signed.
+    /// </remarks>
+    internal static bool CookieOnly(HttpContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (BearerToken(context) is not null)
+        {
+            return false;
+        }
+
+        string? esri = context.Request.Headers["X-Esri-Authorization"];
+
+        if (esri is not null && esri.StartsWith(BearerPrefix, StringComparison.Ordinal)
+            && esri[BearerPrefix.Length..].Trim().Length > 0)
+        {
+            return false;
+        }
+
+        bool queryRead = context.RequestServices?.GetService(typeof(HostSettings)) is not HostSettings settings
+            || settings.AcceptTokenInQueryString;
+
+        if (queryRead && context.Request.Query["token"].ToString().Length > 0)
+        {
+            return false;
+        }
+
+        return CookieToken(context) is not null;
+    }
+
     private static string? CookieToken(HttpContext context)
     {
         if (!HttpMethods.IsGet(context.Request.Method)

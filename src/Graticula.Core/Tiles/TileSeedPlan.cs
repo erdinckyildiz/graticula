@@ -234,6 +234,40 @@ public sealed class TileSeedPlan
         return new TileSeedPlan(levels, clipped);
     }
 
+    /// <summary>
+    /// The same plan with only some of its levels — an export asked for levels <c>1-4, 7-9</c> — ADR-098.
+    /// </summary>
+    /// <param name="levels">The levels to keep; a level the plan does not cover is ignored.</param>
+    /// <returns>The narrower plan, its levels still lowest first.</returns>
+    /// <exception cref="ArgumentException">None of the plan's levels is kept.</exception>
+    /// <remarks>
+    /// <b>A plan with gaps rather than a second planner.</b> ArcGIS's <c>exportTiles</c> takes a list of
+    /// levels, not a range, and the walk (<c>TileSeedRun</c>) only ever reads <see cref="Levels"/> in order —
+    /// so a plan over the range with the unasked levels taken out is walked, counted and checkpointed exactly as
+    /// a seed's is, and the count stays exact.
+    /// </remarks>
+    public TileSeedPlan Keeping(IReadOnlySet<int> levels)
+    {
+        ArgumentNullException.ThrowIfNull(levels);
+
+        List<TileRange> kept = [];
+
+        foreach (TileRange level in Levels)
+        {
+            if (levels.Contains(level.Z))
+            {
+                kept.Add(level);
+            }
+        }
+
+        if (kept.Count == 0)
+        {
+            throw new ArgumentException("None of the levels asked for is in the plan, so there is nothing to walk.");
+        }
+
+        return new TileSeedPlan(kept, Area);
+    }
+
     /// <summary>The rectangle of one level that an area in Web Mercator touches.</summary>
     /// <param name="webMercator">The area, already inside the square.</param>
     /// <param name="z">The level.</param>

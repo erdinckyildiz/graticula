@@ -382,11 +382,40 @@ internal sealed class TileSeeder : BackgroundService
 
     /// <summary>Seeds one tile of a service: every layer that draws at its level.</summary>
     private async Task<TileSeedOutcome> TileAsync(
-        PublishedService service, TileAddress address, TimeSpan defaultLifetime, CancellationToken token)
+        PublishedService service, TileAddress address, TimeSpan defaultLifetime, CancellationToken token) =>
+        (await ServiceTileAsync(
+                service, address, defaultLifetime, _contexts, _connections, _cache, _building, _projector,
+                _datumShifts, _unindexed, _loggers, _geoParquet, token)
+            .ConfigureAwait(false)).Outcome;
+
+    /// <summary>
+    /// One tile of a service as a seed or an export takes it: every layer that draws at its level, each from the
+    /// cache or built under a permit, and the tile the route would serve made of them.
+    /// </summary>
+    /// <returns>What it came to, and the tile's bytes — empty when nothing is in it.</returns>
+    /// <remarks>
+    /// <b>One loop for the seed and the export — ADR-098 §5.1.</b> The export needs the bytes the seed throws away;
+    /// written twice, the two would drift, and an exported tile would stop being the served one. The joining is the
+    /// route's own (<see cref="VectorTileEndpoints.Concatenate"/>), so the bytes are the route's.
+    /// </remarks>
+    internal static async Task<(TileSeedOutcome Outcome, byte[] Tile)> ServiceTileAsync(
+        PublishedService service,
+        TileAddress address,
+        TimeSpan defaultLifetime,
+        ServiceContexts contexts,
+        LayerConnections connections,
+        ITileCache cache,
+        TileSingleFlight building,
+        IProjector projector,
+        DatumShiftNotices datumShifts,
+        UnindexedLayerNotices unindexed,
+        ILoggerFactory loggers,
+        GeoParquetSources geoParquet,
+        CancellationToken token)
     {
         bool any = false;
         bool built = false;
-        long bytes = 0;
+        List<byte[]> parts = [];
 
         foreach (PublishedLayer layer in service.Layers)
         {
@@ -404,32 +433,34 @@ internal sealed class TileSeeder : BackgroundService
             try
             {
                 part = await VectorTileEndpoints.LayerPartAsync(
-                        layer, address, defaultLifetime, _contexts, _connections, _cache, _building,
-                        _projector, _datumShifts, _unindexed, _loggers, _geoParquet,
-                        admit: permit => _connections.AdmitTileBuildAsync(layer, permit),
+                        layer, address, defaultLifetime, contexts, connections, cache, building,
+                        projector, datumShifts, unindexed, loggers, geoParquet,
+                        admit: permit => connections.AdmitTileBuildAsync(layer, permit),
                         token,
                         service.TileScheme)
                     .ConfigureAwait(false);
             }
             catch (Exception failure) when (failure is not OperationCanceledException)
             {
-                _connections.ObserveTileBuild(layer, failure);
+                connections.ObserveTileBuild(layer, failure);
                 throw;
             }
 
             if (part.Came == VectorTileEndpoints.PartCame.Built)
             {
-                _connections.ObserveTileBuild(layer, null);
+                connections.ObserveTileBuild(layer, null);
             }
 
             built |= part.Came != VectorTileEndpoints.PartCame.Cached;
-            bytes += part.Bytes.Length;
+            parts.Add(part.Bytes);
         }
 
-        return !any ? TileSeedOutcome.Skipped
+        byte[] tile = VectorTileEndpoints.Concatenate(parts);
+
+        return (!any ? TileSeedOutcome.Skipped
             : !built ? TileSeedOutcome.Present
-            : bytes == 0 ? TileSeedOutcome.Empty
-            : TileSeedOutcome.Built;
+            : tile.Length == 0 ? TileSeedOutcome.Empty
+            : TileSeedOutcome.Built, tile);
     }
 
     /// <summary>

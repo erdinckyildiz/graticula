@@ -107,7 +107,7 @@ internal static class VectorTileEndpoints
     /// is a different fact about a layer that genuinely exists and that the caller may genuinely
     /// read: it has a FeatureServer and no VectorTileServer.
     /// </remarks>
-    private static async Task<PublishedService?> TileableAsync(
+    internal static async Task<PublishedService?> TileableAsync(
         HttpContext context,
         string serviceName,
         CatalogFallback catalog,
@@ -336,6 +336,7 @@ internal static class VectorTileEndpoints
         CatalogFallback catalog,
         ServiceContexts contexts,
         IProjector projector,
+        HostSettings settings,
         CancellationToken cancellation)
     {
         PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
@@ -346,6 +347,30 @@ internal static class VectorTileEndpoints
             return;
         }
 
+        object document = await ServiceDocumentAsync(service, contexts, projector, cancellation).ConfigureAwait(false);
+
+        // <b>ADR-098: `exportTilesAllowed` is true only where this caller could export</b> — the service offers it and,
+        // for a caller who is not signed in, offers it to anonymous callers too. Field Maps and Pro read this flag to
+        // decide whether to offer an offline area; offering one the next request refuses is the failure the old
+        // comment on the flag warned about. Everywhere else the document is byte for byte what it was.
+        RequestPrincipal? caller = context.Features.Get<RequestPrincipal>();
+
+        if (VectorTileExportEndpoints.MayExport(service, caller?.Principal.IsAnonymous ?? true))
+        {
+            document = VectorTileExportEndpoints.Advertised(
+                document, service.Limits.Export.MaximumOf(settings.TileExportMaximumTiles));
+        }
+
+        await Results.Ok(document).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The service document as the route serves it to a caller who may not export — split out on 2026-09-29 so an
+    /// exported package carries the same document (ADR-098 §5.2), unchanged.
+    /// </summary>
+    internal static async Task<object> ServiceDocumentAsync(
+        PublishedService service, ServiceContexts contexts, IProjector projector, CancellationToken cancellation)
+    {
         // <b>ADR-096: a service cut on another grid states that grid, and its extent in it.</b> Each
         // layer's extent is moved into the scheme's reference on its own — the union of boxes in two
         // references would be meaningless — sampled along its edges (`ServedExtent`), because a
@@ -366,15 +391,12 @@ internal static class VectorTileEndpoints
                         .ConfigureAwait(false));
             }
 
-            await Results.Ok(VectorTileServerMetadataWriter.Service(
+            return VectorTileServerMetadataWriter.Service(
                 service.Name,
                 [.. service.Layers.Select(l => l.Definition.Name)],
                 inScheme,
                 scheme,
-                ServiceRange(service.Layers)))
-                .ExecuteAsync(context).ConfigureAwait(false);
-
-            return;
+                ServiceRange(service.Layers));
         }
 
         // The extent comes from the same cached description the feature path
@@ -398,14 +420,13 @@ internal static class VectorTileEndpoints
         extent = await InWebMercatorAsync(extent, srid, projector, cancellation)
             .ConfigureAwait(false);
 
-        await Results.Ok(VectorTileServerMetadataWriter.Service(
+        return VectorTileServerMetadataWriter.Service(
             service.Name,
             [.. service.Layers.Select(l => l.Definition.Name)],
             extent,
             TileAddress.MaxZoom,
             WebMercator,
-            ServiceRange(service.Layers)))
-            .ExecuteAsync(context).ConfigureAwait(false);
+            ServiceRange(service.Layers));
     }
 
     /// <summary>
@@ -815,7 +836,7 @@ internal static class VectorTileEndpoints
     }
 
     /// <summary>A one-pixel transparent PNG: an atlas with nothing in it.</summary>
-    private static readonly byte[] EmptySheet = Convert.FromBase64String(
+    internal static readonly byte[] EmptySheet = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNgYGBgAAAABQABeqhXUAAAAABJRU5ErkJggg==");
 
     private static async Task StyleAsync(
@@ -929,48 +950,10 @@ internal static class VectorTileEndpoints
         // that no longer fits gives way to the generated one, which always does, and says so in the server log.
         if (stored is { Length: > 0 })
         {
-            // <b>The sprite sheet's icon names, read only when the style could need them — ADR-092.</b> A style that
-            // draws no icon is checked against its layers alone, as before, and pays nothing for the sheet.
-            //
-            // <b>And skipped when the store cannot be reached.</b> The service itself may be the remembered one
-            // (ADR-026, Q-95), and a sheet is not remembered; refusing the style over that would take the map down to
-            // protect its icons. The icons would be missing anyway — the sprite routes cannot read the sheet either.
-            IReadOnlyList<string>? icons = null;
-            bool checkable = true;
+            (bool fits, string? stale) = await StoredStyleFitsNowAsync(service, stored, catalog.Catalog, origins, cancellation)
+                .ConfigureAwait(false);
 
-            if (stored.Contains("icon-image", StringComparison.Ordinal) && catalog.Catalog is { } sprites)
-            {
-                try
-                {
-                    icons = await sprites.FindSpriteAsync(service.Id, 1, withImage: false, cancellation)
-                            .ConfigureAwait(false) is { } sheet
-                        ? SpriteSheet.IconNames(sheet.Index)
-                        : null;
-                }
-                catch (Exception e) when (CatalogFallback.IsUnreachable(e))
-                {
-                    checkable = false;
-                }
-            }
-
-            // <b>The allowed origins, read only when the style could name one — ADR-094.</b> An origin taken off
-            // the list stops a style that names it being served, here, where every viewer's browser would
-            // otherwise be sent to it. Unlike the icons this is not skipped when the store is unreachable: the
-            // list fails closed (StyleOriginList), because an origin nobody can confirm is still allowed is one
-            // the browser should not be sent to.
-            IReadOnlyList<StyleOrigin> allowed = StyleDocument.MayNameAnotherHost(stored)
-                ? await origins.CurrentAsync(cancellation).ConfigureAwait(false)
-                : [];
-
-            string? stale = null;
-
-            if (StoredStyleFits(
-                    stored,
-                    [.. service.Layers.Select(l => l.Definition.Name)],
-                    icons,
-                    allowed,
-                    out stale,
-                    iconsCheckable: checkable))
+            if (fits)
             {
                 await Results.Content(stored, "application/json; charset=utf-8")
                     .ExecuteAsync(context).ConfigureAwait(false);
@@ -982,11 +965,73 @@ internal static class VectorTileEndpoints
             context.Response.Headers["Graticula-Style-Stale"] = "true";
         }
 
+        await Results.Ok(GeneratedStyle(service, glyphs)).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Whether a stored style may be served for this service now — its layers, its icons and its origins — and why
+    /// not when it may not. Split out of the style route unchanged on 2026-09-29 so an exported package carries the
+    /// style the route would serve (ADR-098 §5.2).
+    /// </summary>
+    internal static async Task<(bool Fits, string? Stale)> StoredStyleFitsNowAsync(
+        PublishedService service,
+        string stored,
+        PostgresLayerCatalog? store,
+        StyleOriginList origins,
+        CancellationToken cancellation)
+    {
+        // <b>The sprite sheet's icon names, read only when the style could need them — ADR-092.</b> A style that
+        // draws no icon is checked against its layers alone, as before, and pays nothing for the sheet.
+        //
+        // <b>And skipped when the store cannot be reached.</b> The service itself may be the remembered one
+        // (ADR-026, Q-95), and a sheet is not remembered; refusing the style over that would take the map down to
+        // protect its icons. The icons would be missing anyway — the sprite routes cannot read the sheet either.
+        IReadOnlyList<string>? icons = null;
+        bool checkable = true;
+
+        if (stored.Contains("icon-image", StringComparison.Ordinal) && store is { } sprites)
+        {
+            try
+            {
+                icons = await sprites.FindSpriteAsync(service.Id, 1, withImage: false, cancellation)
+                        .ConfigureAwait(false) is { } sheet
+                    ? SpriteSheet.IconNames(sheet.Index)
+                    : null;
+            }
+            catch (Exception e) when (CatalogFallback.IsUnreachable(e))
+            {
+                checkable = false;
+            }
+        }
+
+        // <b>The allowed origins, read only when the style could name one — ADR-094.</b> An origin taken off
+        // the list stops a style that names it being served, here, where every viewer's browser would
+        // otherwise be sent to it. Unlike the icons this is not skipped when the store is unreachable: the
+        // list fails closed (StyleOriginList), because an origin nobody can confirm is still allowed is one
+        // the browser should not be sent to.
+        IReadOnlyList<StyleOrigin> allowed = StyleDocument.MayNameAnotherHost(stored)
+            ? await origins.CurrentAsync(cancellation).ConfigureAwait(false)
+            : [];
+
+        bool fits = StoredStyleFits(
+            stored,
+            [.. service.Layers.Select(l => l.Definition.Name)],
+            icons,
+            allowed,
+            out string? stale,
+            iconsCheckable: checkable);
+
+        return (fits, stale);
+    }
+
+    /// <summary>The generated style — the one served when no stored style fits — split out for ADR-098 §5.2.</summary>
+    internal static object GeneratedStyle(PublishedService service, GlyphStore glyphs) =>
+
         // One style layer per source layer, drawn in index order — polygons
         // before lines before points would be nicer, and is a cartographic
         // decision this default has no business making. Index order is what the
         // publisher chose.
-        await Results.Ok(VectorTileServerMetadataWriter.Style(
+        VectorTileServerMetadataWriter.Style(
             // ADR-033 §5a: each layer's canonical document travels with it, so the
             // tile face draws what the feature face derives from rather than
             // generating a second opinion about the same layer.
@@ -1000,9 +1045,7 @@ internal static class VectorTileEndpoints
                 .ToDictionary(g => g.Key, g => g.First().VisibleRange, StringComparer.Ordinal),
 
             // ADR-096: a style's zooms count the service's own levels; null keeps Web Mercator's table.
-            service.TileScheme.IsWebMercator ? null : service.TileScheme.Level0Scale))
-            .ExecuteAsync(context).ConfigureAwait(false);
-    }
+            service.TileScheme.IsWebMercator ? null : service.TileScheme.Level0Scale);
 
     /// <summary>
     /// Whether a stored style still draws only layers the service has — ADR-028 condition 3: checked when it is

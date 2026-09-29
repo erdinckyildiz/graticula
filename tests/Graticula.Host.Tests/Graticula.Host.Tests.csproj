@@ -27,5 +27,6 @@
     <Compile Include="..\shared\GeometryCorpus.cs" Link="GeometryCorpus.cs" />
     <Compile Include="..\shared\OneSuiteAtATime.cs" Link="OneSuiteAtATime.cs" />
     <Compile Include="..\shared\GeoParquetFixture.cs" Link="GeoParquetFixture.cs" />
+    <Compile Include="..\shared\TilePackageReaders.cs" Link="TilePackageReaders.cs" />
   </ItemGroup>
 </Project>

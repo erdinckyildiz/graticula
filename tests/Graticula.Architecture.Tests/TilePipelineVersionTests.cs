@@ -174,7 +174,13 @@ public sealed class TilePipelineVersionTests
         // address check became `VectorTileEndpoints.ServeTileAsync`, unchanged, so OGC API Tiles and WMTS serve a
         // tile through the route's own loop, keys, admission and headers. Which faces reach the code changed; the
         // code that decides a tile's bytes and its key did not move a character.
-        "cc1338780393edcf1e98539d7e8e14009a77e2582abc9d7c54cfda0ae7f102a6";
+        // <b>Moved again 2026-09-29 for ADR-098, and the version did not move.</b> `VectorTileEndpoints` split three
+        // things out, unchanged, so an exported package carries what the routes serve: the service document
+        // (`ServiceDocumentAsync`), the stored style's check (`StoredStyleFitsNowAsync`) and the generated style
+        // (`GeneratedStyle`); `TileableAsync` and the empty sprite sheet became internal; and the service document says
+        // `exportTilesAllowed: true` with `maxExportTilesCount` only for a caller the service lets export — every other
+        // caller's document is the object it was. Nothing that builds a tile, keys it or joins its parts moved.
+        "12793a9f88774811d820fb8a0a3b99483e734c586f961455f69c0421dfb0e3ce";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 2;

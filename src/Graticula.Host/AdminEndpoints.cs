@@ -594,6 +594,7 @@ internal static partial class AdminEndpoints
         MapSprite(app);          // ADR-092 — AdminEndpoints.Sprite.cs
         MapStyles(app);          // ADR-094 — AdminEndpoints.Styles.cs
         MapTileSeed(app);        // ADR-093 — AdminEndpoints.TileSeed.cs
+        MapTileExport(app);      // ADR-098 — AdminEndpoints.TileExport.cs
         MapTilingScheme(app);    // ADR-096 — AdminEndpoints.TilingScheme.cs
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a,
             PostgresLayerCatalog p, IAuditLog l, CancellationToken t) =>
@@ -1029,6 +1030,7 @@ internal static partial class AdminEndpoints
             JobKind.GeodatabaseInspect => "geodatabase.inspect",
             JobKind.GeodatabaseImport => "geodatabase.import",
             JobKind.TileSeed => "tile.seed",
+            JobKind.TileExport => "tile.export",
             _ => "unknown",
         },
         status = job.Status.ToString().ToLowerInvariant(),
@@ -4826,6 +4828,12 @@ internal static partial class AdminEndpoints
             servesFeatures = limits.ServesFeatures,
             servesTiles = limits.ServesTiles,
             capabilities = limits.Ceiling,
+
+            // <b>Not the export policy (ADR-098), which is read and written at …/exports.</b> This document is
+            // read, changed and PUT back whole, and an object here that the PUT does not take broke exactly that:
+            // CeilingReachesEveryReadFaceTests read it, could not write it back, and left three fixture services
+            // with a face turned off (2026-09-29, 99 conformance failures from one). Every value here must be one
+            // this route's PUT accepts.
             statementTimeoutMs = limits.StatementTimeout is { } t ? (int?)t.TotalMilliseconds : null,
             maxRecordCount = limits.Cost.MaximumRecordCount,
 
@@ -11299,9 +11307,9 @@ internal static partial class AdminEndpoints
     private static string PostgresSharing(SharingScope scope) =>
         Platform.Postgres.PostgresAdminCatalog.Wire(scope);
 
-    private static string Detail(object value) => JsonSerializer.Serialize(value);
+    internal static string Detail(object value) => JsonSerializer.Serialize(value);
 
-    private static Task AuditAsync(
+    internal static Task AuditAsync(
         HttpContext context,
         IAuditLog audit,
         string action,

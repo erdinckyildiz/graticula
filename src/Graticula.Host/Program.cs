@@ -366,6 +366,21 @@ public static class Program
 
         builder.Services.AddHostedService(services => services.GetRequiredService<TileSeeder>());
 
+        /*
+          <b>The tile exporter — ADR-098 — a fourth poller on the same pool</b>, registered as itself for the reason the
+          seeder is: the delete route stops an export this node is running (`TileExporter.Stop`) and deletes its files
+          (`TileExporter.DeleteFiles`). Its checkpoints go through the shared store, as the seeder's do.
+        */
+        builder.Services.AddSingleton<Graticula.Platform.Jobs.ITileExportStore>(services =>
+            new PostgresTileExportStore(services.GetRequiredService<NpgsqlDataSource>()));
+
+        builder.Services.AddSingleton(services =>
+            ActivatorUtilities.CreateInstance<TileExporter>(
+                services,
+                services.GetRequiredKeyedService<Graticula.Platform.Jobs.IJobStore>(JobPool)));
+
+        builder.Services.AddHostedService(services => services.GetRequiredService<TileExporter>());
+
         // <b>Q-141's datum caution, aimed at the operator.</b> A singleton because
         // *said once* is a property of the server rather than of a request, and it is
         // read back by `/admin/health`.
@@ -2044,6 +2059,7 @@ public static class Program
         }
 
         VectorTileEndpoints.Map(app);
+        VectorTileExportEndpoints.Map(app);  // ADR-098: exportTiles, its job and its package
         AttachmentEndpoints.Map(app);
         RelationshipEndpoints.Map(app);
         GeometryServerEndpoints.Map(app);

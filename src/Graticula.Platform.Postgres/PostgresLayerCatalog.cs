@@ -109,7 +109,11 @@ public sealed class PostgresLayerCatalog
 
         -- The grid the service's vector tiles are cut on, or null for Web Mercator (ADR-096, migration 63).
         -- On the end, read by name.
-        s.tiling_scheme::text as tiling_scheme
+        s.tiling_scheme::text as tiling_scheme,
+
+        -- Whether ArcGIS's exportTiles is offered, to whom, and how large (ADR-098, migration 64). On the end, read
+        -- by name; false, false and null on every service that existed before it.
+        s.export_tiles_allowed, s.export_tiles_anonymous, s.max_export_tiles
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -971,6 +975,10 @@ public sealed class PostgresLayerCatalog
 
         ServiceCostCeilings cost = ReadCost(reader);
 
+        // <b>ADR-098's export policy, read before the shortcut for the reason the cost is.</b> It is its own axis:
+        // a service may offer exports and configure nothing else.
+        TileExportPolicy export = ReadExport(reader);
+
         // <b>Cost is read before the shortcut, and getting that order wrong was a
         // real bug for the length of one edit.</b> The two axes are independent: a
         // service may bound what a request costs without configuring any capability,
@@ -978,9 +986,11 @@ public sealed class PostgresLayerCatalog
         // every cost ceiling on that service.
         if (features is null && tiles is null && ceiling is null && timeout is null)
         {
-            return cost.IsUnset
+            ServiceCapabilityLimits unset = cost.IsUnset
                 ? ServiceCapabilityLimits.Unset
                 : ServiceCapabilityLimits.Unset.With(cost);
+
+            return ReferenceEquals(export, TileExportPolicy.Off) ? unset : unset.With(export);
         }
 
         return new ServiceCapabilityLimits(
@@ -988,7 +998,25 @@ public sealed class PostgresLayerCatalog
             tiles,
             ceiling,
             timeout is { } ms ? TimeSpan.FromMilliseconds(ms) : null)
-            .With(cost);
+            .With(cost)
+            .With(export);
+    }
+
+    /// <summary>Reads a service's export policy (ADR-098, migration 64), by name.</summary>
+    /// <remarks>
+    /// <b>The shared <see cref="TileExportPolicy.Off"/> for the ordinary case</b>, so a catalogue of services
+    /// nobody has offered exports on allocates nothing more than it did.
+    /// </remarks>
+    internal static TileExportPolicy ReadExport(NpgsqlDataReader reader)
+    {
+        bool allowed = reader.GetBoolean(reader.GetOrdinal("export_tiles_allowed"));
+        bool anonymous = reader.GetBoolean(reader.GetOrdinal("export_tiles_anonymous"));
+        int most = reader.GetOrdinal("max_export_tiles");
+        int? maximum = reader.IsDBNull(most) ? null : reader.GetInt32(most);
+
+        return !allowed && !anonymous && maximum is null
+            ? TileExportPolicy.Off
+            : new TileExportPolicy(allowed, anonymous, maximum);
     }
 
     /// <summary>Reads a service's cost ceilings (Q-113, migration 17).</summary>

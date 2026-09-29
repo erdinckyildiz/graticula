@@ -487,90 +487,13 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        Envelope area;
-        bool whole = request?.Extent is null;
+        (Envelope? found, bool whole, string? unplaced) =
+            await AreaOfAsync(service, request?.Extent, contexts, projector, cancellation).ConfigureAwait(false);
 
-        if (request?.Extent is { } extent)
+        if (found is not { } area)
         {
-            int wkid = extent.SpatialReference?.LatestWkid ?? extent.SpatialReference?.Wkid ?? VectorTileEndpoints.WebMercator;
-
-            if (!double.IsFinite(extent.Xmin) || !double.IsFinite(extent.Ymin)
-                || !double.IsFinite(extent.Xmax) || !double.IsFinite(extent.Ymax))
-            {
-                await Refuse(context, 400, "The extent's corners must be numbers.").ConfigureAwait(false);
-                return;
-            }
-
-            Envelope given = new(extent.Xmin, extent.Ymin, extent.Xmax, extent.Ymax);
-            bool mercator = wkid is VectorTileEndpoints.WebMercator or 102100 or 102113 or 900913;
-
-            if (!scheme.IsWebMercator)
-            {
-                // <b>ADR-096: the area is kept in the scheme's reference</b>, so a resumed seed walks the
-                // rectangles the first run counted. Given in it, it is used as it is; given in Web Mercator
-                // or in degrees — what the console and an ArcGIS client send — it is moved into it,
-                // sampled along its edges, as the service document's extent is.
-                Envelope? moved = wkid == scheme.Srid
-                    ? given
-                    : mercator || wkid == 4326
-                        ? await VectorTileEndpoints.InSchemeAsync(
-                                given, mercator ? VectorTileEndpoints.WebMercator : 4326, scheme, projector, cancellation)
-                            .ConfigureAwait(false)
-                        : null;
-
-                if (moved is not { } inScheme)
-                {
-                    await Refuse(
-                        context, 400,
-                        $"The extent is in {wkid}. This service is tiled in EPSG:{scheme.Srid} ({scheme.Id}), and a "
-                        + $"seed's area is given in it, in Web Mercator (3857) or in WGS 84 degrees (4326) — or left "
-                        + "out for the service's whole extent.")
-                        .ConfigureAwait(false);
-                    return;
-                }
-
-                area = inScheme;
-            }
-            else if (mercator)
-            {
-                area = given;
-            }
-            else if (wkid == 4326)
-            {
-                area = TileSeedPlan.FromGeographic(given);
-            }
-            else
-            {
-                await Refuse(
-                    context, 400,
-                    $"The extent is in {wkid}. A seed's area is given in Web Mercator (3857) — the grid tiles are "
-                    + "cut on — or in WGS 84 degrees (4326), or left out for the service's whole extent.")
-                    .ConfigureAwait(false);
-                return;
-            }
-        }
-        else
-        {
-            (Envelope? full, string? unknown) =
-                await ServiceExtentAsync(service, contexts, projector, cancellation).ConfigureAwait(false);
-
-            if (unknown is not null)
-            {
-                await Refuse(context, 400, unknown).ConfigureAwait(false);
-                return;
-            }
-
-            if (full is not { } found)
-            {
-                await Refuse(
-                    context, 400,
-                    $"No layer of '{service.QualifiedName}' has any data, so it has no extent to seed. Load the "
-                    + "data first, or give an extent.")
-                    .ConfigureAwait(false);
-                return;
-            }
-
-            area = found;
+            await Refuse(context, 400, unplaced!).ConfigureAwait(false);
+            return;
         }
 
         TileSeedPlan plan;
@@ -748,6 +671,98 @@ internal static partial class AdminEndpoints
                     + "it the cache evicts the highest levels first, so a seed's low levels are the last it loses.",
             },
             statusCode: 202).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The area a seed or an export covers, in the reference of the service's grid — the caller's envelope moved
+    /// there, or the service's whole extent — or the sentence refusing it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Split out of the seed's start on 2026-09-29 so an export places its area the same way</b> (ADR-098 §5.3):
+    /// an export of <em>the map's current extent</em> covers what a seed of it would, on either grid.
+    /// </remarks>
+    internal static async Task<(Envelope? Area, bool Whole, string? Refusal)> AreaOfAsync(
+        PublishedService service,
+        SeedExtent? asked,
+        ServiceContexts contexts,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
+        VectorTileScheme scheme = service.TileScheme;
+
+        Envelope area;
+        bool whole = asked is null;
+
+        if (asked is { } extent)
+        {
+            int wkid = extent.SpatialReference?.LatestWkid ?? extent.SpatialReference?.Wkid ?? VectorTileEndpoints.WebMercator;
+
+            if (!double.IsFinite(extent.Xmin) || !double.IsFinite(extent.Ymin)
+                || !double.IsFinite(extent.Xmax) || !double.IsFinite(extent.Ymax))
+            {
+                return (null, whole, "The extent's corners must be numbers.");
+            }
+
+            Envelope given = new(extent.Xmin, extent.Ymin, extent.Xmax, extent.Ymax);
+            bool mercator = wkid is VectorTileEndpoints.WebMercator or 102100 or 102113 or 900913;
+
+            if (!scheme.IsWebMercator)
+            {
+                // <b>ADR-096: the area is kept in the scheme's reference</b>, so a resumed seed walks the
+                // rectangles the first run counted. Given in it, it is used as it is; given in Web Mercator
+                // or in degrees — what the console and an ArcGIS client send — it is moved into it,
+                // sampled along its edges, as the service document's extent is.
+                Envelope? moved = wkid == scheme.Srid
+                    ? given
+                    : mercator || wkid == 4326
+                        ? await VectorTileEndpoints.InSchemeAsync(
+                                given, mercator ? VectorTileEndpoints.WebMercator : 4326, scheme, projector, cancellation)
+                            .ConfigureAwait(false)
+                        : null;
+
+                if (moved is not { } inScheme)
+                {
+                    return (null, whole, $"The extent is in {wkid}. This service is tiled in EPSG:{scheme.Srid} ({scheme.Id}), and a "
+                        + $"seed's or an export's area is given in it, in Web Mercator (3857) or in WGS 84 degrees (4326) — or left "
+                        + "out for the service's whole extent.");
+                }
+
+                area = inScheme;
+            }
+            else if (mercator)
+            {
+                area = given;
+            }
+            else if (wkid == 4326)
+            {
+                area = TileSeedPlan.FromGeographic(given);
+            }
+            else
+            {
+                return (null, whole, $"The extent is in {wkid}. A seed's or an export's area is given in Web Mercator (3857) — the grid tiles are "
+                    + "cut on — or in WGS 84 degrees (4326), or left out for the service's whole extent.");
+            }
+        }
+        else
+        {
+            (Envelope? full, string? unknown) =
+                await ServiceExtentAsync(service, contexts, projector, cancellation).ConfigureAwait(false);
+
+            if (unknown is not null)
+            {
+                return (null, whole, unknown);
+            }
+
+            if (full is not { } found)
+            {
+                return (null, whole, $"No layer of '{service.QualifiedName}' has any data, so it has no extent to seed or export. Load the "
+                    + "data first, or give an extent.");
+            }
+
+            area = found;
+        }
+
+        return (area, whole, null);
     }
 
     /// <summary>A service's seeds, newest first.</summary>

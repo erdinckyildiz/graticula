@@ -54,6 +54,18 @@ public sealed class ServiceCapabilityLimits
     /// </remarks>
     public ServiceCostCeilings Cost { get; private init; } = ServiceCostCeilings.Unset;
 
+    /// <summary>
+    /// Whether ArcGIS's <c>exportTiles</c> is offered to the service's readers — ADR-098 §5.5. Off unless set.
+    /// </summary>
+    /// <remarks>
+    /// <b>Beside the ceiling rather than in <see cref="Known"/>, and off rather than unset.</b> The names in
+    /// <see cref="Known"/> are the feature face's capabilities string, where null means *whatever the data
+    /// supports*; an export has no such default to fall back to, and ArcGIS reports it as its own property of the
+    /// service (<c>exportTilesAllowed</c>, <c>maxExportTilesCount</c>), not as a word in <c>capabilities</c>. It is
+    /// written by its own route, so the capabilities PUT — which replaces every column it knows — never clears it.
+    /// </remarks>
+    public TileExportPolicy Export { get; private init; } = TileExportPolicy.Off;
+
     /// <summary>The same limits with a cost ceiling attached.</summary>
     public ServiceCapabilityLimits With(ServiceCostCeilings cost)
     {
@@ -62,8 +74,28 @@ public sealed class ServiceCapabilityLimits
         return new ServiceCapabilityLimits(ServesFeatures, ServesTiles, Ceiling, StatementTimeout)
         {
             Cost = cost,
+            Export = Export,
         };
     }
+
+    /// <summary>The same limits with an export policy attached — ADR-098.</summary>
+    public ServiceCapabilityLimits With(TileExportPolicy export)
+    {
+        ArgumentNullException.ThrowIfNull(export);
+
+        return new ServiceCapabilityLimits(ServesFeatures, ServesTiles, Ceiling, StatementTimeout)
+        {
+            Cost = Cost,
+            Export = export,
+        };
+    }
+
+    /// <summary>
+    /// Whether <c>exportTiles</c> may be offered: the tile face is on and the export is allowed — ADR-098 §5.5.
+    /// </summary>
+    /// <param name="dataSupportsIt">Whether the data can be tiled at all.</param>
+    /// <returns>True when it may.</returns>
+    public bool AllowsTileExport(bool dataSupportsIt) => AllowsTiles(dataSupportsIt) && Export.Allowed;
 
     /// <summary>Creates a set of limits.</summary>
     /// <param name="servesFeatures">Whether the feature face is offered, or null for unset.</param>

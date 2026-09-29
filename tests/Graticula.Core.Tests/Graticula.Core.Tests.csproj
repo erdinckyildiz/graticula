@@ -14,6 +14,10 @@
     <ProjectReference Include="..\..\src\Graticula.Core\Graticula.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\shared\TilePackageReaders.cs" Link="TilePackageReaders.cs" />
+  </ItemGroup>
+
   <!--
     The shapefile corpus, written by pyshp and by PostGIS rather than by the
     reader under test. Copied beside the test assembly because the tests read

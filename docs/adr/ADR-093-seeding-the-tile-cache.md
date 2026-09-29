@@ -336,7 +336,8 @@ on this node, one at a time.
 - [ADR-070](ADR-070-a-layer-has-a-visible-scale-range.md), for which levels a layer is drawn at.
 - [ADR-075](ADR-075-a-layer-is-edited-by-its-owner.md), for who may start and stop a seed.
 
-**Depended on by:** —
+**Depended on by:** [ADR-098](ADR-098-vector-tiles-can-be-exported-as-a-package.md), whose export walks through this seed's plan, walk, per-tile loop,
+admission and cancel, and uses its estimate.
 
 ## 9. Revisit triggers
 
