@@ -3209,7 +3209,14 @@ async function offersTiles(root) {
 
     if (!response.ok) return false;
     const body = await response.json();
-    return !body.error;
+    if (body.error) return false;
+
+    // <b>ADR-096: tiles on another grid are tiles this map cannot draw.</b> The preview is a Web Mercator
+    // map, and the SDK does not move a vector tile from one grid to another; a TUREF service's tiles would
+    // add a layer that draws nothing. Its features draw, reprojected, so the answer here is *no tiles*.
+    const reference = body.tileInfo?.spatialReference || {};
+    const wkid = reference.latestWkid ?? reference.wkid;
+    return wkid == null || wkid === 3857 || wkid === 102100;
   } catch {
     return false;
   }
@@ -6045,6 +6052,15 @@ function serviceSettingsMarkup(name, folder) {
           <input type="checkbox" id="capTiles"> Vector tiles
           <span class="val">datastore and GeoParquet layers</span></label>
       </div>
+
+      <label for="capTileScheme">Vector tiles are cut on</label>
+      <select id="capTileScheme" aria-describedby="capTileSchemeHint">
+        <option value="webmercator">Web Mercator (the default)</option>
+      </select>
+      <p class="hint" id="capTileSchemeHint">The grid a client asks for tiles in. Web Mercator draws over every
+        web basemap; a national grid such as TUREF / TM30 draws over a basemap in that grid, in ArcGIS Pro or
+        a map in the same reference. Changing it empties this service's cached tiles, and clients load the
+        service again to follow — ADR-096.</p>
 
       <h4>Operations allowed</h4>
       <div class="grid2" id="ops">
@@ -13394,6 +13410,7 @@ async function loadServiceCapabilities(name, folderGiven) {
 
   if ($("capFeatures")) $("capFeatures").checked = c.servesFeatures !== false;
   if ($("capTiles") && !$("capTiles").disabled) $("capTiles").checked = c.servesTiles !== false;
+  await loadTileScheme(service, folder);
 
   // An unset ceiling is every operation the caller's privileges allow, so the boxes
   // start ticked and unticking one is the narrowing.
@@ -13482,6 +13499,25 @@ async function saveServiceSettings(service, folder) {
     throw new Error("A page size is a whole number of features, 1 or more — or empty for the server's.");
   }
 
+  // <b>The tiling scheme first, and only when it moved</b> — ADR-096. Setting it empties the service's cached
+  // tiles, so an unchanged choice must not reach the server on every Save; a refusal (the map ground, an
+  // unknown grid) stops the save here with the server's sentence.
+  const schemeBox = $("capTileScheme");
+  let schemeSaid = "";
+
+  if (schemeBox && schemeBox.dataset.current && schemeBox.value !== schemeBox.dataset.current) {
+    const set = await api(`/admin/services/${encodeURIComponent(service)}/tiling`
+      + `?folder=${encodeURIComponent(folder || "")}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scheme: schemeBox.value }),
+    });
+
+    schemeBox.dataset.current = schemeBox.value;
+    schemeSaid = set?.changed ? ` Tiles are cut on ${schemeBox.selectedOptions[0]?.textContent || schemeBox.value} now; `
+      + `${nf.format(set.tilesPurged || 0)} cached tiles were emptied.` : "";
+  }
+
   const ops = [...document.querySelectorAll("#ops input[data-op]")];
   const ticked = ops.filter(b => b.checked).map(b => b.dataset.op);
 
@@ -13516,7 +13552,48 @@ async function saveServiceSettings(service, folder) {
     ? ` Its page size is held at ${nf.format(ceiling)}, this server's ceiling, not ${nf.format(asked)}.`
     : "";
 
-  toast((saved.note ? `${service}: saved. ${saved.note}` : `${service}: saved.`) + held, true);
+  toast((saved.note ? `${service}: saved. ${saved.note}` : `${service}: saved.`) + held + schemeSaid, true);
+}
+
+/**
+ * Fills the tiling-scheme choice from the server — ADR-096.
+ *
+ * <b>The built-ins come from the server, never from a list written here</b>, so a grid the server offers is a
+ * grid the console offers. The ones laid out in a reference the service's own layers are stored in are named
+ * first, because a TM30 layer's natural grid is TM30. A service set to a grid that is not a built-in keeps
+ * it as an option of its own, so opening the page and pressing Save does not quietly move it to another.
+ */
+async function loadTileScheme(service, folder) {
+  const box = $("capTileScheme");
+  if (!box) return;
+
+  const [mine, all] = await Promise.all([
+    api(`/admin/services/${encodeURIComponent(service)}/tiling?folder=${encodeURIComponent(folder || "")}`)
+      .catch(() => null),
+    api("/admin/tiling-schemes").catch(() => null),
+  ]);
+
+  if (!mine || !all) {
+    box.disabled = true;
+    return;
+  }
+
+  const suggested = new Set(mine.suggested || []);
+  const schemes = (all.schemes || []).slice().sort((a, b) =>
+    (a.id === "webmercator" ? -2 : suggested.has(a.id) ? -1 : 0)
+    - (b.id === "webmercator" ? -2 : suggested.has(b.id) ? -1 : 0));
+
+  const current = mine.scheme?.id || "webmercator";
+  const known = schemes.some(x => x.id === current && x.grid?.key === mine.scheme?.key);
+
+  box.innerHTML = schemes.map(x => `<option value="${h(x.id)}">${h(x.title)}`
+      + `${suggested.has(x.id) ? " — the grid your data is stored in" : ""}</option>`).join("")
+    + (known ? "" : `<option value="${h(current)}">${h(current === "custom"
+      ? `Custom grid in EPSG:${mine.scheme?.latestWkid}` : current)} (as set)</option>`);
+
+  box.value = current;
+  box.dataset.current = current;
+  box.disabled = false;
 }
 
 /**

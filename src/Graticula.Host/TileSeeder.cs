@@ -302,13 +302,31 @@ internal sealed class TileSeeder : BackgroundService
             return;
         }
 
-        TileSeedPlan plan = TileSeedPlan.For(state.Area, state.MinZoom, state.MaxZoom);
+        // <b>ADR-096: the seed's area and levels belong to the grid it was counted on.</b> A service switched
+        // to another scheme since — the switch cancels its seeds, but a seed queued on another node or resumed
+        // after a restart can still arrive here — has a different grid, and walking one grid's rectangles on
+        // the other would build the wrong tiles under the right keys' neighbours. It fails, saying why.
+        VectorTileScheme scheme = service.TileScheme;
+        string counted = SchemeOf(job.Detail) ?? VectorTileScheme.WebMercatorId;
+
+        if (counted != scheme.Key)
+        {
+            await FailAsync(
+                job,
+                $"The tiling scheme of '{service.QualifiedName}' changed after this seed was asked for, so its area "
+                + "and levels are counted on a grid the service no longer has. Ask for a seed of it again.",
+                null,
+                working).ConfigureAwait(false);
+            return;
+        }
+
+        TileSeedPlan plan = TileSeedPlan.For(scheme, state.Area, state.MinZoom, state.MaxZoom);
 
         TileSeedRun run = new(
             plan,
             state.Levels,
             state.Concurrency,
-            z => service.Layers.Any(layer => layer.VisibleRange.CarriesVectorTile(z)),
+            z => service.Layers.Any(layer => scheme.Draws(layer.VisibleRange, z)),
             OutageOf,
             _clock);
 
@@ -372,8 +390,9 @@ internal sealed class TileSeeder : BackgroundService
 
         foreach (PublishedLayer layer in service.Layers)
         {
-            // ADR-070 — the test serving applies to each layer before it pays for anything.
-            if (!layer.VisibleRange.CarriesVectorTile(address.Z))
+            // ADR-070 — the test serving applies to each layer before it pays for anything, on the service's
+            // own levels (ADR-096).
+            if (!service.TileScheme.Draws(layer.VisibleRange, address.Z))
             {
                 continue;
             }
@@ -388,7 +407,8 @@ internal sealed class TileSeeder : BackgroundService
                         layer, address, defaultLifetime, _contexts, _connections, _cache, _building,
                         _projector, _datumShifts, _unindexed, _loggers, _geoParquet,
                         admit: permit => _connections.AdmitTileBuildAsync(layer, permit),
-                        token)
+                        token,
+                        service.TileScheme)
                     .ConfigureAwait(false);
             }
             catch (Exception failure) when (failure is not OperationCanceledException)
@@ -410,6 +430,35 @@ internal sealed class TileSeeder : BackgroundService
             : !built ? TileSeedOutcome.Present
             : bytes == 0 ? TileSeedOutcome.Empty
             : TileSeedOutcome.Built;
+    }
+
+    /// <summary>
+    /// The tiling scheme a seed's detail says its area was counted on — <see cref="VectorTileScheme.Key"/> —
+    /// or null for a seed that recorded none, which is a Web Mercator seed (ADR-096).
+    /// </summary>
+    /// <param name="detail">The job's detail.</param>
+    /// <returns>The key, or null.</returns>
+    internal static string? SchemeOf(string? detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail))
+        {
+            return null;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(detail);
+
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("scheme", out JsonElement scheme)
+                && scheme.ValueKind == JsonValueKind.String
+                    ? scheme.GetString()
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>The service a seed's detail names.</summary>

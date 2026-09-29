@@ -57,14 +57,29 @@ public sealed class PostGisMvtEncoder : IMvtEncoder
     }
 
     /// <inheritdoc/>
+    public Task<byte[]> EncodeAsync(
+        IReadOnlyList<MvtRow> rows,
+        TileAddress address,
+        string layerName,
+        int srid,
+        CancellationToken cancellationToken) =>
+        EncodeAsync(rows, address, VectorTileScheme.WebMercator, layerName, srid, cancellationToken);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>One body for both forms</b>, so the Web Mercator statement is the one it was — the scheme's SQL
+    /// helpers on <see cref="PostGisTileSource"/> answer with the pre-ADR-096 text for it.
+    /// </remarks>
     public async Task<byte[]> EncodeAsync(
         IReadOnlyList<MvtRow> rows,
         TileAddress address,
+        VectorTileScheme scheme,
         string layerName,
         int srid,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(scheme);
         ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
 
         if (rows.Count == 0)
@@ -86,12 +101,10 @@ public sealed class PostGisMvtEncoder : IMvtEncoder
             attrs[i] = AttributesJson(rows[i].Attributes, shape);
         }
 
-        string sql = BuildSql(layerName, srid, shape);
+        string sql = BuildSql(layerName, srid, shape, scheme);
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(sql);
-        command.Parameters.AddWithValue("z", address.Z);
-        command.Parameters.AddWithValue("x", address.X);
-        command.Parameters.AddWithValue("y", address.Y);
+        PostGisTileSource.Bind(command, scheme, address);
         command.Parameters.AddWithValue("srid", srid);
         command.Parameters.Add(new NpgsqlParameter("geometries", NpgsqlDbType.Array | NpgsqlDbType.Bytea)
         {
@@ -187,22 +200,23 @@ public sealed class PostGisMvtEncoder : IMvtEncoder
     /// same generalisation by zoom (Q-157), from the same two methods, so a GeoParquet layer's tile
     /// leaves out and simplifies what a table's does.
     /// </summary>
-    private static string BuildSql(string layerName, int srid, IReadOnlyList<MvtTag> shape)
+    private static string BuildSql(
+        string layerName, int srid, IReadOnlyList<MvtTag> shape, VectorTileScheme scheme)
     {
         string safeName = layerName.Replace("'", "''", StringComparison.Ordinal);
-        bool native = srid == PostGisTileSource.WebMercator;
+
+        // Native to the tile's grid — Web Mercator unless the service chose another (ADR-096).
+        bool native = srid == scheme.Srid;
 
         // <b>The same two envelopes PostGisTileSource compares against</b>, for the same reason:
         // the `&&` test has to run in the row's own reference so a row that never reaches
         // ST_AsMVTGeom is excluded the same way a table row would be, and the output geometry has
         // to be in 3857 because that is what a tile is.
-        string filterBox = native
-            ? "bounds.geom"
-            : $"ST_Transform(bounds.geom, {srid.ToString(CultureInfo.InvariantCulture)})";
+        string filterBox = PostGisTileSource.FilterBox(scheme, srid);
 
         string outputGeometry = native
             ? "expanded.raw_geom"
-            : "ST_Transform(expanded.raw_geom, 3857)";
+            : $"ST_Transform(expanded.raw_geom, {scheme.Srid.ToString(CultureInfo.InvariantCulture)})";
 
         // <b>No <c>jsonb_to_record</c> at all when there are no tags.</b> Its record type cannot
         // be declared with zero columns, and a layer publishing no attribute tags is real — every
@@ -239,7 +253,7 @@ public sealed class PostGisMvtEncoder : IMvtEncoder
         return string.Create(
             CultureInfo.InvariantCulture,
             $"""
-             with bounds as (select ST_TileEnvelope(@z, @x, @y) as geom),
+             with bounds as (select {PostGisTileSource.BoundsSql(scheme)} as geom),
              input as (
                  select g.g as wkb, a.a as attrs
                  from unnest(@geometries) with ordinality as g(g, n)
@@ -250,7 +264,7 @@ public sealed class PostGisMvtEncoder : IMvtEncoder
                  from {expandedFrom}
              ),
              tile as (
-                 select ST_AsMVTGeom({PostGisTileSource.Generalised("o.g")}, bounds.geom, {PostGisTileSource.Extent},
+                 select ST_AsMVTGeom({PostGisTileSource.Generalised("o.g", PostGisTileSource.SimplifyWhen(scheme))}, bounds.geom, {PostGisTileSource.Extent},
                             {PostGisTileSource.Buffer}, true) as geom{tileColumns}
                  from expanded, bounds,
                       lateral (select {outputGeometry} as g) o

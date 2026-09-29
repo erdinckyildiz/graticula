@@ -11,6 +11,14 @@
 
 ---
 
+**Amended 2026-09-29, by owner decision — [ADR-096](ADR-096-a-vector-tile-service-may-be-tiled-in-another-reference.md): a service may be cut on another grid.**
+§5a's *`ST_TileEnvelope` still produces a Web Mercator box, because the XYZ scheme is defined in Web Mercator*
+stays true of a service nobody set, which is every service that existed: its statement is the same text and its
+tiles the same bytes. A service set to another tiling scheme — the TUREF zones are built in — has its box computed
+from its grid and bound to `ST_MakeEnvelope`, its rows moved into the grid's reference rather than into 3857, and
+its simplification switched by the size of its pixel. **This section's decision still holds as written**: PostGIS
+encodes every byte, in the same statement, with the same extent and buffer.
+
 **Amended 2026-09-25, by owner decision (V-63): the vector tile service answers `tilemap`.** Asked whether to
 build it, the owner said yes; `exportTiles` stays out of v1 with offline work
 ([ADR-082](ADR-082-offline-sync-is-not-in-v1.md)). `VectorTileServer/tilemap/{level}/{row}/{column}/{width}/{height}`
@@ -310,7 +318,9 @@ destroy their coordinates so a tile is cheaper to cut.
 
 **What happens now.** `ST_TileEnvelope` still produces a Web Mercator box,
 because the XYZ scheme is defined in Web Mercator; that is a property of tiling
-and not a requirement on the data. So the box is transformed **once** into the
+and not a requirement on the data. *(For a service nobody set to another grid. Since
+2026-09-29 a service may be cut on another — [ADR-096](ADR-096-a-vector-tile-service-may-be-tiled-in-another-reference.md) — and its box is then
+that grid's, and its rows are moved into that grid's reference.)* So the box is transformed **once** into the
 layer's own reference for the `&&` filter — which keeps the spatial index in
 play, and is the whole reason this is affordable — and each surviving row is
 transformed on the way out. Q-96 measured 74.6 ms against 21.6 ms on the same

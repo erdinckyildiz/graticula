@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>c46a467</code> · 2026-09-29 08:56</p>
+<p class="stamp">Generated from commit <code>a7b92be</code> · 2026-09-29 09:53</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">95</div><div class="kpi-l">ADRs</div><div class="kpi-n">22 accepted outright</div></div>
+<div class="kpi "><div class="kpi-v">96</div><div class="kpi-l">ADRs</div><div class="kpi-n">23 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">235/309</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">71 live · 3 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">160 answered</div></div>
-<div class="kpi "><div class="kpi-v">8</div><div class="kpi-l">open debts</div><div class="kpi-n">260 repaid · 6 waiting on a trigger · 1 partly</div></div>
+<div class="kpi "><div class="kpi-v">8</div><div class="kpi-l">open debts</div><div class="kpi-n">262 repaid · 6 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">3933</div><div class="kpi-l">tests</div><div class="kpi-n">372 source files, 163,073 lines</div></div>
+<div class="kpi good"><div class="kpi-v">4004</div><div class="kpi-l">tests</div><div class="kpi-n">377 source files, 166,910 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -291,6 +291,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">093</td><td>Seeding the tile cache</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
 <tr><td class="id">094</td><td>A service may carry several styles, and a style may name hosts an administrator allowed</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
 <tr><td class="id">095</td><td>Registered PostGIS layers serve vector tiles</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
+<tr><td class="id">096</td><td>A vector tile service may be tiled in another reference</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the grid arithmetic is tested by hand-worked numbers; what an ArcGIS client does…</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -314,7 +315,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-278</td><td>A cold tile refused by the budget, the breaker or a quiesce is a 503 even when an expired copy of it is on disk.</td><td class="muted-t">The owner names the header (and whether a Warning-style or a product header), the bound on staleness, and whether a…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-279</td><td>A MotherDuck layer&#x27;s tiles change behind this server with nothing to key on, and keep the server&#x27;s default lifetime.</td><td class="muted-t">The owner decides MotherDuck&#x27;s default; or an operator reports a MotherDuck map an hour behind its data.</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">260 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
+<p class="sub">262 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -410,21 +411,22 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is verified</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1033</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:62.1%"></div></div><div class="bar-n">641</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.2%"></div></div><div class="bar-n">591</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:48.2%"></div></div><div class="bar-n">498</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:38.4%"></div></div><div class="bar-n">397</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.8%"></div></div><div class="bar-n">215</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:19.9%"></div></div><div class="bar-n">206</div></div>
-<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:12.0%"></div></div><div class="bar-n">124</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:11.1%"></div></div><div class="bar-n">115</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">46</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1042</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:66.2%"></div></div><div class="bar-n">690</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.0%"></div></div><div class="bar-n">594</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:48.4%"></div></div><div class="bar-n">504</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:38.5%"></div></div><div class="bar-n">401</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.6%"></div></div><div class="bar-n">215</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:19.8%"></div></div><div class="bar-n">206</div></div>
+<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:11.9%"></div></div><div class="bar-n">124</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:11.0%"></div></div><div class="bar-n">115</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:4.4%"></div></div><div class="bar-n">46</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:2.5%"></div></div><div class="bar-n">26</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:2.3%"></div></div><div class="bar-n">24</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>a7b92be</code><time>2026-09-29</time><span>Registered PostGIS layers serve vector tiles, and a moved data source forgets its tiles</span></li>
 <li><code>c46a467</code><time>2026-09-29</time><span>A service may carry several named styles, and a style may use sources an administrator allowed</span></li>
 <li><code>8aa3d69</code><time>2026-09-29</time><span>A cold tile takes a connection permit, and a seed says whether the cache can keep it</span></li>
 <li><code>1cf9c80</code><time>2026-09-29</time><span>Two console forms stop losing what was typed before the server answered</span></li>
@@ -438,7 +440,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>b6648ae</code><time>2026-09-28</time><span>A data source&#x27;s buttons stand in the same place on every row</span></li>
 <li><code>819f689</code><time>2026-09-28</time><span>Quiesce is called Pause, and Edit and Remove say they open a dialog</span></li>
 <li><code>b695a1f</code><time>2026-09-28</time><span>A data source&#x27;s actions are one row, and its connection is shown whole</span></li>
-<li><code>3eb4011</code><time>2026-09-28</time><span>Server&#x27;s sidebar is five rows, and roles, sign-in, apps and logs are pages under them</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

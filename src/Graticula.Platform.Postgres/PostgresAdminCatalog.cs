@@ -841,6 +841,35 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
+    /// <summary>Sets the grid a service's vector tiles are cut on, or clears it back to Web Mercator — ADR-096.</summary>
+    /// <param name="folder">The service's folder, or null for the root.</param>
+    /// <param name="name">The service within that folder.</param>
+    /// <param name="scheme">The grid as <c>VectorTileScheme.ToJson</c> writes it, or null for Web Mercator.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>True when the service was found.</returns>
+    /// <remarks>
+    /// <b>By folder and name, as <see cref="SetServiceSridAsync"/> is since D-275</b>, with the same
+    /// predicate — so a grid set on <c>a/roads</c> is not set on <c>b/roads</c>.
+    /// </remarks>
+    public async Task<bool> SetServiceTilingSchemeAsync(
+        string? folder, string name, string? scheme, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        const string Sql = """
+            update service set tiling_scheme = @scheme::jsonb
+             where lower(name) = lower(@name)
+               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.Add(new NpgsqlParameter("scheme", NpgsqlDbType.Text) { Value = (object?)scheme ?? DBNull.Value });
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
     /// <summary>
     /// The reserved name of the datastore source.
     /// </summary>

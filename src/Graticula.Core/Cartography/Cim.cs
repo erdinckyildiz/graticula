@@ -788,6 +788,7 @@ public static class Cim
                 // face's `match` runs over a `concat` of the fields and Esri's `value` is the
                 // delimiter-joined string, so joining here means one reading rather than two.
                 List<string> values = [];
+                List<IReadOnlyList<string>> tuples = [];
 
                 foreach (JsonObject value in Objects(one["values"]))
                 {
@@ -799,13 +800,21 @@ public static class Cim
                     values.Add(string.Join(
                         delimiter,
                         tuple.Take(fields.Count).Select(v => Text(v) ?? string.Empty)));
+
+                    // <b>Padded to one value per field</b>, so the tile face's per-field filters
+                    // always name every field the renderer classifies by.
+                    tuples.Add([.. Enumerable.Range(0, fields.Count)
+                        .Select(i => i < tuple.Count ? Text(tuple[i]) ?? string.Empty : string.Empty)]);
                 }
 
                 classes.Add(new CimClass(
                     values,
                     UpperBound: null,
                     Text(one["label"]) ?? string.Join(", ", values),
-                    ReadSymbol(one["symbol"], "a unique-value class", notDrawn)));
+                    ReadSymbol(one["symbol"], "a unique-value class", notDrawn))
+                {
+                    Tuples = tuples,
+                });
             }
         }
 
@@ -975,8 +984,20 @@ public static class Cim
                 case "CIMColorVisualVariable":
                     if (Ramp(variable["colorRamp"], kind, notDrawn) is { Count: > 1 } colours)
                     {
-                        found.Add(new CimVary(
-                            CimVaries.Colour, field, Range(variable), colours, []));
+                        // <b>One stop per colour, spaced evenly from the minimum to the maximum
+                        // — D-281.</b> This passed `Range`'s two stops beside however many
+                        // colours the ramp had, and every face pairs stop *i* with colour *i*, so
+                        // a nine-colour fixed ramp drew as its first two colours stretched across
+                        // the whole range and the other seven were dropped without a word. Found
+                        // 2026-09-29 because the tile face's bands read back as a nine-colour ramp
+                        // and published a different map the second time.
+                        double[] ends = Range(variable);
+                        double[] stops = [.. Enumerable.Range(0, colours.Count).Select(i =>
+                            i == colours.Count - 1
+                                ? ends[1]
+                                : ends[0] + ((ends[1] - ends[0]) * i / (colours.Count - 1)))];
+
+                        found.Add(new CimVary(CimVaries.Colour, field, stops, colours, []));
                     }
 
                     break;
@@ -1817,7 +1838,20 @@ public sealed record CimPie(
 /// <param name="Label">What a legend calls it.</param>
 /// <param name="Symbol">What it is drawn with.</param>
 public sealed record CimClass(
-    IReadOnlyList<string> Values, double? UpperBound, string Label, CimSymbol Symbol);
+    IReadOnlyList<string> Values, double? UpperBound, string Label, CimSymbol Symbol)
+{
+    /// <summary>
+    /// The same values as <see cref="Values"/>, one list of per-field values each rather than
+    /// one joined string.
+    /// </summary>
+    /// <remarks>
+    /// <b>Kept apart because the tile face cannot rejoin them.</b> The derived style tests each
+    /// field on its own — `["all", ["==", f1, v1], ["==", f2, v2]]` — and splitting a joined key
+    /// back on the delimiter is ambiguous the moment a value contains it. Empty for a renderer
+    /// that is not a unique-value one.
+    /// </remarks>
+    public IReadOnlyList<IReadOnlyList<string>> Tuples { get; init; } = [];
+}
 
 /// <summary>A symbol, as a stack of the layers this server paints with.</summary>
 /// <remarks>

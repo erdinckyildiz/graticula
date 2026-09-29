@@ -105,6 +105,14 @@ instead — the log and `/admin/health`, once per layer and target reference
 [D-32](architecture-debt.md) and [Q-141](open-questions.md)). The client is not told,
 deliberately: it cannot install grids, and a protobuf tile has nowhere to carry a caution.
 
+**The tile path's target is not always Web Mercator, since 2026-09-29.** A vector tile service may be cut on
+another grid — the TUREF zones are built in —
+([ADR-096](adr/ADR-096-a-vector-tile-service-may-be-tiled-in-another-reference.md)), and its layers are then
+moved into that grid's reference instead of into 3857. The datum notice names the pair actually crossed, so a
+TUREF / TM30 layer on a TM30 grid crosses no datum and is reported as crossing none; the same layer on a Web
+Mercator service crosses TUREF to WGS 84 as before. The grid is laid out in metres, and a geographic reference is
+refused as one.
+
 Interacts with Q-15: the grids that make accurate transformation possible must
 be present in an air-gapped install, and their absence changes results rather
 than producing an error.

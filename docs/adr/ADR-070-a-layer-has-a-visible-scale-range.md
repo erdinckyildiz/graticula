@@ -81,7 +81,9 @@ Refused otherwise, in the endpoint and by a check constraint.
   narrows each style layer's `minzoom`/`maxzoom` to it, never widens.
 - **Tiles.** A layer is left out of a vector tile when no scale the tile is on screen at — from the
   scale at which it fills 512 pixels to half of that — is inside the range. Checked before the
-  describe, the cache and the build.
+  describe, the cache and the build. *(Amended 2026-09-29 — [ADR-096](ADR-096-a-vector-tile-service-may-be-tiled-in-another-reference.md) §5.8: on a service cut on
+  another grid the interval is that grid's own — from its level's scale down to the next level's — and a
+  style's zooms are narrowed on its levels. For Web Mercator the numbers are the ones above.)*
 - **Drawn maps.** MapServer export and WMS GetMap leave the layer out when the map's scale is outside.
   A thumbnail and a symbology preview do not ask, because a blank thumbnail describes nothing.
 - **Queries are unaffected.** ArcGIS applies a range on the client and on drawn maps, and a query

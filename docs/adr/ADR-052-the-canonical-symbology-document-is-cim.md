@@ -172,6 +172,42 @@ the reason this is written down rather than left as an implementation detail:
    *what is stored and not drawn*. There is no third answer to that question that
    could disagree with this one.
 
+> **Amended 2026-09-29 — the published style no longer classifies inside the paint
+> ([D-280](../architecture-debt.md)).** Consequence 1 is still how the renderer reads a
+> classified renderer, and it is no longer what a client is handed. **Measured by the owner in
+> ArcGIS Pro 3.x against the showcase:** `hosted/tr_yol`, whose generated style is one `line`
+> layer with a constant colour, drew; `hosted/tr_il`, whose generated style is one `line` layer
+> with `line-color` as `["match", ["get", "il"], "Ankara", "#4477aa", …]`, drew nothing — while
+> the server log shows Pro fetching the service, `resources/styles`, the sprite and the tiles,
+> all 200 or 304, and the tiles hold the features. Esri's own vector basemap styles never
+> classify in the paint: they write one style layer per class with a legacy filter and constant
+> paint.
+>
+> So the derivation now has **two forms**. `CimStyle.ToExpressions` is the form this section
+> describes — `match`, `step`, `interpolate` over a column — and `SymbologyPlan` still compiles
+> it, because it evaluates expressions and not filters and its legend reads the classes out of
+> them. `CimStyle.ToMapLibre`, which the tile face publishes, **spreads every expression over a
+> feature's attribute into one style layer per class**: `["==", field, value]` (with the value's
+> number beside it, `["in", field, "7", 7]`, when it reads as one), `["all", ["==", f1, v1],
+> ["==", f2, v2]]` for several fields, `["!in", …]` or `["none", …]` for the default symbol; the
+> class-breaks ranges as `["<=", f, b0]`, `["all", [">", f, b0], ["<=", f, b1]]` and
+> `[">", f, bn]`, with `[">=", f, floor]` and a `["<", f, floor]` default under a floor; and a
+> continuous visual variable — every proportional renderer included — as bands, each painted at
+> its lower edge. **The bands are `INFERRED`**: Pro was measured failing a `match`, not an
+> `interpolate` over a column; bands draw either way. The published form is computed from the
+> expression form by evaluating it with `StyleExpression`, so the two faces cannot disagree about
+> a class — which keeps this section's argument, one derivation, while changing what it
+> publishes. **Past 256 style layers for one symbol layer** the expression form is published
+> instead, and the admin read-back's `styleLosses` says ArcGIS Pro will not draw it.
+>
+> `CimStyle.FromMapLibre` folds the per-class form back into the expressions it came from, so a
+> style downloaded from the tile face stores again as the renderer it was derived from; any
+> other `filter` is still refused (Q-128). Two things change for a client: the classes now have a
+> drawing order — the first class on top, the default at the bottom, as Pro draws a renderer by
+> class — and a unique-value renderer **without** a default symbol draws an unlisted value with
+> nothing on the tile face, as ArcGIS does, where this server's own drawing still paints it as
+> the first class. A simple renderer's style is byte for byte what it was.
+
 ### 3.6 Visual variables are the second axis, and they are stored
 
 **Owner decision 2026-09-03, after the research note.** Esri's model has three axes, not one:

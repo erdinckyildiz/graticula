@@ -31,12 +31,27 @@ namespace Graticula.Cartography;
 /// outline is one pixel wide and takes no width, so using it would silently discard every
 /// outline width anybody ever set.
 /// </para>
+/// <para>
+/// <b>Two forms of one derivation since 2026-09-29, and only one of them is published.</b>
+/// <see cref="ToExpressions"/> classifies inside the paint — a `match`, a `step`, an
+/// `interpolate` over a column — and is what <see cref="SymbologyPlan"/> compiles.
+/// <see cref="ToMapLibre"/> is what a client is handed: the same style with every expression
+/// over a feature's attribute spread into one style layer per class, each with a legacy
+/// `filter` and constant paint, because ArcGIS Pro draws nothing for a `match` in a style
+/// (measured by the owner on 2026-09-29, D-280). The published form is computed <i>from</i> the
+/// expression form by evaluating it, so the two cannot say different things about a class.
+/// </para>
 /// </remarks>
-public static class CimStyle
+public static partial class CimStyle
 {
     /// <summary>
-    /// Derives the style, and says what it could not carry.
+    /// Derives the style a client is handed, and says what it could not carry.
     /// </summary>
+    /// <remarks>
+    /// <b>One style layer per class, not an expression per property.</b> See
+    /// <see cref="PerClass"/> for the shapes and the cap past which the expression form is
+    /// published instead.
+    /// </remarks>
     /// <param name="renderer">The stored CIM renderer.</param>
     /// <param name="layerName">What the source layer is called.</param>
     /// <returns>The style and the losses, the projection's own included.</returns>
@@ -47,6 +62,36 @@ public static class CimStyle
 
         CimProjection projection = Cim.Project(renderer);
 
+        return PerClass(projection, Expressions(projection, layerName));
+    }
+
+    /// <summary>
+    /// Derives the style with its classes as paint expressions, which is what this server's own
+    /// renderer compiles.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not what a client is handed.</b> ArcGIS Pro does not draw a `match` over a feature's
+    /// attribute, so <see cref="ToMapLibre"/> publishes the per-class form derived from this one.
+    /// <see cref="SymbologyPlan"/> keeps compiling this form because it evaluates expressions
+    /// and not filters, and its legend reads the classes out of the `match` and the `step`.
+    /// </remarks>
+    /// <param name="renderer">The stored CIM renderer.</param>
+    /// <param name="layerName">What the source layer is called.</param>
+    /// <returns>The style and the losses, the projection's own included.</returns>
+    public static DerivedStyle ToExpressions(JsonObject renderer, string layerName)
+    {
+        ArgumentNullException.ThrowIfNull(renderer);
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+
+        return Expressions(Cim.Project(renderer), layerName);
+    }
+
+    /// <summary>The expression form, from a renderer already projected.</summary>
+    /// <param name="projection">What the renderer says.</param>
+    /// <param name="layerName">What the source layer is called.</param>
+    /// <returns>The style and the losses.</returns>
+    private static DerivedStyle Expressions(CimProjection projection, string layerName)
+    {
         // <b>A heat map is a layer type rather than a paint on one.</b> MapLibre has `heatmap`
         // with its own five properties and no `paint` this style builder would recognise, so it
         // is built here and returns before the per-geometry machinery below ever runs.
@@ -749,6 +794,19 @@ public static class CimStyle
     {
         ArgumentNullException.ThrowIfNull(style);
 
+        // <b>The per-class form this server publishes is read as the expressions it came
+        // from.</b> Since 2026-09-29 <see cref="ToMapLibre"/> writes one filtered style layer per
+        // class (D-280), so a style somebody downloaded from the tile face and stored again
+        // arrives in that shape. Folding it back here means everything below reads one form, and
+        // the two things the filters say that no paint expression can — that a renderer has no
+        // default symbol, and where its floor is — travel beside it.
+        Collapsed? collapsed = Collapse(style);
+
+        if (collapsed is not null)
+        {
+            style = collapsed.Style;
+        }
+
         List<string> losses = [];
 
         List<JsonObject> painting = [];
@@ -827,7 +885,8 @@ public static class CimStyle
 
                 if (classified is { } already)
                 {
-                    if (!string.Equals(already.Field, found.Field, StringComparison.Ordinal))
+                    if (!string.Equals(already.Field, found.Field, StringComparison.Ordinal)
+                        || !already.Fields.SequenceEqual(found.Fields, StringComparer.Ordinal))
                     {
                         throw new SymbologyException(
                             $"The style classifies by `{already.Field}` in one place and by "
@@ -884,14 +943,20 @@ public static class CimStyle
         // <b>Index -1 asks `Choose` for the otherwise.</b> No class has that key, so every
         // expression falls through to its own fallback and a constant property answers itself —
         // which is exactly what a feature no class matches should be drawn with.
+        //
+        // <b>Unless the style was the per-class form and had no default layer.</b> A `match`
+        // always ends in an otherwise, so reading one cannot tell a renderer with a default
+        // symbol from one without; the filtered form can, because a renderer without one
+        // publishes no layer for the values nobody listed.
         JsonNode? otherwise = over.Kind == "match"
             && over.Fallback is not null
+            && collapsed?.HasDefault != false
                 ? Symbol(painting, geometry, classified, -1, losses)
                 : null;
 
         JsonObject built = over.Kind == "match"
             ? UniqueIn(over, symbols, otherwise)
-            : BreaksIn(over, symbols);
+            : BreaksIn(over, symbols, collapsed?.Floor);
 
         if (variables.Count > 0)
         {
@@ -909,21 +974,40 @@ public static class CimStyle
     private static JsonObject UniqueIn(Classified over, JsonArray symbols, JsonNode? fallback)
     {
         JsonArray classes = [];
+        IReadOnlyList<string> fields = over.Fields.Count > 0 ? over.Fields : [over.Field];
 
         for (int i = 0; i < over.Keys.Count; i++)
         {
-            string value = over.Keys[i]?.ToString() ?? string.Empty;
+            // <b>A label that is an array is one class of several values</b>, which is what
+            // MapLibre means by it and what the per-class form collapses to: a class listing two
+            // values is one filtered layer, and reading it as two classes would publish two.
+            List<string> listed = over.Keys[i] is JsonArray several
+                ? [.. several.Select(v => v?.ToString() ?? string.Empty)]
+                : [over.Keys[i]?.ToString() ?? string.Empty];
+
+            JsonArray values = [];
+
+            foreach (string value in listed)
+            {
+                // <b>Split on the delimiter the `concat` was read with</b>, into as many parts as
+                // there are fields, so a two-field class stores a pair again.
+                string[] parts = fields.Count > 1
+                    ? value.Split(over.Delimiter, fields.Count)
+                    : [value];
+
+                values.Add(new JsonObject
+                {
+                    ["type"] = "CIMUniqueValue",
+                    ["fieldValues"] = new JsonArray([.. Enumerable.Range(0, fields.Count)
+                        .Select(p => (JsonNode?)(p < parts.Length ? parts[p] : string.Empty))]),
+                });
+            }
 
             classes.Add(new JsonObject
             {
-                ["label"] = value,
+                ["label"] = string.Join(", ", listed),
                 ["visible"] = true,
-                ["values"] = new JsonArray(
-                    new JsonObject
-                    {
-                        ["type"] = "CIMUniqueValue",
-                        ["fieldValues"] = new JsonArray(value),
-                    }),
+                ["values"] = values,
                 ["symbol"] = symbols[i]!.DeepClone(),
             });
         }
@@ -931,9 +1015,14 @@ public static class CimStyle
         JsonObject built = new()
         {
             ["type"] = Cim.UniqueValue,
-            ["fields"] = new JsonArray(over.Field),
+            ["fields"] = new JsonArray([.. fields.Select(f => (JsonNode?)f)]),
             ["groups"] = new JsonArray(new JsonObject { ["classes"] = classes }),
         };
+
+        if (fields.Count > 1)
+        {
+            built["fieldDelimiter"] = over.Delimiter;
+        }
 
         // <b>A `match`'s last element is its otherwise, and it is a class.</b> Dropping it
         // stores a renderer that draws nothing for every value nobody listed, and the legend
@@ -959,12 +1048,23 @@ public static class CimStyle
     /// </remarks>
     /// <param name="over">What the style classifies by.</param>
     /// <param name="symbols">One per class, already built.</param>
+    /// <param name="floor">
+    /// The classification's floor, known only when the style was the per-class form: its
+    /// layer below the floor is the default symbol, and the `step` it collapses to starts with
+    /// that symbol rather than with a class.
+    /// </param>
     /// <returns>The renderer.</returns>
-    private static JsonObject BreaksIn(Classified over, JsonArray symbols)
+    private static JsonObject BreaksIn(Classified over, JsonArray symbols, double? floor)
     {
         JsonArray breaks = [];
 
-        for (int i = 0; i < over.Keys.Count; i++)
+        // <b>With a floor, the `step`'s first output is the default symbol and not a class.</b>
+        // That is how <see cref="Step"/> writes it (D-205), so reading it back as a class would
+        // turn *below the classification* into a class of its own with a bound one bit under the
+        // floor.
+        int first = floor is not null && over.Keys.Count > 1 ? 1 : 0;
+
+        for (int i = first; i < over.Keys.Count; i++)
         {
             double bound = i < over.Keys.Count - 1
                 ? Math.BitDecrement(Figure(over.Keys[i + 1]) ?? 0)
@@ -978,12 +1078,22 @@ public static class CimStyle
             });
         }
 
-        return new JsonObject
+        JsonObject built = new()
         {
             ["type"] = Cim.ClassBreaks,
             ["field"] = over.Field,
             ["breaks"] = breaks,
         };
+
+        if (first == 1)
+        {
+            built["minimumBreak"] = Num(floor!.Value);
+            built["useDefaultSymbol"] = true;
+            built["defaultLabel"] = "Other";
+            built["defaultSymbol"] = symbols[0]!.DeepClone();
+        }
+
+        return built;
     }
 
     /// <summary>One CIM symbol, taking each style layer's value for one class.</summary>
@@ -1269,15 +1379,34 @@ public static class CimStyle
 
         string head = (array[0] as JsonValue)?.ToString() ?? string.Empty;
 
-        if (head is not ("match" or "step")
-            || array[1] is not JsonArray input
-            || input.Count < 2
-            || (input[0] as JsonValue)?.ToString() != "get")
+        if (head is not ("match" or "step") || array[1] is not JsonArray input)
         {
             return null;
         }
 
-        string field = input[1]?.ToString() ?? string.Empty;
+        string field;
+        IReadOnlyList<string> fields = [];
+        string delimiter = ", ";
+
+        if (input.Count >= 2 && (input[0] as JsonValue)?.ToString() == "get")
+        {
+            field = input[1]?.ToString() ?? string.Empty;
+        }
+        else if (head == "match" && Joined(input) is { } joined)
+        {
+            // <b>A `match` over several fields joined, which is what this server writes for a
+            // renderer of two or three fields</b> (ADR-052 §3.17). Read until 2026-09-29 as an
+            // expression it could not store, so a style this server had derived could not be
+            // stored again.
+            fields = joined.Fields;
+            delimiter = joined.Delimiter;
+            field = string.Join(", ", fields);
+        }
+        else
+        {
+            return null;
+        }
+
         List<JsonNode?> keys = [];
         List<JsonNode?> outputs = [];
 
@@ -1290,7 +1419,11 @@ public static class CimStyle
             }
 
             return new Classified(
-                field, head, keys, outputs, array[^1]?.DeepClone());
+                field, head, keys, outputs, array[^1]?.DeepClone())
+            {
+                Fields = fields,
+                Delimiter = delimiter,
+            };
         }
 
         // <b>A `step`'s first output has no stop.</b> It is what everything below the first
@@ -1318,7 +1451,69 @@ public static class CimStyle
         string Kind,
         IReadOnlyList<JsonNode?> Keys,
         IReadOnlyList<JsonNode?> Outputs,
-        JsonNode? Fallback);
+        JsonNode? Fallback)
+    {
+        /// <summary>The fields a `match` over a `concat` joins, or empty for one field.</summary>
+        public IReadOnlyList<string> Fields { get; init; } = [];
+
+        /// <summary>What the `concat` joins them with.</summary>
+        public string Delimiter { get; init; } = ", ";
+    }
+
+    /// <summary>
+    /// Reads `["concat", ["to-string", ["get", f1]], d, ["to-string", ["get", f2]], …]`, the
+    /// input <see cref="MatchOn"/> writes for a renderer of several fields.
+    /// </summary>
+    /// <param name="input">The `match`'s input.</param>
+    /// <returns>The fields and the one delimiter between them, or null for any other shape.</returns>
+    private static (IReadOnlyList<string> Fields, string Delimiter)? Joined(JsonArray input)
+    {
+        if (input.Count < 4
+            || input.Count % 2 != 0
+            || (input[0] as JsonValue)?.ToString() != "concat")
+        {
+            return null;
+        }
+
+        List<string> fields = [];
+        string? delimiter = null;
+
+        for (int i = 1; i < input.Count; i++)
+        {
+            if (i % 2 == 0)
+            {
+                // Every separator has to be the same string, or the key is not one delimiter
+                // joining fields and cannot be split back into them.
+                string? between = input[i] is JsonValue text && text.TryGetValue(out string? s)
+                    ? s
+                    : null;
+
+                if (between is null || (delimiter is not null && delimiter != between))
+                {
+                    return null;
+                }
+
+                delimiter = between;
+                continue;
+            }
+
+            JsonArray? part = input[i] as JsonArray;
+
+            if (part is { Count: 2 } && (part[0] as JsonValue)?.ToString() == "to-string")
+            {
+                part = part[1] as JsonArray;
+            }
+
+            if (part is not { Count: >= 2 } || (part[0] as JsonValue)?.ToString() != "get")
+            {
+                return null;
+            }
+
+            fields.Add(part[1]?.ToString() ?? string.Empty);
+        }
+
+        return delimiter is null ? null : (fields, delimiter);
+    }
 
     /// <summary>
     /// A number that reads back as whatever type asks for it.

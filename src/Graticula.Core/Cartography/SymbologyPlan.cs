@@ -195,7 +195,13 @@ public sealed class SymbologyPlan
 
             // The name is not read: `CompileLayer` looks at `type` and `paint` only. It is
             // written here so the derived document is well formed rather than nearly so.
-            body = CimStyle.ToMapLibre(body, "layer").Style;
+            //
+            // <b>The expression form, not the published one.</b> Since 2026-09-29 the tile face
+            // publishes one filtered style layer per class, because ArcGIS Pro draws no `match`
+            // (D-280). This compiler evaluates expressions and refuses filters, and the legend
+            // reads its classes out of the `match` and the `step`, so it keeps the form it was
+            // written for; the published form is evaluated out of this one and cannot disagree.
+            body = CimStyle.ToExpressions(body, "layer").Style;
         }
 
         if (body["layers"] is not JsonArray layers)

@@ -52,6 +52,13 @@ public readonly record struct TileCacheKey(Guid LayerId, string Fingerprint, Til
     /// on nothing else, which is what makes including it here the whole fix rather than a sweep
     /// to remember.
     /// </param>
+    /// <param name="grid">
+    /// The service's tiling scheme written out (<c>VectorTileScheme.Fingerprint</c>), or null for Web
+    /// Mercator — ADR-096. Last and optional for <paramref name="version"/>'s reason: null appends nothing,
+    /// so every Mercator key is what it was. Any other grid is in the hash, so a service switched between
+    /// schemes — or between two definitions of one — never reads a tile cut on the other grid, on this node
+    /// or on one the switch's purge did not reach.
+    /// </param>
     /// <returns>Eight hex characters.</returns>
     /// <remarks>
     /// <para>
@@ -75,7 +82,8 @@ public readonly record struct TileCacheKey(Guid LayerId, string Fingerprint, Til
         System.Collections.Generic.IEnumerable<string> attributes,
         int extent,
         int buffer,
-        string? version = null)
+        string? version = null,
+        string? grid = null)
     {
         ArgumentNullException.ThrowIfNull(attributes);
 
@@ -95,6 +103,11 @@ public readonly record struct TileCacheKey(Guid LayerId, string Fingerprint, Til
         if (version is { Length: > 0 })
         {
             canonical.Append(";version=").Append(version);
+        }
+
+        if (grid is { Length: > 0 })
+        {
+            canonical.Append(";grid=").Append(grid);
         }
 
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString()));

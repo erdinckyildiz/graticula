@@ -61,7 +61,8 @@ public static class VectorTileServerMetadataWriter
     /// <param name="maxZoom">Deepest level served.</param>
     /// <param name="srid">
     /// The reference <paramref name="extent"/> is expressed in — the layers' own,
-    /// not the tile grid's. The grid is always Web Mercator; the data need not be.
+    /// not the tile grid's. The grid is Web Mercator here; the data need not be. A service cut on
+    /// another grid (ADR-096) is written by the overload that takes a scheme.
     /// </param>
     /// <returns>The document.</returns>
     /// <param name="range">The range the service draws in, or none — ADR-070.</param>
@@ -152,6 +153,100 @@ public static class VectorTileServerMetadataWriter
     }
 
     /// <summary>
+    /// The VectorTileServer service document for a service cut on a tiling scheme — ADR-096.
+    /// </summary>
+    /// <param name="serviceName">The service name.</param>
+    /// <param name="sourceLayerNames">The layer names written inside each tile.</param>
+    /// <param name="extent">The data's extent <b>in the scheme's reference</b>, or null when it is unknown.</param>
+    /// <param name="scheme">The grid the service is cut on.</param>
+    /// <param name="range">The range the service draws in, or none — ADR-070.</param>
+    /// <returns>The document.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Web Mercator is the document above, unchanged</b> — the same call with the same numbers, so no
+    /// Mercator service's document moves by a byte.
+    /// </para>
+    /// <para>
+    /// <b>Any other scheme states itself in every place a client reads a reference.</b> D-49 is the lesson:
+    /// a <c>fullExtent</c> in one reference and a <c>tileInfo</c> in another made the ArcGIS JS client read
+    /// the metadata and request no tile. So the extent, the initial extent and the tile grid all carry the
+    /// scheme's wkid, the origin is the scheme's top-left, and each level of detail is the scheme's own
+    /// resolution and the scale that resolution makes at 96 dpi — which is how a client matches levels
+    /// with a basemap in the same grid. <c>minLOD</c> and <c>maxLOD</c> name the level range, as a service
+    /// published from ArcGIS Pro in a custom grid does. What a client does with it has not been watched
+    /// yet (ADR-096 §6).
+    /// </para>
+    /// </remarks>
+    public static object Service(
+        string serviceName,
+        IReadOnlyList<string> sourceLayerNames,
+        Envelope? extent,
+        Graticula.Tiles.VectorTileScheme scheme,
+        Graticula.Cartography.VisibleScaleRange range = default)
+    {
+        ArgumentNullException.ThrowIfNull(scheme);
+
+        if (scheme.IsWebMercator)
+        {
+            return Service(serviceName, sourceLayerNames, extent, scheme.MaxLevel, 3857, range);
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+        ArgumentNullException.ThrowIfNull(sourceLayerNames);
+
+        Envelope box = extent ?? scheme.Frame;
+        object reference = new { wkid = scheme.Srid, latestWkid = scheme.Srid };
+
+        object full = new
+        {
+            xmin = box.MinX,
+            ymin = box.MinY,
+            xmax = box.MaxX,
+            ymax = box.MaxY,
+            spatialReference = reference,
+        };
+
+        return new
+        {
+            currentVersion = FeatureServerMetadataWriter.CurrentVersion,
+            name = serviceName,
+            capabilities = "TilesOnly,Tilemap",
+            tileMap = "tilemap",
+            type = "indexedVector",
+            tiles = new[] { "tile/{z}/{y}/{x}.pbf" },
+            defaultStyles = "resources/styles",
+            exportTilesAllowed = false,
+            initialExtent = full,
+            fullExtent = full,
+            minScale = range.MinScale,
+            maxScale = range.MaxScale,
+            minLOD = 0,
+            maxLOD = scheme.MaxLevel,
+            maxzoom = scheme.MaxLevel,
+            tileInfo = new
+            {
+                rows = TileSize,
+                cols = TileSize,
+                dpi = 96,
+                format = "pbf",
+                origin = new { x = scheme.OriginX, y = scheme.OriginY },
+                spatialReference = reference,
+                lods = Enumerable.Range(0, scheme.LevelCount).Select(level => new
+                {
+                    level,
+                    resolution = scheme.Resolution(level),
+                    scale = scheme.Scale(level),
+                }).ToArray(),
+            },
+            resourceInfo = new
+            {
+                styleVersion = 8,
+                tileCompression = "none",
+            },
+        };
+    }
+
+    /// <summary>
     /// The tiling scheme: origin, spatial reference and one entry per level.
     /// </summary>
     private static object TileInfo(int maxZoom) => new
@@ -203,6 +298,7 @@ public static class VectorTileServerMetadataWriter
     /// 2026-08-15.
     /// </param>
     /// <param name="ranges">Each source layer's visible range, by name, or null — ADR-070.</param>
+    /// <param name="level0Scale">The service's tiling scheme's level-zero scale, or null for Web Mercator — ADR-096.</param>
     public static object Style(
         IReadOnlyList<(string Name, GeometryKind Geometry, string? Symbology)> sourceLayers,
         string? fontStack = null,
@@ -210,7 +306,11 @@ public static class VectorTileServerMetadataWriter
         // <b>ADR-070: each source layer's visible range, as style zooms.</b> On the end and optional.
         // A style layer's own zooms are narrowed to it, never widened: a symbol authored to start at
         // zoom 14 on a layer visible from 12 still starts at 14.
-        IReadOnlyDictionary<string, Graticula.Cartography.VisibleScaleRange>? ranges = null)
+        IReadOnlyDictionary<string, Graticula.Cartography.VisibleScaleRange>? ranges = null,
+
+        // <b>ADR-096: the level-zero scale of the service's tiling scheme</b>, or null for Web Mercator's.
+        // A style's zoom counts the scheme's own levels, so a range narrows it against that scheme's scales.
+        double? level0Scale = null)
     {
         ArgumentNullException.ThrowIfNull(sourceLayers);
 
@@ -247,7 +347,8 @@ public static class VectorTileServerMetadataWriter
                     StyleLayers(source),
                     ranges is not null && ranges.TryGetValue(source.Name, out Graticula.Cartography.VisibleScaleRange r)
                         ? r
-                        : default))
+                        : default,
+                    level0Scale))
                 .ToArray(),
         });
     }
@@ -343,7 +444,8 @@ public static class VectorTileServerMetadataWriter
     }
 
     /// <summary>Style layers with their zooms narrowed to a visible range — ADR-070.</summary>
-    private static List<object> Narrowed(List<object> styleLayers, Graticula.Cartography.VisibleScaleRange range)
+    private static List<object> Narrowed(
+        List<object> styleLayers, Graticula.Cartography.VisibleScaleRange range, double? level0Scale)
     {
         if (!range.IsLimited)
         {
@@ -357,12 +459,12 @@ public static class VectorTileServerMetadataWriter
                 continue;
             }
 
-            if (range.StyleMinZoom is { } min)
+            if ((level0Scale is { } minBase ? range.StyleMinZoomOn(minBase) : range.StyleMinZoom) is { } min)
             {
                 one["minzoom"] = Math.Round(Math.Max(min, ZoomOf(one, "minzoom") ?? 0), 6);
             }
 
-            if (range.StyleMaxZoom is { } max)
+            if ((level0Scale is { } maxBase ? range.StyleMaxZoomOn(maxBase) : range.StyleMaxZoom) is { } max)
             {
                 one["maxzoom"] = Math.Round(Math.Min(max, ZoomOf(one, "maxzoom") ?? 24), 6);
             }

@@ -588,6 +588,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// the same reason. The type travels too because a GeoParquet layer's encoder has to give
     /// each value back the PostgreSQL type a hosted column of that kind would have.
     /// </param>
+    /// <param name="scheme">The grid the service is cut on, or null for Web Mercator — ADR-096.</param>
     /// <returns>The tile source.</returns>
     /// <remarks>
     /// <b>GeoParquet layers get tiles too, since 2026-09-13 — owner decision, reversing ADR-066
@@ -596,7 +597,13 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// rows can still be read and PostGIS can still encode them, which is the whole of what a
     /// tile needs.
     /// </remarks>
-    public ITileSource TileSourceFor(PublishedLayer layer, IReadOnlyList<FieldDescription> attributes)
+    public ITileSource TileSourceFor(
+        PublishedLayer layer,
+        IReadOnlyList<FieldDescription> attributes,
+
+        // ADR-096: the grid the layer's service is cut on; null is Web Mercator, which is every caller
+        // written before a service could choose.
+        Graticula.Tiles.VectorTileScheme? scheme = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
@@ -635,12 +642,12 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             GeoParquetFeatureSource reader = new(
                 _geoParquet.FolderFor(layer.ConnectionString), layer.Definition, _projector, lowered);
 
-            return new GeoParquetTileSource(reader, layer.Definition, attributes, _mvtEncoder);
+            return new GeoParquetTileSource(reader, layer.Definition, attributes, _mvtEncoder, scheme);
         }
 
         return new PostGisTileSource(
             PoolFor(layer.ConnectionString), layer.Definition,
-            [.. attributes.Select(a => a.Name)]);
+            [.. attributes.Select(a => a.Name)], scheme);
     }
 
     /// <summary>

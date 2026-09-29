@@ -52,7 +52,7 @@ public sealed class CimVisualVariableTests
     [Fact]
     public void A_colour_variable_becomes_an_interpolate_over_its_own_field()
     {
-        DerivedStyle derived = CimStyle.ToMapLibre(
+        DerivedStyle derived = CimStyle.ToExpressions(
             (JsonObject)JsonNode.Parse(FadingByPopulation)!, "iller");
 
         JsonObject paint = (JsonObject)((JsonArray)derived.Style["layers"]!).Single()!["paint"]!;
@@ -169,7 +169,7 @@ public sealed class CimVisualVariableTests
             }
             """)!;
 
-        DerivedStyle derived = CimStyle.ToMapLibre(renderer, "iller");
+        DerivedStyle derived = CimStyle.ToExpressions(renderer, "iller");
 
         JsonArray opacity = Assert.IsType<JsonArray>(
             ((JsonArray)derived.Style["layers"]!).Single()!["paint"]!["fill-opacity"]);
@@ -243,7 +243,7 @@ public sealed class CimVisualVariableTests
             }
             """)!;
 
-        DerivedStyle derived = CimStyle.ToMapLibre(renderer, "iller");
+        DerivedStyle derived = CimStyle.ToExpressions(renderer, "iller");
 
         JsonArray colour = Assert.IsType<JsonArray>(
             ((JsonArray)derived.Style["layers"]!).Single()!["paint"]!["fill-color"]);
@@ -292,7 +292,7 @@ public sealed class CimVisualVariableTests
 
         // <b>And out again unchanged.</b> A round trip that drifted would move the boundary of
         // every choropleth a little on each edit.
-        DerivedStyle back = CimStyle.ToMapLibre(written.Renderer, "iller");
+        DerivedStyle back = CimStyle.ToExpressions(written.Renderer, "iller");
 
         JsonArray colour = Assert.IsType<JsonArray>(
             ((JsonArray)back.Style["layers"]!).Single()!["paint"]!["fill-color"]);
@@ -394,9 +394,47 @@ public sealed class CimVisualVariableTests
         // <b>And it draws.</b> A marker's size is across and MapLibre's radius is from the
         // centre, so the style must carry half.
         JsonArray radius = Assert.IsType<JsonArray>(
-            ((JsonArray)CimStyle.ToMapLibre(stored.Renderer, "yerler").Style["layers"]!)
+            ((JsonArray)CimStyle.ToExpressions(stored.Renderer, "yerler").Style["layers"]!)
                 .Single()!["paint"]!["circle-radius"]);
 
         Assert.Equal(2.667, (double?)radius[4]);
+    }
+
+    [Fact]
+    public void A_ramp_of_more_than_two_colours_gets_one_stop_per_colour()
+    {
+        // <b>D-281.</b> The projection used to hand every colour variable two stops, the minimum
+        // and the maximum, beside however many colours its ramp had. Every face pairs stop i with
+        // colour i, so a three-colour ramp drew as its first two colours and lost the third.
+        JsonObject renderer = (JsonObject)JsonNode.Parse(
+            """
+            {
+              "type": "CIMSimpleRenderer",
+              "symbol": { "symbol": { "type": "CIMPolygonSymbol", "symbolLayers": [
+                { "type": "CIMSolidFill",
+                  "color": { "type": "CIMRGBColor", "values": [10, 20, 30, 100] } }] } },
+              "visualVariables": [{
+                "type": "CIMColorVisualVariable",
+                "expression": "$feature.nufus",
+                "minValue": 0, "maxValue": 100,
+                "colorRamp": { "type": "CIMFixedColorRamp", "colors": [
+                  { "type": "CIMRGBColor", "values": [255, 0, 0, 100] },
+                  { "type": "CIMRGBColor", "values": [0, 255, 0, 100] },
+                  { "type": "CIMRGBColor", "values": [0, 0, 255, 100] }] }
+              }]
+            }
+            """)!;
+
+        CimProjection projection = Cim.Project(renderer);
+        CimVary colour = Assert.Single(projection.Vary);
+
+        Assert.Equal([0.0, 50.0, 100.0], colour.Stops);
+        Assert.Equal(3, colour.Colours.Count);
+
+        JsonArray drawn = Assert.IsType<JsonArray>(
+            ((JsonArray)CimStyle.ToExpressions(renderer, "iller").Style["layers"]!)
+            .Single()!["paint"]!["fill-color"]);
+
+        Assert.Equal("#0000ff", (string?)drawn[^1]);
     }
 }

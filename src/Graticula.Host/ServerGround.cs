@@ -130,6 +130,15 @@ internal sealed class ServerGround
                 return ($"'{trimmed}' does not serve vector tiles, so it cannot be drawn as a ground.", []);
             }
 
+            // <b>ADR-096: the ground is drawn beneath Web Mercator maps</b>, the console's and the viewer's, and
+            // a client cannot move a vector tile from one grid to another. A service cut on another grid would
+            // draw nothing there — or, in the viewer's XYZ source, every tile in the wrong place.
+            if (!service.TileScheme.IsWebMercator)
+            {
+                return ($"'{trimmed}' is tiled in EPSG:{service.TileScheme.Srid}, and the ground is drawn beneath "
+                    + "Web Mercator maps. Set its tiling scheme back to Web Mercator to use it as a ground.", []);
+            }
+
             if (!names.Contains(service.QualifiedName, StringComparer.OrdinalIgnoreCase))
             {
                 names.Add(service.QualifiedName);

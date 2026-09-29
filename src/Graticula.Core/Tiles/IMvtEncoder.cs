@@ -67,4 +67,35 @@ public interface IMvtEncoder
         string layerName,
         int srid,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Builds one tile's worth of one layer on a service's own tiling scheme — ADR-096.
+    /// </summary>
+    /// <param name="rows">The candidate rows, as for the Web Mercator form.</param>
+    /// <param name="address">Which tile, in <paramref name="scheme"/>'s grid.</param>
+    /// <param name="scheme">The grid the service is cut on.</param>
+    /// <param name="layerName">The name to give the layer inside the tile.</param>
+    /// <param name="srid">The reference <paramref name="rows"/>' geometries are in.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The encoded tile, or an empty array.</returns>
+    /// <remarks>
+    /// <b>A second member with a body, so an encoder written before schemes existed still serves Web
+    /// Mercator and refuses anything else loudly</b> rather than encoding a TUREF tile on a Mercator grid.
+    /// </remarks>
+    Task<byte[]> EncodeAsync(
+        IReadOnlyList<MvtRow> rows,
+        TileAddress address,
+        VectorTileScheme scheme,
+        string layerName,
+        int srid,
+        CancellationToken cancellationToken)
+    {
+        System.ArgumentNullException.ThrowIfNull(scheme);
+
+        return scheme.IsWebMercator
+            ? EncodeAsync(rows, address, layerName, srid, cancellationToken)
+            : throw new System.NotSupportedException(
+                "This vector tile encoder encodes Web Mercator tiles only, and the service is tiled in EPSG:"
+                + scheme.Srid.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".");
+    }
 }

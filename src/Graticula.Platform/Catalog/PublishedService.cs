@@ -161,6 +161,21 @@ public sealed class PublishedService
     /// </remarks>
     public string? SridWkt { get; init; }
 
+    /// <summary>
+    /// The grid this service's vector tiles are cut on — Web Mercator unless somebody chose another
+    /// (ADR-096, migration 63).
+    /// </summary>
+    /// <remarks>
+    /// <b>Not <see cref="Srid"/>, and deliberately separate from it.</b> That one is the reference a
+    /// query answers in (ADR-057 §5c); this is the grid a tile is cut on. A service answering queries in
+    /// TUREF / TM30 and drawn over a Mercator basemap is the ordinary case, and tying the two would have
+    /// moved every such service's tiles the day this shipped.
+    /// </remarks>
+    public Graticula.Tiles.VectorTileScheme TileScheme { get; init; } = Graticula.Tiles.VectorTileScheme.WebMercator;
+
+    /// <summary>Why the stored tiling scheme could not be read, or null — the tile face refuses rather than guessing a grid.</summary>
+    public string? TileSchemeUnreadable { get; init; }
+
     /// <summary>When the service was first published, or null where the reader did not say.</summary>
     /// <remarks>A portal item reports it as <c>created</c>; ArcGIS clients sort <i>My Content</i> by it.</remarks>
     public DateTimeOffset? Created { get; init; }

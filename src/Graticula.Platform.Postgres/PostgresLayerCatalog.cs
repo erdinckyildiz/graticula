@@ -105,7 +105,11 @@ public sealed class PostgresLayerCatalog
 
         -- When the service was published and last changed, for a portal item's created and
         -- modified (2026-09-15). On the end, read by name.
-        s.created_at as service_created_at, s.updated_at as service_updated_at
+        s.created_at as service_created_at, s.updated_at as service_updated_at,
+
+        -- The grid the service's vector tiles are cut on, or null for Web Mercator (ADR-096, migration 63).
+        -- On the end, read by name.
+        s.tiling_scheme::text as tiling_scheme
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -815,7 +819,7 @@ public sealed class PostgresLayerCatalog
         Dictionary<Guid, (string Name, string? Folder, string Kind, string? Description,
             Guid? Owner, SharingScope Sharing, ServiceStatus Status, string? Style,
             ServiceCapabilityLimits Limits, Guid[] SharedWith, int? Srid,
-            string? SridWkt, DateTimeOffset Created, DateTimeOffset Modified)> heads = [];
+            string? SridWkt, DateTimeOffset Created, DateTimeOffset Modified, string? TilingScheme)> heads = [];
         List<Guid> order = [];
 
         // <b>Its own scope, so the reader is closed before the group query
@@ -871,7 +875,10 @@ public sealed class PostgresLayerCatalog
                             ? null
                             : reader.GetString(reader.GetOrdinal("service_srid_wkt")),
                         reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("service_created_at")),
-                        reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("service_updated_at")));
+                        reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("service_updated_at")),
+
+                        // ADR-096: the stored grid, parsed where the service is made.
+                        Nullable(reader, "tiling_scheme"));
                 }
 
                 // A left join, so a service with no layers arrives as one row of
@@ -922,6 +929,12 @@ public sealed class PostgresLayerCatalog
 
             var head = heads[id];
 
+            // <b>An unreadable grid is carried as a refusal, not replaced by Web Mercator</b> — ADR-096. A
+            // service somebody set to TUREF and quietly served in Mercator would draw every tile in the
+            // wrong place for a client holding the other grid's tileInfo; the tile face says why instead.
+            string? unreadable = Graticula.Tiles.VectorTileScheme.Parse(
+                head.TilingScheme, out Graticula.Tiles.VectorTileScheme scheme);
+
             services.Add(new PublishedService(
                 id, head.Name, head.Folder, head.Kind, head.Description,
                 head.Owner, head.Sharing, head.Status, byService[id],
@@ -934,6 +947,8 @@ public sealed class PostgresLayerCatalog
                 SridWkt = head.SridWkt,
                 Created = head.Created,
                 Modified = head.Modified,
+                TileScheme = scheme,
+                TileSchemeUnreadable = unreadable,
             });
         }
 

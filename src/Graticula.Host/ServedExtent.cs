@@ -65,12 +65,38 @@ internal static class ServedExtent
     {
         ArgumentNullException.ThrowIfNull(projector);
 
+        return await InAsync(extent, from, to, Steps, projector, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The same ground in another reference, sampled on a finer grid.</summary>
+    /// <param name="extent">The box, measured in <paramref name="from" />.</param>
+    /// <param name="from">The reference it is measured in.</param>
+    /// <param name="to">The reference wanted.</param>
+    /// <param name="steps">How many cells a side the samples make.</param>
+    /// <param name="projector">The projector every other face uses.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The box in <paramref name="to" />, or null when it cannot be put there.</returns>
+    /// <remarks>
+    /// <b>For deriving a tiling scheme from an area of use (ADR-096)</b>, where the box's edges decide a
+    /// grid's origin to the kilometre: three cells a side leave about a ninth of a transverse Mercator zone's
+    /// 1.2 km bow unsampled, which is enough to move a kilometre-rounded origin.
+    /// </remarks>
+    public static async Task<Envelope?> InAsync(
+        Envelope? extent,
+        int from,
+        int to,
+        int steps,
+        IProjector projector,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(projector);
+
         if (extent is not { } box || from == to)
         {
             return extent;
         }
 
-        Point[] outline = CoverageWarp.ControlPoints(box, Steps, Steps, Steps);
+        Point[] outline = CoverageWarp.ControlPoints(box, steps, steps, steps);
 
         (IReadOnlyList<Geometry> moved, _) = await projector
             .ProjectAsync(outline, from, to, cancellationToken)

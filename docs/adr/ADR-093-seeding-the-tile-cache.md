@@ -160,6 +160,12 @@ database can take the load. An automatic seed of every service after every upgra
   or left out for the service's whole extent — the union of its layers' extents, projected as the service
   document projects them. A layer whose extent cannot be projected refuses the default and asks for an
   extent.
+- *(Amended 2026-09-29 — [ADR-096](ADR-096-a-vector-tile-service-may-be-tiled-in-another-reference.md) §5.5.)* **For a service cut on another tiling scheme, the grid is
+  that scheme's**: the area may also be given in the scheme's own reference, is moved into it when given in 3857
+  or 4326, and is kept in it; the levels are the scheme's, not 0–22; each level's rectangle is counted on the
+  scheme's tiles (`TileSeedPlan.For(scheme, …)`). The seed records the grid's key in its job detail, and the
+  worker fails a seed whose service changed grid since. A grid change cancels the service's seeds. A Web Mercator
+  service's seed is counted, recorded and walked exactly as below.
 - The levels default to the lowest level any layer draws at (ADR-070), up to level 14 or the highest level
   drawn, whichever is lower.
 - The tile count is **exact**: the sum of each level's rectangle of the grid, with a touching tile counted.

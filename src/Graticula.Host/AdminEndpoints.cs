@@ -589,6 +589,7 @@ internal static partial class AdminEndpoints
         MapSprite(app);          // ADR-092 — AdminEndpoints.Sprite.cs
         MapStyles(app);          // ADR-094 — AdminEndpoints.Styles.cs
         MapTileSeed(app);        // ADR-093 — AdminEndpoints.TileSeed.cs
+        MapTilingScheme(app);    // ADR-096 — AdminEndpoints.TilingScheme.cs
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a,
             PostgresLayerCatalog p, IAuditLog l, CancellationToken t) =>
             SetStatusAsync(c, name, ServiceStatus.Started, a, p, l, t));
@@ -3151,6 +3152,7 @@ internal static partial class AdminEndpoints
                 System.Text.Json.JsonElement>(canonical),
             drawingInfo = derived.DrawingInfo,
             losses = derived.Losses,
+            styleLosses = TileStyleLosses(canonical, layer.Name, layer.Geometry, derived.Losses),
             note = derived.Losses.Count == 0
                 ? "Everything in this style survives on both faces."
                 : "The tile face draws the canonical document; the list above is what the "
@@ -3158,6 +3160,37 @@ internal static partial class AdminEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+
+    /// <summary>
+    /// What the tile face's published style cannot carry, beyond what the feature face already
+    /// reported.
+    /// </summary>
+    /// <remarks>
+    /// <b>Its own list, because it answers a different question</b> — D-280. The tile style is
+    /// spread into one filtered layer per class so that ArcGIS Pro draws it; when a renderer has
+    /// too many classes for that, the style keeps its `match` and Pro draws nothing, and the
+    /// only place an operator can learn that before a client does is here. Kept apart from
+    /// `losses`, which is the feature face's list and what the console's badge counts, so that
+    /// adding a face did not change the meaning of the list every existing reader already reads.
+    /// </remarks>
+    /// <param name="canonical">The stored document.</param>
+    /// <param name="name">The layer, which the style's source layer is named after.</param>
+    /// <param name="geometry">What the layer is made of.</param>
+    /// <param name="already">What the feature face already said, so it is not said twice.</param>
+    /// <returns>The sentences, possibly none.</returns>
+    private static string[] TileStyleLosses(
+        string canonical, string name, GeometryKind geometry, IReadOnlyCollection<string> already)
+    {
+        try
+        {
+            return [.. SymbologyConversion.ToStyle(canonical, name, geometry).Losses
+                .Where(l => !already.Contains(l, StringComparer.Ordinal))];
+        }
+        catch (SymbologyException e)
+        {
+            return [e.Message];
+        }
+    }
 
     /// <summary>
     /// The generated appearance as a CIM renderer, for a layer that has stored none.
@@ -3944,6 +3977,7 @@ internal static partial class AdminEndpoints
                 System.Text.Json.JsonElement>(written.Canonical),
             drawingInfo = derived.DrawingInfo,
             losses,
+            styleLosses = TileStyleLosses(written.Canonical, layer.Name, layer.Geometry, losses),
             note = losses.Length == 0
                 ? "Nothing was lost: both faces draw what you sent."
                 : "Stored. The list above is what did not survive — read it now rather than "

@@ -4,12 +4,19 @@ using Graticula.Geometries;
 namespace Graticula.Tiles;
 
 /// <summary>
-/// One tile in the Web Mercator pyramid.
+/// One tile in the Web Mercator pyramid — or, since ADR-096, in the grid of a service's own tiling scheme.
 /// </summary>
 /// <param name="Z">Zoom level, 0 at the whole world.</param>
 /// <param name="X">Column, west to east.</param>
 /// <param name="Y">Row, <b>north to south</b>.</param>
 /// <remarks>
+/// <para>
+/// <b>The three numbers name a tile in whichever grid the service is cut on</b>; which grid, and so
+/// which addresses exist and where each one is, is <see cref="VectorTileScheme"/>'s to say. What this
+/// type answers on its own — <see cref="IsValid"/>, <see cref="Rejection"/>,
+/// <see cref="WebMercatorEnvelope"/> — is the Web Mercator answer, which is what
+/// <see cref="VectorTileScheme.WebMercator"/> asks it for.
+/// </para>
 /// <para>
 /// <b>XYZ, not TMS.</b> Row 0 is the north edge. The two schemes differ only by
 /// a flipped Y and produce a plausible-looking map that is upside down, which is

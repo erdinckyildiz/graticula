@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using Graticula.Cartography;
 using Graticula.Features;
 using Graticula.Geometries;
 using Graticula.Platform.Admin;
@@ -86,9 +87,12 @@ internal static partial class AdminEndpoints
         int? first = null;
         int last = 0;
 
-        for (int z = 0; z <= TileAddress.MaxZoom; z++)
+        // The service's own levels (ADR-096); for Web Mercator, 0 to 22 and `CarriesVectorTile`, as before.
+        VectorTileScheme scheme = service.TileScheme;
+
+        for (int z = 0; z <= scheme.MaxLevel; z++)
         {
-            if (service.Layers.Any(layer => layer.VisibleRange.CarriesVectorTile(z)))
+            if (service.Layers.Any(layer => scheme.Draws(layer.VisibleRange, z)))
             {
                 first ??= z;
                 last = z;
@@ -139,11 +143,19 @@ internal static partial class AdminEndpoints
         TimeSpan defaultLifetime = cache is FileSystemTileCache disk ? disk.DefaultLifetime : TimeSpan.FromHours(1);
 
         List<object> levels = [];
+        VectorTileScheme scheme = service.TileScheme;
 
         foreach (TileSeedZoom zoom in seeded)
         {
-            TileRange range = TileSeedPlan.RangeOf(zoom.Area, zoom.Zoom);
-            PublishedLayer[] drawn = [.. service.Layers.Where(layer => layer.VisibleRange.CarriesVectorTile(zoom.Zoom))];
+            // <b>A level the service's scheme does not have is left out</b> — ADR-096: it was seeded on the
+            // grid the service had before it was switched, and the switch emptied its tiles.
+            if (zoom.Zoom > scheme.MaxLevel)
+            {
+                continue;
+            }
+
+            TileRange range = scheme.RangeOf(zoom.Area, zoom.Zoom);
+            PublishedLayer[] drawn = [.. service.Layers.Where(layer => scheme.Draws(layer.VisibleRange, zoom.Zoom))];
 
             long? cached = null;
 
@@ -160,7 +172,7 @@ internal static partial class AdminEndpoints
 
                     TileCacheKey key = VectorTileEndpoints.KeyOf(
                         layer, VectorTileEndpoints.AttributesOf(layer, description),
-                        new TileAddress(zoom.Zoom, 0, 0), geoParquet);
+                        new TileAddress(zoom.Zoom, 0, 0), geoParquet, scheme);
 
                     HashSet<long> fresh = files.FreshIn(key, range, VectorTileEndpoints.LifetimeOf(layer, defaultLifetime));
 
@@ -182,7 +194,7 @@ internal static partial class AdminEndpoints
                 zoom = zoom.Zoom,
                 lastSeeded = zoom.Finished,
                 seed = zoom.Job,
-                area = Wire(zoom.Area),
+                area = Wire(zoom.Area, scheme.Srid),
                 tiles = range.Count,
 
                 // Null where no layer draws at the level: there is nothing to cache there, and zero
@@ -225,6 +237,9 @@ internal static partial class AdminEndpoints
             name = service.Name,
             folder = service.Folder,
             pipeline = TilePipeline.Version,
+
+            // ADR-096: the grid the levels below are counted on.
+            tilingScheme = new { id = scheme.Id, wkid = scheme.Srid, levels = scheme.LevelCount },
             budget = BudgetOf(cache, service),
             layers,
             levels,
@@ -314,10 +329,13 @@ internal static partial class AdminEndpoints
             (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
             TileCacheKey key = VectorTileEndpoints.KeyOf(
-                layer, VectorTileEndpoints.AttributesOf(layer, description), new TileAddress(0, 0, 0), geoParquet);
+                layer, VectorTileEndpoints.AttributesOf(layer, description), new TileAddress(0, 0, 0), geoParquet,
+                service.TileScheme);
+
+            VisibleScaleRange range = layer.VisibleRange;
 
             layers.Add(new TileSeedEstimate.Layer(
-                layer.VisibleRange.CarriesVectorTile, disk.HoldingOf(key, plan.Levels)));
+                level => service.TileScheme.Draws(range, level), disk.HoldingOf(key, plan.Levels)));
         }
 
         return TileSeedEstimate.Of(
@@ -456,11 +474,14 @@ internal static partial class AdminEndpoints
             ? Math.Max(asked, defaults?.Max ?? asked)
             : defaults?.Max ?? 0);
 
-        if (minZoom < 0 || maxZoom > TileAddress.MaxZoom || minZoom > maxZoom)
+        // ADR-096: the levels are the service's scheme's — 0 to 22 for Web Mercator, as before.
+        VectorTileScheme scheme = service.TileScheme;
+
+        if (minZoom < 0 || maxZoom > scheme.MaxLevel || minZoom > maxZoom)
         {
             await Refuse(
                 context, 400,
-                $"'minZoom' {minZoom} and 'maxZoom' {maxZoom}: a seed covers levels 0 to {TileAddress.MaxZoom}, "
+                $"'minZoom' {minZoom} and 'maxZoom' {maxZoom}: a seed covers levels 0 to {scheme.MaxLevel}, "
                 + "and the first may not be above the last.")
                 .ConfigureAwait(false);
             return;
@@ -481,8 +502,36 @@ internal static partial class AdminEndpoints
             }
 
             Envelope given = new(extent.Xmin, extent.Ymin, extent.Xmax, extent.Ymax);
+            bool mercator = wkid is VectorTileEndpoints.WebMercator or 102100 or 102113 or 900913;
 
-            if (wkid is VectorTileEndpoints.WebMercator or 102100 or 102113 or 900913)
+            if (!scheme.IsWebMercator)
+            {
+                // <b>ADR-096: the area is kept in the scheme's reference</b>, so a resumed seed walks the
+                // rectangles the first run counted. Given in it, it is used as it is; given in Web Mercator
+                // or in degrees — what the console and an ArcGIS client send — it is moved into it,
+                // sampled along its edges, as the service document's extent is.
+                Envelope? moved = wkid == scheme.Srid
+                    ? given
+                    : mercator || wkid == 4326
+                        ? await VectorTileEndpoints.InSchemeAsync(
+                                given, mercator ? VectorTileEndpoints.WebMercator : 4326, scheme, projector, cancellation)
+                            .ConfigureAwait(false)
+                        : null;
+
+                if (moved is not { } inScheme)
+                {
+                    await Refuse(
+                        context, 400,
+                        $"The extent is in {wkid}. This service is tiled in EPSG:{scheme.Srid} ({scheme.Id}), and a "
+                        + $"seed's area is given in it, in Web Mercator (3857) or in WGS 84 degrees (4326) — or left "
+                        + "out for the service's whole extent.")
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                area = inScheme;
+            }
+            else if (mercator)
             {
                 area = given;
             }
@@ -528,7 +577,7 @@ internal static partial class AdminEndpoints
 
         try
         {
-            plan = TileSeedPlan.For(area, minZoom, maxZoom);
+            plan = TileSeedPlan.For(scheme, area, minZoom, maxZoom);
         }
         catch (ArgumentException wrong)
         {
@@ -569,7 +618,7 @@ internal static partial class AdminEndpoints
                 folder = service.Folder,
                 minZoom,
                 maxZoom,
-                area = Wire(plan.Area),
+                area = Wire(plan.Area, scheme.Srid),
                 whole,
                 tiles = plan.Total,
                 levels = plan.Levels.Select((level, i) => new
@@ -578,7 +627,7 @@ internal static partial class AdminEndpoints
                     tiles = level.Count,
 
                     // ADR-070: a level no layer draws at is skipped whole, and costs nothing.
-                    drawn = service.Layers.Any(layer => layer.VisibleRange.CarriesVectorTile(level.Z)),
+                    drawn = service.Layers.Any(layer => scheme.Draws(layer.VisibleRange, level.Z)),
                     estimatedBytes = estimate?.Levels[i].Bytes,
                     sampled = estimate?.Levels[i].Sampled,
                 }),
@@ -622,7 +671,23 @@ internal static partial class AdminEndpoints
 
             // What a person should see, and the address the worker resolves the service by. A
             // reference and a size — ADR-011 condition 4 — and nothing that is a payload.
-            Detail(new { folder = service.Folder, service = service.Name, minZoom, maxZoom, tiles = plan.Total }),
+            //
+            // <b>And the grid the area and levels are counted on, for a service on another scheme</b> —
+            // ADR-096. The worker compares it with the service's scheme when it starts or resumes, and fails
+            // a seed whose service was switched meanwhile rather than walking one grid's rectangles on the
+            // other. Left out for Web Mercator, so a Mercator seed's detail is what it was.
+            scheme.IsWebMercator
+                ? Detail(new { folder = service.Folder, service = service.Name, minZoom, maxZoom, tiles = plan.Total })
+                : Detail(new
+                {
+                    folder = service.Folder,
+                    service = service.Name,
+                    minZoom,
+                    maxZoom,
+                    tiles = plan.Total,
+                    scheme = scheme.Key,
+                    schemeId = scheme.Id,
+                }),
             cancellation).ConfigureAwait(false);
 
         if (start.Started is not { } started)
@@ -834,8 +899,8 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>
-    /// A service's extent in Web Mercator — the union of its layers' — or a sentence saying why it
-    /// cannot be known.
+    /// A service's extent in the reference of its tiling scheme — Web Mercator unless it chose another
+    /// (ADR-096) — the union of its layers', or a sentence saying why it cannot be known.
     /// </summary>
     /// <remarks>
     /// <b>The service document's own computation</b>: each layer's described extent, put in Web
@@ -857,13 +922,15 @@ internal static partial class AdminEndpoints
                 continue;
             }
 
-            if (await VectorTileEndpoints.InWebMercatorAsync(extent, layer.Definition.Srid, projector, cancellation)
+            if (await VectorTileEndpoints.InSchemeAsync(
+                        extent, layer.Definition.Srid, service.TileScheme, projector, cancellation)
                     .ConfigureAwait(false) is not { } mercator)
             {
                 return (null,
-                    $"The extent of layer '{layer.Definition.Name}' could not be put in Web Mercator from its own "
-                    + $"reference ({layer.Definition.Srid}), so the service's whole extent is not known. Give the "
-                    + "seed an extent.");
+                    $"The extent of layer '{layer.Definition.Name}' could not be put in "
+                    + (service.TileScheme.IsWebMercator ? "Web Mercator" : $"EPSG:{service.TileScheme.Srid}")
+                    + $" from its own reference ({layer.Definition.Srid}), so the service's whole extent is not "
+                    + "known. Give the seed an extent.");
             }
 
             union = union is not { } have
@@ -919,14 +986,33 @@ internal static partial class AdminEndpoints
         $"/admin/services/{Uri.EscapeDataString(service.Name)}/cache/seeds/{job}"
         + (service.Folder is null ? string.Empty : $"?folder={Uri.EscapeDataString(service.Folder)}");
 
-    private static object Wire(Envelope area) => new
+    /// <summary>An area on the wire, labelled with the reference it is in — Web Mercator's pair, or the scheme's.</summary>
+    private static object Wire(Envelope area, int? srid) => new
     {
         xmin = area.MinX,
         ymin = area.MinY,
         xmax = area.MaxX,
         ymax = area.MaxY,
-        spatialReference = new { wkid = 102100, latestWkid = VectorTileEndpoints.WebMercator },
+        spatialReference = srid is null
+            ? null
+            : srid == VectorTileEndpoints.WebMercator
+                ? new { wkid = 102100, latestWkid = VectorTileEndpoints.WebMercator }
+                : new { wkid = srid.Value, latestWkid = srid.Value },
     };
+
+    /// <summary>
+    /// The reference a seed's area is in: the service's scheme's when the seed was counted on it, Web
+    /// Mercator's for a seed that recorded no scheme, and unknown — null — for one counted on a grid the
+    /// service has since left (ADR-096).
+    /// </summary>
+    private static int? AreaReferenceOf(TileSeedState seed, PublishedService service)
+    {
+        string recorded = TileSeeder.SchemeOf(seed.Job.Detail) ?? VectorTileScheme.WebMercatorId;
+
+        return recorded == service.TileScheme.Key
+            ? service.TileScheme.Srid
+            : recorded == VectorTileScheme.WebMercatorId ? VectorTileEndpoints.WebMercator : null;
+    }
 
     /// <summary>One seed on the wire.</summary>
     /// <remarks>
@@ -957,7 +1043,7 @@ internal static partial class AdminEndpoints
             folder = service.Folder,
             minZoom = seed.MinZoom,
             maxZoom = seed.MaxZoom,
-            area = Wire(seed.Area),
+            area = Wire(seed.Area, AreaReferenceOf(seed, service)),
             whole = seed.Whole,
             concurrency = seed.Concurrency,
             tiles = seed.Total,

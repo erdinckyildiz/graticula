@@ -263,7 +263,7 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     /// level are read from it, and its column and row are not.</param>
     /// <param name="range">The rectangle.</param>
     /// <param name="lifetime">How long the layer's tiles stay fresh.</param>
-    /// <returns>Each fresh tile's position as <c>x × 2^z + y</c>.</returns>
+    /// <returns>Each fresh tile's position as <c>x × 2^32 + y</c> — not <c>x × 2^z + y</c>, since a custom tiling scheme's level need not be 2^z tiles wide (ADR-096).</returns>
     /// <remarks>
     /// <para>
     /// <b>Read from the directory rather than from the index</b>, for the reason §3 (N2) gives the
@@ -292,7 +292,6 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
                 (layer with { Address = new TileAddress(range.Z, 0, 0) }).Path()))!);
 
         DateTime oldest = _clock.GetUtcNow().UtcDateTime - lifetime;
-        long side = 1L << range.Z;
 
         try
         {
@@ -321,7 +320,9 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
 
                     if (File.GetLastWriteTimeUtc(file) >= oldest)
                     {
-                        fresh.Add((x * side) + y);
+                        // Column and row packed into one number without assuming 2^z a side — a custom
+                        // tiling scheme's level may be wider (ADR-096).
+                        fresh.Add(((long)x << 32) | (uint)y);
                     }
                 }
             }

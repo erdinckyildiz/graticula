@@ -93,7 +93,7 @@ public sealed class ClassifiedByArcadeTests
     public void Both_faces_then_carry_the_field_the_expression_named()
     {
         JsonArray colour = Assert.IsType<JsonArray>(
-            ((JsonArray)CimStyle.ToMapLibre(
+            ((JsonArray)CimStyle.ToExpressions(
                 (JsonObject)JsonNode.Parse(ByLandUse)!, "araziler").Style["layers"]!)
                     .Single()!["paint"]!["fill-color"]);
 

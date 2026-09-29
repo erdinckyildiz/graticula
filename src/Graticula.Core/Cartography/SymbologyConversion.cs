@@ -332,6 +332,14 @@ public static class SymbologyConversion
 
         JsonArray kept = new();
 
+        // <b>The one kind of filter that is not refused: this server's own.</b> Since 2026-09-29
+        // the tile face publishes one filtered style layer per class, because ArcGIS Pro draws no
+        // `match` (D-280). Somebody who downloads that style and stores it again is storing what
+        // this server wrote, and refusing it would make the tile face's own output unstorable.
+        // `CimStyle.Collapse` recognises exactly the filters it writes and folds them back into
+        // the `match` or `step` they came from; any other filter is refused as before.
+        bool ownFilters = CimStyle.Collapse(style) is not null;
+
         foreach (JsonNode? node in layers)
         {
             if (node is not JsonObject source)
@@ -352,7 +360,7 @@ public static class SymbologyConversion
             // emits. The refusal names the paint expression that does the same job,
             // because an author who pasted a hand-written style needs the way
             // forward and not only the No.
-            if (source["filter"] is not null)
+            if (source["filter"] is not null && !ownFilters)
             {
                 throw new SymbologyException(
                     $"The `{type}` layer carries a `filter`, and this server does not evaluate "
@@ -381,12 +389,24 @@ public static class SymbologyConversion
             // `source` and `source-layer` are regenerated with the sources block —
             // a canonical document does not know which service will serve it.
             // <b>No `filter`.</b> It is refused above rather than copied: a property
-            // this server cannot honour has no business in the document it stores.
+            // this server cannot honour has no business in the document it stores. <i>(Except
+            // the per-class form's, which is copied so that `CimStyle.FromMapLibre` can fold it;
+            // what is stored is the CIM renderer it folds to, never the filter.)</i>
             foreach (string property in new[] { "paint", "layout", "minzoom", "maxzoom" })
             {
                 if (source[property] is { } value)
                 {
                     layer[property] = value.DeepClone();
+                }
+            }
+
+            if (ownFilters && source["filter"] is { } own)
+            {
+                layer["filter"] = own.DeepClone();
+
+                if (source["source-layer"] is { } from)
+                {
+                    layer["source-layer"] = from.DeepClone();
                 }
             }
 

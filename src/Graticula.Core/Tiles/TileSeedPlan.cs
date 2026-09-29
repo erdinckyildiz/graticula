@@ -106,7 +106,8 @@ public sealed class TileSeedPlan
     /// <summary>One rectangle per level, lowest level first.</summary>
     public IReadOnlyList<TileRange> Levels { get; }
 
-    /// <summary>The area, in Web Mercator, clipped to the square the grid covers.</summary>
+    /// <summary>The area, clipped to the grid it is counted on — in Web Mercator, or in the reference of the
+    /// service's tiling scheme (ADR-096).</summary>
     public Envelope Area { get; }
 
     /// <summary>How many tiles the whole seed covers.</summary>
@@ -164,6 +165,70 @@ public sealed class TileSeedPlan
         for (int z = minZoom; z <= maxZoom; z++)
         {
             levels.Add(RangeOf(clipped, z));
+        }
+
+        return new TileSeedPlan(levels, clipped);
+    }
+
+    /// <summary>
+    /// The plan for an area over a range of levels of a tiling scheme — ADR-096.
+    /// </summary>
+    /// <param name="scheme">The scheme the service is cut on.</param>
+    /// <param name="area">The area, in the scheme's reference.</param>
+    /// <param name="minLevel">The lowest level, inclusive.</param>
+    /// <param name="maxLevel">The highest level, inclusive.</param>
+    /// <returns>The plan.</returns>
+    /// <exception cref="ArgumentException">A level is outside the scheme, the range is backwards, or the
+    /// area is empty or entirely outside the scheme's frame.</exception>
+    /// <remarks>
+    /// <b>Web Mercator goes to <see cref="For(Envelope, int, int)"/> unchanged</b>, so a Mercator seed counts
+    /// what it counted before. Any other scheme is the same rectangle arithmetic over its own grid, clipped
+    /// to its frame rather than to the Mercator square — and its level count, not z22, is the ceiling.
+    /// </remarks>
+    public static TileSeedPlan For(VectorTileScheme scheme, Envelope area, int minLevel, int maxLevel)
+    {
+        ArgumentNullException.ThrowIfNull(scheme);
+
+        if (scheme.IsWebMercator)
+        {
+            return For(area, minLevel, maxLevel);
+        }
+
+        if (minLevel < 0 || maxLevel > scheme.MaxLevel || minLevel > maxLevel)
+        {
+            throw new ArgumentException(
+                $"The levels are {minLevel} to {maxLevel}; this service's tiling scheme has levels 0 to "
+                + $"{scheme.MaxLevel}, lowest first, and the first may not be above the last.");
+        }
+
+        if (area.IsEmpty
+            || double.IsNaN(area.MinX) || double.IsNaN(area.MinY)
+            || double.IsNaN(area.MaxX) || double.IsNaN(area.MaxY))
+        {
+            throw new ArgumentException("The area is empty, so there is nothing to seed.");
+        }
+
+        Envelope frame = scheme.Frame;
+
+        if (area.MaxX < frame.MinX || area.MinX > frame.MaxX
+            || area.MaxY < frame.MinY || area.MinY > frame.MaxY)
+        {
+            throw new ArgumentException(
+                $"The area is entirely outside the grid of this service's tiling scheme (EPSG:{scheme.Srid}), so "
+                + "no tile covers it. Is it in another reference?");
+        }
+
+        Envelope clipped = new(
+            Math.Max(area.MinX, frame.MinX),
+            Math.Max(area.MinY, frame.MinY),
+            Math.Min(area.MaxX, frame.MaxX),
+            Math.Min(area.MaxY, frame.MaxY));
+
+        List<TileRange> levels = new(maxLevel - minLevel + 1);
+
+        for (int level = minLevel; level <= maxLevel; level++)
+        {
+            levels.Add(scheme.RangeOf(clipped, level));
         }
 
         return new TileSeedPlan(levels, clipped);

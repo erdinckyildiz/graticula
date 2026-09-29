@@ -107,11 +107,22 @@ public readonly record struct VisibleScaleRange(double MinScale, double MaxScale
     /// an empty tile is right only when none is. Testing the single scale would blank the last level
     /// before the limit for the half of its zoom where the layer should still be drawing.
     /// </remarks>
-    public bool CarriesVectorTile(int z)
-    {
-        double coarsest = VectorTileScale(z);
-        double finest = coarsest / 2;
+    public bool CarriesVectorTile(int z) => CarriesTileBetween(VectorTileScale(z), VectorTileScale(z) / 2);
 
+    /// <summary>
+    /// Whether a tile shown from <paramref name="coarsest"/> down to <paramref name="finest"/> can be drawn
+    /// anywhere inside the range — <see cref="CarriesVectorTile"/>'s test, for a tiling scheme whose levels
+    /// are not Web Mercator's (ADR-096).
+    /// </summary>
+    /// <param name="coarsest">The scale the tile fills its pixels at.</param>
+    /// <param name="finest">The scale a client moves to the next level at; open at this end.</param>
+    /// <returns>False when every scale in the interval is outside the range.</returns>
+    /// <remarks>
+    /// <b>Split out of <see cref="CarriesVectorTile"/> unchanged</b>, so a Mercator level is decided by
+    /// the same two comparisons it always was, over the same two numbers.
+    /// </remarks>
+    public bool CarriesTileBetween(double coarsest, double finest)
+    {
         if (MinScale > 0 && finest >= MinScale * (1 - Tolerance))
         {
             return false;
@@ -132,4 +143,22 @@ public readonly record struct VisibleScaleRange(double MinScale, double MaxScale
 
     /// <summary>The style zoom this range stops drawing at, or null when zooming in is not limited.</summary>
     public double? StyleMaxZoom => MaxScale > 0 ? Math.Log2(VectorTileLevel0Scale / MaxScale) : null;
+
+    /// <summary>
+    /// The style zoom this range starts drawing at on a scheme whose level 0 is <paramref name="level0Scale"/>,
+    /// or null — ADR-096. <see cref="StyleMinZoom"/> is this for Web Mercator.
+    /// </summary>
+    /// <param name="level0Scale">The scheme's level-zero scale.</param>
+    /// <returns>The zoom, or null when zooming out is not limited.</returns>
+    /// <remarks>
+    /// <b>Counted in the scheme's own levels</b>, where a zoom of 1 is half the level-zero scale. That is
+    /// how the ArcGIS Maps SDK reads a style's zooms against a service in another reference, as far as its
+    /// documentation says — INFERRED and not verified against a client (ADR-096 §6).
+    /// </remarks>
+    public double? StyleMinZoomOn(double level0Scale) => MinScale > 0 ? Math.Log2(level0Scale / MinScale) : null;
+
+    /// <summary>The style zoom this range stops drawing at on a scheme whose level 0 is <paramref name="level0Scale"/>, or null.</summary>
+    /// <param name="level0Scale">The scheme's level-zero scale.</param>
+    /// <returns>The zoom, or null when zooming in is not limited.</returns>
+    public double? StyleMaxZoomOn(double level0Scale) => MaxScale > 0 ? Math.Log2(level0Scale / MaxScale) : null;
 }

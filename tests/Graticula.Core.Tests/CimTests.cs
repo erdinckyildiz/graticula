@@ -158,7 +158,7 @@ public sealed class CimTests
             }
             """)!;
 
-        DerivedStyle derived = CimStyle.ToMapLibre(renderer, "roads");
+        DerivedStyle derived = CimStyle.ToExpressions(renderer, "roads");
 
         JsonArray layers = (JsonArray)derived.Style["layers"]!;
         JsonObject paint = (JsonObject)layers.Single()!["paint"]!;
@@ -200,7 +200,7 @@ public sealed class CimTests
             }
             """)!;
 
-        DerivedStyle derived = CimStyle.ToMapLibre(renderer, "places");
+        DerivedStyle derived = CimStyle.ToExpressions(renderer, "places");
 
         JsonArray colour = Assert.IsType<JsonArray>(
             ((JsonArray)derived.Style["layers"]!).Single()!["paint"]!["fill-color"]);
@@ -456,7 +456,7 @@ public sealed class CimTests
         // <b>And back out again with the default in the otherwise, not the first class.</b>
         // Emitting the first class's colour there would draw every unlisted feature as if it
         // were residential -- wrong, and deliberate-looking.
-        DerivedStyle back = CimStyle.ToMapLibre(written.Renderer, "buildings");
+        DerivedStyle back = CimStyle.ToExpressions(written.Renderer, "buildings");
 
         JsonArray colour = Assert.IsType<JsonArray>(
             ((JsonArray)back.Style["layers"]!).Single()!["paint"]!["fill-color"]);

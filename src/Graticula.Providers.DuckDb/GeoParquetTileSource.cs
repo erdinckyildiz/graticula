@@ -47,6 +47,7 @@ public sealed class GeoParquetTileSource : ITileSource
     private readonly LayerDefinition _layer;
     private readonly IReadOnlyList<FieldDescription> _attributes;
     private readonly IMvtEncoder _encoder;
+    private readonly VectorTileScheme _scheme;
 
     /// <summary>Creates a tile source over one GeoParquet layer.</summary>
     /// <param name="reader">
@@ -59,11 +60,17 @@ public sealed class GeoParquetTileSource : ITileSource
     /// the file's real columns, the same whitelist <c>PostGisTileSource</c> is handed.
     /// </param>
     /// <param name="encoder">Where the rows are turned into MVT bytes.</param>
+    /// <param name="scheme">
+    /// The grid the service is cut on, or null for Web Mercator — ADR-096. <b>Supported, because the
+    /// read shares the envelope</b>: the box test is asked in the scheme's own reference and the encoder is
+    /// handed the scheme, so a GeoParquet layer tiles on a TUREF grid exactly as a table does.
+    /// </param>
     public GeoParquetTileSource(
         GeoParquetFeatureSource reader,
         LayerDefinition layer,
         IReadOnlyList<FieldDescription> attributes,
-        IMvtEncoder encoder)
+        IMvtEncoder encoder,
+        VectorTileScheme? scheme = null)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(layer);
@@ -74,6 +81,7 @@ public sealed class GeoParquetTileSource : ITileSource
         _layer = layer;
         _attributes = attributes;
         _encoder = encoder;
+        _scheme = scheme ?? VectorTileScheme.WebMercator;
     }
 
     /// <summary>How many rows one page of a tile's read holds.</summary>
@@ -85,14 +93,17 @@ public sealed class GeoParquetTileSource : ITileSource
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
 
-        if (!address.IsValid)
+        if (_scheme.Rejection(address) is { } rejection)
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(address), address.Rejection() ?? "The tile address is outside the pyramid.");
+            throw new ArgumentOutOfRangeException(nameof(address), rejection);
         }
 
-        Envelope tileBox = address.WebMercatorEnvelope();
-        Geometry filter = Rectangle(tileBox);
+        // For Web Mercator, `TileAddress.WebMercatorEnvelope` — the box this read always asked for.
+        Envelope tileBox = _scheme.Envelope(address);
+        // <b>Sixteen points an edge on another scheme's grid</b>, for PostGisTileSource.FilterBox's reason: a
+        // transverse Mercator square bows when it is moved into degrees, and four moved corners miss the bow.
+        // A Mercator tile keeps its four corners, as it always had.
+        Geometry filter = Rectangle(tileBox, _scheme.IsWebMercator ? 1 : 16);
 
         List<Feature> features = [];
 
@@ -107,12 +118,13 @@ public sealed class GeoParquetTileSource : ITileSource
                 // pages neither repeat nor skip a row.
                 offset: offset,
 
-                // <b>The tile is Web Mercator by construction; the layer need not be.</b> Setting
-                // FilterSrid whenever the layer is not already 3857 routes the box through the
+                // <b>The tile is in its scheme's reference — Web Mercator unless the service chose another
+                // (ADR-096); the layer need not be.</b> Setting
+                // FilterSrid whenever the layer is not already in it routes the box through the
                 // projector once, exactly as PostGisTileSource transforms its own filter box into
                 // the layer's reference for the `&&` test — never the other way around, which
                 // would ask the box test to compare numbers in two different units.
-                filterSrid: _layer.Srid == PostGisWebMercator ? null : PostGisWebMercator);
+                filterSrid: _layer.Srid == _scheme.Srid ? null : _scheme.Srid);
 
             int read = 0;
 
@@ -157,24 +169,44 @@ public sealed class GeoParquetTileSource : ITileSource
             return [];
         }
 
-        return await _encoder
-            .EncodeAsync(rows, address, layerName, _layer.Srid, cancellationToken)
-            .ConfigureAwait(false);
+        // <b>The Web Mercator form for a Mercator service</b>, which is the call this made before schemes
+        // existed — so an encoder that knows only that form (a test's, or an older one) still serves it.
+        return _scheme.IsWebMercator
+            ? await _encoder
+                .EncodeAsync(rows, address, layerName, _layer.Srid, cancellationToken)
+                .ConfigureAwait(false)
+            : await _encoder
+                .EncodeAsync(rows, address, _scheme, layerName, _layer.Srid, cancellationToken)
+                .ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// The reference every tile pyramid is cut on — <c>PostGisTileSource.WebMercator</c>'s value,
-    /// restated so this project does not reference the PostGIS provider for one constant.
-    /// </summary>
-    private const int PostGisWebMercator = 3857;
+    private static Polygon Rectangle(Envelope box, int steps)
+    {
+        if (steps <= 1)
+        {
+            return new(new LinearRing(XySequence.Wrap(
+            [
+                box.MinX, box.MinY,
+                box.MaxX, box.MinY,
+                box.MaxX, box.MaxY,
+                box.MinX, box.MaxY,
+                box.MinX, box.MinY,
+            ])));
+        }
 
-    private static Polygon Rectangle(Envelope box) =>
-        new(new LinearRing(XySequence.Wrap(
-        [
-            box.MinX, box.MinY,
-            box.MaxX, box.MinY,
-            box.MaxX, box.MaxY,
-            box.MinX, box.MaxY,
-            box.MinX, box.MinY,
-        ])));
+        // Counter-clockwise from the south-west corner, `steps` segments an edge, closed.
+        List<double> ring = new((steps * 4 + 1) * 2);
+        double width = box.MaxX - box.MinX;
+        double height = box.MaxY - box.MinY;
+
+        for (int i = 0; i < steps; i++) { ring.Add(box.MinX + (width * i / steps)); ring.Add(box.MinY); }
+        for (int i = 0; i < steps; i++) { ring.Add(box.MaxX); ring.Add(box.MinY + (height * i / steps)); }
+        for (int i = 0; i < steps; i++) { ring.Add(box.MaxX - (width * i / steps)); ring.Add(box.MaxY); }
+        for (int i = 0; i < steps; i++) { ring.Add(box.MinX); ring.Add(box.MaxY - (height * i / steps)); }
+
+        ring.Add(box.MinX);
+        ring.Add(box.MinY);
+
+        return new(new LinearRing(XySequence.Wrap([.. ring])));
+    }
 }

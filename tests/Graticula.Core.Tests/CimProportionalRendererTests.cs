@@ -132,7 +132,7 @@ public sealed class CimProportionalRendererTests
     [Fact]
     public void The_tile_face_draws_it_as_a_circle_whose_radius_slides()
     {
-        DerivedStyle derived = CimStyle.ToMapLibre(
+        DerivedStyle derived = CimStyle.ToExpressions(
             (JsonObject)JsonNode.Parse(DotsByPopulation)!, "sehirler");
 
         JsonObject paint = (JsonObject)((JsonArray)derived.Style["layers"]!).Single()!["paint"]!;

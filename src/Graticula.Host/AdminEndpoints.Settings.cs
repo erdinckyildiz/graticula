@@ -258,7 +258,10 @@ internal static partial class AdminEndpoints
         }
 
         object[] candidates = all
-            .Where(s => ServiceFaces.Tileable(s) && s.Limits.AllowsTiles(dataSupportsIt: true))
+            .Where(s => ServiceFaces.Tileable(s) && s.Limits.AllowsTiles(dataSupportsIt: true)
+
+                // ADR-096: a ground is drawn beneath Web Mercator maps (ServerGround.CheckAsync says why).
+                && s.TileScheme.IsWebMercator)
             .OrderBy(s => s.QualifiedName, StringComparer.OrdinalIgnoreCase)
             .Select(s => Row(s.QualifiedName, s))
             .ToArray();

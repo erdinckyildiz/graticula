@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(62);
+    public static SchemaVersion ComponentSchemaVersion => new(63);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -97,7 +97,46 @@ public static class PlatformMigrations
         AServiceMayCarryASpriteSheetV60,
         ATileCacheMayBeSeededV61,
         AServiceMayCarrySeveralStylesV62,
+        AServiceMayBeTiledInAnotherReferenceV63,
     ]);
+
+    /// <summary>
+    /// A vector tile service may be cut on a grid in another reference — ADR-096.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One nullable column on the service, and null is Web Mercator.</b> Every service that exists is
+    /// null, so every one is tiled exactly as before, and nothing is backfilled. The grid is stored whole —
+    /// reference, origin, resolutions — rather than as a built-in's name, so a later build that changed a
+    /// built-in's numbers would not move a service already set to it (<c>VectorTileScheme.ToJson</c>).
+    /// </para>
+    /// <para>
+    /// <b>Beside the service, not in its own table.</b> A service has one grid; a table would be a join
+    /// on every read of the catalogue for a fact that is almost always absent.
+    /// </para>
+    /// <para>
+    /// <b>Rollback.</b> A build before this one never reads the column, so it serves every service —
+    /// those set to another scheme included — in Web Mercator, as it always did: correct Mercator tiles
+    /// under the Mercator keys it always used, which the other grid's keys never collide with (the grid is
+    /// in their fingerprint). A client that had loaded the other grid's <c>tileInfo</c> draws nothing until
+    /// it reloads the service document. Nothing written here has to be undone to roll back.
+    /// </para>
+    /// <para><b>Expand.</b> A new nullable column with a bound on its size and a check that it is an
+    /// object. Nothing existing is read differently; the minimum reader does not move.</para>
+    /// </remarks>
+    private static Migration AServiceMayBeTiledInAnotherReferenceV63 => Migration.Expand(
+        new SchemaVersion(63),
+        "A vector tile service may be cut on a grid in another reference; null is Web Mercator (ADR-096).",
+
+        "alter table service add column if not exists tiling_scheme jsonb",
+
+        "alter table service drop constraint if exists service_tiling_scheme_is_an_object",
+
+        """
+        alter table service add constraint service_tiling_scheme_is_an_object
+          check (tiling_scheme is null
+                 or (jsonb_typeof(tiling_scheme) = 'object' and length(tiling_scheme::text) <= 8192))
+        """);
 
     /// <summary>
     /// A vector tile service may carry several named styles, one of them the default — ADR-094.

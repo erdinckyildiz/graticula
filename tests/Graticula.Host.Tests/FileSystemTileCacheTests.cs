@@ -81,7 +81,7 @@ public sealed class FileSystemTileCacheTests : IDisposable
 
         TileRange range = new(3, 0, 0, 3, 3);
 
-        Assert.Equal([(1L * 8) + 1, (2L * 8) + 1], cache.FreshIn(Key(z: 3), range, Lifetime).Order());
+        Assert.Equal([(1L << 32) + 1, (2L << 32) + 1], cache.FreshIn(Key(z: 3), range, Lifetime).Order());
 
         // An hour and a second later, every one of them has expired.
         _clock.Advance(Lifetime + TimeSpan.FromSeconds(1));

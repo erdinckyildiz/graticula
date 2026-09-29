@@ -82,7 +82,7 @@ public sealed class PostGisTileSource : ITileSource
     /// </remarks>
     public const int SimplifiedThroughZoom = 14;
 
-    /// <summary>The tile's width in its own units — Web Mercator metres — as SQL over the tile envelope.</summary>
+    /// <summary>The tile's width in its own units — Web Mercator metres, or the metres of the service's own tiling scheme (ADR-096) — as SQL over the tile envelope.</summary>
     private const string Span = "(ST_XMax(bounds.geom) - ST_XMin(bounds.geom))";
 
     /// <summary>
@@ -96,8 +96,108 @@ public sealed class PostGisTileSource : ITileSource
     /// have reduced to nothing, which <see cref="LargeEnough"/> has already decided should be drawn.
     /// </remarks>
     public static string Generalised(string geometry) =>
-        $"case when @z <= {SimplifiedThroughZoom} "
+        Generalised(geometry, $"@z <= {SimplifiedThroughZoom}");
+
+    /// <summary>
+    /// The geometry a tile encodes, generalised when <paramref name="when"/> holds — ADR-096's form of
+    /// Q-157 for a scheme whose levels are not Web Mercator's.
+    /// </summary>
+    /// <param name="geometry">SQL for the feature's geometry in the tile's reference.</param>
+    /// <param name="when">A SQL condition: <c>@z &lt;= 14</c> for Web Mercator, <c>@simplify</c> otherwise.</param>
+    /// <returns>SQL for what <c>ST_AsMVTGeom</c> is given.</returns>
+    /// <remarks>
+    /// <b>The tolerance was always a pixel's size, read off the tile's own width</b>, so it needs nothing
+    /// new for another scheme; only the switch was a level number. For another scheme the switch is
+    /// decided in C# from the level's resolution (<see cref="VectorTileScheme.Simplifies"/>) and bound, so
+    /// the Web Mercator text — and so its tiles — did not change.
+    /// </remarks>
+    public static string Generalised(string geometry, string when) =>
+        $"case when {when} "
         + $"then ST_Simplify({geometry}, {Span} / {Pixels * 2}, true) else {geometry} end";
+
+    /// <summary>The tile's envelope as SQL: <c>ST_TileEnvelope</c> for Web Mercator, the scheme's own box otherwise.</summary>
+    /// <param name="scheme">The scheme.</param>
+    /// <returns>SQL naming the box, over parameters <see cref="Bind"/> sets.</returns>
+    /// <remarks>
+    /// <b>Not <c>ST_TileEnvelope(z, x, y, bounds)</c>, though it takes a bounds geometry.</b> That form
+    /// cuts a square power-of-two grid from the bounds it is given, and a custom scheme's resolutions need
+    /// not halve; the box is computed once, in <see cref="VectorTileScheme.Envelope"/>, and bound as four
+    /// numbers, so only one side decides where a tile is — the property the Mercator form gets by leaving
+    /// it to PostGIS.
+    /// </remarks>
+    public static string BoundsSql(VectorTileScheme scheme)
+    {
+        ArgumentNullException.ThrowIfNull(scheme);
+
+        return scheme.IsWebMercator
+            ? "ST_TileEnvelope(@z, @x, @y)"
+            : $"ST_MakeEnvelope(@minx, @miny, @maxx, @maxy, {scheme.Srid.ToString(CultureInfo.InvariantCulture)})";
+    }
+
+    /// <summary>When a tile is simplified, as SQL — <c>@z &lt;= 14</c> for Web Mercator, <c>@simplify</c> otherwise.</summary>
+    /// <param name="scheme">The scheme.</param>
+    /// <returns>The condition.</returns>
+    public static string SimplifyWhen(VectorTileScheme scheme)
+    {
+        ArgumentNullException.ThrowIfNull(scheme);
+
+        return scheme.IsWebMercator ? $"@z <= {SimplifiedThroughZoom}" : "@simplify";
+    }
+
+    /// <summary>
+    /// The tile's box in a layer's own reference, for the <c>&amp;&amp;</c> that reaches the index.
+    /// </summary>
+    /// <param name="scheme">The scheme.</param>
+    /// <param name="srid">The layer's reference.</param>
+    /// <returns>SQL over <c>bounds.geom</c>.</returns>
+    /// <remarks>
+    /// <b>Densified before it is moved, for another scheme only.</b> A transverse Mercator square is not a
+    /// square in degrees: its northern edge bows north between its corners, by about 1.2 km over a 600 km
+    /// level-0 tile at 41°N, so a box made of the four moved corners would miss what lies in the bow.
+    /// Sixteen points an edge take that below five metres at level 0 and to nothing that matters a level or
+    /// two down. The Mercator statement keeps its four corners, which is what it has always cut with.
+    /// </remarks>
+    public static string FilterBox(VectorTileScheme scheme, int srid)
+    {
+        ArgumentNullException.ThrowIfNull(scheme);
+
+        string target = srid.ToString(CultureInfo.InvariantCulture);
+
+        if (srid == scheme.Srid)
+        {
+            return "bounds.geom";
+        }
+
+        return scheme.IsWebMercator
+            ? $"ST_Transform(bounds.geom, {target})"
+            : $"ST_Transform(ST_Segmentize(bounds.geom, {Span} / 16), {target})";
+    }
+
+    /// <summary>Binds what <see cref="BoundsSql"/> and <see cref="SimplifyWhen"/> read.</summary>
+    /// <param name="command">The command.</param>
+    /// <param name="scheme">The scheme.</param>
+    /// <param name="address">The tile.</param>
+    public static void Bind(NpgsqlCommand command, VectorTileScheme scheme, TileAddress address)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(scheme);
+
+        if (scheme.IsWebMercator)
+        {
+            command.Parameters.AddWithValue("z", address.Z);
+            command.Parameters.AddWithValue("x", address.X);
+            command.Parameters.AddWithValue("y", address.Y);
+            return;
+        }
+
+        Graticula.Geometries.Envelope box = scheme.Envelope(address);
+
+        command.Parameters.AddWithValue("minx", box.MinX);
+        command.Parameters.AddWithValue("miny", box.MinY);
+        command.Parameters.AddWithValue("maxx", box.MaxX);
+        command.Parameters.AddWithValue("maxy", box.MaxY);
+        command.Parameters.AddWithValue("simplify", scheme.Simplifies(address.Z));
+    }
 
     /// <summary>
     /// Whether a feature is large enough to see at this zoom — Q-157: a line or a polygon whose box is
@@ -118,6 +218,7 @@ public sealed class PostGisTileSource : ITileSource
     private readonly NpgsqlDataSource _dataSource;
     private readonly LayerDefinition _layer;
     private readonly IReadOnlyList<string> _attributes;
+    private readonly VectorTileScheme _scheme;
 
     /// <summary>Creates a tile source over one layer.</summary>
     /// <param name="dataSource">The pool for the layer's database.</param>
@@ -127,8 +228,12 @@ public sealed class PostGisTileSource : ITileSource
     /// checked against the table's real columns — an identifier cannot be bound
     /// as a parameter, so the whitelist is the safety (ADR-008 §4.6).
     /// </param>
+    /// <param name="scheme">The grid the service is cut on, or null for Web Mercator — ADR-096.</param>
     public PostGisTileSource(
-        NpgsqlDataSource dataSource, LayerDefinition layer, IReadOnlyList<string> attributes)
+        NpgsqlDataSource dataSource,
+        LayerDefinition layer,
+        IReadOnlyList<string> attributes,
+        VectorTileScheme? scheme = null)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(layer);
@@ -137,6 +242,7 @@ public sealed class PostGisTileSource : ITileSource
         _dataSource = dataSource;
         _layer = layer;
         _attributes = attributes;
+        _scheme = scheme ?? VectorTileScheme.WebMercator;
     }
 
     /// <inheritdoc/>
@@ -145,16 +251,14 @@ public sealed class PostGisTileSource : ITileSource
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
 
-        if (!address.IsValid)
+        // The scheme's own test: for Web Mercator, `TileAddress.Rejection`, as before.
+        if (_scheme.Rejection(address) is { } rejection)
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(address), address.Rejection() ?? "The tile address is outside the pyramid.");
+            throw new ArgumentOutOfRangeException(nameof(address), rejection);
         }
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(BuildSql(layerName));
-        command.Parameters.AddWithValue("z", address.Z);
-        command.Parameters.AddWithValue("x", address.X);
-        command.Parameters.AddWithValue("y", address.Y);
+        Bind(command, _scheme, address);
 
         object? result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
 
@@ -181,6 +285,9 @@ public sealed class PostGisTileSource : ITileSource
     /// <b>The envelope comes from <c>ST_TileEnvelope</c>, not from arithmetic
     /// here.</b> PostGIS and this server must agree exactly on where a tile is,
     /// and the way to guarantee that is for only one of them to decide.
+    /// <b>For a Web Mercator service.</b> A service cut on another grid (ADR-096) has
+    /// its box computed by <see cref="VectorTileScheme.Envelope"/> and bound as numbers —
+    /// still one side deciding, the other side this time (<see cref="BoundsSql"/>).
     /// </para>
     /// </remarks>
     private string BuildSql(string layerName)
@@ -197,7 +304,10 @@ public sealed class PostGisTileSource : ITileSource
         string safeName = layerName.Replace("'", "''", StringComparison.Ordinal);
 
         string column = LayerDefinition.Quote(_layer.GeometryColumn);
-        bool native = _layer.Srid == WebMercator;
+
+        // <b>Native to the tile's grid, which is Web Mercator unless the service chose another</b> —
+        // ADR-096. For a Mercator service every expression below is the text it was before schemes existed.
+        bool native = _layer.Srid == _scheme.Srid;
 
         // <b>Two envelopes, and that is what keeps the index in play.</b> The
         // tile is a Web Mercator box by definition, so the geometry has to reach
@@ -208,13 +318,11 @@ public sealed class PostGisTileSource : ITileSource
         // survive it are transformed for output. Q-96 measured the difference at
         // 74.6 ms against 21.6 ms on the same tile, which the tile cache pays
         // once.
-        string filterBox = native
-            ? "bounds.geom"
-            : $"ST_Transform(bounds.geom, {_layer.Srid.ToString(CultureInfo.InvariantCulture)})";
+        string filterBox = FilterBox(_scheme, _layer.Srid);
 
         string outputGeometry = native
             ? $"t.{column}"
-            : $"ST_Transform(t.{column}, {WebMercator.ToString(CultureInfo.InvariantCulture)})";
+            : $"ST_Transform(t.{column}, {_scheme.Srid.ToString(CultureInfo.InvariantCulture)})";
 
         // <b>The output geometry once per row, in a lateral</b>, because Q-157's rules read it several
         // times and on a layer not stored in Web Mercator each read would be a transform. The `&&` stays
@@ -222,10 +330,10 @@ public sealed class PostGisTileSource : ITileSource
         return string.Create(
             CultureInfo.InvariantCulture,
             $"""
-             with bounds as (select ST_TileEnvelope(@z, @x, @y) as geom),
+             with bounds as (select {BoundsSql(_scheme)} as geom),
              tile as (
                  select ST_AsMVTGeom(
-                            {Generalised("o.g")},
+                            {Generalised("o.g", SimplifyWhen(_scheme))},
                             bounds.geom, {Extent}, {Buffer}, true) as geom{columns}
                  from {LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(_layer.TableName)} t,
                       bounds,

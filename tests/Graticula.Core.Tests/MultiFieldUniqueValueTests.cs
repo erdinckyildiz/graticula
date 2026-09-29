@@ -67,7 +67,7 @@ public sealed class MultiFieldUniqueValueTests
     [Fact]
     public void The_tile_face_matches_on_a_concat_of_the_fields()
     {
-        DerivedStyle derived = CimStyle.ToMapLibre(
+        DerivedStyle derived = CimStyle.ToExpressions(
             (JsonObject)JsonNode.Parse(ByUseAndDistrict)!, "parseller");
 
         JsonArray colour = Assert.IsType<JsonArray>(

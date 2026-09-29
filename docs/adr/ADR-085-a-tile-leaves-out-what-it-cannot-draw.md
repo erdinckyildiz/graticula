@@ -76,6 +76,12 @@ measured on the geometry in Web Mercator. A point is never left out.
 5.2 **Through z14, the geometry is simplified at half a pixel** (`ST_Simplify`, the tile's width over 1,024,
 collapsed shapes preserved) before `ST_AsMVTGeom`; above z14 it is not.
 
+*(Amended 2026-09-29 — [ADR-096](ADR-096-a-vector-tile-service-may-be-tiled-in-another-reference.md) §5.7. A service may be cut on a grid other than Web Mercator, whose
+level numbers mean other pixel sizes, so the switch is read as the ground it stands for: **a level is simplified
+when its pixel is at least Web Mercator's z14 pixel, 4.777 m.** For Web Mercator that is exactly z0–z14 and the
+statement still says `@z <= 14`, so no Mercator tile changed; on TUREF / TM30 it is levels 0–7. 5.1's pixel was
+always the tile's own width over 512 and needed nothing: on another grid it is measured in that grid's metres.)*
+
 5.3 **One implementation.** `PostGisTileSource.LargeEnough` and `PostGisTileSource.Generalised` write the two
 rules, and both statements use them: the table's, and `PostGisMvtEncoder`'s for a GeoParquet layer's rows.
 

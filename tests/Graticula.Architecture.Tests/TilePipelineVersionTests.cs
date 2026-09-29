@@ -63,6 +63,11 @@ public sealed class TilePipelineVersionTests
         // above decide a table's; generalising by zoom changed both and this check watched one.
         "src/Graticula.Providers.PostGis/PostGisMvtEncoder.cs",
         "src/Graticula.Providers.DuckDb/GeoParquetTileSource.cs",
+
+        // <b>A service's grid, since ADR-096 (2026-09-29).</b> Where a tile is, which levels exist, when a level is
+        // simplified and what the cache key says about the grid are all decided here now — for Web Mercator by
+        // delegating to the code above, for any other grid by its own arithmetic.
+        "src/Graticula.Core/Tiles/VectorTileScheme.cs",
     ];
 
     /// <summary>
@@ -158,7 +163,14 @@ public sealed class TilePipelineVersionTests
         // kind of source gained tiles; the statement, the attributes and the bytes of every existing tile are the
         // same. The rest is a lifetime (`LifetimeOf`), a once-per-layer notice for an unindexed table, a refusal's
         // wording and a comment in `PostGisTileSource`.
-        "9b28bcb1dcbfe71892fbcb2a1a0f6ff82b9f748064416dbed4162115bd0e2159";
+        // <b>Moved again 2026-09-29 for ADR-096, and the version did not move.</b> A service may be cut on a grid
+        // other than Web Mercator, and `VectorTileScheme` joined the list above because it now decides where a tile
+        // is. For a service nobody set — every service that exists — every expression the statements build is the
+        // text it was (`PostGisTileSource.BoundsSql`, `SimplifyWhen` and `FilterBox` answer the old text for Web
+        // Mercator), the parameters are the same three, the envelope and the address check are `TileAddress`'s, and
+        // the key's fingerprint appends nothing for Web Mercator — `TilingSchemeTests` pins that. Another grid's tiles
+        // are new bytes under new keys, which is what a new grid is.
+        "036ffd26c911d87bdf7fbf62ffb6f4fd8ded17360ae9e674a8a9fc7b8717db17";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 2;

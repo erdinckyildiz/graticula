@@ -61,7 +61,7 @@ public sealed class ClassBreaksFloorTests
     [Fact]
     public void The_tile_face_draws_below_the_floor_with_the_default_symbol()
     {
-        DerivedStyle derived = CimStyle.ToMapLibre(
+        DerivedStyle derived = CimStyle.ToExpressions(
             (JsonObject)JsonNode.Parse(FlooredAtAThousand)!, "iller");
 
         JsonArray colour = Assert.IsType<JsonArray>(
@@ -128,7 +128,7 @@ public sealed class ClassBreaksFloorTests
     {
         // <b>The repair must not invent a floor.</b> Most documents carry none, and for those
         // the first class is still what everything below the first bound gets.
-        DerivedStyle derived = CimStyle.ToMapLibre(
+        DerivedStyle derived = CimStyle.ToExpressions(
             (JsonObject)JsonNode.Parse(
                 FlooredAtAThousand.Replace(
                     "\"minimumBreak\": 1000,", "", StringComparison.Ordinal))!,

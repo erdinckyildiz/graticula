@@ -205,6 +205,30 @@ internal static class VectorTileEndpoints
             return null;
         }
 
+        // <b>ADR-096: a stored grid this build cannot read is refused, never replaced by Web Mercator.</b>
+        // A client holding that grid's tileInfo would draw a Mercator tile in the wrong place, and a map
+        // drawn wrong is worse than one that says why it is not drawn. Nothing but a later build writing a
+        // shape this one does not know — or a hand edit — produces one.
+        if (service.TileSchemeUnreadable is { } unreadable)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 500,
+                        message =
+                            $"The tiling scheme stored for '{service.QualifiedName}' cannot be read: {unreadable} "
+                            + "Set it again with PUT /admin/services/{name}/tiling, or clear it to serve Web "
+                            + "Mercator (ADR-096).",
+                        details = Array.Empty<string>(),
+                    },
+                },
+                statusCode: StatusCodes.Status500InternalServerError)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return null;
+        }
+
         // <b>No spatial-reference refusal any more.</b> Owner correction
         // 2026-08-15: a layer keeps the projection it arrived in and the tile
         // path transforms per request. What used to sit here was a 400 telling
@@ -296,8 +320,11 @@ internal static class VectorTileEndpoints
     /// may not have — was answered by Q-141 rather than by refusing: the transform
     /// runs, and a pair that crosses a datum is reported once to the operator, in
     /// the log and under <c>datumShifts</c> on <c>/admin/health</c>, because a tile
-    /// has nowhere to carry a caution. What stays true is this constant: the tiles
-    /// themselves are Web Mercator only.
+    /// has nowhere to carry a caution. ~~What stays true is this constant: the tiles
+    /// themselves are Web Mercator only.~~ <b>Since 2026-09-29 (ADR-096) this is the
+    /// default grid rather than the only one</b>: a service may be cut on another
+    /// (<see cref="PublishedService.TileScheme"/>), and a service nobody set is cut on
+    /// this one exactly as before.
     /// </para>
     /// </remarks>
     public const int WebMercator = 3857;
@@ -316,6 +343,37 @@ internal static class VectorTileEndpoints
 
         if (service is null)
         {
+            return;
+        }
+
+        // <b>ADR-096: a service cut on another grid states that grid, and its extent in it.</b> Each
+        // layer's extent is moved into the scheme's reference on its own — the union of boxes in two
+        // references would be meaningless — sampled along its edges (`ServedExtent`), because a
+        // transverse Mercator zone bends a rectangle.
+        if (!service.TileScheme.IsWebMercator)
+        {
+            VectorTileScheme scheme = service.TileScheme;
+            Envelope? inScheme = null;
+
+            foreach (PublishedLayer layer in service.Layers)
+            {
+                (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation)
+                    .ConfigureAwait(false);
+
+                inScheme = Widen(
+                    inScheme,
+                    await InSchemeAsync(described.Extent, layer.Definition.Srid, scheme, projector, cancellation)
+                        .ConfigureAwait(false));
+            }
+
+            await Results.Ok(VectorTileServerMetadataWriter.Service(
+                service.Name,
+                [.. service.Layers.Select(l => l.Definition.Name)],
+                inScheme,
+                scheme,
+                ServiceRange(service.Layers)))
+                .ExecuteAsync(context).ConfigureAwait(false);
+
             return;
         }
 
@@ -400,10 +458,12 @@ internal static class VectorTileEndpoints
             return;
         }
 
-        long side = 1L << Math.Clamp(z, 0, 62);
+        // ADR-096: the grid is the service's scheme — for Web Mercator, 2^z a side and z22 the last level.
+        VectorTileScheme scheme = service.TileScheme;
+        long side = z < 0 || z > scheme.MaxLevel ? 1 : scheme.TilesAcross(z);
 
-        string? refusal = z < 0 || z > TileAddress.MaxZoom
-            ? $"The level is 0 to {TileAddress.MaxZoom}."
+        string? refusal = z < 0 || z > scheme.MaxLevel
+            ? $"The level is 0 to {scheme.MaxLevel}."
             : width < 1 || height < 1 || (long)width * height > LargestTilemap
                 ? $"A tile map answers about 1 to {LargestTilemap} tiles at once — 64 by 64 — and this asks for {(long)width * height}."
                 : top < 0 || left < 0 || top >= side || left >= side
@@ -422,7 +482,7 @@ internal static class VectorTileEndpoints
         // The extents of the layers that draw at this level; null for one whose extent could not be projected.
         List<Envelope?> drawn = [];
 
-        foreach (PublishedLayer layer in service.Layers.Where(l => l.VisibleRange.CarriesVectorTile(z)))
+        foreach (PublishedLayer layer in service.Layers.Where(l => scheme.Draws(l.VisibleRange, z)))
         {
             (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
@@ -431,28 +491,27 @@ internal static class VectorTileEndpoints
                 continue; // no rows: nothing to draw anywhere
             }
 
-            drawn.Add(await InWebMercatorAsync(extent, layer.Definition.Srid, projector, cancellation).ConfigureAwait(false));
+            drawn.Add(await InSchemeAsync(extent, layer.Definition.Srid, scheme, projector, cancellation).ConfigureAwait(false));
         }
-
-        // Web Mercator's square, and one tile's side in it at this level.
-        const double half = 20037508.342789244;
-        double size = 2 * half / side;
 
         int[] data = new int[width * height];
 
         for (int row = 0; row < height; row++)
         {
-            double maxY = half - ((top + row) * size);
-            double minY = maxY - size;
-
             for (int column = 0; column < width; column++)
             {
-                double minX = -half + ((left + column) * size);
-                double maxX = minX + size;
+                bool inside = top + row < side && left + column < side;
 
-                bool may = top + row < side && left + column < side && drawn.Any(e =>
+                // The tile's box from the scheme — for Web Mercator the square this computed inline before
+                // ADR-096, to the same digits (`TileAddress.WebMercatorEnvelope`).
+                Envelope tile = inside
+                    ? scheme.Envelope(new TileAddress(z, left + column, top + row))
+                    : default;
+
+                bool may = inside && drawn.Any(e =>
                     e is not { } box
-                    || (box.MinX <= maxX && box.MaxX >= minX && box.MinY <= maxY && box.MaxY >= minY));
+                    || (box.MinX <= tile.MaxX && box.MaxX >= tile.MinX
+                        && box.MinY <= tile.MaxY && box.MaxY >= tile.MinY));
 
                 data[(row * width) + column] = may ? 1 : 0;
             }
@@ -533,6 +592,40 @@ internal static class VectorTileEndpoints
                 .ConfigureAwait(false);
 
             return projected.Count > 0 ? projected[0].Envelope : null;
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// An extent in the reference of a service's tiling scheme — <see cref="InWebMercatorAsync"/> for Web
+    /// Mercator, unchanged, and <see cref="ServedExtent"/> for any other (ADR-096).
+    /// </summary>
+    /// <param name="extent">The box, in <paramref name="srid"/>.</param>
+    /// <param name="srid">The layer's reference.</param>
+    /// <param name="scheme">The scheme.</param>
+    /// <param name="projector">The projector.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The box in the scheme's reference, or null when it could not be put there.</returns>
+    /// <remarks>
+    /// <b>Sampled, not four corners, for another scheme.</b> <see cref="InWebMercatorAsync"/>'s corners are
+    /// exact for 4326 into Mercator and it keeps them; a national grid bends the edges of a box, and
+    /// <see cref="ServedExtent"/> is the helper every other face uses to follow them. A failure is null —
+    /// not knowing where the data is — for <see cref="InWebMercatorAsync"/>'s reason.
+    /// </remarks>
+    internal static async Task<Envelope?> InSchemeAsync(
+        Envelope? extent, int srid, VectorTileScheme scheme, IProjector projector, CancellationToken cancellation)
+    {
+        if (scheme.IsWebMercator)
+        {
+            return await InWebMercatorAsync(extent, srid, projector, cancellation).ConfigureAwait(false);
+        }
+
+        try
+        {
+            return await ServedExtent.InAsync(extent, srid, scheme.Srid, projector, cancellation).ConfigureAwait(false);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
@@ -904,7 +997,10 @@ internal static class VectorTileEndpoints
             // name wins, which is the one the tile carries under that name.
             service.Layers
                 .GroupBy(l => l.Definition.Name, StringComparer.Ordinal)
-                .ToDictionary(g => g.Key, g => g.First().VisibleRange, StringComparer.Ordinal)))
+                .ToDictionary(g => g.Key, g => g.First().VisibleRange, StringComparer.Ordinal),
+
+            // ADR-096: a style's zooms count the service's own levels; null keeps Web Mercator's table.
+            service.TileScheme.IsWebMercator ? null : service.TileScheme.Level0Scale))
             .ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -997,7 +1093,11 @@ internal static class VectorTileEndpoints
 
         TileAddress address = new(z, x, y);
 
-        if (address.Rejection() is { } rejection)
+        // <b>In the service's own grid — ADR-096.</b> For Web Mercator this is `TileAddress.Rejection`, as
+        // it always was; for another scheme, its own levels and its own tile counts.
+        VectorTileScheme scheme = service.TileScheme;
+
+        if (scheme.Rejection(address) is { } rejection)
         {
             await Results.Json(
                 new { error = new { code = 400, message = rejection, details = Array.Empty<string>() } },
@@ -1049,7 +1149,7 @@ internal static class VectorTileEndpoints
               The service's other layers are still drawn, and a tile with no layer left in it is
               the empty answer ITileSource already defines for no features.
             */
-            if (!layer.VisibleRange.CarriesVectorTile(address.Z))
+            if (!scheme.Draws(layer.VisibleRange, address.Z))
             {
                 continue;
             }
@@ -1063,7 +1163,8 @@ internal static class VectorTileEndpoints
                     layer, address, defaultLifetime, contexts, connections, cache, building,
                     projector, datumShifts, unindexed, loggerFactory, geoParquet,
                     admit: permit => connections.AdmitTileBuildAsync(layer, permit),
-                    cancellation)
+                    cancellation,
+                    scheme)
                 .ConfigureAwait(false);
 
             if (part.Lifetime < shortest)
@@ -1151,6 +1252,11 @@ internal static class VectorTileEndpoints
     /// <param name="attributes">The columns its tiles carry, from <see cref="AttributesOf"/>.</param>
     /// <param name="address">The tile.</param>
     /// <param name="geoParquet">Where a GeoParquet layer's file version is read.</param>
+    /// <param name="scheme">
+    /// The grid the layer's service is cut on, or null for Web Mercator — ADR-096. Web Mercator adds nothing
+    /// to the fingerprint, so every key a Mercator service had it still has; any other grid is in it, so a
+    /// service switched between grids never reads the other's tiles.
+    /// </param>
     /// <returns>The key.</returns>
     /// <remarks>
     /// <b>Named so that the seed and the cache report ask for the same key the tile route
@@ -1161,7 +1267,8 @@ internal static class VectorTileEndpoints
         PublishedLayer layer,
         IReadOnlyList<FieldDescription> attributes,
         TileAddress address,
-        GeoParquetSources geoParquet)
+        GeoParquetSources geoParquet,
+        VectorTileScheme? scheme = null)
     {
         // <b>A GeoParquet layer's own version rides in the fingerprint, so a replaced file
         // invalidates its tiles structurally instead of waiting out the cache lifetime.</b>
@@ -1194,7 +1301,8 @@ internal static class VectorTileEndpoints
                 attributes.Select(a => a.Name),
                 PostGisTileSource.Extent,
                 PostGisTileSource.Buffer,
-                version),
+                version,
+                scheme?.Fingerprint),
             address);
     }
 
@@ -1221,6 +1329,10 @@ internal static class VectorTileEndpoints
     /// draws from, and a tile merely found cached costs no permit.
     /// </param>
     /// <param name="cancellation">The caller's; a shared build does not carry it.</param>
+    /// <param name="scheme">
+    /// The grid the layer's service is cut on, or null for Web Mercator — ADR-096. It decides the key, the
+    /// source's envelope and the reference the datum notice names; serving and a seed pass the service's.
+    /// </param>
     /// <returns>The part.</returns>
     /// <remarks>
     /// <para>
@@ -1249,8 +1361,11 @@ internal static class VectorTileEndpoints
         ILoggerFactory loggerFactory,
         GeoParquetSources geoParquet,
         Func<CancellationToken, ValueTask<IDisposable>>? admit,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        VectorTileScheme? scheme = null)
     {
+        scheme ??= VectorTileScheme.WebMercator;
+
         (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
             .ConfigureAwait(false);
 
@@ -1274,7 +1389,10 @@ internal static class VectorTileEndpoints
                 layer.Id,
                 layer.Definition.Name,
                 layer.Definition.Srid,
-                WebMercator,
+
+                // The tile's own reference: Web Mercator, or the service's scheme (ADR-096) — a TUREF
+                // layer tiled on a TUREF grid crosses no datum at all.
+                scheme.Srid,
                 projector,
                 loggerFactory.CreateLogger("tiles"),
                 cancellation)
@@ -1290,7 +1408,7 @@ internal static class VectorTileEndpoints
             unindexed.Note(layer.Id, layer.Definition.Name, loggerFactory.CreateLogger("tiles"));
         }
 
-        TileCacheKey key = KeyOf(layer, attributes, address, geoParquet);
+        TileCacheKey key = KeyOf(layer, attributes, address, geoParquet, scheme);
 
         // <b>The layer's own lifetime, not the server's.</b> D-25: a
         // cadastral layer and an incident layer need opposite answers, and
@@ -1308,7 +1426,8 @@ internal static class VectorTileEndpoints
 
         return await CachedOrBuiltAsync(
                 key, address, layer.Definition.Name, lifetime, revalidate, cache, building,
-                () => connections.TileSourceFor(layer, attributes), admit, cancellation)
+                () => connections.TileSourceFor(layer, attributes, scheme.IsWebMercator ? null : scheme),
+                admit, cancellation)
             .ConfigureAwait(false);
     }
 
