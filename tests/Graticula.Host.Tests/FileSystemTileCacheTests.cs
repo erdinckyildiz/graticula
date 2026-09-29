@@ -252,6 +252,59 @@ public sealed class FileSystemTileCacheTests : IDisposable
         Assert.Equal((0, 0L), cache.Report(null));
     }
 
+    /// <remarks>
+    /// <b>The read path does not consult the index (N2), so a purge is only as good as what it leaves on disk.</b>
+    /// The purge used to drop index entries and then delete best-effort, on the claim that a file left behind was
+    /// unreachable; a read does one File.Exists and served it. A file held open is how a delete fails: on Windows it
+    /// stops the directory's rename and delete, and the stamp is what refuses it; elsewhere the rename succeeds.
+    /// Either way the answer after a purge is a miss.
+    /// </remarks>
+    [Fact]
+    public async Task A_tile_that_could_not_be_deleted_is_not_served_after_a_purge()
+    {
+        using FileSystemTileCache cache = Build();
+
+        await cache.WriteAsync(Key(x: 1), Tile(), CancellationToken.None);
+        await cache.WriteAsync(Key(x: 2), Tile(), CancellationToken.None);
+
+        using (FileStream held = new(
+            Path.Combine(_root, Key(x: 1).Path()), FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            cache.Purge(Layer);
+
+            Assert.Equal(
+                TileCacheOutcome.Miss,
+                (await cache.ReadAsync(Key(x: 1), Lifetime, CancellationToken.None)).Outcome);
+            Assert.Equal(
+                TileCacheOutcome.Miss,
+                (await cache.ReadExpiredAsync(Key(x: 2), Lifetime, Lifetime, CancellationToken.None)).Outcome);
+        }
+
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        await cache.WriteAsync(Key(x: 1), Tile(), CancellationToken.None);
+
+        Assert.Equal(
+            TileCacheOutcome.Hit,
+            (await cache.ReadAsync(Key(x: 1), Lifetime, CancellationToken.None)).Outcome);
+    }
+
+    /// <remarks>
+    /// <b>What a purge moved aside is a purged layer's tiles</b>, so a restart deletes it instead of adopting it —
+    /// adopting it would count its bytes against the budget, and nothing would ever read them.
+    /// </remarks>
+    [Fact]
+    public async Task A_restart_deletes_what_a_purge_moved_aside_and_does_not_adopt_it()
+    {
+        string aside = Path.Combine(_root, FileSystemTileCache.PurgedDirectory, "left-behind", "3", "1");
+        Directory.CreateDirectory(aside);
+        await File.WriteAllBytesAsync(Path.Combine(aside, "1.mvt"), Tile(500));
+
+        using FileSystemTileCache cache = Build();
+
+        Assert.Equal((0, 0L), cache.Report(null));
+        Assert.False(Directory.Exists(Path.Combine(_root, FileSystemTileCache.PurgedDirectory)));
+    }
+
     [Fact]
     public void Purging_a_layer_that_has_nothing_cached_is_not_an_error()
     {
