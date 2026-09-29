@@ -193,7 +193,19 @@ internal sealed record HostSettings(
     // <b>Which web pages on other origins may read service responses — ADR-072.</b> `*` by default,
     // which is ArcGIS Server's own default; never with credentials. `none` turns it off, and a list
     // names origins. Parsed at startup so a mistyped origin refuses to start.
-    CrossOriginReads? CorsOrigins = null)
+    CrossOriginReads? CorsOrigins = null,
+
+    // <b>The most tiles one seed may cover — ADR-093 §5.2 — and it is refused before it starts rather
+    // than cut short.</b> A quarter of a million is a metropolitan area from level 0 to about 16, and
+    // at the 17.7 ms a cold tile measured (ADR-010 §11a) about an hour and a quarter of one build at a
+    // time; an operator who means more narrows the area or the levels, or raises this knowingly.
+    long TileSeedMaximumTiles = TileSeeder.DefaultMaximumTiles,
+
+    // <b>How many tiles one seed builds at once — ADR-093 §5.5.</b> Two, so a seed cannot take a
+    // source's permits from the maps being served off it: `PerSourceConcurrency` is 24 by default
+    // and a seed holds at most this many of them. Raising it makes a seed faster by the same
+    // arithmetic and takes the permits from the same place.
+    int TileSeedConcurrency = TileSeeder.DefaultConcurrency)
 {
 
     /// <summary>
@@ -567,7 +579,19 @@ internal sealed record HostSettings(
             keys.Text("DuckDbExtensions"),
             keys.Value("RemoteDataAllowPrivate", false),
             keys.Value("MotherDuck", false),
-            CrossOriginReads.Parse(keys.Text("CorsOrigins")));
+            CrossOriginReads.Parse(keys.Text("CorsOrigins")),
+
+            // Clamped below at one: a cap of zero would refuse every seed with a sentence about a
+            // number, and zero tiles is not a seed anybody asked for.
+            Math.Max(1L, keys.Value("TileSeedMaximumTiles", TileSeeder.DefaultMaximumTiles)),
+
+            // Clamped to a source's own bound at most, because more than that would queue behind
+            // itself; and to one at least, because zero would never build anything. A source bound
+            // of zero is *unbounded*, and then only the floor applies.
+            Math.Clamp(
+                keys.Value("TileSeedConcurrency", TileSeeder.DefaultConcurrency),
+                1,
+                keys.Value("PerSourceConcurrency", 24) is > 0 and int bound ? bound : int.MaxValue));
     }
 
     /// <summary>

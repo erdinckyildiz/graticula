@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(60);
+    public static SchemaVersion ComponentSchemaVersion => new(61);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -95,7 +95,93 @@ public static class PlatformMigrations
         SamlSignInV58,
         TheDefaultPageSizeGoesV59,
         AServiceMayCarryASpriteSheetV60,
+        ATileCacheMayBeSeededV61,
     ]);
+
+    /// <summary>
+    /// A vector tile service's cache may be filled ahead of its callers, as a job — ADR-093.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A third job kind, and two tables beside the job rather than more columns on it.</b>
+    /// ADR-011 condition 4 keeps payloads out of the job table, and a seed's progress is a row per
+    /// level — a cursor and five counts each — which is neither a payload nor something the job
+    /// table has a column for. <c>job.progress</c> still carries the percentage every job carries.
+    /// </para>
+    /// <para>
+    /// <b>The service, not a layer.</b> A tile carries every layer of its service, so a seed of one
+    /// layer would build the others anyway; the service is the unit a seed is asked for and the
+    /// unit two seeds are refused for running at once — which the start does under an advisory lock
+    /// on the service rather than a constraint, because *running* is the job's status and lives in
+    /// the other table.
+    /// </para>
+    /// <para>
+    /// <b>The area is kept in Web Mercator</b>, the only reference tiles are cut in, so a resumed
+    /// seed walks exactly the rectangles the first run counted. <b>Deleted with the job</b>, and
+    /// with the service: a seed of a service that no longer exists has nothing to resume.
+    /// </para>
+    /// <para><b>Expand.</b> A wider check constraint and two new tables. A build before this one
+    /// reads a job of the new kind as a kind it does not know and refuses the listing that holds it,
+    /// which is what migration 29 did to a build before it for the same reason; nothing it wrote is
+    /// changed.</para>
+    /// </remarks>
+    private static Migration ATileCacheMayBeSeededV61 => Migration.Expand(
+        new SchemaVersion(61),
+        "A vector tile service's cache may be seeded ahead of its callers, as a job (ADR-093).",
+
+        """
+        alter table job drop constraint if exists job_kind_known
+        """,
+
+        """
+        alter table job add constraint job_kind_known
+          check (kind in ('geodatabase.inspect', 'geodatabase.import', 'tile.seed'))
+        """,
+
+        """
+        create table if not exists tile_seed (
+            job_id         uuid             not null primary key references job (id) on delete cascade,
+            service_id     uuid             not null references service (id) on delete cascade,
+            min_zoom       smallint         not null,
+            max_zoom       smallint         not null,
+            min_x          double precision not null,
+            min_y          double precision not null,
+            max_x          double precision not null,
+            max_y          double precision not null,
+            whole          boolean          not null,
+            concurrency    smallint         not null,
+            total          bigint           not null,
+            paused_until   timestamptz      null,
+            paused_because text             null,
+            constraint tile_seed_levels_known
+              check (min_zoom between 0 and 22 and max_zoom between min_zoom and 22),
+            constraint tile_seed_area_ordered check (min_x <= max_x and min_y <= max_y),
+            constraint tile_seed_concurrency_positive check (concurrency >= 1),
+            constraint tile_seed_total_counted check (total >= 0)
+        )
+        """,
+
+        "create index if not exists tile_seed_by_service on tile_seed (service_id)",
+
+        """
+        create table if not exists tile_seed_level (
+            job_id      uuid        not null references tile_seed (job_id) on delete cascade,
+            zoom        smallint    not null,
+            total       bigint      not null,
+            done        bigint      not null default 0,
+            built       bigint      not null default 0,
+            present     bigint      not null default 0,
+            empty       bigint      not null default 0,
+            failed      bigint      not null default 0,
+            skipped     bigint      not null default 0,
+            started_at  timestamptz null,
+            finished_at timestamptz null,
+            primary key (job_id, zoom),
+            constraint tile_seed_level_cursor_inside check (done between 0 and total),
+            constraint tile_seed_level_counts_add_up
+              check (built + present + empty + failed + skipped = done)
+        )
+        """);
 
     /// <summary>
     /// A vector tile service's sprite sheet, uploaded by its publisher — ADR-092.

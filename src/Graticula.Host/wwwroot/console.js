@@ -10819,7 +10819,13 @@ function showLayer(name, page, pending = null) {
       <div class="row" style="margin-top:10px">
         <button data-cache="${h(name)}">Set</button>
         <button data-cache="${h(name)}" data-clear="1" class="ghost">Use the server's</button>
-      </div>`
+      </div>
+
+      <h4>Seed the cache</h4>
+      <p class="hint">A tile is built the first time somebody asks for it. A seed builds tiles before
+        anybody asks, for every layer of this service, on a background worker. After an upgrade that
+        changes how tiles are drawn, the cache starts empty and nothing seeds it automatically.</p>
+      <div id="seedBox"><p class="hint">Reading the service's cache…</p></div>`
       : `<p class="hint">No tile cache: this layer stays in its own database, and this server serves it as
          features only. Tiles come from layers this server holds itself — data in its datastore, and
          GeoParquet files it reads directly. To get tiles, publish a copy into the datastore.</p>`}
@@ -11514,6 +11520,180 @@ function showEditPage(page) {
   if (page === "history" && editing && $("historySays")) {
     section("the history", () => loadHistory(editing.name));
   }
+
+  // ADR-093: what is seeded, and any seed running now, read on arrival like the pages above.
+  if (page === "caching" && editing && $("seedBox")) {
+    section("the tile cache", () => loadSeed(editing.name));
+  }
+}
+
+/**
+ * The service's tile cache seed, on the layer's Caching page — ADR-093.
+ *
+ * <b>Under the layer's page and about the whole service</b>, because a tile carries every layer of
+ * its service: the box says so, and every request names the service and its folder. D-275's lesson
+ * — a service is addressed by folder and name, never by name alone — is why `placeOf` is asked for
+ * both rather than the layer's name being reused.
+ *
+ * <b>The count comes before the button that spends it.</b> *Count tiles* asks the server for the
+ * exact number the seed would build (`?dryRun=true`) — the same count the start refuses on — so the
+ * operator sees *38,420 tiles* before pressing Start rather than a refusal after.
+ *
+ * <b>Polled every two seconds while a seed is running and this page is the one showing</b>, which is
+ * the seed's own checkpoint interval; leaving the page stops the loop, and the seed carries on, since
+ * it is the server's.
+ */
+const seedState = { name: null, timer: null };
+
+function seedAddress(name) {
+  const at = placeOf(name);
+  if (!at) return null;
+  const folder = at.folder ? `?folder=${encodeURIComponent(at.folder)}` : "";
+  return { at, base: `/admin/services/${encodeURIComponent(at.bare)}/cache`, folder };
+}
+
+function seedShowing(name) {
+  return !!(editing && editing.name === name
+    && $("page-caching")?.classList.contains("on") && $("seedBox"));
+}
+
+async function loadSeed(name) {
+  clearTimeout(seedState.timer);
+  seedState.name = name;
+
+  const where = seedAddress(name);
+  if (!where || !$("seedBox")) return;
+
+  const r = await api(`${where.base}${where.folder}`);
+  if (!seedShowing(name)) return;
+
+  drawSeed(name, where, r);
+
+  if (r.running) {
+    seedState.timer = setTimeout(() => {
+      if (seedShowing(name)) section("the tile cache", () => loadSeed(name));
+    }, 2000);
+  }
+}
+
+function seedWhen(iso) {
+  return iso ? historyWhen(iso) : "—";
+}
+
+function seedDuration(seconds) {
+  if (seconds == null) return "working it out";
+  if (seconds < 90) return `about ${Math.max(1, Math.round(seconds))} seconds`;
+  if (seconds < 5400) return `about ${Math.round(seconds / 60)} minutes`;
+  return `about ${(seconds / 3600).toFixed(1)} hours`;
+}
+
+function seedCounts(s) {
+  return `${num(s.built)} built · ${num(s.present)} already cached · ${num(s.empty)} empty · `
+    + `${num(s.failed)} failed${s.skipped ? ` · ${num(s.skipped)} at levels nothing draws at` : ""}`;
+}
+
+function drawSeed(name, where, r) {
+  const box = $("seedBox");
+  const run = r.running;
+  const last = !run && r.seeds && r.seeds.length ? r.seeds[0] : null;
+  const mapShown = !!(view && view.extent && $("mapPanel").classList.contains("on"));
+  const d = r.defaults || { minZoom: 0, maxZoom: 0 };
+
+  const progress = run ? `
+    <p class="hint"><b>Seeding levels ${h(run.minZoom)} to ${h(run.maxZoom)}:</b>
+      ${num(run.done)} of ${num(run.tiles)} tiles (${h(run.percent)}%)${
+      run.status === "queued" ? " — waiting for a worker" : ""}.</p>
+    <p class="hint">${seedCounts(run)}</p>
+    ${run.pausedUntil ? `<p class="hint">Waiting for the data source until ${seedWhen(run.pausedUntil)}:
+      ${h(run.pausedBecause || "")}</p>` : ""}
+    <p class="hint">Time left: ${h(seedDuration(run.estimatedRemainingSeconds))}.</p>
+    <div class="row" style="margin-top:10px">
+      <button type="button" class="ghost" id="seedCancel" data-id="${h(run.id)}">Cancel the seed</button>
+    </div>` : `
+    <div class="setting"><label class="q" for="seedFrom">From level:</label>
+      <input type="number" id="seedFrom" min="0" max="22" step="1" value="${h(d.minZoom)}"></div>
+    <div class="setting"><label class="q" for="seedTo">To level:</label>
+      <input type="number" id="seedTo" min="0" max="22" step="1" value="${h(d.maxZoom)}"></div>
+    <div class="setting"><label class="q" for="seedArea">Area:</label>
+      <select id="seedArea">
+        <option value="whole">The whole service</option>
+        <option value="map" ${mapShown ? "" : "disabled"}>The map's current extent</option>
+      </select></div>
+    <p class="hint">A seed covers every layer of the service, lowest level first. One seed covers at
+      most ${num(r.cap)} tiles, and it builds ${num(r.concurrency)} at a time, each holding a connection
+      to the data source as a map's request does.</p>
+    <div class="row" style="margin-top:10px">
+      <button type="button" class="ghost" id="seedCount">Count tiles</button>
+      <button type="button" id="seedStart">Start</button>
+    </div>`;
+
+  box.innerHTML = `
+    ${progress}
+    <p class="hint" id="seedSays" role="status" aria-live="polite">${last ? `The last seed was
+      ${h(last.status)}${last.finished ? ` ${seedWhen(last.finished)}` : ""}: ${seedCounts(last)}.${
+      last.failure ? ` ${h(last.failure)}` : ""}` : ""}</p>
+    ${r.levels && r.levels.length ? `
+      <table>
+        <thead><tr><th class="num">Level</th><th class="num">Tiles in the seeded area</th><th class="num">Cached now</th><th>Last seeded</th></tr></thead>
+        <tbody>${r.levels.map(l => `
+          <tr>
+            <td class="num">${h(l.zoom)}</td>
+            <td class="num">${num(l.tiles)}</td>
+            <td class="num">${l.cached == null ? "—" : num(l.cached)}</td>
+            <td>${seedWhen(l.lastSeeded)}</td>
+          </tr>`).join("")}</tbody>
+      </table>` : `<p class="hint">${h(r.note || "")}</p>`}`;
+
+  const says = text => { const s = $("seedSays"); if (s) s.textContent = text; };
+
+  const asked = () => {
+    const body = { minZoom: Number($("seedFrom").value), maxZoom: Number($("seedTo").value) };
+
+    if ($("seedArea").value === "map" && view && view.extent) {
+      const e = view.extent;
+      body.extent = {
+        xmin: e.xmin, ymin: e.ymin, xmax: e.xmax, ymax: e.ymax,
+        spatialReference: { wkid: e.spatialReference?.wkid ?? 102100 },
+      };
+    }
+
+    return body;
+  };
+
+  // The folder is sent on every call — D-275: without it the root is meant, never *any folder*.
+  const post = (body, dry) => api(`${where.base}/seeds${where.folder}${
+    dry ? `${where.folder ? "&" : "?"}dryRun=true` : ""}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  $("seedCount")?.addEventListener("click", async () => {
+    says("Counting…");
+    try {
+      const c = await post(asked(), true);
+      const idle = c.levels.filter(l => !l.drawn).map(l => l.zoom);
+      says(`${num(c.tiles)} tiles over levels ${c.minZoom} to ${c.maxZoom}${
+        idle.length ? ` — levels ${idle.join(", ")} are skipped, because no layer draws there` : ""}.`);
+    } catch (e) { says(e.message); }
+  });
+
+  $("seedStart")?.addEventListener("click", async () => {
+    says("Starting…");
+    try {
+      await post(asked(), false);
+      await loadSeed(name);
+    } catch (e) { says(e.message); }
+  });
+
+  $("seedCancel")?.addEventListener("click", async event => {
+    const id = event.currentTarget.dataset.id;
+    try {
+      const c = await api(`${where.base}/seeds/${encodeURIComponent(id)}${where.folder}`, { method: "DELETE" });
+      toast(c.note, true);
+      await loadSeed(name);
+    } catch (e) { toast(e.message); }
+  });
 }
 
 /**

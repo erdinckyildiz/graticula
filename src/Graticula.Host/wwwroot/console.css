@@ -4294,3 +4294,7 @@ td.logmessage span[title] { display: inline-block; max-width: 60ch; overflow: hi
   .setting { flex-wrap: wrap; }
   .setting .q { flex-basis: 100%; }
 }
+
+/* ADR-093: the seed's area is a choice of words, not a number, so it is not held to the
+   116-pixel numeric box beside it; at that width it read "The whole". */
+#seedBox .setting select { width: auto; text-align: left; font-family: inherit; }

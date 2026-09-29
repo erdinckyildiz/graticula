@@ -619,4 +619,54 @@ internal static partial class Log
         Message = "The stored style of service {Service} no longer fits its layers, so the generated one is served: {Why} "
                 + "Replace or delete the style on the service's Style page.")]
     public static partial void StyleStale(ILogger logger, string service, string why);
+
+    [LoggerMessage(
+        EventId = 1073,
+        Level = LogLevel.Warning,
+        Message = "The tile seeder could not claim work and will try again shortly. The platform "
+                + "database is the thing it asks, so this is usually that being briefly away.")]
+    public static partial void SeederClaimFailed(ILogger logger, System.Exception? exception);
+
+    [LoggerMessage(
+        EventId = 1074,
+        Level = LogLevel.Information,
+        Message = "Seed {Job} of {Service} started: {Tiles} tiles over levels {From} to {To}, {Done} "
+                + "already done by an earlier run.")]
+    public static partial void SeedStarted(
+        ILogger logger, System.Guid job, string service, long tiles, int from, int to, long done);
+
+    [LoggerMessage(
+        EventId = 1075,
+        Level = LogLevel.Information,
+        Message = "Seed {Job} of {Service} finished: {Built} built, {Present} already cached, {Empty} "
+                + "empty, {Failed} failed, {Skipped} at levels no layer draws at.")]
+    public static partial void SeedFinished(
+        ILogger logger, System.Guid job, string service, long built, long present, long empty,
+        long failed, long skipped);
+
+    [LoggerMessage(
+        EventId = 1076,
+        Level = LogLevel.Warning,
+        Message = "Seed {Job} is waiting {Seconds:0} seconds for its source before trying again: {Why}")]
+    public static partial void SeedPaused(ILogger logger, System.Guid job, double seconds, string why);
+
+    [LoggerMessage(
+        EventId = 1077,
+        Level = LogLevel.Warning,
+        Message = "Seed {Job} could not build tile {Tile}; it is counted as failed and the seed goes "
+                + "on: {Why}")]
+    public static partial void SeedTileFailed(
+        ILogger logger, System.Guid job, string tile, string why, System.Exception? exception);
+
+    [LoggerMessage(
+        EventId = 1078,
+        Level = LogLevel.Information,
+        Message = "Seed {Job} stopped: it was cancelled, or its job was taken back by another worker.")]
+    public static partial void SeedReleased(ILogger logger, System.Guid job);
+
+    [LoggerMessage(
+        EventId = 1079,
+        Level = LogLevel.Warning,
+        Message = "Seed {Job} failed before it built anything: {Why}")]
+    public static partial void SeedRefused(ILogger logger, System.Guid job, string why, System.Exception? exception);
 }

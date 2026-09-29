@@ -40,6 +40,21 @@ public sealed class PostgresJobStore : IJobStore
         .Select(Wire)
         .ToArray();
 
+    /// <summary>
+    /// The kinds a lost lease always sends back to the queue, progress kept: those with durable
+    /// checkpoints — ADR-093 §5.4.
+    /// </summary>
+    /// <remarks>
+    /// <b>Read from <see cref="JobKinds.RerunOf"/> for the reason <see cref="Harmless"/> is.</b> Not
+    /// capped at <see cref="JobLease.Attempts"/>: a resumable job lost to a restart goes on from where
+    /// it was rather than starting again, so the cap that protects a harmless job from being retried
+    /// for ever would instead throw away the checkpoint the kind exists to keep.
+    /// </remarks>
+    private static readonly string[] Resumable = Enum.GetValues<JobKind>()
+        .Where(kind => JobKinds.RerunOf(kind) == JobRerun.Resumable)
+        .Select(Wire)
+        .ToArray();
+
     private readonly NpgsqlDataSource _dataSource;
 
     /// <summary>Creates the store over a data source.</summary>
@@ -262,15 +277,16 @@ public sealed class PostgresJobStore : IJobStore
             decided as (
                 select l.*,
                        (l.lease_until is not null
-                        and l.kind = any(@harmless)
-                        and l.attempts < @attempts) as again
+                        and ((l.kind = any(@harmless) and l.attempts < @attempts)
+                             or l.kind = any(@resumable))) as again,
+                       l.kind = any(@resumable) as resumes
                   from lost l
             )
             update job j
                set status      = case when d.again then 'queued' else 'failed' end,
                    started_at  = case when d.again then null else j.started_at end,
                    claimed_by  = case when d.again then null else j.claimed_by end,
-                   progress    = case when d.again then 0 else j.progress end,
+                   progress    = case when d.again and not d.resumes then 0 else j.progress end,
                    finished_at = case when d.again then null else now() end,
                    lease_until = null,
                    failure     = case when d.again then j.failure else
@@ -280,7 +296,11 @@ public sealed class PostgresJobStore : IJobStore
                                then ', and it was a build that does not renew one' else '' end
                        || ', so it was taken back at '
                        || to_char(now() at time zone 'utc', 'YYYY-MM-DD HH24:MI:SS') || ' UTC. '
-                       || case when d.kind = any(@harmless)
+                       || case when d.kind = any(@resumable)
+                               then 'It was claimed by a build that set no lease, so nothing can '
+                                    || 'say whether that worker is still at it: ask for it again, '
+                                    || 'and it starts from the beginning.'
+                               when d.kind = any(@harmless)
                                then 'It had been tried ' || d.attempts || ' times, so it is not '
                                     || 'queued again.'
                                else 'Work of this kind is not run twice on its own, because a '
@@ -297,6 +317,7 @@ public sealed class PostgresJobStore : IJobStore
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
         command.Parameters.AddWithValue("grace", JobLease.UnleasedGrace);
         command.Parameters.AddWithValue("harmless", Harmless);
+        command.Parameters.AddWithValue("resumable", Resumable);
         command.Parameters.AddWithValue("attempts", JobLease.Attempts);
 
         List<JobReclaim> taken = [];
@@ -354,7 +375,8 @@ public sealed class PostgresJobStore : IJobStore
         {
             throw new ArgumentException(
                 $"'{status}' is not an ending. A job finishes as Done or Failed; Queued and Running "
-                + "are where it was, and Cancelled has no way to be reached yet.",
+                + "are where it was, and Cancelled is reached only by cancelling a tile seed, "
+                + "through ITileSeedStore.CancelAsync.",
                 nameof(status));
         }
 
@@ -400,10 +422,11 @@ public sealed class PostgresJobStore : IJobStore
 
     // ------------------------------------------------------------------------------ wire
 
-    private static string Wire(JobKind kind) => kind switch
+    internal static string Wire(JobKind kind) => kind switch
     {
         JobKind.GeodatabaseInspect => "geodatabase.inspect",
         JobKind.GeodatabaseImport => "geodatabase.import",
+        JobKind.TileSeed => "tile.seed",
 
         // enum-default-is-deliberate: refused rather than defaulted. A kind this build does not know
         // has no check-constraint value, so guessing one would write a row the schema rejects — and
@@ -449,6 +472,7 @@ public sealed class PostgresJobStore : IJobStore
     {
         "geodatabase.inspect" => JobKind.GeodatabaseInspect,
         "geodatabase.import" => JobKind.GeodatabaseImport,
+        "tile.seed" => JobKind.TileSeed,
 
         _ => throw new InvalidOperationException(
             $"'{stored}' is not a job kind this build knows. The schema's check constraint should "
@@ -456,7 +480,19 @@ public sealed class PostgresJobStore : IJobStore
             + "dropped."),
     };
 
-    private static JobRecord Read(NpgsqlDataReader reader) => new(
+    /// <summary>
+    /// The columns every reader of a job row selects, in the order <see cref="Read"/> takes them.
+    /// </summary>
+    /// <remarks>
+    /// <b>Named once so the seed store's joins cannot drift from this file's selects</b> — D-96's
+    /// point about a reader that has to work out from the field count which query it is looking at.
+    /// </remarks>
+    internal const string JobColumns =
+        "j.id, j.kind, j.status, j.progress, j.owner_principal_id, j.subject, j.detail, j.failure, "
+        + "j.created_at, j.started_at, j.finished_at, j.claimed_by, j.protocol";
+
+    /// <summary>One job row, from the first thirteen columns of a reader.</summary>
+    internal static JobRecord Read(NpgsqlDataReader reader) => new(
         reader.GetGuid(0),
         ReadKind(reader.GetString(1)),
         ReadStatus(reader.GetString(2)),

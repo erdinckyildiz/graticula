@@ -139,7 +139,11 @@ public sealed class TilePipelineVersionTests
         // decided differently.
         // <b>Moved again 2026-09-29, and the version did not move.</b> A tile's ETag became weak, because tiles are
         // compressed since ADR-068 §9 and one tag now covers three encodings. A validator is a header, not a byte.
-        "ee5f2f32432e90243f70b3bf9c634b2858266b7b3b24bae22efe03646418230a";
+        // <b>Moved 2026-09-29 for ADR-093, and the version did not move.</b> The tile route's per-layer loop body
+        // became `VectorTileEndpoints.LayerPartAsync` and `KeyOf`, unchanged, so a seed builds and stores a tile
+        // through the route's own code; the one addition is an optional permit taken around a build, which serving
+        // passes as null. Same key, same source, same bytes.
+        "161c55ea4ee26e7d27b9786f43065d8cf011d6fb794fcb148d20a1a7afe9273c";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 2;

@@ -38,7 +38,7 @@ public sealed class JobRerunTests
 
             Assert.True(
                 Enum.IsDefined(rerun),
-                $"{kind} declared a re-run behaviour that is not one of the three.");
+                $"{kind} declared a re-run behaviour that is not one of the four.");
         }
     }
 

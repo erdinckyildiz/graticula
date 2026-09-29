@@ -119,6 +119,12 @@ public sealed class AServiceIsAddressedByItsFolderTests : ArcGisClient, IAsyncLi
             (HttpMethod.Put, $"/admin/services/{Twin}/style?folder={Elsewhere}", Style(AdministratorsLayer)),
             (HttpMethod.Delete, $"/admin/services/{Twin}/style?folder={Elsewhere}", null),
             (HttpMethod.Delete, $"/admin/services/{Twin}/sprite?folder={Elsewhere}", null),
+
+            // ADR-093: a seed is started, counted and read by folder and name like the rest, and the
+            // read-back of a private service the caller cannot read is a 404 like any other read.
+            (HttpMethod.Post, $"/admin/services/{Twin}/cache/seeds?folder={Elsewhere}", "{\"minZoom\":0,\"maxZoom\":0}"),
+            (HttpMethod.Post, $"/admin/services/{Twin}/cache/seeds?folder={Elsewhere}&dryRun=true", "{}"),
+            (HttpMethod.Get, $"/admin/services/{Twin}/cache?folder={Elsewhere}", null),
         })
         {
             (HttpStatusCode status, string said) = await SendAsync(_publisher, method, path, body);

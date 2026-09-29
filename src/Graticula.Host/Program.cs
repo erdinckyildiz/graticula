@@ -345,6 +345,27 @@ public static class Program
 
         builder.Services.AddSingleton<TileSingleFlight>();
 
+        /*
+          <b>The tile seeder — ADR-093 — a third poller beside the two above, on the same pool.</b>
+          Registered as itself as well as a hosted service, because the cancel route asks it to stop
+          a seed it is running on this node (`TileSeeder.Stop`); the store has already said
+          `cancelled`, and this makes the stop immediate rather than at the next checkpoint.
+
+          <b>Its progress is written through the shared store, not the pollers'.</b> The pollers'
+          pool is sized one connection per job kind for the claim (D-110); a seed's checkpoints
+          every two seconds beside its own lease renewal would queue behind the claims of the
+          other two kinds on a pool that small.
+        */
+        builder.Services.AddSingleton<Graticula.Platform.Jobs.ITileSeedStore>(services =>
+            new PostgresTileSeedStore(services.GetRequiredService<NpgsqlDataSource>()));
+
+        builder.Services.AddSingleton(services =>
+            ActivatorUtilities.CreateInstance<TileSeeder>(
+                services,
+                services.GetRequiredKeyedService<Graticula.Platform.Jobs.IJobStore>(JobPool)));
+
+        builder.Services.AddHostedService(services => services.GetRequiredService<TileSeeder>());
+
         // <b>Q-141's datum caution, aimed at the operator.</b> A singleton because
         // *said once* is a property of the server rather than of a request, and it is
         // read back by `/admin/health`.

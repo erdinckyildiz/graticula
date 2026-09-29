@@ -63,6 +63,30 @@ public sealed class FileSystemTileCacheTests : IDisposable
         Assert.Equal(tile, found.Bytes);
     }
 
+    /// <remarks>
+    /// <b>ADR-010 §6b's read-back counts what a request would be served</b>: inside the rectangle, of
+    /// this layer and fingerprint, and fresh by the same test a read applies. ADR-093.
+    /// </remarks>
+    [Fact]
+    public async Task Fresh_tiles_are_counted_inside_a_rectangle_and_nowhere_else()
+    {
+        using FileSystemTileCache cache = Build();
+
+        await cache.WriteAsync(Key(z: 3, x: 1, y: 1), Tile(), CancellationToken.None);
+        await cache.WriteAsync(Key(z: 3, x: 2, y: 1), [], CancellationToken.None);
+        await cache.WriteAsync(Key(z: 3, x: 5, y: 5), Tile(), CancellationToken.None);   // outside
+        await cache.WriteAsync(Key(z: 4, x: 1, y: 1), Tile(), CancellationToken.None);   // another level
+        await cache.WriteAsync(Key(z: 3, x: 1, y: 2, layer: Other), Tile(), CancellationToken.None);
+
+        TileRange range = new(3, 0, 0, 3, 3);
+
+        Assert.Equal([(1L * 8) + 1, (2L * 8) + 1], cache.FreshIn(Key(z: 3), range, Lifetime).Order());
+
+        // An hour and a second later, every one of them has expired.
+        _clock.Advance(Lifetime + TimeSpan.FromSeconds(1));
+        Assert.Empty(cache.FreshIn(Key(z: 3), range, Lifetime));
+    }
+
     [Fact]
     public async Task Nothing_stored_is_a_miss()
     {

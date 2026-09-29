@@ -643,6 +643,73 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             [.. attributes.Select(a => a.Name)]);
     }
 
+    /// <summary>
+    /// A permit to build one tile of a layer, taken exactly as a read takes one — for a seed.
+    /// </summary>
+    /// <param name="layer">The layer about to be built.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The lease; dispose it when the build is over.</returns>
+    /// <exception cref="SourceQuiescedException">An operator has taken the source out of service.</exception>
+    /// <exception cref="SourceUnreachableException">The source's breaker is open.</exception>
+    /// <exception cref="ConnectionBudgetFullException">The source, or this worker, is at its bound.</exception>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-010](../../docs/adr/ADR-010-caching.md) condition 3 and [ADR-011](../../docs/adr/ADR-011-job-system.md)
+    /// §3.6, and it is <see cref="BudgetedFeatureSource.LeaseAsync"/>'s three steps, not a second
+    /// limiter.</b> Quiesce first, then the breaker, then <see cref="ConnectionBudget"/>, keyed on the
+    /// connection string — the same order and the same key every read path uses, so a seed and the
+    /// requests it runs beside share one bound per source and one per worker. ADR-093 §5.5.
+    /// </para>
+    /// <para>
+    /// <b>Serving a tile does not call this, and that was found here rather than decided here.</b>
+    /// <see cref="TileSourceFor"/> hands out a source over the pool with no permit, so a cold tile
+    /// requested by a map takes no lease today; only the layer's describe does. The seed takes one
+    /// because ADR-010 condition 3 requires it of a seed by name. Whether serving should is
+    /// [D-277](../../docs/architecture-debt.md).
+    /// </para>
+    /// </remarks>
+    public async ValueTask<IDisposable> AdmitTileBuildAsync(PublishedLayer layer, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(layer);
+
+        if (_quiesce?.Holding(layer.ConnectionString) is { } held)
+        {
+            throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
+        }
+
+        if (_breaker.IsOpen(layer.ConnectionString))
+        {
+            throw new SourceUnreachableException();
+        }
+
+        return await _budget.EnterAsync(layer.ConnectionString, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Tells the source's breaker how a seed's build went, as a read path's result does.
+    /// </summary>
+    /// <param name="layer">The layer that was built.</param>
+    /// <param name="failure">What the build threw, or null when it succeeded.</param>
+    /// <returns>True when the failure means the source is unreachable — the seed pauses rather than
+    /// counting the tile as failed.</returns>
+    /// <remarks>
+    /// <b><see cref="BudgetedFeatureSource.Observe"/>'s rule, for the same reason:</b> a database that
+    /// answered with an error has not gone away, and must not trip a breaker every map is behind.
+    /// </remarks>
+    public bool ObserveTileBuild(PublishedLayer layer, Exception? failure)
+    {
+        ArgumentNullException.ThrowIfNull(layer);
+
+        if (failure is null)
+        {
+            _breaker.Succeeded(layer.ConnectionString);
+            return false;
+        }
+
+        return _breaker.Failed(layer.ConnectionString, failure);
+    }
+
     /// <summary>A layer's history — ADR-078 — over the layer's own pool.</summary>
     /// <param name="layer">The layer.</param>
     /// <returns>Its history.</returns>

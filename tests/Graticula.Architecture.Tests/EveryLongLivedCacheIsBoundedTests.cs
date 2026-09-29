@@ -94,6 +94,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["SourceQuiesce._quiesced"] =
             "one per data source; removed when its window ends or an operator resumes it",
         ["TileSingleFlight._building"] = "one per tile being built right now",
+        ["TileSeeder._running"] = "one per seed this worker is running, which is one at a time; removed when the seed ends (ADR-093)",
         ["CatalogFallback._last"] = "explicit capacity; cleared when full",
         ["DatumShiftNotices._seen"] =
             "explicit ceiling of 256 layer-and-reference pairs; stops recording rather "

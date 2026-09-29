@@ -327,6 +327,12 @@ run as jobs), admin API (§39), geoprocessing (§36).
    requests compete for the same database*. **This discharges when a job first reads a
    registered source, and the honest repair before then is one lease around the import's
    write path.**
+   *(2026-09-29: the first job that reads a data source is the tile seed —
+   [ADR-093](ADR-093-seeding-the-tile-cache.md) — and it takes a `ConnectionBudget` lease for
+   every tile it builds, so the vacuous half is not vacuous any more. The sources it reads are
+   the datastore and GeoParquet folders, since tiles come from nothing else (Q-67), so the
+   condition's *registered source* is still unread by any job; and the import's write path
+   still holds no lease. The condition stays partly discharged.)*
 2. **Every job type declares its re-run behaviour** before it is registered.
    There is no default, because a wrong default here corrupts data.
    *(Discharged 2026-08-27, as a function rather than as prose.* `JobKinds.RerunOf` maps
@@ -356,6 +362,11 @@ run as jobs), admin API (§39), geoprocessing (§36).
    geodatabase, which is a failure in production; `Every_job_kind_declares_what_a_second_run_would_do`
    walks the enumeration so the same omission fails on the build that adds the kind.
    **Falsified** by adding a third kind and nothing else: two tests fail, naming it.)*
+   *(2026-09-29: the third kind arrived — `TileSeed`, [ADR-093](ADR-093-seeding-the-tile-cache.md)
+   — and brought a fourth answer, `JobRerun.Resumable`, which is §3.4's `RESUMABLE` given a
+   name at last. A lost lease queues a resumable job again every time with its progress kept,
+   where a harmless one is queued once. It also made `JobStatus.Cancelled` reachable, for this
+   kind only.)*
 3. **The polling interval is documented as a number.**
    *(Discharged 2026-08-27 — §3.3 now states it: 2 seconds, doubling on idle to a
    30-second ceiling, reset by work or by a signal. **The condition was live because

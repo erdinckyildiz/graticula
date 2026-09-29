@@ -40,6 +40,28 @@ public enum JobRerun
     RefusedByTheStore,
 
     /// <summary>
+    /// It keeps durable checkpoints, and a second run goes on from the last one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[ADR-011] §3.4's <c>RESUMABLE</c>, which that section named and this enumeration did not
+    /// have until a kind needed it.</b> A tile seed writes tiles to a cache, and writing a tile twice
+    /// writes the same bytes to the same key; what a second run must not do is start again at the
+    /// bottom of the pyramid, and its checkpoints are what stop it.
+    /// </para>
+    /// <para>
+    /// <b>Not <see cref="Harmless"/>, because what a lost lease does to it differs.</b> A harmless
+    /// kind is queued again once and a second loss fails it, since a job that kills its process
+    /// would otherwise be claimed and lost for as long as somebody keeps restarting the server. A
+    /// resumable kind is queued again every time and keeps its progress: a seed of a quarter of a
+    /// million tiles that is failed by the second restart of the week has to be asked for again and
+    /// resumes nothing. The cost is named in ADR-093 §5.4 — a seed whose own work kills the process
+    /// comes back after each restart until somebody cancels it.
+    /// </para>
+    /// </remarks>
+    Resumable,
+
+    /// <summary>
     /// Running it again would duplicate or corrupt, and nothing stops it.
     /// </summary>
     /// <remarks>
@@ -93,6 +115,12 @@ public static class JobKinds
         // second inspection succeeds and a second import fails, and a register that called both
         // safe would have them expect the same thing from two different answers.
         JobKind.GeodatabaseImport => JobRerun.RefusedByTheStore,
+
+        // <b>Writes tiles, each to its own key, and remembers how far it got.</b> A tile written
+        // twice is the same bytes under the same key — `TileSingleFlight` already lets a request and
+        // a seed race for one without harm — and the per-level cursor in `tile_seed_level` is the
+        // checkpoint a second run goes on from. ADR-093 §5.4.
+        JobKind.TileSeed => JobRerun.Resumable,
 
         _ => throw new ArgumentOutOfRangeException(
             nameof(kind),

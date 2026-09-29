@@ -468,7 +468,7 @@ internal static class VectorTileEndpoints
     /// unknown extent and is safe for a client; degrees labelled as metres are not.
     /// </para>
     /// </remarks>
-    private static async Task<Envelope?> InWebMercatorAsync(
+    internal static async Task<Envelope?> InWebMercatorAsync(
         Envelope? extent, int srid, IProjector projector, CancellationToken cancellation)
     {
         if (extent is not { } box || srid == WebMercator || srid == 102100)
@@ -878,135 +878,41 @@ internal static class VectorTileEndpoints
                 continue;
             }
 
-            (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
+            LayerPart part = await LayerPartAsync(
+                    layer, address, defaultLifetime, contexts, connections, cache, building,
+                    projector, datumShifts, loggerFactory, geoParquet, admit: null, cancellation)
                 .ConfigureAwait(false);
 
-            IReadOnlyList<FieldDescription> attributes = AttributesOf(layer, description);
-
-            /*
-              <b>Q-141: the operator hears about the datum, because nobody else can.</b> A
-              tile is Web Mercator by definition, so a layer stored in anything else is
-              transformed on every cold tile — and a protobuf tile has nowhere to carry a
-              caution even if the client could act on one. This is the half of
-              [D-32](../../docs/architecture-debt.md) that the three response-shaped answers
-              could not have reached at all.
-
-              <b>Before the cache is consulted, not after.</b> A warm tile is served without
-              transforming anything, and putting the notice on the miss would mean a
-              deployment whose tiles are all cached never hears about a layer it is
-              nonetheless serving across a datum. The dictionary makes the repeat free.
-            */
-            await datumShifts
-                .NoteAsync(
-                    layer.Id,
-                    layer.Definition.Name,
-                    layer.Definition.Srid,
-                    WebMercator,
-                    projector,
-                    loggerFactory.CreateLogger("tiles"),
-                    cancellation)
-                .ConfigureAwait(false);
-
-            // <b>A GeoParquet layer's own version rides in the fingerprint, so a replaced file
-            // invalidates its tiles structurally instead of waiting out the cache lifetime.</b>
-            // A hosted table's schema changing already moves the fingerprint through the
-            // attribute list; a file can be replaced by another with the same columns and a
-            // different geometry, and nothing above would notice without this. Null for a hosted
-            // layer, which keeps every existing cache key unchanged.
-            string? fileVersion = Graticula.Platform.Admin.GeoParquetLocator.Is(layer.ConnectionString)
-                ? geoParquet.VersionOf(layer.ConnectionString, layer.Definition.TableName)
-                : null;
-
-            TileCacheKey key = new(
-                layer.Id,
-                TileCacheKey.FingerprintOf(
-                    layer.Definition.Srid,
-                    layer.Definition.GeometryColumn,
-                    attributes.Select(a => a.Name),
-                    PostGisTileSource.Extent,
-                    PostGisTileSource.Buffer,
-                    fileVersion),
-                address);
-
-            // <b>The layer's own lifetime, not the server's.</b> D-25: a
-            // cadastral layer and an incident layer need opposite answers, and
-            // A-028 records that only the administrator knows which is which.
-            TimeSpan lifetime = layer.CacheLifetime ?? defaultLifetime;
-
-            if (lifetime < shortest)
+            if (part.Lifetime < shortest)
             {
-                shortest = lifetime;
+                shortest = part.Lifetime;
             }
 
-            // <b>V-56's tile half: a layer somebody can edit is revalidated, not kept.</b> The
-            // lifetime above still governs this server's own copy, which an edit empties; what
-            // changes is what the browser is told. A lifetime an administrator set on the layer is
-            // honoured as it is for `query` — `QueryResponseCaching.LifetimeOf`'s rule.
-            if (layer.CacheLifetime is null && QueryResponseCaching.Editable(layer, description.Writable))
+            if (part.Revalidate)
             {
                 revalidate = true;
             }
 
-            CachedTile cached = await cache.ReadAsync(key, lifetime, cancellation)
-                .ConfigureAwait(false);
-
-            if (cached.Answered)
+            // <b>The oldest part bounds the whole response's age.</b> One tile can be
+            // several layers' parts with different lifetimes and different write
+            // times, and `Age` means *how long ago this response was generated* — so
+            // the answer for a composite is the staleness of its stalest piece.
+            // Anything else would understate it. D-248.
+            if (part.Written is { } when && when < oldest)
             {
-                parts.Add(cached.Bytes);
-
-                // <b>The oldest part bounds the whole response's age.</b> One tile can be
-                // several layers' parts with different lifetimes and different write
-                // times, and `Age` means *how long ago this response was generated* — so
-                // the answer for a composite is the staleness of its stalest piece.
-                // Anything else would understate it. D-248.
-                if (cached.Written is { } when && when < oldest)
-                {
-                    oldest = when;
-                }
-
-                continue;
+                oldest = when;
             }
 
-            ITileSource source = connections.TileSourceFor(layer, attributes);
-
-            // <b>One build per cold tile, however many callers arrive at
-            // once.</b> Measured before this existed: twelve simultaneous
-            // requests for one cold tile produced twelve datastore builds and
-            // threw eleven of the results away. See TileSingleFlight.
-            TileSingleFlight.Result made = await building.BuildAsync(
-                key,
-                async () =>
-                {
-                    byte[] bytes = await source
-                        .BuildAsync(address, layer.Definition.Name, CancellationToken.None)
-                        .ConfigureAwait(false);
-
-                    // Written inside the shared build, so the waiters do not
-                    // each write the same bytes over each other — and so the
-                    // next caller finds it cached rather than joining a build
-                    // that has already returned.
-                    //
-                    // Empty is stored too — a zero-length marker. Most of a
-                    // pyramid is emptiness and rebuilding the ocean on every
-                    // request is the waste ADR-010 §2's negative caching exists
-                    // to stop.
-                    await cache.WriteAsync(key, bytes, CancellationToken.None)
-                        .ConfigureAwait(false);
-
-                    return bytes;
-                },
-                cancellation).ConfigureAwait(false);
-
-            if (made.Built)
+            if (part.Came == PartCame.Built)
             {
                 builtSomething = true;
             }
-            else
+            else if (part.Came == PartCame.Coalesced)
             {
                 waitedForSomething = true;
             }
 
-            parts.Add(made.Bytes);
+            parts.Add(part.Bytes);
         }
 
         // <b>Three states, not two, because the third is the one worth
@@ -1033,6 +939,212 @@ internal static class VectorTileEndpoints
             .ConfigureAwait(false);
     }
 
+    /// <summary>Where one layer's part of a tile came from.</summary>
+    internal enum PartCame
+    {
+        /// <summary>The cache held it and it was fresh.</summary>
+        Cached,
+
+        /// <summary>This caller built it and stored it.</summary>
+        Built,
+
+        /// <summary>Somebody else was building it, and this caller waited for their build.</summary>
+        Coalesced,
+    }
+
+    /// <summary>One layer's encoded part of a tile, and what serving needs to know about it.</summary>
+    /// <param name="Bytes">The encoded layer; empty when it has nothing in this tile.</param>
+    /// <param name="Came">Where it came from.</param>
+    /// <param name="Written">When the cached copy was written, for a part read from the cache.</param>
+    /// <param name="Lifetime">How long the layer's tiles stay fresh.</param>
+    /// <param name="Revalidate">Whether a browser must ask before reusing it — V-56.</param>
+    internal readonly record struct LayerPart(
+        byte[] Bytes, PartCame Came, DateTimeOffset? Written, TimeSpan Lifetime, bool Revalidate);
+
+    /// <summary>
+    /// The cache key of one layer's part of a tile — the one serving reads and writes under.
+    /// </summary>
+    /// <param name="layer">The layer.</param>
+    /// <param name="attributes">The columns its tiles carry, from <see cref="AttributesOf"/>.</param>
+    /// <param name="address">The tile.</param>
+    /// <param name="geoParquet">Where a GeoParquet layer's file version is read.</param>
+    /// <returns>The key.</returns>
+    /// <remarks>
+    /// <b>Named so that the seed and the cache report ask for the same key the tile route
+    /// does</b> — ADR-093 §5.5. A second computation of it anywhere else would be a seed that fills a
+    /// cache nobody reads, and nothing would fail: every request would simply miss.
+    /// </remarks>
+    internal static TileCacheKey KeyOf(
+        PublishedLayer layer,
+        IReadOnlyList<FieldDescription> attributes,
+        TileAddress address,
+        GeoParquetSources geoParquet)
+    {
+        // <b>A GeoParquet layer's own version rides in the fingerprint, so a replaced file
+        // invalidates its tiles structurally instead of waiting out the cache lifetime.</b>
+        // A hosted table's schema changing already moves the fingerprint through the
+        // attribute list; a file can be replaced by another with the same columns and a
+        // different geometry, and nothing above would notice without this. Null for a hosted
+        // layer, which keeps every existing cache key unchanged.
+        string? fileVersion = Graticula.Platform.Admin.GeoParquetLocator.Is(layer.ConnectionString)
+            ? geoParquet.VersionOf(layer.ConnectionString, layer.Definition.TableName)
+            : null;
+
+        return new TileCacheKey(
+            layer.Id,
+            TileCacheKey.FingerprintOf(
+                layer.Definition.Srid,
+                layer.Definition.GeometryColumn,
+                attributes.Select(a => a.Name),
+                PostGisTileSource.Extent,
+                PostGisTileSource.Buffer,
+                fileVersion),
+            address);
+    }
+
+    /// <summary>
+    /// One layer's part of a tile: from the cache when it is fresh there, and otherwise built once,
+    /// stored, and shared with whoever else is waiting for it.
+    /// </summary>
+    /// <param name="layer">The layer, which the caller has already found draws at this level.</param>
+    /// <param name="address">The tile.</param>
+    /// <param name="defaultLifetime">The server's tile lifetime, for a layer that set none.</param>
+    /// <param name="contexts">Where the layer's description is remembered.</param>
+    /// <param name="connections">Where its tile source comes from.</param>
+    /// <param name="cache">The tile cache.</param>
+    /// <param name="building">The builds in flight — §2c.</param>
+    /// <param name="projector">For the datum notice.</param>
+    /// <param name="datumShifts">Where a datum crossing is said once.</param>
+    /// <param name="loggerFactory">For the datum notice.</param>
+    /// <param name="geoParquet">For a GeoParquet layer's file version.</param>
+    /// <param name="admit">
+    /// Taken before a build and released after it, or null. <b>Null for serving, which is
+    /// unchanged</b>; a seed passes a lease from <c>ConnectionBudget</c> here — ADR-093 §5.5 — so it
+    /// is bounded by the same limiter every read path draws from and a tile it merely finds cached
+    /// costs no permit.
+    /// </param>
+    /// <param name="cancellation">The caller's; a shared build does not carry it.</param>
+    /// <returns>The part.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The tile route's own loop body, moved here unchanged on 2026-09-29 so a seed can call
+    /// it</b> — ADR-093 §5.5's requirement that a seeded tile be indistinguishable from a served one.
+    /// Same key, same encoder, same single-flight, same write; a seed that built tiles any other way
+    /// would fill the cache with bytes the route would not have made, or under keys it never reads.
+    /// </para>
+    /// <para>
+    /// <b>The visible-range test stays with the caller</b>, because the two callers do different
+    /// things with a layer left out: serving draws the tile without it, and a seed counts a level no
+    /// layer draws at as skipped. Both ask <see cref="VisibleScaleRange.CarriesVectorTile"/>.
+    /// </para>
+    /// </remarks>
+    internal static async Task<LayerPart> LayerPartAsync(
+        PublishedLayer layer,
+        TileAddress address,
+        TimeSpan defaultLifetime,
+        ServiceContexts contexts,
+        LayerConnections connections,
+        ITileCache cache,
+        TileSingleFlight building,
+        IProjector projector,
+        DatumShiftNotices datumShifts,
+        ILoggerFactory loggerFactory,
+        GeoParquetSources geoParquet,
+        Func<CancellationToken, ValueTask<IDisposable>>? admit,
+        CancellationToken cancellation)
+    {
+        (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
+            .ConfigureAwait(false);
+
+        IReadOnlyList<FieldDescription> attributes = AttributesOf(layer, description);
+
+        /*
+          <b>Q-141: the operator hears about the datum, because nobody else can.</b> A
+          tile is Web Mercator by definition, so a layer stored in anything else is
+          transformed on every cold tile — and a protobuf tile has nowhere to carry a
+          caution even if the client could act on one. This is the half of
+          [D-32](../../docs/architecture-debt.md) that the three response-shaped answers
+          could not have reached at all.
+
+          <b>Before the cache is consulted, not after.</b> A warm tile is served without
+          transforming anything, and putting the notice on the miss would mean a
+          deployment whose tiles are all cached never hears about a layer it is
+          nonetheless serving across a datum. The dictionary makes the repeat free.
+        */
+        await datumShifts
+            .NoteAsync(
+                layer.Id,
+                layer.Definition.Name,
+                layer.Definition.Srid,
+                WebMercator,
+                projector,
+                loggerFactory.CreateLogger("tiles"),
+                cancellation)
+            .ConfigureAwait(false);
+
+        TileCacheKey key = KeyOf(layer, attributes, address, geoParquet);
+
+        // <b>The layer's own lifetime, not the server's.</b> D-25: a
+        // cadastral layer and an incident layer need opposite answers, and
+        // A-028 records that only the administrator knows which is which.
+        TimeSpan lifetime = layer.CacheLifetime ?? defaultLifetime;
+
+        // <b>V-56's tile half: a layer somebody can edit is revalidated, not kept.</b> The
+        // lifetime above still governs this server's own copy, which an edit empties; what
+        // changes is what the browser is told. A lifetime an administrator set on the layer is
+        // honoured as it is for `query` — `QueryResponseCaching.LifetimeOf`'s rule.
+        bool revalidate =
+            layer.CacheLifetime is null && QueryResponseCaching.Editable(layer, description.Writable);
+
+        CachedTile cached = await cache.ReadAsync(key, lifetime, cancellation)
+            .ConfigureAwait(false);
+
+        if (cached.Answered)
+        {
+            return new LayerPart(cached.Bytes, PartCame.Cached, cached.Written, lifetime, revalidate);
+        }
+
+        ITileSource source = connections.TileSourceFor(layer, attributes);
+
+        // <b>One build per cold tile, however many callers arrive at
+        // once.</b> Measured before this existed: twelve simultaneous
+        // requests for one cold tile produced twelve datastore builds and
+        // threw eleven of the results away. See TileSingleFlight.
+        TileSingleFlight.Result made = await building.BuildAsync(
+            key,
+            async () =>
+            {
+                // <b>Inside the shared build, so only a build takes a permit.</b> A seed that
+                // joins a build a request started waits without holding one, and a request that
+                // joins a seed's build is admitted by the seed's permit — one build, one permit.
+                using IDisposable? admitted = admit is null
+                    ? null
+                    : await admit(CancellationToken.None).ConfigureAwait(false);
+
+                byte[] bytes = await source
+                    .BuildAsync(address, layer.Definition.Name, CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                // Written inside the shared build, so the waiters do not
+                // each write the same bytes over each other — and so the
+                // next caller finds it cached rather than joining a build
+                // that has already returned.
+                //
+                // Empty is stored too — a zero-length marker. Most of a
+                // pyramid is emptiness and rebuilding the ocean on every
+                // request is the waste ADR-010 §2's negative caching exists
+                // to stop.
+                await cache.WriteAsync(key, bytes, CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                return bytes;
+            },
+            cancellation).ConfigureAwait(false);
+
+        return new LayerPart(
+            made.Bytes, made.Built ? PartCame.Built : PartCame.Coalesced, null, lifetime, revalidate);
+    }
+
     /// <summary>
     /// Joins one encoded layer per service layer into one tile.
     /// </summary>
@@ -1053,7 +1165,7 @@ internal static class VectorTileEndpoints
     /// empty tile, and that is the 204 the caller should get.
     /// </para>
     /// </remarks>
-    private static byte[] Concatenate(List<byte[]> parts)
+    internal static byte[] Concatenate(List<byte[]> parts)
     {
         int total = 0;
 
@@ -1246,7 +1358,7 @@ internal static class VectorTileEndpoints
     /// <c>ST_AsMVT</c> has nowhere to put a feature id from a named column
     /// without it also becoming a tag.
     /// </remarks>
-    private static IReadOnlyList<FieldDescription> AttributesOf(
+    internal static IReadOnlyList<FieldDescription> AttributesOf(
         PublishedLayer layer, LayerDescription description)
     {
         HashSet<string> skip = new(StringComparer.Ordinal)

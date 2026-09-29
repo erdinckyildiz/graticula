@@ -568,10 +568,12 @@ internal static partial class AdminEndpoints
         MapWebMaps(app);         // ADR-079 — AdminEndpoints.WebMaps.cs
 
         // <b>ADR-037's surface, and it is a read only.</b> A job is created by the act that needs one —
-        // an upload — and never by asking for one, so there is no POST here. Cancelling is absent for
-        // the same reason `JobStatus.Cancelled` is unreachable: stopping a worker mid-write needs a
-        // decision about what it leaves behind, and offering the control before making that decision
-        // is how a half-written table gets created.
+        // an upload, a seed — and never by asking for one, so there is no POST here. Cancelling is
+        // absent *here* because stopping a worker mid-write needs a decision about what it leaves
+        // behind, and offering the control before making that decision is how a half-written table
+        // gets created. **A tile seed is the one kind where the decision is taken** (ADR-093 §5.4: what
+        // it leaves is cached tiles), and it is cancelled where it is started, under the service —
+        // `AdminEndpoints.TileSeed.cs` — so the control sits beside the only kind it applies to.
         app.MapGet("/admin/jobs", ListJobsAsync);
         app.MapGet("/admin/jobs/{id:guid}", DescribeJobAsync);
         app.MapPut("/admin/layers/{name}/sharing", SetSharingAsync);
@@ -585,6 +587,7 @@ internal static partial class AdminEndpoints
         MapThumbnails(app);      // ADR-071 — AdminEndpoints.Thumbnails.cs
         MapHistory(app);         // ADR-078 — AdminEndpoints.History.cs
         MapSprite(app);          // ADR-092 — AdminEndpoints.Sprite.cs
+        MapTileSeed(app);        // ADR-093 — AdminEndpoints.TileSeed.cs
         app.MapPost("/admin/layers/{name}/start", (HttpContext c, string name, IAdminCatalog a,
             PostgresLayerCatalog p, IAuditLog l, CancellationToken t) =>
             SetStatusAsync(c, name, ServiceStatus.Started, a, p, l, t));
@@ -1018,6 +1021,7 @@ internal static partial class AdminEndpoints
         {
             JobKind.GeodatabaseInspect => "geodatabase.inspect",
             JobKind.GeodatabaseImport => "geodatabase.import",
+            JobKind.TileSeed => "tile.seed",
             _ => "unknown",
         },
         status = job.Status.ToString().ToLowerInvariant(),

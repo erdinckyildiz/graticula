@@ -192,6 +192,13 @@ is the half the thin servers actually lack — pg_tileserv has no cache to inval
 Tegola's seeding is manual — and it is the half that is built. Seeding is designed,
 unbuilt and unmeasured.
 
+> **Corrected 2026-09-29: seeding is built, and still unmeasured.**
+> [ADR-093](adr/ADR-093-seeding-the-tile-cache.md) seeds a service's cache as a job, lowest level
+> first, resumable and cancellable, holding a `ConnectionBudget` lease for every tile it builds,
+> and reads back per level when it was seeded and how much of it is cached now. The sentence
+> above was true when it was written; the half it calls unbuilt is built, and the half it calls
+> unmeasured is still unmeasured — [A-020](architecture-assumptions.md) is `UNVALIDATED`.
+
 ### 4c. Service-level observability and administration — defensible, and the largest thing here
 
 **What the research says** (§3.3): there is no service lifecycle to observe because

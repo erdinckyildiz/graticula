@@ -375,6 +375,16 @@ realistic estate take, per provider? That is `benchmarks/tile-seeding/` and it
 determines whether A-020 — that seeding absorbs the provider gap — is true or
 wishful.
 
+> **Built 2026-09-29 — [ADR-093](ADR-093-seeding-the-tile-cache.md).** Each bullet above is
+> what was built, with one change of word: a seed is scoped by **service** rather than by
+> layer, because a tile carries every layer of its service (ADR-093 §2, Alternative B,
+> INFERRED). Low levels first, as §6a says; resumable by a cursor per level; cancellable;
+> a lease from `ConnectionBudget` for every build (condition 3); progress, cost and an
+> estimate in the admin API. **Nothing seeds after an upgrade by itself**: when
+> `TilePipeline.Version` moves, the cache starts empty and the operator starts a seed
+> (ADR-093 §5.7). The honest question above is still unanswered — nothing has been
+> measured, and A-020 stays `UNVALIDATED`.
+
 ### 6a. What a seed actually costs, measured
 
 **2026-08-12**, [benchmarks/mvt-generation/RESULTS.md](../../benchmarks/mvt-generation/RESULTS.md).
@@ -396,6 +406,11 @@ Two things this changes in §6:
 seeding always has the fast path available and never has to plan for an engine
 that cannot clip. What is left to decide is Q-68 — whether a seed reads once and
 encodes many tiles in process, or issues one `ST_AsMVT` per tile.
+
+**Q-68 is not reopened by ADR-093**: a seed issues one `ST_AsMVT` per tile, through the tile
+route's own code, because the owner's requirement is that a seeded tile be the bytes a request
+would build. Reading once and encoding many stays ADR-093's Alternative C, for the day a
+measurement asks for it.
 
 **Run 3 adds one thing that is a decision.** Seeding must use provider pushdown
 unconditionally. A seed walks tiles back to back with no idle time to amortise
@@ -425,6 +440,13 @@ Two requirements follow:
 
 Invalidation is scoped — by bbox, by zoom range — rather than all-or-nothing,
 because a full invalidation of a seeded pyramid is itself an outage.
+
+> **The minimum built 2026-09-29 — [ADR-093](ADR-093-seeding-the-tile-cache.md) §5.6.**
+> `GET /admin/services/{name}/cache` answers, for each level a seed has finished, when it was
+> last seeded, over what area, how many tiles that area holds, and how many of them are
+> cached and fresh now for every layer drawn there. That is *when was each zoom level last
+> generated* for seeded levels; a level only ever filled by requests is still not dated
+> ([D-248](../architecture-debt.md)'s half), and scoped invalidation is still not built.
 
 ## 7. Multi-node
 
@@ -539,14 +561,14 @@ disk**, 4×, and every hit is one fewer query against the datastore that
 | §4 | Key is plan identity + schema fingerprint | **built, and the first half was not — corrected 2026-08-25.** The key was `(layer, fingerprint, z/x/y)` and the fingerprint's five inputs are all properties of the *data*, so nothing in it tracked the code that drew the tile: an upgrade kept every key it had ([D-155](../architecture-debt.md)). The path now carries `TilePipeline.Version`, and a test fails the build when the tiling source changes and that number does not — so raising it is a decision somebody takes, which is §8's requirement that a full rebuild be deliberate and visible |
 | §4 | Uniform authorization checked before lookup | **built** |
 | §5.1 | Purge on unpublish and on refresh | **built** |
-| §6b | Cache state readable | ~~**built**, `/admin/health` and per layer~~ **Half built — corrected 2026-09-09.** §6b asks two things and this row counted one. *The coherence policy is readable per layer*: `/admin/layers` carries `cacheSeconds` and the tile carries `Cache-Control`. **The other one — *the cache index records generation time per tile set* — is not built.** `FileSystemTileCache.ReadAsync` reads `LastWriteTimeUtc` on every hit and `CachedTile` does not carry it out, so no address says when a level was built and the tile goes out with no `Age` — [D-248](../architecture-debt.md), found walking [ADR-017](ADR-017-admin-api.md) condition 2 |
+| §6b | Cache state readable | ~~**built**, `/admin/health` and per layer~~ **Half built — corrected 2026-09-09.** §6b asks two things and this row counted one. *The coherence policy is readable per layer*: `/admin/layers` carries `cacheSeconds` and the tile carries `Cache-Control`. **The other one — *the cache index records generation time per tile set* — is not built.** `FileSystemTileCache.ReadAsync` reads `LastWriteTimeUtc` on every hit and `CachedTile` does not carry it out, so no address says when a level was built and the tile goes out with no `Age` — [D-248](../architecture-debt.md), found walking [ADR-017](ADR-017-admin-api.md) condition 2. *(2026-09-29: for a level a seed has finished, when and over what area is readable, with how many of its tiles are cached now — [ADR-093](ADR-093-seeding-the-tile-cache.md) §5.6. A level filled only by requests is still not dated.)* |
 | §3 | L1, context-scoped | **not built.** [ServiceContexts](../../src/Graticula.Host/ServiceContexts.cs) is the nearest thing and holds shapes, not tiles |
 | §3 | L2 distributed | **not built, and never mandatory** |
 | §4 | Grant fingerprint | **not built and not needed yet** — no row or field filtering exists, so authorization for a tile is uniform |
 | §5.1a | Stale-while-error | **not built.** The cache expires during a source outage exactly when it would be most useful |
 | §5.2 | Change detection, schema-drift polling | **not built.** TTL is the only mechanism, which §5.2 says is the floor |
 | §5.3 | Per-layer volatility | ~~**not built**, and it is the largest gap — see below~~ **Built — corrected 2026-09-09.** [D-25](../architecture-debt.md) closed 2026-08-15, `PUT /admin/layers/{name}/cache` sets it, and the tile path reads it: `VectorTileEndpoints` resolves `layer.CacheLifetime ?? defaultLifetime`. This ADR's own condition 2 discharge already said *"60 minutes for a tile **or the layer's own setting**"*, so the document contradicted itself two sections apart for three weeks |
-| §6 | Seeding | **not built** |
+| §6 | Seeding | ~~**not built**~~ **Built 2026-09-29 — [ADR-093](ADR-093-seeding-the-tile-cache.md).** A job per service over a zoom range and an area, lowest level first, resumable and cancellable, a `ConnectionBudget` lease per build, capped at 250,000 tiles. Not measured: A-020 is still `UNVALIDATED` |
 
 **§5.3 is the one that will be felt first.** TTL is a single global number,
 defaulting to an hour, because volatility is not in the schema. ADR-010 is
@@ -610,6 +632,16 @@ grant fingerprint is the fix — not a purge.
    already exists; what does not exist is the thing that would use it — which is the
    cheapest possible state for a condition to be in, and worth saying so that whoever
    builds seeding does not build a second limiter beside the first.
+   ***(DISCHARGED 2026-09-29 — [ADR-093](ADR-093-seeding-the-tile-cache.md) §5.5, in the first
+   version of seeding, with the mechanism named above and no other.)*** Every tile a seed
+   builds takes a lease from `ConnectionBudget` keyed on the layer's connection string, after
+   the quiesce and breaker checks — `LayerConnections.AdmitTileBuildAsync`, the three steps a
+   read path takes — so a seed and the requests beside it share one bound per source and one
+   per worker. A seed builds at most 2 tiles at once by default (`Graticula:TileSeedConcurrency`),
+   so it holds at most 2 of a source's 24 permits; a full budget, an open breaker or a quiesced
+   source pauses the seed rather than failing its tiles. **Found on the way, and recorded
+   rather than fixed: serving a tile takes no such lease**
+   ([D-277](../architecture-debt.md)), so the seed is held to a bound the maps beside it are not.
 4. **A-029 must be checked against real traffic** before the §2 restraint is
    treated as settled.
 

@@ -30,16 +30,31 @@ public enum JobKind
     /// Reading one layer of a File Geodatabase into the datastore — [ADR-037]'s first job.
     /// </summary>
     GeodatabaseImport,
+
+    /// <summary>
+    /// Filling a vector tile service's cache ahead of its callers —
+    /// <see href="../../../docs/adr/ADR-093-seeding-the-tile-cache.md">ADR-093</see>,
+    /// [ADR-010] §6.
+    /// </summary>
+    /// <remarks>
+    /// <b>The first kind that reads a data source rather than a file</b>, which is the day
+    /// [ADR-011] condition 1 said its vacuous half would stop being vacuous: every tile it builds
+    /// takes a lease from <c>ConnectionBudget</c> against the layer's source, as a read does.
+    /// </remarks>
+    TileSeed,
 }
 
 /// <summary>Where a job has got to.</summary>
 /// <remarks>
 /// <para>
-/// <b>Five states, and <see cref="Cancelled"/> is the one with no way to reach it yet.</b> It is in the
-/// schema because a job somebody can watch is a job somebody will want to stop, and widening a check
-/// constraint later is cheaper than discovering the state was needed. **It is not offered anywhere**,
-/// which is the same shape as <c>GroupJoinPolicy.Request</c>: stored, refused on write, and recorded as
-/// deferred rather than left to look supported.
+/// <b>Five states, and <see cref="Cancelled"/> is reached by one kind only.</b> It is in the schema
+/// because a job somebody can watch is a job somebody will want to stop, and widening a check
+/// constraint later is cheaper than discovering the state was needed. **A tile seed can be cancelled
+/// since ADR-093; nothing else can**, because stopping a worker mid-write needs a decision about
+/// what it leaves behind, and a seed is the one kind where that decision is easy: what it leaves is
+/// cached tiles, each of which is exactly what serving would have written. An import leaves a
+/// half-filled table, and that decision has not been taken. Until 2026-09-29 this paragraph said
+/// the state was reachable by nothing.
 /// </para>
 /// <para>
 /// <b>There is no <c>retrying</c>.</b> A job that failed is failed; asking again is a new job with a
@@ -61,7 +76,7 @@ public enum JobStatus
     /// <summary>It stopped and <see cref="JobRecord.Failure"/> says why.</summary>
     Failed,
 
-    /// <summary>Stopped on purpose. <b>Nothing can reach this state yet</b> — see the type's remarks.</summary>
+    /// <summary>Stopped on purpose. <b>Only a tile seed can reach this state</b> — see the type's remarks.</summary>
     Cancelled,
 }
 

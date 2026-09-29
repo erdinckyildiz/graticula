@@ -247,6 +247,85 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
         return removed;
     }
 
+    /// <summary>
+    /// The tiles of one layer, at one level and inside a rectangle, that are cached and fresh —
+    /// ADR-010 §6b's read-back, for a seeded area.
+    /// </summary>
+    /// <param name="layer">Any key of the layer at the level: the layer, its fingerprint and the
+    /// level are read from it, and its column and row are not.</param>
+    /// <param name="range">The rectangle.</param>
+    /// <param name="lifetime">How long the layer's tiles stay fresh.</param>
+    /// <returns>Each fresh tile's position as <c>x × 2^z + y</c>.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Read from the directory rather than from the index</b>, for the reason §3 (N2) gives the
+    /// lookup: the path derives from the key, so the directory is the truth and the index is this
+    /// process's memory of it. The level's directory is found from <see cref="TileCacheKey.Path"/>
+    /// itself, so this cannot come to disagree with where a tile is written.
+    /// </para>
+    /// <para>
+    /// <b>Only the columns that exist are listed</b>, so the cost follows what is cached rather than
+    /// how wide the rectangle is. Fresh is <see cref="ReadAsync"/>'s test — the write time against
+    /// the lifetime — so a tile counted here is one a request would be served.
+    /// </para>
+    /// </remarks>
+    internal HashSet<long> FreshIn(TileCacheKey layer, TileRange range, TimeSpan lifetime)
+    {
+        HashSet<long> fresh = [];
+
+        if (lifetime <= TimeSpan.Zero)
+        {
+            return fresh;
+        }
+
+        string level = System.IO.Path.Combine(
+            _root,
+            System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(
+                (layer with { Address = new TileAddress(range.Z, 0, 0) }).Path()))!);
+
+        DateTime oldest = _clock.GetUtcNow().UtcDateTime - lifetime;
+        long side = 1L << range.Z;
+
+        try
+        {
+            if (!Directory.Exists(level))
+            {
+                return fresh;
+            }
+
+            foreach (string column in Directory.EnumerateDirectories(level))
+            {
+                if (!int.TryParse(System.IO.Path.GetFileName(column), NumberStyles.None, CultureInfo.InvariantCulture, out int x)
+                    || x < range.MinX || x > range.MaxX)
+                {
+                    continue;
+                }
+
+                foreach (string file in Directory.EnumerateFiles(column, "*.mvt"))
+                {
+                    if (!int.TryParse(
+                            System.IO.Path.GetFileNameWithoutExtension(file), NumberStyles.None,
+                            CultureInfo.InvariantCulture, out int y)
+                        || y < range.MinY || y > range.MaxY)
+                    {
+                        continue;
+                    }
+
+                    if (File.GetLastWriteTimeUtc(file) >= oldest)
+                    {
+                        fresh.Add((x * side) + y);
+                    }
+                }
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            WarnOnce(e);
+        }
+
+        return fresh;
+    }
+
     /// <inheritdoc/>
     public (int Entries, long Bytes) Report(Guid? layerId)
     {
