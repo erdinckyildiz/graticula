@@ -12,7 +12,8 @@ using Mvt = Graticula.Platform.Postgres.Tests.PostGisTileSourceTests.Mvt;
 namespace Graticula.Platform.Postgres.Tests;
 
 /// <summary>
-/// A tile leaves out a shape smaller than a pixel and simplifies at half a pixel through z14 — Q-157.
+/// A tile leaves out a polygon smaller than a pixel — never a point or a line — and simplifies at half a pixel
+/// through z14 — Q-157, and ADR-085 §5.1 as amended 2026-09-29.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -99,6 +100,74 @@ public sealed class ATileLeavesOutWhatItCannotDrawTests : PostgresFixture
         // z16, where a pixel is 1.2 m: the tile 611 m wide holding x and y 1000 m, where the square is large
         // enough to draw.
         Assert.Contains("small", Kinds(await TileAsync(layer, 16, 32769, 32766)));
+    }
+
+    /// <summary>
+    /// A boundary stored as pieces shorter than a pixel keeps every piece and stays joined, while a polygon as
+    /// small is still left out — ADR-085 §5.1 as amended 2026-09-29.
+    /// </summary>
+    /// <remarks>
+    /// <b>The owner's measurement, reduced to a fixture.</b> The showcase's <c>tr_il</c> is province boundaries
+    /// in 5,433 short lines, and ArcGIS Pro drew them dashed at 1:10.7 million, because every piece under a
+    /// pixel was left out. Forty 8 m pieces in a row at z12, where a pixel is 19 m and one of the tile's grid
+    /// cells 2.4 m: each piece's ends land three cells apart, so each must arrive, and each must start where
+    /// the one before it ended — a gap between two is the dash the owner saw.
+    /// </remarks>
+    [Fact]
+    public async Task A_line_shorter_than_a_pixel_is_kept_and_joins_its_neighbours_while_a_polygon_that_small_is_not()
+    {
+        await using (NpgsqlCommand create = DataSource.CreateCommand("""
+            create table pieces (objectid bigint primary key, kind text, seq integer, geom geometry(Geometry, 3857));
+
+            insert into pieces
+            select n, 'piece', n,
+                   ST_MakeLine(ST_SetSRID(ST_MakePoint(1000 + n * 8, 1000), 3857),
+                               ST_SetSRID(ST_MakePoint(1008 + n * 8, 1000), 3857))
+            from generate_series(0, 39) n;
+
+            insert into pieces values
+              (100, 'speck', -1, ST_MakeEnvelope(2000, 2000, 2010, 2010, 3857)),
+              (101, 'multi', -1, ST_Multi(ST_MakeLine(ST_SetSRID(ST_MakePoint(3000, 3000), 3857),
+                                                      ST_SetSRID(ST_MakePoint(3006, 3006), 3857))));
+
+            create index on pieces using gist (geom);
+            analyze pieces;
+            """))
+        {
+            await create.ExecuteNonQueryAsync(CancellationToken.None);
+        }
+
+        LayerDefinition layer = new("pieces", SchemaName, "pieces", "geom", 3857, "objectid", "objectid", false);
+
+        byte[] tile = await new PostGisTileSource(DataSource, layer, ["kind", "seq"])
+            .BuildAsync(new TileAddress(Z, X, Y), "pieces", CancellationToken.None);
+
+        Mvt.Layer decoded = Assert.Single(Mvt.Decode(tile));
+
+        // The polygon rule is unchanged: a 10 m square at 19 m a pixel is a speck, and it goes.
+        Assert.DoesNotContain(decoded.Features, f => (string?)f.Attributes["kind"] == "speck");
+
+        // A multi-line is a line: ST_Dimension is 1 for both kinds.
+        Assert.Contains(decoded.Features, f => (string?)f.Attributes["kind"] == "multi");
+
+        Mvt.Feature[] chain =
+        [
+            .. decoded.Features
+                .Where(f => (string?)f.Attributes["kind"] == "piece")
+                .OrderBy(f => Convert.ToInt64(f.Attributes["seq"], System.Globalization.CultureInfo.InvariantCulture)),
+        ];
+
+        Assert.Equal(40, chain.Length);
+
+        for (int i = 1; i < chain.Length; i++)
+        {
+            (int X, int Y) end = chain[i - 1].Rings[^1][^1];
+            (int X, int Y) start = chain[i].Rings[0][0];
+
+            Assert.True(
+                end == start,
+                $"Piece {i - 1} ends at {end} and piece {i} starts at {start}: a gap, which is the dashed boundary.");
+        }
     }
 
     [Fact]

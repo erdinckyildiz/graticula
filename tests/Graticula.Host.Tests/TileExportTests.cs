@@ -49,6 +49,58 @@ public sealed class TileExportTests : IDisposable
 
     private static byte[] Tile(string text) => Encoding.UTF8.GetBytes(text);
 
+    /// <summary>A glyph directory with two ranges of the fallback stack, under the test's own directory.</summary>
+    private GlyphStore Glyphs()
+    {
+        string root = Path.Combine(_directory, "glyphs");
+        string stack = Path.Combine(root, GlyphStore.Fallback);
+
+        Directory.CreateDirectory(stack);
+        File.WriteAllBytes(Path.Combine(stack, "0-255.pbf"), [1]);
+        File.WriteAllBytes(Path.Combine(stack, "256-511.pbf"), [2]);
+
+        return new GlyphStore(root);
+    }
+
+    [Fact]
+    public void The_generated_style_carries_the_service_s_name()
+    {
+        // D-285: the style's `name` is the service's; a stored style is served as its author wrote it.
+        JsonElement style = JsonDocument.Parse(
+            JsonSerializer.Serialize(VectorTileEndpoints.GeneratedStyle(Service(), Glyphs()))).RootElement;
+
+        Assert.Equal("roads", style.GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public void The_resource_list_names_each_glyph_range_and_the_four_sprite_files_relative_to_itself()
+    {
+        // D-285, in the shape Esri's own World_Basemap_v2 answers resources/info: fonts, then sprites, each `../`.
+        GlyphStore glyphs = Glyphs();
+        string style = JsonSerializer.Serialize(VectorTileEndpoints.GeneratedStyle(Service(), glyphs));
+
+        string[] listed = [.. JsonDocument.Parse(JsonSerializer.Serialize(VectorTileEndpoints.ResourceInfo(style, glyphs)))
+            .RootElement.GetProperty("resourceInfo").EnumerateArray().Select(e => e.GetString()!)];
+
+        Assert.Equal(
+            [
+                $"../fonts/{GlyphStore.Fallback}/0-255.pbf",
+                $"../fonts/{GlyphStore.Fallback}/256-511.pbf",
+                "../sprites/sprite.json",
+                "../sprites/sprite.png",
+                "../sprites/sprite@2x.json",
+                "../sprites/sprite@2x.png",
+            ],
+            listed);
+
+        // A style that fetches no glyphs lists none: the list is what the style can ask for.
+        string[] bare = [.. JsonDocument.Parse(JsonSerializer.Serialize(
+                VectorTileEndpoints.ResourceInfo("""{"version":8,"sources":{},"layers":[]}""", glyphs)))
+            .RootElement.GetProperty("resourceInfo").EnumerateArray().Select(e => e.GetString()!)];
+
+        Assert.All(bare, path => Assert.StartsWith("../sprites/", path, StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task Staged_tiles_are_kept_gzip_compressed_and_an_empty_one_is_not_kept()
     {

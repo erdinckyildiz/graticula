@@ -596,7 +596,8 @@ public sealed class FileSystemTileCacheTests : IDisposable
         // interpolated, so that raising the generation fails here too and whoever raises
         // it sees what the paths become.
         // v2 since Q-157 (ADR-085): the tile generalises by zoom, so the cached tiles of v1 are left behind.
-        Assert.Equal("0f9c9f610f274a519e261e1a1b2c3d4e/v2/abcd1234/7/65/42.mvt", path);
+        // v3 since 2026-09-29 (ADR-085 §5.1 amended): a line is no longer left out for being under a pixel.
+        Assert.Equal("0f9c9f610f274a519e261e1a1b2c3d4e/v3/abcd1234/7/65/42.mvt", path);
     }
 
     [Fact]

@@ -80,6 +80,12 @@ internal static class VectorTileEndpoints
                 SpriteAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // <b>The list of those resources, which ArcGIS documents and this server did not serve until
+            // 2026-09-29</b> (D-285). No client measured here asks for it; it is served because it is part of the
+            // documented service and a client that does ask should not meet a 404.
+            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/resources/info", ResourceInfoAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
             // {z}/{y}/{x} — row before column. This is the ArcGIS URL order and
             // it is the reverse of almost every other tile scheme. Written once,
             // here, where the swap into TileAddress is visible on one line.
@@ -835,6 +841,55 @@ internal static class VectorTileEndpoints
             .ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// The service's resource files — ArcGIS's <i>Vector Tile Resource Info</i>, <c>resources/info</c> — D-285.
+    /// </summary>
+    private static async Task ResourceInfoAsync(
+        HttpContext context,
+        string serviceName,
+        CatalogFallback catalog,
+        GlyphStore glyphs,
+        StyleOriginList origins,
+        CancellationToken cancellation)
+    {
+        PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
+            .ConfigureAwait(false);
+
+        if (service is null)
+        {
+            return;
+        }
+
+        // The style the style route serves, so the fonts listed are the ones that style fetches.
+        string style = await TileExportPackage.StyleOfAsync(service, glyphs, origins, catalog.Catalog, cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Ok(ResourceInfo(style, glyphs)).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>What <c>resources/info</c> answers for a service serving this style — the route's and a package's.</summary>
+    /// <param name="style">The style as served.</param>
+    /// <param name="glyphs">The server's glyphs.</param>
+    /// <returns><c>{"resourceInfo": [...]}</c>.</returns>
+    /// <remarks>
+    /// <b>The documented resource is "relative paths to a list of resource files"; the rest is Esri's own
+    /// answer, read 2026-09-29</b> from <c>World_Basemap_v2</c>'s: each glyph range as
+    /// <c>../fonts/{stack}/{range}.pbf</c>, then the four sprite files as <c>../sprites/…</c>, relative to the
+    /// resource itself and with no style in the list. Every range the style can fetch is listed, which is what
+    /// a package packs (<see cref="TileExportPackage.FontFiles"/>); the four sprite files always, because the
+    /// sprite routes always answer, with an empty sheet when nobody uploaded one.
+    /// </remarks>
+    internal static object ResourceInfo(string style, GlyphStore glyphs) => new
+    {
+        resourceInfo = TileExportPackage.FontFiles(style, glyphs)
+            .Select(f => $"../fonts/{f.Stack}/{f.Range}.pbf")
+            .Concat(SpriteFiles.Select(file => "../sprites/" + file))
+            .ToArray(),
+    };
+
+    /// <summary>The four files a sprite route answers, in the order Esri's resource list names them.</summary>
+    internal static readonly string[] SpriteFiles = ["sprite.json", "sprite.png", "sprite@2x.json", "sprite@2x.png"];
+
     /// <summary>A one-pixel transparent PNG: an atlas with nothing in it.</summary>
     internal static readonly byte[] EmptySheet = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNgYGBgAAAABQABeqhXUAAAAABJRU5ErkJggg==");
@@ -1045,7 +1100,11 @@ internal static class VectorTileEndpoints
                 .ToDictionary(g => g.Key, g => g.First().VisibleRange, StringComparer.Ordinal),
 
             // ADR-096: a style's zooms count the service's own levels; null keeps Web Mercator's table.
-            service.TileScheme.IsWebMercator ? null : service.TileScheme.Level0Scale);
+            service.TileScheme.IsWebMercator ? null : service.TileScheme.Level0Scale,
+
+            // <b>The service's name, as the style's own (D-285).</b> Only the generated style: a stored one is
+            // served byte for byte (ADR-028), and its author's `name`, or its absence, is theirs.
+            service.Name);
 
     /// <summary>
     /// Whether a stored style still draws only layers the service has — ADR-028 condition 3: checked when it is

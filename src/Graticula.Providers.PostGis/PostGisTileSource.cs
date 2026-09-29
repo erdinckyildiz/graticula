@@ -93,7 +93,9 @@ public sealed class PostGisTileSource : ITileSource
     /// <remarks>
     /// <b>Half a pixel at z14 and below, and nothing above.</b> Half a pixel is four of the tile's 4,096 grid
     /// units, below what a client can draw; <c>preserveCollapsed</c> keeps a shape the tolerance would
-    /// have reduced to nothing, which <see cref="LargeEnough"/> has already decided should be drawn.
+    /// have reduced to nothing, which <see cref="LargeEnough"/> has already decided should be drawn — for a
+    /// line shorter than the tolerance, its two ends, which is what keeps a boundary made of short pieces
+    /// joined up.
     /// </remarks>
     public static string Generalised(string geometry) =>
         Generalised(geometry, $"@z <= {SimplifiedThroughZoom}");
@@ -200,18 +202,30 @@ public sealed class PostGisTileSource : ITileSource
     }
 
     /// <summary>
-    /// Whether a feature is large enough to see at this zoom — Q-157: a line or a polygon whose box is
-    /// smaller than a pixel both ways is left out of the tile, and a point never is.
+    /// Whether a feature is large enough to see at this zoom — Q-157: a polygon whose box is smaller than a
+    /// pixel both ways is left out of the tile, and a point or a line never is.
     /// </summary>
     /// <param name="geometry">SQL for the feature's geometry in Web Mercator.</param>
     /// <returns>A SQL condition.</returns>
     /// <remarks>
+    /// <para>
     /// <b>Where almost all of Q-157's gain is.</b> A z10 tile over Istanbul went from 16.6 MB and 14.4 s to
     /// 1.43 MB and 3.1 s on this alone; at z16 it costs about 3 ms. A point is exempt because its box has no
     /// size at all — the rule is about shapes too small to draw, and a point is drawn as a symbol.
+    /// </para>
+    /// <para>
+    /// <b>A line is exempt since 2026-09-29, because a line is often one piece of something longer.</b> A
+    /// boundary stored as many short lines — the showcase's <c>tr_il</c> is 81 provinces in 5,433 of them,
+    /// Ankara alone 248 — lost every piece shorter than a pixel, and the owner saw the provinces drawn
+    /// dashed in ArcGIS Pro at 1:10.7 million. A polygon under a pixel is a speck and leaving it out loses
+    /// a speck; a line piece under a pixel is a link in a chain and leaving it out breaks the chain. The
+    /// piece is still simplified (<see cref="Generalised(string, string)"/>) to its two ends, which join its neighbours',
+    /// and <c>ST_AsMVTGeom</c> drops it only when both ends snap to one cell of the tile's grid — a piece
+    /// nobody can see, whose neighbours meet in that cell anyway. ADR-085 §5.1, amended.
+    /// </para>
     /// </remarks>
     public static string LargeEnough(string geometry) =>
-        $"(ST_Dimension({geometry}) = 0"
+        $"(ST_Dimension({geometry}) < 2"
         + $" or ST_XMax({geometry}) - ST_XMin({geometry}) >= {Span} / {Pixels}"
         + $" or ST_YMax({geometry}) - ST_YMin({geometry}) >= {Span} / {Pixels})";
 

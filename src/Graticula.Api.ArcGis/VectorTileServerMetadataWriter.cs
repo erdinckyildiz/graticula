@@ -299,6 +299,15 @@ public static class VectorTileServerMetadataWriter
     /// </param>
     /// <param name="ranges">Each source layer's visible range, by name, or null — ADR-070.</param>
     /// <param name="level0Scale">The service's tiling scheme's level-zero scale, or null for Web Mercator — ADR-096.</param>
+    /// <param name="name">
+    /// The style's <c>name</c> — the service's, or null for none. <b>Added 2026-09-29, and what it fixes is
+    /// not measured.</b> ArcGIS Pro names a vector tile service added by its URL "Vector Tile Layer" rather
+    /// than after the service; the style specification Esri's style resource follows (Mapbox GL / MapLibre,
+    /// version 8) defines <c>name</c> as the style's human-readable name, and the generated style had none.
+    /// A probe of Pro 3.6 through <c>arcpy</c> on 2026-09-29 named Esri's own <c>World_Basemap_v2</c> the same
+    /// way and ignored a style <c>name</c> too, so this is the documented field rather than Pro's source
+    /// (INFERRED, D-285).
+    /// </param>
     public static object Style(
         IReadOnlyList<(string Name, GeometryKind Geometry, string? Symbology)> sourceLayers,
         string? fontStack = null,
@@ -310,17 +319,23 @@ public static class VectorTileServerMetadataWriter
 
         // <b>ADR-096: the level-zero scale of the service's tiling scheme</b>, or null for Web Mercator's.
         // A style's zoom counts the scheme's own levels, so a range narrows it against that scheme's scales.
-        double? level0Scale = null)
+        double? level0Scale = null,
+
+        // On the end and optional, so every caller that names none writes the style it wrote before.
+        string? name = null)
     {
         ArgumentNullException.ThrowIfNull(sourceLayers);
 
-        Dictionary<string, object> style = new()
+        Dictionary<string, object> style = new() { ["version"] = 8 };
+
+        if (!string.IsNullOrWhiteSpace(name))
         {
-            ["version"] = 8,
-            ["sources"] = new Dictionary<string, object>
-            {
-                ["esri"] = new { type = "vector", url = "../../" },
-            },
+            style["name"] = name;
+        }
+
+        style["sources"] = new Dictionary<string, object>
+        {
+            ["esri"] = new { type = "vector", url = "../../" },
         };
 
         if (fontStack is { Length: > 0 })

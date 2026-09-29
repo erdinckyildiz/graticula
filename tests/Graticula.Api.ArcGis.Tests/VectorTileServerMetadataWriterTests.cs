@@ -275,6 +275,22 @@ public sealed class VectorTileServerMetadataWriterTests
     }
 
     [Fact]
+    public void The_style_is_named_when_given_a_name_and_says_nothing_when_not()
+    {
+        // D-285: `name` is the style specification's human-readable name. A style written without one stays
+        // the document it was, which is what every caller that passes none relies on.
+        JsonElement named = Parse(VectorTileServerMetadataWriter.Style(
+            [("tr_il", GeometryKind.LineString, null)], name: "tr_il"));
+
+        Assert.Equal("tr_il", named.GetProperty("name").GetString());
+        Assert.Equal(8, named.GetProperty("version").GetInt32());
+
+        Assert.False(
+            Parse(VectorTileServerMetadataWriter.Style([("tr_il", GeometryKind.LineString, null)]))
+                .TryGetProperty("name", out _));
+    }
+
+    [Fact]
     public void The_style_source_points_two_levels_up_at_the_service_root()
     {
         // The style is served from resources/styles/root.json, so ../../ is the

@@ -52,6 +52,9 @@ public static class TilePipeline
     /// <b>2 on 2026-09-24, Q-157</b>: a tile leaves out a line or polygon smaller than a pixel and
     /// simplifies at half a pixel through z14, so every tile built before holds features and vertices a
     /// tile built now does not — the reason this number exists.
+    /// <b>3 on 2026-09-29, ADR-085 §5.1 amended</b>: a line is no longer left out for being smaller than a
+    /// pixel, because a boundary stored as short pieces drew dashed at low zoom, so a low-zoom tile of a line
+    /// layer holds pieces a version-2 tile left out.
     /// </remarks>
-    public const int Version = 2;
+    public const int Version = 3;
 }

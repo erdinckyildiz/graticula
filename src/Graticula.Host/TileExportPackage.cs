@@ -269,16 +269,11 @@ internal static class TileExportPackage
         await SpritesAsync(service, store, resources, cancellationToken).ConfigureAwait(false);
         Fonts(style, glyphs, resources);
 
-        // <b>The resource list the documented <c>resources/info</c> resource answers</b> — every path below
-        // <c>resources/</c>, the style's included. Its shape is INFERRED (ADR-098 §4).
-        JsonArray listed = [JsonValue.Create("styles/root.json")];
-
-        foreach (string path in resources.Keys.Order(StringComparer.Ordinal))
-        {
-            listed.Add(JsonValue.Create(path));
-        }
-
-        resources["info/root.json"] = Encoding.UTF8.GetBytes(new JsonObject { ["resourceInfo"] = listed }.ToJsonString());
+        // <b>The resource list the documented <c>resources/info</c> resource answers, from the route's own code</b> —
+        // a package's `p12` is the service tree file for file (ADR-098 §4), so its list is the live one. Until
+        // 2026-09-29 this wrote its own: the style first and every path relative to `resources/`, where the resource
+        // sits one folder deeper, so each named a file beside the list that was not there (D-285).
+        resources["info/root.json"] = JsonSerializer.SerializeToUtf8Bytes(VectorTileEndpoints.ResourceInfo(style, glyphs), Web);
 
         Envelope degrees = await DegreesAsync(plan.Area, scheme, projector, cancellationToken).ConfigureAwait(false);
 
@@ -378,7 +373,7 @@ internal static class TileExportPackage
         + "grid. Export it as a VTPK, which carries its own tiling scheme.";
 
     /// <summary>The style the style route would serve, as text.</summary>
-    private static async Task<string> StyleOfAsync(
+    internal static async Task<string> StyleOfAsync(
         PublishedService service,
         GlyphStore glyphs,
         StyleOriginList origins,
@@ -424,9 +419,29 @@ internal static class TileExportPackage
     /// </remarks>
     internal static void Fonts(string style, GlyphStore glyphs, Dictionary<string, byte[]> resources)
     {
+        foreach ((string stack, string range) in FontFiles(style, glyphs))
+        {
+            if (glyphs.TryRead(stack, range, out byte[] bytes, out _))
+            {
+                resources[$"fonts/{stack}/{range}.pbf"] = bytes;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Which glyph ranges of which stacks <see cref="Fonts"/> packs — split out on 2026-09-29 so the live
+    /// <c>resources/info</c> resource lists the same files without reading them (D-285).
+    /// </summary>
+    /// <param name="style">The style, as served.</param>
+    /// <param name="glyphs">The server's glyphs.</param>
+    /// <returns>Each stack as the style names it, and each range the server can answer for it.</returns>
+    internal static IReadOnlyList<(string Stack, string Range)> FontFiles(string style, GlyphStore glyphs)
+    {
+        List<(string Stack, string Range)> files = [];
+
         if (!glyphs.Any)
         {
-            return;
+            return files;
         }
 
         HashSet<string> stacks = new(StringComparer.Ordinal);
@@ -465,12 +480,12 @@ internal static class TileExportPackage
         }
         catch (JsonException)
         {
-            return;
+            return files;
         }
 
         if (!glyphed)
         {
-            return;
+            return files;
         }
 
         if (stacks.Count == 0)
@@ -490,12 +505,14 @@ internal static class TileExportPackage
             {
                 string range = string.Create(CultureInfo.InvariantCulture, $"{start}-{start + 255}");
 
-                if (glyphs.TryRead(stack, range, out byte[] bytes, out _))
+                if (glyphs.Has(stack, range))
                 {
-                    resources[$"fonts/{stack}/{range}.pbf"] = bytes;
+                    files.Add((stack, range));
                 }
             }
         }
+
+        return files;
 
         static string? StackOf(JsonElement font)
         {

@@ -79,6 +79,13 @@ public sealed class TilePipelineVersionTests
     /// its own question.
     /// </remarks>
     private const string RecordedHash =
+        // <b>Raised to version 3 on 2026-09-29 — ADR-085 §5.1 amended, D-284.</b> A line is no longer left out of a
+        // tile for being smaller than a pixel: the showcase's province boundaries, stored as 5,433 short lines, drew
+        // dashed in ArcGIS Pro at 1:10.7 million because every piece under a pixel was dropped. A low-zoom tile of a
+        // line layer now holds pieces a version-2 tile left out, so every tile cached before is unreachable, which is
+        // the intended effect. The same commit moved `VectorTileEndpoints` for D-285 — the generated style carries
+        // the service's `name` and `resources/info` is served — which alone would not have raised it: a style and a
+        // resource list are documents beside the tiles.
         // <b>Raised to version 2 on 2026-09-24 — Q-157.</b> A tile leaves out a line or polygon smaller
         // than a pixel and simplifies at half a pixel through z14 (benchmarks/tile-generalisation), which
         // changes the bytes of nearly every low-zoom tile; every tile cached before is unreachable, which is
@@ -187,10 +194,10 @@ public sealed class TilePipelineVersionTests
         // write. The key, the encoder, the parts and their joining are what they were — a stale answer is bytes this
         // pipeline already wrote, under the key it already reads. Moved once more the same day when a stale tile's
         // `max-age` became its `Age` plus the minute and `WriteTileAsync` took the age from its caller: headers only.
-        "7eee46a17a53aa31a4251bb9ce3114c59b95fd419a7684728261e4c4299e722b";
+        "c2a5c1b606afd86663ee9818c44e40ccf4abffc6ac02115410691be2874dde69";
 
     /// <summary>The generation that hash belongs to.</summary>
-    private const int RecordedVersion = 2;
+    private const int RecordedVersion = 3;
 
     private static string Root
     {

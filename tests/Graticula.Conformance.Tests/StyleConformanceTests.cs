@@ -185,7 +185,9 @@ public sealed class StyleConformanceTests : ArcGisClient, IAsyncLifetime
         JsonElement generated = JsonDocument.Parse(await ServedAsync()).RootElement;
 
         Assert.Equal(8, generated.GetProperty("version").GetInt32());
-        Assert.False(generated.TryGetProperty("name", out _));
+        // The generated style names the service since D-285 (2026-09-29); the authored one said "Conformance",
+        // so the name is still what tells the two apart.
+        Assert.Equal(_service, generated.GetProperty("name").GetString());
         Assert.NotEmpty(generated.GetProperty("layers").EnumerateArray());
     }
 

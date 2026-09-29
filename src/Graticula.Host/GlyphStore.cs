@@ -119,6 +119,22 @@ public sealed class GlyphStore
     }
 
     /// <summary>
+    /// Whether <see cref="TryRead"/> would answer this range of this stack, without reading it.
+    /// </summary>
+    /// <param name="fontstack">What the style asked for, as <see cref="TryRead"/> takes it.</param>
+    /// <param name="range">The range, e.g. <c>0-255</c>.</param>
+    /// <returns>True when a range would be found.</returns>
+    /// <remarks>
+    /// <b>For a listing, which reads nothing</b> — the <c>resources/info</c> resource names every range a
+    /// style can fetch, and reading 4.3 MB to say which files exist would be the listing's whole cost.
+    /// The same parse and the same stack resolution as <see cref="TryRead"/>, so the two cannot disagree.
+    /// </remarks>
+    public bool Has(string? fontstack, string? range) =>
+        TryRange(range, out int start, out int end)
+        && Resolve(fontstack) is { } stack
+        && File.Exists(Path.Combine(_root, stack, string.Create(CultureInfo.InvariantCulture, $"{start}-{end}.pbf")));
+
+    /// <summary>
     /// The first stack in the list we have, or the fallback.
     /// </summary>
     private string? Resolve(string? fontstack)

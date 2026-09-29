@@ -111,7 +111,9 @@ cold tile rather than once per row.
 polygon smaller than a pixel is left out, and geometry is simplified at half a pixel through z14, because a
 z10 tile over dense data measured 16.6 MB. **This section's decision still holds as written**: the
 generalising is `ST_Simplify` and a box comparison inside the same statement, so `/src` still carries no
-simplifier — it writes two SQL expressions, and PostGIS does the work.
+simplifier — it writes two SQL expressions, and PostGIS does the work. *(Amended 2026-09-29: only a **polygon** smaller than a
+pixel is left out now — a line under a pixel is kept, because a boundary stored as short pieces drew dashed;
+ADR-085 §5.1, [D-284](../architecture-debt.md).)*
 
 ---
 
