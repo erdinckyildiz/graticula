@@ -1123,9 +1123,10 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     /// </summary>
     /// <remarks>
     /// <b>Three sources, because one answer proves nothing here.</b> A GeoParquet layer is tiled and is
-    /// never hosted; a registered PostGIS layer is neither; the datastore is both. The console read
-    /// `hosted` for this question and told an operator their GeoParquet layer had no tile cache while its
-    /// tiles were being cached.
+    /// never hosted; a registered PostGIS layer is tiled and not hosted since ADR-095 (2026-09-29 — it was
+    /// neither until then); the datastore is both. The console read `hosted` for this question and told an
+    /// operator their GeoParquet layer had no tile cache while its tiles were being cached. The kind rides
+    /// along too, because the listing's coherence field is read from it.
     /// </remarks>
     [Fact]
     public async Task The_listing_says_which_layers_have_tiles()
@@ -1147,7 +1148,9 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         IReadOnlyList<AdminLayer> listed = await admin.ListLayersAsync(CancellationToken.None);
         AdminLayer Of(string name) => listed.Single(l => l.Name == name);
 
-        Assert.False(Of("tiles_registered").Tileable, "A registered PostGIS layer has no tile service.");
+        Assert.True(Of("tiles_registered").Tileable, "A registered PostGIS layer is tiled — ADR-095.");
+        Assert.Equal("postgis", Of("tiles_registered").Kind);
+        Assert.Equal("geoparquet", Of("tiles_parquet").Kind);
         Assert.True(Of("tiles_parquet").Tileable, "A GeoParquet layer is tiled — ADR-066 §9.");
         Assert.True(Of("tiles_ducks").Tileable, "A DuckDB-served layer is tiled too.");
 

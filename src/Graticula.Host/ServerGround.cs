@@ -123,7 +123,9 @@ internal sealed class ServerGround
                 return ($"There is no service '{trimmed}' on this server.", []);
             }
 
-            if (!service.Limits.AllowsTiles(dataSupportsIt: true) || service.Layers.Count == 0)
+            // `ServiceFaces.Tileable` too, which this did not ask: the face could be on for a service whose
+            // layers nothing here can encode, and the ground would then draw a 400 (ADR-095 §5.1).
+            if (!service.Limits.AllowsTiles(dataSupportsIt: true) || !ServiceFaces.Tileable(service))
             {
                 return ($"'{trimmed}' does not serve vector tiles, so it cannot be drawn as a ground.", []);
             }

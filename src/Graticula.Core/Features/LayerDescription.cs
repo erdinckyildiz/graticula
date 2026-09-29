@@ -234,6 +234,18 @@ public sealed record LayerDescription(
     public bool AnswersRelations { get; init; } = true;
 
     /// <summary>
+    /// Whether the geometry column has a spatial index — true or false for a PostGIS table, null where the
+    /// question has no answer here: a view, a foreign table, a file.
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-095 §5.2.</b> A registered table is somebody else's and may have none, and then every
+    /// cold tile reads the whole table. The tile path still serves it and tells the operator once; the
+    /// question is on the description because the describe is already a catalogue read of this relation,
+    /// and asking it there costs a subquery every <c>ServiceContexts.Lifetime</c> instead of a query a tile.
+    /// </remarks>
+    public bool? SpatiallyIndexed { get; init; }
+
+    /// <summary>
     /// Which ordinates beyond x and y the layer's geometry column declares — ADR-074.
     /// </summary>
     /// <remarks>

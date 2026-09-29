@@ -638,6 +638,21 @@ internal static class ErrorResponse
                 + "A numeric statistic — an average, a standard deviation, a percentile — needs a "
                 + "numeric field."),
 
+        // <b>A registered database whose PostGIS predates the tile functions — ADR-095.</b> A hosted
+        // layer's tile runs in the datastore, whose PostGIS this project ships; a registered layer's
+        // runs in somebody else's, and `ST_TileEnvelope` arrived in PostGIS 3.0. The general sentence
+        // below would send the operator to check whether PostGIS is installed, which it is.
+        PostgresException { SqlState: "42883" } e
+            when e.MessageText.Contains("st_tileenvelope", StringComparison.OrdinalIgnoreCase)
+                || e.MessageText.Contains("st_asmvt", StringComparison.OrdinalIgnoreCase) => new(
+            StatusCodes.Status500InternalServerError,
+            "This layer's database has PostGIS, but not the functions vector tiles are built with — "
+            + $"it reports: {e.MessageText}. ST_TileEnvelope needs PostGIS 3.0 or later, and the tile "
+            + "is built in the layer's own database (ADR-095). /admin/datasources/{id}/capability "
+            + "reports the version it has. The layer's FeatureServer does not use these functions and "
+            + "is unaffected.",
+            NeedsAnAdministrator),
+
         PostgresException { SqlState: "42883" } => new(
             StatusCodes.Status500InternalServerError,
             "The database is reachable but does not have a function this server needs. The usual "

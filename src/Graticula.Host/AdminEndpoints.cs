@@ -6189,6 +6189,7 @@ internal static partial class AdminEndpoints
         TileSingleFlight flight,
         ConnectionBudget budget,
         DatumShiftNotices datumShifts,
+        UnindexedLayerNotices unindexed,
         DatastoreUsageHold datastoreUsage,
         CancellationToken cancellation)
     {
@@ -6410,6 +6411,18 @@ internal static partial class AdminEndpoints
                  + "result can be metres out with no error and no visual signature. "
                  + "Said once per layer and target reference. See "
                  + "docs/geometry-crs-policy.md §3.",
+        };
+
+        // <b>Which layers are tiled from a table with no spatial index — ADR-095 §5.2.</b> Served, and
+        // slowly: every cold tile reads the whole table. Mostly a registered table, which is somebody
+        // else's to index. Said once per layer in the log as well.
+        health["unindexedLayers"] = new
+        {
+            layers = unindexed.Report(),
+            truncated = unindexed.Truncated,
+            note = "Each of these was tiled from a table with no spatial index on its geometry "
+                 + "column, so a cold tile reads the whole table. The tiles are correct. A GiST "
+                 + "index is the fix and belongs to whoever owns the table.",
         };
 
         health["admissionControl"] = new
@@ -7767,6 +7780,7 @@ internal static partial class AdminEndpoints
         IDataSourceProbe probe,
         IAuditLog audit,
         GeoParquetSources geoParquet,
+        ITileCache tiles,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentRegisterDataStore)
@@ -7904,11 +7918,37 @@ internal static partial class AdminEndpoints
 
         string? previousLocator = await LocatorOrNullAsync(catalog, id, cancellation).ConfigureAwait(false);
 
+        // Read before the update, which may rename the source the listing names layers by.
+        Guid[] layersOnSource =
+        [
+            .. (await catalog.ListLayersAsync(cancellation).ConfigureAwait(false))
+                .Where(layer => string.Equals(layer.DataSourceName, existing.Value.Name, StringComparison.Ordinal))
+                .Select(layer => layer.Id),
+        ];
+
         if (!await catalog.UpdateDataSourceAsync(
                 id, request.Name, connection, cancellation).ConfigureAwait(false))
         {
             await Refuse(context, 404, $"No data source '{id}'.").ConfigureAwait(false);
             return;
+        }
+
+        // <b>A source pointed somewhere else throws its layers' tiles away — ADR-095 §5.4.</b> The layer
+        // ids survive this update, and a tile's key is the layer id and a fingerprint, so until
+        // 2026-09-29 the new database's map was served the old one's tiles for their whole lifetime. A
+        // registered PostGIS layer's fingerprint now carries its database, which is what holds on every
+        // node; this purge is what frees the disk and makes this node's answer immediate. <b>Only when the
+        // place moved</b>: a rotated password or a changed pool setting is the same database, and a seeded
+        // pyramid is not thrown away for it. A locator this server cannot read is treated as moved, because
+        // keeping tiles it cannot vouch for is the worse error.
+        int tilesPurged = 0;
+
+        if (Moved(previousLocator, connection))
+        {
+            foreach (Guid layer in layersOnSource)
+            {
+                tilesPurged += tiles.Purge(layer);
+            }
         }
 
         // <b>A folder moved elsewhere closes the DuckDB it was read with.</b> Unlike a database pool,
@@ -7931,6 +7971,7 @@ internal static partial class AdminEndpoints
                 publishable = result.Tables.Count,
                 missing = missing.Count,
                 forced = missing.Count > 0,
+                tilesPurged,
             }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
@@ -7941,6 +7982,7 @@ internal static partial class AdminEndpoints
             summary = Summarise(connection),
             publishable = result.Tables.Count,
             missing,
+            tilesPurged,
             note = "Layers on this source use the new connection from their next query. Pools are "
                 + "per data source and cached by connection string, so the old pool is left to drain "
                 + "and prune rather than being closed under a query that is still reading.",
@@ -8197,6 +8239,31 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>A source's unsealed locator, or null when it cannot be read.</summary>
+    /// <summary>Whether a source's correction points it at a different place, not only a different credential.</summary>
+    /// <param name="previous">The locator before, or null when it could not be read.</param>
+    /// <param name="next">The locator after.</param>
+    /// <returns>True when the tiles of its layers may have been drawn from other data.</returns>
+    /// <remarks>
+    /// <b>A PostgreSQL connection is compared by <see cref="SourceQuiesce.DatabaseKey"/></b> — host, port and
+    /// database, the fold ADR-059 §5d uses for *the same database* — so a password rotation is not a move. A
+    /// file source is compared by its whole locator, which is its place. Null is a move: see the caller.
+    /// </remarks>
+    internal static bool Moved(string? previous, string next)
+    {
+        if (previous is null)
+        {
+            return true;
+        }
+
+        if (GeoParquetLocator.Is(previous) || GeoParquetLocator.Is(next))
+        {
+            return !string.Equals(previous, next, StringComparison.Ordinal);
+        }
+
+        return !string.Equals(
+            SourceQuiesce.DatabaseKey(previous), SourceQuiesce.DatabaseKey(next), StringComparison.Ordinal);
+    }
+
     private static async Task<string?> LocatorOrNullAsync(
         IAdminCatalog catalog, Guid id, CancellationToken cancellation)
     {
@@ -8695,7 +8762,7 @@ internal static partial class AdminEndpoints
     }
 
     private static async Task ListLayersAsync(
-        HttpContext context, IAdminCatalog catalog, CancellationToken cancellation)
+        HttpContext context, IAdminCatalog catalog, HostSettings settings, CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminViewAllContent)
             .ConfigureAwait(false))
@@ -8760,6 +8827,17 @@ internal static partial class AdminEndpoints
                 // D-159: the console has read this off this listing since the tile-cache
                 // control was written, and it was not here.
                 cacheSeconds = l.CacheSeconds,
+
+                // <b>ADR-010 §6b: the coherence policy, readable per layer — ADR-095 §5.3.</b> What the
+                // tiles and query answers are kept for when `cacheSeconds` is null (a registered PostGIS
+                // layer's default is shorter than a hosted one's), and how closely they follow the data:
+                // `exact` for hosted, `file-version` for a file whose version rides in the tile key, and
+                // `best-effort` for a database other tools write to, where only that lifetime bounds an
+                // edit this server did not make.
+                kind = l.Kind,
+                tileLifetimeSeconds = l.CacheSeconds
+                    ?? (long)TileSources.DefaultLifetimeOf(l.Hosted, l.Kind, settings.TileCacheLifetime).TotalSeconds,
+                coherence = TileSources.CoherenceOf(l.Hosted, l.Kind),
 
                 // ADR-070: the scales it draws at; 0 or null is no limit on that side.
                 minScale = l.MinScale ?? 0,

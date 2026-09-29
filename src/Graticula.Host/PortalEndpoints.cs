@@ -372,6 +372,7 @@ internal static class PortalEndpoints
             if (answer.Service is not { } service
                 || !service.IsRunning
                 || !service.Limits.AllowsTiles(dataSupportsIt: true)
+                || !ServiceFaces.Tileable(service)
                 || (answer.Blind && service.Sharing != SharingScope.Public)
                 || !LayerAccess.Evaluate(
                     service.Sharing, service.Owner, current.Principal, current.Authorization, service.SharedWith)

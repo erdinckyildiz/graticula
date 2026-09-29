@@ -590,7 +590,7 @@ public sealed class PostGisTileSourceTests : PostgresFixture
                     i += 8;
                     break;
                 case 2:
-                    i += (int)Varint(b, ref i);
+                    int skipLength = (int)Varint(b, ref i); i += skipLength;
                     break;
                 case 5:
                     i += 4;

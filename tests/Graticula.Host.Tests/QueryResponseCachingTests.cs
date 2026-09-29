@@ -74,13 +74,16 @@ public sealed class QueryResponseCachingTests
     /// <remarks>
     /// <b>Query-only unless a test says otherwise</b>, because since V-56 a layer somebody can edit is not
     /// cached by default, and every test below that is about the header's shape is about a layer that is.
+    /// <b>Hosted</b>, because since ADR-095 a registered PostGIS layer nobody gave a lifetime defaults to five
+    /// minutes rather than the server's figure, and these tests are about the header, not that default —
+    /// <c>A_registered_layer_defaults_to_the_shorter_lifetime</c> is about that.
     /// </remarks>
     private static PublishedLayer Layer(
         SharingScope sharing, TimeSpan? cacheLifetime = null, string[]? ceiling = null) =>
         new(
             Guid.NewGuid(),
             new LayerDefinition(
-                "parcels", "public", "parcels", "geom", 4326, "objectid", "objectid", isHosted: false),
+                "parcels", "public", "parcels", "geom", 4326, "objectid", "objectid", isHosted: true),
             "postgis",
             "unused",
             GeometryKind.Polygon,
@@ -127,6 +130,25 @@ public sealed class QueryResponseCachingTests
             TimeSpan.FromSeconds(30),
             QueryResponseCaching.LifetimeOf(
                 Layer(SharingScope.Public, TimeSpan.FromSeconds(30), ["Query", "Update"]), server, true));
+    }
+
+    [Fact]
+    public async Task A_registered_layer_defaults_to_the_shorter_lifetime()
+    {
+        // ADR-095 §5.3: a registered PostGIS table is written to by other tools, so its answers are kept five
+        // minutes rather than the server's hour unless an administrator declared otherwise — the same number
+        // its tiles carry (ADR-069).
+        DefaultHttpContext context = Request();
+        PublishedLayer registered = new(
+            Guid.NewGuid(),
+            new LayerDefinition("p", "public", "p", "geom", 4326, "objectid", "objectid", isHosted: false),
+            "registered", "Host=db;Database=gis", GeometryKind.Polygon, owner: null,
+            SharingScope.Public, ServiceStatus.Started, capabilityCeiling: ["Query"]);
+
+        await QueryResponseCaching.ApplyAsync(
+            context, registered, new PlainSource(), TimeSpan.FromMinutes(60), CancellationToken.None, writable: false);
+
+        Assert.Equal("public, max-age=300", context.Response.Headers.CacheControl.ToString());
     }
 
     private static DefaultHttpContext Request(

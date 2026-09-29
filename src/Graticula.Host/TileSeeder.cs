@@ -64,6 +64,7 @@ internal sealed class TileSeeder : BackgroundService
     private readonly TileSingleFlight _building;
     private readonly IProjector _projector;
     private readonly DatumShiftNotices _datumShifts;
+    private readonly UnindexedLayerNotices _unindexed;
     private readonly ILoggerFactory _loggers;
     private readonly GeoParquetSources _geoParquet;
     private readonly TimeProvider _clock;
@@ -86,6 +87,7 @@ internal sealed class TileSeeder : BackgroundService
         TileSingleFlight building,
         IProjector projector,
         DatumShiftNotices datumShifts,
+        UnindexedLayerNotices unindexed,
         ILoggerFactory loggers,
         GeoParquetSources geoParquet,
         TimeProvider clock,
@@ -101,6 +103,7 @@ internal sealed class TileSeeder : BackgroundService
         _building = building;
         _projector = projector;
         _datumShifts = datumShifts;
+        _unindexed = unindexed;
         _loggers = loggers;
         _geoParquet = geoParquet;
         _clock = clock;
@@ -178,11 +181,14 @@ internal sealed class TileSeeder : BackgroundService
             return $"The service '{service.QualifiedName}' has no layers, so there is nothing to put in a tile.";
         }
 
-        if (service.Layers.FirstOrDefault(layer => !VectorTileEndpoints.Tileable(layer)) is { } registered)
+        // <b>A registered PostGIS layer seeds like a hosted one since ADR-095</b>, through the same
+        // `LayerPartAsync` and a permit from its own source's budget (`AdmitTileBuildAsync` is keyed on the
+        // layer's connection string), so §5.5's concurrency is per source here as it is for a request.
+        if (service.Layers.FirstOrDefault(layer => !VectorTileEndpoints.Tileable(layer)) is { } untiled)
         {
-            return $"Layer '{registered.Definition.Name}' of '{service.QualifiedName}' is registered rather than "
-                + "hosted, so the service has no vector tiles (Q-67). Tiles come from hosted data and from "
-                + "GeoParquet layers.";
+            return $"Layer '{untiled.Definition.Name}' of '{service.QualifiedName}' is on a source of a kind this "
+                + "server cannot encode as vector tiles, so the service has none to seed. Tiles come from hosted "
+                + "data, registered PostGIS databases and GeoParquet and DuckDB sources (ADR-095, ADR-066 §9).";
         }
 
         return null;
@@ -380,7 +386,7 @@ internal sealed class TileSeeder : BackgroundService
             {
                 part = await VectorTileEndpoints.LayerPartAsync(
                         layer, address, defaultLifetime, _contexts, _connections, _cache, _building,
-                        _projector, _datumShifts, _loggers, _geoParquet,
+                        _projector, _datumShifts, _unindexed, _loggers, _geoParquet,
                         admit: permit => _connections.AdmitTileBuildAsync(layer, permit),
                         token)
                     .ConfigureAwait(false);

@@ -29,6 +29,14 @@ namespace Graticula.Providers.PostGis;
 /// geometry graph is built, and there is no clip, transform or simplify stage in
 /// this process. That is what buys the 0.02–0.15 MB per tile.
 /// </para>
+/// <para>
+/// <b>Run in the layer's own database, which since ADR-095 (2026-09-29) may be a registered one.</b>
+/// Nothing below assumes the datastore: the schema, table, geometry column and SRID are the layer
+/// definition's, the pool is the source's, and a table with no spatial index still answers — the
+/// <c>&amp;&amp;</c> becomes a scan, and the tile path says so once. What it does assume is PostGIS 3.0
+/// or later, for <c>ST_TileEnvelope</c>; an older registered database answers with an undefined
+/// function, and <c>ErrorResponse</c> names the version rather than calling it a missing install.
+/// </para>
 /// </remarks>
 public sealed class PostGisTileSource : ITileSource
 {

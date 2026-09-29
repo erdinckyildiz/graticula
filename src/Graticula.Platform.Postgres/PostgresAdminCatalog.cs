@@ -877,10 +877,12 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                    -- ADR-070: the scales it draws at, so the console shows what is set.
                    l.min_scale, l.max_scale,
 
-                   -- <b>D-264: whether the tile face answers, which is not `is_datastore` any more.</b>
-                   -- A DuckDB-served source — a GeoParquet folder or file, remote or local, or MotherDuck —
-                   -- is tiled too since ADR-066 §9, and is never the datastore.
-                   d.is_datastore or d.kind in ('geoparquet', 'geoparquet-remote', 'duckdb', 'motherduck')
+                   -- <b>The source's kind, and whether the tile face answers is decided from it in C#.</b>
+                   -- D-264 moved the tile question off `is_datastore` and into a `kind in (...)` list
+                   -- here, which was a second copy of `VectorTileEndpoints.Tileable`; ADR-095 changed the
+                   -- rule (a registered PostGIS layer is tiled too) and `TileSources.Tiled` is now the
+                   -- one place it lives, asked by this listing and by the tile face alike.
+                   d.kind
             from layer l
             join data_source d on d.id = l.data_source_id
             join service s on s.id = l.service_id
@@ -914,7 +916,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 reader.IsDBNull(15) ? null : reader.GetInt32(15),
                 reader.IsDBNull(16) ? null : reader.GetDouble(16),
                 reader.IsDBNull(17) ? null : reader.GetDouble(17),
-                reader.GetBoolean(18)));
+                TileSources.Tiled(reader.GetBoolean(10), reader.GetString(18)),
+                reader.GetString(18)));
         }
 
         return layers;

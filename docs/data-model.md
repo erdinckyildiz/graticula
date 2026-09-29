@@ -270,10 +270,12 @@ to be useful without loading the source database.
 | Data editing | Through our API | Through our API where we have write rights |
 | Schema editing | Through our admin API; we sequence it | In the source database; we detect drift and refresh |
 | Who backs it up | Us | Them |
-| **Vector tiles** | **Yes** | **No — never** (Q-67) |
+| **Vector tiles** | **Yes** | ~~**No — never** (Q-67)~~ **Yes, from a registered PostGIS database, since 2026-09-29** ([ADR-095](adr/ADR-095-registered-postgis-layers-serve-vector-tiles.md)); coherence is best-effort, bounded by a five-minute default lifetime |
 
 **The one asymmetry that is a hard rule (Q-67, 2026-08-12):** tiles come only
-from hosted data. This is not a capability gap to be closed later — it is the
+from hosted data. *(No longer a rule for PostGIS: reversed 2026-09-29 by owner decision,
+[ADR-095](adr/ADR-095-registered-postgis-layers-serve-vector-tiles.md). What stays asymmetric is coherence — a hosted layer's tiles follow every write,
+a registered one's follow the writes this server makes and a lifetime for the rest.)* This is not a capability gap to be closed later — it is the
 decision that removed the three-dialect tile path from the architecture. A
 registered layer's capability report says tiles are unavailable and why, per
 ADR-008 §2's never-degrade-silently principle; a tile endpoint does not exist

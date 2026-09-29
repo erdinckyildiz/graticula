@@ -44,8 +44,8 @@ internal static class VectorTileEndpoints
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        // Tiles come only from hosted data (Q-67), so the natural home is the
-        // hosted folder — but the root path is mapped too, and answers with the
+        // Tiles came only from hosted data (Q-67, reversed for registered PostGIS by
+        // ADR-095), so the natural home was the hosted folder — but the root path is mapped too, and answers with the
         // redirect in TileableAsync rather than a 404. A client that built a URL
         // before the folder existed gets told where the service moved.
         // Root and any folder. `{folder}` is a parameter and a literal segment wins in
@@ -100,12 +100,12 @@ internal static class VectorTileEndpoints
     /// Resolves a layer for tile serving, or answers the caller and returns null.
     /// </summary>
     /// <remarks>
-    /// <b>Q-67 is enforced here and nowhere else.</b> Vector tiles come only from
-    /// hosted data — data this server owns as system of record — and never from a
-    /// registered database. The refusal is separate from the not-found and
-    /// not-shared answers because it is a different fact about a layer that
-    /// genuinely exists and that the caller may genuinely read: it has a
-    /// FeatureServer and will never have a VectorTileServer.
+    /// <b>The tile rule is enforced here, through <see cref="Tileable"/>.</b> Q-67 put vector
+    /// tiles on hosted data only; ADR-066 §9 added GeoParquet and ADR-095 (2026-09-29) added
+    /// registered PostGIS databases, so what is still refused is a source of a kind nothing here
+    /// can encode. The refusal is separate from the not-found and not-shared answers because it
+    /// is a different fact about a layer that genuinely exists and that the caller may genuinely
+    /// read: it has a FeatureServer and no VectorTileServer.
     /// </remarks>
     private static async Task<PublishedService?> TileableAsync(
         HttpContext context,
@@ -155,17 +155,19 @@ internal static class VectorTileEndpoints
         }
 
         // <b>Every layer, not the first one.</b> A tile carries all of a
-        // service's layers, so one registered or non-Mercator layer disqualifies
+        // service's layers, so one layer nothing here can encode disqualifies
         // the service rather than being quietly skipped — a tile missing one of
         // three layers looks like missing data, and nobody would know to ask.
         //
         // <b>GeoParquet counts as tileable too, since 2026-09-13 — owner decision, reversing
         // ADR-066 §9 for this one face.</b> A GeoParquet layer is never hosted (`IsHosted` is
         // about the datastore, and a file is not the datastore), so it used to fail this test
-        // for the same reason a registered Oracle table does. The two are not the same fact any
-        // more: a registered database layer still has no tile service, because nothing here
-        // reads *its* rows the way a GeoParquet layer's are read through DuckDB and encoded by
-        // PostGIS. `Tileable` is what tells the two apart now that `IsHosted` alone cannot.
+        // for the same reason a registered Oracle table does.
+        //
+        // <b>And a registered PostGIS layer, since 2026-09-29 — ADR-095, owner decision,
+        // reversing Q-67 for PostGIS.</b> Its rows are read by the statement a hosted layer's
+        // are, in its own database. `Tileable` is what tells a layer that tiles from one that
+        // cannot now that `IsHosted` answers neither.
         PublishedLayer layer = service.Layers[0];
 
         foreach (PublishedLayer each in service.Layers)
@@ -188,10 +190,12 @@ internal static class VectorTileEndpoints
                     {
                         code = 400,
                         message =
-                            $"Layer '{layerName}' is registered rather than hosted, so it has no "
-                            + "vector tile service. Tiles are served only from hosted data and from "
-                            + "GeoParquet layers, which are read the same way a query already reads "
-                            + "them (Q-67, ADR-066 §9). Its FeatureServer is at "
+                            $"Layer '{layer.Definition.Name}' of '{layerName}' is served from a "
+                            + $"'{KindOf(layer)}' source, and this server cannot encode that kind "
+                            + "of source as vector tiles. Tiles are served from hosted data, from "
+                            + "registered PostGIS databases and from GeoParquet and DuckDB sources "
+                            + "(ADR-095, ADR-066 §9); other database engines serve features only "
+                            + "(Q-67). Its FeatureServer is at "
                             + $"/rest/services/{layerName}/FeatureServer and is unaffected.",
                         details = Array.Empty<string>(),
                     },
@@ -221,15 +225,47 @@ internal static class VectorTileEndpoints
 
     /// <summary>Whether a layer's rows can reach a vector tile at all.</summary>
     /// <remarks>
-    /// <b>Hosted, or a GeoParquet file — nothing else.</b> A hosted layer is read from the
-    /// datastore by <c>PostGisTileSource</c>; a GeoParquet layer is read from its file by
-    /// <c>GeoParquetTileSource</c> and encoded by the same PostGIS statement either way. A
-    /// registered PostgreSQL layer that is neither is exactly what Q-67 still refuses: tiles come
-    /// from data this server owns as system of record or reads in place under its own control,
-    /// never from a database that belongs to somebody else.
+    /// <para>
+    /// <b>Hosted, a registered PostGIS database, or a DuckDB-read source — ADR-095, owner decision
+    /// 2026-09-29, reversing Q-67 for PostGIS.</b> A hosted layer and a registered PostGIS layer are
+    /// both read by <c>PostGisTileSource</c>, the one statement, run in the layer's own database
+    /// through <see cref="LayerConnections.TileSourceFor"/>'s pool for that source — so quiesce, the
+    /// breaker and the budget are the source's, not the datastore's. A GeoParquet layer is read by
+    /// <c>GeoParquetTileSource</c> and encoded by the same statement (ADR-066 §9).
+    /// </para>
+    /// <para>
+    /// <b>The rule is <see cref="Graticula.Platform.Admin.TileSources.Tiled"/>, and this only asks
+    /// it</b>, so the catalogue's <c>AdminLayer.Tileable</c> cannot answer differently. What is still
+    /// refused is a kind nothing here encodes — none can be registered today, and the SQL Server,
+    /// Oracle and MySQL providers v1-scope §3a defers would be — because <c>ST_AsMVT</c> is a PostGIS
+    /// function and Q-67's reason still holds for those engines.
+    /// </para>
     /// </remarks>
     internal static bool Tileable(PublishedLayer layer) =>
-        layer.Definition.IsHosted || Graticula.Platform.Admin.GeoParquetLocator.Is(layer.ConnectionString);
+        Graticula.Platform.Admin.TileSources.Tiled(layer.Definition.IsHosted, KindOf(layer));
+
+    /// <summary>The kind of a layer's source, read off its locator — <see cref="Graticula.Platform.Admin.DataSourceKinds"/>.</summary>
+    private static string KindOf(PublishedLayer layer) =>
+        Graticula.Platform.Admin.GeoParquetLocator.KindOf(layer.ConnectionString);
+
+    /// <summary>
+    /// How long a layer's tiles are kept here and downstream: its own lifetime when an administrator set one,
+    /// and otherwise the default for its kind of source — ADR-095 §5.3.
+    /// </summary>
+    /// <param name="layer">The layer.</param>
+    /// <param name="serverDefault">The server's own default — <c>Graticula:TileCacheMinutes</c>.</param>
+    /// <returns>The lifetime; zero means never cached.</returns>
+    /// <remarks>
+    /// <b>One place for the three readers that each wrote <c>layer.CacheLifetime ?? defaultLifetime</c>:</b>
+    /// the tile route, the seed's cache report and the query face's default (ADR-069 says a layer's query
+    /// answer and its tiles carry the same number). A registered PostGIS layer nobody declared defaults to
+    /// <see cref="Graticula.Platform.Admin.TileSources.RegisteredLifetime"/>, because the edits other tools
+    /// make to it never reach this server and only the lifetime bounds them (ADR-010 §5.2).
+    /// </remarks>
+    internal static TimeSpan LifetimeOf(PublishedLayer layer, TimeSpan serverDefault) =>
+        layer.CacheLifetime
+        ?? Graticula.Platform.Admin.TileSources.DefaultLifetimeOf(
+            layer.Definition.IsHosted, KindOf(layer), serverDefault);
 
     /// <summary>
     /// The only spatial reference tiles are served on.
@@ -946,6 +982,7 @@ internal static class VectorTileEndpoints
         TileSingleFlight building,
         IProjector projector,
         DatumShiftNotices datumShifts,
+        UnindexedLayerNotices unindexed,
         ILoggerFactory loggerFactory,
         GeoParquetSources geoParquet,
         CancellationToken cancellation)
@@ -1024,7 +1061,7 @@ internal static class VectorTileEndpoints
             // handler, which answers it as every read path's is answered — 503 with `Retry-After`.
             LayerPart part = await LayerPartAsync(
                     layer, address, defaultLifetime, contexts, connections, cache, building,
-                    projector, datumShifts, loggerFactory, geoParquet,
+                    projector, datumShifts, unindexed, loggerFactory, geoParquet,
                     admit: permit => connections.AdmitTileBuildAsync(layer, permit),
                     cancellation)
                 .ConfigureAwait(false);
@@ -1132,9 +1169,22 @@ internal static class VectorTileEndpoints
         // attribute list; a file can be replaced by another with the same columns and a
         // different geometry, and nothing above would notice without this. Null for a hosted
         // layer, which keeps every existing cache key unchanged.
-        string? fileVersion = Graticula.Platform.Admin.GeoParquetLocator.Is(layer.ConnectionString)
+        //
+        // <b>A registered PostGIS layer's database rides in it the same way — ADR-095 §5.4.</b>
+        // `PUT /admin/datasources/{id}` can point a source at another database and keep every layer
+        // id, and the key is the layer id plus this fingerprint: without the database in it, the
+        // new database's map would be served the old one's tiles until they expired. The identity
+        // is `SourceQuiesce.DatabaseKey` — host, port and database, the fold ADR-059 §5d already
+        // uses to say *the same database* — so a rotated password or a changed pool setting keeps
+        // the pyramid, and only somewhere else loses it. It is hashed, never written into the path.
+        // The update also purges the source's layers (`UpdateDataSourceAsync`); this is what still
+        // holds on a node that purge did not reach. Null for a hosted layer, whose keys stay what
+        // they were.
+        string? version = Graticula.Platform.Admin.GeoParquetLocator.Is(layer.ConnectionString)
             ? geoParquet.VersionOf(layer.ConnectionString, layer.Definition.TableName)
-            : null;
+            : Graticula.Platform.Admin.TileSources.Registered(layer.Definition.IsHosted, KindOf(layer))
+                ? "source=" + SourceQuiesce.DatabaseKey(layer.ConnectionString)
+                : null;
 
         return new TileCacheKey(
             layer.Id,
@@ -1144,7 +1194,7 @@ internal static class VectorTileEndpoints
                 attributes.Select(a => a.Name),
                 PostGisTileSource.Extent,
                 PostGisTileSource.Buffer,
-                fileVersion),
+                version),
             address);
     }
 
@@ -1161,6 +1211,7 @@ internal static class VectorTileEndpoints
     /// <param name="building">The builds in flight — §2c.</param>
     /// <param name="projector">For the datum notice.</param>
     /// <param name="datumShifts">Where a datum crossing is said once.</param>
+    /// <param name="unindexed">Where a layer with no spatial index is said once — ADR-095 §5.2.</param>
     /// <param name="loggerFactory">For the datum notice.</param>
     /// <param name="geoParquet">For a GeoParquet layer's file version.</param>
     /// <param name="admit">
@@ -1194,6 +1245,7 @@ internal static class VectorTileEndpoints
         TileSingleFlight building,
         IProjector projector,
         DatumShiftNotices datumShifts,
+        UnindexedLayerNotices unindexed,
         ILoggerFactory loggerFactory,
         GeoParquetSources geoParquet,
         Func<CancellationToken, ValueTask<IDisposable>>? admit,
@@ -1228,12 +1280,24 @@ internal static class VectorTileEndpoints
                 cancellation)
             .ConfigureAwait(false);
 
+        // <b>ADR-095 §5.2: a table with no spatial index still tiles, slowly, and the operator hears
+        // it once.</b> A registered table is somebody else's and may have none; the `&&` in the tile
+        // statement then reads the whole table for every cold tile. Refusing would take away a map
+        // that works; saying nothing would leave the operator to find out from a slow one. The
+        // describe already read the index from the catalogue, so this costs nothing per tile.
+        if (description.SpatiallyIndexed is false)
+        {
+            unindexed.Note(layer.Id, layer.Definition.Name, loggerFactory.CreateLogger("tiles"));
+        }
+
         TileCacheKey key = KeyOf(layer, attributes, address, geoParquet);
 
         // <b>The layer's own lifetime, not the server's.</b> D-25: a
         // cadastral layer and an incident layer need opposite answers, and
-        // A-028 records that only the administrator knows which is which.
-        TimeSpan lifetime = layer.CacheLifetime ?? defaultLifetime;
+        // A-028 records that only the administrator knows which is which. When
+        // nobody said, a registered PostGIS layer gets the shorter default ADR-095
+        // §5.3 gives it, because other tools write to it and nothing tells us.
+        TimeSpan lifetime = LifetimeOf(layer, defaultLifetime);
 
         // <b>V-56's tile half: a layer somebody can edit is revalidated, not kept.</b> The
         // lifetime above still governs this server's own copy, which an edit empties; what

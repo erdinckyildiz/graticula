@@ -162,7 +162,7 @@ internal static partial class AdminEndpoints
                         layer, VectorTileEndpoints.AttributesOf(layer, description),
                         new TileAddress(zoom.Zoom, 0, 0), geoParquet);
 
-                    HashSet<long> fresh = files.FreshIn(key, range, layer.CacheLifetime ?? defaultLifetime);
+                    HashSet<long> fresh = files.FreshIn(key, range, VectorTileEndpoints.LifetimeOf(layer, defaultLifetime));
 
                     if (all is null)
                     {
@@ -191,6 +191,31 @@ internal static partial class AdminEndpoints
             });
         }
 
+        // <b>ADR-010 §6b per layer: how long its tiles are kept and how closely they follow its data —
+        // ADR-095 §5.3.</b> A registered PostGIS layer is `best-effort`: an edit made through this server
+        // empties its tiles, and an edit made by any other tool is bounded only by `lifetimeSeconds`. §6b's
+        // own words are that a best-effort guarantee nobody can inspect is indistinguishable from a bug.
+        // `spatialIndex` is the describe's answer (ADR-095 §5.2), null where it cannot be known.
+        List<object> layers = [];
+
+        foreach (PublishedLayer layer in service.Layers)
+        {
+            (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+            bool hosted = layer.Definition.IsHosted;
+            string kind = GeoParquetLocator.KindOf(layer.ConnectionString);
+
+            layers.Add(new
+            {
+                name = layer.Definition.Name,
+                kind,
+                hosted,
+                lifetimeSeconds = (long)VectorTileEndpoints.LifetimeOf(layer, defaultLifetime).TotalSeconds,
+                lifetimeFrom = layer.CacheLifetime is null ? "default" : "layer",
+                coherence = TileSources.CoherenceOf(hosted, kind),
+                spatialIndex = described.SpatiallyIndexed,
+            });
+        }
+
         (int Min, int Max)? defaults = DefaultSeedLevels(service);
         IReadOnlyList<TileSeedState> recent = await seeds.ListAsync(service.Id, 10, cancellation).ConfigureAwait(false);
         TileSeedState? running = recent.FirstOrDefault(seed => seed.Job.Status is JobStatus.Queued or JobStatus.Running);
@@ -201,6 +226,7 @@ internal static partial class AdminEndpoints
             folder = service.Folder,
             pipeline = TilePipeline.Version,
             budget = BudgetOf(cache, service),
+            layers,
             levels,
             running = running is null ? null : Wire(running, service, DateTimeOffset.UtcNow),
             seeds = recent.Select(seed => Wire(seed, service, DateTimeOffset.UtcNow)),

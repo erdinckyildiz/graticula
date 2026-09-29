@@ -151,7 +151,14 @@ public sealed class TilePipelineVersionTests
         // service's named styles at `resources/styles/{name}.json` beside `root.json`, and checks a stored style
         // against the origins an administrator allows before serving it. Both are the style document, a resource
         // beside the tiles; the tile route is untouched and not one byte of a tile is decided differently.
-        "2911023e929706d7299e4a2678e802e092538121e4759725fb31c9988dbebbda";
+        // <b>Moved again 2026-09-29 for ADR-095, and the version did not move.</b> A registered PostGIS layer is
+        // tileable (`Tileable` asks `TileSources.Tiled`), and its key's fingerprint carries its database as the
+        // version a GeoParquet layer's carries its file's — null for a hosted layer, so no hosted key moved, and
+        // `RegisteredLayersServeTilesTests.A_hosted_layers_key_is_what_it_was_before_ADR_095` pins that. A new
+        // kind of source gained tiles; the statement, the attributes and the bytes of every existing tile are the
+        // same. The rest is a lifetime (`LifetimeOf`), a once-per-layer notice for an unindexed table, a refusal's
+        // wording and a comment in `PostGisTileSource`.
+        "9b28bcb1dcbfe71892fbcb2a1a0f6ff82b9f748064416dbed4162115bd0e2159";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 2;

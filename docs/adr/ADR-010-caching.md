@@ -340,7 +340,7 @@ is asking about one of them:
 
 | What is remembered | The window | Where it is set |
 |---|---|---|
-| A tile | **60 minutes** by default, **or the layer's own `cache_seconds`** where an administrator set one | `Graticula:TileCacheMinutes`; per layer, `PUT /admin/layers/{name}/cache` |
+| A tile | **60 minutes** by default, **or the layer's own `cache_seconds`** where an administrator set one. *(Since 2026-09-29, **5 minutes** by default for a registered PostGIS layer — [ADR-095](ADR-095-registered-postgis-layers-serve-vector-tiles.md) §5.3, INFERRED — or the server's default when that is shorter.)* | `Graticula:TileCacheMinutes`; per layer, `PUT /admin/layers/{name}/cache`; `TileSources.RegisteredLifetime` |
 | A layer's shape — its fields, types and geometry column | **30 seconds** | `ServiceContexts.Lifetime` |
 | A WMS layer's measured time extent | **5 minutes** | `WmsEndpoints.TimeExtentLifetime` |
 | Anything, after our own write or an admin action | **zero** | `ServiceContexts.Forget`, called by the publish, unpublish and refresh paths |
@@ -374,6 +374,14 @@ This is a per-service knob, which A-008 warns about — but unlike worker tuning
 domain knowledge, not performance tuning, and asking for it is reasonable.
 
 Recorded as A-028.
+
+> **Applied to registered tiles 2026-09-29 — [ADR-095](ADR-095-registered-postgis-layers-serve-vector-tiles.md).**
+> Registered PostGIS layers serve vector tiles since that day (Q-67 reversed for PostGIS), and this section
+> is the coherence they get: a layer's declared lifetime governs its tiles, and one nobody declared gets a
+> default for its kind of source — five minutes for a registered PostGIS table, because other tools write
+> to it and only the lifetime bounds them (§5.2). Writes this server makes still purge at once. No change
+> detection was built (§5.2's mechanism 2); a cheap PostGIS data version stays a revisit trigger
+> ([D-266](../architecture-debt.md)).
 
 ## 6. Seeding
 
@@ -425,7 +433,9 @@ Two things this changes in §6:
 
 **Q-67 narrows this further:** every seedable layer is hosted PostGIS, so
 seeding always has the fast path available and never has to plan for an engine
-that cannot clip. What is left to decide is Q-68 — whether a seed reads once and
+that cannot clip. *(Since [ADR-095](ADR-095-registered-postgis-layers-serve-vector-tiles.md), a registered
+PostGIS layer is seedable too — still PostGIS, still the fast path, with each build's permit taken from the
+registered source's own budget.)* What is left to decide is Q-68 — whether a seed reads once and
 encodes many tiles in process, or issues one `ST_AsMVT` per tile.
 
 **Q-68 is not reopened by ADR-093**: a seed issues one `ST_AsMVT` per tile, through the tile
@@ -466,7 +476,9 @@ because a full invalidation of a seeded pyramid is itself an outage.
 > `GET /admin/services/{name}/cache` answers, for each level a seed has finished, when it was
 > last seeded, over what area, how many tiles that area holds, and how many of them are
 > cached and fresh now for every layer drawn there. That is *when was each zoom level last
-> generated* for seeded levels; a level only ever filled by requests is still not dated
+> generated* for seeded levels. *(And since [ADR-095](ADR-095-registered-postgis-layers-serve-vector-tiles.md)
+> §5.3, the coherence policy per layer is readable too: `/admin/layers` and the service's cache read-back
+> carry `coherence` — `exact`, `file-version` or `best-effort` — and the lifetime a layer's tiles get.)* A level only ever filled by requests is still not dated
 > ([D-248](../architecture-debt.md)'s half), and scoped invalidation is still not built.
 
 ## 7. Multi-node

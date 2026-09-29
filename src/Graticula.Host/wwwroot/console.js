@@ -10913,7 +10913,10 @@ function showLayer(name, page, pending = null) {
            hosted, so this page told its operator there was no cache while the tiles were being cached. -->
       ${l.tileable ? `
       <div class="setting"><span class="q">How long a tile stays fresh:</span>
-        <input type="number" id="ttl" min="0" step="1" placeholder="server default"><span class="u">seconds</span></div>
+        <input type="number" id="ttl" min="0" step="1" placeholder="${l.cacheSeconds == null && l.tileLifetimeSeconds != null ? `default, ${h(String(l.tileLifetimeSeconds))}` : "server default"}"><span class="u">seconds</span></div>
+      ${l.coherence === "best-effort" ? `<p class="hint">Other tools can change this layer's data without
+        this server knowing, so its tiles catch up only when they expire. Edits made through this server
+        clear them at once (ADR-095).</p>` : ""}
       <div class="row" style="margin-top:10px">
         <button data-cache="${h(name)}">Set</button>
         <button data-cache="${h(name)}" data-clear="1" class="ghost">Use the server's</button>

@@ -21,7 +21,8 @@ public sealed class PostgresLayerCatalog
         -- Derived, never read from l.is_hosted. That column was written false by
         -- every insert since version 1, so anything trusting it concluded that
         -- nothing in the world was hosted — which silently disabled every vector
-        -- tile service (Q-67). Hosted means the data lives in the datastore, and
+        -- tile service (Q-67, since reversed for registered PostGIS by ADR-095 — the
+        -- tile rule is TileSources.Tiled now). Hosted means the data lives in the datastore, and
         -- the datastore is a registered source flagged as such, so the fact has
         -- exactly one home and cannot drift from the other one.
         d.is_datastore, l.geometry_type,

@@ -108,9 +108,10 @@ public sealed class ServiceCapabilityLimitsTests
     [Fact]
     public void A_face_the_data_cannot_serve_stays_off_however_it_is_configured()
     {
-        // Tiles come only from hosted data (Q-67). A ceiling cannot lift a floor:
-        // configuring tiles on for a registered layer must not produce a tile
-        // service, or the setting would promise what the runtime refuses.
+        // Tiles come only from a source this server can encode (ADR-095; Q-67 for
+        // the other engines). A ceiling cannot lift a floor: configuring tiles on
+        // for a layer the data cannot tile must not produce a tile service, or the
+        // setting would promise what the runtime refuses.
         ServiceCapabilityLimits on = new(null, servesTiles: true, null, null);
 
         Assert.False(on.AllowsTiles(dataSupportsIt: false));

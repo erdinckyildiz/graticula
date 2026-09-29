@@ -21,6 +21,14 @@ way — 0 is empty, 1 may be — and costs no query against the data. Touching c
 vector tile is encoded with a buffer. `TheTileMapSaysWhichTilesAreEmptyTests` fetches every tile a map calls empty
 and requires it empty, at a level where the tile under the data is not; an all-zero map fails it.
 
+**Amended 2026-09-29, by owner decision — [ADR-095](ADR-095-registered-postgis-layers-serve-vector-tiles.md):
+a registered PostGIS database's layers serve vector tiles**, reversing Q-67 for PostGIS. The decision here
+is unchanged and is what made that cheap: the tile is the same `ST_AsMVTGeom`/`ST_AsMVT` statement, run in
+the registered database through its own pool instead of in the datastore. §1's *hosted data is PostGIS*
+and §4's *the datastore is ours* now read *every tile source is PostGIS*; the datastore is no longer the
+only database a tile is encoded in, which puts a registered database's PostGIS version (3.0 or later, for
+`ST_TileEnvelope`) and its indexes in the tile's path — ADR-095 §5.2.
+
 
 > **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are
 > deferred rather than cut.** This decision reasons about several database engines.
@@ -138,7 +146,10 @@ stage into PostgreSQL.
   the datastore, reached the same way [ADR-008](ADR-008-query-engine.md) reaches
   `ST_Intersects` and `ST_ClipByBox2D`. Pushdown *is* the query-engine design;
   this is that design followed to its conclusion for one output format.
-- The datastore is ours. [ADR-019](ADR-019-portal-server-split.md) fused it into
+- The datastore is ours. *(Since [ADR-095](ADR-095-registered-postgis-layers-serve-vector-tiles.md), not
+  the only database a tile is encoded in: a registered PostGIS database encodes its own layers' tiles.
+  That is still PostGIS, so the decision holds; what it no longer holds is that somebody else never chose
+  the database.)* [ADR-019](ADR-019-portal-server-split.md) fused it into
   the product and [Q-69](../open-questions.md) made it mandatory. This is not a
   dependency on a database somebody else chose.
 - **Most of the tiling pipeline stays Tier 1 and unaffected**: tile addressing

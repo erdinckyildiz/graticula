@@ -226,7 +226,8 @@ internal static class QueryResponseCaching
 
     /// <summary>
     /// How long a query answer from this layer may be kept: its own lifetime when an administrator set one,
-    /// the server's default for a layer nobody can edit, and nothing for a layer somebody can — V-56.
+    /// the default for its kind of source for a layer nobody can edit (ADR-095), and nothing for a layer
+    /// somebody can — V-56.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -257,7 +258,11 @@ internal static class QueryResponseCaching
             return chosen;
         }
 
-        return Editable(layer, writable) ? TimeSpan.Zero : defaultLifetime;
+        // <b>The tile face's default, not the server's, since ADR-095 (2026-09-29).</b> A registered PostGIS
+        // layer nobody gave a lifetime is kept five minutes rather than the server's hour, because other
+        // tools write to it; ADR-069 is that a layer's query answers and its tiles carry one number, so the
+        // shorter default reaches both through the one function that decides it.
+        return Editable(layer, writable) ? TimeSpan.Zero : VectorTileEndpoints.LifetimeOf(layer, defaultLifetime);
     }
 
     /// <summary>Whether anybody at all can edit this layer's rows.</summary>

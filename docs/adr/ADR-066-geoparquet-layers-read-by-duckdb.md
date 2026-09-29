@@ -247,7 +247,8 @@ process.** Concretely:
    **What this does not change.** A GeoParquet layer is still never hosted (`LayerDefinition.IsHosted`
    is about the datastore, and a file is not the datastore), so Q-67's rule — vector tiles come only
    from data this server owns or reads under its own control — is not relaxed for a *registered
-   database* layer; `VectorTileEndpoints.Tileable` names the two cases that now qualify (hosted,
+   database* layer *(it was on 2026-09-29, for PostGIS — [ADR-095](ADR-095-registered-postgis-layers-serve-vector-tiles.md);
+   the rule is `TileSources.Tiled` now, and this section's shape is what that change copied)*; `VectorTileEndpoints.Tileable` names the two cases that now qualify (hosted,
    or GeoParquet) rather than widening `IsHosted` itself. **Cache invalidation is structural, not a
    sweep**: a replaced file's own version (`GeoParquetTable.Version`, from its length and
    modification time) rides in `TileCacheKey.FingerprintOf`, so a replacement invalidates its tiles

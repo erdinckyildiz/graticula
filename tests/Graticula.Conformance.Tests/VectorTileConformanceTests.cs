@@ -315,7 +315,7 @@ public sealed class VectorTileConformanceTests : ArcGisClient
                 continue;
             }
 
-            int end = i + (int)Varint(tile, ref i);
+            int endLength = (int)Varint(tile, ref i); int end = i + endLength;
 
             while (i < end)
             {
@@ -335,7 +335,7 @@ public sealed class VectorTileConformanceTests : ArcGisClient
 
                     case 2 when lw == 2:
                         features++;
-                        int stop = i + (int)Varint(tile, ref i);
+                        int stopLength = (int)Varint(tile, ref i); int stop = i + stopLength;
                         Coordinates(tile, i, stop, ref minimum, ref maximum);
                         i = stop;
                         break;
@@ -358,7 +358,7 @@ public sealed class VectorTileConformanceTests : ArcGisClient
 
             if (field == 4 && wire == 2)
             {
-                int stop = i + (int)Varint(b, ref i);
+                int stopLength = (int)Varint(b, ref i); int stop = i + stopLength;
                 int x = 0, y = 0;
 
                 while (i < stop)
@@ -428,7 +428,7 @@ public sealed class VectorTileConformanceTests : ArcGisClient
                 i += 8;
                 break;
             case 2:
-                i += (int)Varint(b, ref i);
+                int skipLength = (int)Varint(b, ref i); i += skipLength;
                 break;
             case 5:
                 i += 4;

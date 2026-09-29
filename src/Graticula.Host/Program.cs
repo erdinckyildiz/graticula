@@ -370,6 +370,7 @@ public static class Program
         // *said once* is a property of the server rather than of a request, and it is
         // read back by `/admin/health`.
         builder.Services.AddSingleton<DatumShiftNotices>();
+        builder.Services.AddSingleton<UnindexedLayerNotices>();
 
         // D-237: the datastore's size, held for a minute because Operations samples every five
         // seconds and the answer moves when somebody uploads.
@@ -2380,11 +2381,12 @@ public static class Program
                     Type: s.Kind)),
         ];
 
-        // <b>Only hosted services have tile services (Q-67).</b> The spatial
-        // reference no longer decides: a layer keeps the projection it arrived
-        // in and the tile path transforms per request (owner correction
-        // 2026-08-15, Q-96). Filtering on 3857 here would hide a tile service
-        // that works.
+        // <b>Which services have tile services is `ServiceFaces.Tileable`, below</b> —
+        // hosted, registered PostGIS and DuckDB-read layers since ADR-095 (Q-67 said
+        // hosted only). The spatial reference does not decide: a layer keeps the
+        // projection it arrived in and the tile path transforms per request (owner
+        // correction 2026-08-15, Q-96). Filtering on 3857 here would hide a tile
+        // service that works.
         // <b>A folder that is not a folder answers 404, rather than an empty directory.</b>
         // Before the register existed every folder name "existed" and listed nothing, so a
         // typo looked like an empty folder and no client could tell the two apart. The
@@ -5083,8 +5085,10 @@ public static class Program
     /// </para>
     /// <para>
     /// <b>A failure here is loud and not fatal.</b> Feature services do not need
-    /// the datastore registered; only tiles do. Refusing to start would take a
-    /// working server down over a capability the deployment may never use.
+    /// the datastore registered; only hosted data does — and, until ADR-095 made
+    /// registered PostGIS layers tileable (2026-09-29), every tile did. Refusing to
+    /// start would take a working server down over a capability the deployment may
+    /// never use.
     /// </para>
     /// </remarks>
     private static async Task EnsureDatastoreAsync(

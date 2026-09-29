@@ -170,9 +170,10 @@ public sealed class ServiceCapabilityLimits
     /// <param name="dataSupportsIt">Whether the data can support this face at all.</param>
     /// <remarks>
     /// <b><paramref name="dataSupportsIt"/> is first and cannot be overridden.</b>
-    /// Tiles come only from hosted data (Q-67), so a configuration that says
-    /// <c>true</c> for a registered layer is still refused — the setting is a
-    /// ceiling, and a ceiling cannot lift a floor.
+    /// Tiles come only from a source this server can encode — hosted data, a registered
+    /// PostGIS database, a GeoParquet or DuckDB source (ADR-095, which reversed Q-67 for
+    /// PostGIS) — so a configuration that says <c>true</c> for any other layer is still
+    /// refused: the setting is a ceiling, and a ceiling cannot lift a floor.
     /// </remarks>
     public bool AllowsTiles(bool dataSupportsIt) => dataSupportsIt && ServesTiles != false;
 }

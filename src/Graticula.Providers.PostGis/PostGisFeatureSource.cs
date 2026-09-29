@@ -1226,7 +1226,7 @@ public sealed class PostGisFeatureSource
     /// <inheritdoc/>
     public async Task<LayerDescription> DescribeAsync(CancellationToken cancellationToken)
     {
-        (IReadOnlyList<FieldDescription> fields, bool? writable, GeometryOrdinates ordinates) =
+        (IReadOnlyList<FieldDescription> fields, bool? writable, GeometryOrdinates ordinates, bool? indexed) =
             await ReadShapeAsync(cancellationToken).ConfigureAwait(false);
 
         return new LayerDescription(
@@ -1236,6 +1236,7 @@ public sealed class PostGisFeatureSource
         {
             StoredOrdinates = ordinates,
             Archived = await ArchivedAsync(cancellationToken).ConfigureAwait(false),
+            SpatiallyIndexed = indexed,
         };
     }
 
@@ -1375,7 +1376,7 @@ public sealed class PostGisFeatureSource
     /// The fields, and whether the relation takes writes — null when there is no such
     /// relation to ask about.
     /// </returns>
-    private async Task<(IReadOnlyList<FieldDescription> Fields, bool? Writable, GeometryOrdinates Ordinates)> ReadShapeAsync(
+    private async Task<(IReadOnlyList<FieldDescription> Fields, bool? Writable, GeometryOrdinates Ordinates, bool? SpatiallyIndexed)> ReadShapeAsync(
         CancellationToken cancellationToken)
     {
         const string Sql = """
@@ -1415,7 +1416,23 @@ public sealed class PostGisFeatureSource
                     and g.attname = @geometry
                     and g.attnum > 0
                     and not g.attisdropped
-                ) as declared_geometry
+                ) as declared_geometry,
+                -- <b>Whether the geometry column has a spatial index — ADR-095 §5.2.</b> A registered
+                -- table may have none, and every cold tile then reads the whole table; the tile path
+                -- says so once. Only a table, a partitioned table or a materialized view is asked: a
+                -- view's and a foreign table's rows are indexed, or not, somewhere this cannot see,
+                -- and null says *not known* rather than *no*. An index on an expression over the
+                -- column is not counted, which errs toward a warning nobody needed.
+                case when c.relkind in ('r', 'p', 'm') then exists (
+                  select 1
+                  from pg_index i
+                  join pg_class ic on ic.oid = i.indexrelid
+                  join pg_am am on am.oid = ic.relam
+                  join pg_attribute g on g.attrelid = i.indrelid and g.attnum = any (i.indkey)
+                  where i.indrelid = c.oid
+                    and g.attname = @geometry
+                    and am.amname in ('gist', 'spgist', 'brin')
+                ) end as spatially_indexed
               from pg_class c
               join pg_namespace n on n.oid = c.relnamespace
               where n.nspname = @schema
@@ -1433,7 +1450,8 @@ public sealed class PostGisFeatureSource
                 coalesce(nullif(t.typbasetype, 0), a.atttypid),
                 case when t.typtype = 'd' then t.typtypmod else a.atttypmod end),
               r.writable,
-              r.declared_geometry
+              r.declared_geometry,
+              r.spatially_indexed
             from relation r
             -- <b>Left, so the relation answers even with no column this credential may read.</b>
             -- The privilege filter moves into the join condition with it and keeps doing what
@@ -1457,6 +1475,7 @@ public sealed class PostGisFeatureSource
         List<FieldDescription> fields = [];
         bool? writable = null;
         GeometryOrdinates ordinates = GeometryOrdinates.None;
+        bool? indexed = null;
 
         await using NpgsqlDataReader reader =
             await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -1473,6 +1492,9 @@ public sealed class PostGisFeatureSource
             ordinates = reader.IsDBNull(5)
                 ? GeometryOrdinates.None
                 : Ordinates.OfTypeName(reader.GetString(5));
+
+            // The same again: a fact about the relation, carried on every row.
+            indexed = reader.IsDBNull(6) ? null : reader.GetBoolean(6);
 
             if (reader.IsDBNull(0))
             {
@@ -1496,7 +1518,7 @@ public sealed class PostGisFeatureSource
                 reader.IsDBNull(3) ? null : reader.GetInt32(3)));
         }
 
-        return (fields, writable, ordinates);
+        return (fields, writable, ordinates, indexed);
     }
 
     /// <summary>

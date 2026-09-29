@@ -160,13 +160,13 @@ public readonly record struct PublishedLayerAddress(
 /// <param name="ArcGisServable">Whether it has an integer object id.</param>
 /// <param name="Status">Whether it runs.</param>
 /// <param name="Hosted">
-/// Whether the data lives in the datastore, and so can be tiled. Derived from
+/// Whether the data lives in the datastore. Derived from
 /// the data source rather than read from <c>layer.is_hosted</c>, which was
 /// written <c>false</c> by every insert and read by nothing
 /// (<see href="../../../docs/architecture-debt.md">D-24</see>) until migration 43
-/// dropped it (D-33). Reported so the
-/// console can offer a tile control only where there is a tile service, rather
-/// than one that answers 400 (Q-67).
+/// dropped it (D-33). It was reported so the console could offer a tile control only
+/// where there was a tile service (Q-67); that question is <paramref name="Tileable"/>'s
+/// since D-264, and hosted is no longer its answer (ADR-066 §9, ADR-095).
 /// </param>
 /// <param name="Service">The service it is in, without the folder.</param>
 /// <param name="Folder">That service's folder, or null for the root.</param>
@@ -181,7 +181,13 @@ public readonly record struct PublishedLayerAddress(
 /// datastore until [ADR-066](../../../docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md) §9, and a
 /// GeoParquet layer is never hosted — so a console asking `hosted` told an operator their layer had no
 /// tile cache while its tiles were being cached. <c>VectorTileEndpoints.Tileable</c> is the same rule on
-/// the serving side.
+/// the serving side — and since [ADR-095](../../../docs/adr/ADR-095-registered-postgis-layers-serve-vector-tiles.md)
+/// both ask <see cref="TileSources.Tiled"/>, so a registered PostGIS layer is tileable here as it is there.
+/// </param>
+/// <param name="Kind">
+/// Its source's kind — <see cref="DataSourceKinds"/>. On the end and defaulted, so every construction written
+/// before it keeps compiling; read by the listing to say how closely the layer's tiles follow its data
+/// (<see cref="TileSources.CoherenceOf"/>, ADR-010 §6b).
 /// </param>
 public readonly record struct AdminLayer(
     Guid Id,
@@ -201,7 +207,8 @@ public readonly record struct AdminLayer(
     int? CacheSeconds = null,
     double? MinScale = null,
     double? MaxScale = null,
-    bool Tileable = false)
+    bool Tileable = false,
+    string Kind = DataSourceKinds.PostGis)
 {
     /// <summary>Its address in the services directory, without the host.</summary>
     public string Address =>

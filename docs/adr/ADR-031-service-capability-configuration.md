@@ -43,7 +43,7 @@ its job here.
 service will do — never a grant.** The effective capability of a request is the
 **intersection** of three things:
 
-1. what the data can support (an ArcGIS-servable layer needs an integer object id — ADR-013 §2a; tiles need hosted storage — Q-67),
+1. what the data can support (an ArcGIS-servable layer needs an integer object id — ADR-013 §2a; tiles need hosted storage — Q-67, since 2026-09-29 a source this server can encode: hosted, registered PostGIS, GeoParquet or DuckDB — [ADR-095](ADR-095-registered-postgis-layers-serve-vector-tiles.md)),
 2. what the service is configured to offer (this ADR),
 3. what the caller's privileges allow (ADR-018).
 

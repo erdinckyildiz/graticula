@@ -258,7 +258,7 @@ internal static partial class AdminEndpoints
         }
 
         object[] candidates = all
-            .Where(s => s.Layers.Count > 0 && s.Limits.AllowsTiles(dataSupportsIt: true))
+            .Where(s => ServiceFaces.Tileable(s) && s.Limits.AllowsTiles(dataSupportsIt: true))
             .OrderBy(s => s.QualifiedName, StringComparer.OrdinalIgnoreCase)
             .Select(s => Row(s.QualifiedName, s))
             .ToArray();

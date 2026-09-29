@@ -266,9 +266,8 @@ internal static partial class Log
         EventId = 1014,
         Level = LogLevel.Error,
         Message = "The datastore could not be registered as a data source: {Reason}. Feature "
-                + "services are unaffected. Vector tile services are NOT available until this "
-                + "succeeds, because tiles are served only from hosted data (Q-67) and 'hosted' "
-                + "means 'in the datastore'.")]
+                + "services are unaffected. No layer is hosted until this succeeds, "
+                + "because 'hosted' means 'in the datastore' and the datastore is this row.")]
     public static partial void DatastoreNotRegistered(ILogger logger, string reason);
 
     [LoggerMessage(
@@ -669,4 +668,14 @@ internal static partial class Log
         Level = LogLevel.Warning,
         Message = "Seed {Job} failed before it built anything: {Why}")]
     public static partial void SeedRefused(ILogger logger, System.Guid job, string why, System.Exception? exception);
+
+    [LoggerMessage(
+        EventId = 1080,
+        Level = LogLevel.Warning,
+        Message = "Layer '{Layer}' is being tiled from a table with no spatial index on its geometry column, "
+                + "so every cold tile reads the whole table. The tiles are correct and slow. A GiST index on that "
+                + "column is the fix, and it is the database owner's to create: this server writes no schema into a "
+                + "registered database (ADR-002 §4.2). Said once per layer; the list is on /admin/health under "
+                + "unindexedLayers. ADR-095 §5.2.")]
+    public static partial void TiledWithoutSpatialIndex(ILogger logger, string layer);
 }
