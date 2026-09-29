@@ -1747,6 +1747,13 @@
         <p id="serviceSub"></p>
       </div>
       <nav class="segmented solid right" id="serviceTabs"></nav>
+      <!--
+        <b>One Layer select for the item, in its head — ADR-102 step 1.</b> Data and Visualization each had
+        their own picker, so a layer chosen on one was not the layer on the other; the choice is the item's
+        and the address keeps it (`?layer=`).
+      -->
+      <label class="field itemlayer" id="itemLayerField" hidden>Layer
+        <select id="itemLayer"></select></label>
     </div>
 
     <!--
@@ -1848,7 +1855,7 @@
     -->
     <div id="serviceData" hidden>
       <div class="toolbar">
-        <label class="field" style="flex:0 1 320px">Layer
+        <label class="field" style="flex:0 1 320px" hidden>Layer
           <select id="dataLayer"></select></label>
         <span style="flex:1"></span>
         <nav class="segmented solid" id="dataViews"></nav>
@@ -1877,8 +1884,8 @@
         address and every error message use.
       -->
       <div class="toolbar">
-        <span class="lbl">Layer</span>
-        <nav class="segmented" id="visLayer" aria-label="Which layer is drawn"></nav>
+        <span class="lbl" hidden>Layer</span>
+        <nav class="segmented" id="visLayer" aria-label="Which layer is drawn" hidden></nav>
         <span class="rowmeta" id="visMeta"></span>
 
         <!--

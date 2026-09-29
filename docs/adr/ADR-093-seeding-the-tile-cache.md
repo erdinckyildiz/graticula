@@ -244,6 +244,8 @@ starts a seed of the services that need one. The console's *Tile cache* page and
 
 ### 5.8 The console
 
+> **Amended 2026-10-01 by [ADR-102](ADR-102-the-studio-item-is-one-page-and-every-setting-has-one-home.md).** The cache page is Settings › Tile layer on the item, reached by *Manage tiles* on Overview, instead of a page under each layer.
+
 > **Amended 2026-09-30 by [ADR-101](ADR-101-studio-is-walked-the-way-a-portal-user-walks-it.md).** The page leads with what the cache does and what it holds, and a *Clear cached tiles* control (`POST /admin/services/{name}/cache/clear`). A seed is offered as *Pre-build tiles for an area*: levels as scales, the area from a map on the page itself instead of the Visualization tab's. The stale limit, quota, budget and per-level table are under *Advanced*. The mechanism below is unchanged.
 
 The layer's *Caching* page, under *Tile cache*, has a *Seed the cache* box for the layer's service. It has

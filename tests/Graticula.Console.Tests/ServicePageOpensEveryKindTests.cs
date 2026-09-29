@@ -112,7 +112,7 @@ public sealed class ServicePageOpensEveryKindTests : ConsoleTest
         // <b>And the subtitle under the name.</b> It was an empty string, which beside a service
         // that plainly has content reads as a page that gave up.
         string subtitle = await Browser.EvaluateAsync<string>(
-            "(document.getElementById('serviceFacts') || {}).textContent || ''") ?? string.Empty;
+            "(document.getElementById('serviceSub') || {}).textContent || ''") ?? string.Empty;
 
         Assert.False(
             string.IsNullOrWhiteSpace(subtitle),

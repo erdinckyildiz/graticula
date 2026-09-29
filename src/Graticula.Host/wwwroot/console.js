@@ -4329,8 +4329,7 @@ function drawServiceTabs() {
     ? `<a href="#/layer/${encodeURIComponent(firstDrawable ? firstDrawable.name || "" : "")
         }/symbology" title="Edit how this service is drawn, layer by layer">${label}</a>`
     : `<a href="#" data-service-tab="${key}"${key === serviceTab ? ' aria-current="page"' : ""}
-      >${label}${key === "overview" && serviceLayers.length
-        ? ` <span class="count">${num(serviceLayers.length)}</span>` : ""}</a>`).join("");
+      >${label}</a>`).join("");
 
   // <b>And an address that asks for it goes the same way.</b> `?tab=symbology` is a link people
   // already have; landing them on a tab that no longer draws anything would be the shape of
@@ -4349,10 +4348,71 @@ function drawServiceTabs() {
 }
 
 /** Reveals one tab's panels and hides the others. */
+/**
+ * Writes where the reader is inside the item into the address, without adding a history entry — ADR-102
+ * step 1.
+ *
+ * <b>The address was an instruction on arrival and nothing after</b>, so a reload or a copied link opened
+ * Overview and the first layer whatever the reader had been looking at. `replaceState` keeps the tab and
+ * the layer standing, and one Back still leaves the item.
+ */
+function writeItemAddress() {
+  if (!serviceOpen || surfaceOfPath() !== "studio") return;
+
+  const query = new URLSearchParams();
+  if (serviceTab && serviceTab !== "overview") query.set("tab", serviceTab);
+  const layer = itemLayerNow();
+  if (layer !== null && serviceTab !== "overview" && serviceTab !== "settings") query.set("layer", layer);
+  if (serviceTab === "visualization" && visMode === "tiles") query.set("mode", "tiles");
+
+  const path = `#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`;
+  const next = query.toString() ? `${path}?${query}` : path;
+
+  if (location.hash !== next) history.replaceState(null, "", next);
+}
+
+/** The layer the item is on: the one chosen, or the first that is not a group. */
+function itemLayerNow() {
+  const drawable = serviceLayers.filter(l => !(l.type || "").toLowerCase().includes("group"));
+  const chosen = dataLayerIndex ?? visLayerIndex;
+  if (chosen !== null && drawable.some(l => String(l.id) === String(chosen))) return String(chosen);
+  return drawable.length ? String(drawable[0].id ?? 0) : null;
+}
+
+/** The item head's Layer select, shown on the tabs that are about one layer. */
+function drawItemLayer() {
+  const field = $("itemLayerField");
+  const select = $("itemLayer");
+  if (!field || !select) return;
+
+  const drawable = serviceLayers.filter(l => !(l.type || "").toLowerCase().includes("group"));
+  const shown = (serviceTab === "data" || serviceTab === "visualization") && drawable.length > 1;
+
+  field.hidden = !shown;
+  if (!shown) return;
+
+  const now = itemLayerNow();
+  select.innerHTML = drawable.map(l => `<option value="${h(String(l.id ?? 0))}"${
+    String(l.id) === now ? " selected" : ""}>${h(l.name || `layer ${l.id}`)}</option>`).join("");
+
+  select.onchange = () => {
+    dataLayerIndex = select.value;
+    visLayerIndex = select.value;
+    writeItemAddress();
+    if (serviceTab === "data") drawServiceData();
+    if (serviceTab === "visualization") drawServiceVis();
+    select.focus({ preventScroll: true });
+  };
+}
+
 function showServiceTab(which) {
   if (surfaceOfPath() !== "studio") return;
 
   serviceTab = which;
+
+  // The layer is the item's, so both tabs start from the same one (ADR-102 step 1).
+  const layer = itemLayerNow();
+  if (layer !== null) { dataLayerIndex = layer; visLayerIndex = layer; }
 
   for (const [key, id] of [["overview", "serviceOverview"], ["data", "serviceData"],
                            ["visualization", "serviceVis"],
@@ -4375,6 +4435,9 @@ function showServiceTab(which) {
 
   if (which === "data") drawServiceData();
   if (which === "visualization") drawServiceVis();
+
+  drawItemLayer();
+  writeItemAddress();
 }
 
 /**
@@ -4958,7 +5021,9 @@ async function drawServiceDetails(qualified, knownKind) {
     // <b>The state alone, 2026-09-30.</b> It said *started · ci*; the owner is in the subtitle now, so it
     // was said twice. The state stays — an empty line here read as a page that gave up (D-200).
     if ($("serviceFacts")) {
-      $("serviceFacts").textContent = item.status || "";
+      // In Studio only when it says something a reader must act on; Server shows the state always.
+      $("serviceFacts").textContent = surfaceOfPath() === "studio" && item.status !== "stopped"
+        ? "" : item.status || "";
     }
 
     serviceItem = item;
@@ -5018,8 +5083,9 @@ function drawServiceData() {
     .join("");
 
   picker.onchange = () => {
-    // The reader has chosen, so the address stops choosing.
-    dataLayerIndex = null;
+    dataLayerIndex = picker.value;
+    visLayerIndex = picker.value;
+    writeItemAddress();
     loadServiceData();
   };
 
@@ -9911,6 +9977,16 @@ async function loadServiceLimits(name, folder) {
   $("limSave").hidden = true;
   $("limClear").hidden = true;
 
+  // <b>Asked only of a system service — ADR-102 step 1.</b> Every item page asked every service and took the
+  // 404 as the answer, which put a failed request in the console of every page and hid real failures
+  // among them. The list of system services is small and answers the question without a refusal.
+  const system = await api("/admin/services").catch(() => ({ services: [] }));
+  const isSystem = (system.services || []).some(y =>
+    (y.name || "").toLowerCase() === String(name).toLowerCase()
+    && (y.folder || "").toLowerCase() === String(folder || "").toLowerCase());
+
+  if (!isSystem) return null;
+
   let limits;
   try {
     // <b>The folder, because `/admin/services/{name}` used to mean two things.</b> D-39: a
@@ -14296,8 +14372,10 @@ async function loadServiceCapabilities(name, folderGiven) {
   */
   const scope = $("serviceScope");
 
+  // <b>Server's only, since 2026-10-01 (ADR-102).</b> In Studio the level is stated once, in Overview's
+  // details, beside the Share button that changes it; this pill was a third statement of one fact.
   if (scope) {
-    scope.hidden = !c.sharing;
+    scope.hidden = !c.sharing || surfaceOfPath() === "studio";
 
     if (c.sharing) {
       scope.className = "pill p-" + c.sharing;
@@ -22976,6 +23054,7 @@ async function handleClick(event) {
     event.preventDefault();
     visMode = t.dataset.visMode;
     drawServiceVis();
+    writeItemAddress();
     return;
   }
 
@@ -22986,7 +23065,10 @@ async function handleClick(event) {
   if (t.dataset?.visLayer !== undefined) {
     event.preventDefault();
     visLayerIndex = t.dataset.visLayer;
+    dataLayerIndex = t.dataset.visLayer;
     drawServiceVis();
+    drawItemLayer();
+    writeItemAddress();
     return;
   }
 

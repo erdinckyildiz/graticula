@@ -15,6 +15,8 @@
 
 ---
 
+> **Amended 2026-10-01 by [ADR-102](ADR-102-the-studio-item-is-one-page-and-every-setting-has-one-home.md).** The item page's tabs, the cache page's place and the symbology editor's place, which this ADR left as they were, are decided there.
+
 ## 1. Context
 
 The owner, who uses the showcase daily from ArcGIS Pro and QGIS, said the console is not usable and asked for

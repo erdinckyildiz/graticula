@@ -10,6 +10,8 @@
 
 ---
 
+> **Amended 2026-10-01 by [ADR-102](ADR-102-the-studio-item-is-one-page-and-every-setting-has-one-home.md).** The editor becomes Visualization's Styles panel, saved with *Save as layer default*; its model, renderers and *Read the values* stay, its page and its four doors go.
+
 ## 1. Context
 
 [ADR-051](ADR-051-an-appearance-is-chosen-by-looking-at-it.md) put a picture beside
