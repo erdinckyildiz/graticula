@@ -53,6 +53,17 @@ namespace Graticula.Host;
 /// anything else can run, and they carry nothing secret: they are the same
 /// bytes for every caller.
 /// </para>
+/// <para>
+/// <b>The standard tile faces are included since 2026-09-29 — ADR-097, added deliberately rather than
+/// by a prefix that happened to cover them.</b> <c>/ogc/tiles/v1</c> answers tiles, tileset metadata,
+/// tile matrix sets and TileJSON; <c>/wmts</c> answers tiles, capabilities XML and exception reports.
+/// None of them carries a secret: a tile is the same bytes the ArcGIS face compresses under
+/// <c>/rest/services</c>, the documents describe what the caller may already read, and nothing on
+/// either face echoes a token — a TileJSON <c>tiles</c> template carries no <c>token</c> parameter even
+/// when the request did, so there is nothing in the body for a BREACH-style probe to recover.
+/// <c>OgcNames.Base</c> is <c>/ogc/features/v1</c> exactly, so the tiles face was <i>not</i> covered
+/// until it was named here — which is the allowlist working as §4 meant it to.
+/// </para>
 /// </remarks>
 internal static class ResponseCompressionPolicy
 {
@@ -106,6 +117,8 @@ internal static class ResponseCompressionPolicy
         || path.StartsWithSegments(OgcNames.Base, StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments(WfsEndpoints.Path, StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments(WmsEndpoints.Path, StringComparison.OrdinalIgnoreCase)
+        || path.StartsWithSegments(Graticula.Api.Tiles.TileNames.OgcBase, StringComparison.OrdinalIgnoreCase)
+        || path.StartsWithSegments(Graticula.Api.Tiles.TileNames.WmtsPath, StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments("/server", StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments("/studio", StringComparison.OrdinalIgnoreCase);
 }

@@ -1106,6 +1106,55 @@ internal static class VectorTileEndpoints
             return;
         }
 
+        await ServeTileAsync(
+                context, service, address, contexts, connections, cache, building, projector, datumShifts,
+                unindexed, loggerFactory, geoParquet, cancellation)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// One tile of a service the caller may read, at an address already checked against its grid: every
+    /// layer's part from the cache or built, joined, and sent with its cache headers — or 204.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="service">The service, already found tileable and readable by <see cref="TileableAsync"/> or its equal.</param>
+    /// <param name="address">The tile, already in <see cref="PublishedService.TileScheme"/>'s grid.</param>
+    /// <param name="contexts">Where layer descriptions are remembered.</param>
+    /// <param name="connections">Where tile sources come from, and the build admission (D-277).</param>
+    /// <param name="cache">The tile cache.</param>
+    /// <param name="building">The builds in flight.</param>
+    /// <param name="projector">For the datum notice.</param>
+    /// <param name="datumShifts">Where a datum crossing is said once.</param>
+    /// <param name="unindexed">Where a layer with no spatial index is said once.</param>
+    /// <param name="loggerFactory">For the notices.</param>
+    /// <param name="geoParquet">For a GeoParquet layer's file version.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>When the response is written.</returns>
+    /// <remarks>
+    /// <b>Split out of the tile route unchanged on 2026-09-29 so the standard tile faces serve through it —
+    /// ADR-097.</b> OGC API Tiles and WMTS each find the service and the address in their own vocabulary,
+    /// and from here on a tile is a tile: the same keys, the same single-flight, the same admission, the
+    /// same bytes, the same <c>Cache-Control</c>, <c>Age</c>, weak ETag and 304, and the same
+    /// <c>X-Tile-Cache</c>. A second copy of this loop would be the seed's old risk (ADR-093 §5.5) on three
+    /// faces — a cache filled under keys one of them never reads.
+    /// </remarks>
+    internal static async Task ServeTileAsync(
+        HttpContext context,
+        PublishedService service,
+        TileAddress address,
+        ServiceContexts contexts,
+        LayerConnections connections,
+        ITileCache cache,
+        TileSingleFlight building,
+        IProjector projector,
+        DatumShiftNotices datumShifts,
+        UnindexedLayerNotices unindexed,
+        ILoggerFactory loggerFactory,
+        GeoParquetSources geoParquet,
+        CancellationToken cancellation)
+    {
+        VectorTileScheme scheme = service.TileScheme;
+
         // <b>The cache is consulted after authorization, never before.</b>
         // ADR-010 §4: for tiles the authorization is uniform — a service is
         // readable or it is not — so the check happens first and every

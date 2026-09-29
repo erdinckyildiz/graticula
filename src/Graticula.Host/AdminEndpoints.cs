@@ -482,6 +482,11 @@ internal static partial class AdminEndpoints
         "/wfs",
         "/wms",
         "/ogc/features",
+
+        // ADR-097. `/wmts` would match `/wms` as a plain prefix already; it is named so the list says what
+        // it covers rather than covering it by accident.
+        "/ogc/tiles",
+        "/wmts",
     ];
 
     /// <summary>Maps the admin surface.</summary>

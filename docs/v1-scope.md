@@ -182,9 +182,21 @@ is the bullet above being given up on purpose, not overlooked.
 
 ### 3d. The rest of the protocol surface
 
-~~**OGC API Features**~~ **Tiles, Styles, Records, Processes, EDR · WFS · WMTS · WPS ·
+~~**OGC API Features**~~ ~~**Tiles**~~ **Styles, Records, Processes, EDR · WFS ·** ~~**WMTS**~~ **· WPS ·
 SensorThings · OData · gRPC · MCP · STAC · PMTiles · 3D Tiles · Terrain-RGB ·
 geocoding.**
+
+> **OGC API Tiles and WMTS struck 2026-09-29, with TileJSON beside them — owner decision,
+> [ADR-097](adr/ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md).** The owner asked for the vector tiles to be served through the
+> other standards, and named three: **OGC API Tiles** at `/ogc/tiles/v1`, **TileJSON** as the Web
+> Mercator tileset's alternate, and **WMTS** at `/wmts` — each serving the tiles the VectorTileServer
+> face serves, through the same tile path. They are in. TileJSON never had a line of its own here;
+> it was the *MVT + TileJSON* of [protocol-surface.md](protocol-surface.md)'s tile row, and it is in
+> with the other two. **PMTiles stays on this list, and not for the old reason**: the owner moved it
+> to item 11 of the vector tile list, where it is built with offline packages (VTPK) as an
+> *export* of tiles already cut, not as a served face. *Struck rather than deleted, so the change of
+> mind stays visible.* Unlike WFS on 2026-08-19 (ADR-039, which kept this list as it was), this is an
+> amendment of the cut, because the owner asked for it to be one.
 
 > **OGC API Features struck 2026-09-09: it is in v1, and this file said so in §2 and
 > the opposite here.** §2's own row records the read surface as *already in* and the

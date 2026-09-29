@@ -2064,6 +2064,12 @@ public static class Program
         CoverageAdminEndpoints.Map(app);
         OgcFeaturesEndpoints.Map(app);
 
+        // <b>The standard tile faces — ADR-097.</b> OGC API Tiles beside OGC API Features, WMTS beside WFS
+        // and WMS, and TileJSON as the Web Mercator tileset's alternate; every tile they serve goes through
+        // `VectorTileEndpoints.ServeTileAsync`, so the three faces share one cache and one set of bytes.
+        OgcTilesEndpoints.Map(app);
+        WmtsEndpoints.Map(app);
+
         // <b>The portal surface, and it is here for one reason.</b> ArcGIS Pro's
         // server connection wants a SOAP catalogue this product has never scoped;
         // its portal connection wants the ArcGIS REST API, which is what everything
@@ -2493,6 +2499,10 @@ public static class Program
                             WfsEndpoints.DirectoryLink(null),
                             WmsEndpoints.DirectoryLink(null, null, 0),
                             OgcFeaturesEndpoints.DirectoryLink(null),
+
+                            // ADR-097: the standard tile faces are the server's too.
+                            OgcTilesEndpoints.DirectoryLink(),
+                            WmtsEndpoints.DirectoryLink(),
                         ]
                         : null),
                 "text/html; charset=utf-8");

@@ -394,6 +394,12 @@ interface, in the compatibility layer (§51), for migration.
 > exercised — which is [A-026](../architecture-assumptions.md), and ADR-039 is its
 > first real test rather than its confirmation.
 
+> **Amended 2026-09-29 — [ADR-097](ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md).**
+> WMTS is built, for vector tiles only — *"WMTS only where it carries vector tiles"*, as the
+> paragraph below had it before Q-88 took it out of v1 — at `/wmts`, in its own project
+> (`Graticula.Api.Tiles`) beside OGC API Tiles and TileJSON, outside the core domain as this section
+> places it. No raster WMTS is offered.
+
 > **Stale text below, corrected 2026-08-13** ([independent review 3](../reviews/independent-review-3-synthesis.md) A6). This section still
 > said *"Which ArcGIS-compatible surface to offer, if any, is still Q-17"* and
 > listed GeometryServer and GPServer as excluded because they *"produce rendered

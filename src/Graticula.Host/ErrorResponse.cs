@@ -279,6 +279,23 @@ internal static class ErrorResponse
             return true;
         }
 
+        // <b>WMTS reports in OWS Common's words, with the real status — ADR-097.</b> Its own refusals
+        // already do (`WmtsFault`); this is the same envelope for a failure no endpoint caught, such as a
+        // tile build refused by admission (D-277), so a WMTS client is never handed ArcGIS JSON.
+        if (path.StartsWithSegments(Graticula.Api.Tiles.TileNames.WmtsPath))
+        {
+            context.Response.StatusCode = status;
+            context.Response.ContentType = Graticula.Api.Tiles.WmtsFault.MediaType + "; charset=utf-8";
+
+            await context.Response.Body
+                .WriteAsync(
+                    new Graticula.Api.Tiles.WmtsFault(Graticula.Api.Tiles.WmtsFault.NoApplicableCode, null, message).ToXml(),
+                    context.RequestAborted)
+                .ConfigureAwait(false);
+
+            return true;
+        }
+
         if (path.StartsWithSegments("/ogc"))
         {
             context.Response.StatusCode = status;

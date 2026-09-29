@@ -325,7 +325,9 @@ another grid.
   their stored numbers either way.
 - A request for a geographic (4326) vector tile scheme, or a foot-based one.
 - A second face (ImageServer tiles, WMTS) wanting the same grids — the moment to decide whether `TilingScheme`
-  and `VectorTileScheme` become one type.
+  and `VectorTileScheme` become one type. *Fired 2026-09-29 by [ADR-097](ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md)
+  (OGC API Tiles and WMTS), and answered without merging: its `TileMatrixSet` describes a `VectorTileScheme` in
+  17-083r4's words and carries it, placing no tile of its own, and ImageServer's `TilingScheme` is untouched.*
 
 ## 10. Dissent
 

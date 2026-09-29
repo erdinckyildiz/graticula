@@ -124,7 +124,9 @@ caller, so it is worth doing properly rather than partly.
 `/ogc/features/v1`. **Versioned in the path**, because the OGC API family versions
 its parts independently and a landing page is the one URL a client is given and
 keeps. It leaves room for `/ogc/tiles/v1` and `/ogc/styles/v1` beside it without
-either of them being the thing that has to move.
+either of them being the thing that has to move. *(`/ogc/tiles/v1` arrived 2026-09-29 —
+[ADR-097](ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md) — with its own collections,
+because its unit is a service where this face's is a layer.)*
 
 **Not at the server root.** The root already redirects to the REST services
 directory, and a server whose landing page is a different protocol depending on

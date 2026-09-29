@@ -26,7 +26,7 @@ to build.
 | Engine | Status | Faces |
 |---|---|---|
 | **Feature / query** — ADR-008 | decided | OGC API Features · ~~WFS 1.0/1.1/2.0 + Transactional~~ **WFS 2.0 only, read-only** ([ADR-039](adr/ADR-039-wfs-is-the-first-surface-after-v1.md) §5, 2026-08-19 — 1.1.0 and 1.0.0 get a version-negotiation refusal rather than a wrong answer, and Transaction is deferred with its own revisit trigger) · ArcGIS FeatureServer · **OData v4** · **gRPC** · **MCP** |
-| **Tile** — Q-67 | decided, measured ×3 | MVT + TileJSON · WMTS · ArcGIS VectorTileServer · **OGC API Tiles** · **PMTiles** |
+| **Tile** — Q-67 | decided, measured ×3 | MVT + TileJSON · WMTS · ArcGIS VectorTileServer · **OGC API Tiles** · **PMTiles** — **built 2026-09-29: TileJSON, WMTS and OGC API Tiles, over the VectorTileServer's own tile path ([ADR-097](adr/ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md)); PMTiles moved to an export with offline packages** |
 | **Job + Python** — ADR-011, Q-17b | reopened | ArcGIS GPServer · **WPS 2.0** · **OGC API Processes** |
 | **Raster** — ADR-009, Q-17c | reopened | ArcGIS ImageServer · **WCS 2.0.1** · **OGC API Coverages** |
 | **Render** — ADR-004 | **shipped 2026-08-20** ([ADR-041](adr/ADR-041-the-map-renderer.md)): WMS 1.3.0/1.1.1 and ArcGIS MapServer, off one CPU rasteriser behind a Tier 1 port | ArcGIS MapServer · WMS 1.1.1/1.3 · **OGC API Maps** |
@@ -50,9 +50,9 @@ Bold entries are new scope from this decision.
 
 | Protocol | Sits on | Note |
 |---|---|---|
-| **OGC API Tiles** | tile engine | The same bytes we already serve, behind the standard URL template and tileset metadata. Three benchmark rounds already banked |
+| **OGC API Tiles** | tile engine | The same bytes we already serve, behind the standard URL template and tileset metadata. Three benchmark rounds already banked. **Built 2026-09-29 ([ADR-097](adr/ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md)), and the *near-free* held on one condition — the face serves through the ArcGIS face's own tile path, so a tile is one cache entry whichever standard asked for it** |
 | **OGC API Styles** | style store | Q-25 already stores and serves MapLibre styles. This is the standard face over that store |
-| **PMTiles** | tile engine | A single-file archive of tiles we already generate, served by range request. Packaging, not capability |
+| **PMTiles** | tile engine | A single-file archive of tiles we already generate, served by range request. Packaging, not capability. **2026-09-29, owner decision: an export, built with offline packages (VTPK), not a served face** ([ADR-097](adr/ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md) §5.8) |
 | **OGC API Records** | catalog | The catalog exists; this is the standard surface over it. Needs a metadata mapping, not a subsystem |
 | **MCP** | feature / query | A tool-description layer over operations we already expose. Small, and strategically the cheapest way to be reachable by agents |
 

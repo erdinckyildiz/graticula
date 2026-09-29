@@ -46,6 +46,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         "src/Graticula.Api.Wfs",
         "src/Graticula.Api.ArcGis",
         "src/Graticula.Api.OgcFeatures",
+        "src/Graticula.Api.Tiles",
 
         // ADR-066: a folder's DuckDB lives as long as the source, and it remembers its files.
         "src/Graticula.Providers.DuckDb",

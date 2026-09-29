@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The standard tile faces — OGC API Tiles, TileJSON and WMTS — ADR-097.
+
+    One project for three standards because all three describe the same thing: the grid a
+    VectorTileServer is already cut on (ADR-096), in the Two Dimensional Tile Matrix Set
+    standard's words. The tile matrix set is written once, here, and the three documents read
+    it; three projects would be three copies of the arithmetic that places a tile.
+
+    Its own project like the other protocol adapters (ADR-005 §3.3, §51): it references
+    Graticula.Core and nothing in Graticula.Core references it. No PackageReference —
+    System.Text.Json and System.Xml ship with the framework.
+
+    Written from the published specifications only: OGC 20-057 (OGC API - Tiles - Part 1),
+    OGC 17-083r4 (2D Tile Matrix Set and Tile Set Metadata 2.0), OGC 07-057r7 (WMTS 1.0.0),
+    OGC 06-121r9 (OWS Common 1.1) and TileJSON 3.0.0.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Api.Tiles</RootNamespace>
+    <AssemblyName>Graticula.Api.Tiles</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Graticula.Core\Graticula.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -55,6 +55,12 @@ public sealed class EveryFaceNamesItsServiceTests
     // several layers and a log column holds one; the rule is written down so nobody reads a
     // single-service row as proof the request touched one.
     [InlineData("/wms", "?layers=ci_buildings,ci_many", "ci_buildings")]
+
+    // ADR-097: OGC API Tiles puts the collection in the path, as the features face does; WMTS puts the layer
+    // in `layer` under KVP and in the segment after the version under REST.
+    [InlineData("/ogc/tiles/v1/collections/hosted.ci_many/tiles/WebMercatorQuad/3/2/5", "", "hosted.ci_many")]
+    [InlineData("/wmts", "?service=WMTS&request=GetTile&LAYER=hosted.ci_many&TILEMATRIX=3", "hosted.ci_many")]
+    [InlineData("/wmts/1.0.0/hosted.ci_many/default/WebMercatorQuad/3/2/5.pbf", "", "hosted.ci_many")]
     public void A_request_is_filed_under_what_it_named(string path, string query, string expected) =>
         Assert.Equal(
             expected,
@@ -78,6 +84,9 @@ public sealed class EveryFaceNamesItsServiceTests
     [InlineData("/server/console.js", "")]
     [InlineData("/rest/info", "")]
     [InlineData("/wms", "?layers=")]
+    [InlineData("/wmts", "?service=WMTS&request=GetCapabilities")]
+    [InlineData("/wmts/1.0.0/WMTSCapabilities.xml", "")]
+    [InlineData("/ogc/tiles/v1/tileMatrixSets/WebMercatorQuad", "")]
     public void A_request_that_named_nothing_is_filed_under_nothing(string path, string query) =>
         Assert.Null(RequestFacts.Service(new PathString(path), new QueryString(query)));
 

@@ -371,7 +371,8 @@ public sealed class ServiceFolderConformanceTests : ArcGisClient
             .. audit.GetProperty("filteredOn").EnumerateArray().Select(p => p.GetString()!),
         ];
 
-        foreach (string surface in (string[])["/rest/services", "/wfs", "/wms", "/ogc/features"])
+        // `/ogc/tiles` and `/wmts` since 2026-09-29 — ADR-097's standard tile faces.
+        foreach (string surface in (string[])["/rest/services", "/wfs", "/wms", "/ogc/features", "/ogc/tiles", "/wmts"])
         {
             Assert.Contains(
                 scope,

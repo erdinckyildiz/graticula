@@ -39,7 +39,7 @@ Five ArcGIS service types, plus the portal surface Pro connects through.
 |---|---|---|
 | **Feature services** | complete | `query`, `applyEdits`, attachments, related records, `generateRenderer` — over a registered PostGIS table or a hosted layer, and read-only over a GeoParquet file read in place, from a folder on the server or over `https://` and `s3://` ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md), [ADR-067](docs/adr/ADR-067-duckdb-sources-beyond-a-local-folder.md)). A query answers as JSON, GeoJSON or PBF, filters by time where a layer has a time field, and keeps Z and M where the data has them |
 | **Map services** | complete | `export`, `identify`, `legend` and a sublayer `query`, drawn by time where a layer has one. A layer published without a style gets a generated appearance that reports itself as generated |
-| **Vector tile services** | partial | Tiles from hosted data and GeoParquet files, a style document and a checked-in glyph set. **A sprite sheet is uploaded per service**, and a style's icons are checked against it; there is no shared icon library ([ADR-092](docs/adr/ADR-092-sprites-are-uploaded-per-service.md)) |
+| **Vector tile services** | partial | Tiles from hosted data and GeoParquet files, a style document and a checked-in glyph set. **A sprite sheet is uploaded per service**, and a style's icons are checked against it; there is no shared icon library ([ADR-092](docs/adr/ADR-092-sprites-are-uploaded-per-service.md)). The same tiles are served through OGC API Tiles, TileJSON and WMTS ([ADR-097](docs/adr/ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md)) |
 | **Image services** | partial | `exportImage`, `identify`, `tile`, over imagery registered where it lies and never copied. **No raster function chains, no mosaic datasets** |
 | **Geometry service** | partial | 18 of 22 operations, including `buffer`, `intersect`, `union`, `difference` and `cut`. **The four that are missing each refuse in their own words**, with the reason that applies to them ([ADR-022](docs/adr/ADR-022-geometry-server.md)) |
 | **ArcGIS Pro** | complete | Add a **portal** connection, sign in, browse My Content, add a layer, edit it. Measured against Pro over seven rounds, each read out of the request log ([ADR-040](docs/adr/ADR-040-the-portal-surface-is-how-arcgis-pro-connects.md)) |
@@ -48,7 +48,9 @@ Around them: members, roles with editable privileges, groups and item sharing, w
 mutation audited and the log queryable; import from GeoJSON, a zipped shapefile or a File
 Geodatabase, or define an empty schema and fill it through `applyEdits`.
 
-OGC API Features, WFS 2.0 and WMS 1.3.0 are served as well; [docs/](docs/) has the detail,
+OGC API Features, WFS 2.0 and WMS 1.3.0 are served as well, and the vector tiles through OGC API
+Tiles, TileJSON and WMTS 1.0.0 ([ADR-097](docs/adr/ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md));
+[docs/](docs/) has the detail,
 and [docs/reviews/](docs/reviews/) has the OGC CITE runs behind them.
 
 ## What is missing

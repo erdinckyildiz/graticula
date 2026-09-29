@@ -219,4 +219,19 @@ public sealed class ResponseCompressionPolicyTests
 
     private static string Join(System.Collections.Generic.ICollection<string> values) =>
         string.Join(",", values);
+
+    /// <summary>
+    /// ADR-097: the standard tile faces are on the allowlist by name — `/ogc/features/v1` never covered
+    /// `/ogc/tiles/v1` — and a prefix that merely starts the same way is not.
+    /// </summary>
+    [Theory]
+    [InlineData("/ogc/tiles/v1/collections/hosted.x/tiles/WebMercatorQuad/0/0/0", true)]
+    [InlineData("/ogc/tiles/v1/tileMatrixSets", true)]
+    [InlineData("/wmts", true)]
+    [InlineData("/wmts/1.0.0/WMTSCapabilities.xml", true)]
+    [InlineData("/wmtsx", false)]
+    [InlineData("/ogc/tiles", false)]
+    [InlineData("/ogc/features", false)]
+    public void The_tile_faces_are_on_the_allowlist_by_name(string path, bool allowed) =>
+        Assert.Equal(allowed, ResponseCompressionPolicy.IsAllowed(new Microsoft.AspNetCore.Http.PathString(path)));
 }

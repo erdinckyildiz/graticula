@@ -43,6 +43,7 @@ internal static class RequestFacts
         {
             _ when Starts(value, "/rest") => "ArcGIS",
             _ when Starts(value, "/wms") => "WMS",
+            _ when Starts(value, "/wmts") => "WMTS",
             _ when Starts(value, "/wfs") => "WFS",
             _ when Starts(value, "/ogc") => "OGC",
             _ when Starts(value, "/studio") => "studio",
@@ -139,6 +140,17 @@ internal static class RequestFacts
         if (Starts(value, "/wms") || Starts(value, "/wfs"))
         {
             return Named(query, Starts(value, "/wms") ? "layers" : "typeNames");
+        }
+
+        // <b>WMTS — ADR-097: `layer` in KVP, and the segment after the version in the RESTful binding.</b>
+        // `/wmts/1.0.0/WMTSCapabilities.xml` names nothing, and neither does a KVP GetCapabilities.
+        if (Starts(value, "/wmts"))
+        {
+            string[] wmts = value.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+            return wmts.Length > 3 && string.Equals(wmts[1], "1.0.0", StringComparison.Ordinal)
+                ? Uri.UnescapeDataString(wmts[2])
+                : Named(query, "layer");
         }
 
         if (!Starts(value, "/rest"))

@@ -170,7 +170,11 @@ public sealed class TilePipelineVersionTests
         // Mercator), the parameters are the same three, the envelope and the address check are `TileAddress`'s, and
         // the key's fingerprint appends nothing for Web Mercator — `TilingSchemeTests` pins that. Another grid's tiles
         // are new bytes under new keys, which is what a new grid is.
-        "036ffd26c911d87bdf7fbf62ffb6f4fd8ded17360ae9e674a8a9fc7b8717db17";
+        // <b>Moved again 2026-09-29 for ADR-097, and the version did not move.</b> The tile route's body after the
+        // address check became `VectorTileEndpoints.ServeTileAsync`, unchanged, so OGC API Tiles and WMTS serve a
+        // tile through the route's own loop, keys, admission and headers. Which faces reach the code changed; the
+        // code that decides a tile's bytes and its key did not move a character.
+        "cc1338780393edcf1e98539d7e8e14009a77e2582abc9d7c54cfda0ae7f102a6";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 2;
