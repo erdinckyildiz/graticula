@@ -27,6 +27,7 @@ namespace Graticula.Render.Skia.Tests;
 /// real: restoring the old behaviour fails this.
 /// </para>
 /// </remarks>
+[Collection(MissingGlyphHook.Name)]
 public sealed class LabelFontSubstitutionTests
 {
     private static readonly Rgba Ink = new(0, 0, 0, 255);

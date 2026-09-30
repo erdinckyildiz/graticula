@@ -21,6 +21,7 @@ namespace Graticula.Render.Skia.Tests;
 /// named is the fact about what this product carries.
 /// </para>
 /// </remarks>
+[Collection(MissingGlyphHook.Name)]
 public sealed class LabelScriptsTests
 {
     private static readonly Rgba Ink = new(0, 0, 0, 255);
