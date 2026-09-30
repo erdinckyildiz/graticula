@@ -2021,16 +2021,18 @@
       being accidentally deleted*: a checkbox that has to be cleared before the button will do anything,
       so a misplaced click cannot destroy a service. The confirmation then names what goes.
 
-      <b>Locked by default, which their screen does not do.</b> Theirs starts unlocked and the operator
-      opts into protection. A default that protects is the right way round for the one irreversible
-      action on this page, and it costs one click on the rare occasion somebody means it.
+      <b>Stored, and off until the owner turns it on — ADR-102 condition 2.</b> This comment used to say
+      *locked by default*, when the lock was a checkbox the page forgot; since migration 66 it is
+      `service.delete_protected`, the API refuses a delete while it is on, and it starts off as Portal's
+      does (the default is INFERRED and listed for the owner). The box is drawn unticked, so the page never
+      says Locked before the stored state has arrived.
     -->
     <div id="serviceDangerHome"><div class="panel" id="serviceDanger">
       <h4>Deleting this service</h4>
       <div class="setting wide"><span class="q">Protect this service from being deleted:</span>
-        <label><input type="checkbox" id="svcLock" checked
+        <label><input type="checkbox" id="svcLock"
           aria-label="Protect this service from being deleted">
-          <span id="svcLockState">Locked</span></label>
+          <span id="svcLockState">Not protected</span></label>
         <span class="u"></span></div>
       <p class="hint" id="svcDeleteNote"></p>
       <button class="danger" id="svcDelete" disabled>Delete this service</button>
@@ -2082,6 +2084,20 @@
   *organization and also this team* is a single intent — so they are two steps of one dialog rather than
   two dialogs. Nothing is written until Save, which is why the second screen's Back is not a cancel.
 -->
+<!--
+  <b>Export data — ADR-102 step 8, Portal's *Export Data* on the item.</b> One home for taking an item's data
+  away: a layer as CSV or GeoJSON here, and the offline tile packages, which are built in Settings › Tile layer
+  because they run as jobs, linked from here.
+-->
+<dialog id="exportData" aria-labelledby="exportDataTitle">
+  <header class="dialoghead">
+    <h3 id="exportDataTitle" tabindex="-1">Export data</h3>
+    <button class="tiny ghost" id="exportDataClose" aria-label="Close">&#10005;</button>
+  </header>
+  <div class="dialogbody" id="exportDataBody"></div>
+  <footer class="dialogfoot" id="exportDataFoot"></footer>
+</dialog>
+
 <dialog id="share" aria-labelledby="shareTitle">
   <header class="dialoghead">
     <h3 id="shareTitle" tabindex="-1">Share</h3>

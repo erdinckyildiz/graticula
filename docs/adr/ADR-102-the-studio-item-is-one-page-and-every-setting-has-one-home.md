@@ -135,6 +135,26 @@ page it points to**, and a setting leaves Server's layer page in the step it arr
 veteran's correction to the first plan, which would have left caching, fields and history unreachable
 for several steps.
 
+*(As built, 2026-10-01: all twelve steps, with two departures recorded rather than smoothed. **Step 3's
+visible range** arrived in step 10, under the Style panel rather than in a Properties column of its own —
+it was still on Server's layer page until then, so no setting was ever unreachable. **Step 10 did not
+remove Server's layer page**: it removed every publisher setting from it — thumbnail, time column, visible
+range, fields, history, maintenance — and left what is the server's about one layer: its state, contents,
+identity, addresses and *forget the remembered shape*. Deleting that too would have moved server facts into
+Studio, which §5.4's last rows say not to do. Whether it should become a section of Server's service page
+is open. Step 11 is that Studio draws no layer screen: every `#/layer/…` address it is given opens the item,
+and nothing in Studio links to one.)*
+
+*(Three more, found by the ArcGIS reviewer walking the built item the same day:
+**history on/off and start tracking who edits** are in Data › History and Data › Fields, where the layer page
+had them, not in Settings › Feature layer as the table above says and as Portal puts *Keep track of who
+created and updated features*; **offline packages** are built in Settings › Tile layer and only linked from
+*Export data*, because they run as jobs; and Settings › General has its own *Change sharing…* button, which
+opens the one Share dialog and so is a door rather than a second home. The first is a real departure and is
+the next move of this table; the other two are recorded as chosen. The same review found Export data shown
+to readers of a service whose owner had unticked *Export data* (Extract) — repaired: the owner may always
+export, anybody else only when Extract is offered.)*
+
 5.7 **Two differences between the reviewers, settled here.** Editor tracking is a one-way action per
 layer, not an item-wide checkbox: the endpoint adds columns and cannot be undone, and a box that cannot
 be unticked says something false. Visualization's *Features* mode says the server draws it and answers a

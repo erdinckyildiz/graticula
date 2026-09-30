@@ -2462,12 +2462,19 @@ function route() {
 const LEGACY_LAYER_ROUTES = {
   caching: { tab: "settings", section: "tiles" },
   symbology: { tab: "visualization", panel: "style" },
+  fields: { tab: "data", view: "fields" },
+  history: { tab: "data", view: "history" },
+  maintenance: { tab: "settings", section: "feature", layer: false },
 };
 
 function legacyRoute(rest) {
   if (rest[0] !== "layer" || !rest[1]) return null;
 
-  const to = LEGACY_LAYER_ROUTES[rest[2]];
+  // A bare layer address in Studio opens that layer inside its item (ADR-102): Studio has no layer page left.
+  // Step 11: any layer address Studio is asked for that no surface has a page for does the same — the layer
+  // screen is not drawn in Studio at all.
+  const to = LEGACY_LAYER_ROUTES[rest[2]]
+    || (surfaceOfPath() === "studio" && !(rest[2] && LAYER_PAGES[rest[2]]) ? { tab: "data" } : null);
   if (!to) return null;
 
   const place = placeOf(decodeURIComponent(rest[1]));
@@ -2477,6 +2484,7 @@ function legacyRoute(rest) {
   if (to.tab) query.set("tab", to.tab);
   if (to.section) query.set("section", to.section);
   if (to.panel) query.set("panel", to.panel);
+  if (to.view) query.set("view", to.view);
   if (to.layer !== false && place.id !== undefined && to.tab !== "settings") query.set("layer", String(place.id));
 
   return `/studio/#/service/${place.service.split("/").map(encodeURIComponent).join("/")}?${query}`;
@@ -4041,6 +4049,10 @@ async function showService(qualified) {
   if (askedLayer !== null) visLayerIndex = askedLayer;
   if (askedLayer !== null) dataLayerIndex = askedLayer;
 
+  // `?view=` names Data's view — Table, Fields or History (ADR-102 step 9).
+  const askedView = hashQuery.get("view");
+  if (["table", "fields", "history"].includes(askedView)) dataView = askedView;
+
   // `?section=` names a part of Settings, as `?tab=settings&section=tiles` does (ADR-102).
   const askedSection = hashQuery.get("section");
   if (askedSection && SERVICE_PAGES[askedSection]) SERVICE_PAGE_OPEN = askedSection;
@@ -4383,7 +4395,8 @@ function drawServiceTabs() {
   // defect this console records four times over.
   if (serviceTab === "symbology") {
     if (firstDrawable) {
-      location.hash = `#/layer/${encodeURIComponent(firstDrawable.name || "")}/symbology`;
+      location.href = legacyRoute(["layer", encodeURIComponent(firstDrawable.name || ""), "symbology"])
+        || `#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}?tab=visualization&panel=style`;
 
       return;
     }
@@ -4413,6 +4426,7 @@ function writeItemAddress() {
   if (serviceTab === "visualization" && visMode === "tiles") query.set("mode", "tiles");
   if (serviceTab === "visualization" && visStyleOpen) query.set("panel", "style");
   if (serviceTab === "settings" && SERVICE_PAGE_OPEN) query.set("section", SERVICE_PAGE_OPEN);
+  if (serviceTab === "data" && dataView !== "table") query.set("view", dataView);
 
   const path = `#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`;
   const next = query.toString() ? `${path}?${query}` : path;
@@ -4825,7 +4839,8 @@ function drawServiceLayers(layers, qualified) {
       // layer is before the words do; the state answers *has anybody styled this* without
       // opening it; and the three ways on were two links run together with no space between
       // them, which measured as one 96-pixel target holding two.
-      const at = `#/layer/${encodeURIComponent(layer.name || "")}`;
+      // Inside the item, on the layer's data (ADR-102 step 9); Studio has no layer page left.
+      const at = `#/service/${qualified.split("/").map(encodeURIComponent).join("/")}?tab=data&layer=${layer.id ?? 0}`;
 
       return `<tr>
         <td class="lid">${group ? "" : num(layer.id ?? 0)}</td>
@@ -4983,16 +4998,34 @@ async function drawServiceDetails(qualified, knownKind) {
   // — the group page's Overview lists a standing, an owner, a date and two counts in it.
   const manages = !item || item.manages !== false;
 
+  // The picture the lists show for this item is its first drawable layer's (ADR-071), so that is the one here.
+  const firstDrawn = knownKind ? null : serviceLayers.find(l => !(l.type || "").toLowerCase().includes("group"));
+  const thumbed = firstDrawn ? layerNamed(firstDrawn.name || "") : null;
+
   box.innerHTML = `
     <div class="itemactions">
       ${item && item.status === "stopped" ? "" : `<a class="btn primary"
         href="/studio/webmap.html?service=${encodeURIComponent(qualified)}">Open in Map Viewer</a>`}
       ${manages ? `<button type="button" data-share="${h(qualified)}">Share</button>` : ""}
+      ${knownKind || !serviceLayers.some(l => !(l.type || "").toLowerCase().includes("group"))
+        // Settings › Feature layer's *Export data* is Extract, and it is about others: the owner may always
+        // take their own data away, as in Portal; anybody else only when the service offers Extract.
+        || !(manages || String(serviceDoc?.capabilities || "").split(",").map(one => one.trim()).includes("Extract"))
+        ? "" : `<button type="button" id="exportDataOpen">Export data</button>`}
       ${manages && tileLayerOf() ? `<button type="button" data-manage-tiles="1"
         title="What is cached, clear it, pre-build an area, offline packages">Manage tiles</button>` : ""}
     </div>
+    ${thumbed && thumbnailFor(thumbed.url) ? `
+    <h4>Thumbnail</h4>
+    <div class="itemthumb">
+      <img class="thumb" id="layerThumb" alt="" data-thumb="${h(thumbnailFor(thumbed.url))}">
+      ${manages ? `<button type="button" class="tiny" data-redraw-thumb="${h(thumbed.name)}"
+        title="Drawn once and kept; redraw it after the data has changed">Redraw thumbnail</button>` : ""}
+      <p class="hint" id="thumbSays" role="status" aria-live="polite"></p>
+    </div>` : ""}
     <h4>Details</h4>
     <dl class="facts2" id="svcFacts"></dl>`;
+  if (thumbed) paintPreviews();
 
   try {
     if (!item) {
@@ -5136,7 +5169,7 @@ function drawServiceData() {
 
   picker.disabled = publishable.length === 0;
 
-  views.innerHTML = [["table", "Table"], ["fields", "Fields"]].map(([key, label]) =>
+  views.innerHTML = [["table", "Table"], ["fields", "Fields"], ["history", "History"]].map(([key, label]) =>
     `<a href="#" data-data-view="${key}"${key === dataView ? ' aria-current="page"' : ""}>${label}</a>`)
     .join("");
 
@@ -5345,6 +5378,16 @@ async function loadServiceData() {
     const document = await api(`${root}?f=json`);
     const fields = document.fields || [];
 
+    if (dataView === "history") {
+      const layerName = (serviceLayers.find(one => String(one.id) === String(index)) || {}).name || "";
+      const described = { ...layerNamed(layerName), ...(content.get(layerName) || {}) };
+
+      box.innerHTML = layerHistoryMarkup(described, layerName);
+      editing = { name: layerName, page: "history" };
+      if ($("historySays")) section("the history", () => loadHistory(layerName));
+      return;
+    }
+
     if (dataView === "fields") {
       /*
         <b>Named as the reference names them: what it is called and what it is called on the
@@ -5359,7 +5402,15 @@ async function loadServiceData() {
       */
       const may = await dataAlterable(index);
 
+      // <b>One Fields view — the layer's editor, then its columns to add or remove (ADR-102 step 9).</b> They
+      // were two screens, this tab and the layer page's Fields, each with its own table of the same columns.
+      const layerName = (serviceLayers.find(one => String(one.id) === String(index)) || {}).name || "";
+      const described = { ...layerNamed(layerName), ...(content.get(layerName) || {}) };
+
       box.innerHTML = `
+        <div id="dataFieldsHost">${layerFieldsMarkup(described, layerName)}</div>
+        <details class="columns"${fields.length <= 1 ? " open" : ""}>
+        <summary>Add or remove columns</summary>
         <table>
           <thead><tr><th>Display name</th><th>Field</th><th>Type</th><th>Length</th>${
             may ? "<th></th>" : ""}</tr></thead>
@@ -5394,7 +5445,11 @@ async function loadServiceData() {
             A column added to a table that already holds rows cannot be required.</p>`
         : `<p class="hint">The columns of this layer are not edited here: its table was not
             created by this server. A registered table is changed in the database it was
-            registered from, and this server reads the new shape within thirty seconds.</p>`}`;
+            registered from, and this server reads the new shape within thirty seconds.</p>`}
+        </details>`;
+
+      editing = { name: layerName, page: "fields" };
+      section("the fields", () => loadFields(layerName), "fieldsRows");
 
       if (may) {
         $("fldAdd").addEventListener("click", () => addField(root, index));
@@ -5441,8 +5496,7 @@ async function loadServiceData() {
         <button type="button" class="tiny ghost" data-data-page="-1" ${dataTable.offset === 0 ? "disabled" : ""}
           >Previous</button>
         <button type="button" class="tiny ghost" data-data-page="1" ${more ? "" : "disabled"}>Next</button>
-        <button type="button" class="tiny" data-data-export="csv">Export CSV</button>
-        <button type="button" class="tiny" data-data-export="geojson">Export GeoJSON</button>
+
       </div>
       <div class="widetable">
         <table>
@@ -5464,8 +5518,7 @@ async function loadServiceData() {
         </table>
       </div>
       <p class="hint" id="dataSays" role="status" aria-live="polite">Click a column's name to order by it.
-        Export writes every row of this layer${total === null ? "" : ` (${num(total)})`}; GeoJSON with the
-        geometry, CSV without.</p>`;
+        To take the data away, <b>Export data</b> on Overview.</p>`;
   } catch (e) {
     box.innerHTML = `<p class="hint">${h(e.message || String(e))}</p>`;
   }
@@ -5480,13 +5533,13 @@ async function loadServiceData() {
  * 100,000 rows and said so, because a browser tab holding more is the wrong tool; the layer's REST
  * address is the right one, and the note names it.
  */
-async function exportServiceData(format, button) {
-  const index = $("dataLayer")?.value;
+async function exportServiceData(format, button, chosen = null) {
+  const index = chosen ?? $("dataLayer")?.value;
   if (!serviceOpen || index === undefined || index === "") return;
 
   const root = `/rest/services/${
     serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer/${encodeURIComponent(index)}`;
-  const says = text => { const s = $("dataSays"); if (s) s.textContent = text; };
+  const says = text => { const s = $("exportDataSays") || $("dataSays"); if (s) s.textContent = text; };
   const cap = 100000;
   const page = 2000;
   const geojson = format === "geojson";
@@ -6251,6 +6304,16 @@ function drawVisStyle() {
   if (host.dataset.for !== name) {
     host.innerHTML = symbologyMarkup(name);
     host.dataset.for = name;
+
+    // <b>The visible range is the rail's last section</b> — Portal keeps it beside the style (ADR-102 step 10).
+    // Not under the editor: that made the page taller than the window, and the scroll bar took the pixels the
+    // three columns fit by at 1412. Not an inspector tab: a layer nobody has styled has no inspector, and its
+    // range would have had no home at all. The rail scrolls on its own and is there for every layer.
+    const rail = host.querySelector(".symrail");
+    if (may && rail) {
+      rail.insertAdjacentHTML("beforeend", `<section class="visrange">${
+        layerRangeMarkup({ ...layerNamed(name), ...(content.get(name) || {}) }, name)}</section>`);
+    }
     editing = { name, page: "symbology" };
 
     // The strip names the layer, stamps the service on its service-wide controls and draws the item's tabs —
@@ -6359,8 +6422,9 @@ function toVisualization(name, mode) {
  * confirmation names what goes, because *are you sure* is a question nobody reads and *delete
  * hosted/Environmental_gdb and its 23 layers* is one they do.
  *
- * <b>Locked by default, where the reference starts unlocked.</b> A default that protects is the right
- * way round for the only irreversible action on this page.
+ * <b>Off until the owner turns it on, as the reference starts.</b> This said *locked by default* while the lock
+ * was a checkbox the page forgot; it is stored now (`service.delete_protected`, ADR-102 condition 2), the API
+ * refuses a delete while it is on, and its default is off — INFERRED, and listed for the owner.
  */
 function drawServiceDelete() {
   const lock = $("svcLock");
@@ -6384,7 +6448,10 @@ function drawServiceDelete() {
   // dropped, which was true of the server and wrong as a policy: *"servis hosted sa ve silindiyse,
   // datastore dan silinmesi lazım."* ADR-034 §5k. A hosted layer's table is ours and goes with it; a
   // registered layer points at somebody else's database and its table is never touched.
-  const hostedHere = (serviceOpen?.folder || "") === "hosted";
+  // Hosted is the layers' own fact, not the folder's name — the one irreversible sentence on the page does not
+  // rest on a guess Overview's details refuse to make. The folder is only the fallback before layers are read.
+  const hostedHere = serviceLayers.some(one => layerNamed(one.name || "").hosted)
+    || (!serviceLayers.some(one => layerNamed(one.name || "").url) && (serviceOpen?.folder || "") === "hosted");
 
   note.innerHTML = count === 0
     ? `This service holds no layers, so deleting it removes the service and no data.`
@@ -6493,6 +6560,18 @@ async function drawFeatureFacts(name, folder) {
     <p class="hint" id="offerSays" role="status" aria-live="polite">Query is always offered. ${st.manages
       ? "What you turn off here is refused to every client, including ArcGIS Pro and Field Maps."
       : "Only the item's owner or an administrator changes this."}</p>
+    <h4>Layers</h4>
+    <div id="featureLayers">${serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).map(one => `
+      <div class="layerblock">
+        <b>${h(one.name || "")}</b> <span class="rowmeta">id ${num(one.id ?? 0)}</span>
+        ${st.manages ? `<button type="button" class="tiny danger" data-delete="${h(one.name || "")}">Remove this layer</button>` : ""}
+        ${st.manages ? layerTimeMarkup({ ...layerNamed(one.name || ""), ...(content.get(one.name || "") || {}) }, one.name || "") : ""}
+      </div>`).join("")}</div>
+    ${st.manages ? `<p class="hint">A layer's <b>time column</b> is when each feature happened. Left empty, the server
+      uses the layer's one date column, or publishes no time when it has none or several — name one when the table
+      has more than one date, <code>observed_at</code> rather than <code>created_at</code>.</p>` : ""}
+    ${st.manages ? `<p class="hint">Removing a layer unpublishes it; a hosted layer's table goes with it, a registered
+      one stays where it is. It is refused while the item is protected from deletion (General).</p>` : ""}
     <h4>Set by the server administrator</h4>
     <dl class="facts">
       <dt>Allowed at most</dt><dd>${ceiling === null ? "everything" : h(ceiling.join(", "))}</dd>
@@ -7171,6 +7250,104 @@ function symbologyMarkup(name) {
           </div>
         </div>
       </div>
+    </section>`;
+}
+
+/**
+ * A layer's fields and its history, as the item's Data tab draws them — ADR-102 step 9. Lifted whole out of the
+ * layer page: their handlers find their controls by id and act on `editing.name`, so where they stand does not
+ * change what they do. `l` is the layer as a listing describes it; `hosted` is what both read.
+ */
+function layerFieldsMarkup(l, name) {
+  return `
+    <section class="page on" id="page-fields">
+      <h4>Fields</h4>
+      <p class="hint">What each column is called in a client, and whether a client sees it at
+        all. The column itself is untouched: a label is shown to people and never used to ask
+        for anything, and a hidden column is refused everywhere — in a query, a filter, a
+        sort or an edit — exactly as if the table had no such column.</p>
+      <p class="hint">A column can also record who created or last changed each feature, and
+        when. This server writes those columns and a client never does. Once one records who
+        created each feature, an account with <b>features:edit</b> may change its own features
+        and nobody else's. Only text and date columns can record these; the others show —.</p>
+      <p class="hint"><b>Values</b> limits what a column may hold: a list a client shows as a
+        drop-down, or a range. It is enforced — an edit with any other value is refused, from
+        every client.</p>
+      <table class="fieldsgrid">
+        <colgroup><col class="c-name"><col class="c-type"><col class="c-label"><col class="c-values"><col class="c-records"><col class="c-hide"></colgroup>
+        <thead><tr><th>Column</th><th>Type</th><th>Label</th><th>Values</th><th>Records</th><th>Hidden</th></tr></thead>
+        <tbody id="fieldsRows"><tr><td colspan="6" class="empty">Reading the columns…</td></tr></tbody>
+      </table>
+      <div id="fieldsSubtypes"></div>
+      <div id="fieldsInert"></div>
+      <div class="row" style="margin-top:10px">
+        <button type="button" id="fieldsSave">Save</button>
+        ${l.hosted ? `<button type="button" class="ghost" id="fieldsTrack">Track who edits</button>` : ""}
+      </div>
+      <p class="hint" id="fieldsSays" role="status" aria-live="polite"></p>
+    </section>`;
+}
+
+/**
+ * A layer's time column, as Settings › Feature layer draws it for each layer — ADR-102 step 10. The input is
+ * found from the button that was pressed, so every layer of the item can have one on the same page.
+ */
+function layerTimeMarkup(l, name) {
+  return `
+      <div class="setting"><span class="q">Time column:</span>
+        <input type="text" data-time-input aria-label="The time column of ${h(name)}" placeholder="derive it from the schema"
+          value="${h(l.timeField || "")}">
+        <button type="button" class="tiny" data-time="${h(name)}">Set</button>
+        <button type="button" class="tiny ghost" data-time="${h(name)}" data-clear="1">Derive it</button></div>
+
+`;
+}
+
+/** A layer's visible range, drawn under its style in Visualization — ADR-102 step 10, Portal's Properties. */
+function layerRangeMarkup(l, name) {
+  return `
+      <h4>Visible range</h4>
+      <p class="hint" style="margin-top:0">For <b>${h(name)}</b>.</p>
+      <div class="setting"><label class="q" for="minScale">Hide when zoomed out beyond (minimum scale):</label>
+        <span class="u" style="width:auto;margin-right:6px">1:</span><input type="number" id="minScale" min="0" step="1" placeholder="no limit"
+          value="${l.minScale > 0 ? Math.round(l.minScale) : ""}"></div>
+      <div class="setting"><label class="q" for="maxScale">Hide when zoomed in beyond (maximum scale):</label>
+        <span class="u" style="width:auto;margin-right:6px">1:</span><input type="number" id="maxScale" min="0" step="1" placeholder="no limit"
+          value="${l.maxScale > 0 ? Math.round(l.maxScale) : ""}"></div>
+      <p class="hint">A map outside this range leaves the layer out, and ArcGIS clients stop
+        asking for it. This is what keeps a map zoomed out over a dense layer — every building
+        in a city — from making the server draw all of it. Publishing sets the zoomed-out limit
+        from the data: the first scale at which no tile holds more than 10,000 features.</p>
+      <p class="hint"><b>${h(rangeText(l.minScale, l.maxScale))}</b></p>
+      <p class="hint" id="rangeSays" role="status" aria-live="polite"></p>
+      <div class="row" style="margin-top:10px">
+        <button data-range="${h(name)}">Set</button>
+        <button data-range-suggest="${h(name)}" class="ghost">Measure from the data</button>
+        <span style="flex:1"></span>
+        <button data-range="${h(name)}" data-clear="1" class="ghost"
+          title="Clears both limits and saves at once">No limit</button>
+      </div>
+
+`;
+}
+
+function layerHistoryMarkup(l, name) {
+  return `
+    <section class="page on" id="page-history">
+      <h4>History</h4>
+      ${l.hosted ? `
+      <p class="hint" id="historyAbout" hidden>Every version of every feature, with who changed it and
+        when — kept by the database, so an edit made in QGIS or straight in SQL is here too. Any version
+        can be put back. Attachments are not kept. ArcGIS clients can ask this layer for a moment in the
+        past (<code>historicMoment</code>).</p>
+      <div class="row" style="align-items:center">
+        <p class="hint" id="historySays" role="status" aria-live="polite" style="margin:0;flex:1">Reading the history…</p>
+        <button type="button" id="historySwitch" hidden></button>
+      </div>
+      <div id="historyBody"></div>`
+      : `<p class="hint">History is kept by the database beside the layer's own table, and this server
+        makes that kind of change only in its own datastore. This layer's data lives in a database it
+        does not own, so it cannot keep a history here (ADR-002 §4.2).</p>`}
     </section>`;
 }
 
@@ -10273,9 +10450,8 @@ function drawSymStrip(name, at, trail) {
   } else {
     tabs.hidden = false;
 
-    tabs.innerHTML = SERVICE_TABS.map(([key, label]) => key === "symbology"
-      ? `<a href="#/layer/${encodeURIComponent(name)}/symbology" aria-current="page">${label}</a>`
-      : `<a href="#/service/${service}?tab=${key}">${label}</a>`).join("");
+    tabs.innerHTML = SERVICE_TABS.map(([key, label]) =>
+      `<a href="#/service/${service}?tab=${key}">${label}</a>`).join("");
   }
 
   // The sharing scope, as the pill every other list draws it. A reader who arrived from a link
@@ -11970,19 +12146,18 @@ const LAYER_PAGES = {
   // called and whether a client sees it at all are decisions about how this layer presents
   // its data, and the endpoint behind the page asks for `content:publishFeatures` — the same
   // privilege as the time field and the symbol.
-  fields: "studio",
+  // `fields` and `history` left on 2026-10-01: they are the item's Data › Fields and Data › History (ADR-102 step 9).
 
   // <b>History is the publisher's too</b> (ADR-078): whether the datastore keeps every version of
   // this layer's features is the owner's call, and what the page mostly shows — who changed what —
   // is read by the people who edit it.
-  history: "studio",
 
   // `caching` left on 2026-10-01: it is the item's Settings › Tile layer (ADR-102 step 6).
 
   // <b>Last, so it is not the page a layer opens on — 2026-09-30.</b> A surface's first page here is where
   // `#/layer/{name}` lands, and a click on a layer's name in the item's Overview landed on a page whose
   // only content was *Delete layer*. Portal opens a sublayer on what it is; its removal is one tab over.
-  maintenance: "studio",
+  // `maintenance` left the same day: removing a layer is in Settings › Feature layer, beside the layer.
 };
 
 const EDIT_PAGES = Object.keys(LAYER_PAGES);
@@ -12223,7 +12398,11 @@ function showLayer(name, page, pending = null) {
   $("editNav").innerHTML = pagesOf(here).map(p =>
     `<a href="#/layer/${encodeURIComponent(name)}/${p}">${
       p[0].toUpperCase() + p.slice(1)}</a>`).join("")
-    + (may(SURFACES[elsewhere].needs)
+    + (elsewhere === "studio"
+      // Studio has no layer page since ADR-102 step 9: its settings are the item's, and this is the way there.
+      ? (at ? `<a class="crossing" href="/studio/#/service/${at.service.split("/").map(encodeURIComponent).join("/")}?tab=data&layer=${at.id ?? 0}">Open the item
+          <span class="in">in Studio</span></a>` : "")
+      : may(SURFACES[elsewhere].needs) && pagesOf(elsewhere).length
       ? `<a class="crossing" href="${surfaceHref(elsewhere,
           `layer/${encodeURIComponent(name)}/${pagesOf(elsewhere)[0]}`)}">${
           pagesOf(elsewhere).map(p => p[0].toUpperCase() + p.slice(1)).join(", ")}
@@ -12257,53 +12436,11 @@ function showLayer(name, page, pending = null) {
       <h4>Contents</h4>
       <div id="contents" class="val">reading the layer document…</div>
 
-      <h4>Thumbnail</h4>
-      <div class="row" style="align-items:flex-start;gap:16px">
-        ${thumbnailFor(l.url)
-          ? `<img class="thumb" id="layerThumb" alt="" style="width:168px;height:112px"
-               data-thumb="${h(thumbnailFor(l.url))}">`
-          : `<div class="thumb empty" id="layerThumb" title="This layer has no map to show."></div>`}
-        <div style="flex:1;min-width:200px">
-          <p class="hint" style="margin-top:0">Drawn once and kept, so the lists that show it do not
-            draw the layer again. Redraw it after the data has changed.</p>
-          <button data-redraw-thumb="${h(name)}" ${thumbnailFor(l.url) ? "" : "disabled"}>Redraw thumbnail</button>
-          <p class="hint" id="thumbSays" role="status" aria-live="polite"></p>
-        </div>
-      </div>
-
-      <h4>Time</h4>
-      <div class="setting"><span class="q">Which column is this layer's time:</span>
-        <input type="text" id="timeField" placeholder="derive it from the schema"
-          value="${h(l.timeField || "")}"></div>
-      <p class="hint">Leave it empty and the server uses the layer's one date column, or
-        publishes no time dimension when it has none or several. Name a column when the
-        table has more than one date and only one of them is when the thing happened —
-        <code>observed_at</code> rather than <code>created_at</code>.</p>
-      <div class="row" style="margin-top:10px">
-        <button data-time="${h(name)}">Set</button>
-        <button data-time="${h(name)}" data-clear="1" class="ghost">Derive it</button>
-      </div>
-
-      <h4>Visible range</h4>
-      <div class="setting"><label class="q" for="minScale">Hide when zoomed out beyond (minimum scale):</label>
-        <span class="u" style="width:auto;margin-right:6px">1:</span><input type="number" id="minScale" min="0" step="1" placeholder="no limit"
-          value="${l.minScale > 0 ? Math.round(l.minScale) : ""}"></div>
-      <div class="setting"><label class="q" for="maxScale">Hide when zoomed in beyond (maximum scale):</label>
-        <span class="u" style="width:auto;margin-right:6px">1:</span><input type="number" id="maxScale" min="0" step="1" placeholder="no limit"
-          value="${l.maxScale > 0 ? Math.round(l.maxScale) : ""}"></div>
-      <p class="hint">A map outside this range leaves the layer out, and ArcGIS clients stop
-        asking for it. This is what keeps a map zoomed out over a dense layer — every building
-        in a city — from making the server draw all of it. Publishing sets the zoomed-out limit
-        from the data: the first scale at which no tile holds more than 10,000 features.</p>
-      <p class="hint"><b>${h(rangeText(l.minScale, l.maxScale))}</b></p>
-      <p class="hint" id="rangeSays" role="status" aria-live="polite"></p>
-      <div class="row" style="margin-top:10px">
-        <button data-range="${h(name)}">Set</button>
-        <button data-range-suggest="${h(name)}" class="ghost">Measure from the data</button>
-        <span style="flex:1"></span>
-        <button data-range="${h(name)}" data-clear="1" class="ghost"
-          title="Clears both limits and saves at once">No limit</button>
-      </div>
+      <!-- Thumbnail, time and visible range left Server's layer page on 2026-10-01 (ADR-102 step 10): they are
+           the publisher's, and the item in Studio holds them — Overview, Settings › Feature layer and the Style
+           panel. -->
+      <p class="hint">The thumbnail, the time column and the visible range are the publisher's, and are set in
+        the item in Studio.</p>
 
       <h4>Identity</h4>
       <dl class="facts">
@@ -12314,49 +12451,9 @@ function showLayer(name, page, pending = null) {
       </dl>
     </section>
 
-    <section class="page" id="page-fields">
-      <h4>Fields</h4>
-      <p class="hint">What each column is called in a client, and whether a client sees it at
-        all. The column itself is untouched: a label is shown to people and never used to ask
-        for anything, and a hidden column is refused everywhere — in a query, a filter, a
-        sort or an edit — exactly as if the table had no such column.</p>
-      <p class="hint">A column can also record who created or last changed each feature, and
-        when. This server writes those columns and a client never does. Once one records who
-        created each feature, an account with <b>features:edit</b> may change its own features
-        and nobody else's. Only text and date columns can record these; the others show —.</p>
-      <p class="hint"><b>Values</b> limits what a column may hold: a list a client shows as a
-        drop-down, or a range. It is enforced — an edit with any other value is refused, from
-        every client.</p>
-      <table class="fieldsgrid">
-        <colgroup><col class="c-name"><col class="c-type"><col class="c-label"><col class="c-values"><col class="c-records"><col class="c-hide"></colgroup>
-        <thead><tr><th>Column</th><th>Type</th><th>Label</th><th>Values</th><th>Records</th><th>Hidden</th></tr></thead>
-        <tbody id="fieldsRows"><tr><td colspan="6" class="empty">Reading the columns…</td></tr></tbody>
-      </table>
-      <div id="fieldsSubtypes"></div>
-      <div id="fieldsInert"></div>
-      <div class="row" style="margin-top:10px">
-        <button type="button" id="fieldsSave">Save</button>
-        ${l.hosted ? `<button type="button" class="ghost" id="fieldsTrack">Track who edits</button>` : ""}
-      </div>
-      <p class="hint" id="fieldsSays" role="status" aria-live="polite"></p>
-    </section>
+    <!-- page-fields left this template on 2026-10-01 for the item (ADR-102 step 9). -->
 
-    <section class="page" id="page-history">
-      <h4>History</h4>
-      ${l.hosted ? `
-      <p class="hint" id="historyAbout" hidden>Every version of every feature, with who changed it and
-        when — kept by the database, so an edit made in QGIS or straight in SQL is here too. Any version
-        can be put back. Attachments are not kept. ArcGIS clients can ask this layer for a moment in the
-        past (<code>historicMoment</code>).</p>
-      <div class="row" style="align-items:center">
-        <p class="hint" id="historySays" role="status" aria-live="polite" style="margin:0;flex:1">Reading the history…</p>
-        <button type="button" id="historySwitch" hidden></button>
-      </div>
-      <div id="historyBody"></div>`
-      : `<p class="hint">History is kept by the database beside the layer's own table, and this server
-        makes that kind of change only in its own datastore. This layer's data lives in a database it
-        does not own, so it cannot keep a history here (ADR-002 §4.2).</p>`}
-    </section>
+    <!-- page-history left this template on 2026-10-01 for the item (ADR-102 step 9). -->
 
     <!-- The Caching page left this template on 2026-10-01: it is the item's Settings › Tile layer (ADR-102). -->
 
@@ -12379,21 +12476,7 @@ function showLayer(name, page, pending = null) {
     -->
     <!-- The Symbology page left this template on 2026-10-01: it is the item's Visualization › Style (ADR-102). -->
 
-    <section class="page" id="page-maintenance">
-      <p class="hint"><b>Who may read this is set on the service</b>, not here — one scope covers
-        every layer the service holds, because <code>service.sharing</code> is the column the serving
-        path reads. <a href="#/service/${
-          [l.folder, l.service].filter(Boolean).map(encodeURIComponent).join("/")}"
-        data-open-service-page="sharing">Open its Sharing page</a>. This page offered the same scope
-        once per layer until 2026-08-18, which made one setting look like several — D-61.</p>
-
-      <h4>Unpublish</h4>
-      <div class="row">
-        <button class="danger" data-delete="${h(name)}">Delete layer</button>
-      </div>
-      <p class="hint">The source table is not touched. For a hosted layer the data is in this
-        server's datastore and goes with it; for a registered one it stays where it was.</p>
-    </section>
+    <!-- page-maintenance left this template on 2026-10-01 for the item (ADR-102 step 9). -->
 
     <section class="page" id="page-endpoints">
       <h4>Addresses</h4>
@@ -19384,7 +19467,8 @@ function drawDomains() {
   const e = domainEdit;
   const rows = domainsListed.map((d, i) => {
     const used = d.uses || [];
-    const where = used.map(u => `<li><a href="#/layer/${encodeURIComponent(u.layer)}/fields">${h(u.layer)}</a> ·
+    // The column is in its item's Data › Fields (ADR-102 step 11: nothing links to the layer screen any more).
+    const where = used.map(u => `<li><a href="${h(legacyRoute(["layer", encodeURIComponent(u.layer), "fields"]) || "#/content")}">${h(u.layer)}</a> ·
       <code>${h(u.column)}</code>${u.subtype !== null && u.subtype !== undefined ? ` (subtype ${h(u.subtype)})` : ""}</li>`).join("");
 
     const actions = !d.mayChange
@@ -21810,11 +21894,10 @@ async function handleClick(event) {
     return;
   }
 
-  // A content row in Studio: the layer's own page, which is where its appearance and its
-  // sharing are.
+  // A content row in Studio: the layer inside its item (ADR-102 step 11 — Studio has no layer screen).
   const pick = t.closest("tr[data-pick]");
   if (pick && !control) {
-    location.hash = `#/layer/${encodeURIComponent(pick.dataset.pick)}`;
+    location.href = legacyRoute(["layer", encodeURIComponent(pick.dataset.pick)]) || "#/content";
     return;
   }
 
@@ -21996,7 +22079,8 @@ async function handleClick(event) {
   }
 
   if (d.time) {
-    const field = d.clear ? null : $("timeField").value.trim();
+    const input = t.closest(".layerblock")?.querySelector("[data-time-input]") || $("timeField");
+    const field = d.clear || !input ? null : input.value.trim();
     try {
       const r = await api(`/admin/layers/${encodeURIComponent(d.time)}/time-field`, {
         method: "PUT",
@@ -22065,7 +22149,9 @@ async function handleClick(event) {
       hide(d.delete);
       selected = null;
       editing = null;                    // there is no longer a layer to have open
-      location.hash = "#/services";
+      // Inside the item, the item again; elsewhere, the services list as before.
+      if (serviceOpen && surfaceOfPath() === "studio") showService(serviceOpen.qualified);
+      else location.hash = "#/services";
       toast(`${d.delete} deleted.`, true);
     } catch (e) { toast(e.message); }
     await loadLayers();
@@ -23566,6 +23652,40 @@ async function handleClick(event) {
     return;
   }
 
+  if (t.id === "exportDataOpen" && serviceOpen) {
+    const drawable = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group"));
+    const tiled = tileLayerOf();
+    $("exportDataBody").innerHTML = `
+      <div class="setting"><label class="q" for="exportDataLayer">Layer:</label>
+        <select id="exportDataLayer" style="width:auto;max-width:100%;min-width:16em">${drawable.map(one => `<option value="${h(String(one.id ?? 0))}">${
+          h(one.name || `layer ${one.id}`)}</option>`).join("")}</select></div>
+      <fieldset class="offered"><legend>Format</legend>
+        <label class="check"><input type="radio" name="exportDataFormat" value="csv" checked> CSV — the attributes, for a spreadsheet</label>
+        <label class="check"><input type="radio" name="exportDataFormat" value="geojson"> GeoJSON — with the geometry, in WGS 84</label>
+      </fieldset>
+      ${tiled ? `<p class="hint">Tiles for offline use — a VTPK for ArcGIS Field Maps and Pro, or PMTiles — are built as
+        packages in <a href="#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings&section=tiles">Settings › Tile layer</a>.</p>` : ""}
+      <p class="hint" id="exportDataSays" role="status" aria-live="polite">Every row of the layer is written, up to 100,000.</p>`;
+    $("exportDataFoot").innerHTML = `<span class="fill"></span>
+      <button type="button" class="ghost" id="exportDataCancel">Cancel</button>
+      <button type="button" class="primary" id="exportDataGo">Download</button>`;
+    $("exportData").showModal();
+    $("exportDataTitle").focus();
+    return;
+  }
+
+  // The link to Tile layer leaves the dialog too: an open modal over the page it leads to hides that page.
+  if (t.id === "exportDataClose" || t.id === "exportDataCancel" || t.closest?.("#exportData a[href]")) {
+    $("exportData").close();
+    if (!t.closest?.("a[href]")) return;
+  }
+
+  if (t.id === "exportDataGo") {
+    const format = document.querySelector('input[name="exportDataFormat"]:checked')?.value || "csv";
+    await exportServiceData(format, t, $("exportDataLayer")?.value);
+    return;
+  }
+
   if (t.dataset?.dataExport !== undefined) {
     await exportServiceData(t.dataset.dataExport, t);
     return;
@@ -23574,6 +23694,7 @@ async function handleClick(event) {
   if (t.dataset?.dataView !== undefined) {
     event.preventDefault();
     dataView = t.dataset.dataView;
+    writeItemAddress();
     drawServiceData();
     return;
   }
@@ -23606,7 +23727,8 @@ async function handleClick(event) {
 
     // <b>The confirmation names the tables, because that is the irreversible part.</b> *Are you sure*
     // in front of a drop has not said anything; *drops 55 tables* has.
-    const hosted = (serviceOpen.folder || "") === "hosted";
+    const hosted = serviceLayers.some(one => layerNamed(one.name || "").hosted)
+    || (!serviceLayers.some(one => layerNamed(one.name || "").url) && (serviceOpen?.folder || "") === "hosted");
 
     if (!confirm(
       `Delete '${serviceOpen.qualified}'`

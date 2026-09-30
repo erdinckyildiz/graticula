@@ -207,4 +207,133 @@ public sealed class ItemStructureTests : ConsoleTest
 
         NothingWentWrong(await PageErrorsAsync());
     }
+
+    /// <summary>Step 9: a layer's fields and history are the item's Data views; removing a layer is Settings'.</summary>
+    [Fact]
+    public async Task A_layers_fields_and_history_are_Data_views_and_removing_it_is_in_Settings()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync($"/studio/#/service/{Service()}?tab=data&layer=0&view=fields", token);
+
+        await WaitForAsync(
+            "!!document.querySelector('#dataFieldsHost #fieldsRows tr') && !!document.querySelector('#dataRows details.columns')",
+            "Data › Fields does not hold the layer's field editor with the columns to add or remove under it.");
+
+        await ClickAsync("[data-data-view=\"history\"]");
+
+        await WaitForAsync(
+            "!!document.querySelector('#dataRows #page-history') && /view=history/.test(location.hash)",
+            "Data › History did not open the layer's history.");
+
+        await OpenAsync($"/studio/#/service/{Service()}?tab=settings&section=feature", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#featureLayers [data-delete]').length > 0",
+            "Settings › Feature layer offers no way to remove a layer; it was the layer page's Maintenance.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>Step 8: exporting is one action on Overview; the Data tab keeps no export buttons of its own.</summary>
+    [Fact]
+    public async Task Export_data_is_one_action_on_Overview()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync($"/studio/#/service/{Service()}", token);
+
+        await WaitForAsync("!!document.getElementById('exportDataOpen')", "Overview offers no Export data action.");
+
+        await ClickAsync("#exportDataOpen");
+
+        await WaitForAsync(
+            "document.getElementById('exportData').open && document.querySelectorAll('#exportDataLayer option').length > 0",
+            "Export data did not open a dialog that names the item's layers.");
+
+        await ClickAsync("#exportDataGo");
+
+        await WaitForAsync(
+            "/written to/.test(document.getElementById('exportDataSays').textContent)",
+            "The export dialog did not write the chosen layer.");
+
+        await OpenAsync($"/studio/#/service/{Service()}?tab=data&layer=0", token);
+
+        await WaitForAsync("!!document.querySelector('#dataRows table')", "The Data table never drew.");
+
+        int exports = await Browser.EvaluateAsync<int>("document.querySelectorAll('[data-data-export]').length");
+
+        Assert.Equal(0, exports);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>Step 10: thumbnail, time column and visible range are the item's; Server's layer page holds none.</summary>
+    [Fact]
+    public async Task The_publishers_layer_settings_are_in_the_item_and_not_on_Server()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync($"/studio/#/service/{Service()}", token);
+
+        await WaitForAsync(
+            "!!document.querySelector('#serviceDetails #layerThumb') && !!document.querySelector('#serviceDetails [data-redraw-thumb]')",
+            "Overview does not show the item's thumbnail with a way to redraw it.");
+
+        await OpenAsync($"/studio/#/service/{Service()}?tab=settings&section=feature", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#featureLayers [data-time-input]').length > 0",
+            "Settings › Feature layer does not hold each layer's time column.");
+
+        string layer = await Browser.EvaluateAsync<string>(
+            "document.querySelector('#featureLayers [data-time]').dataset.time") ?? "";
+
+        await OpenAsync($"/studio/#/service/{Service()}?tab=visualization&panel=style", token);
+
+        await WaitForAsync(
+            "(() => { const m = document.querySelector('#visStyleHost .symrail #minScale'); if (!m) return false; m.scrollIntoView(); return m.offsetParent !== null && m.getBoundingClientRect().height > 0; })()",
+            "The Style panel does not show the layer's visible range — for a layer nobody has styled too.");
+
+        await OpenAsync($"/server/#/layer/{Uri.EscapeDataString(layer)}", token);
+
+        await WaitForAsync("!!document.querySelector('#page-general h4')", "Server's layer page never drew.");
+
+        int left = await Browser.EvaluateAsync<int>(
+            "document.querySelectorAll('#page-general #timeField, #page-general #minScale, #page-general [data-redraw-thumb]').length");
+
+        Assert.Equal(0, left);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>Step 11: Studio draws no layer screen — every layer address it is given opens the item.</summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("/symbology")]
+    [InlineData("/no-such-page")]
+    public async Task Studio_opens_the_item_for_every_layer_address(string page)
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync($"/studio/#/service/{Service()}?tab=settings&section=feature", token);
+
+        await WaitForAsync("!!document.querySelector('#featureLayers [data-delete]')", "The item's layers never drew.");
+
+        string layer = await Browser.EvaluateAsync<string>(
+            "document.querySelector('#featureLayers [data-delete]').dataset.delete") ?? "";
+
+        await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}{page}", token);
+
+        await WaitForAsync(
+            "location.hash.startsWith('#/service/') && document.getElementById('view-service').classList.contains('on')",
+            $"Studio did not open the item for #/layer/{layer}{page}.");
+
+        bool layerScreen = await Browser.EvaluateAsync<bool>(
+            "document.getElementById('view-layer').classList.contains('on')");
+
+        Assert.False(layerScreen, "Studio drew the layer screen, which ADR-102 step 11 retired.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
 }

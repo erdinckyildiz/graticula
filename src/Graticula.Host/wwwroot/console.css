@@ -4397,3 +4397,21 @@ fieldset.offered label.check { display: flex; gap: var(--gap-2); align-items: ba
 @media (max-width: 1100px) { #serviceDetails { order: -1; } }
 #serviceDetails dl.facts2 dd { min-width: 0; }
 #serviceDetails dl.facts2 dt { white-space: nowrap; }
+
+/* Data › Fields: the layer's editor, then adding and removing columns (ADR-102 step 9). */
+#dataRows details.columns { margin-top: var(--gap-5); }
+#dataRows details.columns > summary { cursor: pointer; font-weight: 600; }
+#dataFieldsHost > .page, #dataRows > .page { display: block; }
+/* Settings › Feature layer: one block per layer. */
+.layerblock { display: flex; align-items: center; gap: var(--gap-3); padding: var(--gap-2) 0; border-bottom: 1px solid var(--rule); }
+.layerblock > button { margin-left: auto; }
+
+/* ADR-102 step 10: the publisher's per-layer settings, now in the item. */
+#serviceDetails .itemthumb { display: grid; gap: 6px; justify-items: start; margin-bottom: 8px; }
+#serviceDetails .itemthumb img.thumb { width: 100%; max-width: 280px; aspect-ratio: 3 / 2; height: auto; }
+#featureLayers .layerblock { flex-wrap: wrap; }
+#featureLayers .layerblock .setting { flex-basis: 100%; margin-top: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+#featureLayers .layerblock .setting input[data-time-input] { width: 16em; max-width: 100%; }
+.symrail .visrange .setting { flex-wrap: wrap; gap: 4px; align-items: center; }
+.symrail .visrange .setting .q { flex-basis: 100%; }
+.symrail .visrange .row { flex-wrap: wrap; gap: 6px; }

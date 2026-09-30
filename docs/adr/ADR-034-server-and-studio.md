@@ -9,7 +9,7 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-020](ADR-020-admin-console-and-service-status.md) — one console becomes two surfaces over the same API |
 
-> **Amended 2026-10-01 by [ADR-102](ADR-102-the-studio-item-is-one-page-and-every-setting-has-one-home.md).** Layer pages leave both surfaces: a layer opens inside its item, and the settings a publisher owns but Server showed — time field, visible range, thumbnail — move to the item. Server keeps the service's server settings and links to the item. Built in steps (ADR-102 §5.6).
+> **Amended 2026-10-01 by [ADR-102](ADR-102-the-studio-item-is-one-page-and-every-setting-has-one-home.md).** Layer pages leave both surfaces: a layer opens inside its item, and the settings a publisher owns but Server showed — time field, visible range, thumbnail — move to the item. Server keeps the service's server settings and links to the item. Built in steps (ADR-102 §5.6). *As built, Server keeps a layer page holding only the server's facts about the layer — state, contents, identity, addresses — with every publisher setting gone from it (ADR-102 §5.6, as-built note).*
 
 
 > **Amended 2026-09-30 by [ADR-101](ADR-101-studio-is-walked-the-way-a-portal-user-walks-it.md).** Studio's sidebar has *Map*, a link to the web map viewer after *My content* — Portal has Map beside Content, and the viewer was reachable only from under the content table. The split this ADR decides is unchanged.

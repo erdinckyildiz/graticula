@@ -202,17 +202,12 @@ public sealed class ScreenReviewTests : ConsoleTest
 
         await ClickAsync("#serviceLayerRows td.name a");
 
+        // <b>Inside the item since ADR-102 step 9</b> — Portal's sublayer view: the layer's data, with the item's
+        // tabs and its Layer select, rather than a page of its own that left the item.
         await WaitForAsync(
-            "document.getElementById('view-layer')?.classList.contains('on') "
-            + "&& location.hash.startsWith('#/layer/')",
-            "A layer named in the service's Overview did not open its own page.");
-
-        // Cancel does not leave the surface — it was hardcoded to Server's services list, so a Studio
-        // publisher pressing *nevermind* crossed the product.
-        Assert.Equal(
-            "#/content",
-            await Browser.EvaluateAsync<string>(
-                "document.getElementById('editCancel')?.getAttribute('href') || ''"));
+            "document.getElementById('view-service')?.classList.contains('on') "
+            + "&& /tab=data&layer=[0-9]+/.test(location.hash) && !document.getElementById('serviceData').hidden",
+            "A layer named in the service's Overview did not open inside the item.");
 
         string[] errors = await PageErrorsAsync();
         NothingWentWrong(errors);
