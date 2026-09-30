@@ -1398,7 +1398,7 @@ internal static class PortalEndpoints
         return
         [
             .. (await maps.ListAsync(cancellation).ConfigureAwait(false)).Where(map =>
-                LayerAccess.Evaluate(map.Sharing, map.Owner, current.Principal, current.Authorization).IsAllowed()),
+                LayerAccess.Evaluate(map.Sharing, map.Owner, current.Principal, current.Authorization, map.SharedWith).IsAllowed()),
         ];
     }
 
@@ -1416,7 +1416,7 @@ internal static class PortalEndpoints
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         return await maps.FindAsync(lower, cancellation).ConfigureAwait(false) is { } map
-            && LayerAccess.Evaluate(map.Sharing, map.Owner, current.Principal, current.Authorization).IsAllowed()
+            && LayerAccess.Evaluate(map.Sharing, map.Owner, current.Principal, current.Authorization, map.SharedWith).IsAllowed()
                 ? map
                 : null;
     }

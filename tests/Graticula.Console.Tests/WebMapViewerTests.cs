@@ -388,6 +388,27 @@ public sealed class WebMapViewerTests : ConsoleTest
                 $"(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/content/webmaps/{id}'))",
                 "Saving the map's sharing sent nothing.");
 
+            // Groups: the fourth scope, with the groups this user may put it in (ADR-079 condition 4).
+            await ClickAsync("#mapShareOpen");
+
+            await WaitForAsync("document.getElementById('mapShare').open", "Share did not open again.");
+
+            await Browser.EvaluateAsync<bool>(
+                "(() => { const r = document.querySelector('input[name=mapShareScope][value=group]'); r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+
+            await WaitForAsync(
+                "!document.getElementById('mapShareGroups').hidden && !!document.querySelector('[data-map-group]')",
+                "Choosing Groups did not list the groups the map may go into.");
+
+            await Browser.EvaluateAsync<bool>(
+                "(() => { const b = document.querySelector('[data-map-group]'); b.checked = true; b.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+
+            await ClickAsync("#mapShareSave");
+
+            await WaitForAsync(
+                $"(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/maps/{id}'))",
+                "Sharing the map into a group sent nothing to the group.");
+
             NothingWentWrong(await PageErrorsAsync());
         }
         finally

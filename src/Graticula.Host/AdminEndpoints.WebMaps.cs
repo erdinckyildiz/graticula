@@ -260,7 +260,7 @@ internal static partial class AdminEndpoints
     }
 
     private static bool Readable(RequestPrincipal current, WebMap map) =>
-        LayerAccess.Evaluate(map.Sharing, map.Owner, current.Principal, current.Authorization).IsAllowed();
+        LayerAccess.Evaluate(map.Sharing, map.Owner, current.Principal, current.Authorization, map.SharedWith).IsAllowed();
 
     /// <summary>The owner's account name, or null for an anonymous caller.</summary>
     /// <remarks>
@@ -287,6 +287,9 @@ internal static partial class AdminEndpoints
         modified = map.Modified,
         mine = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id,
         manages = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization),
+        // The groups it is shared with (ADR-079 condition 4) — named only to whoever manages it.
+        groups = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization)
+            ? map.SharedWithNames ?? [] : null,
     };
 
     /// <summary>Writes a map with its document, which is written as the JSON it is rather than as a string.</summary>
@@ -306,6 +309,9 @@ internal static partial class AdminEndpoints
                 modified = map.Modified,
                 mine = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id,
                 manages = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization),
+                // As Describe says it: the groups, named only to whoever manages the map (ADR-079 condition 4).
+                groups = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization)
+                    ? map.SharedWithNames ?? [] : null,
                 document = document.RootElement,
             },
             statusCode: status).ExecuteAsync(context).ConfigureAwait(false);
@@ -411,12 +417,14 @@ internal static partial class AdminEndpoints
                     case "organization" or "org": sharing = SharingScope.Organization; break;
                     case "public": sharing = SharingScope.Public; break;
 
-                    // enum-default-is-deliberate: `group` is refused, not mapped — a web map has three
-                    // scopes until ADR-079 condition 4 decides groups, and WebMaps.Allows says the same.
+                    // ADR-079 condition 4, built 2026-10-01: the members of the groups it is shared into.
+                    // The portal's `shared` is the same scope under the word a client read back from an item.
+                    case "group" or "shared": sharing = SharingScope.Group; break;
+
+                    // enum-default-is-deliberate: anything else is refused, not mapped to a scope.
                     default:
                         await Refuse(context, 400,
-                            "A web map's sharing is 'private', 'organization' or 'public'. Sharing a map "
-                            + "with a group is not built (ADR-079 condition 4).").ConfigureAwait(false);
+                            "A web map's sharing is 'private', 'group', 'organization' or 'public'.").ConfigureAwait(false);
                         return null;
                 }
             }

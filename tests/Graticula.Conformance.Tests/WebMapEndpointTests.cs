@@ -155,10 +155,12 @@ public sealed class WebMapEndpointTests : ArcGisClient
 
         Assert.True(big == HttpStatusCode.RequestEntityTooLarge, $"A 1 MB+ document answered {(int)big}: {bigSaid}");
 
-        (HttpStatusCode group, _) = await RequestAsync(
-            HttpMethod.Post, $"{root}/content/webmaps", token, Body("Grouped", "group", "{}"));
+        // A scope the server does not know is refused. `group` was refused here until ADR-079 condition 4 was
+        // built on 2026-10-01; WebMapGroupSharingTests is where it is read now.
+        (HttpStatusCode unknown, _) = await RequestAsync(
+            HttpMethod.Post, $"{root}/content/webmaps", token, Body("Unknown", "everybody", "{}"));
 
-        Assert.Equal(HttpStatusCode.BadRequest, group);
+        Assert.Equal(HttpStatusCode.BadRequest, unknown);
     }
 
     [Fact]

@@ -696,7 +696,8 @@ function drawGroupContent(one) {
             ? `<img class="thumb" alt="" loading="lazy"
                  data-thumb="${h(thumbnailFor(i.cover.url))}">`
             : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
-          <td class="name"><a href="#/service/${i.name.split("/").map(encodeURIComponent).join("/")}"
+          <td class="name"><a href="${i.mapId ? `#/map/${encodeURIComponent(i.mapId)}`
+            : `#/service/${i.name.split("/").map(encodeURIComponent).join("/")}`}"
             >${h(i.name)}</a></td>
           <td class="val">${h(i.kind || "service")}</td>
           <td>${i.sharing === "group"
@@ -705,7 +706,7 @@ function drawGroupContent(one) {
           <td class="val">${day(i.shared)}${i.sharedBy
             ? ` <span class="faint">by ${h(i.sharedBy)}</span>` : ""}</td>
           <td style="text-align:right">${one.mayManage
-            ? `<button class="tiny danger" data-group-unshare="${h(i.name)}"
+            ? `<button class="tiny danger" ${i.mapId ? `data-group-unshare-map="${h(i.mapId)}"` : `data-group-unshare="${h(i.name)}"`}
                  title="Removes it from the group. Everybody in the group loses it; the service itself
                         keeps existing.">Stop sharing</button>`
             : ""}</td>
@@ -3915,6 +3916,7 @@ let mapOpen = null;
 
 const MAP_SCOPES = [
   ["private", "Owner", "Only you, and administrators."],
+  ["group", "Groups", "The members of the groups ticked below."],
   ["organization", "Organization", "Everybody who signs in here."],
   ["public", "Everyone (public)", "Anybody with the link, signed in or not."],
 ];
@@ -4047,16 +4049,34 @@ document.addEventListener("click", async event => {
       ${MAP_SCOPES.map(([value, label, said]) => `<label class="check"><input type="radio" name="mapShareScope" value="${value}"${
         value === mapOpen.sharing ? " checked" : ""}> <span><b>${h(label)}</b> <span class="hint">${h(said)}</span></span></label>`).join("")}
       </fieldset>
+      <fieldset class="offered" id="mapShareGroups"${mapOpen.sharing === "group" ? "" : " hidden"}><legend>Groups</legend>
+        <p class="hint">Reading your groups…</p></fieldset>
       <p class="hint">A layer on the map is still shown only to whoever may read it; sharing the map does not share its
         layers.</p>
       <p class="hint" id="mapShareSays" role="status" aria-live="polite"></p>`;
     $("mapShareFoot").innerHTML = `<span class="fill"></span>
       <button type="button" class="ghost" id="mapShareCancel">Cancel</button>
       <button type="button" class="primary" id="mapShareSave" disabled>Save</button>`;
-    // Save means something only once the scope differs from the map's.
-    for (const radio of document.querySelectorAll('input[name="mapShareScope"]')) {
-      radio.onchange = () => { $("mapShareSave").disabled = radio.value === mapOpen.sharing; };
-    }
+    // Save means something only once the scope or the groups differ from the map's.
+    const had = new Set(mapOpen.groups || []);
+    const changed = () => {
+      const scope = document.querySelector('input[name="mapShareScope"]:checked')?.value;
+      const ticked = new Set([...document.querySelectorAll("[data-map-group]:checked")].map(b => b.dataset.mapGroup));
+      $("mapShareGroups").hidden = scope !== "group";
+      $("mapShareSave").disabled = scope === mapOpen.sharing
+        && ticked.size === had.size && [...ticked].every(g => had.has(g));
+    };
+    for (const radio of document.querySelectorAll('input[name="mapShareScope"]')) radio.onchange = changed;
+
+    // The groups this user may put it in: those they own or manage, or every group for an administrator.
+    api("/admin/groups").then(listed => {
+      const mine = (listed.groups || []).filter(g => g.mayManage || had.has(g.name));
+      $("mapShareGroups").innerHTML = `<legend>Groups</legend>${mine.length
+        ? mine.map(g => `<label class="check"><input type="checkbox" data-map-group="${h(g.name)}"${had.has(g.name) ? " checked" : ""}>
+            <span><b>${h(g.title || g.name)}</b> <span class="hint">${num(g.members || 0)} member${g.members === 1 ? "" : "s"}</span></span></label>`).join("")
+        : `<p class="hint">You own or manage no group. A group is made on the Groups page.</p>`}`;
+      for (const box of document.querySelectorAll("[data-map-group]")) box.onchange = changed;
+    }).catch(e => { $("mapShareGroups").innerHTML = `<legend>Groups</legend><p class="hint">${h(e.message || e)}</p>`; });
     $("mapShare").showModal();
     $("mapShareTitle").focus();
     return;
@@ -4068,6 +4088,14 @@ document.addEventListener("click", async event => {
     const sharing = document.querySelector('input[name="mapShareScope"]:checked')?.value || "private";
     t.disabled = true;
     try {
+      // The groups first, so a map made group-scoped is never saved with none (ADR-079 condition 4).
+      const had = new Set(mapOpen.groups || []);
+      for (const box of document.querySelectorAll("[data-map-group]")) {
+        const group = box.dataset.mapGroup;
+        if (box.checked === had.has(group)) continue;
+        await api(`/admin/groups/${encodeURIComponent(group)}/maps/${encodeURIComponent(mapOpen.id)}`,
+          { method: box.checked ? "PUT" : "DELETE" });
+      }
       await saveMapItem({ sharing });
       $("mapShare").close();
       await showWebMapItem(mapOpen.id);
@@ -23566,6 +23594,17 @@ async function handleClick(event) {
       toast(`${drop.dataset.groupDrop} removed from ${groupOpen}`, true);
     } catch (e) { toast(e.message); }
 
+    await refreshGroup();
+    return;
+  }
+
+  const unshareMap = t.closest?.("[data-group-unshare-map]");
+  if (unshareMap && groupOpen) {
+    try {
+      await api(`/admin/groups/${encodeURIComponent(groupOpen)}/maps/${encodeURIComponent(unshareMap.dataset.groupUnshareMap)}`,
+        { method: "DELETE" });
+      toast(`The map is no longer shared with ${groupOpen}`, true);
+    } catch (e) { toast(e.message); }
     await refreshGroup();
     return;
   }

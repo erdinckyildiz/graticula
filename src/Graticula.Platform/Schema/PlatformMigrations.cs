@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(66);
+    public static SchemaVersion ComponentSchemaVersion => new(67);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -101,6 +101,7 @@ public static class PlatformMigrations
         AServiceMayBeExportedAsATilePackageV64,
         ATileMayBeServedStaleAndAServiceHaveAQuotaV65,
         OwnersChooseEditingAndProtectDeletionV66,
+        AWebMapIsSharedWithGroupsV67,
     ]);
 
     /// <summary>
@@ -172,6 +173,35 @@ public static class PlatformMigrations
     /// what an administrator asks it to, as it did.</para>
     /// <para><b>Expand.</b> Two columns and a check; the minimum reader does not move.</para>
     /// </remarks>
+    /// <summary>
+    /// A web map may be shared with groups — ADR-079 condition 4, the ArcGIS review's second pass.
+    /// </summary>
+    /// <remarks>
+    /// <b>A table beside <c>sharing_group_item</c> rather than a second column in it.</b> That table's key is
+    /// (group, service) and its service column is not null; a map's id is text and a service's a uuid, so a nullable
+    /// pair of columns with a check that exactly one is set would be two tables folded into one. The scope
+    /// <c>group</c> joins the three a map could have, as it did for services.
+    /// </remarks>
+    private static Migration AWebMapIsSharedWithGroupsV67 => Migration.Expand(
+        new SchemaVersion(67),
+        "A web map may be shared with groups (ADR-079 condition 4).",
+
+        "alter table web_map drop constraint if exists web_map_sharing_known",
+
+        "alter table web_map add constraint web_map_sharing_known check (sharing in ('private', 'group', 'organization', 'public'))",
+
+        """
+        create table if not exists sharing_group_map (
+            group_id  uuid        not null references sharing_group (id) on delete cascade,
+            map_id    text        not null references web_map (id) on delete cascade,
+            shared_at timestamptz not null default now(),
+            shared_by uuid        references principal (id) on delete set null,
+            constraint sharing_group_map_pk primary key (group_id, map_id)
+        )
+        """,
+
+        "create index if not exists sharing_group_map_by_map on sharing_group_map (map_id)");
+
     private static Migration OwnersChooseEditingAndProtectDeletionV66 => Migration.Expand(
         new SchemaVersion(66),
         "An item's owner chooses the edits it offers inside the administrator's ceiling, and may protect it from deletion (ADR-102).",

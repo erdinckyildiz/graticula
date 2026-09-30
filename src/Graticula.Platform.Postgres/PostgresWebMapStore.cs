@@ -16,11 +16,13 @@ public sealed class PostgresWebMapStore : IWebMapStore
 {
     /// <summary>The columns <see cref="Read"/> reads, without the document.</summary>
     private const string Listed =
-        "m.id, m.title, m.snippet, m.owner_principal_id, p.name, m.sharing, null::text, m.created_at, m.modified_at";
+        "m.id, m.title, m.snippet, m.owner_principal_id, p.name, m.sharing, null::text, m.created_at, m.modified_at"
+        + ", coalesce((select array_agg(gm.group_id) from sharing_group_map gm where gm.map_id = m.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from sharing_group_map gm join sharing_group g on g.id = gm.group_id where gm.map_id = m.id), '{}'::text[])";
 
     /// <summary>The columns <see cref="Read"/> reads, with the document.</summary>
     private const string Whole =
-        "m.id, m.title, m.snippet, m.owner_principal_id, p.name, m.sharing, m.document::text, m.created_at, m.modified_at";
+        "m.id, m.title, m.snippet, m.owner_principal_id, p.name, m.sharing, m.document::text, m.created_at, m.modified_at"
+        + ", coalesce((select array_agg(gm.group_id) from sharing_group_map gm where gm.map_id = m.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from sharing_group_map gm join sharing_group g on g.id = gm.group_id where gm.map_id = m.id), '{}'::text[])";
 
     private readonly NpgsqlDataSource _dataSource;
 
@@ -203,5 +205,7 @@ public sealed class PostgresWebMapStore : IWebMapStore
         PostgresAdminCatalog.Parse(reader.GetString(5)),
         reader.IsDBNull(6) ? null : reader.GetString(6),
         reader.GetFieldValue<DateTimeOffset>(7),
-        reader.GetFieldValue<DateTimeOffset>(8));
+        reader.GetFieldValue<DateTimeOffset>(8),
+        reader.FieldCount > 9 && !reader.IsDBNull(9) ? reader.GetFieldValue<Guid[]>(9) : null,
+        reader.FieldCount > 10 && !reader.IsDBNull(10) ? reader.GetFieldValue<string[]>(10) : null);
 }

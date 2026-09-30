@@ -158,8 +158,12 @@ public sealed class WebMapStoreTests : PostgresFixture
         Assert.False(await store.DeleteAsync(made.Id, CancellationToken.None));
     }
 
+    /// <summary>
+    /// The table refuses a document that is not an object and a scope it does not know; `group` is one it knows since
+    /// migration 67 (ADR-079 condition 4) — this test refused it until then.
+    /// </summary>
     [Fact]
-    public async Task The_table_refuses_a_document_that_is_not_an_object_and_a_group_scope()
+    public async Task The_table_refuses_a_document_that_is_not_an_object_and_an_unknown_scope()
     {
         (_, Guid owner, _) = await ReadyAsync();
 
@@ -172,16 +176,19 @@ public sealed class WebMapStoreTests : PostgresFixture
         PostgresException refused = await Assert.ThrowsAsync<PostgresException>(() => array.ExecuteNonQueryAsync());
         Assert.Equal("web_map_document_is_object", refused.ConstraintName);
 
-        await using NpgsqlCommand group = DataSource.CreateCommand(
-            "insert into web_map (id, title, owner_principal_id, sharing, document) values (@id, 't', @owner, 'group', '{}')");
-        group.Parameters.AddWithValue("id", Guid.NewGuid().ToString("N"));
-        group.Parameters.AddWithValue("owner", owner);
+        await using NpgsqlCommand unknown = DataSource.CreateCommand(
+            "insert into web_map (id, title, owner_principal_id, sharing, document) values (@id, 't', @owner, 'everybody', '{}')");
+        unknown.Parameters.AddWithValue("id", Guid.NewGuid().ToString("N"));
+        unknown.Parameters.AddWithValue("owner", owner);
 
-        refused = await Assert.ThrowsAsync<PostgresException>(() => group.ExecuteNonQueryAsync());
+        refused = await Assert.ThrowsAsync<PostgresException>(() => unknown.ExecuteNonQueryAsync());
         Assert.Equal("web_map_sharing_known", refused.ConstraintName);
 
-        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => new PostgresWebMapStore(DataSource)
-            .CreateAsync("t", null, owner, SharingScope.Group, "{}", CancellationToken.None));
+        PostgresWebMapStore store = new(DataSource);
+        WebMap grouped = await store.CreateAsync("t", null, owner, SharingScope.Group, "{}", CancellationToken.None);
+
+        Assert.Equal(SharingScope.Group, grouped.Sharing);
+        Assert.True(await store.DeleteAsync(grouped.Id, CancellationToken.None));
     }
 
     [Fact]

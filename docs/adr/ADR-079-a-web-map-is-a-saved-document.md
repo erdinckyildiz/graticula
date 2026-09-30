@@ -142,7 +142,7 @@ condition 2 has its first kind with no service behind it.
 **Negative.**
 - ADR-056's item table is still not written; services and web maps are listed from two sources by the
   portal. The next item kind should build the table rather than add a third source — condition 3.
-- No group sharing for maps (services have it). Condition 4.
+- ~~No group sharing for maps (services have it). Condition 4.~~ Built 2026-10-01 (condition 4).
 - The subset the viewer draws will disappoint somebody who saved a map with pop-ups in Pro.
 
 **State.** One catalogue table, `web_map` (migration 52): each map's owner, sharing scope and document. Nothing held at runtime and nothing node-local; every node reads the same rows.
@@ -169,7 +169,7 @@ services directory), ADR-034 (Server and Studio).
 2. **Every screen passes the ux-designer review**, first-run state included (no maps yet, no services).
 3. **The next item kind builds ADR-056's table** and moves web maps into it, rather than becoming a third
    source for the portal listing.
-4. **Group sharing for maps** — built, or recorded as not wanted.
+4. **Group sharing for maps** — built, or recorded as not wanted. **DISCHARGED 2026-10-01 — built**, after the ArcGIS review's second pass ranked it second (*Field Maps crews get their maps through groups*): migration 67 adds the `group` scope and `sharing_group_map`; `PUT|DELETE /admin/groups/{name}/maps/{id}` by the service's rule (the group's owner or a manager, and the map's owner); the map's Share dialog offers *Groups*; a group's Content lists its maps. `WebMapGroupSharingTests` reads the map as a member and as a stranger.
 
 ## 10. Revisit triggers
 

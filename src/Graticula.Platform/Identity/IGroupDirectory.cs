@@ -207,6 +207,7 @@ public sealed record GroupSummary(
 /// every service is visible to the caller, and goes silently wrong the first time one is not.
 /// </param>
 /// <param name="CoverIndex">That layer's index, which is what the address needs.</param>
+/// <param name="MapId">A web map's id, when the item is a map rather than a service.</param>
 public sealed record GroupItem(
     string Name,
     string Sharing,
@@ -214,7 +215,8 @@ public sealed record GroupItem(
     DateTimeOffset? Shared = null,
     string? SharedBy = null,
     string? CoverLayer = null,
-    int CoverIndex = 0);
+    int CoverIndex = 0,
+    string? MapId = null);
 
 /// <summary>Somebody in a group, and how they came to be there.</summary>
 /// <param name="Name">Their sign-in name.</param>
@@ -384,6 +386,17 @@ public interface IGroupDirectory
         string name,
         string member,
         CancellationToken cancellationToken);
+
+    /// <summary>Puts a web map into a group, or takes it out — ADR-079 condition 4.</summary>
+    /// <param name="acting">Who is asking.</param>
+    /// <param name="administrator">Whether they may act on anybody's content.</param>
+    /// <param name="name">The group.</param>
+    /// <param name="mapId">The map.</param>
+    /// <param name="wanted">In, or out.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What happened.</returns>
+    Task<GroupChange> ShareMapAsync(
+        Guid acting, bool administrator, string name, string mapId, bool wanted, CancellationToken cancellationToken);
 
     /// <summary>Shares a service with a group, or stops.</summary>
     /// <param name="acting">Who is asking.</param>

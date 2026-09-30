@@ -726,6 +726,10 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/groups/{name}/items/{service}", ShareWithGroupAsync);
         app.MapDelete("/admin/groups/{name}/items/{service}", UnshareFromGroupAsync);
 
+        // ADR-079 condition 4: a web map goes into a group too.
+        app.MapPut("/admin/groups/{name}/maps/{id}", ShareMapWithGroupAsync);
+        app.MapDelete("/admin/groups/{name}/maps/{id}", UnshareMapFromGroupAsync);
+
         // Group layers. Owner request 2026-08-15: "enable group layers also."
         app.MapGet("/admin/routes", ListRoutesAsync);
 
@@ -5777,6 +5781,7 @@ internal static partial class AdminEndpoints
                         name = i.Name,
                         sharing = i.Sharing,
                         kind = i.Kind,
+                        mapId = i.MapId,
                         shared = i.Shared,
                         sharedBy = i.SharedBy,
 
@@ -6390,6 +6395,51 @@ internal static partial class AdminEndpoints
                   + "it — that is set on the service, not here."
                 : "Its scope is unchanged. If no group is left, a 'group'-scoped service is readable "
                   + "by its owner and administrators only.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Shares a web map with a group — ADR-079 condition 4.</summary>
+    private static Task ShareMapWithGroupAsync(
+        HttpContext context, string name, string id, IGroupDirectory groups, IAuditLog audit, CancellationToken cancellation) =>
+        ShareMapAsync(context, name, id, groups, audit, true, cancellation);
+
+    /// <summary>Stops sharing a web map with a group.</summary>
+    private static Task UnshareMapFromGroupAsync(
+        HttpContext context, string name, string id, IGroupDirectory groups, IAuditLog audit, CancellationToken cancellation) =>
+        ShareMapAsync(context, name, id, groups, audit, false, cancellation);
+
+    private static async Task ShareMapAsync(
+        HttpContext context, string name, string id, IGroupDirectory groups, IAuditLog audit, bool wanted,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.GroupsShareTo).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        GroupChange outcome = await groups.ShareMapAsync(
+            current.Principal.Id, current.Authorization.Allows(Privilege.AdminManageAllContent), name, id, wanted, cancellation)
+            .ConfigureAwait(false);
+
+        if (outcome != GroupChange.Done)
+        {
+            await RefuseGroupChangeAsync(context, name, outcome, "the map").ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(context, audit, wanted ? "group.share.map" : "group.unshare.map", name, Detail(new { map = id }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            group = name,
+            map = id,
+            shared = wanted,
+            note = wanted
+                ? "The map's own sharing must be 'group' as well before the group's members can open it."
+                : "Its sharing is unchanged. If no group is left, a 'group'-shared map opens for its owner and administrators only.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

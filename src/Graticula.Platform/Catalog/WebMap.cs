@@ -24,6 +24,8 @@ namespace Graticula.Platform.Catalog;
 /// <param name="Document">The Web Map JSON, or null in a listing, which does not read it.</param>
 /// <param name="Created">When it was first saved.</param>
 /// <param name="Modified">When it was last saved.</param>
+/// <param name="SharedWith">The groups it is shared with, for a <c>group</c>-scoped map — ADR-079 condition 4.</param>
+/// <param name="SharedWithNames">The same groups, by name, for a reader to show.</param>
 public sealed record WebMap(
     string Id,
     string Title,
@@ -33,7 +35,9 @@ public sealed record WebMap(
     SharingScope Sharing,
     string? Document,
     DateTimeOffset Created,
-    DateTimeOffset Modified);
+    DateTimeOffset Modified,
+    IReadOnlyList<Guid>? SharedWith = null,
+    IReadOnlyList<string>? SharedWithNames = null);
 
 /// <summary>The rules a saved web map is held to, in one place for the store and the endpoints.</summary>
 public static class WebMaps
@@ -77,7 +81,7 @@ public static class WebMaps
     /// <param name="scope">The scope.</param>
     /// <returns>False for <see cref="SharingScope.Group"/>.</returns>
     public static bool Allows(SharingScope scope) =>
-        scope is SharingScope.Private or SharingScope.Organization or SharingScope.Public;
+        scope is SharingScope.Private or SharingScope.Group or SharingScope.Organization or SharingScope.Public;
 }
 
 /// <summary>

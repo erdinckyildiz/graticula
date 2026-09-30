@@ -54,7 +54,8 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         const string Sql = """
             select g.id, g.name, g.title, g.description, p.name, g.item_update,
                    (select count(*) from sharing_group_member m where m.group_id = g.id),
-                   (select count(*) from sharing_group_item i where i.group_id = g.id),
+                   (select count(*) from sharing_group_item i where i.group_id = g.id)
+                   + (select count(*) from sharing_group_map gm where gm.group_id = g.id),
                    coalesce(
                      (select m.membership from sharing_group_member m
                        where m.group_id = g.id and m.principal_id = @who), ''),
@@ -480,6 +481,54 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
     }
 
     /// <inheritdoc/>
+    /// <remarks>The service's rule for a map (ADR-075): the group's owner or a manager, and the map's owner.</remarks>
+    public async Task<GroupChange> ShareMapAsync(
+        Guid acting, bool administrator, string name, string mapId, bool wanted, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(mapId);
+
+        (Guid id, GroupStanding standing) = await FindAsync(name, acting, cancellationToken).ConfigureAwait(false);
+
+        if (id == Guid.Empty)
+        {
+            return GroupChange.Absent;
+        }
+
+        if (!administrator && standing is not (GroupStanding.Owner or GroupStanding.Manager))
+        {
+            return GroupChange.NotYours;
+        }
+
+        await using NpgsqlCommand find = _dataSource.CreateCommand("select owner_principal_id from web_map where id = @id");
+        find.Parameters.AddWithValue("id", mapId);
+
+        if (await find.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not Guid owner)
+        {
+            return GroupChange.NoSuchTarget;
+        }
+
+        if (wanted && !administrator && owner != acting)
+        {
+            return GroupChange.ItemNotYours;
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(wanted
+            ? "insert into sharing_group_map (group_id, map_id, shared_by) values (@g, @m, @by) on conflict do nothing"
+            : "delete from sharing_group_map where group_id = @g and map_id = @m");
+        command.Parameters.AddWithValue("g", id);
+        command.Parameters.AddWithValue("m", mapId);
+
+        if (wanted)
+        {
+            command.Parameters.AddWithValue("by", acting);
+        }
+
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        return GroupChange.Done;
+    }
+
+    /// <inheritdoc/>
     public async Task<GroupChange> SetSettingsAsync(
         Guid acting,
         bool administrator,
@@ -679,11 +728,20 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
                    (select l.name from layer l
                      where l.service_id = s.id order by l.layer_index limit 1),
                    (select l.layer_index from layer l
-                     where l.service_id = s.id order by l.layer_index limit 1)
+                     where l.service_id = s.id order by l.layer_index limit 1),
+                   null::text
               from sharing_group g
               join sharing_group_item i on i.group_id = g.id
               join service s on s.id = i.service_id
               left join principal sharedby on sharedby.id = i.shared_by
+             where lower(g.name) = lower(@name)
+            union all
+            -- Web maps shared into it (ADR-079 condition 4), listed beside the services.
+            select m.title, m.sharing, 'Web map', gm.shared_at, sharedby.name, null, null, m.id
+              from sharing_group g
+              join sharing_group_map gm on gm.group_id = g.id
+              join web_map m on m.id = gm.map_id
+              left join principal sharedby on sharedby.id = gm.shared_by
              where lower(g.name) = lower(@name)
              order by 1
             """;
@@ -705,7 +763,8 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
                 reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
                 reader.IsDBNull(5) ? null : reader.GetString(5),
-                reader.IsDBNull(6) ? 0 : reader.GetInt32(6)));
+                reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7)));
         }
 
         return answer;
