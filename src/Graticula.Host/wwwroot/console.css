@@ -4383,3 +4383,17 @@ button.thsort:focus-visible { outline: 2px solid var(--accent); outline-offset: 
   text-align: left; font-family: inherit; }
 @media (max-width: 480px) { #serviceTabs a { min-height: 44px; display: inline-flex; align-items: center; } }
 @media (max-width: 720px) { .itemhead .itemactions { flex: 1 1 100%; } }
+
+/* Settings › Feature layer: the owner's choice of edits (ADR-102). */
+fieldset.offered { border: 0; padding: 0; margin: 0; display: grid; gap: var(--gap-2); }
+fieldset.offered legend { font-weight: 600; margin-bottom: var(--gap-2); }
+fieldset.offered label.check { display: flex; gap: var(--gap-2); align-items: baseline; }
+
+/* Overview's right column, as Portal's item page has it: what you can do, then the details (ADR-102 step 7). */
+#serviceDetails .itemactions { display: flex; flex-direction: column; gap: var(--gap-2); margin: 0 0 var(--gap-5); }
+#serviceDetails .itemactions > * { width: 100%; text-align: center; }
+#serviceDetails .urlrow { display: flex; gap: var(--gap-2); }
+#serviceDetails .urlrow input { flex: 1; min-width: 0; font-size: 12px; }
+@media (max-width: 1100px) { #serviceDetails { order: -1; } }
+#serviceDetails dl.facts2 dd { min-width: 0; }
+#serviceDetails dl.facts2 dt { white-space: nowrap; }

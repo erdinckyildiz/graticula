@@ -2245,6 +2245,79 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     /// statement that replaces it — the same reason <see cref="SetSharingAsync"/> is written this
     /// way.
     /// </remarks>
+    public async Task<ServiceStewardship?> FindStewardshipAsync(
+        string serviceName, string? folder, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
+        const string Sql = """
+            select editing_offered, delete_protected, capability_ceiling
+              from service
+             where lower(name) = lower(@name)
+               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+             limit 1
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        return new ServiceStewardship(
+            reader.IsDBNull(0) ? null : reader.GetFieldValue<string[]>(0),
+            reader.GetBoolean(1),
+            reader.IsDBNull(2) ? null : reader.GetFieldValue<string[]>(2));
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetEditingOfferedAsync(
+        string serviceName, string? folder, IReadOnlyList<string>? operations, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
+        const string Sql = """
+            update service
+               set editing_offered = @offered::text[], updated_at = now()
+             where lower(name) = lower(@name)
+               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("offered", operations is null ? DBNull.Value : (object)new List<string>(operations).ToArray());
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetDeleteProtectedAsync(
+        string serviceName, string? folder, bool protectedFromDeletion, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
+        const string Sql = """
+            update service
+               set delete_protected = @protected, updated_at = now()
+             where lower(name) = lower(@name)
+               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("protected", protectedFromDeletion);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> SetServiceDescriptionAsync(
         string serviceName,
         string? folder,

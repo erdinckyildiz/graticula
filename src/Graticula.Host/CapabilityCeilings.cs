@@ -52,7 +52,7 @@ public static class CapabilityCeilings
 
         return $"Service '{layer.ServiceName}' is configured to offer {offered}, so "
             + $"{string.Join(" and ", refused)} is refused here. The service is running and "
-            + "answering what it does offer; an administrator can change this on its "
-            + "capabilities.";
+            + "answering what it does offer; its owner chooses the edits it offers in Studio, "
+            + "within what an administrator allows on its capabilities.";
     }
 }

@@ -1244,6 +1244,21 @@ public interface IAdminCatalog
         SharingScope sharing,
         CancellationToken cancellationToken);
 
+    /// <summary>What a service's owner has set for it: the edits it offers and whether it is protected from deletion.</summary>
+    /// <param name="serviceName">The service.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The owner's choices and the administrator's ceiling beside them, or null when there is no such service.</returns>
+    Task<ServiceStewardship?> FindStewardshipAsync(string serviceName, string? folder, CancellationToken cancellationToken);
+
+    /// <summary>Sets the edits a service offers, inside its ceiling; null returns to the ceiling alone (ADR-102).</summary>
+    /// <returns>True when the service exists.</returns>
+    Task<bool> SetEditingOfferedAsync(string serviceName, string? folder, IReadOnlyList<string>? operations, CancellationToken cancellationToken);
+
+    /// <summary>Protects a service from deletion, or stops protecting it (ADR-102).</summary>
+    /// <returns>True when the service exists.</returns>
+    Task<bool> SetDeleteProtectedAsync(string serviceName, string? folder, bool protectedFromDeletion, CancellationToken cancellationToken);
+
     /// <summary>Replaces a service's description, addressed by folder and name.</summary>
     /// <param name="serviceName">The service.</param>
     /// <param name="folder">Its folder, or null for the root.</param>

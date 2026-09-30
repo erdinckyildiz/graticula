@@ -4711,17 +4711,20 @@ async function fillLayerSymbologyStates(layers) {
     const says = document.querySelector(`[data-symstate="${CSS.escape(name)}"]`);
     const swatch = document.querySelector(`[data-geoswatch="${CSS.escape(name)}"]`);
 
-    if (!says) continue;
+    // The swatch alone on Overview since ADR-102 step 7; the state line, where a page still has one.
+    if (!says && !swatch) continue;
 
     try {
       const r = await api(`/admin/layers/${encodeURIComponent(name)}/symbology`);
       const classes = classCountOf(r.symbology);
 
-      says.textContent = r.stored
-        ? `Authored${classes > 0 ? ` · ${num(classes)} classes` : ""}`
-        : "Generated · version 0";
+      if (says) {
+        says.textContent = r.stored
+          ? `Authored${classes > 0 ? ` · ${num(classes)} classes` : ""}`
+          : "Generated · version 0";
 
-      says.classList.toggle("authored", !!r.stored);
+        says.classList.toggle("authored", !!r.stored);
+      }
 
       if (swatch) {
         const paint = symLayerColour(symThematicLayer(firstSymbolLayers(r.symbology)));
@@ -4733,7 +4736,7 @@ async function fillLayerSymbologyStates(layers) {
       // <b>Silent, and the row keeps its name.</b> A layer whose symbology cannot be read is
       // still a layer in this service; putting the request's error where a two-word state
       // belongs would make one failed request look like a broken list.
-      says.textContent = "";
+      if (says) says.textContent = "";
     }
   }
 }
@@ -4833,8 +4836,7 @@ function drawServiceLayers(layers, qualified) {
             ? h(layer.name || "")
             : `<a href="${at}">${h(layer.name || "")}</a>`}
           <div class="rowmeta">${h(said)}</div></td>
-        <td class="lstate"><span class="rowmeta" data-symstate="${h(layer.name || "")}">${
-          group ? "" : "reading…"}</span></td>
+
         <!--
           <b>Each of the three opens with *this* layer, and it took a revision to say so.</b>
           Handoff 2026-09-04: Data went to the Data tab and let it choose a layer for itself, so
@@ -4845,14 +4847,7 @@ function drawServiceLayers(layers, qualified) {
           symbology of its own. Three disabled buttons would be three controls that fail on
           press; the sentence says where the answer is instead.
         -->
-        <td class="acts">${group
-          ? `<span class="rowmeta">its children carry the symbology</span>`
-          : `<a class="tiny" href="#/service/${
-              qualified.split("/").map(encodeURIComponent).join("/")}?tab=data&layer=${
-              num(layer.id ?? 0)}" title="This layer's rows and its fields">Data</a>
 
-        <a class="tiny" href="${h(visHref(layer.name || "", "features") || `${at}`)}"
-          title="Draw this layer on the map">Map</a>`}</td>
       </tr>`;
     }).join("");
 
@@ -4972,22 +4967,31 @@ async function drawServiceDetails(qualified, knownKind) {
   //
   // <b>And the facts get a heading of their own.</b> One `h4` was governing both the address and six
   // unrelated facts, so everything below it read as part of the address.
-  $("serviceAddress").innerHTML = `
-    <h4>The service's address</h4>
-    <div class="urlrow">
-      <input type="text" id="svcUrl" readonly value="${h(root)}" title="${h(root)}">
+  // <b>The right column is Portal's: what you can do with the item, then its details — ADR-102 step 7.</b> The
+  // actions were inside the head card and the address was a card of its own above the layers; the owner put
+  // this page beside Portal's and asked why ours was the busier one.
+  const address = `
+    <dt>URL</dt><dd><div class="urlrow">
+      <input type="text" id="svcUrl" readonly value="${h(root)}" title="${h(root)}" aria-label="The service's address">
       <button class="tiny" id="svcUrlCopy" title="Copy this address">Copy</button>
-    </div>
-    <p class="hint"><a href="${h(root)}?f=json" target="_blank" rel="noreferrer">Open it</a> — the
-      service document, which is what a client reads first.</p>`;
+    </div></dd>`;
 
   // <b>`facts2`, not `dl.facts` — and this is why the column read as a debug dump.</b> `dl.facts` is
   // monospace by design and its one other user is Server's *fixed, and not editable here* block, which is
   // genuinely technical numbers. Setting `root` and `4` in mono dilutes the one place monospace still
   // means something on this page: the address. `.facts2` is the same content's own idiom one screen over
   // — the group page's Overview lists a standing, an owner, a date and two counts in it.
+  const manages = !item || item.manages !== false;
+
   box.innerHTML = `
-    <h4>About this service</h4>
+    <div class="itemactions">
+      ${item && item.status === "stopped" ? "" : `<a class="btn primary"
+        href="/studio/webmap.html?service=${encodeURIComponent(qualified)}">Open in Map Viewer</a>`}
+      ${manages ? `<button type="button" data-share="${h(qualified)}">Share</button>` : ""}
+      ${manages && tileLayerOf() ? `<button type="button" data-manage-tiles="1"
+        title="What is cached, clear it, pre-build an area, offline packages">Manage tiles</button>` : ""}
+    </div>
+    <h4>Details</h4>
     <dl class="facts2" id="svcFacts"></dl>`;
 
   try {
@@ -5007,7 +5011,7 @@ async function drawServiceDetails(qualified, knownKind) {
           ? h(qualified.slice(0, qualified.lastIndexOf("/")))
           : `<span class="val">the site root</span>`}</dd>
         <dt>Sharing</dt><dd><span class="val">set on the Settings tab — this kind is not in
-          your content listing, so the owner and the dates are not read here</span></dd>`;
+          your content listing, so the owner and the dates are not read here</span></dd>${address}`;
 
       return;
     }
@@ -5045,7 +5049,7 @@ async function drawServiceDetails(qualified, knownKind) {
       : null;
 
     const rows = [
-      ["Kind", h(item.kind || "feature service")],
+      ["Type", h(itemTypeName(item.kind))],
       ["Owner", h(item.owner || "—")],
       ["Folder", item.folder ? h(item.folder) : `<span class="val">the site root</span>`],
       ["Sharing", `<button class="pillbtn" data-share="${h(item.name)}"
@@ -5055,7 +5059,7 @@ async function drawServiceDetails(qualified, knownKind) {
       // administrative listing carries the answer and Studio's reader may not have it, so the
       // row is absent rather than guessed.
       ...(source ? [["Source", source]] : []),
-      ...(spatial ? [["Spatial ref", spatial]] : []),
+      ...(spatial ? [["Coordinates", spatial]] : []),
       ["Layers", `<span title="${num(serviceEntries)} entr${serviceEntries === 1 ? "y" : "ies"} in the service document, which counts a group layer and what is nested under it">${
         num(item.layers || serviceLayers.length || 0)}</span>`],
       ["Published", item.created ? h(day(item.created)) : `<span class="val">—</span>`],
@@ -5063,7 +5067,7 @@ async function drawServiceDetails(qualified, knownKind) {
     ];
 
     $("svcFacts").innerHTML = rows.map(([label, value]) =>
-      `<dt>${label}</dt><dd>${value}</dd>`).join("");
+      `<dt>${label}</dt><dd>${value}</dd>`).join("") + address;
 
     // <b>Sharing, state, owner — the handoff's three, and the strip's whole job.</b> It held a
     // mono dump of the service document's numbers, which are two panels of their own now.
@@ -5887,6 +5891,12 @@ async function saveShare() {
  * mechanism — and it is drawn from the layer's geometry and symbology rather than stored, which
  * is why a product with no thumbnail storage can still show a picture.
  */
+/** An item's type as Portal names it, from the service's kind. */
+function itemTypeName(kind) {
+  return ({ FeatureServer: "Feature layer", ImageServer: "Imagery layer", MapServer: "Map image layer",
+    VectorTileServer: "Vector tile layer", GeometryServer: "Geometry service" })[kind] || kind || "Feature layer";
+}
+
 /** The item the service page is showing, as `/content/items` described it. */
 let serviceItem = null;
 
@@ -5914,18 +5924,7 @@ function drawServiceHead(item) {
         <div class="footnote">${item.updated ? `Updated ${h(day(item.updated))}` : ""}${
           item.created ? ` · published ${h(day(item.created))}` : ""}</div>
       </div>
-      <!--
-        <b>The two things a Portal item page offers first, 2026-09-30.</b> *Open in Map Viewer* was a
-        row's ⋯ entry on My content and nowhere here; *Share* was a pill in the corner. Both are the
-        actions somebody arrives at an item to take.
-      -->
-      <div class="itemactions">
-        ${item.status === "stopped" ? "" : `<a class="btn primary"
-          href="/studio/webmap.html?service=${encodeURIComponent(item.name)}">Open in Map Viewer</a>`}
-        ${item.manages === false ? "" : `<button type="button" data-share="${h(item.name)}">Share</button>`}
-        ${item.manages === false || !tileLayerOf() ? "" : `<button type="button" data-manage-tiles="1"
-          title="What is cached, clear it, pre-build an area, offline packages">Manage tiles</button>`}
-      </div>
+
     </div>`;
 
   // <b>The subtitle is the line this panel used to carry.</b> Kind, how many layers and whose it is. Who
@@ -5935,7 +5934,7 @@ function drawServiceHead(item) {
 
   if (sub) {
     sub.textContent = [
-      item.kind || "feature service",
+      itemTypeName(item.kind),
       `${num(item.layers || 0)} layer${(item.layers || 0) === 1 ? "" : "s"}`,
       item.owner ? `owner ${item.owner}` : "",
     ].filter(Boolean).join(" · ");
@@ -6397,8 +6396,8 @@ function drawServiceDelete() {
          are registered layers: they point at a database that is not ours, so <b>no table is
          dropped</b> — the registration goes and the data stays exactly as it is.`;
 
-  button.disabled = lock.checked;
-  $("svcLockState").textContent = lock.checked ? "Locked" : "Not locked";
+  button.disabled = lock.checked || serviceStewardship?.manages === false;
+  $("svcLockState").textContent = lock.checked ? "Protected" : "Not protected";
 }
 
 /**
@@ -6419,8 +6418,31 @@ function parkServiceDanger() {
   if (danger && home && danger.parentElement !== home) home.appendChild(danger);
 }
 
+/** What the open item's owner has set — its edits and its delete protection — as the server last said. */
+let serviceStewardship = null;
+
+/** Reads the owner's settings of the open item (ADR-102, owner decision 2026-10-01). */
+async function readStewardship(name, folder) {
+  serviceStewardship = await api(`/admin/services/${encodeURIComponent(name)}/stewardship`
+    + `?folder=${encodeURIComponent(folder || "")}`);
+  return serviceStewardship;
+}
+
 /** General › Sharing: the level and the groups, as the content listing states them, in Portal's words. */
 async function drawGeneralSharing(name, folder) {
+  // <b>The lock is the stored protection now</b>, which the API enforces: it was a checkbox this page re-ticked on
+  // every visit and that nothing else knew about, so a Delete through the API went through a lock the page showed.
+  try {
+    const st = await readStewardship(name, folder);
+    const lock = $("svcLock");
+    if (lock) {
+      lock.checked = !!st.deleteProtected;
+      lock.disabled = !st.manages;
+      lock.title = st.manages ? "" : "Only its owner or an administrator changes this";
+    }
+    drawServiceDelete();
+  } catch { /* the lock stays as drawn — locked — which is the safe way to be wrong */ }
+
   const box = $("generalSharing");
   if (!box) return;
 
@@ -6437,32 +6459,63 @@ async function drawGeneralSharing(name, folder) {
 }
 
 /**
- * Settings › Feature layer: what clients may do with this item's features, as the server administrator set it
- * — read here, changed in Server (ADR-102 §10 condition 1 is whether an owner may choose it).
+ * Settings › Feature layer: which edits the item offers, chosen by its owner inside what the server administrator
+ * allows — ADR-102 condition 1, owner decision 2026-10-01. Query is always offered. Rows in one answer and the
+ * faces stay the administrator's, in Server.
  */
 async function drawFeatureFacts(name, folder) {
   const box = $("featureFacts");
   if (!box) return;
 
-  const c = await api(`/admin/services/${encodeURIComponent(name)}/capabilities?folder=${encodeURIComponent(folder || "")}`);
+  const [st, c] = await Promise.all([
+    readStewardship(name, folder),
+    api(`/admin/services/${encodeURIComponent(name)}/capabilities?folder=${encodeURIComponent(folder || "")}`),
+  ]);
   if (!$("featureFacts")) return;
 
-  const offered = Array.isArray(c.capabilities) ? c.capabilities : null;
-  const ops = ["Query", "Create", "Update", "Delete", "Extract"];
-  const words = { Query: "Query", Create: "Add features", Update: "Update features", Delete: "Delete features", Extract: "Export data" };
-  const on = op => offered === null ? (op === "Query" || op === "Extract" ? null : null) : offered.includes(op);
+  const ceiling = Array.isArray(st.ceiling) ? st.ceiling : null;
+  const allowed = op => ceiling === null || ceiling.includes(op);
+  const offered = op => allowed(op) && (st.editingOffered == null || st.editingOffered.includes(op));
+  const words = [["Create", "Add features"], ["Update", "Update features"], ["Delete", "Delete features"],
+                 ["Extract", "Export data"]];
   const path = (folder ? `${folder}/` : "") + name;
 
   box.innerHTML = `
+    <fieldset class="offered" ${st.manages ? "" : "disabled"}>
+      <legend>What clients may do</legend>
+      ${words.map(([op, label]) => `
+        <label class="check"><input type="checkbox" data-offer="${op}" ${offered(op) ? "checked" : ""}
+          ${allowed(op) ? "" : "disabled"}> ${h(label)}${allowed(op) ? ""
+          : ` <span class="rowmeta">— not allowed by the server administrator</span>`}</label>`).join("")}
+    </fieldset>
+    ${st.manages ? `<div class="row" style="margin-top:10px">
+      <button type="button" class="primary" id="offerSave">Save</button></div>` : ""}
+    <p class="hint" id="offerSays" role="status" aria-live="polite">Query is always offered. ${st.manages
+      ? "What you turn off here is refused to every client, including ArcGIS Pro and Field Maps."
+      : "Only the item's owner or an administrator changes this."}</p>
+    <h4>Set by the server administrator</h4>
     <dl class="facts">
-      ${ops.map(op => `<dt>${h(words[op])}</dt><dd>${offered === null
-        ? "as the server offers it"
-        : on(op) ? "allowed" : "not allowed"}</dd>`).join("")}
+      <dt>Allowed at most</dt><dd>${ceiling === null ? "everything" : h(ceiling.join(", "))}</dd>
       <dt>Rows in one answer</dt><dd>${num(c.maxRecordCount ?? c.serverPageSize ?? 0)}${c.maxRecordCount == null ? " (the server's own)" : ""}</dd>
     </dl>
-    <p class="hint">Set by the server administrator.${may("admin:manageServer")
-      ? ` <a href="/server/#/service/${path.split("/").map(encodeURIComponent).join("/")}">Change these in Server</a>.`
-      : " Ask them if you need editing turned on or off."}</p>`;
+    ${may("admin:manageServer")
+      ? `<p class="hint"><a href="/server/#/service/${path.split("/").map(encodeURIComponent).join("/")}">Change these in Server</a>.</p>` : ""}`;
+
+  $("offerSave")?.addEventListener("click", async () => {
+    const chosen = [...box.querySelectorAll("[data-offer]")].filter(i => i.checked && !i.disabled).map(i => i.dataset.offer);
+    try {
+      await api(`/admin/services/${encodeURIComponent(name)}/editing?folder=${encodeURIComponent(folder || "")}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operations: chosen }),
+      });
+      $("offerSays").textContent = `Saved. Clients may now query${chosen.length ? ", " + chosen.map(op =>
+        words.find(w => w[0] === op)[1].toLowerCase()).join(", ") : " only"}.`;
+      $("offerSave").focus();
+    } catch (e) {
+      $("offerSays").textContent = e.message || String(e);
+    }
+  });
 }
 
 function drawServiceSettings(name, folder) {
@@ -12636,15 +12689,15 @@ function drawLimits(name, where, r) {
 
   box.innerHTML = `
     <div class="setting"><label class="q" for="cacheQuota">Cache quota for this service:</label>
-      <input type="number" id="cacheQuota" min="1" step="1" placeholder="none"
+      <input type="number" id="cacheQuota" min="1" step="1" placeholder="none" ${may("admin:manageServer") ? "" : "disabled"}
         value="${q.megabytes == null ? "" : h(String(q.megabytes))}"><span class="u">MB</span></div>
     <p class="hint">Its tiles hold ${h(seedSize(q.usedBytes || 0))} now. Over the quota, this service's own tiles are
       evicted, highest levels first; other services are not touched and no tile is refused. Empty means no quota of
       its own, only the cache's budget.</p>
-    <div class="row" style="margin-top:10px">
+    ${may("admin:manageServer") ? `<div class="row" style="margin-top:10px">
       <button type="button" id="quotaSet">Set</button>
       <button type="button" id="quotaClear" class="ghost">No quota</button>
-    </div>
+    </div>` : `<p class="hint">Set by the server administrator: it is how much of the server's disk this service may hold.</p>`}
     <p class="hint" id="limitsSays" role="status" aria-live="polite"></p>`;
 
   const says = text => { const s = $("limitsSays"); if (s) s.textContent = text; };
@@ -24145,8 +24198,25 @@ document.addEventListener("change", async event => {
   }
 
 
-  if (event.target?.id === "svcLock") {
+  // <b>Stored, not remembered by this page</b> — the server refuses to delete a protected item (ADR-102).
+  if (event.target?.id === "svcLock" && serviceOpen) {
+    const wanted = event.target.checked;
+    try {
+      await api(`/admin/services/${encodeURIComponent(serviceOpen.name)}/protection`
+        + `?folder=${encodeURIComponent(serviceOpen.folder || "")}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ protected: wanted }),
+      });
+      if (serviceStewardship) serviceStewardship.deleteProtected = wanted;
+      $("svcDeleteNote").dataset.said = "";
+      toast(wanted ? "Protected from deletion." : "No longer protected from deletion.", true);
+    } catch (e) {
+      event.target.checked = !wanted;
+      toast(e.message || String(e));
+    }
     drawServiceDelete();
+    event.target.focus();
     return;
   }
 

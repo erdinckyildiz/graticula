@@ -398,7 +398,10 @@ internal static partial class AdminEndpoints
         ITileCache cache,
         CancellationToken cancellation)
     {
-        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishTiles).ConfigureAwait(false))
+        // <b>The server administrator's — ADR-102 condition 3, owner decision 2026-10-01.</b> A quota is how much of the
+        // server's disk a service may hold, which is spend; it asked for `content:publishTiles`, so a publisher could
+        // raise their own.
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
         {
             return;
         }

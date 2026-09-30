@@ -1797,7 +1797,8 @@
         below that list is below the fold, which is the case where the thing an operator came for needs
         finding fastest.
       -->
-      <div class="panel pad" id="serviceAddress"></div>
+      <!-- The address is in Details now, as Portal keeps it (ADR-102 step 7). Kept as an empty hook. -->
+      <div id="serviceAddress" hidden></div>
 
       <h4>Layers</h4>
 
@@ -1839,7 +1840,13 @@
         document is the one that is true, and that disagreement is exactly what a reader would be
         looking for.
       -->
-      <div class="cardpair">
+      <!--
+        <b>What a client may do and what one request may spend left Overview on 2026-10-01 (ADR-102 step 7).</b>
+        The owner, comparing with Portal's item page: *"neden kabiliyetler ana sayfada?"* They are settings, and
+        they have a home each — Settings › Feature layer, and the administrator's limits in Server. Kept hidden so
+        the code that fills them has somewhere to write until it is removed.
+      -->
+      <div class="cardpair" hidden>
         <div class="panel pad" id="serviceOps"></div>
         <div class="panel pad" id="serviceSpend"></div>
       </div>

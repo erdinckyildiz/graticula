@@ -176,10 +176,25 @@ guard. ADR-053's editor loses its page. Server's layer pages, which administrato
 1. **Owners choose their item's editing operations, within the administrator's ceiling?** Recommended yes
    by both reviewers; it needs the capabilities endpoint split so faces, tiling scheme, page size and SRID
    stay the administrator's. Until answered, Editing is shown read-only to an owner who is not an administrator.
+   **DISCHARGED 2026-10-01 by owner decision — *"üçü de evet"*.** Migration 66 adds `service.editing_offered`, the
+   owner's choice of Create, Update, Delete and Extract; what is served is the administrator's ceiling (every
+   operation when it is null) narrowed to Query and that choice, computed where the catalogue is read, so the
+   serving path is unchanged. `PUT /admin/services/{name}/editing` is the owner's or an administrator's; an
+   operation the ceiling does not allow is refused by name. Settings › Feature layer offers the four, greys what the
+   ceiling withholds and says so. Pinned by `ItemStewardshipConformanceTests`: withheld means neither advertised nor
+   accepted.
 2. **Owners delete their own item and layers, with delete protection enforced by the API?** Recommended
    yes. Today both deletes need `admin:manageAllContent`; until answered, the controls say so to an owner.
+   **DISCHARGED 2026-10-01 by owner decision.** Deleting a service and unpublishing a layer are the owner's act or
+   an administrator's (ADR-075's rule); migration 66 stores `service.delete_protected`, `PUT …/protection` sets it,
+   and both delete routes answer 409 while it is on. **The default is off, INFERRED:** on, every script, fixture
+   and test that deletes a service would start receiving 409 — a change to the API's answer nobody asked for — and
+   Portal's own default is off. This softens the owner's earlier *"locked by default"* (2026-08), which was a
+   browser checkbox re-ticked on every visit; the page now shows and changes the stored state. Put to the owner.
 3. **The cache quota needs `admin:manageServer`?** Recommended yes: it is spend. Until answered, it stays
-   under Tile layer › Advanced with the privilege it has.
+   under Tile layer › Advanced with the privilege it has. **DISCHARGED 2026-10-01 by owner decision:**
+   `PUT …/cache/quota` asks for `admin:manageServer`; Tile layer › Advanced shows the quota read-only to anybody
+   else, with the sentence that it is the server's disk.
 
 ## 11. Dissent
 

@@ -145,4 +145,66 @@ public sealed class ItemStructureTests : ConsoleTest
 
         NothingWentWrong(await PageErrorsAsync());
     }
+
+    /// <summary>Owner decisions of 2026-10-01: the owner saves the edits offered and turns protection on, both stored.</summary>
+    [Fact]
+    public async Task The_owner_chooses_the_edits_and_the_protection_and_both_are_sent()
+    {
+        (string token, _) = await SignInAsync();
+        string service = Environment.GetEnvironmentVariable("GRATICULA_TEST_EDITABLE") ?? "hosted/ci_editable";
+
+        await OpenAsync($"/studio/#/service/{service}?tab=settings&section=feature", token);
+
+        await WaitForAsync("!!document.getElementById('offerSave') && document.querySelectorAll('[data-offer]').length === 4",
+            "Feature layer does not offer the owner the four edits to choose from.");
+
+        await ClickAsync("#offerSave");
+
+        await WaitForAsync("(window.__writes || []).some(w => w.startsWith('PUT ') && w.includes('/editing'))",
+            "Saving the edits offered sent nothing to the editing route.");
+
+        await ClickAsync("#serviceNav a[data-service-page=\"general\"]");
+
+        await WaitForAsync("!!document.getElementById('svcLock') && !document.getElementById('svcLock').disabled",
+            "General's protection control is missing or not the owner's to change.");
+
+        await Browser.EvaluateAsync<bool>("(document.getElementById('svcLock').click(), true)");
+
+        await WaitForAsync("(window.__writes || []).some(w => w.startsWith('PUT ') && w.includes('/protection'))",
+            "Changing the protection sent nothing to the protection route; it would have been this page's memory only.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// Step 7: Overview is Portal's shape — the item and its layers on the left, its actions and details on the
+    /// right — with no settings on it and no buttons on the layer rows.
+    /// </summary>
+    /// <remarks>
+    /// <b>Owner, 2026-10-01, beside Portal's item page: *"neden kabiliyetler ana sayfada?"*</b> What a client may
+    /// do and what one request may spend were two cards on Overview while their homes were Settings and Server.
+    /// </remarks>
+    [Fact]
+    public async Task Overview_holds_the_item_its_layers_its_actions_and_its_details_and_no_settings()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync($"/studio/#/service/{Service()}", token);
+
+        await WaitForAsync(
+            "!!document.querySelector('#serviceDetails .itemactions a.btn.primary') && !!document.querySelector('#svcFacts #svcUrl')",
+            "Overview's right column does not hold the actions above the details and the address.");
+
+        bool settingsShown = await Browser.EvaluateAsync<bool>(
+            "['serviceOps', 'serviceSpend', 'serviceAddress'].some(id => { const e = document.getElementById(id); return !!e && e.offsetParent !== null; })");
+
+        Assert.False(settingsShown, "Overview still shows the capabilities, the request limits or a separate address card.");
+
+        int rowButtons = await Browser.EvaluateAsync<int>(
+            "document.querySelectorAll('#serviceLayerRows a.tiny, #serviceLayerRows button').length");
+
+        Assert.Equal(0, rowButtons);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
 }

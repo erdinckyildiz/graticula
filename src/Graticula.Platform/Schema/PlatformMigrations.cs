@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(65);
+    public static SchemaVersion ComponentSchemaVersion => new(66);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -100,6 +100,7 @@ public static class PlatformMigrations
         AServiceMayBeTiledInAnotherReferenceV63,
         AServiceMayBeExportedAsATilePackageV64,
         ATileMayBeServedStaleAndAServiceHaveAQuotaV65,
+        OwnersChooseEditingAndProtectDeletionV66,
     ]);
 
     /// <summary>
@@ -151,6 +152,41 @@ public static class PlatformMigrations
         alter table service add constraint service_tile_cache_quota_positive
           check (tile_cache_quota_mb is null or tile_cache_quota_mb > 0)
         """);
+
+    /// <summary>
+    /// An item's owner chooses which edits it offers, inside the administrator's ceiling, and may protect it from
+    /// deletion — ADR-102 conditions 1 and 2, owner decision 2026-10-01.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><c>editing_offered</c> is the owner's choice; <c>capability_ceiling</c> stays the administrator's.</b> What is
+    /// served is the two together: the ceiling (every operation when it is null) narrowed to Query and the operations
+    /// the owner offers. Null means the owner has not chosen, which serves what it served before, so nothing changes
+    /// for a service that exists.
+    /// </para>
+    /// <para>
+    /// <b><c>delete_protected</c> is false for every service, existing or new</b>: the API's delete kept its answer for
+    /// every caller that uses it, and protection is what an owner turns on — Portal's default. INFERRED, ADR-102 §10.
+    /// </para>
+    /// <para><b>Rollback.</b> A build before this one reads neither column: it serves the ceiling alone and deletes
+    /// what an administrator asks it to, as it did.</para>
+    /// <para><b>Expand.</b> Two columns and a check; the minimum reader does not move.</para>
+    /// </remarks>
+    private static Migration OwnersChooseEditingAndProtectDeletionV66 => Migration.Expand(
+        new SchemaVersion(66),
+        "An item's owner chooses the edits it offers inside the administrator's ceiling, and may protect it from deletion (ADR-102).",
+
+        "alter table service add column if not exists editing_offered text[]",
+
+        "alter table service drop constraint if exists service_editing_offered_known",
+
+        """
+        alter table service add constraint service_editing_offered_known check (
+          editing_offered is null
+          or editing_offered <@ array['Create','Update','Delete','Extract']::text[])
+        """,
+
+        "alter table service add column if not exists delete_protected boolean not null default false");
 
     /// <summary>
     /// A vector tile service's tiles may be exported as a package — a VTPK or a PMTiles archive — ADR-098.
