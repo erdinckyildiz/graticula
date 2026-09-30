@@ -337,6 +337,65 @@ public sealed class WebMapViewerTests : ConsoleTest
         }
     }
 
+    /// <summary>A web map has its own item page: what it holds with the way to each layer, sharing, and delete.</summary>
+    [Fact]
+    public async Task A_web_map_has_an_item_page_with_its_layers_and_its_sharing()
+    {
+        (string token, string cookie) = await SignInAsync();
+
+        string layerUrl = await AnyFeatureLayerUrlAsync(token);
+
+        string document = JsonSerializer.Serialize(new
+        {
+            title = "Item page test",
+            sharing = "private",
+            document = new
+            {
+                operationalLayers = new object[]
+                {
+                    new { id = "one", layerType = "ArcGISFeatureLayer", url = layerUrl, title = "Its layer", visibility = true, opacity = 1 },
+                },
+                baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
+                version = "2.31",
+            },
+        });
+
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/webmaps", document);
+
+        Assert.True(status == 201, $"Saving the map through the API answered {status}: {body}");
+
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await OpenAsync($"/studio/#/map/{id}", token, cookie);
+
+            await WaitForAsync(
+                "document.getElementById('mapTitle').textContent === 'Item page test'"
+                + " && !!document.querySelector('#mapLayers a[href^=\"#/service/\"]')"
+                + " && !!document.querySelector('#mapSide a[href*=\"webmap.html?id=\"]')",
+                "The map's item page did not show its title, its layer with the way to that layer's item, and Open in Map Viewer.");
+
+            await ClickAsync("#mapShareOpen");
+
+            await WaitForAsync("document.getElementById('mapShare').open", "Share did not open.");
+
+            await Browser.EvaluateAsync<bool>("(document.querySelector('input[name=mapShareScope][value=organization]').checked = true, true)");
+
+            await ClickAsync("#mapShareSave");
+
+            await WaitForAsync(
+                $"(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/content/webmaps/{id}'))",
+                "Saving the map's sharing sent nothing.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
+    }
+
     /// <summary>The address of some feature layer this server publishes.</summary>
     private async Task<string> AnyFeatureLayerUrlAsync(string token)
     {

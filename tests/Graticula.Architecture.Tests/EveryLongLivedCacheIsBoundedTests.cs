@@ -65,6 +65,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
     /// </remarks>
     private static readonly Dictionary<string, string> Bounds = new(StringComparer.Ordinal)
     {
+        ["LayerExportEndpoints.Formats"] = "fixed: the three export formats (ADR-107)",
         ["ArcGisAppendEndpoints.Uploads"] = "at most MaximumUploads waiting, each for an hour (ADR-105)",
         ["ConnectionBudget._sources"] = "one semaphore per data source",
         ["ConnectionBudget._waiting"] = "one counter per data source",

@@ -4455,3 +4455,16 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 #featureLayers .layerblock .setting .val { font-family: inherit; }
 #featureLayers .layerblock .setting input[data-time-input] { width: 14em; text-align: left; }
 @media (max-width: 600px) { #featureLayers .layerblock .setting { grid-template-columns: 1fr; } }
+
+/* A web map's item page (2026-10-01): the main column and the actions beside it, as the layer item. */
+.mapitem { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--gap-4); align-items: start; }
+.mapitem .mapmain > h4 { margin: var(--gap-4) 0 var(--gap-2); }
+.maplayers { list-style: none; margin: 0; padding: 0; }
+.maplayers li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.maplayers li:last-child { border-bottom: 0; }
+#mapSide .itemactions { display: flex; flex-direction: column; gap: var(--gap-2); margin-bottom: var(--gap-3); }
+#mapAbout .stacked, #mapShare .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
+#mapAbout textarea, #mapAbout input { font: inherit; max-width: 100%; }
+#mapShare .check > span { display: inline-flex; flex-direction: column; }
+@media (max-width: 900px) { .mapitem { grid-template-columns: 1fr; } }
+#mapAbout, #mapLayers { padding: var(--gap-3) var(--gap-4); }

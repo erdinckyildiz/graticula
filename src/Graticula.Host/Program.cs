@@ -2079,6 +2079,9 @@ public static class Program
         // ADR-105: ArcGIS's uploads/upload and append on a hosted layer, over Update data's engine (ADR-103).
         ArcGisAppendEndpoints.Map(app);
 
+        // ADR-107: a layer taken away as a GeoPackage, a zipped shapefile or an Excel workbook.
+        LayerExportEndpoints.Map(app);
+
         // <b>Outside /rest/services, deliberately.</b> Every surface above is
         // ArcGIS-shaped and lives under that prefix; WFS is a different protocol
         // with a different discovery document, and a client pastes one address for

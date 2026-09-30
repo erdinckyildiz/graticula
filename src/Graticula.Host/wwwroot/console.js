@@ -2286,6 +2286,7 @@ const SCREEN_SURFACE = {
   // would land an administrator on Services with no explanation.
   group: "studio",
   content: "studio",
+  map: "studio",
   anonymous: "studio",
   // ADR-087: the shared domains, Studio's beside Groups.
   domains: "studio",
@@ -2430,6 +2431,12 @@ function route() {
   // addressed by folder and name — `#/service/turkiye/tr_ref`.
   if (rest[0] === "service" && rest[1]) {
     showService(rest.slice(1).join("/"));
+    return;
+  }
+
+  // A web map's item page — `#/map/{id}`.
+  if (rest[0] === "map" && rest[1]) {
+    showWebMapItem(rest[1]);
     return;
   }
 
@@ -3903,6 +3910,181 @@ function drawMyContent() {
  * cells mean what they mean for a service: the name opens it, the pill says who can reach it, the date is
  * its last save. Its sharing is set in the map itself, so the pill reports and does not open the dialog.
  */
+/** The web map whose item page is open, as the server last answered. */
+let mapOpen = null;
+
+const MAP_SCOPES = [
+  ["private", "Owner", "Only you, and administrators."],
+  ["organization", "Organization", "Everybody who signs in here."],
+  ["public", "Everyone (public)", "Anybody with the link, signed in or not."],
+];
+
+/**
+ * A web map's item page — its description, its layers with the way to each one's item, who may open it, and the
+ * ways on: Open in Map Viewer, Share, Delete. Portal's web map item, Overview only (2026-10-01).
+ */
+async function showWebMapItem(id) {
+  showView("view-map", "content");
+  $("mapCrumb").innerHTML = `<a href="#/content">My content</a> › <b>…</b>`;
+  $("mapTitle").textContent = "";
+  $("mapSub").textContent = "";
+
+  let map;
+  try {
+    map = await api(`/content/webmaps/${encodeURIComponent(id)}`);
+  } catch (e) {
+    $("mapAbout").innerHTML = `<p class="bad">${h(e.message || e)}</p><p><a href="#/content">Back to My content</a></p>`;
+    $("mapLayers").innerHTML = "";
+    $("mapSide").innerHTML = "";
+    return;
+  }
+
+  mapOpen = map;
+  const doc = typeof map.document === "string" ? JSON.parse(map.document) : (map.document || {});
+  const layers = Array.isArray(doc.operationalLayers) ? doc.operationalLayers : [];
+  const open = `/studio/webmap.html?id=${encodeURIComponent(map.id)}`;
+
+  $("mapCrumb").innerHTML = `<a href="#/content">My content</a> › <b>${h(map.title)}</b>`;
+  $("mapTitle").textContent = map.title;
+  $("mapSub").textContent = [
+    "Web map", `${num(layers.length)} layer${layers.length === 1 ? "" : "s"}`, map.owner ? `owner ${map.owner}` : "",
+  ].filter(Boolean).join(" · ");
+
+  drawMapAbout();
+
+  // Each layer with the way to its own item, when it is one of this server's services.
+  $("mapLayers").innerHTML = layers.length === 0
+    ? `<p class="hint">This map has no layers yet. Open it in the Map Viewer and add some.</p>`
+    : `<ul class="maplayers">${layers.slice().reverse().map(layer => {
+        const service = /\/rest\/services\/(.+?)\/(?:FeatureServer|MapServer|VectorTileServer)/.exec(layer.url || "")?.[1];
+        const styled = layer.layerDefinition && layer.layerDefinition.drawingInfo;
+        return `<li><b>${service ? `<a href="#/service/${service}">${h(layer.title || service)}</a>` : h(layer.title || "Layer")}</b>
+          <span class="rowmeta">${h(WM_KIND[layer.layerType] || layer.layerType || "")}${styled ? " · styled in this map" : ""}${
+            layer.layerDefinition && layer.layerDefinition.definitionExpression ? " · filtered" : ""}</span></li>`;
+      }).join("")}</ul>`;
+
+  $("mapSide").innerHTML = `
+    <div class="itemactions">
+      <a class="btn primary" href="${open}">Open in Map Viewer</a>
+      ${map.manages ? `<button type="button" id="mapShareOpen">Share</button>` : ""}
+      ${map.manages ? `<button type="button" class="danger" id="mapDelete">Delete</button>` : ""}
+    </div>
+    <h4>Details</h4>
+    <dl class="facts2">
+      <dt>Type</dt><dd>Web map</dd>
+      <dt>Owner</dt><dd>${h(map.owner || "—")}</dd>
+      <dt>Sharing</dt><dd>${pill(map.sharing)}</dd>
+      <dt>Layers</dt><dd>${num(layers.length)}</dd>
+      <dt>Created</dt><dd>${h(day(map.created))}</dd>
+      <dt>Updated</dt><dd>${h(day(map.modified))}</dd>
+    </dl>`;
+}
+
+const WM_KIND = { ArcGISFeatureLayer: "Features", ArcGISMapServiceLayer: "Map image", VectorTileLayer: "Vector tiles" };
+
+/** The map's summary, and editing it — the title and the one line, sent with the rest of the map unchanged. */
+function drawMapAbout(editing = false) {
+  const map = mapOpen;
+  if (!map) return;
+
+  if (editing) {
+    $("mapAbout").innerHTML = `
+      <div class="stacked"><label for="mapEditTitle">Title</label><input type="text" id="mapEditTitle" value="${h(map.title)}"></div>
+      <div class="stacked"><label for="mapEditSnippet">Summary</label>
+        <textarea id="mapEditSnippet" rows="3">${h(map.snippet || "")}</textarea></div>
+      <div class="row"><button type="button" class="primary" id="mapEditSave">Save</button>
+        <button type="button" class="ghost" id="mapEditCancel">Cancel</button></div>
+      <p class="hint" id="mapAboutSays" role="status" aria-live="polite"></p>`;
+    $("mapEditTitle").focus();
+    return;
+  }
+
+  $("mapAbout").innerHTML = `
+    <p>${map.snippet ? h(map.snippet) : `<span class="hint">No summary yet. A line on what the map shows makes it easier to find.</span>`}</p>
+    ${map.manages ? `<button type="button" class="tiny ghost" id="mapEditOpen">Edit title and summary</button>` : ""}
+    <p class="hint" id="mapAboutSays" role="status" aria-live="polite"></p>`;
+}
+
+/** Saves the map with one thing changed, sending the rest as the server last gave it. */
+async function saveMapItem(change) {
+  const map = mapOpen;
+  const doc = typeof map.document === "string" ? map.document : JSON.stringify(map.document || {});
+  const saved = await api(`/content/webmaps/${encodeURIComponent(map.id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: map.title, snippet: map.snippet || null, sharing: map.sharing, document: JSON.parse(doc), ...change }),
+  });
+  return saved;
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target : null;
+  if (!t || !mapOpen) return;
+
+  if (t.id === "mapEditOpen") { drawMapAbout(true); return; }
+  if (t.id === "mapEditCancel") { drawMapAbout(false); $("mapEditOpen")?.focus(); return; }
+
+  if (t.id === "mapEditSave") {
+    const title = $("mapEditTitle").value.trim();
+    if (!title) { $("mapAboutSays").textContent = "A map needs a title."; $("mapEditTitle").focus(); return; }
+    t.disabled = true;
+    try {
+      await saveMapItem({ title, snippet: $("mapEditSnippet").value.trim() || null });
+      await showWebMapItem(mapOpen.id);
+      $("mapAboutSays").textContent = "Saved.";
+      $("mapEditOpen")?.focus();
+    } catch (e) {
+      $("mapAboutSays").textContent = e.message || String(e);
+      t.disabled = false;
+    }
+    return;
+  }
+
+  if (t.id === "mapShareOpen") {
+    $("mapShareBody").innerHTML = `<fieldset class="offered"><legend>Who can open this map</legend>
+      ${MAP_SCOPES.map(([value, label, said]) => `<label class="check"><input type="radio" name="mapShareScope" value="${value}"${
+        value === mapOpen.sharing ? " checked" : ""}> <span><b>${h(label)}</b> <span class="hint">${h(said)}</span></span></label>`).join("")}
+      </fieldset>
+      <p class="hint">A layer on the map is still shown only to whoever may read it; sharing the map does not share its
+        layers.</p>
+      <p class="hint" id="mapShareSays" role="status" aria-live="polite"></p>`;
+    $("mapShareFoot").innerHTML = `<span class="fill"></span>
+      <button type="button" class="ghost" id="mapShareCancel">Cancel</button>
+      <button type="button" class="primary" id="mapShareSave">Save</button>`;
+    $("mapShare").showModal();
+    $("mapShareTitle").focus();
+    return;
+  }
+
+  if (t.id === "mapShareClose" || t.id === "mapShareCancel") { $("mapShare").close(); $("mapShareOpen")?.focus(); return; }
+
+  if (t.id === "mapShareSave") {
+    const sharing = document.querySelector('input[name="mapShareScope"]:checked')?.value || "private";
+    t.disabled = true;
+    try {
+      await saveMapItem({ sharing });
+      $("mapShare").close();
+      await showWebMapItem(mapOpen.id);
+      $("mapShareOpen")?.focus();
+    } catch (e) {
+      $("mapShareSays").textContent = e.message || String(e);
+      t.disabled = false;
+    }
+    return;
+  }
+
+  if (t.id === "mapDelete") {
+    if (!confirm(`Delete the map '${mapOpen.title}'? Its layers are not touched; the map is gone for everybody.`)) return;
+    try {
+      await api(`/content/webmaps/${encodeURIComponent(mapOpen.id)}`, { method: "DELETE" });
+      mapOpen = null;
+      location.hash = "#/content";
+    } catch (e) {
+      toast(e.message || String(e));
+    }
+  }
+});
+
 function mapRow(i) {
   const m = i.map;
   const open = `/studio/webmap.html?id=${encodeURIComponent(m.id)}`;
@@ -3910,10 +4092,10 @@ function mapRow(i) {
   return `<tr>
     <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}"
       ><div class="thumb empty mapthumb" aria-hidden="true"></div></a></td>
-    <td class="name"><a href="${open}">${h(i.name)}</a>
+    <td class="name"><a href="#/map/${encodeURIComponent(m.id)}">${h(i.name)}</a>
       <div class="rowmeta">Web map${i.description ? ` · ${h(i.description)}` : ""}${
         i.scope !== "mine" && i.owner ? ` · ${h(i.owner)}` : ""}</div></td>
-    <td><span title="Set in the map, under Map › Who can open it">${pill(i.sharing)}</span></td>
+    <td>${pill(i.sharing)}</td>
     <td class="val">${day(i.updated)}</td>
     <td style="text-align:right;white-space:nowrap">
       <a class="tiny" href="${open}" aria-label="Open ${h(i.name)}">Open</a>
@@ -5588,9 +5770,57 @@ async function loadServiceData() {
  * 100,000 rows and said so, because a browser tab holding more is the wrong tool; the layer's REST
  * address is the right one, and the note names it.
  */
+/**
+ * A GeoPackage, a zipped shapefile or a workbook, made by the server — ADR-107. The server reads every row in the
+ * layer's own reference and GDAL writes the file, so a TUREF layer leaves as TUREF; the answer is saved as it comes.
+ */
+async function exportLayerFile(format, button, index) {
+  const says = text => { const s = $("exportDataSays"); if (s) s.textContent = text; };
+  const [folder, name] = serviceOpen.qualified.includes("/")
+    ? serviceOpen.qualified.split("/") : ["", serviceOpen.qualified];
+
+  button.disabled = true;
+  says("Writing the file on the server — a large layer takes a while…");
+
+  try {
+    const headers = {};
+    if (token) headers.Authorization = "Bearer " + token;
+    const response = await fetch(`/admin/services/${encodeURIComponent(name)}/layers/${encodeURIComponent(index)}/export`
+      + `?folder=${encodeURIComponent(folder)}&format=${encodeURIComponent(format)}`, { method: "POST", headers });
+
+    if (!response.ok) {
+      let why = `${response.status}`;
+      try { why = (await response.json())?.error?.message || why; } catch { /* not json */ }
+      says(`Not exported: ${why}`);
+      return;
+    }
+
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const file = /filename="([^"]+)"/.exec(disposition)?.[1] || `export.${format}`;
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(await response.blob());
+    link.download = file;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+    says(`Written to ${file}.`);
+  } catch (e) {
+    says(`Not exported: ${e.message || e}`);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function exportServiceData(format, button, chosen = null) {
   const index = chosen ?? $("dataLayer")?.value;
   if (!serviceOpen || index === undefined || index === "") return;
+
+  // The formats GDAL writes are the server's; CSV and GeoJSON are built here from the query, as before.
+  if (["gpkg", "shapefile", "xlsx"].includes(format)) {
+    await exportLayerFile(format, button, index);
+    return;
+  }
 
   const root = `/rest/services/${
     serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer/${encodeURIComponent(index)}`;
@@ -6680,7 +6910,9 @@ async function drawFeatureFacts(name, folder) {
     ${st.manages ? `<div class="row" style="margin-top:10px">
       <button type="button" class="primary" id="offerSave">Save</button></div>` : ""}
     <p class="hint" id="offerSays" role="status" aria-live="polite">Query is always offered. ${st.manages
-      ? "What you turn off here is refused to every client, including ArcGIS Pro and Field Maps."
+      ? "Adding, updating and deleting that you turn off are refused to every client, including ArcGIS Pro and "
+        + "Field Maps. Export data decides whether people other than you may take the layer away as a file here; "
+        + "you and administrators always may."
       : "Only the item's owner or an administrator changes this."}</p>
     <h4>Layers</h4>
     <div id="featureLayers">${serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).map(one => `
@@ -24060,10 +24292,14 @@ async function handleClick(event) {
       <fieldset class="offered"><legend>Format</legend>
         <label class="check"><input type="radio" name="exportDataFormat" value="csv" checked> CSV — the attributes, for a spreadsheet</label>
         <label class="check"><input type="radio" name="exportDataFormat" value="geojson"> GeoJSON — with the geometry, in WGS 84</label>
+        <label class="check"><input type="radio" name="exportDataFormat" value="gpkg"> GeoPackage — with the geometry, in the layer's own coordinate system</label>
+        <label class="check"><input type="radio" name="exportDataFormat" value="shapefile"> Shapefile (zipped) — for any desktop GIS, in the layer's own coordinate system</label>
+        <label class="check"><input type="radio" name="exportDataFormat" value="xlsx"> Excel — the attributes, as a workbook</label>
       </fieldset>
       ${tiled ? `<p class="hint">Tiles for offline use — a VTPK for ArcGIS Field Maps and Pro, or PMTiles — are built as
         packages in <a href="#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings&section=tiles">Settings › Tile layer</a>.</p>` : ""}
-      <p class="hint" id="exportDataSays" role="status" aria-live="polite">Every row of the layer is written, up to 100,000.</p>`;
+      <p class="hint" id="exportDataSays" role="status" aria-live="polite">Every row of the layer is written — up to 100,000
+        as CSV or GeoJSON, a million as the other three.</p>`;
     $("exportDataFoot").innerHTML = `<span class="fill"></span>
       <button type="button" class="ghost" id="exportDataCancel">Cancel</button>
       <button type="button" class="primary" id="exportDataGo">Download</button>`;

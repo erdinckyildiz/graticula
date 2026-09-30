@@ -1203,6 +1203,29 @@
     name may contain a slash — `encodeURIComponent` survives the split where a service's
     `folder/name` deliberately does not.
   -->
+  <!--
+    <b>A web map's item page — 2026-10-01, the ArcGIS review's fifth item.</b> A map was a row with Open and Delete,
+    and its sharing was set inside the map; Portal gives a web map the same item page a layer has. Overview only:
+    what it is, what it holds, who may open it, and the ways on.
+  -->
+  <section class="view" id="view-map">
+    <div class="crumbs" id="mapCrumb"></div>
+    <div class="pagehead">
+      <div>
+        <h2 id="mapTitle"></h2>
+        <p id="mapSub" class="hint"></p>
+      </div>
+    </div>
+    <div class="mapitem">
+      <div class="mapmain">
+        <div class="panel" id="mapAbout"></div>
+        <h4>Layers</h4>
+        <div class="panel" id="mapLayers"></div>
+      </div>
+      <aside class="panel" id="mapSide"></aside>
+    </div>
+  </section>
+
   <section class="view" id="view-group">
     <div class="crumbs" id="groupCrumb"></div>
 
@@ -2100,6 +2123,15 @@
   </header>
   <div class="dialogbody" id="updateDataBody"></div>
   <footer class="dialogfoot" id="updateDataFoot"></footer>
+</dialog>
+
+<dialog id="mapShare" aria-labelledby="mapShareTitle">
+  <header class="dialoghead">
+    <h3 id="mapShareTitle" tabindex="-1">Share</h3>
+    <button class="tiny ghost" id="mapShareClose" aria-label="Close">&#10005;</button>
+  </header>
+  <div class="dialogbody" id="mapShareBody"></div>
+  <footer class="dialogfoot" id="mapShareFoot"></footer>
 </dialog>
 
 <dialog id="exportData" aria-labelledby="exportDataTitle">

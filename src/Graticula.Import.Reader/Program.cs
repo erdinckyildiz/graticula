@@ -193,9 +193,15 @@ internal static class Program
             // that does the reading.
             "fixture" => Fixture(request),
 
+            // <b>ADR-107: a layer taken away as a GeoPackage, a zipped shapefile's folder or a workbook.</b> The host
+            // writes the rows as GeoJSON in the layer's own reference and names it; this translates, so GDAL stays
+            // out of the serving process as ADR-009 §2.2 keeps it.
+            "export" => Export(
+                Text(request, "in"), Text(request, "out"), Text(request, "format"), Text(request, "layer")),
+
             _ => throw new ArgumentException(
                 $"'{operation}' is not an operation. This reader answers 'ping', 'layers', "
-                + "'convert', 'features' and 'fixture'."),
+                + "'convert', 'features', 'fixture' and 'export'."),
         };
     }
 
@@ -663,6 +669,46 @@ internal static class Program
     /// operator is told the import worked.
     /// </para>
     /// </remarks>
+    /// <summary>Translates a GeoJSON file into a GeoPackage, a shapefile folder or an Excel workbook — ADR-107.</summary>
+    /// <remarks>
+    /// The input names its reference in the legacy <c>crs</c> member, so nothing is reprojected: the rows leave in the
+    /// reference they are stored in. A shapefile is written into <paramref name="output"/> as a folder, which the host
+    /// zips; its text is UTF-8 and says so in a <c>.cpg</c>. A workbook holds the attributes only.
+    /// </remarks>
+    private static object Export(string input, string output, string format, string layer)
+    {
+        string driver = format switch
+        {
+            "gpkg" => "GPKG",
+            "shapefile" => "ESRI Shapefile",
+            "xlsx" => "XLSX",
+            _ => throw new ArgumentException($"'{format}' is not an export format; 'gpkg', 'shapefile' and 'xlsx' are."),
+        };
+
+        List<string> said = [];
+        _messages = said;
+
+        try
+        {
+            using Dataset source = Gdal.OpenEx(input, 0, null, null, null)
+                ?? throw new InvalidOperationException($"GDAL could not open '{input}'.");
+
+            List<string> options = ["-f", driver, "-nln", layer];
+
+            if (format == "shapefile") options.AddRange(["-lco", "ENCODING=UTF-8"]);
+
+            using Dataset written = Gdal.wrapper_GDALVectorTranslateDestName(
+                output, source, new GdalVectorTranslateOptions([.. options]), null, null)
+                ?? throw new InvalidOperationException($"GDAL refused to write '{layer}' as {driver}. {string.Join(" ", said)}");
+        }
+        finally
+        {
+            _messages = null;
+        }
+
+        return new { ok = true, messages = said };
+    }
+
     private static object Convert(string archive, string layer, string output)
     {
         if (File.Exists(output))

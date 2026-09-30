@@ -107,7 +107,7 @@ linking to Server for an administrator.
 |---|---|
 | Description; thumbnail redraw; URLs of every face; layer facts | Overview |
 | Sharing and groups | the Share dialog only (Overview, My content row); stated once in Overview's details |
-| CSV and GeoJSON download; VTPK and PMTiles packages | Overview › *Export data* |
+| CSV and GeoJSON download; VTPK and PMTiles packages | Overview › *Export data* *(and GeoPackage, zipped shapefile and Excel from 2026-10-01 — [ADR-107](ADR-107-a-layer-is-exported-as-geopackage-shapefile-or-workbook.md), the first step of ADR-106)* |
 | Field names, hidden fields, add field; feature history log | Data › Fields; Data › History |
 | Layer default style; visible range | Visualization › Styles, *Save as layer default*; Properties. *(Amended 2026-10-01 by [ADR-104](ADR-104-a-web-map-styles-its-own-layers.md): a map may also style a layer for itself, in the Map Viewer — a second level, not a second home for the default, which the map reaches through the same* Save as the layer's default.*)* |
 | Delete protection (stored); Delete item | Settings › General |

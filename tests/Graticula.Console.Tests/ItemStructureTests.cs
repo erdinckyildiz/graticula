@@ -423,4 +423,30 @@ public sealed class ItemStructureTests : ConsoleTest
 
         NothingWentWrong(await PageErrorsAsync());
     }
+
+    /// <summary>ADR-107: Export data writes a GeoPackage through the server and says where it went.</summary>
+    [Fact]
+    public async Task Export_data_writes_a_GeoPackage_made_by_the_server()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync($"/studio/#/service/{Service()}", token);
+
+        await WaitForAsync("!!document.getElementById('exportDataOpen')", "Overview offers no Export data action.");
+
+        await ClickAsync("#exportDataOpen");
+
+        await WaitForAsync("!!document.querySelector('input[name=exportDataFormat][value=gpkg]')",
+            "Export data offers no GeoPackage.");
+
+        await Browser.EvaluateAsync<bool>("(document.querySelector('input[name=exportDataFormat][value=gpkg]').checked = true, true)");
+
+        await ClickAsync("#exportDataGo");
+
+        await WaitForAsync(
+            "(() => { const t = document.getElementById('exportDataSays').textContent; return t.startsWith('Written to') && t.includes('.gpkg'); })()",
+            "The GeoPackage was not written, or the dialog did not say where it went.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
 }
