@@ -659,6 +659,10 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/services/{name}/editing", SetEditingOfferedAsync);
         app.MapPut("/admin/services/{name}/protection", SetDeleteProtectedAsync);
 
+        // Portal's Change owner for one item — an administrator's act (2026-10-01).
+        app.MapPut("/admin/services/{name}/owner", ChangeServiceOwnerAsync);
+        app.MapPut("/content/webmaps/{id}/owner", ChangeWebMapOwnerAsync);
+
         // <b>A system service can be stopped, since 2026-08-17.</b> The owner asked why the
         // geometry service had no start and no stop, and the answer was that nothing had given
         // it one — <c>system_service</c> carried sharing and nothing else. Two routes rather
@@ -4661,6 +4665,91 @@ internal static partial class AdminEndpoints
             succeeded: true, cancellation).ConfigureAwait(false);
 
         await Results.Json(new { name, folder = at, deleteProtected = request.Protected }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>What <c>…/owner</c> reads: the member who receives the item.</summary>
+    internal sealed record OwnerRequest(string? To);
+
+    /// <summary>
+    /// Gives one service to another member — Portal's *Change owner* for one item (the ArcGIS review's sixth item).
+    /// </summary>
+    /// <remarks>
+    /// <b>An administrator's act</b>, as in Portal: <c>admin:manageAllContent</c>. Nothing is unpublished, the sharing
+    /// and its groups stay, and every URL a client holds still works — the member transfer's rule for one item.
+    /// </remarks>
+    private static async Task ChangeServiceOwnerAsync(
+        HttpContext context, string name, string? folder, OwnerRequest request, IAdminCatalog catalog,
+        IAuditLog audit, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageAllContent).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (request.To is not { Length: > 0 } receiver)
+        {
+            await Refuse(context, 400, "'to' names the member who receives the service.").ConfigureAwait(false);
+            return;
+        }
+
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        switch (await catalog.ChangeServiceOwnerAsync(name, at, receiver, cancellation).ConfigureAwait(false))
+        {
+            case OwnerChange.NoMember:
+                await Refuse(context, 404, $"No member '{receiver}' to give it to.").ConfigureAwait(false);
+                return;
+            case OwnerChange.NoItem:
+                await Refuse(context, 404, $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                    .ConfigureAwait(false);
+                return;
+        }
+
+        await AuditAsync(context, audit, "service.owner", name, Detail(new { folder = at, to = receiver }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            folder = at,
+            owner = receiver,
+            note = $"'{name}' now belongs to '{receiver}'. Its sharing, its groups and its addresses are as they were.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Gives one web map to another member — an administrator's act; its scope is untouched.</summary>
+    private static async Task ChangeWebMapOwnerAsync(
+        HttpContext context, string id, OwnerRequest request, IWebMapStore maps, IAuditLog audit, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageAllContent).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (request.To is not { Length: > 0 } receiver)
+        {
+            await Refuse(context, 400, "'to' names the member who receives the map.").ConfigureAwait(false);
+            return;
+        }
+
+        switch (await maps.ChangeOwnerAsync(id, receiver, cancellation).ConfigureAwait(false))
+        {
+            case OwnerChange.NoMember:
+                await Refuse(context, 404, $"No member '{receiver}' to give it to.").ConfigureAwait(false);
+                return;
+            case OwnerChange.NoItem:
+                await Refuse(context, 404, "No such map.").ConfigureAwait(false);
+                return;
+        }
+
+        await AuditAsync(context, audit, "webmap.owner", id, Detail(new { to = receiver }), succeeded: true, cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Json(new { id, owner = receiver }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>Refuses with 409 when a service is protected from deletion; true when it may go.</summary>

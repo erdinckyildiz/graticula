@@ -90,6 +90,13 @@ public static class WebMaps
 /// </remarks>
 public interface IWebMapStore
 {
+    /// <summary>Gives one map to another member — Portal's *Change owner* for one item; its scope is untouched.</summary>
+    /// <param name="id">The map.</param>
+    /// <param name="receiver">The member who receives it, by name.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What happened.</returns>
+    Task<OwnerChange> ChangeOwnerAsync(string id, string receiver, CancellationToken cancellationToken);
+
     /// <summary>Every saved map, without its document, newest change first.</summary>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The maps.</returns>

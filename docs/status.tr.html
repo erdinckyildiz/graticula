@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>9c3c96e</code> · 2026-09-30 15:37</p>
+<p class="stamp">Şu commit’ten üretildi: <code>5877f67</code> · 2026-09-30 15:55</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">107</div><div class="kpi-l">ADR</div><div class="kpi-n">26 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">250/341</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">88 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">108</div><div class="kpi-l">ADR</div><div class="kpi-n">26 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">252/344</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">89 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4321</div><div class="kpi-l">test</div><div class="kpi-n">407 kaynak dosya, 180,943 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4323</div><div class="kpi-l">test</div><div class="kpi-n">408 kaynak dosya, 181,118 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">101 madde</span></div><p><b>88 ADR conditions</b> outstanding across 53 decisions — the largest commitment on this page.</p><p><b>9 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">102 madde</span></div><p><b>89 ADR conditions</b> outstanding across 54 decisions — the largest commitment on this page.</p><p><b>9 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -184,6 +184,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-104 · A web map styles its own layers</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-105 · ArcGIS clients append to a hosted </div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-107 · A layer is exported as a GeoPackag</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-108 · An item&#x27;s owner is changed by an a</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -309,6 +310,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">105</td><td>ArcGIS clients append to a hosted layer through `uploads/upload` and `append`</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the two operations are shaped as the public ArcGIS REST reference documents them…</td><td class="num">1/2</td></tr>
 <tr><td class="id">106</td><td>A layer&#x27;s data can be exported as a file</td><td><span class="pill warn">DRAFT</span></td><td class="muted-t">MEDIUM — every format rests on a GDAL driver measured present and able to create on both…</td><td class="num">0/9</td></tr>
 <tr><td class="id">107</td><td>A layer is exported as a GeoPackage, a zipped shapefile or a workbook</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — GDAL writes the files and is the same GDAL the import reads with; what is…</td><td class="num">2/3</td></tr>
+<tr><td class="id">108</td><td>An item&#x27;s owner is changed by an administrator; *Move* waits for content folders</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for Change owner — one row, the member transfer&#x27;s rule for one item; MEDIUM for…</td><td class="num">2/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -431,10 +433,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1180</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:63.6%"></div></div><div class="bar-n">751</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:53.2%"></div></div><div class="bar-n">628</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:53.3%"></div></div><div class="bar-n">629</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:44.5%"></div></div><div class="bar-n">525</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:34.4%"></div></div><div class="bar-n">406</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.1%"></div></div><div class="bar-n">249</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.2%"></div></div><div class="bar-n">250</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:17.5%"></div></div><div class="bar-n">206</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:10.5%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.7%"></div></div><div class="bar-n">115</div></div>
@@ -444,6 +446,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>5877f67</code><time>2026-09-30</time><span>The reader test names the export operation ADR-107 added</span></li>
+<li><code>6300f5d</code><time>2026-09-30</time><span>A layer also exports as a File Geodatabase, KML, CSV or GeoJSON, all written by the server</span></li>
 <li><code>9c3c96e</code><time>2026-09-30</time><span>A layer is exported as a GeoPackage, a zipped shapefile or a workbook (ADR-107, ADR-106&#x27;s first step); a web map has an item page</span></li>
 <li><code>e921c0e</code><time>2026-09-30</time><span>ADR-106 (draft): a layer&#x27;s data can be exported as a file, in the eight formats ArcGIS Online offers</span></li>
 <li><code>f59126e</code><time>2026-09-30</time><span>ArcGIS clients append to a hosted layer through uploads/upload and append (ADR-105); Settings lists Tile layer at once</span></li>
@@ -456,8 +460,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>403eb0a</code><time>2026-09-30</time><span>Every TUREF zone&#x27;s grid holds the whole country, so a TUREF service no longer drops Thrace, İzmir and the east (D-288)</span></li>
 <li><code>061cdad</code><time>2026-09-30</time><span>Merge remote-tracking branch &#x27;origin/main&#x27;</span></li>
 <li><code>90f1a71</code><time>2026-09-30</time><span>Esri&#x27;s own export client completes against us: job status and results take POST, and the package address answers f=json</span></li>
-<li><code>d1b5e77</code><time>2026-09-30</time><span>Settings no longer redraws whole when the layers arrive; the delete panel shows only under General; the map&#x27;s Style panel starts from the style it has</span></li>
-<li><code>e9a5d8f</code><time>2026-09-30</time><span>A web map styles its own layers (ADR-104)</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
