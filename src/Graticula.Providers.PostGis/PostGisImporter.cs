@@ -36,6 +36,26 @@ public sealed record ImportResult(
     GeometryOrdinates Stored = GeometryOrdinates.None,
     int Flattened = 0);
 
+/// <summary>What an append or an overwrite wrote — ADR-103.</summary>
+/// <param name="Rows">How many features went in.</param>
+/// <param name="Matched">The file's columns that found a column of the layer's.</param>
+/// <param name="Ignored">The file's columns the layer does not have, which were not written.</param>
+/// <param name="Transformed">Whether the geometry was transformed into the layer's reference.</param>
+public sealed record AppendResult(int Rows, IReadOnlyList<string> Matched, IReadOnlyList<string> Ignored, bool Transformed);
+
+/// <summary>An append or overwrite refused before anything was written, with the sentence to say.</summary>
+public sealed class AppendRefusedException : Exception
+{
+    /// <summary>Creates one.</summary>
+    public AppendRefusedException() { }
+
+    /// <summary>Creates one with the sentence to say.</summary>
+    public AppendRefusedException(string message) : base(message) { }
+
+    /// <summary>Creates one with the sentence to say and its cause.</summary>
+    public AppendRefusedException(string message, Exception inner) : base(message, inner) { }
+}
+
 /// <summary>
 /// Creates a table in the datastore and loads a parsed dataset into it.
 /// </summary>
@@ -537,6 +557,245 @@ public sealed class PostGisImporter
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Adds a parsed dataset's features to an existing hosted table, or replaces every feature with them — ADR-103.
+    /// </summary>
+    /// <param name="schemaName">The table's schema, which must be the hosted one.</param>
+    /// <param name="tableName">The table.</param>
+    /// <param name="dataset">What was read from the file.</param>
+    /// <param name="replace">Whether the table (and its attachments) is emptied first, in the same transaction.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>How many rows went in, and which of the file's columns found a column and which did not.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>One transaction, so a file that does not fit leaves the layer as it was.</b> Portal's overwrite that
+    /// fails half-way is the case its users fear most; here the empty and the write commit together or not at all.
+    /// </para>
+    /// <para>
+    /// <b>Through a staging table, not into the layer's own.</b> The import writes WKB into a column it adds and
+    /// drops again; on a live layer that would be two <c>ALTER TABLE</c>s on the table readers are reading. The
+    /// file is copied into a temporary table in the types it was read as, and one <c>INSERT … SELECT</c> casts each
+    /// column to the layer's type, stamps the file's reference on the geometry and — only where the two differ —
+    /// transforms it into the layer's, which keeps the reference the layer was published in (Q-96).
+    /// </para>
+    /// <para>
+    /// <b>Columns match by the name the import would have given them.</b> A file column the layer does not have is
+    /// ignored and named in the answer; a layer column the file does not have takes its default. A value that
+    /// will not cast — text in an integer column — fails the statement, and the transaction with it.
+    /// </para>
+    /// </remarks>
+    public async Task<AppendResult> AppendAsync(
+        string schemaName, string tableName, ImportedDataset dataset, bool replace, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dataset);
+        RefuseOutsideHosted(schemaName, tableName, replace ? "overwrite" : "append to");
+
+        await using NpgsqlConnection connection =
+            await OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        await ExecuteAsync(connection, transaction, LockTimeout, cancellationToken).ConfigureAwait(false);
+
+        // The layer's geometry column as PostGIS records it: its type, its reference and how many ordinates.
+        string targetType;
+        int targetSrid;
+        int dimensions;
+
+        await using (NpgsqlCommand geometry = new(
+            """
+            select upper(type), srid, coord_dimension from geometry_columns
+            where f_table_schema = @schema and f_table_name = @table and f_geometry_column = 'geom'
+            """, connection, transaction))
+        {
+            geometry.Parameters.AddWithValue("schema", HostedSchema);
+            geometry.Parameters.AddWithValue("table", tableName);
+
+            await using NpgsqlDataReader row = await geometry.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            if (!await row.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new AppendRefusedException($"'{tableName}' has no geometry column this server made.");
+            }
+
+            targetType = row.GetString(0);
+            targetSrid = row.GetInt32(1);
+            dimensions = row.GetInt32(2);
+        }
+
+        // The file's shape has to be the layer's: points into a polygon layer is a mistake, not a conversion.
+        string family = targetType.Replace("MULTI", string.Empty, StringComparison.Ordinal).TrimEnd('Z', 'M');
+        string incoming = dataset.GeometryType switch
+        {
+            GeometryKind.Point or GeometryKind.MultiPoint => "POINT",
+            GeometryKind.LineString or GeometryKind.MultiLineString => "LINESTRING",
+            GeometryKind.Polygon or GeometryKind.MultiPolygon => "POLYGON",
+            _ => "GEOMETRY",
+        };
+
+        if (family != "GEOMETRY" && incoming != "GEOMETRY" && family != incoming)
+        {
+            throw new AppendRefusedException(
+                $"The file holds {incoming.ToLowerInvariant()}s and the layer holds {family.ToLowerInvariant()}s, "
+                + "so nothing was written. A layer keeps the geometry type it was published with.");
+        }
+
+        // The layer's writable columns, with the type each is declared as.
+        Dictionary<string, string> targetColumns = new(StringComparer.Ordinal);
+
+        await using (NpgsqlCommand columns = new(
+            """
+            select attname, format_type(atttypid, atttypmod) from pg_attribute
+            where attrelid = @relation::regclass and attnum > 0 and not attisdropped
+              and attidentity = '' and attgenerated = '' and attname not in ('geom', 'objectid')
+            """, connection, transaction))
+        {
+            columns.Parameters.AddWithValue("relation", Qualified(tableName));
+
+            await using NpgsqlDataReader row = await columns.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            while (await row.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                targetColumns[row.GetString(0)] = row.GetString(1);
+            }
+        }
+
+        List<InferredColumn> matched = [];
+        List<string> ignored = [];
+
+        foreach (InferredColumn column in dataset.Columns)
+        {
+            if (targetColumns.ContainsKey(ColumnNameFor(column.Name))) matched.Add(column);
+            else ignored.Add(column.Name);
+        }
+
+        ImportedDataset staged = dataset with { Columns = matched };
+
+        // The staging table: the file's own types, dropped with the transaction.
+        StringBuilder stage = new("create temporary table graticula_append (import_wkb bytea");
+
+        foreach (InferredColumn column in matched)
+        {
+            stage.Append(", ").Append(LayerDefinition.Quote(ColumnNameFor(column.Name))).Append(' ').Append(SqlTypeFor(column));
+        }
+
+        await ExecuteAsync(connection, transaction, stage.Append(") on commit drop").ToString(), cancellationToken)
+            .ConfigureAwait(false);
+
+        await CopyAsync(connection, "graticula_append", staged, cancellationToken).ConfigureAwait(false);
+
+        if (replace)
+        {
+            string attachments = tableName + PostGisAttachmentStore.Suffix;
+            List<string> targets = [];
+
+            foreach (string table in (string[])[attachments + PostGisAttachmentStore.ChunkSuffix, attachments])
+            {
+                await using NpgsqlCommand exists = new("select to_regclass(@name) is not null", connection, transaction);
+                exists.Parameters.AddWithValue("name", Qualified(table));
+
+                if (await exists.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is true)
+                {
+                    targets.Add(Qualified(table));
+                }
+            }
+
+            targets.Add(Qualified(tableName));
+
+            // No restart identity, as truncate: an object id a client has seen is never given to another feature.
+            await ExecuteAsync(connection, transaction, $"truncate table {string.Join(", ", targets)}", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        string shape = $"ST_SetSRID(ST_GeomFromWKB(import_wkb), {dataset.Srid.ToString(CultureInfo.InvariantCulture)})";
+
+        if (dataset.Srid != targetSrid && targetSrid > 0 && dataset.Srid > 0)
+        {
+            shape = $"ST_Transform({shape}, {targetSrid.ToString(CultureInfo.InvariantCulture)})";
+        }
+
+        if (targetType.StartsWith("MULTI", StringComparison.Ordinal))
+        {
+            shape = $"ST_Multi({shape})";
+        }
+
+        shape = dimensions switch
+        {
+            2 => $"ST_Force2D({shape})",
+            3 when targetType.EndsWith('M') && !targetType.EndsWith("ZM", StringComparison.Ordinal) => $"ST_Force3DM({shape})",
+            3 => $"ST_Force3DZ({shape})",
+            4 => $"ST_Force4D({shape})",
+            _ => shape,
+        };
+
+        StringBuilder into = new("geom");
+        StringBuilder select = new($"case when import_wkb is null then null else {shape} end");
+
+        foreach (InferredColumn column in matched)
+        {
+            string name = LayerDefinition.Quote(ColumnNameFor(column.Name));
+            into.Append(", ").Append(name);
+            select.Append(", ").Append(name).Append("::").Append(targetColumns[ColumnNameFor(column.Name)]);
+        }
+
+        int rows;
+
+        await using (NpgsqlCommand insert = new(
+            $"insert into {Qualified(tableName)} ({into}) select {select} from graticula_append", connection, transaction))
+        {
+            rows = await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+        // The extent a service publishes comes from the statistics; they are stale the moment the rows changed.
+        await ExecuteAsync(connection, null, $"analyze {Qualified(tableName)}", cancellationToken).ConfigureAwait(false);
+
+        return new AppendResult(
+            rows,
+            [.. matched.Select(column => column.Name)],
+            ignored,
+            dataset.Srid != targetSrid && targetSrid > 0 && dataset.Srid > 0);
+    }
+
+    /// <summary>Copies a dataset's geometry as WKB and its columns into a table that has them, with binary COPY.</summary>
+    private static async Task CopyAsync(
+        NpgsqlConnection connection, string table, ImportedDataset dataset, CancellationToken cancellationToken)
+    {
+        StringBuilder copyColumns = new("import_wkb");
+
+        foreach (InferredColumn column in dataset.Columns)
+        {
+            copyColumns.Append(", ").Append(LayerDefinition.Quote(ColumnNameFor(column.Name)));
+        }
+
+        await using NpgsqlBinaryImporter writer = await connection.BeginBinaryImportAsync(
+            $"copy {table} ({copyColumns}) from stdin (format binary)", cancellationToken).ConfigureAwait(false);
+
+        foreach (ImportedFeature feature in dataset.Features)
+        {
+            await writer.StartRowAsync(cancellationToken).ConfigureAwait(false);
+
+            if (feature.Geometry is null)
+            {
+                await writer.WriteNullAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await writer.WriteAsync(WkbWriter.ToArray(feature.Geometry), NpgsqlDbType.Bytea, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            foreach (InferredColumn column in dataset.Columns)
+            {
+                await WriteValueAsync(writer, column, feature, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>How long an <c>ALTER TABLE</c> here waits for its lock before refusing.</summary>

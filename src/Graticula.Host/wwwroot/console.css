@@ -4407,11 +4407,29 @@ fieldset.offered label.check { display: flex; gap: var(--gap-2); align-items: ba
 .layerblock > button { margin-left: auto; }
 
 /* ADR-102 step 10: the publisher's per-layer settings, now in the item. */
-#serviceDetails .itemthumb { display: grid; gap: 6px; justify-items: start; margin-bottom: 8px; }
-#serviceDetails .itemthumb img.thumb { width: 100%; max-width: 280px; aspect-ratio: 3 / 2; height: auto; }
 #featureLayers .layerblock { flex-wrap: wrap; }
 #featureLayers .layerblock .setting { flex-basis: 100%; margin-top: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 #featureLayers .layerblock .setting input[data-time-input] { width: 16em; max-width: 100%; }
 .symrail .visrange .setting { flex-wrap: wrap; gap: 4px; align-items: center; }
 .symrail .visrange .setting .q { flex-basis: 100%; }
 .symrail .visrange .row { flex-wrap: wrap; gap: 6px; }
+
+/* Design review 2026-10-01 on steps 8-11. */
+#serviceHead .thumbcol { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; flex: none; }
+#serviceHead .thumbcol .hint { max-width: 168px; margin: 0; }
+#exportData .stacked, #updateData .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
+#exportData .stacked select, #updateData .stacked select, #updateData .stacked input { font: inherit; max-width: 100%; }
+#exportData fieldset + .hint, #updateData fieldset { margin-bottom: 12px; }
+#exportData fieldset + .hint { margin-top: 12px; }
+#exportData h3:focus:not(:focus-visible), #updateData h3:focus:not(:focus-visible) { outline: none; }
+#featureLayers .layerblock .setting .q { width: auto; min-width: 0; }
+#featureLayers input[data-time-input] { font: inherit; }
+#featureLayers button.ghost, .symrail .visrange button.ghost { border: 1px solid var(--control-edge); }
+details.removelayer { margin-top: var(--gap-3); }
+details.removelayer > summary { cursor: pointer; color: var(--alert); }
+details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var(--gap-2) 0; }
+
+/* Server › service › Layers (owner decision 2026-10-01). */
+#page-layers .srvlayer { padding: var(--gap-3) 0; border-bottom: 1px solid var(--rule); }
+#page-layers .srvlayer .row { display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
+#page-layers .srvlayer.asked { background: var(--accent-soft, transparent); }

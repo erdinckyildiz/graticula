@@ -229,7 +229,7 @@ public sealed class ItemStructureTests : ConsoleTest
         await OpenAsync($"/studio/#/service/{Service()}?tab=settings&section=feature", token);
 
         await WaitForAsync(
-            "document.querySelectorAll('#featureLayers [data-delete]').length > 0",
+            "document.querySelectorAll('details.removelayer [data-delete]').length > 0",
             "Settings › Feature layer offers no way to remove a layer; it was the layer page's Maintenance.");
 
         NothingWentWrong(await PageErrorsAsync());
@@ -277,8 +277,12 @@ public sealed class ItemStructureTests : ConsoleTest
         await OpenAsync($"/studio/#/service/{Service()}", token);
 
         await WaitForAsync(
-            "!!document.querySelector('#serviceDetails #layerThumb') && !!document.querySelector('#serviceDetails [data-redraw-thumb]')",
+            "!!document.querySelector('#serviceHead #layerThumb') && !!document.querySelector('#serviceHead [data-redraw-thumb]')",
             "Overview does not show the item's thumbnail with a way to redraw it.");
+
+        int pictures = await Browser.EvaluateAsync<int>("document.querySelectorAll('#view-service img.thumb').length");
+
+        Assert.Equal(1, pictures);
 
         await OpenAsync($"/studio/#/service/{Service()}?tab=settings&section=feature", token);
 
@@ -297,10 +301,11 @@ public sealed class ItemStructureTests : ConsoleTest
 
         await OpenAsync($"/server/#/layer/{Uri.EscapeDataString(layer)}", token);
 
-        await WaitForAsync("!!document.querySelector('#page-general h4')", "Server's layer page never drew.");
+        await WaitForAsync("!!document.querySelector('#page-layers.on .srvlayer')",
+            "Server's layer address did not open the service's Layers section.");
 
         int left = await Browser.EvaluateAsync<int>(
-            "document.querySelectorAll('#page-general #timeField, #page-general #minScale, #page-general [data-redraw-thumb]').length");
+            "document.querySelectorAll('#view-service #timeField, #view-service #minScale, #view-service [data-redraw-thumb], #view-service [data-time-input]').length");
 
         Assert.Equal(0, left);
 
@@ -318,10 +323,10 @@ public sealed class ItemStructureTests : ConsoleTest
 
         await OpenAsync($"/studio/#/service/{Service()}?tab=settings&section=feature", token);
 
-        await WaitForAsync("!!document.querySelector('#featureLayers [data-delete]')", "The item's layers never drew.");
+        await WaitForAsync("!!document.querySelector('details.removelayer [data-delete]')", "The item's layers never drew.");
 
         string layer = await Browser.EvaluateAsync<string>(
-            "document.querySelector('#featureLayers [data-delete]').dataset.delete") ?? "";
+            "document.querySelector('details.removelayer [data-delete]').dataset.delete") ?? "";
 
         await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}{page}", token);
 
@@ -333,6 +338,52 @@ public sealed class ItemStructureTests : ConsoleTest
             "document.getElementById('view-layer').classList.contains('on')");
 
         Assert.False(layerScreen, "Studio drew the layer screen, which ADR-102 step 11 retired.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>ADR-103: Update data on Overview adds a file's features to the chosen layer, or replaces them.</summary>
+    [Fact]
+    public async Task Update_data_sends_the_file_to_the_chosen_layer()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync($"/studio/#/service/{Service()}", token);
+
+        await WaitForAsync("!!document.getElementById('updateDataOpen')", "Overview offers no Update data on a hosted item.");
+
+        await ClickAsync("#updateDataOpen");
+
+        await WaitForAsync(
+            "document.getElementById('updateData').open && document.querySelectorAll('#updateDataLayer option').length > 0",
+            "Update data did not open a dialog that names the item's layers.");
+
+        // Without a file it says so, and writes nothing.
+        await ClickAsync("#updateDataGo");
+
+        await WaitForAsync("/Choose a file/.test(document.getElementById('updateDataSays').textContent)",
+            "Update without a file did not say what is missing.");
+
+        Assert.Empty(await WritesAsync());
+
+        string layer = await Browser.EvaluateAsync<string>("document.getElementById('updateDataLayer').value") ?? "";
+
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              const d = new DataTransfer();
+              d.items.add(new File(['{"type":"FeatureCollection","features":[]}'], 'more.geojson', { type: 'application/geo+json' }));
+              document.getElementById('updateDataFile').files = d.files;
+              return true;
+            })()
+            """);
+
+        await ClickAsync("#updateDataGo");
+
+        await WaitForAsync(
+            "(window.__writes || []).some(w => w.startsWith('POST') && w.includes('/append'))",
+            "Update did not send the file to the layer's append.");
+
+        Assert.Contains(await WritesAsync(), w => w.Contains($"/admin/hosted/{Uri.EscapeDataString(layer)}/append", StringComparison.Ordinal));
 
         NothingWentWrong(await PageErrorsAsync());
     }

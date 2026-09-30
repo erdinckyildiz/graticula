@@ -141,8 +141,9 @@ it was still on Server's layer page until then, so no setting was ever unreachab
 remove Server's layer page**: it removed every publisher setting from it — thumbnail, time column, visible
 range, fields, history, maintenance — and left what is the server's about one layer: its state, contents,
 identity, addresses and *forget the remembered shape*. Deleting that too would have moved server facts into
-Studio, which §5.4's last rows say not to do. Whether it should become a section of Server's service page
-is open. Step 11 is that Studio draws no layer screen: every `#/layer/…` address it is given opens the item,
+Studio, which §5.4's last rows say not to do. **Decided by the owner the same day (*"Hepsine evet"*): it became a section of Server's service page** —
+*Layers*, one block per layer with its state, identity, addresses, *Show on map* and *forget the remembered
+shape*; every Server `#/layer/…` address opens that section at that layer, so Server draws no layer page either. Step 11 is that Studio draws no layer screen: every `#/layer/…` address it is given opens the item,
 and nothing in Studio links to one.)*
 
 *(Three more, found by the ArcGIS reviewer walking the built item the same day:
@@ -207,10 +208,10 @@ guard. ADR-053's editor loses its page. Server's layer pages, which administrato
    yes. Today both deletes need `admin:manageAllContent`; until answered, the controls say so to an owner.
    **DISCHARGED 2026-10-01 by owner decision.** Deleting a service and unpublishing a layer are the owner's act or
    an administrator's (ADR-075's rule); migration 66 stores `service.delete_protected`, `PUT …/protection` sets it,
-   and both delete routes answer 409 while it is on. **The default is off, INFERRED:** on, every script, fixture
+   and both delete routes answer 409 while it is on. **The default is off — confirmed by the owner 2026-10-01** (*"Hepsine evet"*, answering it among three questions; it was INFERRED until then): every script, fixture
    and test that deletes a service would start receiving 409 — a change to the API's answer nobody asked for — and
    Portal's own default is off. This softens the owner's earlier *"locked by default"* (2026-08), which was a
-   browser checkbox re-ticked on every visit; the page now shows and changes the stored state. Put to the owner.
+   browser checkbox re-ticked on every visit; the page now shows and changes the stored state.
 3. **The cache quota needs `admin:manageServer`?** Recommended yes: it is spend. Until answered, it stays
    under Tile layer › Advanced with the privilege it has. **DISCHARGED 2026-10-01 by owner decision:**
    `PUT …/cache/quota` asks for `admin:manageServer`; Tile layer › Advanced shows the quota read-only to anybody

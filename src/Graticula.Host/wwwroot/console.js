@@ -2470,6 +2470,14 @@ const LEGACY_LAYER_ROUTES = {
 function legacyRoute(rest) {
   if (rest[0] !== "layer" || !rest[1]) return null;
 
+  // In Server, the layer page's own addresses open the service's Layers section at that layer (owner decision
+  // 2026-10-01): nothing is left on a layer page that is not there.
+  if (surfaceOfPath() === "server" && (!rest[2] || LAYER_PAGES[rest[2]] === "server")) {
+    const place = placeOf(decodeURIComponent(rest[1]));
+    if (!place) return null;
+    return `/server/#/service/${place.service.split("/").map(encodeURIComponent).join("/")}?section=layers&layer=${place.id}`;
+  }
+
   // A bare layer address in Studio opens that layer inside its item (ADR-102): Studio has no layer page left.
   // Step 11: any layer address Studio is asked for that no surface has a page for does the same — the layer
   // screen is not drawn in Studio at all.
@@ -2573,6 +2581,12 @@ document.addEventListener("toggle", event => {
 }, true);
 
 window.addEventListener("hashchange", route);
+
+// The Export data dialog is about the page it was opened on; Back, a link or a typed address closes it.
+window.addEventListener("hashchange", () => {
+  if ($("exportData")?.open) $("exportData").close();
+  if ($("updateData")?.open) $("updateData").close();
+});
 
 /** Draws the header's surface switch and the surface's own tab strip. */
 function drawSurfaces(surface) {
@@ -4788,7 +4802,10 @@ function drawServiceLayers(layers, qualified) {
   // <b>What depends on knowing the layers is drawn again once they are known</b> — the Tile layer section and
   // Overview's *Manage tiles* (ADR-102). An address straight to `?tab=settings&section=tiles` otherwise drew
   // Settings before the service document arrived, found no layer with tiles, and never looked again.
-  if (serviceOpen && serviceTab === "settings") drawServiceSettings(serviceOpen.name, serviceOpen.folder);
+  // Server's service page has no tabs and its Layers section is one of these too (owner decision 2026-10-01).
+  if (serviceOpen && (serviceTab === "settings" || surfaceOfPath() === "server")) {
+    drawServiceSettings(serviceOpen.name, serviceOpen.folder);
+  }
   if (serviceItem && serviceOpen && serviceItem.name === serviceOpen.qualified) drawServiceHead(serviceItem);
 
   drawServiceDetails(qualified);
@@ -4998,10 +5015,6 @@ async function drawServiceDetails(qualified, knownKind) {
   // — the group page's Overview lists a standing, an owner, a date and two counts in it.
   const manages = !item || item.manages !== false;
 
-  // The picture the lists show for this item is its first drawable layer's (ADR-071), so that is the one here.
-  const firstDrawn = knownKind ? null : serviceLayers.find(l => !(l.type || "").toLowerCase().includes("group"));
-  const thumbed = firstDrawn ? layerNamed(firstDrawn.name || "") : null;
-
   box.innerHTML = `
     <div class="itemactions">
       ${item && item.status === "stopped" ? "" : `<a class="btn primary"
@@ -5012,20 +5025,15 @@ async function drawServiceDetails(qualified, knownKind) {
         // take their own data away, as in Portal; anybody else only when the service offers Extract.
         || !(manages || String(serviceDoc?.capabilities || "").split(",").map(one => one.trim()).includes("Extract"))
         ? "" : `<button type="button" id="exportDataOpen">Export data</button>`}
+      ${manages && !knownKind && serviceLayers.some(l => layerNamed(l.name || "").hosted)
+        ? `<button type="button" id="updateDataOpen">Update data</button>` : ""}
       ${manages && tileLayerOf() ? `<button type="button" data-manage-tiles="1"
         title="What is cached, clear it, pre-build an area, offline packages">Manage tiles</button>` : ""}
     </div>
-    ${thumbed && thumbnailFor(thumbed.url) ? `
-    <h4>Thumbnail</h4>
-    <div class="itemthumb">
-      <img class="thumb" id="layerThumb" alt="" data-thumb="${h(thumbnailFor(thumbed.url))}">
-      ${manages ? `<button type="button" class="tiny" data-redraw-thumb="${h(thumbed.name)}"
-        title="Drawn once and kept; redraw it after the data has changed">Redraw thumbnail</button>` : ""}
-      <p class="hint" id="thumbSays" role="status" aria-live="polite"></p>
-    </div>` : ""}
     <h4>Details</h4>
     <dl class="facts2" id="svcFacts"></dl>`;
-  if (thumbed) paintPreviews();
+
+
 
   try {
     if (!item) {
@@ -5957,11 +5965,20 @@ function drawServiceHead(item) {
   const box = $("serviceHead");
   if (!box) return;
 
+  // <b>One thumbnail — this card's, as Portal has it — and Redraw under it.</b> A second copy in Overview's right
+  // column was the same picture twice, and at phone width it came before the description it repeats (design
+  // review 2026-10-01). The cover is a layer's (ADR-071); Redraw is offered to whoever manages the item.
+  const coverId = /\/FeatureServer\/(\d+)$/.exec(item.cover?.url || "")?.[1];
+  const coverLayer = coverId === undefined ? null : serviceLayers.find(one => String(one.id) === coverId);
+
   box.innerHTML = `
     <div class="itemhead">
       ${item.cover
-        ? `<img class="thumb" alt="" loading="lazy"
-             data-thumb="${h(thumbnailFor(item.cover.url))}">`
+        ? `<div class="thumbcol"><img class="thumb" id="layerThumb" alt="" loading="lazy"
+             data-thumb="${h(thumbnailFor(item.cover.url))}">${item.manages !== false && coverLayer ? `
+           <button type="button" class="tiny" data-redraw-thumb="${h(coverLayer.name || "")}"
+             title="Drawn once and kept; redraw it after the data has changed">Redraw thumbnail</button>
+           <p class="hint" id="thumbSays" role="status" aria-live="polite"></p>` : ""}</div>`
         : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}
       <div>
         <!--
@@ -6309,7 +6326,9 @@ function drawVisStyle() {
     // Not under the editor: that made the page taller than the window, and the scroll bar took the pixels the
     // three columns fit by at 1412. Not an inspector tab: a layer nobody has styled has no inspector, and its
     // range would have had no home at all. The rail scrolls on its own and is there for every layer.
-    const rail = host.querySelector(".symrail");
+    // Above the service-wide sections (override, sprite), which are about the service, not this layer: at the end
+    // of the rail it sat 1,078 pixels down in a 797-pixel window, under Sprite sheet (design review 2026-10-01).
+    const rail = host.querySelector("#symRangeHome") || host.querySelector(".symrail");
     if (may && rail) {
       rail.insertAdjacentHTML("beforeend", `<section class="visrange">${
         layerRangeMarkup({ ...layerNamed(name), ...(content.get(name) || {}) }, name)}</section>`);
@@ -6424,7 +6443,7 @@ function toVisualization(name, mode) {
  *
  * <b>Off until the owner turns it on, as the reference starts.</b> This said *locked by default* while the lock
  * was a checkbox the page forgot; it is stored now (`service.delete_protected`, ADR-102 condition 2), the API
- * refuses a delete while it is on, and its default is off — INFERRED, and listed for the owner.
+ * refuses a delete while it is on, and its default is off, as the owner confirmed on 2026-10-01.
  */
 function drawServiceDelete() {
   const lock = $("svcLock");
@@ -6442,7 +6461,9 @@ function drawServiceDelete() {
 
   if (surfaceOfPath() !== "studio") return;
 
-  const count = serviceLayers.length;
+  // Layers as the page head counts them — a group holds no table (design review 2026-10-01: *3 layers* above,
+  // *unpublishes 4 layers* here).
+  const count = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).length;
 
   // <b>What actually goes, per the owner's correction.</b> The old sentence said the tables are not
   // dropped, which was true of the server and wrong as a policy: *"servis hosted sa ve silindiyse,
@@ -6564,14 +6585,16 @@ async function drawFeatureFacts(name, folder) {
     <div id="featureLayers">${serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).map(one => `
       <div class="layerblock">
         <b>${h(one.name || "")}</b> <span class="rowmeta">id ${num(one.id ?? 0)}</span>
-        ${st.manages ? `<button type="button" class="tiny danger" data-delete="${h(one.name || "")}">Remove this layer</button>` : ""}
         ${st.manages ? layerTimeMarkup({ ...layerNamed(one.name || ""), ...(content.get(one.name || "") || {}) }, one.name || "") : ""}
       </div>`).join("")}</div>
     ${st.manages ? `<p class="hint">A layer's <b>time column</b> is when each feature happened. Left empty, the server
       uses the layer's one date column, or publishes no time when it has none or several — name one when the table
       has more than one date, <code>observed_at</code> rather than <code>created_at</code>.</p>` : ""}
-    ${st.manages ? `<p class="hint">Removing a layer unpublishes it; a hosted layer's table goes with it, a registered
-      one stays where it is. It is refused while the item is protected from deletion (General).</p>` : ""}
+    ${st.manages ? `<details class="removelayer"><summary>Remove a layer…</summary>
+      <div class="row">${serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).map(one =>
+        `<button type="button" class="tiny danger" data-delete="${h(one.name || "")}">Remove ${h(one.name || "")}</button>`).join("")}</div>
+    <p class="hint">Removing a layer unpublishes it; a hosted layer's table goes with it, a registered
+      one stays where it is. It is refused while the item is protected from deletion (General).</p></details>` : ""}
     <h4>Set by the server administrator</h4>
     <dl class="facts">
       <dt>Allowed at most</dt><dd>${ceiling === null ? "everything" : h(ceiling.join(", "))}</dd>
@@ -6638,7 +6661,8 @@ function drawServiceSettings(name, folder) {
   // Exactly: it was not, and a button that does nothing contradicts the sentence above it.
   $("servicePagesBody").innerHTML = serviceSettingsMarkup(name, folder)
     + (tiled ? `<section class="page" id="page-tiles">${tileLayerMarkup(tiled, tiled.name)}</section>` : "")
-    + (open === "general" || open === "feature" || open === "tiles"
+    + (mine.includes("layers") ? `<section class="page" id="page-layers">${serverLayersMarkup()}</section>` : "")
+    + (open === "general" || open === "feature" || open === "tiles" || open === "layers"
       ? ""
       : `<div class="row" style="margin-top:22px">
            <button class="primary" data-service-save="${h(name)}"
@@ -6662,6 +6686,13 @@ function drawServiceSettings(name, folder) {
   }
 
   if (open === "general") section("sharing", () => drawGeneralSharing(name, folder));
+
+  // An old layer address lands here with `layer=`; that layer's block is the one brought into view.
+  if (open === "layers") {
+    const asked = new URLSearchParams(location.hash.split("?")[1] || "").get("layer");
+    const block = asked !== null ? $(`srvLayer-${asked}`) : null;
+    if (block) { block.scrollIntoView({ block: "start" }); block.classList.add("asked"); }
+  }
   if (open === "feature") section("editing", () => drawFeatureFacts(name, folder));
 
   if (open === "tiles" && tiled) {
@@ -6672,7 +6703,7 @@ function drawServiceSettings(name, folder) {
 }
 
 /** The labels the Settings list shows, where a page's key is not already its name. */
-const SERVICE_PAGE_LABELS = { general: "General", feature: "Feature layer", tiles: "Tile layer" };
+const SERVICE_PAGE_LABELS = { general: "General", feature: "Feature layer", tiles: "Tile layer", layers: "Layers" };
 
 /**
  * The open service's first layer that has tiles, as the layer listing describes it, or null when it has none.
@@ -6969,6 +7000,7 @@ function symbologyMarkup(name) {
             being rebuilt; what stamps them with the service's name moved too — see
             drawSymStrip, which is the one place that knows which service this layer is in.
           -->
+          <div id="symRangeHome"></div>
           <section class="symfold symoverride" id="serviceStyle">
             <b>Service style override</b>
             <p class="hint" id="styleState"><b>Not fetched yet.</b></p>
@@ -7295,7 +7327,7 @@ function layerFieldsMarkup(l, name) {
 function layerTimeMarkup(l, name) {
   return `
       <div class="setting"><span class="q">Time column:</span>
-        <input type="text" data-time-input aria-label="The time column of ${h(name)}" placeholder="derive it from the schema"
+        <input type="text" data-time-input aria-label="The time column of ${h(name)}" placeholder="from the schema"
           value="${h(l.timeField || "")}">
         <button type="button" class="tiny" data-time="${h(name)}">Set</button>
         <button type="button" class="tiny ghost" data-time="${h(name)}" data-clear="1">Derive it</button></div>
@@ -12178,6 +12210,11 @@ const SERVICE_PAGES = {
   capabilities: "server",
   limits: "server",
 
+  // <b>Layers — what the server knows about each layer, on the service's page (owner decision 2026-10-01).</b> It
+  // was Server's layer page, which by ADR-102 step 10 held only this: state, identity, addresses and *forget the
+  // remembered shape*. A page per layer for four facts was the shape ADR-102 took apart in Studio.
+  layers: "server",
+
   // <b>General and Feature layer — ADR-102 step 5.</b> General holds what is the item's own — who can reach
   // it, said once with the one control that changes it (the Share dialog), and its deletion; Feature layer says
   // what clients may do with its features, which the server administrator sets.
@@ -15240,17 +15277,60 @@ function fillEndpoints(name, layer, place) {
   const box = $("endpoints");
   if (!box) return;
 
+  box.innerHTML = endpointsMarkup(name, layer, place);
+}
+
+/**
+ * Server › service › Layers: each layer's state, identity and addresses, and forgetting its remembered shape.
+ *
+ * <b>What Server's layer page held once the publisher's settings left it</b> (ADR-102 step 10), moved onto the
+ * service's page by owner decision 2026-10-01. The publisher's settings are one link away, in the item.
+ */
+function serverLayersMarkup() {
+  const drawable = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group"));
+  if (drawable.length === 0) return `<p class="hint">This service holds no layers.</p>`;
+
+  const item = serviceOpen
+    ? `/studio/#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}` : null;
+
+  return `
+    <p class="hint">What the server knows about each layer. Its fields, style, time column and visible range are
+      the publisher's, set in ${item ? `<a href="${h(item)}">the item in Studio</a>` : "the item in Studio"}.</p>
+    ${drawable.map(one => {
+      const name = one.name || "";
+      const l = layerNamed(name);
+      return `
+      <div class="srvlayer" id="srvLayer-${h(String(one.id ?? 0))}">
+        <div class="row">
+          <b>${h(name)}</b> <span class="rowmeta">id ${num(one.id ?? 0)}</span>
+          ${pill(l.hosted ? "hosted" : "registered")}
+          <span style="flex:1"></span>
+          <button type="button" class="tiny" data-show="${h(name)}">Show on map</button>
+          <button type="button" class="tiny" data-refresh="${h(name)}"
+            title="Read the table's columns and extent again, after it was changed outside this server">Forget remembered shape</button>
+        </div>
+        <dl class="facts">
+          <dt>Source table</dt><dd>${h(l.table || "—")}</dd>
+          <dt>Data source</dt><dd>${h(l.dataSource || "—")}</dd>
+          <dt>Owner</dt><dd>${h(l.owner || "—")}</dd>
+          ${endpointsMarkup(name, l, placeOf(name))}
+        </dl>
+      </div>`;
+    }).join("")}`;
+}
+
+/** The addresses a layer answers at, as `<dt>`/`<dd>` pairs. */
+function endpointsMarkup(name, layer, place) {
   if (!place) {
-    box.innerHTML = `<dt>None</dt><dd>Not in the services directory. A stopped layer is
+    return `<dt>None</dt><dd>Not in the services directory. A stopped layer is
       absent from it, which is expected; otherwise the catalogue and the directory
       disagree and that is worth looking into.</dd>`;
-    return;
   }
 
   const service = `${location.origin}/rest/services/${place.service}`;
   const shared = !name.endsWith(place.service.split("/").pop());
 
-  box.innerHTML = `
+  return `
     <dt>Feature</dt><dd><a href="${h(service)}/FeatureServer/${place.id}?f=json"
       target="_blank" rel="noreferrer">FeatureServer/${place.id}</a></dd>
     <dt>Service</dt><dd><a href="${h(service)}/FeatureServer?f=json"
@@ -23652,12 +23732,80 @@ async function handleClick(event) {
     return;
   }
 
+  if (t.id === "updateDataOpen" && serviceOpen) {
+    const hosted = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")
+      && layerNamed(one.name || "").hosted);
+    $("updateDataBody").innerHTML = `
+      <div class="stacked"><label for="updateDataLayer">Layer</label>
+        <select id="updateDataLayer">${hosted.map(one => `<option value="${h(one.name || "")}">${
+          h(one.name || `layer ${one.id}`)}</option>`).join("")}</select></div>
+      <fieldset class="offered"><legend>What to do</legend>
+        <label class="check"><input type="radio" name="updateDataHow" value="append" checked> Add features —
+          the file's features are added to those the layer has</label>
+        <label class="check"><input type="radio" name="updateDataHow" value="overwrite"> Replace all features —
+          every feature and attachment the layer has is removed, and the file's put in their place</label>
+      </fieldset>
+      <div class="stacked"><label for="updateDataFile">File — GeoJSON, or a zipped shapefile</label>
+        <input type="file" id="updateDataFile" accept=".geojson,.json,.zip"></div>
+      <div class="stacked" id="updateDataSridRow"><label for="updateDataSrid">Coordinate system of a shapefile
+        (EPSG code; leave empty to read it from the .prj)</label>
+        <input type="text" id="updateDataSrid" inputmode="numeric" placeholder="from the .prj"></div>
+      <p class="hint">The layer keeps its fields, its geometry type and its coordinate system: a column the file
+        has and the layer does not is left out and named, and the geometry is transformed if it needs to be. If
+        anything in the file does not fit, nothing is written.</p>
+      <p class="hint" id="updateDataSays" role="status" aria-live="polite"></p>`;
+    $("updateDataFoot").innerHTML = `<span class="fill"></span>
+      <button type="button" class="ghost" id="updateDataCancel">Cancel</button>
+      <button type="button" class="primary" id="updateDataGo">Update</button>`;
+    $("updateData").showModal();
+    $("updateDataTitle").focus();
+    return;
+  }
+
+  if (t.id === "updateDataClose" || t.id === "updateDataCancel") { $("updateData").close(); return; }
+
+  if (t.id === "updateDataGo") {
+    const says = $("updateDataSays");
+    const file = $("updateDataFile")?.files?.[0];
+    const layer = $("updateDataLayer")?.value;
+    const how = document.querySelector('input[name="updateDataHow"]:checked')?.value || "append";
+
+    if (!file || !layer) { says.textContent = "Choose a file first."; $("updateDataFile")?.focus(); return; }
+
+    // Replacing is the one that cannot be undone, so it is asked once more, naming what goes.
+    if (how === "overwrite" && !confirm(`Replace every feature of '${layer}' with the features in ${file.name}? `
+        + "The features and attachments it has now cannot be recovered.")) {
+      return;
+    }
+
+    const body = new FormData();
+    body.append("file", file);
+    const srid = ($("updateDataSrid")?.value || "").trim();
+    if (srid) body.append("srid", srid);
+
+    t.disabled = true;
+    says.textContent = how === "overwrite" ? "Replacing the features…" : "Adding the features…";
+
+    try {
+      const answer = await api(`/admin/hosted/${encodeURIComponent(layer)}/${how}`, { method: "POST", body });
+      says.textContent = answer.note || "Done.";
+      // The layer changed under the page: its facts, counts and picture are drawn again behind the dialog.
+      if (serviceOpen) showService(serviceOpen.qualified);
+    } catch (e) {
+      says.textContent = `Not updated: ${e.message || e}`;
+    } finally {
+      t.disabled = false;
+      t.focus();
+    }
+    return;
+  }
+
   if (t.id === "exportDataOpen" && serviceOpen) {
     const drawable = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group"));
     const tiled = tileLayerOf();
     $("exportDataBody").innerHTML = `
-      <div class="setting"><label class="q" for="exportDataLayer">Layer:</label>
-        <select id="exportDataLayer" style="width:auto;max-width:100%;min-width:16em">${drawable.map(one => `<option value="${h(String(one.id ?? 0))}">${
+      <div class="stacked"><label for="exportDataLayer">Layer</label>
+        <select id="exportDataLayer">${drawable.map(one => `<option value="${h(String(one.id ?? 0))}">${
           h(one.name || `layer ${one.id}`)}</option>`).join("")}</select></div>
       <fieldset class="offered"><legend>Format</legend>
         <label class="check"><input type="radio" name="exportDataFormat" value="csv" checked> CSV — the attributes, for a spreadsheet</label>
@@ -23723,7 +23871,7 @@ async function handleClick(event) {
   if (t.id === "svcDelete") {
     if (!serviceOpen) return;
 
-    const count = serviceLayers.length;
+    const count = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).length;
 
     // <b>The confirmation names the tables, because that is the irreversible part.</b> *Are you sure*
     // in front of a drop has not said anything; *drops 55 tables* has.
