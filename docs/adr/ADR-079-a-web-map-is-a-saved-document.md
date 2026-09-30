@@ -125,6 +125,7 @@ the cost of not doing it.
    once. `?service=<folder/name>` opens a new, unsaved map with that service in it — which is what the
    services directory's *View in: Map Viewer* link uses.
 5. **Studio lists maps** on *My content*, beside services, with *Open* and *Delete*, and *New map*.
+   ***Amended 2026-09-30 by [ADR-101](ADR-101-studio-is-walked-the-way-a-portal-user-walks-it.md):*** as rows of the same list rather than a second table under it, with *New map* beside *New item*; the viewer also draws a vector tile layer in its service's style and offers the operator's ground (ADR-086).
 6. **`view.html` stays** as the operator's look at one service. The two pages answer different people.
 
 ## 6. Consequences

@@ -131,9 +131,10 @@ public sealed class ScreenReviewTests : ConsoleTest
         await WaitForAsync(
             "location.pathname === '/studio/' "
             + "&& document.querySelector('#serviceNav a[aria-current=\"page\"]')?.textContent"
-            + "?.trim() === 'Sharing'",
-            "The link did not open Studio's Sharing page. It used to land on Capabilities, because the "
-            + "router forced the surface before the page set was chosen.");
+            + "?.trim() === 'General' && !!document.getElementById('generalSharing')",
+            "The link did not open Studio's General settings, where the sharing is stated with the Share "
+            + "dialog beside it (ADR-102; it was a Sharing page of its own). It used to land on Capabilities, "
+            + "because the router forced the surface before the page set was chosen.");
 
         string[] errors = await PageErrorsAsync();
         NothingWentWrong(errors);
@@ -201,17 +202,12 @@ public sealed class ScreenReviewTests : ConsoleTest
 
         await ClickAsync("#serviceLayerRows td.name a");
 
+        // <b>Inside the item since ADR-102 step 9</b> — Portal's sublayer view: the layer's data, with the item's
+        // tabs and its Layer select, rather than a page of its own that left the item.
         await WaitForAsync(
-            "document.getElementById('view-layer')?.classList.contains('on') "
-            + "&& location.hash.startsWith('#/layer/')",
-            "A layer named in the service's Overview did not open its own page.");
-
-        // Cancel does not leave the surface — it was hardcoded to Server's services list, so a Studio
-        // publisher pressing *nevermind* crossed the product.
-        Assert.Equal(
-            "#/content",
-            await Browser.EvaluateAsync<string>(
-                "document.getElementById('editCancel')?.getAttribute('href') || ''"));
+            "document.getElementById('view-service')?.classList.contains('on') "
+            + "&& /tab=data&layer=[0-9]+/.test(location.hash) && !document.getElementById('serviceData').hidden",
+            "A layer named in the service's Overview did not open inside the item.");
 
         string[] errors = await PageErrorsAsync();
         NothingWentWrong(errors);

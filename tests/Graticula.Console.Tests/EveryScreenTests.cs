@@ -89,14 +89,20 @@ public sealed class EveryScreenTests : ConsoleTest
 
         Dictionary<string, string[]> pages = new()
         {
-            ["server"] = ["general", "endpoints"],
+            // <b>Server's left on 2026-10-01 by owner decision:</b> what its layer page still held is the service
+            // page's Layers section, and the old addresses are asserted to arrive there at the end of this method.
+            ["server"] = [],
             // <b>Sharing left this list on 2026-08-18.</b> A scope belongs to the service —
             // `service.sharing` is the column the serving path reads — so a Sharing page per layer
             // gave one setting as many screens as the service had layers, which is D-61's defect in
             // the one setting D-61's repair did not reach. Its absence is asserted at the end of
             // this method rather than left implicit, because *a page reappears on the wrong object*
             // is the regression this class exists for.
-            ["studio"] = ["symbology", "history", "caching", "maintenance"],
+            // <b>Caching left on 2026-10-01</b> — it is the item's Settings › Tile layer (ADR-102 step 6), and its
+            // old address is asserted to arrive there by TileCacheBoxTests.
+            // Symbology left the same way on 2026-10-01: it is Visualization's Style (ADR-102 steps 3 and 4).
+            // Fields, History and Maintenance followed (step 9): Studio has no layer page left.
+            ["studio"] = [],
         };
 
         foreach ((string surface, string[] names) in pages)
@@ -124,6 +130,21 @@ public sealed class EveryScreenTests : ConsoleTest
                     $"{surface}/#/layer/{layer}/{page} threw:\n  "
                     + string.Join("\n  ", failures));
             }
+        }
+
+        // <b>Server's layer addresses open the service's Layers section at that layer.</b>
+        foreach (string page in (string[])["general", "endpoints", ""])
+        {
+            await OpenAsync(
+                $"/server/#/layer/{Uri.EscapeDataString(layer)}{(page.Length == 0 ? "" : "/" + page)}", token);
+
+            await WaitForAsync(
+                "location.hash.includes('section=layers') && !!document.querySelector('#page-layers.on .srvlayer.asked')",
+                $"server/#/layer/{layer}/{page} did not open the service's Layers section at that layer.");
+
+            string[] thrown = await PageErrorsAsync();
+
+            Assert.True(thrown.Length == 0, $"server/#/layer/{layer}/{page} threw: " + string.Join(" | ", thrown));
         }
 
         // <b>And Sharing is not one of a layer's pages, on either surface.</b> Asked for by address

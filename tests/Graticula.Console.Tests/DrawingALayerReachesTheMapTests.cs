@@ -37,7 +37,8 @@ public sealed class DrawingALayerReachesTheMapTests : ConsoleTest
 
         string layer = await AnyLayerAsync();
 
-        // The control lives in the layer page's State row, which `LAYER_PAGES` gives to Server.
+        // The control lives in Server's service page, Layers section (owner decision 2026-10-01); the layer page's old
+        // address is what lands there, so the address this test always used still reaches it.
         await OpenAsync($"/server/#/layer/{layer}/general", token);
 
         await WaitForAsync(

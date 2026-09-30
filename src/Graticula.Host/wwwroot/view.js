@@ -1114,7 +1114,12 @@ map.on("singleclick", event => {
 
   // Named layer: draw it. Unnamed: the service's layers become a picker, because
   // "view the service" means choosing, not stacking.
-  if (LAYER !== null) {
+  // <b>Except on the MapServer face, 2026-09-30.</b> A named layer returned here whatever the face, so
+  // *Map image* with `?layer=0` drew the Features face in this page's own red while the strip said *one
+  // picture, drawn by this server* and the legend showed the layer's classes — the picture and its
+  // caption disagreeing on the page that exists to say which face drew what. A map image of one layer
+  // is the same drawing with only that layer shown.
+  if (LAYER !== null && FACE !== "MapServer") {
     await load(LAYER, null);
     return;
   }
@@ -1146,9 +1151,11 @@ map.on("singleclick", event => {
   */
   const fused = FACE === "MapServer";
 
+  const only = LAYER !== null ? String(LAYER) : null;
+
   $("picker").innerHTML = drawable.map((l, i) =>
-    `<button data-id="${l.id}"${fused || i === 0 ? ' class="on"' : ""}>${
-      escape(l.name)}</button>`).join("");
+    `<button data-id="${l.id}"${(fused && (only === null || String(l.id) === only)) || (!fused && i === 0)
+      ? ' class="on"' : ""}>${escape(l.name)}</button>`).join("");
 
   $("picker").onclick = event => {
     const id = event.target.dataset && event.target.dataset.id;
@@ -1183,7 +1190,9 @@ map.on("singleclick", event => {
 
   if (fused) {
     dataLayer.setVisible(false);
-    mapVisible = drawable.map(l => String(l.id));
+    mapVisible = only !== null && drawable.some(l => String(l.id) === only)
+      ? [only]
+      : drawable.map(l => String(l.id));
     loadMap(document_);
     return;
   }

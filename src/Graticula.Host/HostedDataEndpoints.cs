@@ -112,6 +112,10 @@ internal static class HostedDataEndpoints
         // ArcGIS's truncate: every feature, or every attachment, in one statement — 2026-09-15.
         app.MapPost("/admin/hosted/{layer}/truncate", TruncateAsync);
 
+        // ADR-103: Portal's Update data — a file's features added to a hosted layer, or put in place of all of them.
+        app.MapPost("/admin/hosted/{layer}/append", AppendAsync).DisableAntiforgery();
+        app.MapPost("/admin/hosted/{layer}/overwrite", OverwriteAsync).DisableAntiforgery();
+
         // The original path, kept working. It was only ever the import, and
         // moving it silently would break the one thing already built against it.
         app.MapPost("/admin/hosted", ImportAsync).DisableAntiforgery();
@@ -1931,6 +1935,214 @@ internal static class HostedDataEndpoints
 
         return column.Name;
     }
+
+    /// <summary>
+    /// Portal's *Update data*: a file's features added to a hosted layer, or put in place of every feature it has —
+    /// ADR-103.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The same readers as the import</b> — GeoJSON, or a zipped shapefile with its <c>encoding</c> and
+    /// <c>srid</c> fields — so a file that publishes is a file that updates. A zipped geodatabase is refused rather
+    /// than inspected: it holds many feature classes and the layer is one; exporting the one wanted is the answer.
+    /// </para>
+    /// <para>
+    /// <b>The layer's owner or an administrator</b>, as truncate (ADR-075), and hosted layers only: a registered
+    /// layer's table is somebody else's. Delete protection does not stop it — it protects the item from being
+    /// deleted, as Portal's does, and emptying a layer was never behind it (INFERRED, listed for the owner).
+    /// </para>
+    /// </remarks>
+    private static async Task UpdateDataAsync(
+        HttpContext context,
+        string layer,
+        bool replace,
+        PostgresLayerCatalog layers,
+        PostGisImporter importer,
+        ServiceContexts contexts,
+        ITileCache tiles,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        IJobStore jobs,
+        JobSignal signal,
+        GeodatabaseReader reader,
+        ImportScratch scratch,
+        ThumbnailWarmer warmer,
+        CancellationToken cancellation)
+    {
+        if (await HostedLayerAsync(context, layers, layer, replace ? "overwrite" : "append to", cancellation)
+            .ConfigureAwait(false) is not { } found)
+        {
+            return;
+        }
+
+        if (!context.Request.HasFormContentType)
+        {
+            await Fail(context, 400, "Post the file as multipart/form-data with a 'file' field.").ConfigureAwait(false);
+            return;
+        }
+
+        IFormCollection form;
+
+        try
+        {
+            form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
+        }
+        catch (System.IO.InvalidDataException e)
+        {
+            await Fail(context, 413,
+                $"The upload is larger than this server accepts ({MaximumBytes / 1048576} MB). ({e.Message})")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        IFormFile? file = form.Files.GetFile("file");
+
+        if (file is null)
+        {
+            await Fail(context, 400, "A 'file' part is required: GeoJSON, or a zipped shapefile.").ConfigureAwait(false);
+            return;
+        }
+
+        if (file.Length > MaximumBytes)
+        {
+            await Fail(context, 413,
+                $"The file is {file.Length / 1048576} MB and the limit is {MaximumBytes / 1048576} MB.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        byte[] head = new byte[4];
+        int peeked;
+
+        await using (System.IO.Stream probe = file.OpenReadStream())
+        {
+            peeked = await probe.ReadAsync(head, cancellation).ConfigureAwait(false);
+        }
+
+        ImportedDataset? dataset;
+
+        if (peeked == 4 && BoundedArchive.LooksLikeZip(head))
+        {
+            ForeignArchive foreign;
+
+            await using (System.IO.Stream looking = file.OpenReadStream())
+            {
+                foreign = RecogniseArchive(looking);
+            }
+
+            if (foreign == ForeignArchive.Geodatabase)
+            {
+                await Fail(context, 400,
+                    "This is a geodatabase, which holds many feature classes, and a layer is one. Export the "
+                    + "feature class you mean as GeoJSON or a zipped shapefile and use that. Nothing was written.")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            (bool ok, ImportedDataset shapes) = await TryShapefileAsync(
+                context, form, file, jobs, signal, reader, scratch, cancellation).ConfigureAwait(false);
+
+            if (!ok)
+            {
+                return;
+            }
+
+            dataset = shapes;
+        }
+        else
+        {
+            JsonElement json;
+
+            try
+            {
+                await using System.IO.Stream stream = file.OpenReadStream();
+
+                json = (await JsonDocument.ParseAsync(
+                    stream, new JsonDocumentOptions { MaxDepth = 32 }, cancellation).ConfigureAwait(false)).RootElement;
+            }
+            catch (JsonException e)
+            {
+                await Fail(context, 400, $"The file is neither a ZIP nor valid JSON: {e.Message}").ConfigureAwait(false);
+                return;
+            }
+
+            if (!GeoJsonFeatures.TryRead(json, ImportLimits.Default, out dataset, out string? error))
+            {
+                await Fail(context, 400, error!).ConfigureAwait(false);
+                return;
+            }
+        }
+
+        AppendResult result;
+
+        try
+        {
+            result = await importer.AppendAsync(
+                found.Definition.SchemaName, found.Definition.TableName, dataset!, replace, cancellation)
+                .ConfigureAwait(false);
+        }
+        catch (AppendRefusedException refused)
+        {
+            await Fail(context, 400, refused.Message).ConfigureAwait(false);
+            return;
+        }
+        catch (Npgsql.PostgresException blocked) when (blocked.SqlState == "55P03")
+        {
+            await Fail(context, 409,
+                $"'{found.Definition.Name}' is being read right now, so it could not be "
+                + $"{(replace ? "overwritten" : "added to")} — abandoned rather than made to wait, and nothing was "
+                + "written. Try again.").ConfigureAwait(false);
+            return;
+        }
+        catch (Npgsql.PostgresException wrong) when (wrong.SqlState is not null
+            && (wrong.SqlState.StartsWith("22", StringComparison.Ordinal) || wrong.SqlState.StartsWith("23", StringComparison.Ordinal)))
+        {
+            // Class 22 is a value that does not fit its column; 23 a constraint the layer keeps. Either way the
+            // transaction is gone, and the layer is as it was.
+            await Fail(context, 400,
+                $"A value in the file does not fit the layer, so nothing was written and the layer is as it was: "
+                + $"{wrong.MessageText}").ConfigureAwait(false);
+            return;
+        }
+
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation).ConfigureAwait(false);
+
+        // The kept picture is of the rows that were there; it is drawn again from the rows that are.
+        warmer.Redraw(found.Id);
+
+        await RecordAsync(
+            context, audit, replace ? "layer.overwrite" : "layer.append", found.Definition.Name,
+            new { rows = result.Rows, ignored = result.Ignored }, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            layer = found.Definition.Name,
+            replaced = replace,
+            rows = result.Rows,
+            matched = result.Matched,
+            ignored = result.Ignored,
+            transformed = result.Transformed,
+            note = (replace
+                    ? $"Every feature of this layer was replaced by the file's {result.Rows}. Object ids keep counting from where they were."
+                    : $"{result.Rows} feature{(result.Rows == 1 ? " was" : "s were")} added.")
+                + (result.Ignored.Count == 0 ? string.Empty
+                    : $" {result.Ignored.Count} of the file's columns are not in the layer and were not written: "
+                      + string.Join(", ", result.Ignored) + ".")
+                + (result.Transformed ? " The geometry was transformed into the layer's coordinate system." : string.Empty),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    private static Task AppendAsync(
+        HttpContext context, string layer, PostgresLayerCatalog layers, PostGisImporter importer, ServiceContexts contexts,
+        ITileCache tiles, IAdminCatalog catalog, IAuditLog audit, IJobStore jobs, JobSignal signal, GeodatabaseReader reader,
+        ImportScratch scratch, ThumbnailWarmer warmer, CancellationToken cancellation) =>
+        UpdateDataAsync(context, layer, false, layers, importer, contexts, tiles, catalog, audit, jobs, signal, reader, scratch, warmer, cancellation);
+
+    private static Task OverwriteAsync(
+        HttpContext context, string layer, PostgresLayerCatalog layers, PostGisImporter importer, ServiceContexts contexts,
+        ITileCache tiles, IAdminCatalog catalog, IAuditLog audit, IJobStore jobs, JobSignal signal, GeodatabaseReader reader,
+        ImportScratch scratch, ThumbnailWarmer warmer, CancellationToken cancellation) =>
+        UpdateDataAsync(context, layer, true, layers, importer, contexts, tiles, catalog, audit, jobs, signal, reader, scratch, warmer, cancellation);
 
     /// <summary>
     /// Deletes every feature of a hosted layer, or only its attachments — ArcGIS's

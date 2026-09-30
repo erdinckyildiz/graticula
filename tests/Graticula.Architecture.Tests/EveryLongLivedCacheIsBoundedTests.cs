@@ -71,6 +71,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
 
         // ADR-010 §3, 2026-09-29: the per-layer counters a service's quota is summed from, and what each quota evicted.
         ["FileSystemTileCache._layerBytes"] = "one per layer with a tile in the cache, so the catalogue bounds it; removed when the layer is purged",
+        ["FileSystemTileCache._purgedAt"] = "one per layer whose last purge could not move its directory aside, so the catalogue bounds it; removed when a later purge of that layer succeeds",
         ["FileSystemTileCache._quotaEvicted"] = "one per service whose quota has evicted a tile since the process started, so the catalogue bounds it",
 
         // ADR-010 §5.1a, 2026-09-29.

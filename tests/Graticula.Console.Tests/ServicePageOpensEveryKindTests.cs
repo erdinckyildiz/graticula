@@ -107,12 +107,13 @@ public sealed class ServicePageOpensEveryKindTests : ConsoleTest
         string facts = await Browser.EvaluateAsync<string>(
             "document.querySelector('#svcFacts').textContent") ?? string.Empty;
 
-        Assert.Contains("ImageServer", facts, StringComparison.Ordinal);
+        // Named as Portal names the type since ADR-102 step 7: an ImageServer is an imagery layer.
+        Assert.Contains("Imagery layer", facts, StringComparison.Ordinal);
 
         // <b>And the subtitle under the name.</b> It was an empty string, which beside a service
         // that plainly has content reads as a page that gave up.
         string subtitle = await Browser.EvaluateAsync<string>(
-            "(document.getElementById('serviceFacts') || {}).textContent || ''") ?? string.Empty;
+            "(document.getElementById('serviceSub') || {}).textContent || ''") ?? string.Empty;
 
         Assert.False(
             string.IsNullOrWhiteSpace(subtitle),

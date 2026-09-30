@@ -57,6 +57,75 @@ internal static partial class AdminEndpoints
         app.MapGet("/admin/services/{name}/cache/seeds", ListSeedsAsync);
         app.MapGet("/admin/services/{name}/cache/seeds/{id:guid}", GetSeedAsync);
         app.MapDelete("/admin/services/{name}/cache/seeds/{id:guid}", CancelSeedAsync);
+        app.MapPost("/admin/services/{name}/cache/clear", ClearServiceCacheAsync);
+    }
+
+    /// <summary>
+    /// Empties a service's cached tiles — every layer's — so the next view of each area builds it again.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>2026-09-30, from the design review of the Caching page.</b> A publisher had no way to clear their
+    /// own service's tiles: the only control that did was Server's *Forget remembered shape*, which also
+    /// forgets the table's structure, is named for that, and asks for <c>admin:manageServer</c>. ArcGIS
+    /// offers *Rebuild cache* and *Delete tiles* on the item. This is the owner's act, as a seed is, and asks
+    /// what a seed asks.
+    /// </para>
+    /// <para>
+    /// <b>Nothing else is touched.</b> The seed record stays, so the levels once seeded are still listed —
+    /// with nothing cached under them now, which is what the read-back will then say.
+    /// </para>
+    /// </remarks>
+    private static async Task ClearServiceCacheAsync(
+        HttpContext context,
+        string name,
+        string? folder,
+        PostgresLayerCatalog owners,
+        ITileCache tiles,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishTiles).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string? at = FolderOf(folder);
+
+        if (await owners.FindServiceAsync(at, name, cancellation).ConfigureAwait(false) is not { } service)
+        {
+            await Refuse(context, 404, NoService(name, at)).ConfigureAwait(false);
+            return;
+        }
+
+        if (!await ManagesServiceAsync(
+                context, owners, service.Folder, service.Name, "clear the tile cache of", cancellation)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        int cleared = 0;
+
+        foreach (PublishedLayer layer in service.Layers)
+        {
+            cleared += tiles.Purge(layer.Id);
+        }
+
+        await AuditAsync(
+            context, audit, "service.cache.clear", service.Name,
+            Detail(new { folder = service.Folder, tiles = cleared }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name = service.Name,
+            folder = service.Folder,
+            cleared,
+            note = cleared == 0
+                ? "There were no cached tiles to clear."
+                : $"Cleared {cleared} cached tile{(cleared == 1 ? "" : "s")}. The next view of each area builds it again.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>What a seed is asked for.</summary>
@@ -329,7 +398,10 @@ internal static partial class AdminEndpoints
         ITileCache cache,
         CancellationToken cancellation)
     {
-        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishTiles).ConfigureAwait(false))
+        // <b>The server administrator's — ADR-102 condition 3, owner decision 2026-10-01.</b> A quota is how much of the
+        // server's disk a service may hold, which is spend; it asked for `content:publishTiles`, so a publisher could
+        // raise their own.
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
         {
             return;
         }

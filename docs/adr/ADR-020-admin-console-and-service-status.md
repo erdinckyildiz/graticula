@@ -442,6 +442,8 @@ surface at all.
 
 ### 5c. Four rules taken from their console, and why each transfers
 
+> **Amended 2026-09-30 by [ADR-101](ADR-101-studio-is-walked-the-way-a-portal-user-walks-it.md).** The frozen address still works; where it lands changed. `/console` now opens Studio's content list, not Server — an administrator's first sight of Server was *0 services, nothing in the root* on most servers, and a publisher's was a refusal. `/console/{rest}` still goes to Server. `INFERRED`, put to the owner.
+
 Recorded per [ADR-030](ADR-030-reading-the-reference-implementation.md) condition 1
 as derived from reading the reference. None is adopted here; each is a rule this
 ADR should answer for.

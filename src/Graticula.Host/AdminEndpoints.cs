@@ -327,6 +327,15 @@ internal sealed record RolePrivilegesRequest(IReadOnlyList<string>? Privileges);
 /// <summary>A change of sharing scope.</summary>
 internal sealed record SharingRequest(string? Sharing);
 
+/// <summary>A service's description, as the item page writes it. Empty or null clears it.</summary>
+internal sealed record DescriptionRequest(string? Description);
+
+/// <summary>The edits an owner offers (Create, Update, Delete, Extract), or null to return to the ceiling alone.</summary>
+internal sealed record EditingRequest(string[]? Operations);
+
+/// <summary>Whether a service refuses to be deleted.</summary>
+internal sealed record ProtectionRequest(bool Protected);
+
 /// <summary>
 /// What a service is configured to offer. Null means unset, everywhere.
 /// </summary>
@@ -645,6 +654,10 @@ internal static partial class AdminEndpoints
 
         app.MapGet("/admin/services", ListSystemServicesAsync);
         app.MapPut("/admin/services/{name}/sharing", SetServiceSharingAsync);
+        app.MapPut("/admin/services/{name}/description", SetServiceDescriptionAsync);
+        app.MapGet("/admin/services/{name}/stewardship", GetStewardshipAsync);
+        app.MapPut("/admin/services/{name}/editing", SetEditingOfferedAsync);
+        app.MapPut("/admin/services/{name}/protection", SetDeleteProtectedAsync);
 
         // <b>A system service can be stopped, since 2026-08-17.</b> The owner asked why the
         // geometry service had no start and no stop, and the answer was that nothing had given
@@ -1917,13 +1930,23 @@ internal static partial class AdminEndpoints
         SourceQuiesce quiesce,
         CancellationToken cancellation)
     {
-        if (!await Authorize.RequireAsync(context, Privilege.AdminManageAllContent)
-            .ConfigureAwait(false))
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        // <b>Its owner's act, or an administrator's — ADR-102 condition 2, owner decision 2026-10-01.</b> This asked
+        // for `admin:manageAllContent` alone, so the page offered a publisher a Delete the API refused. And not while
+        // the service is protected: the protection is stored and the API is what enforces it.
+        if (await published.FindServiceAsync(at, name, cancellation).ConfigureAwait(false) is not null)
+        {
+            if (!await ManagesServiceAsync(context, published, at, name, "delete", cancellation).ConfigureAwait(false)
+                || !await NotProtectedAsync(context, catalog, name, at, cancellation).ConfigureAwait(false))
+            {
+                return;
+            }
+        }
+        else if (!await Authorize.RequireAsync(context, Privilege.AdminManageAllContent).ConfigureAwait(false))
         {
             return;
         }
-
-        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
 
         // <b>`drop=true` empties the service on the way out — owner instruction, ADR-034 §5k.</b> The
         // copy under the delete button used to read *the tables in the datastore are not dropped*, and
@@ -4506,6 +4529,213 @@ internal static partial class AdminEndpoints
     /// a system service is tried first because its names are fixed and few.
     /// </para>
     /// </remarks>
+    /// <summary>The operations an owner may offer or withhold; Query is always offered where the ceiling allows it.</summary>
+    internal static readonly string[] OwnerOperations = ["Create", "Update", "Delete", "Extract"];
+
+    /// <summary>
+    /// What a service's owner has set — the edits it offers and its delete protection — with the administrator's ceiling
+    /// beside it, so the page can offer only what the ceiling allows (ADR-102, owner decision 2026-10-01).
+    /// </summary>
+    private static async Task GetStewardshipAsync(
+        HttpContext context, string name, string? folder, IAdminCatalog catalog, PostgresLayerCatalog owners,
+        CancellationToken cancellation)
+    {
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        // Read by whoever may read the service; the same 404 as its other routes for anybody else.
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        var service = await owners.FindServiceAsync(at, name, cancellation).ConfigureAwait(false);
+        bool manages = service is not null && LayerAccess.MayManage(service.Owner, current.Principal, current.Authorization);
+
+        if (service is null
+            || (!manages && !LayerAccess.Evaluate(service.Sharing, service.Owner, current.Principal, current.Authorization,
+                    service.SharedWith).IsAllowed())
+            || await catalog.FindStewardshipAsync(name, at, cancellation).ConfigureAwait(false) is not { } found)
+        {
+            await Refuse(context, 404, $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await Results.Json(new
+        {
+            name,
+            folder = at,
+            editingOffered = found.EditingOffered,
+            ceiling = found.Ceiling,
+            deleteProtected = found.DeleteProtected,
+            manages,
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Sets the edits a service offers, inside the administrator's ceiling — the owner's act or an administrator's
+    /// (ADR-102 condition 1, owner decision 2026-10-01). An operation the ceiling does not allow is refused by name.
+    /// </summary>
+    private static async Task SetEditingOfferedAsync(
+        HttpContext context, string name, string? folder, EditingRequest request, IAdminCatalog catalog,
+        IAuditLog audit, PostgresLayerCatalog owners, ServiceContexts contexts, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (!await ManagesServiceAsync(context, owners, at, name, "change the editing of", cancellation).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string[]? wanted = request.Operations;
+
+        if (wanted is not null)
+        {
+            string[] unknown = [.. wanted.Where(op => !OwnerOperations.Contains(op, StringComparer.Ordinal))];
+
+            if (unknown.Length > 0)
+            {
+                await Refuse(context, 400,
+                    $"{string.Join(", ", unknown)}: an owner offers Create, Update, Delete and Extract; Query is always offered.")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            ServiceStewardship? now = await catalog.FindStewardshipAsync(name, at, cancellation).ConfigureAwait(false);
+            string[] over = now?.Ceiling is { } ceiling ? [.. wanted.Where(op => !ceiling.Contains(op))] : [];
+
+            if (over.Length > 0)
+            {
+                await Refuse(context, 400,
+                    $"The server administrator does not allow {string.Join(", ", over)} on this service, so it cannot be offered.")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            wanted = [.. OwnerOperations.Where(wanted.Contains)];
+        }
+
+        if (!await catalog.SetEditingOfferedAsync(name, at, wanted, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        // What is served changed, so what the serving path holds for this service is read again.
+        if (await owners.FindServiceAsync(at, name, cancellation).ConfigureAwait(false) is { } changed)
+        {
+            foreach (PublishedLayer layer in changed.Layers)
+            {
+                contexts.Forget(layer);
+            }
+        }
+
+        await AuditAsync(context, audit, "service.editing", name, Detail(new { folder = at, offered = wanted }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { name, folder = at, editingOffered = wanted }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Protects a service from deletion, or stops protecting it — its owner's act or an administrator's; the delete
+    /// routes refuse a protected service (ADR-102 condition 2, owner decision 2026-10-01).
+    /// </summary>
+    private static async Task SetDeleteProtectedAsync(
+        HttpContext context, string name, string? folder, ProtectionRequest request, IAdminCatalog catalog,
+        IAuditLog audit, PostgresLayerCatalog owners, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (!await ManagesServiceAsync(context, owners, at, name, "change the protection of", cancellation).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (!await catalog.SetDeleteProtectedAsync(name, at, request.Protected, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(context, audit, "service.protection", name, Detail(new { folder = at, @protected = request.Protected }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { name, folder = at, deleteProtected = request.Protected }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Refuses with 409 when a service is protected from deletion; true when it may go.</summary>
+    private static async Task<bool> NotProtectedAsync(
+        HttpContext context, IAdminCatalog catalog, string name, string? folder, CancellationToken cancellation)
+    {
+        if (await catalog.FindStewardshipAsync(name, folder, cancellation).ConfigureAwait(false) is { DeleteProtected: true })
+        {
+            await Refuse(context, 409,
+                $"'{name}' is protected from deletion. Its owner or an administrator turns that off in Settings › General first.")
+                .ConfigureAwait(false);
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>The longest description the item page may store.</summary>
+    internal const int MaximumDescriptionLength = 4000;
+
+    /// <summary>
+    /// Replaces an ordinary service's description — its owner's act, or an administrator's (ADR-075).
+    /// </summary>
+    /// <remarks>
+    /// <b>2026-09-30.</b> The column has been on <c>service</c> since the catalogue began and only the
+    /// publish composition wrote it, so the item page asked for a description it gave no way to write.
+    /// Bounded, because it is shown in every listing and audited in full.
+    /// </remarks>
+    private static async Task SetServiceDescriptionAsync(
+        HttpContext context,
+        string name,
+        string? folder,
+        DescriptionRequest request,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        PostgresLayerCatalog owners,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        string? text = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+
+        if (text is { Length: > MaximumDescriptionLength })
+        {
+            await Refuse(context, 400,
+                $"A description may be at most {MaximumDescriptionLength} characters; this one is {text.Length}.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (!await ManagesServiceAsync(context, owners, at, name, "describe", cancellation).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (!await catalog.SetServiceDescriptionAsync(name, at, text, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404,
+                $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "service.describe", name,
+            Detail(new { folder = at, description = text }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { name, folder = at, description = text })
+            .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
     private static async Task SetServiceSharingAsync(
         HttpContext context,
         string name,
@@ -10565,12 +10795,6 @@ internal static partial class AdminEndpoints
         IAuditLog audit,
         CancellationToken cancellation)
     {
-        if (!await Authorize.RequireAsync(context, Privilege.AdminManageAllContent)
-            .ConfigureAwait(false))
-        {
-            return;
-        }
-
         // <b>Read before the delete, and now it decides the delete.</b> D-109: this used to
         // read one layer for the cache key and then delete by name — which, with two layers of
         // one name, removed both and purged the tiles of one. The read is the same read; what
@@ -10578,6 +10802,14 @@ internal static partial class AdminEndpoints
         // rather than resolved by whichever service sorts first.
         if (await OneNamedLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
             is not { } going)
+        {
+            return;
+        }
+
+        // The layer's service decides, as it does for the service's own delete (ADR-102 condition 2).
+        if (!await ManagesServiceAsync(context, layers, going.Folder, going.ServiceName, "remove a layer from", cancellation)
+                .ConfigureAwait(false)
+            || !await NotProtectedAsync(context, catalog, going.ServiceName, going.Folder, cancellation).ConfigureAwait(false))
         {
             return;
         }

@@ -97,6 +97,18 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
 
     /// <summary>What each service's quota has evicted since this process started — the read-back's number.</summary>
     private readonly ConcurrentDictionary<Guid, QuotaEvictions> _quotaEvicted = new();
+    /// <summary>When each layer was last purged, for a layer whose directory could not be taken away at once.</summary>
+    /// <remarks>
+    /// <b>The read path trusts the disk, so a purge that leaves a file behind leaves a tile a read will serve</b> —
+    /// the index says nothing to <see cref="ReadAsync"/> (N2). <see cref="Purge"/> therefore moves the layer's
+    /// directory aside, which is one rename; only when even that fails does it fall back to this stamp, and every read
+    /// then refuses a file written at or before it. Removed once a later purge of the layer succeeds.
+    /// </remarks>
+    private readonly ConcurrentDictionary<Guid, DateTime> _purgedAt = new();
+
+    /// <summary>Where a purged layer's directory goes to be deleted — outside every path a key can name.</summary>
+    internal const string PurgedDirectory = ".purged";
+
     private readonly SemaphoreSlim _evicting = new(1, 1);
     private long _bytes;
     private bool _warned;
@@ -146,7 +158,7 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
         {
             FileInfo file = new(path);
 
-            if (!file.Exists)
+            if (!file.Exists || PurgedAfter(key.LayerId, file.LastWriteTimeUtc))
             {
                 return CachedTile.Miss;
             }
@@ -225,7 +237,7 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
         {
             FileInfo file = new(path);
 
-            if (!file.Exists)
+            if (!file.Exists || PurgedAfter(key.LayerId, file.LastWriteTimeUtc))
             {
                 return CachedTile.Miss;
             }
@@ -329,10 +341,16 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
         string prefix = layerId.ToString("N", CultureInfo.InvariantCulture);
         int removed = 0;
 
-        // The index first, so a concurrent read cannot re-adopt an entry this is
-        // about to delete. The directory removal is best-effort after that:
-        // a file left behind is unreachable, because nothing looks for a key the
-        // index no longer counts and the next write re-creates the tree.
+        // <b>Stamped before anything is removed</b>, so a read that lands between here and the directory going away
+        // already refuses what it finds. The stamp is dropped below once the directory is gone.
+        _purgedAt[layerId] = _clock.GetUtcNow().UtcDateTime;
+
+        // The index next, so eviction and the quota stop counting what is about to go.
+        //
+        // <b>This comment used to say a file left behind was unreachable, "because nothing looks for a key the index
+        // no longer counts". The read path looks for exactly that</b> — it is one File.Exists, by design (N2) — so a
+        // delete that failed part-way left tiles a read served as fresh until their lifetime ran out. What makes the
+        // purge hold is now the move below, and the stamp when even the move fails.
         foreach (KeyValuePair<string, Entry> entry in _index)
         {
             if (entry.Key.StartsWith(prefix, StringComparison.Ordinal)
@@ -347,10 +365,55 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
         // count; the counter itself goes only when it is back to nothing (D-279).
         _layerBytes.TryRemove(new KeyValuePair<Guid, long>(layerId, 0));
 
+        // <b>Moved aside in one rename, then deleted.</b> The rename is what a read can observe: before it the
+        // stamp refuses the old files, after it there are none at the layer's path. The delete that follows may
+        // fail or take long on a large pyramid and changes nothing a read sees; what it leaves is removed at the
+        // next start (<see cref="Adopt"/>), which never adopts anything under <see cref="PurgedDirectory"/>.
+        string directory = System.IO.Path.Combine(_root, prefix);
+        bool movedAside;
+
         try
         {
-            string directory = System.IO.Path.Combine(_root, prefix);
+            if (Directory.Exists(directory))
+            {
+                string aside = System.IO.Path.Combine(
+                    _root,
+                    PurgedDirectory,
+                    string.Create(CultureInfo.InvariantCulture, $"{prefix}.{Guid.NewGuid():N}"));
 
+                Directory.CreateDirectory(System.IO.Path.Combine(_root, PurgedDirectory));
+                Directory.Move(directory, aside);
+                DeleteQuietly(aside);
+            }
+
+            movedAside = true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // The rename failed — on Windows, a file under the directory is open. The old best-effort delete is
+            // still worth trying for the space; the stamp is what keeps the answer right.
+            WarnOnce(e);
+            DeleteQuietly(directory);
+            movedAside = !Directory.Exists(directory);
+        }
+
+        if (movedAside)
+        {
+            _purgedAt.TryRemove(layerId, out _);
+        }
+
+        return removed;
+    }
+
+    /// <summary>Whether a file of this layer was written at or before the layer's last purge that did not complete.</summary>
+    private bool PurgedAfter(Guid layer, DateTime written) =>
+        !_purgedAt.IsEmpty && _purgedAt.TryGetValue(layer, out DateTime purged) && written <= purged;
+
+    /// <summary>Deletes a directory tree, and says nothing if it cannot.</summary>
+    private void DeleteQuietly(string directory)
+    {
+        try
+        {
             if (Directory.Exists(directory))
             {
                 Directory.Delete(directory, recursive: true);
@@ -360,8 +423,6 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
         {
             WarnOnce(e);
         }
-
-        return removed;
     }
 
     /// <summary>
@@ -427,7 +488,9 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
                         continue;
                     }
 
-                    if (File.GetLastWriteTimeUtc(file) >= oldest)
+                    DateTime written = File.GetLastWriteTimeUtc(file);
+
+                    if (written >= oldest && !PurgedAfter(layer.LayerId, written))
                     {
                         // Column and row packed into one number without assuming 2^z a side — a custom
                         // tiling scheme's level may be wider (ADR-096).
@@ -748,10 +811,18 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
         {
             Directory.CreateDirectory(_root);
 
+            // What a purge moved aside and could not finish deleting. Never adopted: it is a purged layer's tiles.
+            DeleteQuietly(System.IO.Path.Combine(_root, PurgedDirectory));
+
             long now = _clock.GetUtcNow().ToUnixTimeMilliseconds();
 
             foreach (string file in Directory.EnumerateFiles(_root, "*.mvt", SearchOption.AllDirectories))
             {
+                if (System.IO.Path.GetRelativePath(_root, file).StartsWith(PurgedDirectory, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
                 FileInfo info = new(file);
                 string relative = System.IO.Path.GetRelativePath(_root, file).Replace('\\', '/');
 

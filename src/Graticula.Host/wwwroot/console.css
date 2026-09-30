@@ -416,9 +416,9 @@ a:hover { text-decoration: underline; }
   The selected section keeps its shape and changes its light: orchid where Server is cyan, so the two
   columns differ by the same amount their switch halves do.
 */
-:root[data-surface="studio"] #tabs a[data-tab] { color: #c6bbe4; }
+:root[data-surface="studio"] #tabs a[data-tab], :root[data-surface="studio"] #tabs a[data-link] { color: #c6bbe4; }
 :root[data-surface="studio"] #tabs .ico { color: #a394cf; }
-:root[data-surface="studio"] #tabs a[data-tab]:hover .ico { color: #ded4f7; }
+:root[data-surface="studio"] #tabs a[data-tab]:hover .ico, :root[data-surface="studio"] #tabs a[data-link]:hover .ico { color: #ded4f7; }
 :root[data-surface="studio"] #tabs a[data-tab][aria-current="page"] {
   background: var(--nav-on);
   box-shadow: inset 3px 0 0 #b491ff;
@@ -459,7 +459,7 @@ a:hover { text-decoration: underline; }
   z-index: 1;
 }
 
-#tabs a[data-tab] {
+#tabs a[data-tab], #tabs a[data-link] {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -472,7 +472,7 @@ a:hover { text-decoration: underline; }
   transition: background .12s, color .12s;
 }
 
-#tabs a[data-tab]:hover {
+#tabs a[data-tab]:hover, #tabs a[data-link]:hover {
   background: rgba(255, 255, 255, .055);
   color: #fff;
   text-decoration: none;
@@ -510,13 +510,13 @@ a:hover { text-decoration: underline; }
 */
 #tabs .ico { width: 21px; flex: none; text-align: center; font-size: 17px; color: #949bd4;
              opacity: 1; }
-#tabs a[data-tab]:hover .ico { color: #d6d9f7; }
+#tabs a[data-tab]:hover .ico, #tabs a[data-link]:hover .ico { color: #d6d9f7; }
 #tabs .label { font-size: var(--t-body); letter-spacing: 0; text-transform: none;
                font-weight: inherit; color: inherit; margin: 0; }
 #collapse .label { font-size: var(--t-small); letter-spacing: 0; text-transform: none;
                    font-weight: inherit; color: inherit; margin: 0; }
 #shell.tight #tabs .label { display: none; }
-#shell.tight #tabs a[data-tab] { justify-content: center; padding: 10px 0; gap: 0; }
+#shell.tight #tabs a[data-tab], #shell.tight #tabs a[data-link] { justify-content: center; padding: 10px 0; gap: 0; }
 
 #tabs .count {
   margin-left: auto;
@@ -1881,7 +1881,7 @@ dialog { color: var(--ink); }
 
   /* The rail's own furniture, in the state `#shell.tight` already defines for it. */
   #brand h1, #railArt, #tabs .label, #tabs .count, #collapse { display: none; }
-  #tabs a[data-tab] { justify-content: center; padding: 10px 0; gap: 0; }
+  #tabs a[data-tab], #tabs a[data-link] { justify-content: center; padding: 10px 0; gap: 0; }
 
   .wrap { padding: var(--gap-4) var(--gap-3); }
 
@@ -4303,3 +4303,142 @@ td.logmessage span[title] { display: inline-block; max-width: 60ch; overflow: hi
 /* ADR-093: the seed's area is a choice of words, not a number, so it is not held to the
    116-pixel numeric box beside it; at that width it read "The whole". */
 #seedBox .setting select { width: auto; text-align: left; font-family: inherit; }
+
+/*
+  <b>An item page's own actions, 2026-09-30</b> — *Open in Map Viewer* and *Share*, on the right of the
+  head as Portal's item page has them. The first is a link (it leaves for the viewer), dressed as the
+  primary button it acts as; `.btn` already carries the shape.
+*/
+.itemhead .itemactions { margin-left: auto; display: flex; flex-direction: column; gap: var(--gap-2);
+  align-items: stretch; flex: 0 0 auto; }
+a.btn { display: inline-block; text-align: center; text-decoration: none; }
+a.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
+  box-shadow: var(--lift); }
+a.btn.primary:hover { filter: brightness(.9); }
+@media (max-width: 720px) {
+  .itemhead { flex-wrap: wrap; }
+  .itemhead .itemactions { margin-left: 0; flex-direction: row; }
+}
+.thumb.mapthumb { display: grid; place-items: center; }
+
+/* The Caching page's area map and its Advanced section — 2026-09-30. */
+.seedmap { height: 300px; border: 1px solid var(--rule); border-radius: var(--round); margin: var(--gap-2) 0 var(--gap-4); }
+#page-caching .lede { max-width: 70ch; }
+#page-caching details.advanced { margin-top: var(--gap-5); border-top: 1px solid var(--rule); padding-top: var(--gap-3); }
+#page-caching details.advanced > summary { cursor: pointer; font-weight: 600; color: var(--ink); }
+#page-caching .setting select { max-width: 100%; width: auto; min-width: 16rem; text-align: left; font-family: inherit; }
+
+/* The Data tab's column headers are buttons that order by the column — 2026-09-30. */
+button.thsort { all: unset; cursor: pointer; font: inherit; color: inherit; letter-spacing: inherit;
+  text-transform: inherit; white-space: nowrap; }
+button.thsort:hover { text-decoration: underline; }
+button.thsort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.datatools { margin-bottom: var(--gap-2); }
+
+/*
+  <b>The sidebar is a rail at 1024 pixels and below — ADR-102 step 0.</b> At 768 the item page scrolled
+  sideways to 813 pixels because the 232-pixel sidebar stayed wide; the rail is the state `#shell.tight`
+  already defines, applied by width rather than by choice. The *Collapse* control goes with it, since there
+  is no wider state to return to at this width.
+*/
+@media (max-width: 1024px) {
+  #shell, #shell.tight { grid-template-columns: 64px 1fr; }
+  #brand h1, #railArt, #tabs .label, #tabs .count, #collapse { display: none; }
+  #tabs a[data-tab], #tabs a[data-link] { justify-content: center; padding: 10px 0; gap: 0; }
+}
+
+/* The item's tab strip goes under its title when the two do not fit side by side, and scrolls rather
+   than pushing the page sideways. */
+@media (max-width: 1180px) {
+  #servicePagehead { flex-direction: column; align-items: stretch; gap: var(--gap-3); }
+  #serviceTabs { align-self: flex-start; max-width: 100%; overflow-x: auto; flex-wrap: nowrap; white-space: nowrap; }
+}
+
+/* The item's one Layer select, beside its tabs (ADR-102 step 1). */
+#itemLayerField.itemlayer { margin: 0; flex: 0 1 280px; }
+#itemLayerField.itemlayer select { width: 100%; }
+
+/* Visualization's Style panel holds the layer's style editor (ADR-102). */
+.stylehost { margin-top: var(--gap-3); container: symeditor / inline-size; }
+.stylehost > #page-symbology { display: block; }
+/* The item's head and the Visualization toolbar keep their margins while the editor spans the page. */
+#app.symfull #view-service #editHead { display: flex; }
+#app.symfull #view-service #editHead, #app.symfull #servicePagehead,
+#app.symfull #serviceVis > .toolbar { padding-left: var(--gap-5); padding-right: var(--gap-5); }
+#app.symfull #view-service #editHead { padding-top: var(--gap-4); }
+/* While the editor is open it fills the window as it did on its own page; its strip carries the way back. */
+#app.symfull #view-service #editHead, #app.symfull #servicePagehead, #app.symfull #serviceVis > .toolbar { display: none; }
+#app.symfull .symstrip #visStyle { margin-right: var(--gap-3); }
+#app.symfull .stylehost { margin-top: 0; }
+
+/* Verification round 2 (ADR-102): the Layer select is a row of its own under the title, never a tall column;
+   the item's actions wrap on a phone; Packages' selects read as the Pre-build ones do. */
+#servicePagehead { flex-wrap: wrap; }
+#itemLayerField.itemlayer { flex: 0 0 100%; order: 3; width: min(360px, 100%); max-width: 360px; }
+@media (max-width: 1180px) { #itemLayerField.itemlayer { flex: none; width: min(360px, 100%); } }
+.itemhead .itemactions { flex-wrap: wrap; min-width: 0; }
+.itemhead .itemactions > * { flex: 1 1 auto; }
+.itemhead > div { min-width: 0; }
+#exportBox .setting select, #exportBox .setting input[type=number] { width: auto; min-width: 16rem; max-width: 100%;
+  text-align: left; font-family: inherit; }
+@media (max-width: 480px) { #serviceTabs a { min-height: 44px; display: inline-flex; align-items: center; } }
+@media (max-width: 720px) { .itemhead .itemactions { flex: 1 1 100%; } }
+
+/* Settings › Feature layer: the owner's choice of edits (ADR-102). */
+fieldset.offered { border: 0; padding: 0; margin: 0; display: grid; gap: var(--gap-2); }
+fieldset.offered legend { font-weight: 600; margin-bottom: var(--gap-2); }
+fieldset.offered label.check { display: flex; gap: var(--gap-2); align-items: baseline; }
+
+/* Overview's right column, as Portal's item page has it: what you can do, then the details (ADR-102 step 7). */
+#serviceDetails .itemactions { display: flex; flex-direction: column; gap: var(--gap-2); margin: 0 0 var(--gap-5); }
+#serviceDetails .itemactions > * { width: 100%; text-align: center; }
+#serviceDetails .urlrow { display: flex; gap: var(--gap-2); }
+#serviceDetails .urlrow input { flex: 1; min-width: 0; font-size: 12px; }
+@media (max-width: 1100px) { #serviceDetails { order: -1; } }
+#serviceDetails dl.facts2 dd { min-width: 0; }
+#serviceDetails dl.facts2 dt { white-space: nowrap; }
+
+/* Data › Fields: the layer's editor, then adding and removing columns (ADR-102 step 9). */
+#dataRows details.columns { margin-top: var(--gap-5); }
+#dataRows details.columns > summary { cursor: pointer; font-weight: 600; }
+#dataFieldsHost > .page, #dataRows > .page { display: block; }
+/* Settings › Feature layer: one block per layer. */
+.layerblock { display: flex; align-items: center; gap: var(--gap-3); padding: var(--gap-2) 0; border-bottom: 1px solid var(--rule); }
+.layerblock > button { margin-left: auto; }
+
+/* ADR-102 step 10: the publisher's per-layer settings, now in the item. */
+#featureLayers .layerblock { flex-wrap: wrap; }
+#featureLayers .layerblock .setting { flex-basis: 100%; margin-top: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+#featureLayers .layerblock .setting input[data-time-input] { width: 16em; max-width: 100%; }
+.symrail .visrange .setting { flex-wrap: wrap; gap: 4px; align-items: center; }
+.symrail .visrange .setting .q { flex-basis: 100%; }
+.symrail .visrange .row { flex-wrap: wrap; gap: 6px; }
+
+/* Design review 2026-10-01 on steps 8-11. */
+#serviceHead .thumbcol { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; flex: none; }
+#serviceHead .thumbcol .hint { max-width: 168px; margin: 0; }
+#exportData .stacked, #updateData .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
+#exportData .stacked select, #updateData .stacked select, #updateData .stacked input { font: inherit; max-width: 100%; }
+#exportData fieldset + .hint, #updateData fieldset { margin-bottom: 12px; }
+#exportData fieldset + .hint { margin-top: 12px; }
+#exportData h3:focus:not(:focus-visible), #updateData h3:focus:not(:focus-visible) { outline: none; }
+#featureLayers .layerblock .setting .q { width: auto; min-width: 0; }
+#featureLayers input[data-time-input] { font: inherit; }
+#featureLayers button.ghost, .symrail .visrange button.ghost { border: 1px solid var(--control-edge); }
+details.removelayer { margin-top: var(--gap-3); }
+details.removelayer > summary { cursor: pointer; color: var(--alert); }
+details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var(--gap-2) 0; }
+
+/* Server › service › Layers (owner decision 2026-10-01). */
+#page-layers .srvlayer { padding: var(--gap-3) 0; border-bottom: 1px solid var(--rule); }
+#page-layers .srvlayer .row { display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
+#page-layers .srvlayer.asked { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+#page-layers .srvlayer { scroll-margin-top: 160px; }
+#page-layers .srvlayer h4 { margin: 0; padding: 0; border: 0; text-transform: none; letter-spacing: 0;
+  font-size: inherit; color: inherit; font-weight: 600; }
+#page-layers .srvlayer { padding-left: 12px; padding-right: 12px; }
+#page-layers .srvlayer dd .val { font-family: inherit; }
+#page-layers .srvlayer:focus { outline: none; }
+#updateData .check > span { display: flex; flex-direction: column; }
+#updateData .check .hint { margin: 0; }
+#updateData .dialogfoot .fill { flex: 1; margin: 0; }

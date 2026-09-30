@@ -44,7 +44,15 @@ public sealed class PostgresLayerCatalog
         -- The configured capability ceiling (ADR-031). All four are null on a
         -- service nobody has configured, which is every service that existed
         -- before migration 16 — so reading them changes no document.
-        s.serves_features, s.serves_tiles, s.capability_ceiling, s.statement_timeout_ms,
+        -- <b>The ceiling as served: the administrator's, narrowed to Query and the edits the owner offers</b>
+        -- (migration 66, ADR-102). Null `editing_offered` is no choice made, which is the ceiling alone.
+        s.serves_features, s.serves_tiles,
+        case when s.editing_offered is null then s.capability_ceiling
+             else array(select op from unnest(coalesce(s.capability_ceiling,
+                          array['Query','Create','Update','Delete','Extract']::text[])) as op
+                         where op = 'Query' or op = any (s.editing_offered))
+        end as capability_ceiling,
+        s.statement_timeout_ms,
 
         -- What one request may cost this service (Q-113, migration 17). Null
         -- throughout on a service nobody has configured, which is every service
