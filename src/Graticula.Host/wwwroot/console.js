@@ -3700,6 +3700,12 @@ const bareOf = i => i.bare || String(i.name || "").split("/").pop();
 /** What the content screen last read, so a keystroke, a type or an order redraws without asking again. */
 let contentAnswer = null;
 
+/** ADR-114: the caller's content folders, as `/content/folders` last answered. */
+let myFolders = [];
+
+/** The folder chosen on the content list: "" for all, "root", or a folder's id. */
+let contentFolderPick = "";
+
 /** The type the content list is narrowed to, or "" for all of them. */
 let contentType = "";
 
@@ -3715,6 +3721,7 @@ function mapAsItem(m) {
     kind: "Web map",
     description: m.snippet || "",
     tags: m.tags || [],
+    contentFolder: m.contentFolder || null,
     owner: m.owner,
     sharing: m.sharing || "private",
     manages: m.manages,
@@ -3738,6 +3745,9 @@ async function loadMyContent() {
     // 2026-09-30, each failing on its own; one list keeps that by treating the maps as optional.
     api("/content/webmaps").then(a => a || {}).catch(() => ({ webMaps: [] })),
   ]);
+
+  // ADR-114: the caller's folders. Optional like the maps: a failure leaves the list as it was.
+  myFolders = (await api("/content/folders").catch(() => null))?.folders || [];
 
   // `content` still keys by layer name for the map, which reads it by name when a row is drawn. The
   // per-layer listing stays the map's source; this screen is about items.
@@ -3792,9 +3802,14 @@ function drawMyContent() {
       >${label} <span class="count">${num(n)}</span></a>`;
   }).join("");
 
-  const inScope = contentScope === "all"
+  drawFolderBar();
+
+  const inScope = (contentScope === "all"
     ? items
-    : items.filter(i => i.scope === contentScope);
+    : items.filter(i => i.scope === contentScope))
+    // ADR-114: a folder is the caller's, so choosing one shows the caller's items in it.
+    .filter(i => !contentFolderPick || (i.scope === "mine"
+      && (contentFolderPick === "root" ? !i.contentFolder : i.contentFolder === contentFolderPick)));
 
   const needle = contentFilter.trim().toLowerCase();
 
@@ -3819,11 +3834,15 @@ function drawMyContent() {
 
   const visible = inScope
     .filter(i => !contentType || i.kind === contentType)
-    .filter(i => !needle || [i.name, bareOf(i), i.kind, i.description, i.owner, i.folder, ...(i.tags || [])]
+    .filter(i => !needle || [i.name, bareOf(i), i.kind, i.description, i.owner, i.folder,
+      i.scope === "mine" ? myFolders.find(f => f.id === i.contentFolder)?.title : "", ...(i.tags || [])]
       .some(v => (v || "").toLowerCase().includes(needle)))
     .sort(order);
 
-  $("contentCount").textContent = inScope.length === 0
+  $("contentCount").textContent = contentFolderPick
+    ? `${num(visible.length)} of your item${visible.length === 1 ? "" : "s"} ${contentFolderPick === "root"
+        ? "not in a folder" : `in ${myFolders.find(f => f.id === contentFolderPick)?.title || "this folder"}`}`
+    : inScope.length === 0
     ? ""
     : needle || contentType
       ? `showing ${num(visible.length)} of ${num(inScope.length)}`
@@ -3864,6 +3883,11 @@ function drawMyContent() {
   $("contentRows").innerHTML = total === 0
     ? `<tr><td colspan="5" class="empty">${h(answer.note || "Nothing here yet.")}
          <b>New item</b> publishes one.</td></tr>`
+    : inScope.length === 0 && contentFolderPick
+      ? `<tr><td colspan="5" class="empty">${contentFolderPick === "root"
+          ? "Everything of yours is in a folder."
+          : `Nothing in ${h(myFolders.find(f => f.id === contentFolderPick)?.title || "this folder")} yet. Use
+             <b>Move to folder…</b> in an item's ⋯ menu to put it here.`}</td></tr>`
     : inScope.length === 0
       ? `<tr><td colspan="5" class="empty">Nothing arrived this way.
            ${contentScope === "mine"
@@ -3914,10 +3938,10 @@ function drawMyContent() {
             <td class="name"><a href="#/service/${
               i.name.split("/").map(encodeURIComponent).join("/")}" title="${h(i.name)}">${h(bareOf(i))}</a>
               <div class="rowmeta">${stopped ? `${pill("stopped")} ` : ""}${h(i.kind)} · ${num(i.layers)}
-                layer${i.layers === 1 ? "" : "s"} · in ${i.folder ? h(i.folder) : "root"}${i.description
+                layer${i.layers === 1 ? "" : "s"} · ${i.folder ? `service folder ${h(i.folder)}` : "service root"}${i.description
                   ? ` · ${h(i.description)}` : ""}${i.owner && i.scope !== "mine"
                   ? ` · ${h(i.owner)}` : ""}${(i.throughGroups || []).length > 0
-                  ? ` · via ${i.throughGroups.map(h).join(", ")}` : ""}</div></td>
+                  ? ` · via ${i.throughGroups.map(h).join(", ")}` : ""}${folderNote(i)}</div></td>
 
             <!-- ADR-034 5l: the pill is the control, because it is already the thing that says who
                  can reach this and the reader is going to press it either way. -->
@@ -3950,6 +3974,8 @@ function drawMyContent() {
                              ? "Hide the service's tiles" : "Draw the whole service's tiles"}</button>` : ""}
                     ${stopped ? "" : `<a href="/studio/webmap.html?service=${encodeURIComponent(i.name)}"
                       >Open in Map Viewer</a>`}
+                    ${i.scope === "mine" ? `<button data-move-service="${h(i.name)}"
+                      data-move-folder="${h(i.contentFolder || "")}">Move to folder…</button>` : ""}
                     <a href="${h(i.cover.url)}?f=json" target="_blank" rel="noreferrer"
                       >The layer document</a>
                     <div class="note">${stopped
@@ -4288,12 +4314,17 @@ function mapRow(i) {
     <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}"
       ><div class="thumb empty mapthumb" aria-hidden="true"></div></a></td>
     <td class="name"><a href="#/map/${encodeURIComponent(m.id)}">${h(i.name)}</a>
-      <div class="rowmeta">Web map${i.description ? ` · ${h(i.description)}` : ""}${
+      <div class="rowmeta">Web map${folderNote(i)}${i.description ? ` · ${h(i.description)}` : ""}${
         i.scope !== "mine" && i.owner ? ` · ${h(i.owner)}` : ""}</div></td>
     <td>${pill(i.sharing)}</td>
     <td class="val">${day(i.updated)}</td>
     <td style="text-align:right;white-space:nowrap">
       <a class="tiny" href="${open}" aria-label="Open ${h(i.name)}">Open</a>
+      ${i.scope === "mine"
+        ? `<button class="tiny ghost" data-move-webmap="${h(m.id)}" data-move-folder="${h(i.contentFolder || "")}"
+            data-move-title="${h(i.name)}"
+            aria-label="Move ${h(i.name)} to a folder">Move</button>`
+        : ""}
       ${m.manages
         ? `<button class="tiny ghost" data-map-delete="${h(m.id)}" data-map-title="${h(i.name)}"
             aria-label="Delete ${h(i.name)}">Delete</button>`
@@ -5453,6 +5484,8 @@ async function drawServiceDetails(qualified, knownKind) {
         ? `<button type="button" id="updateDataOpen">Update data</button>` : ""}
       ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
         ? `<button type="button" id="createViewOpen">Create view</button>` : ""}
+      ${item && item.scope === "mine" ? `<button type="button" data-move-service="${h(item.name)}"
+          data-move-folder="${h(item.contentFolder || "")}">Move</button>` : ""}
       ${manages && tileLayerOf() ? `<button type="button" data-manage-tiles="1"
         title="What is cached, clear it, pre-build an area, offline packages">Manage tiles</button>` : ""}
     </div>
@@ -5519,7 +5552,9 @@ async function drawServiceDetails(qualified, knownKind) {
       ["Type", h(itemTypeName(item.kind) + (item.isView ? " (view)" : ""))],
       ["Owner", `${h(item.owner || "—")}${may("admin:manageAllContent")
         ? ` <button type="button" class="linkbtn" data-change-owner="service">Change owner…</button>` : ""}`],
-      ["Folder", item.folder ? h(item.folder) : `<span class="val">the site root</span>`],
+      // ADR-114: two kinds of folder, and each named for what it is — the service's is in its address.
+      ["Service folder", item.folder ? h(item.folder) : `<span class="val">the site root</span>`],
+      ...(item.scope === "mine" ? [["Folder", `<span id="svcContentFolder">${folderTitleOf(item.contentFolder)}</span>`]] : []),
       ["Sharing", `<button class="pillbtn" data-share="${h(item.name)}"
          title="Set who can reach this">${pill(item.sharing)}</button>`],
       // <b>Only when it is known, rather than inferred from the folder's name.</b> A service in
@@ -5558,6 +5593,13 @@ async function drawServiceDetails(qualified, knownKind) {
     serviceItem = item;
     drawServiceHead(item);
     if (item.isView || item.hasViews) drawViewLinks(item);
+    if (item.scope === "mine" && item.contentFolder && !myFolders.some(f => f.id === item.contentFolder)) {
+      api("/content/folders").then(a => {
+        myFolders = a?.folders || myFolders;
+        const cell = $("svcContentFolder");
+        if (cell) cell.innerHTML = folderTitleOf(item.contentFolder);
+      }).catch(() => {});
+    }
   } catch {
     // The column's own reason — the address — is already on screen and needed no request. A failure
     // here loses the facts beside it and nothing somebody came for.
@@ -26820,3 +26862,203 @@ document.addEventListener("change", e => {
   const hint = $("cvFilterHint");
   if (hint) hint.innerHTML = addOnly ? "A filter has no effect when nothing can be seen." : VIEW_FILTER_HINT;
 });
+
+
+// ---------------------------------------------------------------- content folders (ADR-114)
+
+
+/** " · in folder X" for an item of the caller's that is in one. */
+function folderNote(i) {
+  if (i.scope !== "mine" || !i.contentFolder) return "";
+  const f = myFolders.find(one => one.id === i.contentFolder);
+  return f ? ` · in folder ${h(f.title)}` : "";
+}
+
+/**
+ * <b>The caller's folders, as chips under the scopes</b> — Portal keeps them down the left of My content; here the
+ * scopes already hold that place, so the folders are the row beneath them. Shown on Everything and My content, where
+ * the caller's own items are.
+ */
+function drawFolderBar() {
+  const bar = $("contentFolders");
+  if (!bar) return;
+
+  const relevant = contentScope === "all" || contentScope === "mine";
+  bar.hidden = !relevant;
+  if (!relevant) return;
+
+  if (contentFolderPick && contentFolderPick !== "root" && !myFolders.some(f => f.id === contentFolderPick)) {
+    contentFolderPick = "";
+  }
+
+  const chip = (value, label) => `<button type="button" class="chip${contentFolderPick === value ? " on" : ""}"
+    data-folder-pick="${h(value)}" aria-pressed="${contentFolderPick === value}">${label}</button>`;
+  const picked = myFolders.find(f => f.id === contentFolderPick);
+
+  bar.innerHTML = myFolders.length === 0
+    ? `<span class="folderlabel">Folders</span> <span class="hint">none yet</span>
+       <button type="button" class="tiny ghost" id="folderNew">New folder</button>`
+    : `<span class="folderlabel">Folders</span>
+    ${chip("", "All")}
+    ${chip("root", "Not in a folder")}
+    ${myFolders.map(f => chip(f.id, `${h(f.title)} <span class="count">${num(f.items)}</span>`)).join("")}
+    ${picked ? `<details class="menu foldermenu"><summary aria-label="${h(picked.title)}: rename or delete">⋯</summary>
+      <div class="sheet"><button type="button" id="folderRename">Rename folder</button>
+        <button type="button" id="folderDelete">Delete folder</button></div></details>` : ""}
+    <span class="foldersep" aria-hidden="true"></span>
+    <button type="button" class="tiny ghost" id="folderNew">New folder</button>`;
+}
+
+/** The small folder dialog, for a title or a choice of folder. */
+function openFolderDialog(title, body, go, label) {
+  $("contentFolderTitle").textContent = title;
+  $("contentFolderBody").innerHTML = body;
+  $("contentFolderFoot").innerHTML = `<p class="hint fill" id="contentFolderSays" role="status" aria-live="polite"></p>
+    <button type="button" class="ghost" id="contentFolderCancel">Cancel</button>
+    <button type="button" class="primary" id="contentFolderGo" data-go="${h(go)}">${h(label)}</button>`;
+  $("contentFolderDialog").showModal();
+  $("contentFolderBody").querySelector("input, select")?.focus();
+}
+
+/** Where focus goes when the list is redrawn under it. */
+function focusFolderPick() {
+  document.querySelector(`[data-folder-pick="${CSS.escape(contentFolderPick)}"]`)?.focus();
+}
+
+async function folderGo(go) {
+  const says = $("contentFolderSays");
+  const title = ($("folderTitle")?.value || "").trim();
+
+  try {
+    if (go === "new" || go === "rename") {
+      if (!title) { says.textContent = "Give the folder a title."; return; }
+      const made = await api(go === "new" ? "/content/folders" : `/content/folders/${encodeURIComponent(contentFolderPick)}`, {
+        method: go === "new" ? "POST" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      if (go === "new" && made?.id) contentFolderPick = made.id;
+      toast(go === "new" ? `Folder “${title}” created.` : `Renamed to “${title}”.`, true);
+    } else if (go === "delete") {
+      const gone = myFolders.find(f => f.id === contentFolderPick)?.title || "the folder";
+      await api(`/content/folders/${encodeURIComponent(contentFolderPick)}`, { method: "DELETE" });
+      contentFolderPick = "";
+      toast(`Folder “${gone}” deleted.`, true);
+    } else if (go === "move") {
+      const d = $("contentFolderGo").dataset;
+      const to = $("moveTo").value || null;
+      const answer = await api("/content/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: [d.service ? { service: d.service } : { webmap: d.webmap }], to }),
+      });
+      const failed = (answer?.results || []).find(r => !r.success);
+      if (failed) { says.textContent = failed.error || "It could not be moved."; return; }
+      const where = to ? (myFolders.find(f => f.id === to)?.title || "the folder") : "no folder";
+      toast(`Moved to ${where}.`, true);
+    }
+
+    $("contentFolderDialog").close();
+    if ($("contentRows")?.offsetParent !== null) {
+      await loadMyContent();
+      // A moved row has left the list, so focus goes to the list's first row rather than to a chip far above.
+      if (go === "move") (document.querySelector("#contentRows td.name a") || $("contentCount"))?.focus();
+      else focusFolderPick();
+    } else if (serviceItem) {
+      myFolders = (await api("/content/folders").catch(() => null))?.folders || myFolders;
+      if (go === "move") {
+        serviceItem.contentFolder = $("moveTo")?.value || null;
+        const cell = $("svcContentFolder");
+        if (cell) cell.innerHTML = folderTitleOf(serviceItem.contentFolder);
+        document.querySelectorAll("[data-move-service]").forEach(b => { b.dataset.moveFolder = serviceItem.contentFolder || ""; });
+      }
+    }
+  } catch (e) {
+    says.textContent = e.message || String(e);
+  }
+}
+
+function openMove(button) {
+  const current = button.dataset.moveFolder || "";
+  const what = button.dataset.moveService ? button.dataset.moveService.split("/").pop()
+    : button.dataset.moveTitle || "the map";
+  openFolderDialog(
+    `Move “${what}”`,
+    `<div class="stacked"><label for="moveTo">Folder</label>
+      <select id="moveTo">
+        <option value=""${current ? "" : " selected"}>Not in a folder</option>
+        ${myFolders.map(f => `<option value="${h(f.id)}"${f.id === current ? " selected" : ""}>${h(f.title)}</option>`).join("")}
+      </select></div>
+     <p class="hint">Folders only organise your content. Moving changes no address and no sharing, so maps and apps
+       that use this item keep working.</p>`,
+    "move", "Move");
+  const go = $("contentFolderGo");
+  go.disabled = true;
+  $("moveTo").addEventListener("change", () => { go.disabled = $("moveTo").value === current; });
+  if (button.dataset.moveService) go.dataset.service = button.dataset.moveService;
+  if (button.dataset.moveWebmap) go.dataset.webmap = button.dataset.moveWebmap;
+}
+
+document.addEventListener("click", async e => {
+  const t = e.target instanceof Element ? e.target.closest("button") : null;
+  if (!t) return;
+
+  if (t.dataset.folderPick !== undefined) {
+    contentFolderPick = t.dataset.folderPick;
+    drawMyContent();
+    focusFolderPick();
+    return;
+  }
+
+  if (t.id === "folderNew") {
+    openFolderDialog("New folder", `<div class="stacked"><label for="folderTitle">Title</label>
+      <input type="text" id="folderTitle" maxlength="128" autocomplete="off"></div>
+      <p class="hint">Only you see your folders. They sort your content and change no item's address.</p>`, "new", "Create");
+    return;
+  }
+
+  if (t.id === "folderRename") {
+    const f = myFolders.find(one => one.id === contentFolderPick);
+    openFolderDialog("Rename folder", `<div class="stacked"><label for="folderTitle">Title</label>
+      <input type="text" id="folderTitle" maxlength="128" autocomplete="off" value="${h(f?.title || "")}"></div>`,
+      "rename", "Rename");
+    return;
+  }
+
+  if (t.id === "folderDelete") {
+    const f = myFolders.find(one => one.id === contentFolderPick);
+    openFolderDialog("Delete folder", f && f.items > 0
+      ? `<p><b>${h(f.title)}</b> holds ${num(f.items)} item${f.items === 1 ? "" : "s"}. Move ${f.items === 1 ? "it" : "them"}
+          out first. Deleting a folder never deletes what is in it.</p>`
+      : `<p>Delete the folder <b>${h(f?.title || "")}</b>? It is empty.</p>`, "delete", "Delete folder");
+    if (f && f.items > 0) {
+      $("contentFolderGo").remove();
+      $("contentFolderCancel").textContent = "OK";
+      $("contentFolderCancel").focus();
+    }
+    return;
+  }
+
+  if (t.dataset.moveService !== undefined || t.dataset.moveWebmap !== undefined) {
+    if (!myFolders.length) myFolders = (await api("/content/folders").catch(() => null))?.folders || [];
+    openMove(t);
+    return;
+  }
+
+  if (t.id === "contentFolderGo") { folderGo(t.dataset.go); return; }
+  if (t.id === "contentFolderClose" || t.id === "contentFolderCancel") $("contentFolderDialog").close();
+});
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target instanceof HTMLInputElement && e.target.id === "folderTitle") {
+    e.preventDefault();
+    $("contentFolderGo")?.click();
+  }
+});
+
+/** A content folder's title, or "Not in a folder". */
+function folderTitleOf(id) {
+  if (!id) return `<span class="val">Not in a folder</span>`;
+  const f = myFolders.find(one => one.id === id);
+  return f ? h(f.title) : `<span class="val">a folder</span>`;
+}

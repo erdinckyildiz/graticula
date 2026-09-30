@@ -8,6 +8,11 @@
 | **Supersedes** | — |
 | **Superseded by** | — |
 
+> **Amended 2026-10-01 by [ADR-114](ADR-114-content-folders-and-move.md), owner decision (*"Tamamı"*).** The deferral
+> of *Move* below is over: content folders were built as a table and a column per item kind, without waiting for
+> ADR-056's item table, and *Move* moves an item between them without touching its URL. *Change owner* now also puts
+> the item at the new owner's root. Change owner itself stands as decided here.
+
 ---
 
 ## 1. Context

@@ -143,7 +143,10 @@ public sealed class PostgresLayerCatalog
         array(select vl.id from layer vl join service vs on vs.id = vl.service_id
                where vl.layer_index = l.layer_index and vl.id <> l.id
                  and (vs.view_of = s.id or vs.id = s.view_of or (s.view_of is not null and vs.view_of = s.view_of)))
-          as view_layers
+          as view_layers,
+
+        -- ADR-114, migration 72: the owner's content folder the service is in, or null for the root. On the end.
+        s.content_folder_id as service_content_folder
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -867,7 +870,7 @@ public sealed class PostgresLayerCatalog
             Guid? Owner, SharingScope Sharing, ServiceStatus Status, string? Style,
             ServiceCapabilityLimits Limits, Guid[] SharedWith, int? Srid,
             string? SridWkt, DateTimeOffset Created, DateTimeOffset Modified, string? TilingScheme,
-            int? TileCacheQuota, string[] Tags, Guid? ViewOf, bool HasViews)> heads = [];
+            int? TileCacheQuota, string[] Tags, Guid? ViewOf, bool HasViews, Guid? ContentFolder)> heads = [];
         List<Guid> order = [];
 
         // <b>Its own scope, so the reader is closed before the group query
@@ -942,7 +945,12 @@ public sealed class PostgresLayerCatalog
                         reader.IsDBNull(reader.GetOrdinal("service_view_of"))
                             ? null
                             : reader.GetGuid(reader.GetOrdinal("service_view_of")),
-                        reader.GetBoolean(reader.GetOrdinal("service_has_views")));
+                        reader.GetBoolean(reader.GetOrdinal("service_has_views")),
+
+                        // ADR-114: the content folder it is in.
+                        reader.IsDBNull(reader.GetOrdinal("service_content_folder"))
+                            ? null
+                            : reader.GetGuid(reader.GetOrdinal("service_content_folder")));
                 }
 
                 // A left join, so a service with no layers arrives as one row of
@@ -1017,6 +1025,7 @@ public sealed class PostgresLayerCatalog
                 Tags = head.Tags,
                 ViewOf = head.ViewOf,
                 HasViews = head.HasViews,
+                ContentFolder = head.ContentFolder,
             });
         }
 

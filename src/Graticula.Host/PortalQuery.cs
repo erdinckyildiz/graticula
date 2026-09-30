@@ -28,9 +28,8 @@ namespace Graticula.Host;
 /// <b>What it understands</b> — the fields in <see cref="Known"/>, bare words matched
 /// against the title, and since 2026-09-23 the search reference's grammar around them:
 /// <c>AND</c>, <c>OR</c>, <c>NOT</c>, <c>-</c>, parentheses, <c>field:( … )</c> and a
-/// trailing <c>*</c> (V-48). <c>ownerfolder</c> is accepted and ignored,
-/// because this server has no portal folders and every item is therefore at the
-/// root of the one that would exist.
+/// trailing <c>*</c> (V-48). <c>ownerfolder</c> matches an item's <c>ownerFolder</c>, which is said only to
+/// the item's owner — ADR-114; until then it was accepted and ignored, because there were no folders.
 /// </para>
 /// </remarks>
 internal static class PortalQuery
@@ -331,9 +330,15 @@ internal static class PortalQuery
                 return Contains(PortalQuery.Field(item, "title"), Value.TrimEnd('*'));
             }
 
+            // <b>The member's content folder — ADR-114.</b> Pro's My Content asks `ownerfolder:root` for what is in no
+            // folder, so `root` (and `null`) match an item without one; any other value is a folder's id.
             if (string.Equals(Field, "ownerfolder", StringComparison.OrdinalIgnoreCase))
             {
-                return null;
+                object? inFolder = PortalQuery.Field(item, "ownerFolder");
+
+                return Value is "root" or "null" or ""
+                    ? inFolder is null
+                    : Same(inFolder, Value, prefix: false);
             }
 
             if (string.Equals(Field, "group", StringComparison.OrdinalIgnoreCase))

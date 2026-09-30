@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>91db3b0</code> · 2026-09-30 23:49</p>
+<p class="stamp">Şu commit’ten üretildi: <code>8a5044f</code> · 2026-10-01 00:23</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">112</div><div class="kpi-l">ADR</div><div class="kpi-n">28 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">262/354</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">89 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">113</div><div class="kpi-l">ADR</div><div class="kpi-n">28 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">265/357</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">89 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4404</div><div class="kpi-l">test</div><div class="kpi-n">419 kaynak dosya, 185,803 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4406</div><div class="kpi-l">test</div><div class="kpi-n">422 kaynak dosya, 186,584 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -316,6 +316,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">111</td><td>An item carries tags</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — a list of words per item, searched as text; nothing measurable is at stake</td><td class="num">2/2</td></tr>
 <tr><td class="id">112</td><td>A CSV or Excel table with coordinates is published and added to a layer</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — GDAL&#x27;s CSV driver does the reading, and the path after it is the shapefile&#x27;s</td><td class="num">2/2</td></tr>
 <tr><td class="id">113</td><td>A hosted feature layer has views, and a view is a PostgreSQL view</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — PostgreSQL&#x27;s automatically updatable views were measured doing what this needs;…</td><td class="num">4/4</td></tr>
+<tr><td class="id">114</td><td>A member&#x27;s content has folders, and an item is moved between them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH — a table, a column per item kind, and Portal&#x27;s documented REST shape</td><td class="num">3/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -438,10 +439,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1232</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:61.0%"></div></div><div class="bar-n">751</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.3%"></div></div><div class="bar-n">644</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.4%"></div></div><div class="bar-n">645</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.6%"></div></div><div class="bar-n">254</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.7%"></div></div><div class="bar-n">255</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:16.7%"></div></div><div class="bar-n">206</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:10.1%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.3%"></div></div><div class="bar-n">115</div></div>
@@ -451,6 +452,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>8a5044f</code><time>2026-10-01</time><span>A hosted layer has views, and a view is a PostgreSQL view</span></li>
 <li><code>91db3b0</code><time>2026-09-30</time><span>An item carries tags, and a CSV or Excel table with coordinates is published and added to a layer</span></li>
 <li><code>dc991e1</code><time>2026-09-30</time><span>Update data maps the file&#x27;s columns before it writes; a web map can be protected from deletion (migration 69)</span></li>
 <li><code>eb51124</code><time>2026-09-30</time><span>ADR-106: every export format has now been opened outside GDAL</span></li>
@@ -464,7 +466,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>332f8c7</code><time>2026-09-30</time><span>The two test classes that set the missing-glyph hook no longer run beside each other</span></li>
 <li><code>f48392f</code><time>2026-09-30</time><span>A layer also exports as Esri JSON, the query writer&#x27;s own FeatureSet for the whole layer</span></li>
 <li><code>eb63eae</code><time>2026-09-30</time><span>A web map sets its layers&#x27; pop-ups (ADR-110)</span></li>
-<li><code>95682c3</code><time>2026-09-30</time><span>Merge remote-tracking branch &#x27;origin/main&#x27;</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

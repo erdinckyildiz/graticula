@@ -212,6 +212,9 @@ public sealed class PublishedService
     /// <summary>Whether another service is a view of this one — ADR-113.</summary>
     public bool HasViews { get; init; }
 
+    /// <summary>The owner's content folder it is in, or null for the root — ADR-114. Not in its URL.</summary>
+    public Guid? ContentFolder { get; init; }
+
     /// <summary>Who owns it, or null.</summary>
     public Guid? Owner { get; }
 

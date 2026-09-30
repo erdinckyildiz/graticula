@@ -140,6 +140,19 @@ internal static class PortalEndpoints
         Discoverable(app, $"{Path}/content/users/{{username}}", UserContentAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
 
+        // <b>And its folders — ADR-114.</b> The folder's id is 32 hexadecimal digits, as Portal's are, which also
+        // keeps this route clear of the operations below.
+        Discoverable(app, $"{Path}/content/users/{{username}}/{{folderId:length(32)}}", UserFolderContentAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+        app.MapPost($"{Path}/content/users/{{username}}/createFolder", CreateFolderAsync)
+            .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
+        app.MapPost($"{Path}/content/users/{{username}}/{{folderId:length(32)}}/delete", DeleteFolderAsync)
+            .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
+        app.MapPost($"{Path}/content/users/{{username}}/items/{{id}}/move", MoveItemAsync)
+            .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
+        app.MapPost($"{Path}/content/users/{{username}}/moveItems", MoveItemsAsync)
+            .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
+
         // <b>Two documents an organisation has and this one does not.</b> A
         // subscription it is not sold under and a category schema nobody has
         // defined. Each answers with an empty truth rather than a 404, because Pro
@@ -854,12 +867,38 @@ internal static class PortalEndpoints
     /// question being asked is *what is there* rather than *what is mine*.
     /// </para>
     /// </remarks>
-    private static async Task<IResult> UserContentAsync(
+    private static Task<IResult> UserContentAsync(
         HttpContext context,
         CatalogFallback catalog,
         IWebMapStore maps,
         ICoverageCatalog coverages,
+        IContentFolderStore folders,
         string username,
+        CancellationToken cancellation) =>
+        ListUserContentAsync(context, catalog, maps, coverages, folders, username, null, cancellation);
+
+    /// <summary>One of the caller's content folders — ADR-114.</summary>
+    private static Task<IResult> UserFolderContentAsync(
+        HttpContext context,
+        CatalogFallback catalog,
+        IWebMapStore maps,
+        ICoverageCatalog coverages,
+        IContentFolderStore folders,
+        string username,
+        string folderId,
+        CancellationToken cancellation) =>
+        Guid.TryParse(folderId, out Guid id)
+            ? ListUserContentAsync(context, catalog, maps, coverages, folders, username, id, cancellation)
+            : Task.FromResult(Unknown("Folder"));
+
+    private static async Task<IResult> ListUserContentAsync(
+        HttpContext context,
+        CatalogFallback catalog,
+        IWebMapStore maps,
+        ICoverageCatalog coverages,
+        IContentFolderStore folders,
+        string username,
+        Guid? folderId,
         CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
@@ -881,24 +920,35 @@ internal static class PortalEndpoints
             return Unavailable();
         }
 
+        IReadOnlyList<ContentFolder> mine = await folders.ListAsync(current.Principal.Id, cancellation).ConfigureAwait(false);
+        ContentFolder? here = folderId is { } asked ? mine.FirstOrDefault(f => f.Id == asked) : null;
+
+        if (folderId is not null && here is null)
+        {
+            return Unknown("Folder");
+        }
+
         // <b>Owned, not visible.</b> `VisibleAsync` has already applied sharing, so
         // this narrows a set the caller may see to the subset they published — which
         // is the whole difference between *My Content* and *the catalogue*.
+        //
+        // <b>And in the folder asked for — ADR-114</b>: the root lists what is in no folder, as Portal's does.
         List<object> items =
         [
             .. visible
-                .Where(service => service.Owner is { } owner && owner == current.Principal.Id)
+                .Where(service => service.Owner is { } owner && owner == current.Principal.Id
+                    && service.ContentFolder == folderId)
                 .SelectMany(service => ItemsOf(context, service).Select(face => face.Item)),
 
             // <b>And the maps they saved — ADR-079</b>, which have an owner of their own and no
             // service behind them.
             .. (await ReadableMapsAsync(context, maps, cancellation).ConfigureAwait(false))
-                .Where(map => map.Owner == current.Principal.Id)
+                .Where(map => map.Owner == current.Principal.Id && map.ContentFolder == folderId)
                 .Select(map => MapItem(context, map)),
 
-            // And the image services they registered — V-80.
+            // And the image services they registered — V-80. They have no folder yet, so they are at the root.
             .. images
-                .Where(coverage => coverage.Owner is { } owner && owner == current.Principal.Id)
+                .Where(coverage => folderId is null && coverage.Owner is { } owner && owner == current.Principal.Id)
                 .Select(coverage => CoverageItem(context, coverage)),
         ];
 
@@ -909,10 +959,187 @@ internal static class PortalEndpoints
             start = 1,
             num = items.Count,
             nextStart = -1,
-            currentFolder = (object?)null,
+            currentFolder = here is null ? null : Folder(here, current.Principal.Name),
             items,
-            folders = Array.Empty<object>(),
+            folders = mine.Select(f => Folder(f, current.Principal.Name)),
         });
+    }
+
+    /// <summary>A content folder as Portal writes one.</summary>
+    private static object Folder(ContentFolder folder, string username) => new
+    {
+        username,
+        id = folder.Id.ToString("N"),
+        title = folder.Title,
+        created = folder.Created.ToUnixTimeMilliseconds(),
+    };
+
+    /// <summary>The signed-in caller, when they are the user named in the path; otherwise null.</summary>
+    private static RequestPrincipal? Self(HttpContext context, string username)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        return current.Principal == Principal.Anonymous
+            || !string.Equals(current.Principal.Name, username, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : current;
+    }
+
+    private static IResult PortalError(int code, string message) => Results.Json(
+        new { error = new { code, message, details = Array.Empty<string>() } });
+
+    /// <summary>Portal's <c>createFolder</c> — ADR-114.</summary>
+    private static async Task<IResult> CreateFolderAsync(
+        HttpContext context, IContentFolderStore folders, string username, CancellationToken cancellation)
+    {
+        if (VectorTileExportEndpoints.CrossSiteByCookie(context) is not null)
+        {
+            return PortalError(403, "Send a token to change your content from another site.");
+        }
+
+        if (Self(context, username) is not { } current)
+        {
+            return Unknown("User");
+        }
+
+        IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
+        string title = form["title"].ToString().Trim();
+
+        if (title.Length is 0 or > 128)
+        {
+            return PortalError(400, "A folder's title is between 1 and 128 characters.");
+        }
+
+        if (await folders.CreateAsync(current.Principal.Id, title, cancellation).ConfigureAwait(false) is not { } made)
+        {
+            return PortalError(409, $"Folder '{title}' already exists.");
+        }
+
+        return Results.Ok(new { success = true, folder = Folder(made, current.Principal.Name) });
+    }
+
+    /// <summary>Portal's folder <c>delete</c> — only when it is empty (ADR-114 §5.2).</summary>
+    private static async Task<IResult> DeleteFolderAsync(
+        HttpContext context, IContentFolderStore folders, string username, string folderId, CancellationToken cancellation)
+    {
+        if (VectorTileExportEndpoints.CrossSiteByCookie(context) is not null)
+        {
+            return PortalError(403, "Send a token to change your content from another site.");
+        }
+
+        if (Self(context, username) is not { } current
+            || !Guid.TryParse(folderId, out Guid id)
+            || await folders.FindAsync(id, cancellation).ConfigureAwait(false) is not { } folder
+            || folder.Owner != current.Principal.Id)
+        {
+            return Unknown("Folder");
+        }
+
+        return await folders.DeleteAsync(folder.Id, cancellation).ConfigureAwait(false) == ContentFolderWrite.NotEmpty
+            ? PortalError(409, $"Folder '{folder.Title}' is not empty. Move its items out first; deleting a folder never deletes an item here.")
+            : Results.Ok(new { success = true, folder = Folder(folder, current.Principal.Name) });
+    }
+
+    /// <summary>Portal's item <c>move</c> — ADR-114.</summary>
+    private static async Task<IResult> MoveItemAsync(
+        HttpContext context, IContentFolderStore folders, CatalogFallback published, IWebMapStore maps,
+        string username, string id, CancellationToken cancellation)
+    {
+        if (VectorTileExportEndpoints.CrossSiteByCookie(context) is not null)
+        {
+            return PortalError(403, "Send a token to change your content from another site.");
+        }
+
+        if (Self(context, username) is not { } current)
+        {
+            return Unknown("User");
+        }
+
+        IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
+        (Guid? to, IResult? refused) = await MoveTargetAsync(form["folder"].ToString(), current, folders, cancellation).ConfigureAwait(false);
+
+        if (refused is not null)
+        {
+            return refused;
+        }
+
+        string? error = await MoveOneAsync(id, to, current, folders, published, maps, cancellation).ConfigureAwait(false);
+
+        return error is null
+            ? Results.Ok(new { success = true, itemId = id, owner = current.Principal.Name, folder = to?.ToString("N") })
+            : PortalError(400, error);
+    }
+
+    /// <summary>Portal's <c>moveItems</c> — ADR-114, one result per item.</summary>
+    private static async Task<IResult> MoveItemsAsync(
+        HttpContext context, IContentFolderStore folders, CatalogFallback published, IWebMapStore maps,
+        string username, CancellationToken cancellation)
+    {
+        if (VectorTileExportEndpoints.CrossSiteByCookie(context) is not null)
+        {
+            return PortalError(403, "Send a token to change your content from another site.");
+        }
+
+        if (Self(context, username) is not { } current)
+        {
+            return Unknown("User");
+        }
+
+        IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
+        (Guid? to, IResult? refused) = await MoveTargetAsync(form["folder"].ToString(), current, folders, cancellation).ConfigureAwait(false);
+
+        if (refused is not null)
+        {
+            return refused;
+        }
+
+        List<object> results = [];
+
+        foreach (string id in form["items"].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            string? error = await MoveOneAsync(id, to, current, folders, published, maps, cancellation).ConfigureAwait(false);
+            results.Add(error is null
+                ? new { itemId = id, success = true, error = (object?)null }
+                : new { itemId = id, success = false, error = (object?)new { code = 400, message = error } });
+        }
+
+        return Results.Ok(new { results });
+    }
+
+    /// <summary>The folder a move names: <c>/</c> or empty for the root, or one of the caller's folders.</summary>
+    private static async Task<(Guid? To, IResult? Refused)> MoveTargetAsync(
+        string raw, RequestPrincipal current, IContentFolderStore folders, CancellationToken cancellation)
+    {
+        string folder = raw.Trim();
+
+        if (folder.Length == 0 || folder == "/")
+        {
+            return (null, null);
+        }
+
+        return Guid.TryParse(folder, out Guid id)
+            && await folders.FindAsync(id, cancellation).ConfigureAwait(false) is { } found
+            && found.Owner == current.Principal.Id
+            ? (id, null)
+            : (null, Unknown("Folder"));
+    }
+
+    /// <summary>Moves one of the caller's own items by its portal id, or says why not.</summary>
+    private static async Task<string?> MoveOneAsync(
+        string id, Guid? to, RequestPrincipal current, IContentFolderStore folders, CatalogFallback published,
+        IWebMapStore maps, CancellationToken cancellation)
+    {
+        if (Guid.TryParse(id, out Guid serviceId)
+            && (await published.ListServicesAsync(cancellation).ConfigureAwait(false)).Services?.FirstOrDefault(s => s.Id == serviceId) is { } service)
+        {
+            return service.Owner != current.Principal.Id
+                ? "Item does not exist or is inaccessible."
+                : await folders.MoveServiceAsync(service.Id, to, cancellation).ConfigureAwait(false) ? null : "Item does not exist or is inaccessible.";
+        }
+
+        return await maps.FindAsync(id, cancellation).ConfigureAwait(false) is { } map && map.Owner == current.Principal.Id
+            ? (await folders.MoveMapAsync(map.Id, to, cancellation).ConfigureAwait(false) ? null : "Item does not exist or is inaccessible.")
+            : "Item does not exist or is inaccessible.";
     }
 
     /// <summary>The catalogue cannot be read and nothing is remembered.</summary>
@@ -1441,6 +1668,11 @@ internal static class PortalEndpoints
             owner = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id
                 ? current.Principal.Name
                 : "graticula",
+
+            // ADR-114: the owner's folder it is in, said only to its owner.
+            ownerFolder = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id && map.ContentFolder is { } inFolder
+                ? inFolder.ToString("N")
+                : null,
             title = map.Title,
             name = (string?)null,
             type = "Web Map",
@@ -1675,6 +1907,9 @@ internal static class PortalEndpoints
         {
             id = face == PrimaryFace(service) ? ItemId(service) : FaceItemId(service, face),
             owner,
+
+            // ADR-114: the owner's folder it is in — said only to its owner, as the owner is.
+            ownerFolder = owner == current.Principal.Name && service.ContentFolder is { } inFolder ? inFolder.ToString("N") : null,
 
             // <b>The organisation it belongs to — V-66, the fourth ArcGIS review.</b> A portal item carries its
             // `orgId`, and `orgid:<id>` — which Pro's *My Organization* and the Python API's default search

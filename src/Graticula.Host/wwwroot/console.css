@@ -4511,3 +4511,16 @@ ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
 #createView input[type=text], #createView select { width: 100%; font: inherit; }
 #createView fieldset + fieldset { margin-top: 14px; }
 #createView .fieldchips .linkbtn { margin-right: 6px; }
+
+/* ADR-114: the caller's folders under the content scopes. */
+.folderbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
+.folderbar .chip { font-size: 13px; padding: 6px 12px; border: 1px solid var(--rule); border-radius: 999px;
+  background: transparent; color: inherit; cursor: pointer; min-height: 32px; }
+.folderbar .chip.on { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
+.folderbar .chip .count { color: var(--faint); font-family: var(--mono); font-size: var(--t-small); margin-left: 4px; }
+.folderbar .folderlabel { font-weight: 600; margin-right: 4px; }
+.folderbar .foldersep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+.folderbar .foldermenu { display: inline-block; }
+#contentFolderDialog .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+#contentFolderDialog input[type=text], #contentFolderDialog select { width: 100%; font: inherit; }
+#contentFolderDialog .dialogfoot .fill { flex: 1; margin: 0; }

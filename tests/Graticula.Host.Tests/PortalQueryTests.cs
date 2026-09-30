@@ -92,14 +92,16 @@ public sealed class PortalQueryTests
     }
 
     [Fact]
-    public void Ownerfolder_is_accepted_and_ignored_rather_than_refused()
+    public void Ownerfolder_root_is_what_is_in_no_folder_and_an_id_is_that_folder()
     {
-        // <b>Ignored on purpose, and it is the only clause that is.</b> This server
-        // has no portal folders, so every item is at the root of the one that would
-        // exist and the clause is true of all of them. Refusing it would empty
-        // Pro's My Content, which is where it always appears.
+        // <b>Ignored until ADR-114, when there were no folders.</b> Pro's My Content sends `ownerfolder:root`, so an
+        // item in no folder must still match it — or My Content would empty the day folders arrived.
         Assert.True(PortalQuery.Matches(Item(), "ownerfolder:root"));
-        Assert.True(PortalQuery.Matches(Item(), "ownerfolder:anything-at-all"));
+        Assert.False(PortalQuery.Matches(Item(), "ownerfolder:4b0a04467ce44cc993a34e41edc65178"));
+
+        object filed = new { title = "tr_il", type = "Feature Service", owner = "root", ownerFolder = "4b0a04467ce44cc993a34e41edc65178" };
+        Assert.True(PortalQuery.Matches(filed, "ownerfolder:4b0a04467ce44cc993a34e41edc65178"));
+        Assert.False(PortalQuery.Matches(filed, "ownerfolder:root"));
     }
 
     [Fact]

@@ -28,6 +28,7 @@ namespace Graticula.Platform.Catalog;
 /// <param name="SharedWithNames">The same groups, by name, for a reader to show.</param>
 /// <param name="DeleteProtected">Whether a delete is refused until its owner turns this off (2026-10-01).</param>
 /// <param name="Tags">The words it is found by — ADR-111.</param>
+/// <param name="ContentFolder">The owner's content folder it is in, or null for the root — ADR-114.</param>
 public sealed record WebMap(
     string Id,
     string Title,
@@ -41,7 +42,8 @@ public sealed record WebMap(
     IReadOnlyList<Guid>? SharedWith = null,
     IReadOnlyList<string>? SharedWithNames = null,
     bool DeleteProtected = false,
-    IReadOnlyList<string>? Tags = null);
+    IReadOnlyList<string>? Tags = null,
+    Guid? ContentFolder = null);
 
 /// <summary>The rules a saved web map is held to, in one place for the store and the endpoints.</summary>
 public static class WebMaps

@@ -321,6 +321,7 @@ internal static partial class AdminEndpoints
         manages = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization),
         deleteProtected = map.DeleteProtected,
         tags = map.Tags ?? [],
+        contentFolder = map.ContentFolder,
         // The groups it is shared with (ADR-079 condition 4) — named only to whoever manages it.
         groups = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization)
             ? map.SharedWithNames ?? [] : null,
@@ -345,6 +346,7 @@ internal static partial class AdminEndpoints
                 manages = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization),
                 deleteProtected = map.DeleteProtected,
         tags = map.Tags ?? [],
+        contentFolder = map.ContentFolder,
                 // As Describe says it: the groups, named only to whoever manages the map (ADR-079 condition 4).
                 groups = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization)
                     ? map.SharedWithNames ?? [] : null,

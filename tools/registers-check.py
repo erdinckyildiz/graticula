@@ -3029,7 +3029,9 @@ GENERATED_KEY = '^(?:[A-Za-z0-9+/]{20,}={0,2}|[0-9a-fA-F]{32,})$'
 # it is not merely unportable, it is unportable *and* different tomorrow.
 MACHINE_PATH = (
     r"(?i)(?:[A-Z]:[\\/]Users[\\/][^\\/\s\"']+"
-    r"|/(?:home|Users)/[^/\s\"']+/"
+    # Not after a word character: `/content/users/{username}/moveItems` is the ArcGIS REST API's own address
+    # (ADR-114), and a home directory starts a path rather than continuing one.
+    r"|(?<![\w}])/(?:home|Users)/[^/\s\"']+/"
     r"|AppData[\\/]Local[\\/]Temp[\\/]claude)")
 
 

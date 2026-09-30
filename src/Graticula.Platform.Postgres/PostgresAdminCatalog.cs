@@ -2419,7 +2419,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
         const string Sql = """
             with taker as (select id from principal where lower(name) = lower(@receiver)),
-                 moved as (update service set owner_principal_id = (select id from taker), updated_at = now()
+                 moved as (update service set owner_principal_id = (select id from taker), content_folder_id = null,
+                                   updated_at = now()
                             where lower(name) = lower(@name)
                               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
                               and exists (select 1 from taker)

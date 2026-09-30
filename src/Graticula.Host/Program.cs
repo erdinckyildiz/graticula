@@ -512,6 +512,10 @@ public static class Program
         builder.Services.AddSingleton<Graticula.Platform.Catalog.IWebMapStore>(services =>
             new PostgresWebMapStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // ADR-114: a member's content folders.
+        builder.Services.AddSingleton<Graticula.Platform.Catalog.IContentFolderStore>(services =>
+            new PostgresContentFolderStore(services.GetRequiredService<NpgsqlDataSource>()));
+
         // <b>What each role grants, read from the store — ADR-035.</b> A singleton because it holds
         // the answer between requests; registered as both the interface and the concrete type
         // because the authentication path calls `EnsureFreshAsync`, which is not on the interface:

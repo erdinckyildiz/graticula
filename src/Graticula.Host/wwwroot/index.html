@@ -578,6 +578,9 @@
     -->
     <nav class="tabstrip" id="contentScopes" aria-label="Content"></nav>
 
+    <!-- ADR-114: the caller's own folders. They are in no URL; a service folder is the other kind. -->
+    <div class="folderbar" id="contentFolders" role="group" aria-label="Your folders" hidden></div>
+
     <!--
       <b>Search, type and order are always there, 2026-09-30.</b> The search box appeared only once a
       scope held more than one page, so it was absent exactly when a new user looked for it, and the
@@ -2132,6 +2135,15 @@
   </header>
   <div class="dialogbody" id="createViewBody"></div>
   <footer class="dialogfoot" id="createViewFoot"></footer>
+</dialog>
+
+<dialog id="contentFolderDialog" aria-labelledby="contentFolderTitle">
+  <header class="dialoghead">
+    <h3 id="contentFolderTitle" tabindex="-1">Folder</h3>
+    <button class="tiny ghost" id="contentFolderClose" aria-label="Close">&#10005;</button>
+  </header>
+  <div class="dialogbody" id="contentFolderBody"></div>
+  <footer class="dialogfoot" id="contentFolderFoot"></footer>
 </dialog>
 
 <dialog id="changeOwner" aria-labelledby="changeOwnerTitle">

@@ -606,6 +606,7 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/layers/{name}/time-field", SetTimeFieldAsync);
         MapFieldOverrides(app);  // ADR-063 — AdminEndpoints.FieldOverrides.cs
         MapViews(app);           // ADR-113 — AdminEndpoints.Views.cs
+        MapContentFolders(app);  // ADR-114 — AdminEndpoints.ContentFolders.cs
         MapVisibleRange(app);    // ADR-070 — AdminEndpoints.VisibleRange.cs
         MapServerSettings(app);  // ADR-084 — AdminEndpoints.Settings.cs
         MapSharedDomains(app);   // ADR-087 — AdminEndpoints.Domains.cs
@@ -1224,6 +1225,9 @@ internal static partial class AdminEndpoints
                 // ADR-113: whether it is a view, and whether it has any.
                 isView = service.ViewOf is not null,
                 hasViews = service.HasViews,
+
+                // ADR-114: the owner's content folder it is in, or null for the root.
+                contentFolder = service.ContentFolder,
                 owner = admin.OwnerName,
                 sharing = PostgresSharing(service.Sharing),
                 status = Wire(service.Status),

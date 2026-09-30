@@ -53,6 +53,9 @@ internal static class SharingGovernedExtensions
     /// </summary>
     public const string ByPrivilege = "an administrative privilege, whatever the service's sharing";
 
+    /// <summary>A member's own content — its folders and where its items are (ADR-114): the owner, or an administrator.</summary>
+    public const string ByOwnership = "the owner of the folder or item, or an administrator";
+
     /// <summary>Records what governs this route.</summary>
     /// <typeparam name="T">The builder type.</typeparam>
     /// <param name="builder">The route or group.</param>

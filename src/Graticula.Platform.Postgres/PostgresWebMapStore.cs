@@ -17,12 +17,12 @@ public sealed class PostgresWebMapStore : IWebMapStore
     /// <summary>The columns <see cref="Read"/> reads, without the document.</summary>
     private const string Listed =
         "m.id, m.title, m.snippet, m.owner_principal_id, p.name, m.sharing, null::text, m.created_at, m.modified_at"
-        + ", coalesce((select array_agg(gm.group_id) from sharing_group_map gm where gm.map_id = m.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from sharing_group_map gm join sharing_group g on g.id = gm.group_id where gm.map_id = m.id), '{}'::text[]), m.delete_protected, m.tags";
+        + ", coalesce((select array_agg(gm.group_id) from sharing_group_map gm where gm.map_id = m.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from sharing_group_map gm join sharing_group g on g.id = gm.group_id where gm.map_id = m.id), '{}'::text[]), m.delete_protected, m.tags, m.content_folder_id";
 
     /// <summary>The columns <see cref="Read"/> reads, with the document.</summary>
     private const string Whole =
         "m.id, m.title, m.snippet, m.owner_principal_id, p.name, m.sharing, m.document::text, m.created_at, m.modified_at"
-        + ", coalesce((select array_agg(gm.group_id) from sharing_group_map gm where gm.map_id = m.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from sharing_group_map gm join sharing_group g on g.id = gm.group_id where gm.map_id = m.id), '{}'::text[]), m.delete_protected, m.tags";
+        + ", coalesce((select array_agg(gm.group_id) from sharing_group_map gm where gm.map_id = m.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from sharing_group_map gm join sharing_group g on g.id = gm.group_id where gm.map_id = m.id), '{}'::text[]), m.delete_protected, m.tags, m.content_folder_id";
 
     private readonly NpgsqlDataSource _dataSource;
 
@@ -157,7 +157,7 @@ public sealed class PostgresWebMapStore : IWebMapStore
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             "with taker as (select id from principal where lower(name) = lower(@receiver)), "
-            + "moved as (update web_map set owner_principal_id = (select id from taker), modified_at = now() "
+            + "moved as (update web_map set owner_principal_id = (select id from taker), content_folder_id = null, modified_at = now() "
             + "where id = @id and exists (select 1 from taker) returning 1) "
             + "select (select count(*) from taker), (select count(*) from moved)");
         command.Parameters.AddWithValue("id", id);
@@ -236,5 +236,6 @@ public sealed class PostgresWebMapStore : IWebMapStore
         reader.FieldCount > 9 && !reader.IsDBNull(9) ? reader.GetFieldValue<Guid[]>(9) : null,
         reader.FieldCount > 10 && !reader.IsDBNull(10) ? reader.GetFieldValue<string[]>(10) : null,
         reader.FieldCount > 11 && !reader.IsDBNull(11) && reader.GetBoolean(11),
-        reader.FieldCount > 12 && !reader.IsDBNull(12) ? reader.GetFieldValue<string[]>(12) : null);
+        reader.FieldCount > 12 && !reader.IsDBNull(12) ? reader.GetFieldValue<string[]>(12) : null,
+        reader.FieldCount > 13 && !reader.IsDBNull(13) ? reader.GetGuid(13) : null);
 }

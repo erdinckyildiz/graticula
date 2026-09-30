@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(71);
+    public static SchemaVersion ComponentSchemaVersion => new(72);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -106,6 +106,7 @@ public static class PlatformMigrations
         AWebMapMayBeProtectedFromDeletionV69,
         AnItemCarriesTagsV70,
         AServiceMayBeAViewOfAnotherV71,
+        AMembersContentHasFoldersV72,
     ]);
 
     /// <summary>
@@ -143,6 +144,33 @@ public static class PlatformMigrations
     /// A web map may be protected from deletion, as a service may be (ADR-102 condition 2) — the ArcGIS review's second
     /// pass found maps the one item kind without it.
     /// </summary>
+    /// <summary>
+    /// A member's content has folders — ADR-114: Portal's folders in My content, which are the member's own and are in
+    /// no URL. The folder in <c>service.folder</c> is the other kind, part of the service's address, and is untouched.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>on delete restrict</c></b>, because a folder is deleted only empty (ADR-114 §5.2): the store turns the
+    /// violation into the refusal, so no delete of a folder can take an item with it.
+    /// </remarks>
+    private static Migration AMembersContentHasFoldersV72 => Migration.Expand(
+        new SchemaVersion(72),
+        "A member's content has folders (ADR-114).",
+
+        """
+        create table if not exists content_folder (
+          id                 uuid primary key,
+          owner_principal_id uuid not null references principal(id) on delete cascade,
+          title              text not null check (length(btrim(title)) between 1 and 128),
+          created_at         timestamptz not null default now()
+        )
+        """,
+
+        "create unique index if not exists content_folder_title on content_folder (owner_principal_id, lower(title))",
+
+        "alter table service add column if not exists content_folder_id uuid null references content_folder(id) on delete restrict",
+
+        "alter table web_map add column if not exists content_folder_id uuid null references content_folder(id) on delete restrict");
+
     /// <summary>
     /// A hosted service may be a view of another — ADR-113: the source it reads through, and each view layer's filter
     /// as it was written. The rows are the source's, read through a PostgreSQL view the host makes; the catalogue keeps
