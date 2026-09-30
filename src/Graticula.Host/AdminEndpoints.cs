@@ -4664,13 +4664,20 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>Refuses with 409 when a service is protected from deletion; true when it may go.</summary>
-    private static async Task<bool> NotProtectedAsync(
-        HttpContext context, IAdminCatalog catalog, string name, string? folder, CancellationToken cancellation)
+    /// <remarks>
+    /// <b>Also what empties or replaces a layer's rows</b> — owner decision 2026-10-01 for overwrite, and truncate
+    /// with it (INFERRED): protection that stopped a delete and let every feature be wiped protected the item and not
+    /// its data. <paramref name="what"/> names the act in the refusal.
+    /// </remarks>
+    internal static async Task<bool> NotProtectedAsync(
+        HttpContext context, IAdminCatalog catalog, string name, string? folder, CancellationToken cancellation,
+        string what = "deleted")
     {
         if (await catalog.FindStewardshipAsync(name, folder, cancellation).ConfigureAwait(false) is { DeleteProtected: true })
         {
             await Refuse(context, 409,
-                $"'{name}' is protected from deletion. Its owner or an administrator turns that off in Settings › General first.")
+                $"'{name}' is protected from deletion, so its data cannot be {what} either. Its owner or an administrator "
+                + "turns that off in Settings › General first.")
                 .ConfigureAwait(false);
             return false;
         }

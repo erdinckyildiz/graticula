@@ -1948,8 +1948,8 @@ internal static class HostedDataEndpoints
     /// </para>
     /// <para>
     /// <b>The layer's owner or an administrator</b>, as truncate (ADR-075), and hosted layers only: a registered
-    /// layer's table is somebody else's. Delete protection does not stop it — it protects the item from being
-    /// deleted, as Portal's does, and emptying a layer was never behind it (INFERRED, listed for the owner).
+    /// layer's table is somebody else's. <b>Replacing is refused while the item is protected from deletion</b> —
+    /// owner decision 2026-10-01; appending is not, since it removes nothing.
     /// </para>
     /// </remarks>
     private static async Task UpdateDataAsync(
@@ -2008,6 +2008,14 @@ internal static class HostedDataEndpoints
             await Fail(context, 413,
                 $"The file is {file.Length / 1048576} MB and the limit is {MaximumBytes / 1048576} MB.")
                 .ConfigureAwait(false);
+            return;
+        }
+
+        // Replacing every feature is refused while the item is protected — owner decision 2026-10-01 (ADR-103 §10.4).
+        if (replace
+            && !await AdminEndpoints.NotProtectedAsync(context, catalog, found.ServiceName, found.Folder, cancellation, "replaced")
+                .ConfigureAwait(false))
+        {
             return;
         }
 
@@ -2182,6 +2190,14 @@ internal static class HostedDataEndpoints
         IAuditLog audit,
         CancellationToken cancellation)
     {
+        // Protection covers the rows too (owner decision 2026-10-01; truncate with overwrite is INFERRED).
+        if (!attachmentsOnly
+            && !await AdminEndpoints.NotProtectedAsync(context, catalog, found.ServiceName, found.Folder, cancellation, "emptied")
+                .ConfigureAwait(false))
+        {
+            return false;
+        }
+
         try
         {
             await importer.TruncateAsync(

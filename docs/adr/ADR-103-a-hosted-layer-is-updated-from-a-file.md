@@ -64,9 +64,7 @@ are lost. It is the gap, not an alternative.
 - *Object ids.* Overwrite keeps counting, as truncate does — an id a client has seen is never given to another
   feature. A client that expects ids to start at 1 after an overwrite is wrong about this server and right about
   some others.
-- *Delete protection does not stop it.* It protects the item from being deleted, as Portal's does; emptying or
-  replacing a layer's rows never sat behind it here (truncate does not check it either). That reading is
-  `INFERRED` and listed for the owner (§10).
+- ~~*Delete protection does not stop it.*~~ It does, by owner decision 2026-10-01 — see §10.4.
 
 ## 4. Evidence
 
@@ -147,4 +145,4 @@ one transaction on one connection; the tile purge and context forget are node-lo
    layer.
 3. **Studio's *Update data* is tested** as the other Overview actions are. **DISCHARGED 2026-10-01** —
    `ItemStructureTests.Update_data_sends_the_file_to_the_chosen_layer`.
-4. **Delete protection does not block overwrite — `INFERRED`, put to the owner.**
+4. ~~**Delete protection does not block overwrite — `INFERRED`, put to the owner.**~~ **Reversed by owner decision 2026-10-01 (*"1. evet"*): protection blocks overwrite**, 409 and nothing written; append is not blocked, since it removes nothing. **Truncate is blocked with it — `INFERRED`**: it is the more destructive of the two, and leaving it open would have made the protection stop the lesser act. **DISCHARGED 2026-10-01** — `UpdateDataConformanceTests` protects the layer and finds both refused and its rows unchanged.

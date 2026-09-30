@@ -60,6 +60,21 @@ public sealed class UpdateDataConformanceTests : ArcGisClient
         return (response.StatusCode, await response.Content.ReadAsStringAsync());
     }
 
+    private async Task PutProtectionAsync(string root, string token, string name, bool on)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Put, $"{root}/admin/services/{name}/protection?folder=hosted")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new { @protected = on }), Encoding.UTF8, "application/json"),
+        };
+
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+
+        Assert.True(response.IsSuccessStatusCode,
+            $"Setting protection to {on} answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+    }
+
     private async Task<int> CountAsync(string root, string token, string name)
     {
         using HttpRequestMessage request = new(
@@ -118,6 +133,31 @@ public sealed class UpdateDataConformanceTests : ArcGisClient
 
             Assert.True(wrong == HttpStatusCode.BadRequest, $"Points into a polygon layer answered {(int)wrong}: {wrongBody}");
             Assert.Equal(3, await CountAsync(root, token!, name));
+
+            // ---------------------------------------------------------------- protection stops replacing and emptying
+            await PutProtectionAsync(root, token!, name, true);
+
+            try
+            {
+                (HttpStatusCode guarded, string guardedBody) =
+                    await PostFileAsync(root, token, $"/admin/hosted/{name}/overwrite", Polygons("x"));
+
+                Assert.True(guarded == HttpStatusCode.Conflict,
+                    $"Replacing a protected layer's features answered {(int)guarded}: {guardedBody}");
+
+                using HttpRequestMessage empty = new(HttpMethod.Post, $"{root}/admin/hosted/{name}/truncate");
+                empty.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage emptied = await Http.SendAsync(empty);
+
+                Assert.True(emptied.StatusCode == HttpStatusCode.Conflict,
+                    $"Emptying a protected layer answered {(int)emptied.StatusCode}.");
+
+                Assert.Equal(3, await CountAsync(root, token!, name));
+            }
+            finally
+            {
+                await PutProtectionAsync(root, token!, name, false);
+            }
 
             // ---------------------------------------------------------------- overwrite replaces
             (HttpStatusCode replaced, string replaceBody) =
