@@ -20,9 +20,9 @@ namespace Graticula.Platform.Postgres.Tests;
 /// <remarks>
 /// <para>
 /// <b>Every position below is worked by hand from the grid</b>, not read back from the code. TM30's origin is
-/// (364,000, 4,593,000) and level 0 is 1,173.828125 m a pixel, so level 3 is 75,125 m a tile: tile (3, 1, 1)
-/// runs x 439,125–514,250 and y 4,442,750–4,517,875, and a point at (500,000, 4,500,000) is
-/// 60,875 / 75,125 × 4,096 = 3,318.9 units from its west edge and 17,875 / 75,125 × 4,096 = 974.6 from its top.
+/// (97,000, 4,921,000) and level 0 is 3,460.9375 m a pixel (D-288, 2026-09-30), so level 3 is 221,500 m a tile:
+/// tile (3, 1, 1) runs x 318,500–540,000 and y 4,478,000–4,699,500, and a point at (500,000, 4,500,000) is
+/// 181,500 / 221,500 × 4,096 = 3,356.3 units from its west edge and 199,500 / 221,500 × 4,096 = 3,689.2 from its top.
 /// </para>
 /// <para>
 /// <b>Against PostGIS, because the envelope is PostGIS's half of the arithmetic</b>: the box is computed in C#
@@ -107,19 +107,19 @@ public sealed class ATileSchemeIsCutInItsOwnReferenceTests : PostgresFixture
         Assert.Equal(PostGisTileSource.Extent, tile.Extent);
         Assert.Equal(["circle", "point", "square"], tile.Features.Select(f => (string)f.Attributes["kind"]!).Order());
 
-        // Level 3 is 217,625 m a tile from (104,000, 4,777,000), D-288's country grid. The point is 396,000 m east
-        // and 277,000 m south of the origin: column 1, row 1, and 178,375 m and 59,375 m into that tile, which is
-        // 3,357.3 and 1,117.5 of 4,096.
+        // Level 3 is 221,500 m a tile from (97,000, 4,921,000), D-288's grid over TUREF's area of use. The point is
+        // 403,000 m east and 421,000 m south of the origin: column 1, row 1, and 181,500 m and 199,500 m into that
+        // tile, which is 3,356.3 and 3,689.2 of 4,096.
         (int x, int y) = PointOf(tile);
-        Assert.InRange(x, 3356, 3358);
-        Assert.InRange(y, 1116, 1119);
+        Assert.InRange(x, 3355, 3358);
+        Assert.InRange(y, 3688, 3691);
 
-        // The 10 km square: 3,263–3,451 across and 1,023–1,212 down, give or take the grid's rounding.
+        // The 10 km square: 3,264–3,449 across and 3,597–3,782 down, give or take the grid's rounding.
         foreach ((int px, int py) in tile.Features
                      .Where(f => (string?)f.Attributes["kind"] == "square").SelectMany(f => f.Rings).SelectMany(r => r))
         {
-            Assert.InRange(px, 3261, 3454);
-            Assert.InRange(py, 1021, 1214);
+            Assert.InRange(px, 3261, 3451);
+            Assert.InRange(py, 3594, 3784);
         }
 
         // The tile beside it, to the west, holds nothing: the grid is TM30's and not Web Mercator's.
@@ -133,10 +133,10 @@ public sealed class ATileSchemeIsCutInItsOwnReferenceTests : PostgresFixture
 
         Mvt.Layer tile = (await TileAsync(layer, new TileAddress(3, 1, 1)))!;
 
-        // TUREF and WGS 84 differ by centimetres; a level-3 unit is 53 m.
+        // TUREF and WGS 84 differ by centimetres; a level-3 unit is 54 m.
         (int x, int y) = PointOf(tile);
-        Assert.InRange(x, 3355, 3359);
-        Assert.InRange(y, 1115, 1120);
+        Assert.InRange(x, 3354, 3359);
+        Assert.InRange(y, 3687, 3692);
     }
 
     [Fact]
@@ -144,11 +144,11 @@ public sealed class ATileSchemeIsCutInItsOwnReferenceTests : PostgresFixture
     {
         LayerDefinition layer = await ShapesAsync(5254);
 
-        // Level 9 (6.64 m a pixel) is simplified; level 10 (3.32 m) is not. The tiles holding the circle's centre:
-        // level 9 is 3,400.390625 m a tile, column 396,000 / 3,400.4 = 116 and row 277,000 / 3,400.4 = 81; level 10
-        // is 1,700.1953125 m, column 232 and row 162.
-        TileAddress seven = new(9, 116, 81);
-        TileAddress eight = new(10, 232, 162);
+        // Level 9 (6.76 m a pixel) is simplified; level 10 (3.38 m) is not. The tiles holding the circle's centre:
+        // level 9 is 3,460.9375 m a tile, column 403,000 / 3,460.9 = 116 and row 421,000 / 3,460.9 = 121; level 10
+        // is 1,730.46875 m, column 232 and row 243.
+        TileAddress seven = new(9, 116, 121);
+        TileAddress eight = new(10, 232, 243);
 
         int simplified = Vertices((await TileAsync(layer, seven))!, "circle");
         int raw7 = Vertices(await UngeneralisedAsync(seven), "circle");
@@ -183,6 +183,15 @@ public sealed class ATileSchemeIsCutInItsOwnReferenceTests : PostgresFixture
     [Fact]
     public async Task Every_built_in_s_country_projects_where_its_numbers_say()
     {
+        // The ground itself is TUREF's own area of use, as the register states it.
+        await using (NpgsqlCommand register = DataSource.CreateCommand(
+            "select st_x(point_sw), st_y(point_sw), st_x(point_ne), st_y(point_ne) from postgis_srs('EPSG', '5252')"))
+        await using (NpgsqlDataReader area = await register.ExecuteReaderAsync(CancellationToken.None))
+        {
+            Assert.True(await area.ReadAsync(CancellationToken.None), "postgis_srs knows nothing of EPSG:5252.");
+            Assert.Equal(VectorTileSchemes.Country, new Envelope(area.GetDouble(0), area.GetDouble(1), area.GetDouble(2), area.GetDouble(3)));
+        }
+
         foreach (BuiltInTileScheme built in VectorTileSchemes.BuiltIn)
         {
             await using NpgsqlCommand command = DataSource.CreateCommand("""

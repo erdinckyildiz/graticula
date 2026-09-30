@@ -211,7 +211,7 @@ bytes, one admission and one set of caching headers for the same tile on every f
   (`turef-tm30`) **only when the service's stored numbers are the built-in's** (ADR-096 §5.1: a service keeps
   the numbers it was given); anything else is `custom-` plus the grid's key.
 - **The scale is 0.28 mm, the OGC standardized rendering pixel** (17-083r4 §6.1.1, WMTS 1.0 §6.1), not the
-  96 dpi ArcGIS uses: TM30's level 0 is 3,400.390625 m a pixel and 12,144,252.23… here (1,173.828125 and 4,192,243.30… before
+  96 dpi ArcGIS uses: TM30's level 0 is 3,460.9375 m a pixel and 12,360,491.07… here (1,173.828125 and 4,192,243.30… before
   ADR-096's D-288 amendment). The two faces state two
   scale columns for one grid, each right in its standard, and neither is copied into the other.
 - **Axis order is the reference's authority's** (ADR-060): `pointOfOrigin` and WMTS `TopLeftCorner` are

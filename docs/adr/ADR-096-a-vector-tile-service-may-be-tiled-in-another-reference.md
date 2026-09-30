@@ -135,7 +135,7 @@ is documented to read a style against a non-Mercator service; it has not been wa
 | Claim | Evidence | Source |
 |---|---|---|
 | TM30's area of use, and the other six zones' | 28.5–31.5°E, 36.06–41.46°N; the seven zones' areas read from the EPSG register v12.013 (`proj.db`, table `extent`), 2026-09-29; TM30's matches what PostGIS answered on 2026-08-26 | `PostGisProjector.DomainOfAsync`'s remarks; `VectorTileSchemes` |
-| The derivation gives the grid the tests assert, worked by hand | TM30 (since D-288, 2026-09-30): origin (104,000, 4,777,000), 3,400.390625 m at level 0, 19 levels; a level-2 tile, a level-3 point at unit (3,357, 1,117) | `VectorTileSchemeTests`, `ATileSchemeIsCutInItsOwnReferenceTests` (needs `GRATICULA_TEST_PG`) |
+| The derivation gives the grid the tests assert, worked by hand | TM30 (since D-288, 2026-09-30): origin (97,000, 4,921,000), 3,460.9375 m at level 0, 19 levels; a level-2 tile, a level-3 point at unit (3,356, 3,689) | `VectorTileSchemeTests`, `ATileSchemeIsCutInItsOwnReferenceTests` (needs `GRATICULA_TEST_PG`) |
 | A Web Mercator service is unchanged: its envelopes, keys, simplification, visible-range tests, seed counts and service document | Asserted against the pre-existing code for the same inputs | `VectorTileSchemeTests`, `TilingSchemeTests`, `VectorTileServerSchemeDocumentTests` |
 | The Mercator statement's text did not change | Every SQL helper answers the pre-ADR-096 text for Web Mercator; `TilePipelineVersionTests`' hash moved and `TilePipeline.Version` did not | `PostGisTileSource.BoundsSql`, `SimplifyWhen`, `FilterBox` |
 | A TUREF service's document, tiles and cache follow the grid, and switching back restores the Mercator bytes | `ATilingSchemeIsTheServiceSGridTests` (needs a running server and `GRATICULA_TEST_TILE_SERVICE`) | this ADR |
@@ -176,10 +176,13 @@ ED50 / TM30 (EPSG:2320) and anything else is a custom scheme.
 each grid came from the zone's own area of use, so TM30's was one 601-km tile from 28.5°E, and ArcGIS Pro showed
 what that means: Thrace, İzmir and everything east of about 35°E were on no tile while the service's extent still
 named them (§3, *Measured 2026-09-30*). ArcGIS's own tiling schemes for a projected reference put the origin far
-outside the data for this reason. The ground each grid is derived from is now `VectorTileSchemes.Country` — the
-union of the seven zones' areas of use, 25.62–44.83°E and 35.81–42.15°N — projected into the zone by PostGIS,
-edges segmentized at 0.05°, frozen beside the zone's own area of use (`BuiltInTileScheme.CoversProjected`) and
-checked against PostGIS again by `Every_built_in_s_country_projects_where_its_numbers_say`. How far from its
+outside the data for this reason. The ground each grid is derived from is now `VectorTileSchemes.Country` —
+TUREF's own area of use as the register states it for EPSG:5252, Türkiye onshore and offshore, 25.62–44.83°E and
+34.42–43.45°N — projected into the zone by PostGIS, edges segmentized at 0.05°, frozen beside the zone's own area
+of use (`BuiltInTileScheme.CoversProjected`) and checked against PostGIS again, box and register both, by
+`Every_built_in_s_country_projects_where_its_numbers_say`. **Offshore, by the owner's decision the same day:** the
+first cut of this amendment used the seven zones' onshore union (35.81–42.15°N), and 13 of the showcase layer's
+60 polygons, in the Black Sea, were still off the grid. How far from its
 meridian a map is drawn is its publisher's choice; the grid no longer makes it for them. The owner's rule — the
 origin at the covered area's upper-left corner, one tile at level 0, resolutions halving — is kept; only the area
 it is applied to moved. A reference named by its EPSG code alone that is a built-in's gets the built-in's grid
@@ -196,13 +199,13 @@ Each is derived (`VectorTileScheme.Derive`) from the country so projected, by fo
 
 | Zone | Origin (m) | Span | Level 0 (m/px) | Levels |
 |---|---|---|---|---|
-| TM27 (5253) | 375,000 / 4,826,000 | 1,745 km | 3,408.203125 | 19 |
-| TM30 (5254) | 104,000 / 4,777,000 | 1,741 km | 3,400.390625 | 19 |
-| TM33 (5255) | −168,000 / 4,737,000 | 1,740 km | 3,398.4375 | 19 |
-| TM36 (5256) | −440,000 / 4,721,000 | 1,740 km | 3,398.4375 | 19 |
-| TM39 (5257) | −713,000 / 4,756,000 | 1,741 km | 3,400.390625 | 19 |
-| TM42 (5258) | −987,000 / 4,801,000 | 1,743 km | 3,404.296875 | 19 |
-| TM45 (5259) | −1,262,000 / 4,855,000 | 1,748 km | 3,414.0625 | 19 |
+| TM27 (5253) | 373,000 / 4,970,000 | 1,776 km | 3,468.75 | 19 |
+| TM30 (5254) | 97,000 / 4,921,000 | 1,772 km | 3,460.9375 | 19 |
+| TM33 (5255) | −180,000 / 4,882,000 | 1,771 km | 3,458.984375 | 19 |
+| TM36 (5256) | −457,000 / 4,866,000 | 1,770 km | 3,457.03125 | 19 |
+| TM39 (5257) | −735,000 / 4,901,000 | 1,772 km | 3,460.9375 | 19 |
+| TM42 (5258) | −1,014,000 / 4,945,000 | 1,775 km | 3,466.796875 | 19 |
+| TM45 (5259) | −1,294,000 / 4,999,000 | 1,781 km | 3,478.515625 | 19 |
 
 (Until 2026-09-30, from each zone's own area: TM30 was 364,000 / 4,593,000, 601 km, 1,173.828125 m, 17 levels.)
 

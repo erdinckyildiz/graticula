@@ -31,13 +31,13 @@ public sealed class VectorTileSchemeTests
     private const double Half = TileAddress.WebMercatorHalfExtent;
 
     [Theory]
-    [InlineData(0, 5)]
-    [InlineData(8, 13)]
-    [InlineData(16, 21)]
+    [InlineData(0, 4)]
+    [InlineData(8, 12)]
+    [InlineData(16, 20)]
     public void A_levels_mercator_equivalent_is_the_mercator_level_with_the_same_pixel(int level, int mercator)
     {
-        // TM30's level 0 is 3,400.39 m a pixel; Mercator's level 5 is 2,445.98 m and level 4 4,891.97 m, and
-        // 3,400.39 is nearer 5 on the doubling scale (2^0.47 from it). Both halve per level.
+        // TM30's level 0 is 3,460.94 m a pixel; Mercator's level 4 is 4,891.97 m and level 5 2,445.98 m, and
+        // 3,460.94 is nearer 4 on the doubling scale (2^0.4992 from it, 2^0.5008 from 5). Both halve per level.
         Assert.Equal(mercator, Tm30.MercatorLevelOf(level));
         Assert.Equal(level, VectorTileScheme.WebMercator.MercatorLevelOf(level));
     }
@@ -144,20 +144,20 @@ public sealed class VectorTileSchemeTests
     {
         VectorTileScheme tm30 = Tm30;
 
-        // D-288: the country, 25.62-44.83°E and 35.81-42.15°N, projected into TM30 is x 104,015-1,844,996 and
-        // y 3,964,461-4,776,137. The origin rounds outward to (104,000, 4,777,000); the longer side from it is
-        // 1,741,000 m, so level 0 is 1,741,000 / 512 = 3,400.390625 m a pixel.
+        // D-288: TUREF's area of use, 25.62-44.83°E and 34.42-43.45°N, projected into TM30 is x 97,214-1,868,748 and
+        // y 3,810,250-4,920,854. The origin rounds outward to (97,000, 4,921,000); the longer side from it is
+        // 1,772,000 m, so level 0 is 1,772,000 / 512 = 3,460.9375 m a pixel.
         Assert.Equal(5254, tm30.Srid);
-        Assert.Equal(104_000, tm30.OriginX);
-        Assert.Equal(4_777_000, tm30.OriginY);
-        Assert.Equal(3400.390625, tm30.Resolution(0));
+        Assert.Equal(97_000, tm30.OriginX);
+        Assert.Equal(4_921_000, tm30.OriginY);
+        Assert.Equal(3460.9375, tm30.Resolution(0));
         Assert.Equal(19, tm30.LevelCount);
-        Assert.Equal(3400.390625 / 262144, tm30.Resolution(18));
+        Assert.Equal(3460.9375 / 262144, tm30.Resolution(18));
         Assert.True(tm30.Resolution(18) <= VectorTileScheme.WebMercator.Resolution(22));
         Assert.True(tm30.Resolution(17) > VectorTileScheme.WebMercator.Resolution(22));
 
-        // Level zero is one 1,741 km tile, and it holds all of Turkey, Thrace included.
-        Assert.Equal(new Envelope(104_000, 3_036_000, 1_845_000, 4_777_000), tm30.Frame);
+        // Level zero is one 1,772 km tile, and it holds all of Türkiye, Thrace and the Black Sea included.
+        Assert.Equal(new Envelope(97_000, 3_149_000, 1_869_000, 4_921_000), tm30.Frame);
         Assert.True(Holds(tm30.Frame, VectorTileSchemes.Find("turef-tm30")!.CoversProjected));
     }
 
@@ -167,10 +167,10 @@ public sealed class VectorTileSchemeTests
     [Fact]
     public void A_TM30_tile_is_where_its_origin_and_resolution_put_it()
     {
-        // Level 2: a tile is 1,741,000 / 4 = 435,250 m. Column 1, row 2 starts 435,250 m east and 870,500 m south.
+        // Level 2: a tile is 1,772,000 / 4 = 443,000 m. Column 1, row 2 starts 443,000 m east and 886,000 m south.
         Envelope tile = Tm30.Envelope(new TileAddress(2, 1, 2));
 
-        Assert.Equal(new Envelope(539_250, 3_471_250, 974_500, 3_906_500), tile);
+        Assert.Equal(new Envelope(540_000, 3_592_000, 983_000, 4_035_000), tile);
         Assert.Equal(4, Tm30.TilesAcross(2));
         Assert.Equal(262_144, Tm30.TilesAcross(18));
     }
@@ -206,9 +206,9 @@ public sealed class VectorTileSchemeTests
             Assert.Equal(VectorTileSchemes.Country, built.Covers);
         }
 
-        // TM45, the zone the country reaches furthest from: 1,748 km, so 3,414.0625 m at level 0.
+        // TM45, the zone the country reaches furthest from: 1,781 km, so 3,478.515625 m at level 0.
         VectorTileScheme tm45 = VectorTileSchemes.Find("turef-tm45")!.Scheme;
-        Assert.Equal(1_748_000 / 512.0, tm45.Resolution(0));
+        Assert.Equal(1_781_000 / 512.0, tm45.Resolution(0));
         Assert.Equal(19, tm45.LevelCount);
     }
 
@@ -225,7 +225,7 @@ public sealed class VectorTileSchemeTests
     [Fact]
     public void A_TM30_level_is_simplified_by_the_size_of_its_pixel_not_by_its_number()
     {
-        // 3400.390625 / 2^9 = 6.64 m ≥ 4.777 m; / 2^10 = 3.32 m < 4.777 m.
+        // 3460.9375 / 2^9 = 6.76 m ≥ 4.777 m; / 2^10 = 3.38 m < 4.777 m.
         Assert.True(Tm30.Simplifies(9));
         Assert.False(Tm30.Simplifies(10));
 
@@ -237,15 +237,15 @@ public sealed class VectorTileSchemeTests
     [Fact]
     public void A_TM30_level_draws_a_visible_range_by_its_own_scales()
     {
-        // Scale is resolution × 96 × 39.37: level 7 is 100,405, level 8 50,203, level 9 25,101.
-        Assert.Equal(3400.390625 / 128 * 96 * 39.37, Tm30.Scale(7), 6);
+        // Scale is resolution × 96 × 39.37: level 7 is 102,193, level 8 51,096, level 9 25,548.
+        Assert.Equal(3460.9375 / 128 * 96 * 39.37, Tm30.Scale(7), 6);
 
         VisibleScaleRange range = new(50_000, 0);   // hidden when zoomed out past 1:50,000
 
-        // Level 7 is on screen from 1:100,405 to 1:50,203 — all past the limit.
+        // Level 7 is on screen from 1:102,193 to 1:51,096 — all past the limit.
         Assert.False(Tm30.Draws(range, 7));
 
-        // Level 8 is on screen from 1:50,203 down to 1:25,101, which crosses it.
+        // Level 8 is on screen from 1:51,096 down to 1:25,548, which crosses it.
         Assert.True(Tm30.Draws(range, 8));
         Assert.True(Tm30.Draws(range, 16));
     }
@@ -269,7 +269,7 @@ public sealed class VectorTileSchemeTests
 
         Assert.NotNull(tm30);
         Assert.NotEqual(tm30, gk10);
-        Assert.StartsWith("srid=5254;origin=104000,4777000;size=512;res=3400.390625,", tm30, StringComparison.Ordinal);
+        Assert.StartsWith("srid=5254;origin=97000,4921000;size=512;res=3460.9375,", tm30, StringComparison.Ordinal);
 
         string mercator = TileCacheKey.FingerprintOf(5254, "geom", ["a"], 4096, 64);
         string cut = TileCacheKey.FingerprintOf(5254, "geom", ["a"], 4096, 64, null, tm30);
@@ -331,14 +331,14 @@ public sealed class VectorTileSchemeTests
     [Fact]
     public void A_seed_of_TM30_counts_its_own_rectangles()
     {
-        // Level 3 is 217,625 m a tile, level 4 108,812.5 m. The area is 296-346 km east of the origin and 227-277 km
-        // south of it: column 1 and row 1 at level 3, columns 2-3 and row 2 at level 4.
+        // Level 3 is 221,500 m a tile, level 4 110,750 m. The area is 303-353 km east of the origin and 371-421 km
+        // south of it: column 1 and row 1 at level 3, columns 2-3 and row 3 at level 4.
         Envelope area = new(400_000, 4_500_000, 450_000, 4_550_000);
 
         TileSeedPlan plan = TileSeedPlan.For(Tm30, area, 3, 4);
 
         Assert.Equal(new TileRange(3, 1, 1, 1, 1), plan.Levels[0]);
-        Assert.Equal(new TileRange(4, 2, 2, 3, 2), plan.Levels[1]);
+        Assert.Equal(new TileRange(4, 2, 3, 3, 3), plan.Levels[1]);
         Assert.Equal(1 + 2, plan.Total);
     }
 

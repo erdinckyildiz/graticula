@@ -81,7 +81,7 @@ public sealed class TilePipelineVersionTests
     private const string RecordedHash =
         // <b>Moved 2026-09-30 for a comment, and the version deliberately did not move.</b> D-288 derives each TUREF
         // zone's built-in grid from the whole country, and `Derive`'s worked example in `VectorTileScheme` now says
-        // TM30's 1,741 km is 3400.390625 m. A grid is part of a tile's cache key (its fingerprint), so a service set
+        // TM30's 1,772 km is 3460.9375 m (TUREF's area of use, offshore included). A grid is part of a tile's cache key (its fingerprint), so a service set
         // to the new grid gets new keys by that alone; no tile of any grid is cut differently.
         // <b>Moved 2026-09-30 for a size guess, and the version deliberately did not move.</b>
         // `VectorTileScheme.MercatorLevelOf` was added so a seed's or an export's size guess reads another grid's
@@ -207,7 +207,7 @@ public sealed class TilePipelineVersionTests
         // stored style is checked against the generated icons' names as well as the uploaded ones. A picture marker is
         // drawn by the style from the sprite, beside the tiles; the tile route, the key, the encoder and every byte of
         // a tile are what they were.
-        "2d9e524cfa99dfcc47a41370a7dca38995e0caeb090084c4f9a1d1af26c31fbb";
+        "528bdece8653eb3a1226df1b043f6991dbb16b49f9f13124e93b2e4c17eedb26";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 3;
