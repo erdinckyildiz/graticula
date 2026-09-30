@@ -107,16 +107,19 @@ public sealed class ATileSchemeIsCutInItsOwnReferenceTests : PostgresFixture
         Assert.Equal(PostGisTileSource.Extent, tile.Extent);
         Assert.Equal(["circle", "point", "square"], tile.Features.Select(f => (string)f.Attributes["kind"]!).Order());
 
+        // Level 3 is 217,625 m a tile from (104,000, 4,777,000), D-288's country grid. The point is 396,000 m east
+        // and 277,000 m south of the origin: column 1, row 1, and 178,375 m and 59,375 m into that tile, which is
+        // 3,357.3 and 1,117.5 of 4,096.
         (int x, int y) = PointOf(tile);
-        Assert.InRange(x, 3318, 3320);
-        Assert.InRange(y, 974, 976);
+        Assert.InRange(x, 3356, 3358);
+        Assert.InRange(y, 1116, 1119);
 
-        // The 10 km square: 3,046–3,591 across and 702–1,247 down, give or take the grid's rounding.
+        // The 10 km square: 3,263–3,451 across and 1,023–1,212 down, give or take the grid's rounding.
         foreach ((int px, int py) in tile.Features
                      .Where(f => (string?)f.Attributes["kind"] == "square").SelectMany(f => f.Rings).SelectMany(r => r))
         {
-            Assert.InRange(px, 3044, 3593);
-            Assert.InRange(py, 700, 1249);
+            Assert.InRange(px, 3261, 3454);
+            Assert.InRange(py, 1021, 1214);
         }
 
         // The tile beside it, to the west, holds nothing: the grid is TM30's and not Web Mercator's.
@@ -130,10 +133,10 @@ public sealed class ATileSchemeIsCutInItsOwnReferenceTests : PostgresFixture
 
         Mvt.Layer tile = (await TileAsync(layer, new TileAddress(3, 1, 1)))!;
 
-        // TUREF and WGS 84 differ by centimetres; a level-3 unit is 18 m.
+        // TUREF and WGS 84 differ by centimetres; a level-3 unit is 53 m.
         (int x, int y) = PointOf(tile);
-        Assert.InRange(x, 3317, 3321);
-        Assert.InRange(y, 973, 977);
+        Assert.InRange(x, 3355, 3359);
+        Assert.InRange(y, 1115, 1120);
     }
 
     [Fact]
@@ -141,22 +144,22 @@ public sealed class ATileSchemeIsCutInItsOwnReferenceTests : PostgresFixture
     {
         LayerDefinition layer = await ShapesAsync(5254);
 
-        // Level 7 (9.17 m a pixel) is simplified; level 8 (4.59 m) is not. The tiles holding the circle's centre:
-        // level 7 is 4,695.3125 m a tile, column 136,000 / 4,695.3 = 28 and row 93,000 / 4,695.3 = 19; level 8
-        // is 2,347.65625 m, column 57 and row 39.
-        TileAddress seven = new(7, 28, 19);
-        TileAddress eight = new(8, 57, 39);
+        // Level 9 (6.64 m a pixel) is simplified; level 10 (3.32 m) is not. The tiles holding the circle's centre:
+        // level 9 is 3,400.390625 m a tile, column 396,000 / 3,400.4 = 116 and row 277,000 / 3,400.4 = 81; level 10
+        // is 1,700.1953125 m, column 232 and row 162.
+        TileAddress seven = new(9, 116, 81);
+        TileAddress eight = new(10, 232, 162);
 
         int simplified = Vertices((await TileAsync(layer, seven))!, "circle");
         int raw7 = Vertices(await UngeneralisedAsync(seven), "circle");
 
-        Assert.True(raw7 > 0, "The level-7 tile does not hold the circle, so it cannot say anything about it.");
-        Assert.True(simplified < raw7, $"The circle has {simplified} vertices at level 7 and {raw7} unsimplified.");
+        Assert.True(raw7 > 0, "The level-9 tile does not hold the circle, so it cannot say anything about it.");
+        Assert.True(simplified < raw7, $"The circle has {simplified} vertices at level 9 and {raw7} unsimplified.");
 
         int kept = Vertices((await TileAsync(layer, eight))!, "circle");
         int raw8 = Vertices(await UngeneralisedAsync(eight), "circle");
 
-        Assert.True(raw8 > 0, "The level-8 tile does not hold the circle, so it cannot say anything about it.");
+        Assert.True(raw8 > 0, "The level-10 tile does not hold the circle, so it cannot say anything about it.");
         Assert.Equal(raw8, kept);
     }
 
@@ -167,7 +170,7 @@ public sealed class ATileSchemeIsCutInItsOwnReferenceTests : PostgresFixture
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
             () => new PostGisTileSource(DataSource, layer, ["kind"], Tm30)
-                .BuildAsync(new TileAddress(17, 0, 0), "shapes", CancellationToken.None));
+                .BuildAsync(new TileAddress(19, 0, 0), "shapes", CancellationToken.None));
     }
 
     /// <remarks>
@@ -176,6 +179,33 @@ public sealed class ATileSchemeIsCutInItsOwnReferenceTests : PostgresFixture
     /// projection that disagrees with the Krüger series the numbers were made with, would show. Needs
     /// <c>postgis_srs</c>, PostGIS 3.4.
     /// </remarks>
+    /// <summary>The country each built-in's grid is derived from projects where its frozen numbers say — D-288.</summary>
+    [Fact]
+    public async Task Every_built_in_s_country_projects_where_its_numbers_say()
+    {
+        foreach (BuiltInTileScheme built in VectorTileSchemes.BuiltIn)
+        {
+            await using NpgsqlCommand command = DataSource.CreateCommand("""
+                select ST_XMin(t), ST_YMin(t), ST_XMax(t), ST_YMax(t)
+                  from (select ST_Transform(ST_Segmentize(ST_MakeEnvelope(@w, @s, @e, @n, 4326), 0.05), @srid) as t) m
+                """);
+
+            command.Parameters.AddWithValue("w", built.Covers.MinX);
+            command.Parameters.AddWithValue("s", built.Covers.MinY);
+            command.Parameters.AddWithValue("e", built.Covers.MaxX);
+            command.Parameters.AddWithValue("n", built.Covers.MaxY);
+            command.Parameters.AddWithValue("srid", built.Scheme.Srid);
+
+            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(CancellationToken.None);
+            Assert.True(await reader.ReadAsync(CancellationToken.None));
+
+            Assert.InRange(reader.GetDouble(0), built.CoversProjected.MinX - 1, built.CoversProjected.MinX + 1);
+            Assert.InRange(reader.GetDouble(1), built.CoversProjected.MinY - 1, built.CoversProjected.MinY + 1);
+            Assert.InRange(reader.GetDouble(2), built.CoversProjected.MaxX - 1, built.CoversProjected.MaxX + 1);
+            Assert.InRange(reader.GetDouble(3), built.CoversProjected.MaxY - 1, built.CoversProjected.MaxY + 1);
+        }
+    }
+
     [Fact]
     public async Task Every_built_in_s_area_of_use_is_the_register_s_and_projects_where_its_numbers_say()
     {

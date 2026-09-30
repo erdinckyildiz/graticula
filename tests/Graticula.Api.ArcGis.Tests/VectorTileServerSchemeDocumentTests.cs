@@ -52,22 +52,22 @@ public sealed class VectorTileServerSchemeDocumentTests
         Assert.Equal(5254, document.GetProperty("fullExtent").GetProperty("spatialReference").GetProperty("wkid").GetInt32());
         Assert.Equal(5254, document.GetProperty("initialExtent").GetProperty("spatialReference").GetProperty("wkid").GetInt32());
 
-        Assert.Equal(364_000, info.GetProperty("origin").GetProperty("x").GetDouble());
-        Assert.Equal(4_593_000, info.GetProperty("origin").GetProperty("y").GetDouble());
+        Assert.Equal(104_000, info.GetProperty("origin").GetProperty("x").GetDouble());
+        Assert.Equal(4_777_000, info.GetProperty("origin").GetProperty("y").GetDouble());
         Assert.Equal(512, info.GetProperty("rows").GetInt32());
         Assert.Equal(400_000, document.GetProperty("fullExtent").GetProperty("xmin").GetDouble());
 
         JsonElement[] lods = [.. info.GetProperty("lods").EnumerateArray()];
 
-        Assert.Equal(17, lods.Length);
-        Assert.Equal(1173.828125, lods[0].GetProperty("resolution").GetDouble());
-        Assert.Equal(1173.828125 * 96 * 39.37, lods[0].GetProperty("scale").GetDouble(), 3);
-        Assert.Equal(1173.828125 / 65536, lods[16].GetProperty("resolution").GetDouble());
-        Assert.Equal(16, lods[16].GetProperty("level").GetInt32());
+        Assert.Equal(19, lods.Length);
+        Assert.Equal(3400.390625, lods[0].GetProperty("resolution").GetDouble());
+        Assert.Equal(3400.390625 * 96 * 39.37, lods[0].GetProperty("scale").GetDouble(), 3);
+        Assert.Equal(3400.390625 / 262144, lods[18].GetProperty("resolution").GetDouble());
+        Assert.Equal(18, lods[18].GetProperty("level").GetInt32());
 
         Assert.Equal(0, document.GetProperty("minLOD").GetInt32());
-        Assert.Equal(16, document.GetProperty("maxLOD").GetInt32());
-        Assert.Equal(16, document.GetProperty("maxzoom").GetInt32());
+        Assert.Equal(18, document.GetProperty("maxLOD").GetInt32());
+        Assert.Equal(18, document.GetProperty("maxzoom").GetInt32());
         Assert.Equal("tile/{z}/{y}/{x}.pbf", document.GetProperty("tiles")[0].GetString());
     }
 
@@ -77,10 +77,10 @@ public sealed class VectorTileServerSchemeDocumentTests
         JsonElement extent = Parse(
             VectorTileServerMetadataWriter.Service("roads", ["roads"], null, Tm30)).GetProperty("fullExtent");
 
-        Assert.Equal(364_000, extent.GetProperty("xmin").GetDouble());
-        Assert.Equal(3_992_000, extent.GetProperty("ymin").GetDouble());
-        Assert.Equal(965_000, extent.GetProperty("xmax").GetDouble());
-        Assert.Equal(4_593_000, extent.GetProperty("ymax").GetDouble());
+        Assert.Equal(104_000, extent.GetProperty("xmin").GetDouble());
+        Assert.Equal(3_036_000, extent.GetProperty("ymin").GetDouble());
+        Assert.Equal(1_845_000, extent.GetProperty("xmax").GetDouble());
+        Assert.Equal(4_777_000, extent.GetProperty("ymax").GetDouble());
     }
 
     [Fact]

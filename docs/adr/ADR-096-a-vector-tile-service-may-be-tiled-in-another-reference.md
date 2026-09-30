@@ -135,7 +135,7 @@ is documented to read a style against a non-Mercator service; it has not been wa
 | Claim | Evidence | Source |
 |---|---|---|
 | TM30's area of use, and the other six zones' | 28.5–31.5°E, 36.06–41.46°N; the seven zones' areas read from the EPSG register v12.013 (`proj.db`, table `extent`), 2026-09-29; TM30's matches what PostGIS answered on 2026-08-26 | `PostGisProjector.DomainOfAsync`'s remarks; `VectorTileSchemes` |
-| The derivation gives the grid the tests assert, worked by hand | TM30: origin (364,000, 4,593,000), 1,173.828125 m at level 0, 17 levels; a level-2 tile, a level-3 point at unit (3,319, 975) | `VectorTileSchemeTests`, `ATileSchemeIsCutInItsOwnReferenceTests` (needs `GRATICULA_TEST_PG`) |
+| The derivation gives the grid the tests assert, worked by hand | TM30 (since D-288, 2026-09-30): origin (104,000, 4,777,000), 3,400.390625 m at level 0, 19 levels; a level-2 tile, a level-3 point at unit (3,357, 1,117) | `VectorTileSchemeTests`, `ATileSchemeIsCutInItsOwnReferenceTests` (needs `GRATICULA_TEST_PG`) |
 | A Web Mercator service is unchanged: its envelopes, keys, simplification, visible-range tests, seed counts and service document | Asserted against the pre-existing code for the same inputs | `VectorTileSchemeTests`, `TilingSchemeTests`, `VectorTileServerSchemeDocumentTests` |
 | The Mercator statement's text did not change | Every SQL helper answers the pre-ADR-096 text for Web Mercator; `TilePipelineVersionTests`' hash moved and `TilePipeline.Version` did not | `PostGisTileSource.BoundsSql`, `SimplifyWhen`, `FilterBox` |
 | A TUREF service's document, tiles and cache follow the grid, and switching back restores the Mercator bytes | `ATilingSchemeIsTheServiceSGridTests` (needs a running server and `GRATICULA_TEST_TILE_SERVICE`) | this ADR |
@@ -172,8 +172,21 @@ zone number in front of the easting). *INFERRED*: the owner named *TUREF TM zone
 is Turkey's realisation of ITRF96, and these two families are every TUREF projected zone the register has.
 ED50 / TM30 (EPSG:2320) and anything else is a custom scheme.
 
-Each is derived (`VectorTileScheme.Derive`) from the zone's area of use, projected into the zone — the Krüger
-series on GRS80, each edge sampled 65 times, frozen in `VectorTileSchemes` — by four steps:
+**Amended 2026-09-30 (D-288): each zone's grid is derived from the whole country, not the zone.** As first built,
+each grid came from the zone's own area of use, so TM30's was one 601-km tile from 28.5°E, and ArcGIS Pro showed
+what that means: Thrace, İzmir and everything east of about 35°E were on no tile while the service's extent still
+named them (§3, *Measured 2026-09-30*). ArcGIS's own tiling schemes for a projected reference put the origin far
+outside the data for this reason. The ground each grid is derived from is now `VectorTileSchemes.Country` — the
+union of the seven zones' areas of use, 25.62–44.83°E and 35.81–42.15°N — projected into the zone by PostGIS,
+edges segmentized at 0.05°, frozen beside the zone's own area of use (`BuiltInTileScheme.CoversProjected`) and
+checked against PostGIS again by `Every_built_in_s_country_projects_where_its_numbers_say`. How far from its
+meridian a map is drawn is its publisher's choice; the grid no longer makes it for them. The owner's rule — the
+origin at the covered area's upper-left corner, one tile at level 0, resolutions halving — is kept; only the area
+it is applied to moved. A reference named by its EPSG code alone that is a built-in's gets the built-in's grid
+under the custom id, so `wkid: 5254` and `turef-tm30` are still one grid. **A service already set to a zone keeps
+the numbers it was given** (§5.1); it moves to the new grid when its scheme is set again.
+
+Each is derived (`VectorTileScheme.Derive`) from the country so projected, by four steps:
 
 1. **Origin**: the area's top-left corner, rounded outward to the kilometre (west down, north up).
 2. **Span**: the area's longer side measured from that origin, rounded up to the kilometre — level 0 is one
@@ -183,13 +196,15 @@ series on GRS80, each edge sampled 65 times, frozen in `VectorTileSchemes` — b
 
 | Zone | Origin (m) | Span | Level 0 (m/px) | Levels |
 |---|---|---|---|---|
-| TM27 (5253) | 376,000 / 4,665,000 | 624 km | 1,218.75 | 17 |
-| TM30 (5254) | 364,000 / 4,593,000 | 601 km | 1,173.828125 | 17 |
-| TM33 (5255) | 364,000 / 4,661,000 | 679 km | 1,326.171875 | 18 |
-| TM36 (5256) | 364,000 / 4,670,000 | 706 km | 1,378.90625 | 18 |
-| TM39 (5257) | 365,000 / 4,563,000 | 505 km | 986.328125 | 17 |
-| TM42 (5258) | 366,000 / 4,609,000 | 511 km | 998.046875 | 17 |
-| TM45 (5259) | 366,000 / 4,544,000 | 451 km | 880.859375 | 17 |
+| TM27 (5253) | 375,000 / 4,826,000 | 1,745 km | 3,408.203125 | 19 |
+| TM30 (5254) | 104,000 / 4,777,000 | 1,741 km | 3,400.390625 | 19 |
+| TM33 (5255) | −168,000 / 4,737,000 | 1,740 km | 3,398.4375 | 19 |
+| TM36 (5256) | −440,000 / 4,721,000 | 1,740 km | 3,398.4375 | 19 |
+| TM39 (5257) | −713,000 / 4,756,000 | 1,741 km | 3,400.390625 | 19 |
+| TM42 (5258) | −987,000 / 4,801,000 | 1,743 km | 3,404.296875 | 19 |
+| TM45 (5259) | −1,262,000 / 4,855,000 | 1,748 km | 3,414.0625 | 19 |
+
+(Until 2026-09-30, from each zone's own area: TM30 was 364,000 / 4,593,000, 601 km, 1,173.828125 m, 17 levels.)
 
 The Gauss-Krüger zone *n* is the same grid with *n* × 1,000,000 added to the origin's easting. *INFERRED*: the
 kilometre rounding and the z22 floor are this session's; the owner's description fixed the origin's corner and

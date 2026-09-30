@@ -161,12 +161,12 @@ public sealed class StandardTileFacesTests
         Assert.Equal("urn:ogc:def:crs:EPSG::5254", set.CrsUrn);
         Assert.True(set.NorthFirst);
         Assert.Equal(["N", "E"], set.OrderedAxes);
-        Assert.Equal((4_593_000d, 364_000d), set.Origin);
+        Assert.Equal((4_777_000d, 104_000d), set.Origin);
         Assert.Equal(Tm30.LevelCount, set.Matrices.Count);
 
         // ADR-096 §5.2's table: TM30 level 0 is 1,173.828125 m a pixel; its 0.28 mm scale is that over 0.28 mm.
-        Assert.Equal(1173.828125, set.Matrices[0].CellSize);
-        AssertClose(1173.828125 / 0.28e-3, set.Matrices[0].ScaleDenominator, 1e-12);
+        Assert.Equal(3400.390625, set.Matrices[0].CellSize);
+        AssertClose(3400.390625 / 0.28e-3, set.Matrices[0].ScaleDenominator, 1e-12);
         Assert.Equal(512, set.Matrices[0].TileWidth);
         Assert.Equal(1, set.Matrices[0].MatrixWidth);
         Assert.Equal(Tm30.TilesAcross(5), set.Matrices[5].MatrixWidth);
@@ -208,7 +208,7 @@ public sealed class StandardTileFacesTests
         JsonElement tm30 = Json(TileDocuments.TileMatrixSetDocument("https://x/ogc/tiles/v1", TileMatrixSet.For(Tm30)));
 
         // North first, because EPSG:5254's authority writes it so (ADR-060).
-        Assert.Equal(4_593_000, tm30.GetProperty("tileMatrices")[0].GetProperty("pointOfOrigin")[0].GetDouble());
+        Assert.Equal(4_777_000, tm30.GetProperty("tileMatrices")[0].GetProperty("pointOfOrigin")[0].GetDouble());
         Assert.False(tm30.TryGetProperty("uri", out _));
     }
 
@@ -404,7 +404,7 @@ public sealed class StandardTileFacesTests
 
         // TM30's corner is northing first, as its reference writes it.
         XmlNode tm30 = sets[1]!;
-        Assert.Equal("4593000 364000", tm30.SelectSingleNode("w:TileMatrix/w:TopLeftCorner", ns)!.InnerText);
+        Assert.Equal("4777000 104000", tm30.SelectSingleNode("w:TileMatrix/w:TopLeftCorner", ns)!.InnerText);
         Assert.Equal("512", tm30.SelectSingleNode("w:TileMatrix/w:TileWidth", ns)!.InnerText);
         Assert.Null(tm30.SelectSingleNode("w:WellKnownScaleSet", ns));
 

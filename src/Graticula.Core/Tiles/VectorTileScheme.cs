@@ -444,7 +444,7 @@ public sealed class VectorTileScheme
     /// north up — so the grid contains the whole area and its numbers can be read aloud.</item>
     /// <item><b>Level zero spans the area's longer side from that origin</b>, rounded up to the kilometre.</item>
     /// <item><b>Its resolution is that span over 512</b>, which is exact in binary because 512 is a power of
-    /// two: TM30's 601 km is 1173.828125 m per pixel, no rounding anywhere.</item>
+    /// two: TM30's 1,741 km is 3400.390625 m per pixel, no rounding anywhere.</item>
     /// <item><b>Levels halve until a pixel is no bigger than Web Mercator's at z22</b> (0.0186613838586856 m),
     /// so the finest level is at least as fine as the finest Mercator level this server serves.</item>
     /// </list>

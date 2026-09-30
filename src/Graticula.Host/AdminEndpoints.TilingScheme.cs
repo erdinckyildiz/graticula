@@ -365,6 +365,17 @@ internal static partial class AdminEndpoints
             return (null, $"EPSG:{wkid} is not a reference this server can project into, so nothing could be cut on it.");
         }
 
+        if (!numbered && VectorTileSchemes.In(wkid).FirstOrDefault() is { } builtIn)
+        {
+            // <b>A TUREF code alone is its built-in's grid</b>, derived from the same ground: the whole country, not the
+            // zone (D-288). Deriving it from the zone's area of use, as below, would make EPSG:5254 alone and
+            // TUREF / TM30 two different grids over one reference.
+            string? wrongBuiltIn = VectorTileScheme.Derive(
+                VectorTileScheme.CustomId, wkid, builtIn.CoversProjected, out VectorTileScheme? same);
+
+            return wrongBuiltIn is null ? (same, null) : (null, wrongBuiltIn);
+        }
+
         if (!numbered)
         {
             // <b>Derived from the reference's own area of use</b>, sampled on a 16-cell grid a side.
