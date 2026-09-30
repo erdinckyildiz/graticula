@@ -44,6 +44,9 @@ internal static partial class AdminEndpoints
         app.MapGet("/content/webmaps/{id}", GetWebMapAsync);
         app.MapPut("/content/webmaps/{id}", UpdateWebMapAsync);
         app.MapDelete("/content/webmaps/{id}", DeleteWebMapAsync);
+
+        // An item's delete protection, for a map too (2026-10-01, the ArcGIS review's second pass).
+        app.MapPut("/content/webmaps/{id}/protection", SetWebMapProtectionAsync);
     }
 
     /// <summary>The maps this caller may open: their own first, then what is shared with them.</summary>
@@ -185,6 +188,15 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // Protected, and the owner has not turned it off: refused, as a service's delete is (ADR-102 condition 2).
+        if (before.DeleteProtected)
+        {
+            await Refuse(context, 409,
+                $"'{before.Title}' is protected from deletion. Its owner or an administrator turns that off on the map's page first.")
+                .ConfigureAwait(false);
+            return;
+        }
+
         bool gone = await maps.DeleteAsync(id, cancellation).ConfigureAwait(false);
 
         await AuditAsync(
@@ -199,6 +211,26 @@ internal static partial class AdminEndpoints
         }
 
         await Results.Json(new { deleted = id, title = before.Title }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Turns a map's delete protection on or off — whoever may change the map.</summary>
+    private static async Task SetWebMapProtectionAsync(
+        HttpContext context, string id, ProtectionRequest request, IWebMapStore maps, IAuditLog audit, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (await ManagedMapAsync(context, current, id, "protect", maps, audit, cancellation).ConfigureAwait(false) is null)
+        {
+            return;
+        }
+
+        await maps.SetDeleteProtectedAsync(id, request.Protected, cancellation).ConfigureAwait(false);
+
+        await AuditAsync(context, audit, "webmap.protection", id, Detail(new { @protected = request.Protected }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { id, deleteProtected = request.Protected }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -287,6 +319,7 @@ internal static partial class AdminEndpoints
         modified = map.Modified,
         mine = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id,
         manages = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization),
+        deleteProtected = map.DeleteProtected,
         // The groups it is shared with (ADR-079 condition 4) — named only to whoever manages it.
         groups = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization)
             ? map.SharedWithNames ?? [] : null,
@@ -309,6 +342,7 @@ internal static partial class AdminEndpoints
                 modified = map.Modified,
                 mine = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id,
                 manages = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization),
+                deleteProtected = map.DeleteProtected,
                 // As Describe says it: the groups, named only to whoever manages the map (ADR-079 condition 4).
                 groups = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization)
                     ? map.SharedWithNames ?? [] : null,

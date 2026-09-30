@@ -388,6 +388,13 @@ public sealed class WebMapViewerTests : ConsoleTest
                 $"(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/content/webmaps/{id}'))",
                 "Saving the map's sharing sent nothing.");
 
+            // Delete protection, as a service has it: the box sends the protection, and Delete waits for it.
+            await WaitForAsync("!!document.getElementById('mapProtect')", "The map's page offers no delete protection.");
+            await ClickAsync("#mapProtect");
+            await WaitForAsync(
+                $"(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/content/webmaps/{id}/protection'))",
+                "Protect from deletion sent nothing.");
+
             // Groups: the fourth scope, with the groups this user may put it in (ADR-079 condition 4). The test
             // makes the group it offers — the fixture has none on CI, and a test that leaned on a leftover group
             // passed locally and failed there (2026-10-01).

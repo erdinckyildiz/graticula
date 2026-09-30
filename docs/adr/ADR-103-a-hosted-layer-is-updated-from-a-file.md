@@ -99,6 +99,8 @@ differ, made multi when the layer is, and given the layer's ordinates.
 `updated_at` moves, the kept thumbnail is drawn again, statistics are refreshed (`ANALYZE`) so the published
 extent follows the data, and the audit log records `layer.append` or `layer.overwrite`.
 
+5.5a **A look before the write, and a mapping — added 2026-10-01 after the ArcGIS review's second pass** (*"the API accepts `fieldMappings`, but the Studio dialog sends only the file"*). `dryRun=true` on either route reads the file and answers its columns, the layer's writable columns and a suggestion by name, writing nothing; `fieldMappings` (ArcGIS's shape) on the native routes decides where each file column goes, and when sent it is the whole choice — a column not in it is not written. Studio's dialog draws the step when a file is chosen.
+
 5.6 **In Studio:** an *Update data* action on the item's Overview, beside *Export data*, for whoever manages a
 hosted item: choose the layer, *Add features* or *Replace all features*, choose the file; the answer is said in
 the dialog.

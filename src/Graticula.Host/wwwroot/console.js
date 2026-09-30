@@ -2620,8 +2620,56 @@ function drawUpdateChoice() {
 
 document.addEventListener("change", e => {
   const t = e.target;
-  if (t instanceof Element && t.closest("#updateData")) drawUpdateChoice();
+  if (!(t instanceof Element) || !t.closest("#updateData")) return;
+  drawUpdateChoice();
+  if (t.id === "updateDataFile" || t.id === "updateDataLayer" || t.id === "updateDataSrid") readUpdateColumns();
 });
+
+/**
+ * Update data's mapping step (2026-10-01, the ArcGIS review's second pass): the file is read by the server without
+ * writing, and each of its columns is offered a column of the layer to go into — by name where one matches — or to be
+ * left out. A column the layer lacks was dropped without a word before; now the reader chooses.
+ */
+let updateAsk = 0;
+
+async function readUpdateColumns() {
+  const box = $("updateDataMap");
+  const file = $("updateDataFile")?.files?.[0];
+  const layer = $("updateDataLayer")?.value;
+  if (!box) return;
+  if (!file || !layer) { box.hidden = true; box.innerHTML = ""; return; }
+
+  const mine = ++updateAsk;
+  box.hidden = false;
+  box.innerHTML = `<p class="hint" role="status">Reading the file's columns…</p>`;
+
+  const body = new FormData();
+  body.append("file", file);
+  body.append("dryRun", "true");
+  const srid = ($("updateDataSrid")?.value || "").trim();
+  if (srid) body.append("srid", srid);
+
+  try {
+    const said = await api(`/admin/hosted/${encodeURIComponent(layer)}/append`, { method: "POST", body });
+    if (mine !== updateAsk) return;
+    const columns = said.layerColumns || [];
+    const fields = said.fileColumns || [];
+
+    box.innerHTML = fields.length === 0
+      ? `<p class="hint">The file has no columns besides its geometry.</p>`
+      : `<p class="hint">${said.rows != null ? `${num(said.rows)} feature${said.rows === 1 ? "" : "s"} in the file. ` : ""}Where each
+          of its columns goes:</p>
+        <table class="mapcols"><thead><tr><th>In the file</th><th>Into the layer's</th></tr></thead><tbody>
+        ${fields.map(f => `<tr><td>${h(f.name)}</td><td><select data-map-from="${h(f.name)}" aria-label="Where ${h(f.name)} goes">
+            <option value="">— leave out —</option>
+            ${columns.map(c => `<option value="${h(c)}"${c === f.suggested ? " selected" : ""}>${h(c)}</option>`).join("")}
+          </select></td></tr>`).join("")}
+        </tbody></table>`;
+  } catch (e) {
+    if (mine !== updateAsk) return;
+    box.innerHTML = `<p class="hint bad-inline">${h(e.message || String(e))}</p>`;
+  }
+}
 
 // The Export data dialog is about the page it was opened on; Back, a link or a typed address closes it.
 window.addEventListener("hashchange", () => {
@@ -3970,8 +4018,10 @@ async function showWebMapItem(id) {
     <div class="itemactions">
       <a class="btn primary" href="${open}">Open in Map Viewer</a>
       ${map.manages ? `<button type="button" id="mapShareOpen">Share</button>` : ""}
-      ${map.manages ? `<button type="button" class="danger" id="mapDelete">Delete</button>` : ""}
+      ${map.manages ? `<button type="button" class="danger" id="mapDelete"${map.deleteProtected ? " disabled title=\"Protected from deletion\"" : ""}>Delete</button>` : ""}
     </div>
+    ${map.manages ? `<label class="check"><input type="checkbox" id="mapProtect"${map.deleteProtected ? " checked" : ""}>
+      Protect from deletion</label>` : ""}
     <h4>Details</h4>
     <dl class="facts2">
       <dt>Type</dt><dd>Web map</dd>
@@ -4103,6 +4153,19 @@ document.addEventListener("click", async event => {
     } catch (e) {
       $("mapShareSays").textContent = e.message || String(e);
       t.disabled = false;
+    }
+    return;
+  }
+
+  if (t.id === "mapProtect") {
+    try {
+      await api(`/content/webmaps/${encodeURIComponent(mapOpen.id)}/protection`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ protected: t.checked }) });
+      await showWebMapItem(mapOpen.id);
+      $("mapProtect")?.focus();
+    } catch (e) {
+      t.checked = !t.checked;
+      toast(e.message || String(e));
     }
     return;
   }
@@ -24333,6 +24396,7 @@ async function handleClick(event) {
       <div class="stacked" id="updateDataSridRow" hidden><label for="updateDataSrid">Coordinate system of the shapefile
         (EPSG code; leave empty to read it from the .prj)</label>
         <input type="text" id="updateDataSrid" inputmode="numeric" placeholder="from the .prj"></div>
+      <div id="updateDataMap" hidden></div>
       <details class="more"><summary>What is kept</summary><p class="hint">The layer keeps its fields, its geometry
         type and its coordinate system: a column the file has and the layer does not is left out and named, and the
         geometry is transformed into the layer's coordinate system if it needs to be.</p></details>`;
@@ -24366,6 +24430,13 @@ async function handleClick(event) {
     body.append("file", file);
     const srid = ($("updateDataSrid")?.value || "").trim();
     if (srid) body.append("srid", srid);
+
+    // The mapping, when the step was drawn: ArcGIS's `fieldMappings`, every chosen column and nothing left out.
+    const chosen = [...document.querySelectorAll("#updateDataMap [data-map-from]")];
+    if (chosen.length) {
+      body.append("fieldMappings", JSON.stringify(chosen.filter(sel => sel.value)
+        .map(sel => ({ name: sel.value, source: sel.dataset.mapFrom }))));
+    }
 
     t.disabled = true;
     says.textContent = how === "overwrite" ? "Replacing the features…" : "Adding the features…";

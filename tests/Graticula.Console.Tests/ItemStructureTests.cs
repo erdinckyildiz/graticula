@@ -375,7 +375,7 @@ public sealed class ItemStructureTests : ConsoleTest
             (() => {
               const d = new DataTransfer();
               d.items.add(new File(['{"type":"FeatureCollection","features":[]}'], 'more.geojson', { type: 'application/geo+json' }));
-              document.getElementById('updateDataFile').files = d.files;
+              document.getElementById('updateDataFile').files = d.files; document.getElementById('updateDataFile').dispatchEvent(new Event('change', { bubbles: true }));
               return true;
             })()
             """);
@@ -387,6 +387,9 @@ public sealed class ItemStructureTests : ConsoleTest
             "Update did not send the file to the layer's append.");
 
         Assert.Contains(await WritesAsync(), w => w.Contains($"/admin/hosted/{Uri.EscapeDataString(layer)}/append", StringComparison.Ordinal));
+
+        // Choosing the file asked the server to read it without writing — the mapping step's look (2026-10-01).
+        Assert.Contains(await WritesAsync(), w => w.Contains("/append", StringComparison.Ordinal) && w.Contains("dryRun", StringComparison.Ordinal));
 
         NothingWentWrong(await PageErrorsAsync());
     }

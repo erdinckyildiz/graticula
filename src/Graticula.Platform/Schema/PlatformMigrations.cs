@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(68);
+    public static SchemaVersion ComponentSchemaVersion => new(69);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -103,6 +103,7 @@ public static class PlatformMigrations
         OwnersChooseEditingAndProtectDeletionV66,
         AWebMapIsSharedWithGroupsV67,
         ALayersRowsMayBeExportedAsAFileV68,
+        AWebMapMayBeProtectedFromDeletionV69,
     ]);
 
     /// <summary>
@@ -136,6 +137,16 @@ public static class PlatformMigrations
     /// kind as a kind it does not know and refuses the listing that holds it — migration 61's and 64's consequence,
     /// again — and never reads the table.</para>
     /// </remarks>
+    /// <summary>
+    /// A web map may be protected from deletion, as a service may be (ADR-102 condition 2) — the ArcGIS review's second
+    /// pass found maps the one item kind without it.
+    /// </summary>
+    private static Migration AWebMapMayBeProtectedFromDeletionV69 => Migration.Expand(
+        new SchemaVersion(69),
+        "A web map may be protected from deletion.",
+
+        "alter table web_map add column if not exists delete_protected boolean not null default false");
+
     private static Migration ALayersRowsMayBeExportedAsAFileV68 => Migration.Expand(
         new SchemaVersion(68),
         "The rows of a service's layers may be exported as a file, as a job (ADR-106).",

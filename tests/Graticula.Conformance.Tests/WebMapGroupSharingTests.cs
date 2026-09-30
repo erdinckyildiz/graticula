@@ -124,4 +124,49 @@ public sealed class WebMapGroupSharingTests : ArcGisClient
             await SendAsync(root, admin, HttpMethod.Delete, $"/admin/members/{stranger}");
         }
     }
+
+    /// <summary>A protected map is not deleted until its protection is turned off (2026-10-01).</summary>
+    [Fact]
+    public async Task A_protected_map_is_not_deleted_until_the_protection_is_off()
+    {
+        string root = await RequireServerAsync();
+        string? admin = await TokenAsync(root);
+
+        Assert.False(admin is null, "No administrator credential; set the suite's user and password.");
+
+        (HttpStatusCode created, string body) = await SendAsync(root, admin, HttpMethod.Post, "/content/webmaps", new
+        {
+            title = "zz protected map", sharing = "private",
+            document = new { operationalLayers = Array.Empty<object>(), baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" }, version = "2.31" },
+        });
+        Assert.Equal(HttpStatusCode.Created, created);
+        string map = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            (HttpStatusCode on, _) = await SendAsync(root, admin, HttpMethod.Put, $"/content/webmaps/{map}/protection", new { @protected = true });
+            Assert.Equal(HttpStatusCode.OK, on);
+
+            (_, string read) = await SendAsync(root, admin, HttpMethod.Get, $"/content/webmaps/{map}");
+            Assert.True(JsonDocument.Parse(read).RootElement.GetProperty("deleteProtected").GetBoolean());
+
+            (HttpStatusCode refused, _) = await SendAsync(root, admin, HttpMethod.Delete, $"/content/webmaps/{map}");
+            Assert.Equal(HttpStatusCode.Conflict, refused);
+
+            (HttpStatusCode off, _) = await SendAsync(root, admin, HttpMethod.Put, $"/content/webmaps/{map}/protection", new { @protected = false });
+            Assert.Equal(HttpStatusCode.OK, off);
+
+            (HttpStatusCode gone, _) = await SendAsync(root, admin, HttpMethod.Delete, $"/content/webmaps/{map}");
+            Assert.Equal(HttpStatusCode.OK, gone);
+            map = string.Empty;
+        }
+        finally
+        {
+            if (map.Length > 0)
+            {
+                await SendAsync(root, admin, HttpMethod.Put, $"/content/webmaps/{map}/protection", new { @protected = false });
+                await SendAsync(root, admin, HttpMethod.Delete, $"/content/webmaps/{map}");
+            }
+        }
+    }
 }

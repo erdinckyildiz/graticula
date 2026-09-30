@@ -13,6 +13,8 @@
 > Confidence: `HIGH`, `MEDIUM`, `LOW`.
 
 
+> **2026-10-01: a web map may be protected from deletion** (migration 69), as a service may be (ADR-102 condition 2) — `PUT /content/webmaps/{id}/protection`, a 409 on delete while it is on, and *Protect from deletion* on the map's page.
+
 > **2026-10-01, the ArcGIS review's fifth item: a web map has an item page in Studio** (`#/map/{id}`) — its summary, its layers with the way to each one's item, *Open in Map Viewer*, *Share* with the map's three scopes, and *Delete*; My content's row opens it. The map's sharing is no longer set only inside the viewer.
 
 > **Amended 2026-10-01 by [ADR-110](ADR-110-a-web-map-sets-its-layers-pop-ups.md):** a feature layer on a map may carry its own pop-up in `popupInfo` and `popupEnabled`, set from the viewer's *Pop-up* panel.

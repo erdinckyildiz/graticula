@@ -2017,7 +2017,47 @@ internal static class HostedDataEndpoints
             return;
         }
 
-        if (await WriteUpdateAsync(context, found, dataset, replace, importer, contexts, tiles, catalog, audit, warmer, cancellation)
+        // <b>A look before the write — Update data's mapping step (2026-10-01).</b> The file is read and nothing is
+        // written: its columns, the layer's, and where each file column would go by name. A column whose name the
+        // layer does not have was ignored without a word; the reader now chooses where it goes, or that it does not.
+        if (string.Equals(form["dryRun"].ToString(), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            IReadOnlyList<string> columns = await importer
+                .WritableColumnsAsync(found.Definition.SchemaName, found.Definition.TableName, cancellation)
+                .ConfigureAwait(false);
+
+            await Results.Json(new
+            {
+                layer = found.Definition.Name,
+                rows = dataset.Features.Count,
+                layerColumns = columns,
+                fileColumns = dataset.Columns.Select(c => new
+                {
+                    name = c.Name,
+                    suggested = columns.Contains(PostGisImporter.ColumnNameFor(c.Name)) ? PostGisImporter.ColumnNameFor(c.Name) : null,
+                }),
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        // ArcGIS's `fieldMappings` shape. When it is sent it is the whole choice: a file column not in it is not written,
+        // even where a layer column has its name — the reader said to leave it out.
+        Dictionary<string, string>? mappings;
+
+        try
+        {
+            mappings = ArcGisAppendEndpoints.Mappings(form["fieldMappings"]);
+        }
+        catch (JsonException e)
+        {
+            await Fail(context, 400, $"'fieldMappings' is not the JSON ArcGIS describes: {e.Message}").ConfigureAwait(false);
+            return;
+        }
+
+        HashSet<string>? only = mappings is null ? null : [.. mappings.Values];
+
+        if (await WriteUpdateAsync(context, found, dataset, replace, importer, contexts, tiles, catalog, audit, warmer, cancellation,
+                mappings, only)
             .ConfigureAwait(false) is not { } result)
         {
             return;

@@ -293,7 +293,7 @@ internal static class ArcGisAppendEndpoints
     }
 
     /// <summary>ArcGIS <c>fieldMappings</c>: <c>[{"name": target, "source": source}]</c>, as source → target.</summary>
-    private static Dictionary<string, string>? Mappings(string? json)
+    internal static Dictionary<string, string>? Mappings(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return null;
 

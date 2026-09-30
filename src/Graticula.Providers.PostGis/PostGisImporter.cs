@@ -771,6 +771,40 @@ public sealed class PostGisImporter
             dataset.Srid != targetSrid && targetSrid > 0 && dataset.Srid > 0);
     }
 
+    /// <summary>
+    /// The columns of a hosted table a file's values may go into — every column but the geometry, the object id and
+    /// what the database fills itself. What Update data's mapping step offers (2026-10-01).
+    /// </summary>
+    /// <param name="schemaName">The table's schema, which must be the hosted one.</param>
+    /// <param name="tableName">The table.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The column names, in the table's order.</returns>
+    public async Task<IReadOnlyList<string>> WritableColumnsAsync(
+        string schemaName, string tableName, CancellationToken cancellationToken)
+    {
+        RefuseOutsideHosted(schemaName, tableName, "read the columns of");
+
+        await using NpgsqlConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlCommand command = new(
+            """
+            select attname from pg_attribute
+            where attrelid = @relation::regclass and attnum > 0 and not attisdropped
+              and attidentity = '' and attgenerated = '' and attname not in ('geom', 'objectid')
+            order by attnum
+            """, connection);
+        command.Parameters.AddWithValue("relation", Qualified(tableName));
+
+        List<string> names = [];
+        await using NpgsqlDataReader row = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await row.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            names.Add(row.GetString(0));
+        }
+
+        return names;
+    }
+
     /// <summary>Copies a dataset's geometry as WKB and its columns into a table that has them, with binary COPY.</summary>
     private static async Task CopyAsync(
         NpgsqlConnection connection, string table, ImportedDataset dataset, CancellationToken cancellationToken)

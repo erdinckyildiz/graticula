@@ -4487,3 +4487,9 @@ dialog h3[tabindex="-1"]:focus { outline: none; }
 .linkbtn { min-height: 24px; }
 @media (max-width: 600px) { .linkbtn { min-height: 44px; } }
 #exportData .formats + .formats { margin-top: 14px; }
+
+/* Update data's mapping step (2026-10-01). */
+#updateDataMap { margin-bottom: var(--gap-3); }
+#updateData .mapcols { width: 100%; border-collapse: collapse; }
+#updateData .mapcols th, #updateData .mapcols td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--rule); }
+#updateData .mapcols select { font: inherit; max-width: 100%; }

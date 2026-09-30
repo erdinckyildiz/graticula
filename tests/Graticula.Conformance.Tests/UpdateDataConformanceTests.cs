@@ -178,6 +178,77 @@ public sealed class UpdateDataConformanceTests : ArcGisClient
         }
     }
 
+    /// <summary>Update data's mapping step: a look that writes nothing, then a mapping that decides where each column goes.</summary>
+    [Fact]
+    public async Task A_dry_run_writes_nothing_and_a_mapping_decides_where_columns_go()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        string name = $"zz_mapping_{Guid.NewGuid():N}"[..20];
+
+        (HttpStatusCode made, string madeBody) = await PostFileAsync(root, token, "/admin/hosted/import", Polygons("a", "b"), name);
+        Assert.True(made is HttpStatusCode.Created or HttpStatusCode.OK, $"The import failed: {(int)made} {madeBody}");
+
+        try
+        {
+            // A file whose column is called something else.
+            string renamed = Polygons("mapped").Replace("\"name\"", "\"label\"", StringComparison.Ordinal);
+
+            (HttpStatusCode looked, string lookBody) = await PostFormAsync(root, token!, $"/admin/hosted/{name}/append", renamed,
+                ("dryRun", "true"));
+
+            Assert.True(looked == HttpStatusCode.OK, $"The dry run answered {(int)looked}: {lookBody}");
+
+            JsonElement look = JsonDocument.Parse(lookBody).RootElement;
+            Assert.Contains(look.GetProperty("layerColumns").EnumerateArray(), c => c.GetString() == "name");
+            Assert.Contains(look.GetProperty("fileColumns").EnumerateArray(), c => c.GetProperty("name").GetString() == "label");
+            Assert.Equal(2, await CountAsync(root, token!, name));
+
+            // Mapped: the file's `label` goes into the layer's `name`.
+            (HttpStatusCode mapped, string mapBody) = await PostFormAsync(root, token!, $"/admin/hosted/{name}/append", renamed,
+                ("fieldMappings", "[{\"name\":\"name\",\"source\":\"label\"}]"));
+
+            Assert.True(mapped == HttpStatusCode.OK, $"The mapped append answered {(int)mapped}: {mapBody}");
+            Assert.Equal(3, await CountAsync(root, token!, name));
+
+            // Left out: an empty mapping writes the rows and none of the file's columns, though `name` matches.
+            (HttpStatusCode left, string leftBody) = await PostFormAsync(root, token!, $"/admin/hosted/{name}/append", Polygons("dropped"),
+                ("fieldMappings", "[]"));
+
+            Assert.True(left == HttpStatusCode.OK, $"The append with nothing mapped answered {(int)left}: {leftBody}");
+
+            using HttpRequestMessage ask = new(HttpMethod.Get,
+                $"{root}/rest/services/hosted/{name}/FeatureServer/0/query?where=name%3D%27dropped%27&returnCountOnly=true&f=json");
+            ask.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage got = await Http.SendAsync(ask);
+            Assert.Equal(0, JsonDocument.Parse(await got.Content.ReadAsStringAsync()).RootElement.GetProperty("count").GetInt32());
+        }
+        finally
+        {
+            using HttpRequestMessage delete = new(HttpMethod.Delete, $"{root}/admin/featureservices/{name}?folder=hosted&drop=true");
+            delete.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage gone = await Http.SendAsync(delete);
+        }
+    }
+
+    private async Task<(HttpStatusCode Status, string Body)> PostFormAsync(
+        string root, string token, string path, string json, params (string Name, string Value)[] fields)
+    {
+        using MultipartFormDataContent form = new();
+        using ByteArrayContent bytes = new(Encoding.UTF8.GetBytes(json));
+        form.Add(bytes, "file", "data.geojson");
+        foreach ((string field, string value) in fields) form.Add(new StringContent(value), field);
+
+        using HttpRequestMessage request = new(HttpMethod.Post, $"{root}{path}") { Content = form };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+        return (response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
     /// <summary>ADR-105: ArcGIS's uploads/upload then append, as the ArcGIS API for Python calls them.</summary>
     [Fact]
     public async Task An_ArcGIS_client_uploads_then_appends_maps_fields_and_is_refused_upsert()
