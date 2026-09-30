@@ -461,9 +461,20 @@ and as the checkbox draws it today — is simpler and is how the three edits beh
    domains, reference, geometry type and row count the job reported.
 2. **Independent readers open every format.** ArcGIS Pro adds the Shapefile, the GeoPackage and the File Geodatabase
    (domains shown as domains in the last two); Excel opens the XLSX; Google Earth or Pro opens the KML; Pro's *JSON To
-   Features* reads the Feature Collection; `ogrinfo` reads the CSV and GeoJSON. What differs from §5.6 is written back.
+   Features* reads the Feature Collection; `ogrinfo` reads the CSV and GeoJSON. What differs from §5.6 is written back. **PARTLY DISCHARGED 2026-09-30,
+   on the showcase.** The owner exported `hosted/tr_il` (5,433 boundary lines, EPSG:4326) from Overview › *Export data*
+   and opened five formats: ArcGIS Pro drew the GeoPackage and the File Geodatabase, Excel opened the CSV and the
+   workbook, Google Earth opened the KML. **Found on the way, and it is Pro's, not the file's:** *Add Data* with the
+   `.gpkg` itself selected answers only *Failed to add data* — Pro will not add a database whole — while the table
+   inside it (`main.tr_il`, from Catalog) adds and draws; the file was checked field by field first (GeoPackage 1.4,
+   `LINESTRING` in 4326, the rtree extension, integrity `ok`), and neither marking it 1.2 nor renaming its `objectid`
+   column changed Pro's answer. Still open: the Shapefile and the Feature Collection, and field domains, which the
+   first build does not write.
 3. **Turkish text survives every format.** A layer with `ğ`, `ş`, `İ`, `ı` in attribute values and in field names is
-   exported in all eight formats and read back by condition 2's readers with every letter intact.
+   exported in all eight formats and read back by condition 2's readers with every letter intact. **PARTLY DISCHARGED
+   2026-09-30:** `tr_il`'s `il` values (Nevşehir, Kırşehir, Muş …) read back intact in Pro from the GeoPackage and the
+   File Geodatabase and in Excel from the CSV and the workbook. Not yet: Turkish letters in field names, the Shapefile,
+   the Feature Collection.
 4. **A Shapefile name collision** — three fields whose first ten bytes agree, one of them Turkish — gets §5.6's names and
    the `fieldnames.csv` says so.
 5. **A layer larger than 50,000 rows** (at least three pages) exports with every object id once, in every format; the
