@@ -151,8 +151,7 @@ and nothing in Studio links to one.)*
 had them, not in Settings › Feature layer as the table above says and as Portal puts *Keep track of who
 created and updated features*; **offline packages** are built in Settings › Tile layer and only linked from
 *Export data*, because they run as jobs; and Settings › General has its own *Change sharing…* button, which
-opens the one Share dialog and so is a door rather than a second home. The first is a real departure and is
-the next move of this table; the other two are recorded as chosen. The same review found Export data shown
+opens the one Share dialog and so is a door rather than a second home. The first was a real departure and is **repaired the same day**: each hosted layer's *Keep history* and *Who creates and edits* are rows of its block in Settings › Feature layer, Data › History links there when history is off, and Data › Fields points there; the other two are recorded as chosen. The same review found Export data shown
 to readers of a service whose owner had unticked *Export data* (Extract) — repaired: the owner may always
 export, anybody else only when Extract is offered.)*
 

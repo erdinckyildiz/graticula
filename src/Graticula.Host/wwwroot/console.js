@@ -6601,6 +6601,57 @@ async function drawGeneralSharing(name, folder) {
  * allows — ADR-102 condition 1, owner decision 2026-10-01. Query is always offered. Rows in one answer and the
  * faces stay the administrator's, in Server.
  */
+/** The address of this item's Settings › Feature layer, for the links that send a reader there. */
+function settingsFeatureHref() {
+  return serviceOpen
+    ? `#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings&section=feature`
+    : "#/content";
+}
+
+/**
+ * Each hosted layer's history and editor tracking, as Settings › Feature layer states them — ADR-102 §5.4, moved
+ * from Data › History and Data › Fields on 2026-10-01 after the ArcGIS review: Portal keeps *Keep track of who
+ * created and updated features* in Settings, and so does §5.4's table.
+ */
+async function fillLayerStewardship() {
+  for (const state of document.querySelectorAll("#featureLayers [data-history-state]")) {
+    const name = state.dataset.historyState;
+    const button = document.querySelector(`#featureLayers [data-history-toggle="${CSS.escape(name)}"]`);
+    try {
+      const answer = await api(`/admin/layers/${encodeURIComponent(name)}/history`);
+      if (!answer.available) {
+        state.textContent = answer.reason || "This layer cannot keep a history.";
+        if (button) button.hidden = true;
+        continue;
+      }
+      state.textContent = answer.enabled ? "On — every version of every feature is kept" : "Off";
+      if (button) {
+        button.hidden = false;
+        button.textContent = answer.enabled ? "Turn off" : "Turn on";
+        button.classList.toggle("danger", !!answer.enabled);
+        button.dataset.on = answer.enabled ? "1" : "0";
+      }
+    } catch (e) {
+      state.textContent = `Could not be read: ${e.message || e}`;
+    }
+  }
+
+  for (const state of document.querySelectorAll("#featureLayers [data-tracking-state]")) {
+    const name = state.dataset.trackingState;
+    const button = document.querySelector(`#featureLayers [data-track-edits="${CSS.escape(name)}"]`);
+    try {
+      const doc = await api(`${layerUrl(name).replace(location.origin, "")}?f=json`);
+      const tracked = !!(doc.editFieldsInfo && (doc.editFieldsInfo.creatorField || doc.editFieldsInfo.editorField));
+      state.textContent = tracked
+        ? `Recorded — ${[doc.editFieldsInfo.creatorField, doc.editFieldsInfo.editorField].filter(Boolean).join(", ")}`
+        : "Not recorded";
+      if (button) button.hidden = tracked;
+    } catch (e) {
+      state.textContent = `Could not be read: ${e.message || e}`;
+    }
+  }
+}
+
 async function drawFeatureFacts(name, folder) {
   const box = $("featureFacts");
   if (!box) return;
@@ -6636,6 +6687,13 @@ async function drawFeatureFacts(name, folder) {
       <div class="layerblock">
         <b>${h(one.name || "")}</b> <span class="rowmeta">id ${num(one.id ?? 0)}</span>
         ${st.manages ? layerTimeMarkup({ ...layerNamed(one.name || ""), ...(content.get(one.name || "") || {}) }, one.name || "") : ""}
+        ${st.manages && layerNamed(one.name || "").hosted ? `
+        <div class="setting"><span class="q">Keep history:</span>
+          <span class="val" data-history-state="${h(one.name || "")}">reading…</span>
+          <button type="button" class="tiny" data-history-toggle="${h(one.name || "")}" hidden></button></div>
+        <div class="setting"><span class="q">Who creates and edits:</span>
+          <span class="val" data-tracking-state="${h(one.name || "")}">reading…</span>
+          <button type="button" class="tiny" data-track-edits="${h(one.name || "")}" hidden>Start recording</button></div>` : ""}
       </div>`).join("")}</div>
     ${st.manages ? `<p class="hint">A layer's <b>time column</b> is when each feature happened. Left empty, the server
       uses the layer's one date column, or publishes no time when it has none or several — name one when the table
@@ -6668,6 +6726,8 @@ async function drawFeatureFacts(name, folder) {
       $("offerSays").textContent = e.message || String(e);
     }
   });
+
+  fillLayerStewardship();
 }
 
 function drawServiceSettings(name, folder) {
@@ -7361,8 +7421,9 @@ function layerFieldsMarkup(l, name) {
       <div id="fieldsInert"></div>
       <div class="row" style="margin-top:10px">
         <button type="button" id="fieldsSave">Save</button>
-        ${l.hosted ? `<button type="button" class="ghost" id="fieldsTrack">Track who edits</button>` : ""}
       </div>
+      ${l.hosted ? `<p class="hint">Recording who created and edited each feature is switched on in
+        <a href="${h(settingsFeatureHref())}">Settings › Feature layer</a>.</p>` : ""}
       <p class="hint" id="fieldsSays" role="status" aria-live="polite"></p>
     </section>`;
 }
@@ -13638,14 +13699,24 @@ async function loadHistory(name, older = false) {
   button.className = historyState.on ? "danger" : "";
   button.onclick = () => switchHistory(name, !historyState.on);
 
+  // <b>In the item, the switch is Settings' (ADR-102 §5.4)</b>; this view links there when history is off, the one
+  // door §5.5 allows, and does not carry a second switch for the same setting.
+  const inItem = !!serviceOpen && surfaceOfPath() === "studio";
+  if (inItem) button.hidden = true;
+
   // <b>The long description only once there is something it describes.</b> The review found the
   // first-run state saying "every version of every feature … is here" above "History is off" — two
   // sentences disagreeing about the same page.
   if (about) about.hidden = !historyState.on;
 
   if (!historyState.on) {
-    says.textContent = "History is off. Turn it on to keep every change from now on; the features as "
-      + "they are now become their first versions. Edits to this layer get somewhat slower.";
+    if (inItem) {
+      says.innerHTML = `History is off. It is turned on in <a href="${h(settingsFeatureHref())}">Settings › Feature
+        layer</a>; from then on every change is kept, and the features as they are become their first versions.`;
+    } else {
+      says.textContent = "History is off. Turn it on to keep every change from now on; the features as "
+        + "they are now become their first versions. Edits to this layer get somewhat slower.";
+    }
     body.innerHTML = "";
     return;
   }
@@ -14629,12 +14700,43 @@ async function trackEdits() {
   }
 }
 
-document.addEventListener("click", e => {
+document.addEventListener("click", async e => {
   const t = e.target;
   if (!(t instanceof Element)) return;
 
   if (t.id === "fieldsSave") {
     saveFields();
+    return;
+  }
+
+  if (t.dataset?.historyToggle) {
+    const name = t.dataset.historyToggle;
+    const on = t.dataset.on !== "1";
+    if (!on && !confirm(`Turn off the history of ${name}? Everything it has kept is deleted, and a `
+        + "client can no longer ask for a moment in the past. Turning it on again starts from nothing.")) return;
+    t.disabled = true;
+    try {
+      const answer = await api(`/admin/layers/${encodeURIComponent(name)}/history`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: on }) });
+      toast(answer.note || (on ? "History is on." : "History is off."), true);
+    } catch (e) { toast(`${name}: ${e.message || e}`); }
+    t.disabled = false;
+    await fillLayerStewardship();
+    return;
+  }
+
+  if (t.dataset?.trackEdits) {
+    const name = t.dataset.trackEdits;
+    // One way: four columns are added and given their roles, and a column is not taken away by unticking a box.
+    if (!confirm(`Record who creates and edits each feature of ${name}? Four columns are added — created by, `
+        + "created on, edited by, edited on — and this cannot be undone. Features already there belong to nobody.")) return;
+    t.disabled = true;
+    try {
+      const answer = await api(`/admin/hosted/${encodeURIComponent(name)}/editor-tracking`, { method: "POST" });
+      toast(answer.note || "Editors are recorded from now on.", true);
+    } catch (e) { toast(`${name}: ${e.message || e}`); }
+    t.disabled = false;
+    await fillLayerStewardship();
     return;
   }
 

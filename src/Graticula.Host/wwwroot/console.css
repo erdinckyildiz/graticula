@@ -4445,3 +4445,13 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 
 /* The preview is drawn as a layer of the map; the <img> only holds it (owner 2026-10-01, lag on zoom). */
 #symPreview.onmap { visibility: hidden; }
+
+/* Settings › Feature layer › each layer: its name on a line, then one row per setting, labels in one column. */
+#featureLayers .layerblock { display: block; }
+#featureLayers .layerblock > b { display: inline-block; margin-right: 6px; }
+#featureLayers .layerblock .setting { display: grid; grid-template-columns: 180px auto auto auto; justify-content: start;
+  align-items: center; gap: 8px; margin: 8px 0 0; max-width: none; }
+#featureLayers .layerblock .setting .q { width: auto; text-align: left; }
+#featureLayers .layerblock .setting .val { font-family: inherit; }
+#featureLayers .layerblock .setting input[data-time-input] { width: 14em; text-align: left; }
+@media (max-width: 600px) { #featureLayers .layerblock .setting { grid-template-columns: 1fr; } }

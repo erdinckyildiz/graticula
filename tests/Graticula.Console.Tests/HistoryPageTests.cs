@@ -55,9 +55,10 @@ public sealed class HistoryPageTests : ConsoleTest
                 "document.querySelector('#historyFeature [data-hist-restore]')?.offsetParent",
                 "Choosing the change did not show the feature's versions with a visible way to put one back.");
 
-            Assert.Equal(
-                "Turn history off",
-                await Browser.EvaluateAsync<string>("document.getElementById('historySwitch').textContent.trim()"));
+            Assert.StartsWith(
+                "History is on.",
+                await Browser.EvaluateAsync<string>("document.getElementById('historySays').textContent.trim()"),
+                StringComparison.Ordinal);
 
             await ClickAsync("#historyFeature [data-hist-restore]");
 
@@ -78,10 +79,14 @@ public sealed class HistoryPageTests : ConsoleTest
         }
     }
 
+    /// <summary>
+    /// A layer without history says so in Data › History and sends the reader to Settings › Feature layer, where the
+    /// switch is — ADR-102 §5.4, moved there on 2026-10-01 with editor tracking beside it.
+    /// </summary>
     [Fact]
-    public async Task A_layer_without_history_says_so_and_offers_to_turn_it_on()
+    public async Task A_layer_without_history_says_so_and_Settings_turns_it_on()
     {
-        (_, string layer) = Editable();
+        (string service, string layer) = Editable();
         (string token, _) = await SignInAsync();
 
         // The first-run state: nothing kept, nothing to list.
@@ -90,17 +95,62 @@ public sealed class HistoryPageTests : ConsoleTest
         await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/history", token);
 
         await WaitForAsync(
-            "document.getElementById('historySwitch')?.offsetParent",
-            "A layer without history showed no visible way to turn it on.");
-
-        Assert.Equal(
-            "Turn history on",
-            await Browser.EvaluateAsync<string>("document.getElementById('historySwitch').textContent.trim()"));
+            "document.querySelector('#historySays a[href*=\"section=feature\"]')?.offsetParent",
+            "A layer without history did not say where to turn it on.");
 
         Assert.StartsWith(
             "History is off.",
             await Browser.EvaluateAsync<string>("document.getElementById('historySays').textContent.trim()"),
             StringComparison.Ordinal);
+
+        Assert.True(await Browser.EvaluateAsync<bool>("!document.getElementById('historySwitch')?.offsetParent"),
+            "Data › History still carries its own switch beside the link to Settings.");
+
+        await OpenAsync($"/studio/#/service/{service}?tab=settings&section=feature", token);
+
+        string toggle = $"#featureLayers [data-history-toggle=\"{layer}\"]";
+
+        await WaitForAsync(
+            $"document.querySelector('{toggle}')?.offsetParent && document.querySelector('{toggle}').textContent.trim() === 'Turn on'",
+            "Settings › Feature layer has no visible Turn on for the layer's history.");
+
+        await ClickAsync(toggle);
+
+        await WaitForAsync(
+            $"window.__writes.some(w => w.startsWith('POST') && w.includes('/admin/layers/{Uri.EscapeDataString(layer)}/history'))",
+            "Turn on sent no request to the layer's history.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>Recording who edits is a one-way action in Settings › Feature layer, and Data › Fields points there.</summary>
+    [Fact]
+    public async Task Recording_who_edits_is_started_from_Settings()
+    {
+        (string service, string layer) = Editable();
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync($"/studio/#/service/{service}?tab=settings&section=feature", token);
+
+        string state = $"#featureLayers [data-tracking-state=\"{layer}\"]";
+
+        await WaitForAsync(
+            $"!/reading/.test(document.querySelector('{state}')?.textContent || 'reading')",
+            "Settings › Feature layer never said whether the layer records who edits.");
+
+        bool tracked = await Browser.EvaluateAsync<bool>($"/^Recorded/.test(document.querySelector('{state}').textContent)");
+
+        if (!tracked)
+        {
+            await ClickAsync($"#featureLayers [data-track-edits=\"{layer}\"]");
+
+            await WaitForAsync(
+                "window.__writes.some(w => w.startsWith('POST') && w.includes('/editor-tracking'))",
+                "Start recording sent no request.");
+        }
+
+        Assert.True(await Browser.EvaluateAsync<bool>("!document.getElementById('fieldsTrack')"),
+            "Data › Fields still carries its own tracking button.");
 
         NothingWentWrong(await PageErrorsAsync());
     }
