@@ -388,7 +388,16 @@ public sealed class WebMapViewerTests : ConsoleTest
                 $"(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/content/webmaps/{id}'))",
                 "Saving the map's sharing sent nothing.");
 
-            // Groups: the fourth scope, with the groups this user may put it in (ADR-079 condition 4).
+            // Groups: the fourth scope, with the groups this user may put it in (ADR-079 condition 4). The test
+            // makes the group it offers — the fixture has none on CI, and a test that leaned on a leftover group
+            // passed locally and failed there (2026-10-01).
+            (int grouped, string groupBody) = await AdminAsync(HttpMethod.Post, "/admin/groups",
+                JsonSerializer.Serialize(new { name = $"zz_mapshare_{id[..8]}" }));
+            Assert.True(grouped is 200 or 201, $"Making a group answered {grouped}: {groupBody}");
+
+            await OpenAsync($"/studio/#/map/{id}", token, cookie);
+            await WaitForAsync("!!document.getElementById('mapShareOpen')", "The map's item page did not come back.");
+
             await ClickAsync("#mapShareOpen");
 
             await WaitForAsync("document.getElementById('mapShare').open", "Share did not open again.");
@@ -413,6 +422,7 @@ public sealed class WebMapViewerTests : ConsoleTest
         }
         finally
         {
+            await AdminAsync(HttpMethod.Delete, $"/admin/groups/zz_mapshare_{id[..8]}");
             await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
         }
     }
