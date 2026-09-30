@@ -1,4 +1,5 @@
 using System;
+using System.Net.Http;
 using System.Linq;
 using System.Threading.Tasks;
 using Xunit;
@@ -56,6 +57,12 @@ public sealed class CachingPageTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
         string layer = LayerName();
+
+        // <b>Something cached first, so there is something to clear</b> — the control is disabled on an empty cache,
+        // and a fixture whose cache happens to be empty made this pass locally and fail in CI. One tile asked for
+        // is one entry, drawn or empty.
+        string service = Environment.GetEnvironmentVariable(Layer) ?? "hosted/ci_many";
+        await AdminAsync(HttpMethod.Get, $"/rest/services/{service}/VectorTileServer/tile/0/0/0.pbf");
 
         await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/caching", token);
 

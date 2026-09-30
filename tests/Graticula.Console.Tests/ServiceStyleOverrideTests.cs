@@ -75,7 +75,7 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
         // control addressed with the layer would be indistinguishable from a correct one if they
         // were the same word.
         string open = await Browser.EvaluateAsync<string>(
-            "decodeURIComponent((location.hash.split('/')[2] || ''))") ?? string.Empty;
+            "(typeof editing !== 'undefined' && editing && editing.name) || ''") ?? string.Empty;
 
         Assert.NotEqual(bare, open);
 
@@ -124,11 +124,10 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
         await OpenAsync(
             $"/studio/#/service/{Uri.EscapeDataString(service)}?tab=symbology", token);
 
-        // <b>The tab is a link out now, so the address is a redirect.</b> `?tab=symbology` is a
-        // link people already have; it lands in the editor rather than on a tab that no longer
-        // draws anything.
+        // <b>`?tab=symbology` is a link people already have</b>; since ADR-102 it lands on Visualization with the
+        // Style panel open, which is where the editor is.
         await WaitForAsync(
-            "location.hash.includes('/symbology') && location.hash.startsWith('#/layer/')",
+            "location.hash.includes('panel=style')",
             "An address asking for the Symbology tab did not reach the editor, so every link "
             + "anybody already had is now a page that draws nothing.");
 
@@ -495,140 +494,88 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
     /// </remarks>
     /// <returns>The task.</returns>
     [Fact]
-    public async Task A_service_has_a_symbology_tab_that_names_every_layers_appearance()
+    public async Task A_service_is_styled_from_Visualization_and_names_every_layers_appearance()
     {
         (string token, _) = await SignInAsync();
         string service = await AMultiLayerServiceAsync(token);
 
-        await OpenAsync($"/studio/#/service/{Uri.EscapeDataString(service)}", token);
+        await OpenAsync($"/studio/#/service/{Uri.EscapeDataString(service)}?tab=visualization", token);
 
-        // <b>Waited on the layers, not on the strip.</b> The strip is drawn twice: once while the
-        // service document is in flight, so the page is usable, and again when it lands. The
-        // first draw knows of no layers, and Data, Visualization and Symbology are the three
-        // tabs that need one — so a wait on *any* tab existing passes against a strip that reads
-        // *Overview | Settings* and the assertion below then asks nothing. Caught by this test
-        // failing on the draw it had always been racing.
+        // <b>ADR-102: styling is Visualization's, beside the map — the owner's *"ArcGIS symbology'i webmap'e
+        // yıkmıştı"*.</b> The Symbology tab, which left the item, is gone; the way in is where the map is.
         await WaitForAsync(
-            "document.querySelectorAll('#serviceLayerRows tr').length > 0",
-            "The service page never listed its layers, so its tab strip is still the short one.");
+            "(() => { const b = document.getElementById('visStyle'); return !!b && !b.hidden && b.offsetParent !== null; })()",
+            "Visualization offers no Style control beside the map.");
 
-        // <b>In the tab strip, by name.</b> A panel that exists and is not in the strip is the
-        // same as no panel: this whole change is about a screen nobody could find.
-        Assert.Contains(
-            "Symbology",
-            await Browser.EvaluateAsync<string>(
-                "[...document.querySelectorAll('#serviceTabs a')]"
-                + ".map(a => a.textContent.trim()).join(' | ')") ?? string.Empty,
-            StringComparison.Ordinal);
-
-        // <b>The tab opens the editor, and the list it used to open is the editor's own rail.</b>
-        // Handoff revision 2026-09-04: a list whose every row was one *Edit* link is an
-        // indirection with nothing in it, and at four layers it is still a page you pass through
-        // rather than work in.
-        await ClickAsync("#serviceTabs a[title^='Edit how']");
+        await ClickAsync("#visStyle");
 
         await WaitForAsync(
-            "typeof symModel !== 'undefined' && symModel !== null"
-            + " && location.hash.startsWith('#/layer/')",
-            "Pressing Symbology opened nothing.");
+            "typeof symModel !== 'undefined' && symModel !== null && location.hash.includes('panel=style')",
+            "Pressing Style opened nothing, or did not write the panel into the address.");
 
         await WaitForAsync(
             "document.querySelectorAll('#symLayerPick .symlayerpick').length > 1",
-            "The editor's rail lists no layers, so a service of several has no way to move "
-            + "between them.");
+            "The editor's rail lists no layers, so a service of several has no way to move between them.");
 
-        // <b>Every entry says something.</b> Entries that all read *reading…* would pass a count
-        // and tell nobody anything.
         await WaitForAsync(
             "[...document.querySelectorAll('#symLayerPick .rowmeta')]"
             + ".every(r => r.textContent.trim() && r.textContent.trim() !== 'reading…')",
             "A layer's entry never said how it is drawn.");
 
+        // Each entry picks its own layer, as the item's layer.
         Assert.True(
             await Browser.EvaluateAsync<bool>(
-                "[...document.querySelectorAll('#symLayerPick .symlayerpick')]"
-                + ".every(a => a.offsetParent !== null"
-                + " && a.getAttribute('href').includes('/symbology'))"),
-            "An entry offers no visible way into that layer.");
-
-        // <b>And each entry opens its own layer.</b> Building every link from the first is the
-        // easy way to have the right count and the wrong targets.
-        Assert.True(
-            await Browser.EvaluateAsync<bool>(
-                "(() => { const hrefs = [...document.querySelectorAll("
-                + "  '#symLayerPick .symlayerpick')].map(a => a.getAttribute('href'));"
-                + " return new Set(hrefs).size === hrefs.length; })()"),
-            "Two entries open the same layer's symbology.");
+                "(() => { const all = [...document.querySelectorAll('#symLayerPick .symlayerpick')];"
+                + " const ids = all.map(a => a.dataset.visLayer);"
+                + " return all.every(a => a.offsetParent !== null) && ids.every(Boolean) && new Set(ids).size === ids.length; })()"),
+            "An entry offers no visible way to its layer, or two entries pick the same one.");
 
         NothingWentWrong(await PageErrorsAsync());
     }
 
     /// <summary>
-    /// The map screen offers the way to the symbology of the layer it is showing.
+    /// The Style control beside the map styles the layer the map is showing.
     /// </summary>
     /// <remarks>
-    /// <b>Owner, standing on the Visualization tab: *nerede ya*.</b> The link added to the
-    /// service's layer table was on another tab. *How is this drawn* is a question asked while
-    /// looking at the map, so the way on belongs beside the picker that chooses what the map is
-    /// showing — and it has to follow that picker, or on a service with several layers it opens
-    /// somebody else's and looks like it worked.
+    /// <b>Owner, standing on the Visualization tab: *nerede ya*.</b> *How is this drawn* is asked while looking
+    /// at the map, so the way in is beside it and follows the layer chosen — or on a service with several
+    /// layers it opens somebody else's and looks like it worked.
     /// </remarks>
-    /// <returns>The task.</returns>
     [Fact]
-    public async Task The_map_screen_offers_the_symbology_of_the_layer_it_is_showing()
+    public async Task The_map_screen_styles_the_layer_it_is_showing()
     {
         (string token, _) = await SignInAsync();
         string service = await AMultiLayerServiceAsync(token);
 
-        await OpenAsync(
-            $"/studio/#/service/{Uri.EscapeDataString(service)}?tab=visualization", token);
+        await OpenAsync($"/studio/#/service/{Uri.EscapeDataString(service)}?tab=visualization", token);
 
         await WaitForAsync(
-            "(() => { const v = document.getElementById('serviceVis');"
-            + " return !!v && !v.hidden; })()",
-            "The Visualization tab never opened.");
+            "!!document.querySelector('#itemLayer option') && !document.getElementById('visStyle').hidden",
+            "The Visualization tab has no Layer select or no Style control.");
+
+        string last = await Browser.EvaluateAsync<string>(
+            "(() => { const s = document.getElementById('itemLayer'); const o = s.options[s.options.length - 1];"
+            + " s.value = o.value; s.dispatchEvent(new Event('change', { bubbles: true })); return o.textContent.trim(); })()") ?? "";
+
+        await ClickAsync("#visStyle");
 
         await WaitForAsync(
-            "(document.getElementById('visSymbology')?.getAttribute('href') || '')"
-            + ".includes('/symbology')",
-            "The map screen offers no way to the symbology of what it is drawing.");
-
-        Assert.True(
-            await Browser.EvaluateAsync<bool>(
-                "document.getElementById('visSymbology').offsetParent !== null"),
-            "The link is in the document and not on screen.");
-
-        string first = await Browser.EvaluateAsync<string>(
-            "document.getElementById('visSymbology').getAttribute('href')") ?? "";
-
-        // <b>It follows the picker.</b> A link fixed to the first layer would pass everything
-        // above and open the wrong page on every service with more than one.
-        // <b>A strip of links, not a `select`.</b> Handoff 2026-09-04: the picker is a segmented
-        // control, so it is pressed rather than changed — and `selectedIndex` on it would set a
-        // property nothing reads, which is a step that looks like it did something.
-        await ClickAsync("#visLayer a:last-child");
-
-        await WaitForAsync(
-            "document.getElementById('visSymbology').getAttribute('href') !== "
-            + JsonSerializer.Serialize(first),
-            "Choosing another layer left the Symbology link pointing at the first one.");
+            $"typeof editing !== 'undefined' && editing && editing.name === {JsonSerializer.Serialize(last)}",
+            $"Style opened another layer than the one the map was showing ({last}).");
 
         NothingWentWrong(await PageErrorsAsync());
     }
 
     /// <summary>
-    /// A service's layer table offers the way to each layer's symbology.
+    /// The item has one way into styling, not one per screen.
     /// </summary>
     /// <remarks>
-    /// <b>Owner, 2026-09-03: *arayüzde yok düğmesi. Gönül gözüyle mi bakacağım.*</b> The
-    /// Symbology page existed and was reachable only by opening a layer — which lands on
-    /// *Maintenance* — and then finding the tab. From a service, which is what *My content*
-    /// actually lists, there was no route to it at all. A screen that can only be reached by
-    /// somebody who already knows it is there is a screen that does not exist.
+    /// <b>Owner, 2026-10-01: *"neden her yerde bir symbology düğmesi var"*.</b> There were four doors to one
+    /// editor — the item's tab, a button on every layer row, a link beside the map and the layer page's menu —
+    /// each added when the editor was found unreachable, none removed. ADR-102 keeps one: Style, beside the map.
     /// </remarks>
-    /// <returns>The task.</returns>
     [Fact]
-    public async Task A_services_layers_each_offer_the_way_to_their_symbology()
+    public async Task The_item_has_one_way_into_styling()
     {
         (string token, _) = await SignInAsync();
         string service = await AMultiLayerServiceAsync(token);
@@ -636,42 +583,14 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
         await OpenAsync($"/studio/#/service/{Uri.EscapeDataString(service)}", token);
 
         await WaitForAsync(
-            "document.querySelectorAll('a[href*=\"#/layer/\"]').length > 0",
-            "The service page lists no layers, so this test cannot look for the way on.");
+            "document.querySelectorAll('#serviceLayerRows tr').length > 0",
+            "The service page lists no layers.");
 
-        await WaitForAsync(
-            "document.querySelectorAll('a[href*=\"/symbology\"]').length > 0",
-            "A service's layer table offers no way to any layer's symbology. The page can only "
-            + "be reached by somebody who already knows it is there.");
+        int doors = await Browser.EvaluateAsync<int>(
+            "[...document.querySelectorAll('#view-service a, #view-service button')]"
+            + ".filter(e => e.offsetParent !== null && (/symbology/i.test(e.textContent) || /\\/symbology/.test(e.getAttribute('href') || ''))).length");
 
-        // <b>Visible, and one per layer — counted inside the table.</b> A single link at the
-        // bottom would pass a count and answer for the wrong layer.
-        //
-        // <b>Scoped to `#serviceLayerRows`, because the tab strip carries one too.</b> Handoff
-        // revision 2026-09-04 made the page's *Symbology* tab a link into the editor rather than
-        // a tab over a list; counted across the whole page that is a fourth way on for a
-        // three-layer service, and the count this test is making is about the table's rows.
-        int layers = await Browser.EvaluateAsync<int>(
-            "document.querySelectorAll("
-            + "  '#serviceLayerRows a[href*=\"#/layer/\"]:not([href*=\"/symbology\"])').length");
-
-        int ways = await Browser.EvaluateAsync<int>(
-            "[...document.querySelectorAll('#serviceLayerRows a[href*=\"/symbology\"]')]"
-            + ".filter(a => a.offsetParent !== null).length");
-
-        Assert.Equal(layers, ways);
-
-        // <b>And it goes to that layer.</b> An easy way to have the right count and the wrong
-        // targets is to build every link from the first row. Scoped to the table for the same
-        // reason as the count above: the tab strip's own Symbology link opens the first layer,
-        // which is a duplicate of row zero and is correct.
-        Assert.True(
-            await Browser.EvaluateAsync<bool>(
-                "(() => {"
-                + " const all = [...document.querySelectorAll("
-                + "   '#serviceLayerRows a[href*=\"/symbology\"]')];"
-                + " return new Set(all.map(a => a.getAttribute('href'))).size === all.length; })()"),
-            "Two layers share a symbology link, so at least one of them opens somebody else's.");
+        Assert.True(doors == 0, $"The item page still shows {doors} Symbology door(s); styling is Visualization's Style.");
 
         NothingWentWrong(await PageErrorsAsync());
     }

@@ -4361,3 +4361,12 @@ button.thsort:focus-visible { outline: 2px solid var(--accent); outline-offset: 
 /* Visualization's Style panel holds the layer's style editor (ADR-102). */
 .stylehost { margin-top: var(--gap-3); container: symeditor / inline-size; }
 .stylehost > #page-symbology { display: block; }
+/* The item's head and the Visualization toolbar keep their margins while the editor spans the page. */
+#app.symfull #view-service #editHead { display: flex; }
+#app.symfull #view-service #editHead, #app.symfull #servicePagehead,
+#app.symfull #serviceVis > .toolbar { padding-left: var(--gap-5); padding-right: var(--gap-5); }
+#app.symfull #view-service #editHead { padding-top: var(--gap-4); }
+/* While the editor is open it fills the window as it did on its own page; its strip carries the way back. */
+#app.symfull #view-service #editHead, #app.symfull #servicePagehead, #app.symfull #serviceVis > .toolbar { display: none; }
+#app.symfull .symstrip #visStyle { margin-right: var(--gap-3); }
+#app.symfull .stylehost { margin-top: 0; }

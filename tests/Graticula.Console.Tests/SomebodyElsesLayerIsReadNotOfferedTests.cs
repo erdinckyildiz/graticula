@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -73,16 +74,16 @@ public sealed class SomebodyElsesLayerIsReadNotOfferedTests : ConsoleTest
         await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/symbology", token);
 
         await WaitForAsync(
-            "!!document.querySelector('#editPages section.page.on .ownership')",
+            "!!document.querySelector('#page-symbology .ownership')",
             "A layer the reader does not manage opened with no note saying so.");
 
         string note = await Browser.EvaluateAsync<string>(
-            "document.querySelector('#editPages section.page.on .ownership').textContent") ?? string.Empty;
+            "document.querySelector('#page-symbology .ownership').textContent") ?? string.Empty;
         Assert.Contains("only its owner or an administrator changes them", note, StringComparison.Ordinal);
 
         // <b>Visible, because the note is only worth something if it is seen</b> — the fault this suite has
         // caught three times is a control that exists and is not on screen.
-        Assert.True(await Browser.EvaluateAsync<bool>(Shown("#editPages section.page.on .ownership")), "The ownership note is not on screen.");
+        Assert.True(await Browser.EvaluateAsync<bool>(Shown("#page-symbology .ownership")), "The ownership note is not on screen.");
 
         // <b>Store is not offered, and the page's own tabs still work.</b> The first version made whole
         // sections inert, which took the tabs with them and looked exactly like enabled.
@@ -94,11 +95,13 @@ public sealed class SomebodyElsesLayerIsReadNotOfferedTests : ConsoleTest
             await Browser.EvaluateAsync<bool>(
                 "[...document.querySelectorAll('#symItemTabs a, #symItemTabs button')].length > 0"
                 + " && [...document.querySelectorAll('#symItemTabs button')].every(b => !b.disabled)"
-                + " && !document.querySelector('#editPages section.page[inert]')"),
+                + " && !document.querySelector('#page-symbology[inert]')"),
             "The page's tabs were locked with its controls, so a reader cannot move to another page.");
 
-        // Nothing was sent: an inert page cannot be the source of a write.
-        Assert.Empty(await WritesAsync());
+        // Nothing was sent: an inert page cannot be the source of a write. <b>A preview is not a write</b> — it
+        // asks the server to draw the stored style and stores nothing — and since ADR-102 the editor draws one on
+        // opening in the item's Style panel; the harness counts every POST, so it is set aside by name here.
+        Assert.DoesNotContain(await WritesAsync(), w => !w.Contains("/symbology/preview", StringComparison.Ordinal));
         NothingWentWrong(await PageErrorsAsync());
     }
 }

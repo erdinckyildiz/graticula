@@ -98,7 +98,8 @@ public sealed class EveryScreenTests : ConsoleTest
             // is the regression this class exists for.
             // <b>Caching left on 2026-10-01</b> — it is the item's Settings › Tile layer (ADR-102 step 6), and its
             // old address is asserted to arrive there by TileCacheBoxTests.
-            ["studio"] = ["symbology", "history", "maintenance"],
+            // Symbology left the same way on 2026-10-01: it is Visualization's Style (ADR-102 steps 3 and 4).
+            ["studio"] = ["history", "maintenance"],
         };
 
         foreach ((string surface, string[] names) in pages)

@@ -1893,11 +1893,13 @@
           drawn* is asked while looking at the map, and the Symbology page was reachable only
           from the layer table on another tab — which the owner found by not finding it.
         -->
-        <a class="tiny" id="visSymbology" href="#/">Symbology</a>
+        <button type="button" class="tiny" id="visStyle" aria-pressed="false" hidden>Style</button>
 
         <span style="flex:1"></span>
         <nav class="segmented solid" id="visModes"></nav>
       </div>
+    <!-- Visualization's Style panel: the layer's style editor, drawn here by drawVisStyle (ADR-102). -->
+    <div id="visStyleHost" class="stylehost" hidden></div>
     <div class="panel" id="mapPanel">
       <div id="basemapBar">
         <span class="lbl">Basemap</span>
