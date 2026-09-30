@@ -71,10 +71,16 @@ public sealed class WorkerAgainstPostgisTests : IAsyncLifetime, IAsyncDisposable
             builder.ConnectionStringBuilder.CommandTimeout = 120;
             _source = builder.Build();
 
+            // <b>A minute, not the production ten seconds.</b> This suite asks whether our arithmetic agrees
+            // with PostGIS, not how fast it answers; the deadline is proved by the pool's own tests. On a CI
+            // runner loading the corpus beside it, two of three runs on 2026-09-29/30 had one tiny overlay
+            // refused as Deadline after exactly ten seconds and passed on a rerun — a red build that said
+            // nothing about agreement.
             _pool = new GeometryWorkerPool(
                 GeometryWorkerPool.ExecutableBesideThisOne(),
                 workers: 2,
-                NullLoggerFactory.Instance);
+                NullLoggerFactory.Instance,
+                deadline: TimeSpan.FromMinutes(1));
         }
 
         return Task.CompletedTask;
