@@ -228,4 +228,60 @@ public sealed class ImportFormTests : ConsoleTest
         string[] errors = await PageErrorsAsync();
         NothingWentWrong(errors);
     }
+    /// <summary>
+    /// A CSV is offered, and choosing one asks for its coordinate columns and sends them — ADR-112.
+    /// </summary>
+    [Fact]
+    public async Task A_table_upload_asks_for_its_columns()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/studio/#/content", token);
+
+        await OpenImportFormAsync();
+
+        string accepts = await Browser.EvaluateAsync<string>(
+            "document.getElementById('iFile').getAttribute('accept') || ''") ?? string.Empty;
+
+        Assert.Contains(".csv", accepts, StringComparison.Ordinal);
+        Assert.Contains(".xlsx", accepts, StringComparison.Ordinal);
+
+        Assert.False(await Browser.EvaluateAsync<bool>(Shown("#iX")), "The X column is asked for before a table is chosen.");
+
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              const held = new DataTransfer();
+              held.items.add(new File(['ad,easting,northing\nA,500000,4400000\n'], 'sites.csv', { type: 'text/csv' }));
+              const input = document.getElementById('iFile');
+              input.files = held.files;
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+              return true;
+            })()
+            """);
+
+        await WaitForAsync(Shown("#iX"), "Choosing a CSV did not ask which columns hold its coordinates.");
+        Assert.Contains("easting", await Browser.EvaluateAsync<string>("document.getElementById('iNote').textContent") ?? "",
+            StringComparison.Ordinal);
+
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              document.getElementById('iName').value = 'zz_sites';
+              document.getElementById('iX').value = 'easting';
+              document.getElementById('iY').value = 'northing';
+              document.getElementById('iSrid').value = '5254';
+              document.getElementById('importForm').requestSubmit();
+              return true;
+            })()
+            """);
+
+        await WaitForAsync(
+            "(window.__writes || []).some(w => w.includes('/admin/hosted/import'))",
+            "The form did not post the table.");
+
+        string wrote = (await WritesAsync()).First(w => w.Contains("/admin/hosted/import", StringComparison.Ordinal));
+
+        Assert.Contains("[file,name,sharing,srid,x,y]", wrote, StringComparison.Ordinal);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
 }

@@ -1259,6 +1259,14 @@ public interface IAdminCatalog
     /// <returns>True when the service exists.</returns>
     Task<bool> SetDeleteProtectedAsync(string serviceName, string? folder, bool protectedFromDeletion, CancellationToken cancellationToken);
 
+    /// <summary>Replaces a service's tags — ADR-111.</summary>
+    /// <param name="serviceName">The service.</param>
+    /// <param name="folder">Its folder, or null.</param>
+    /// <param name="tags">The tags, already normalised.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the service exists.</returns>
+    Task<bool> SetServiceTagsAsync(string serviceName, string? folder, IReadOnlyList<string> tags, CancellationToken cancellationToken);
+
     /// <summary>Gives one service to another member — Portal's *Change owner* for one item.</summary>
     /// <param name="serviceName">The service.</param>
     /// <param name="folder">Its folder, or null.</param>

@@ -4493,3 +4493,7 @@ dialog h3[tabindex="-1"]:focus { outline: none; }
 #updateData .mapcols { width: 100%; border-collapse: collapse; }
 #updateData .mapcols th, #updateData .mapcols td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--rule); }
 #updateData .mapcols select { font: inherit; max-width: 100%; }
+
+/* ADR-111: an item's tags. */
+.tagline { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.tagline .tag { font-size: 12px; padding: 2px 8px; border: 1px solid var(--rule); border-radius: 999px; color: var(--ink, inherit); }

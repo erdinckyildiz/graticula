@@ -17,12 +17,12 @@ public sealed class PostgresWebMapStore : IWebMapStore
     /// <summary>The columns <see cref="Read"/> reads, without the document.</summary>
     private const string Listed =
         "m.id, m.title, m.snippet, m.owner_principal_id, p.name, m.sharing, null::text, m.created_at, m.modified_at"
-        + ", coalesce((select array_agg(gm.group_id) from sharing_group_map gm where gm.map_id = m.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from sharing_group_map gm join sharing_group g on g.id = gm.group_id where gm.map_id = m.id), '{}'::text[]), m.delete_protected";
+        + ", coalesce((select array_agg(gm.group_id) from sharing_group_map gm where gm.map_id = m.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from sharing_group_map gm join sharing_group g on g.id = gm.group_id where gm.map_id = m.id), '{}'::text[]), m.delete_protected, m.tags";
 
     /// <summary>The columns <see cref="Read"/> reads, with the document.</summary>
     private const string Whole =
         "m.id, m.title, m.snippet, m.owner_principal_id, p.name, m.sharing, m.document::text, m.created_at, m.modified_at"
-        + ", coalesce((select array_agg(gm.group_id) from sharing_group_map gm where gm.map_id = m.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from sharing_group_map gm join sharing_group g on g.id = gm.group_id where gm.map_id = m.id), '{}'::text[]), m.delete_protected";
+        + ", coalesce((select array_agg(gm.group_id) from sharing_group_map gm where gm.map_id = m.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from sharing_group_map gm join sharing_group g on g.id = gm.group_id where gm.map_id = m.id), '{}'::text[]), m.delete_protected, m.tags";
 
     private readonly NpgsqlDataSource _dataSource;
 
@@ -172,6 +172,20 @@ public sealed class PostgresWebMapStore : IWebMapStore
     }
 
     /// <inheritdoc/>
+    public async Task<bool> SetTagsAsync(string id, IReadOnlyList<string> tags, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        ArgumentNullException.ThrowIfNull(tags);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update web_map set tags = @tags, modified_at = now() where id = @id");
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("tags", System.Linq.Enumerable.ToArray(tags));
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> SetDeleteProtectedAsync(string id, bool protectedFromDeletion, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
@@ -221,5 +235,6 @@ public sealed class PostgresWebMapStore : IWebMapStore
         reader.GetFieldValue<DateTimeOffset>(8),
         reader.FieldCount > 9 && !reader.IsDBNull(9) ? reader.GetFieldValue<Guid[]>(9) : null,
         reader.FieldCount > 10 && !reader.IsDBNull(10) ? reader.GetFieldValue<string[]>(10) : null,
-        reader.FieldCount > 11 && !reader.IsDBNull(11) && reader.GetBoolean(11));
+        reader.FieldCount > 11 && !reader.IsDBNull(11) && reader.GetBoolean(11),
+        reader.FieldCount > 12 && !reader.IsDBNull(12) ? reader.GetFieldValue<string[]>(12) : null);
 }

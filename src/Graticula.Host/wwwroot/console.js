@@ -2615,14 +2615,25 @@ function drawUpdateChoice() {
 
   const file = $("updateDataFile")?.files?.[0];
   const row = $("updateDataSridRow");
-  if (row) row.hidden = !(file && /\.zip$/i.test(file.name));
+  const table = isTableFile(file);
+  if (row) row.hidden = !(file && (/\.zip$/i.test(file.name) || table));
+  const xy = $("updateDataXY");
+  if (xy) xy.hidden = !table;
+  const label = row?.querySelector("label");
+  if (label) {
+    label.textContent = table
+      ? "Coordinate system of the table's X and Y (EPSG code; leave empty for WGS 84 longitude and latitude)"
+      : "Coordinate system of the shapefile (EPSG code; leave empty to read it from the .prj)";
+  }
+  const code = $("updateDataSrid");
+  if (code) code.placeholder = table ? "4326" : "from the .prj";
 }
 
 document.addEventListener("change", e => {
   const t = e.target;
   if (!(t instanceof Element) || !t.closest("#updateData")) return;
   drawUpdateChoice();
-  if (t.id === "updateDataFile" || t.id === "updateDataLayer" || t.id === "updateDataSrid") readUpdateColumns();
+  if (["updateDataFile", "updateDataLayer", "updateDataSrid", "updateDataX", "updateDataY"].includes(t.id)) readUpdateColumns();
 });
 
 /**
@@ -2648,6 +2659,7 @@ async function readUpdateColumns() {
   body.append("dryRun", "true");
   const srid = ($("updateDataSrid")?.value || "").trim();
   if (srid) body.append("srid", srid);
+  appendTableColumns(body, file);
 
   try {
     const said = await api(`/admin/hosted/${encodeURIComponent(layer)}/append`, { method: "POST", body });
@@ -3702,6 +3714,7 @@ function mapAsItem(m) {
     bare: m.title || "Untitled map",
     kind: "Web map",
     description: m.snippet || "",
+    tags: m.tags || [],
     owner: m.owner,
     sharing: m.sharing || "private",
     manages: m.manages,
@@ -3806,7 +3819,7 @@ function drawMyContent() {
 
   const visible = inScope
     .filter(i => !contentType || i.kind === contentType)
-    .filter(i => !needle || [i.name, bareOf(i), i.kind, i.description, i.owner, i.folder]
+    .filter(i => !needle || [i.name, bareOf(i), i.kind, i.description, i.owner, i.folder, ...(i.tags || [])]
       .some(v => (v || "").toLowerCase().includes(needle)))
     .sort(order);
 
@@ -4046,6 +4059,8 @@ function drawMapAbout(editing = false) {
       <div class="stacked"><label for="mapEditTitle">Title</label><input type="text" id="mapEditTitle" value="${h(map.title)}"></div>
       <div class="stacked"><label for="mapEditSnippet">Summary</label>
         <textarea id="mapEditSnippet" rows="3">${h(map.snippet || "")}</textarea></div>
+      <div class="stacked"><label for="mapEditTags">Tags — separated by commas</label>
+        <input type="text" id="mapEditTags" value="${h((map.tags || []).join(", "))}"></div>
       <div class="row"><button type="button" class="primary" id="mapEditSave">Save</button>
         <button type="button" class="ghost" id="mapEditCancel">Cancel</button></div>
       <p class="hint" id="mapAboutSays" role="status" aria-live="polite"></p>`;
@@ -4055,7 +4070,8 @@ function drawMapAbout(editing = false) {
 
   $("mapAbout").innerHTML = `
     <p>${map.snippet ? h(map.snippet) : `<span class="hint">No summary yet. A line on what the map shows makes it easier to find.</span>`}</p>
-    ${map.manages ? `<button type="button" class="tiny ghost" id="mapEditOpen">Edit title and summary</button>` : ""}
+    ${(map.tags || []).length ? `<p class="tagline">${map.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : ""}
+    ${map.manages ? `<button type="button" class="tiny ghost" id="mapEditOpen">Edit title, summary and tags</button>` : ""}
     <p class="hint" id="mapAboutSays" role="status" aria-live="polite"></p>`;
 }
 
@@ -4084,6 +4100,9 @@ document.addEventListener("click", async event => {
     t.disabled = true;
     try {
       await saveMapItem({ title, snippet: $("mapEditSnippet").value.trim() || null });
+      await api(`/content/webmaps/${encodeURIComponent(mapOpen.id)}/tags`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags: $("mapEditTags").value.split(",").map(t => t.trim()).filter(Boolean) }) });
       await showWebMapItem(mapOpen.id);
       $("mapAboutSays").textContent = "Saved.";
       $("mapEditOpen")?.focus();
@@ -6462,10 +6481,14 @@ function describedAs(item) {
   const edit = item.manages === false ? "" : `<button type="button" class="tiny ghost"
     data-describe="${h(item.name)}">${item.description ? "Edit" : "Add a description"}</button>`;
 
+  // ADR-111: the words it is found by, under what it is.
+  const tags = (item.tags || []).length
+    ? `<p class="tagline">${item.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : "";
+
   return item.description
-    ? `<p class="lede">${h(item.description)}</p>${edit}`
+    ? `<p class="lede">${h(item.description)}</p>${tags}${edit}`
     : `<p class="hint">No description yet. A few words on what this is and where it came from make it
-         easier to find and to trust.</p>${edit}`;
+         easier to find and to trust.</p>${tags}${edit}`;
 }
 
 /** Turns the description into a box to type in, with Save and Cancel. */
@@ -6477,6 +6500,10 @@ function editDescription(qualified) {
 
   box.innerHTML = `<label class="field" style="display:block">Description
       <textarea id="describeText" rows="4" maxlength="4000" style="width:100%">${h(item?.description || "")}</textarea>
+    </label>
+    <label class="field" style="display:block;margin-top:var(--gap-2)">Tags — separated by commas
+      <input type="text" id="describeTags" style="width:100%" value="${h((item?.tags || []).join(", "))}"
+        placeholder="e.g. transport, Ankara, 2026">
     </label>
     <div class="row" style="gap:var(--gap-2);margin-top:var(--gap-2)">
       <button type="button" class="primary" data-describe-save="${h(qualified)}">Save</button>
@@ -6499,7 +6526,19 @@ async function saveDescription(qualified) {
       body: JSON.stringify({ description: text }),
     });
 
-    if (serviceItem && serviceItem.name === qualified) serviceItem.description = text;
+    // The tags go with the description, from the same Save (ADR-111).
+    const tags = ($("describeTags")?.value || "").split(",").map(t => t.trim()).filter(Boolean);
+    const saved = await api(`/admin/services/${encodeURIComponent(name)}/tags`
+      + `?folder=${encodeURIComponent(folder || "")}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tags }),
+    });
+
+    if (serviceItem && serviceItem.name === qualified) {
+      serviceItem.description = text;
+      serviceItem.tags = saved?.tags || tags;
+    }
     $("serviceDescription").innerHTML = describedAs(serviceItem || { name: qualified, description: text });
     toast(text ? "Description saved." : "Description removed.", true);
   } catch (e) {
@@ -20851,7 +20890,8 @@ const ITEM_ROUTES = [
     id: "import",
     icon: "upload",
     title: "Upload a file",
-    lede: "Use the fields and the data in a zipped shapefile or a GeoJSON FeatureCollection.",
+    lede: "Use the fields and the data in a zipped shapefile, a File Geodatabase, a GeoJSON file, or a CSV or Excel "
+      + "table with coordinates.",
     form: "importForm",
     submit: "Import and publish",
   },
@@ -20949,10 +20989,10 @@ function drawItemKinds() {
       ${icon("upload")}
       <p>Drag and drop a file here</p>
       <button type="button" class="ghost" id="fromDevice" autofocus>${icon("device")} Your device</button>
-      <span class="val">A zipped shapefile, a zipped File Geodatabase, or a GeoJSON
-        FeatureCollection</span>
+      <span class="val">A zipped shapefile, a zipped File Geodatabase, a GeoJSON
+        FeatureCollection, or a CSV or Excel table with coordinates</span>
       <input type="file" id="deviceFile" hidden
-             accept=".zip,.json,.geojson,application/zip,application/geo+json">
+             accept=".zip,.json,.geojson,.csv,.txt,.xlsx,application/zip,application/geo+json,text/csv">
     </div>
 
     <p class="orbar"><span>or start from a type</span></p>
@@ -21135,8 +21175,8 @@ function drawDesignForm() {
 function drawImportForm() {
   $("addItemBody").innerHTML = `
     <p class="hint">For data you already have. The schema is read from the file — a
-      <b>zipped shapefile</b>, a <b>zipped File Geodatabase</b>, or a
-      <b>GeoJSON FeatureCollection</b>. A geodatabase holds many feature classes, so it is read by a
+      <b>zipped shapefile</b>, a <b>zipped File Geodatabase</b>, a
+      <b>GeoJSON FeatureCollection</b>, or a <b>CSV or Excel table</b> whose rows carry coordinates. A geodatabase holds many feature classes, so it is read by a
       separate process and this screen reports what is in it rather than publishing straight away.</p>
     <form id="importForm" autocomplete="off">
       <div class="row">
@@ -21149,11 +21189,17 @@ function drawImportForm() {
       </div>
       <div class="row">
         <label class="field">File<input id="iFile" type="file"
-          accept=".zip,.json,.geojson,application/zip,application/geo+json" required></label>
-        <label class="field">Coordinate system<input type="text" id="iSrid" inputmode="numeric"
-          placeholder="4326"><span class="u"></span></label>
+          accept=".zip,.json,.geojson,.csv,.txt,.xlsx,application/zip,application/geo+json,text/csv" required></label>
       </div>
-      <p class="hint" id="iChosen" hidden></p>
+      <p class="hint" id="iChosen" role="status" aria-live="polite" hidden></p>
+      <div class="row" id="iTableRow" hidden>
+        <label class="field">X column<input type="text" id="iX" placeholder="found by name"></label>
+        <label class="field">Y column<input type="text" id="iY" placeholder="found by name"></label>
+      </div>
+      <div class="row">
+        <label class="field"><span id="iSridLabel">Coordinate system</span><input type="text" id="iSrid"
+          inputmode="numeric" placeholder="from the file"><span class="u"></span></label>
+      </div>
       <p class="hint" id="iNote">Leave the coordinate system empty: it is read from a GeoJSON
         file, which is always WGS 84, and from a shapefile's <code>.prj</code>. Fill it in only for a
         shapefile that has no <code>.prj</code>.</p>
@@ -21161,6 +21207,7 @@ function drawImportForm() {
     <div id="newResult" class="group" style="display:none"></div>`;
 
   $("importForm").addEventListener("submit", createImported);
+  $("iFile").addEventListener("change", drawImportTable);
 
   if (!handedFile) return;
 
@@ -21198,18 +21245,54 @@ function drawImportForm() {
   // `PointofInve…ation.gdb.zip` inside the control, which hides exactly the part that distinguishes
   // one export from another. Size beside it, so an empty or truncated upload is visible before it is
   // sent rather than after it is refused.
+  handedFile = null;
+  drawImportTable();
+}
+
+/** Update data's X and Y column names, when the file is a table and they were given (ADR-112). */
+function appendTableColumns(body, file) {
+  if (!isTableFile(file)) return;
+  const x = ($("updateDataX")?.value || "").trim();
+  const y = ($("updateDataY")?.value || "").trim();
+  if (x) body.append("x", x);
+  if (y) body.append("y", y);
+}
+
+/** A CSV or an Excel workbook, by its name — the server checks the bytes agree (ADR-112). */
+const isTableFile = file => !!file && /\.(csv|txt|xlsx)$/i.test(file.name);
+
+/**
+ * <b>A table's coordinates are columns, and the form says which it looks for</b> — ADR-112. The X and Y fields appear
+ * only for a table, and the note under them changes with the file, because a GeoJSON's advice is wrong for a CSV.
+ */
+function drawImportTable() {
+  const file = $("iFile")?.files?.[0];
+  const table = isTableFile(file);
+  const row = $("iTableRow");
+  const note = $("iNote");
+  if (!row || !note) return;
+
+  // The whole file name, because the native input elides the middle of it; the size, so an empty upload shows.
   const chosen = $("iChosen");
-
   if (chosen) {
-    const kb = handedFile.size / 1024;
-
-    chosen.hidden = false;
-    chosen.innerHTML = `<b>${h(handedFile.name)}</b> <span class="val">${
-      kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(kb))} KB`
-    } · the format is read from the bytes, not from the name</span>`;
+    chosen.hidden = !file;
+    if (file) {
+      const kb = file.size / 1024;
+      chosen.innerHTML = `<b>${h(file.name)}</b> <span class="val">· ${
+        kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(kb))} KB`}${
+        table ? " · table: X and Y fields added below" : ""}</span>`;
+    }
   }
 
-  handedFile = null;
+  row.hidden = !table;
+  $("iSridLabel").textContent = table ? "Coordinate system of X and Y" : "Coordinate system";
+  $("iSrid").placeholder = table ? "4326" : "from the file";
+  note.innerHTML = table
+    ? `X and Y are found by name (x/y, lon/lat, easting/northing, or a WKT column). Fill them in only if yours are
+        named differently. Coordinates are read as WGS 84 unless you enter an EPSG code. Excel: first sheet only.`
+    : `Leave the coordinate system empty: it is read from a GeoJSON
+        file, which is always WGS 84, and from a shapefile's <code>.prj</code>. Fill it in only for a
+        shapefile that has no <code>.prj</code>.`;
 }
 
 /** Publish a table this server can reach. */
@@ -22331,6 +22414,12 @@ async function createImported(event) {
   // an empty string would be a value rather than an absence, and GeoJSON needs none.
   const srid = ($("iSrid")?.value || "").trim();
   if (srid) body.append("srid", srid);
+  if (isTableFile(file)) {
+    const x = ($("iX")?.value || "").trim();
+    const y = ($("iY")?.value || "").trim();
+    if (x) body.append("x", x);
+    if (y) body.append("y", y);
+  }
 
   // No Content-Type header: the browser sets it with the multipart boundary,
   // and setting it by hand produces a body the server cannot parse.
@@ -24391,12 +24480,17 @@ async function handleClick(event) {
       </fieldset>
       <p class="hint" id="updateDataWarn" hidden></p>
       <p class="hint"><b>If anything in the file does not fit, nothing is written.</b></p>
-      <div class="stacked"><label for="updateDataFile">File — GeoJSON, or a zipped shapefile</label>
-        <input type="file" id="updateDataFile" accept=".geojson,.json,.zip"></div>
+      <div class="stacked"><label for="updateDataFile">File: a GeoJSON file, a zipped shapefile, or a CSV or Excel table
+        with coordinates</label>
+        <input type="file" id="updateDataFile" accept=".geojson,.json,.zip,.csv,.txt,.xlsx"></div>
+      <div class="row" id="updateDataXY" hidden>
+        <label class="field">X column<input type="text" id="updateDataX" placeholder="found by name"></label>
+        <label class="field">Y column<input type="text" id="updateDataY" placeholder="found by name"></label>
+      </div>
       <div class="stacked" id="updateDataSridRow" hidden><label for="updateDataSrid">Coordinate system of the shapefile
         (EPSG code; leave empty to read it from the .prj)</label>
         <input type="text" id="updateDataSrid" inputmode="numeric" placeholder="from the .prj"></div>
-      <div id="updateDataMap" hidden></div>
+      <div id="updateDataMap" aria-live="polite" hidden></div>
       <details class="more"><summary>What is kept</summary><p class="hint">The layer keeps its fields, its geometry
         type and its coordinate system: a column the file has and the layer does not is left out and named, and the
         geometry is transformed into the layer's coordinate system if it needs to be.</p></details>`;
@@ -24430,6 +24524,7 @@ async function handleClick(event) {
     body.append("file", file);
     const srid = ($("updateDataSrid")?.value || "").trim();
     if (srid) body.append("srid", srid);
+    appendTableColumns(body, $("updateDataFile")?.files?.[0]);
 
     // The mapping, when the step was drawn: ArcGIS's `fieldMappings`, every chosen column and nothing left out.
     const chosen = [...document.querySelectorAll("#updateDataMap [data-map-from]")];

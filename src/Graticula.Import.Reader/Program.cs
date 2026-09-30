@@ -200,13 +200,21 @@ internal static class Program
             // <b>`append` (ADR-106's job, 2026-09-30) adds the layer to an output that already exists</b> instead of
             // making it, so several layers of one service can leave as one GeoPackage, File Geodatabase, KML or
             // workbook. Absent, the request is what ADR-107's route has always sent.
+            // <b>ADR-112: a CSV or an Excel sheet with X and Y (or WKT) turned into GeoJSON</b>, which `layers` and
+            // `features` then read as they read a shapefile. The coordinates are left as they are; the host says which
+            // reference they are in.
+            "tabular" => Tabular(
+                Text(request, "in"), Text(request, "out"),
+                request.TryGetProperty("x", out JsonElement xs) ? xs.GetString() : null,
+                request.TryGetProperty("y", out JsonElement ys) ? ys.GetString() : null),
+
             "export" => Export(
                 Text(request, "in"), Text(request, "out"), Text(request, "format"), Text(request, "layer"),
                 request.TryGetProperty("append", out JsonElement append) && append.ValueKind == JsonValueKind.True),
 
             _ => throw new ArgumentException(
                 $"'{operation}' is not an operation. This reader answers 'ping', 'layers', "
-                + "'convert', 'features', 'fixture' and 'export'."),
+                + "'convert', 'features', 'fixture', 'export' and 'tabular'."),
         };
     }
 
@@ -751,6 +759,100 @@ internal static class Program
         }
 
         return new { ok = true, messages = said };
+    }
+
+    /// <summary>
+    /// A CSV or the first sheet of an Excel workbook as GeoJSON, its points from X and Y columns or its shapes from a
+    /// WKT column — ADR-112.
+    /// </summary>
+    /// <remarks>
+    /// <b>GDAL's CSV driver does the reading</b>, with the columns it should look for named: the ones the caller gives,
+    /// then the usual English and Turkish names. A workbook is written to CSV first, because the Excel driver reads
+    /// attributes and has no X/Y option. Numbers stay numbers (<c>AUTODETECT_TYPE</c>).
+    /// </remarks>
+    private static object Tabular(string input, string output, string? x, string? y)
+    {
+        List<string> said = [];
+        _messages = said;
+
+        string? scratch = null;
+
+        try
+        {
+            string csv = input;
+
+            if (input.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+            {
+                scratch = Path.Combine(Path.GetDirectoryName(output) ?? Path.GetTempPath(), Path.GetFileNameWithoutExtension(input) + ".sheet.csv");
+
+                using Dataset book = Gdal.OpenEx(input, 0, null, null, null)
+                    ?? throw new InvalidOperationException("GDAL could not open the workbook.");
+                using Dataset sheet = Gdal.wrapper_GDALVectorTranslateDestName(
+                    scratch, book, new GdalVectorTranslateOptions(["-f", "CSV", "-lco", "GEOMETRY=AS_WKT"]), null, null)
+                    ?? throw new InvalidOperationException($"The workbook could not be read as a table. {string.Join(" ", said)}");
+
+                csv = scratch;
+            }
+
+            string[] xNames = [.. new[] { x }.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n!)
+                .Concat(["x", "lon", "lng", "long", "longitude", "boylam", "easting", "doğu"])];
+            string xs = string.Join(",", xNames);
+
+            // <b>Which X column was used, said back</b>, so the host can tell degrees from metres: an `easting` read as
+            // longitude lands a layer in the sea off Africa, and the host refuses that without an EPSG code.
+            string? matched = null;
+
+            using (Dataset plain = Gdal.OpenEx(csv, 0, ["CSV"], null, null)
+                ?? throw new InvalidOperationException("GDAL could not open the table."))
+            {
+                Layer? head = plain.GetLayerCount() > 0 ? plain.GetLayer(0) : null;
+                FeatureDefn? defn = head?.GetLayerDefn();
+                HashSet<string> present = new(StringComparer.OrdinalIgnoreCase);
+
+                for (int i = 0; defn is not null && i < defn.GetFieldCount(); i++)
+                {
+                    present.Add(defn.GetFieldDefn(i).GetName());
+                }
+
+                matched = xNames.FirstOrDefault(present.Contains);
+            }
+            string ys = string.Join(",", new[] { y }.Where(n => !string.IsNullOrWhiteSpace(n))
+                .Concat(["y", "lat", "latitude", "enlem", "northing", "kuzey"]));
+
+            using Dataset table = Gdal.OpenEx(csv, 0, ["CSV"],
+                [$"X_POSSIBLE_NAMES={xs}", $"Y_POSSIBLE_NAMES={ys}", "GEOM_POSSIBLE_NAMES=wkt,WKT,geometry,geom,the_geom,shape",
+                 "KEEP_GEOM_COLUMNS=NO", "AUTODETECT_TYPE=YES"], null)
+                ?? throw new InvalidOperationException("GDAL could not open the table.");
+
+            {
+                Layer? first = table.GetLayerCount() > 0 ? table.GetLayer(0) : null;
+
+                if (first is null || first.GetGeomType() == wkbGeometryType.wkbNone)
+                {
+                    return new
+                    {
+                        ok = false,
+                        error = "No coordinates were found in the table: name its columns x and y (or lon and lat), or send "
+                            + "a WKT column, or say which columns hold them.",
+                    };
+                }
+            }
+
+            using Dataset written = Gdal.wrapper_GDALVectorTranslateDestName(
+                output, table, new GdalVectorTranslateOptions(["-f", "GeoJSON"]), null, null)
+                ?? throw new InvalidOperationException($"The table could not be written as GeoJSON. {string.Join(" ", said)}");
+
+            return new { ok = true, x = matched, messages = said };
+        }
+        finally
+        {
+            _messages = null;
+
+            if (scratch is not null && File.Exists(scratch))
+            {
+                File.Delete(scratch);
+            }
+        }
     }
 
     private static object Convert(string archive, string layer, string output)

@@ -210,7 +210,17 @@ internal static class HostedDataEndpoints
             peeked = await probe.ReadAsync(head, cancellation).ConfigureAwait(false);
         }
 
-        if (peeked == 4 && BoundedArchive.LooksLikeZip(head))
+        if (TableKind(file.FileName, peeked == 4 && BoundedArchive.LooksLikeZip(head)) is { } table)
+        {
+            dataset = await TryTableAsync(context, form, file, table, reader, scratch, cancellation)
+                .ConfigureAwait(false);
+
+            if (dataset is null)
+            {
+                return;
+            }
+        }
+        else if (peeked == 4 && BoundedArchive.LooksLikeZip(head))
         {
             (bool ok, ImportedDataset shapes) = await TryShapefileAsync(
                 context, form, file, jobs, signal, reader, scratch, cancellation)
@@ -671,6 +681,165 @@ internal static class HostedDataEndpoints
             {
                 scratch.Release(path);
             }
+        }
+    }
+
+    /// <summary>
+    /// <b>A table by its name — ADR-112.</b> <c>.csv</c> and <c>.txt</c> that are not a ZIP, <c>.xlsx</c> that is one;
+    /// the extension says which reader to try and the bytes have to agree, so a renamed file is not believed.
+    /// </summary>
+    /// <param name="fileName">The upload's own name.</param>
+    /// <param name="zip">Whether its first bytes are a ZIP's.</param>
+    /// <returns>The extension to keep it under, or null when it is not a table.</returns>
+    internal static string? TableKind(string? fileName, bool zip)
+    {
+        string extension = System.IO.Path.GetExtension(fileName ?? string.Empty).ToLowerInvariant();
+
+        return extension switch
+        {
+            ".csv" or ".txt" when !zip => ".csv",
+            ".xlsx" when zip => ".xlsx",
+            _ => null,
+        };
+    }
+
+    /// <summary>What a workbook may unpack to, as its own directory declares it.</summary>
+    private const long MaximumSheetBytes = 1L << 30;
+
+    /// <summary>
+    /// Reads a CSV or an Excel workbook into a dataset, its points from X and Y columns or its shapes from WKT, in the
+    /// reference the form's <c>srid</c> names (4326 when it names none); or answers why not and returns null —
+    /// ADR-112.
+    /// </summary>
+    /// <remarks>
+    /// <b>Read in the child process, as a shapefile is</b> (D-113): the reader turns the table into GeoJSON beside the
+    /// upload, and the shapefile's own path reads that. <b>A workbook's declared size is checked first</b>, because a
+    /// ZIP can unpack to far more than was uploaded and the reader writes the sheet out as text.
+    /// </remarks>
+    private static async Task<ImportedDataset?> TryTableAsync(
+        HttpContext context,
+        IFormCollection form,
+        IFormFile file,
+        string kind,
+        GeodatabaseReader reader,
+        ImportScratch scratch,
+        CancellationToken cancellation)
+    {
+        if (!reader.Available)
+        {
+            await Fail(context, 400,
+                "This deployment did not ship the import reader, so a CSV or an Excel workbook cannot be read. "
+                + "GeoJSON is unaffected.").ConfigureAwait(false);
+            return null;
+        }
+
+        int srid = 4326;
+        string requestedSrid = form["srid"].ToString();
+
+        if (!string.IsNullOrWhiteSpace(requestedSrid)
+            && (!int.TryParse(requestedSrid, NumberStyles.Integer, CultureInfo.InvariantCulture, out srid) || srid <= 0))
+        {
+            await Fail(context, 400, $"'srid' must be an EPSG code; '{requestedSrid}' is not one.").ConfigureAwait(false);
+            return null;
+        }
+
+        if (kind == ".xlsx")
+        {
+            long declared = 0;
+
+            try
+            {
+                await using System.IO.Stream looking = file.OpenReadStream();
+                using System.IO.Compression.ZipArchive book = new(looking, System.IO.Compression.ZipArchiveMode.Read);
+
+                foreach (System.IO.Compression.ZipArchiveEntry entry in book.Entries)
+                {
+                    declared += entry.Length;
+                }
+            }
+            catch (System.IO.InvalidDataException broken)
+            {
+                await Fail(context, 400, $"The workbook could not be opened: {broken.Message}").ConfigureAwait(false);
+                return null;
+            }
+
+            if (declared > MaximumSheetBytes)
+            {
+                await Fail(context, 400,
+                    $"The workbook unpacks to {declared / 1048576} MB, and this server reads at most "
+                    + $"{MaximumSheetBytes / 1048576} MB. Save the sheet as CSV and upload that.").ConfigureAwait(false);
+                return null;
+            }
+        }
+
+        Guid id = Guid.NewGuid();
+        string? kept = null;
+        string? table = null;
+        string? json = null;
+
+        try
+        {
+            kept = await scratch.KeepAsync(file, id, cancellation).ConfigureAwait(false);
+
+            // The reader chooses its driver by the extension, and scratch keeps every upload as `.zip`.
+            table = System.IO.Path.ChangeExtension(kept, kind);
+            System.IO.File.Move(kept, table);
+            kept = null;
+
+            json = System.IO.Path.ChangeExtension(table, ".geojson");
+
+            using (JsonDocument answer = await reader.AskAsync(
+                new
+                {
+                    op = "tabular",
+                    @in = table,
+                    @out = json,
+                    x = form["x"].ToString() is { Length: > 0 } x ? x : null,
+                    y = form["y"].ToString() is { Length: > 0 } y ? y : null,
+                },
+                ShapefileViaReader.Deadline,
+                cancellation).ConfigureAwait(false))
+            {
+                if (!answer.RootElement.TryGetProperty("ok", out JsonElement ok) || !ok.GetBoolean())
+                {
+                    string said = answer.RootElement.TryGetProperty("error", out JsonElement error)
+                        ? error.GetString() ?? "The table could not be read."
+                        : "The table could not be read.";
+
+                    await Fail(context, 400, said).ConfigureAwait(false);
+                    return null;
+                }
+
+                // Metres read as degrees put the layer somewhere it is not; asked for rather than guessed.
+                if (string.IsNullOrWhiteSpace(requestedSrid)
+                    && answer.RootElement.TryGetProperty("x", out JsonElement matched)
+                    && matched.GetString() is { } column
+                    && (column.Equals("easting", StringComparison.OrdinalIgnoreCase)
+                        || column.Equals("doğu", StringComparison.OrdinalIgnoreCase)))
+                {
+                    await Fail(context, 400,
+                        $"The table's '{column}' column is in a projected system, not longitude and latitude. Enter "
+                        + "its EPSG code in Coordinate system. Nothing was written.").ConfigureAwait(false);
+                    return null;
+                }
+            }
+
+            (ImportedDataset? read, string? readError) = await ShapefileViaReader.ReadAsync(
+                reader, json, srid, null, ImportLimits.Default, cancellation).ConfigureAwait(false);
+
+            if (read is null)
+            {
+                await Fail(context, 400, readError!).ConfigureAwait(false);
+                return null;
+            }
+
+            return read;
+        }
+        finally
+        {
+            scratch.Release(kept);
+            scratch.Release(table);
+            scratch.Release(json);
         }
     }
 
@@ -2082,7 +2251,8 @@ internal static class HostedDataEndpoints
     }
 
     /// <summary>
-    /// Reads a file for Update data — GeoJSON, or a zipped shapefile with the form's <c>encoding</c> and <c>srid</c> —
+    /// Reads a file for Update data — GeoJSON, a zipped shapefile with the form's <c>encoding</c> and <c>srid</c>, or a
+    /// CSV or Excel workbook (ADR-112) —
     /// or answers why not and returns null. Shared by the native route and ArcGIS's <c>append</c> (ADR-103, ADR-105).
     /// </summary>
     internal static async Task<ImportedDataset?> ReadUpdateFileAsync(
@@ -2104,6 +2274,11 @@ internal static class HostedDataEndpoints
         }
 
         ImportedDataset? dataset;
+
+        if (TableKind(file.FileName, peeked == 4 && BoundedArchive.LooksLikeZip(head)) is { } table)
+        {
+            return await TryTableAsync(context, form, file, table, reader, scratch, cancellation).ConfigureAwait(false);
+        }
 
         if (peeked == 4 && BoundedArchive.LooksLikeZip(head))
         {
@@ -2281,7 +2456,7 @@ internal static class HostedDataEndpoints
         IAuditLog audit,
         CancellationToken cancellation)
     {
-        // Protection covers the rows too (owner decision 2026-10-01; truncate with overwrite is INFERRED).
+        // Protection covers the rows too (owner decisions 2026-10-01, for overwrite and for truncate).
         if (!attachmentsOnly
             && !await AdminEndpoints.NotProtectedAsync(context, catalog, found.ServiceName, found.Folder, cancellation, "emptied")
                 .ConfigureAwait(false))

@@ -127,7 +127,10 @@ public sealed class PostgresLayerCatalog
         -- How long past its lifetime a layer's tile may be served while its source refuses, and how much of the
         -- tile cache the service may hold (ADR-010 §5.1a and §3, migration 65). On the end, read by name; null on
         -- every row that existed before it.
-        l.stale_seconds, s.tile_cache_quota_mb
+        l.stale_seconds, s.tile_cache_quota_mb,
+
+        -- The service's tags (ADR-111, migration 70). On the end, read by name.
+        s.tags as service_tags
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -843,7 +846,7 @@ public sealed class PostgresLayerCatalog
             Guid? Owner, SharingScope Sharing, ServiceStatus Status, string? Style,
             ServiceCapabilityLimits Limits, Guid[] SharedWith, int? Srid,
             string? SridWkt, DateTimeOffset Created, DateTimeOffset Modified, string? TilingScheme,
-            int? TileCacheQuota)> heads = [];
+            int? TileCacheQuota, string[] Tags)> heads = [];
         List<Guid> order = [];
 
         // <b>Its own scope, so the reader is closed before the group query
@@ -907,7 +910,12 @@ public sealed class PostgresLayerCatalog
                         // ADR-010 §3: the service's tile cache quota, by name like the rest.
                         reader.IsDBNull(reader.GetOrdinal("tile_cache_quota_mb"))
                             ? null
-                            : reader.GetInt32(reader.GetOrdinal("tile_cache_quota_mb")));
+                            : reader.GetInt32(reader.GetOrdinal("tile_cache_quota_mb")),
+
+                        // ADR-111: its tags, by name.
+                        reader.IsDBNull(reader.GetOrdinal("service_tags"))
+                            ? []
+                            : reader.GetFieldValue<string[]>(reader.GetOrdinal("service_tags")));
                 }
 
                 // A left join, so a service with no layers arrives as one row of
@@ -979,6 +987,7 @@ public sealed class PostgresLayerCatalog
                 TileScheme = scheme,
                 TileSchemeUnreadable = unreadable,
                 TileCacheQuotaMegabytes = head.TileCacheQuota,
+                Tags = head.Tags,
             });
         }
 

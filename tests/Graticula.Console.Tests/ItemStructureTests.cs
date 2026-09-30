@@ -391,6 +391,33 @@ public sealed class ItemStructureTests : ConsoleTest
         // Choosing the file asked the server to read it without writing — the mapping step's look (2026-10-01).
         Assert.Contains(await WritesAsync(), w => w.Contains("/append", StringComparison.Ordinal) && w.Contains("dryRun", StringComparison.Ordinal));
 
+        // A table offers its X and Y columns, and names them on the look as well as the write (ADR-112).
+        Assert.False(await Browser.EvaluateAsync<bool>(Shown("#updateDataX")), "A GeoJSON file was offered X and Y columns.");
+
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              const d = new DataTransfer();
+              d.items.add(new File(['ad,px,py\n'], 'sites.csv', { type: 'text/csv' }));
+              document.getElementById('updateDataFile').files = d.files; document.getElementById('updateDataFile').dispatchEvent(new Event('change', { bubbles: true }));
+              return true;
+            })()
+            """);
+
+        await WaitForAsync(Shown("#updateDataX"), "A table in Update data has nowhere to name its X and Y columns.");
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              window.__writes = [];
+              const x = document.getElementById('updateDataX'); x.value = 'px';
+              document.getElementById('updateDataY').value = 'py';
+              x.dispatchEvent(new Event('change', { bubbles: true }));
+              return true;
+            })()
+            """);
+
+        await WaitForAsync(
+            "(window.__writes || []).some(w => w.includes('dryRun') && w.includes(',x,y'))",
+            "The table's look did not send its X and Y columns.");
+
         NothingWentWrong(await PageErrorsAsync());
     }
 
@@ -492,6 +519,28 @@ public sealed class ItemStructureTests : ConsoleTest
         await WaitForAsync(
             "(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/owner'))",
             "Change owner sent nothing.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>ADR-111: an item's tags are edited with its description, from Overview.</summary>
+    [Fact]
+    public async Task Tags_are_edited_with_the_description()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync($"/studio/#/service/{Service()}", token);
+
+        await WaitForAsync("!!document.querySelector('#serviceDescription [data-describe]')", "Overview offers no way to describe the item.");
+        await ClickAsync("#serviceDescription [data-describe]");
+
+        await WaitForAsync("!!document.getElementById('describeTags')", "The description's editor has no tags.");
+        await Browser.EvaluateAsync<bool>("(document.getElementById('describeTags').value = 'roads, ankara', true)");
+        await ClickAsync("#serviceDescription [data-describe-save]");
+
+        await WaitForAsync(
+            "(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/tags'))",
+            "Saving the description did not send the tags.");
 
         NothingWentWrong(await PageErrorsAsync());
     }

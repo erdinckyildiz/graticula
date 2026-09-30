@@ -27,6 +27,7 @@ namespace Graticula.Platform.Catalog;
 /// <param name="SharedWith">The groups it is shared with, for a <c>group</c>-scoped map — ADR-079 condition 4.</param>
 /// <param name="SharedWithNames">The same groups, by name, for a reader to show.</param>
 /// <param name="DeleteProtected">Whether a delete is refused until its owner turns this off (2026-10-01).</param>
+/// <param name="Tags">The words it is found by — ADR-111.</param>
 public sealed record WebMap(
     string Id,
     string Title,
@@ -39,7 +40,8 @@ public sealed record WebMap(
     DateTimeOffset Modified,
     IReadOnlyList<Guid>? SharedWith = null,
     IReadOnlyList<string>? SharedWithNames = null,
-    bool DeleteProtected = false);
+    bool DeleteProtected = false,
+    IReadOnlyList<string>? Tags = null);
 
 /// <summary>The rules a saved web map is held to, in one place for the store and the endpoints.</summary>
 public static class WebMaps
@@ -145,6 +147,13 @@ public interface IWebMapStore
         SharingScope sharing,
         string document,
         CancellationToken cancellationToken);
+
+    /// <summary>Replaces a map's tags — ADR-111.</summary>
+    /// <param name="id">The map.</param>
+    /// <param name="tags">The tags, already normalised.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the map exists.</returns>
+    Task<bool> SetTagsAsync(string id, IReadOnlyList<string> tags, CancellationToken cancellationToken);
 
     /// <summary>Protects a map from deletion, or stops protecting it — as an item's delete protection (ADR-102).</summary>
     /// <param name="id">The map.</param>

@@ -2318,6 +2318,25 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> SetServiceTagsAsync(
+        string serviceName, string? folder, IReadOnlyList<string> tags, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+        ArgumentNullException.ThrowIfNull(tags);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand("""
+            update service set tags = @tags, updated_at = now()
+             where lower(name) = lower(@name)
+               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+            """);
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("tags", System.Linq.Enumerable.ToArray(tags));
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     /// <remarks>
     /// <b>The service's owner is its layers' owner</b> (migration 11, D-24), so one row moves the item; its sharing,
     /// its groups and every URL a client holds are untouched — the member transfer's rule, for one item.

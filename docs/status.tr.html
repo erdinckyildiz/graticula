@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>eb51124</code> · 2026-09-30 21:52</p>
+<p class="stamp">Şu commit’ten üretildi: <code>dc991e1</code> · 2026-09-30 22:21</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">109</div><div class="kpi-l">ADR</div><div class="kpi-n">26 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">254/346</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">89 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">111</div><div class="kpi-l">ADR</div><div class="kpi-n">28 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">258/350</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">89 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4398</div><div class="kpi-l">test</div><div class="kpi-n">416 kaynak dosya, 184,487 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4402</div><div class="kpi-l">test</div><div class="kpi-n">417 kaynak dosya, 184,962 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -313,6 +313,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">107</td><td>A layer is exported as a GeoPackage, a zipped shapefile or a workbook</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — GDAL writes the files and is the same GDAL the import reads with; what is…</td><td class="num">2/3</td></tr>
 <tr><td class="id">108</td><td>An item&#x27;s owner is changed by an administrator; *Move* waits for content folders</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for Change owner — one row, the member transfer&#x27;s rule for one item; MEDIUM for…</td><td class="num">2/3</td></tr>
 <tr><td class="id">110</td><td>A web map sets its layers&#x27; pop-ups</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — stored where the ArcGIS Web Map specification keeps it and drawn by the viewer…</td><td class="num">1/2</td></tr>
+<tr><td class="id">111</td><td>An item carries tags</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — a list of words per item, searched as text; nothing measurable is at stake</td><td class="num">2/2</td></tr>
+<tr><td class="id">112</td><td>A CSV or Excel table with coordinates is published and added to a layer</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — GDAL&#x27;s CSV driver does the reading, and the path after it is the shapefile&#x27;s</td><td class="num">2/2</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -435,10 +437,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1232</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:61.0%"></div></div><div class="bar-n">751</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.0%"></div></div><div class="bar-n">641</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.2%"></div></div><div class="bar-n">643</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.4%"></div></div><div class="bar-n">251</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.5%"></div></div><div class="bar-n">253</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:16.7%"></div></div><div class="bar-n">206</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:10.1%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.3%"></div></div><div class="bar-n">115</div></div>
@@ -448,6 +450,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>dc991e1</code><time>2026-09-30</time><span>Update data maps the file&#x27;s columns before it writes; a web map can be protected from deletion (migration 69)</span></li>
 <li><code>eb51124</code><time>2026-09-30</time><span>ADR-106: every export format has now been opened outside GDAL</span></li>
 <li><code>4ac7868</code><time>2026-09-30</time><span>ADR-106 conditions 2 and 3 are partly discharged: ArcGIS Pro, Excel and Google Earth open the exports</span></li>
 <li><code>70045cf</code><time>2026-09-30</time><span>Merge remote-tracking branch &#x27;origin/main&#x27;</span></li>
@@ -461,7 +464,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>eb63eae</code><time>2026-09-30</time><span>A web map sets its layers&#x27; pop-ups (ADR-110)</span></li>
 <li><code>95682c3</code><time>2026-09-30</time><span>Merge remote-tracking branch &#x27;origin/main&#x27;</span></li>
 <li><code>6f36255</code><time>2026-09-30</time><span>Extract means something: a reader exports only where the owner chose it, and capabilities says so</span></li>
-<li><code>8dfe494</code><time>2026-09-30</time><span>An administrator changes one item&#x27;s owner (ADR-108); Move waits for content folders</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

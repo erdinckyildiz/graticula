@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(69);
+    public static SchemaVersion ComponentSchemaVersion => new(70);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -104,6 +104,7 @@ public static class PlatformMigrations
         AWebMapIsSharedWithGroupsV67,
         ALayersRowsMayBeExportedAsAFileV68,
         AWebMapMayBeProtectedFromDeletionV69,
+        AnItemCarriesTagsV70,
     ]);
 
     /// <summary>
@@ -141,6 +142,17 @@ public static class PlatformMigrations
     /// A web map may be protected from deletion, as a service may be (ADR-102 condition 2) — the ArcGIS review's second
     /// pass found maps the one item kind without it.
     /// </summary>
+    /// <summary>
+    /// An item carries tags — ADR-111: a service and a web map, the words Portal finds an item by.
+    /// </summary>
+    private static Migration AnItemCarriesTagsV70 => Migration.Expand(
+        new SchemaVersion(70),
+        "A service and a web map carry tags (ADR-111).",
+
+        "alter table service add column if not exists tags text[] not null default '{}'",
+
+        "alter table web_map add column if not exists tags text[] not null default '{}'");
+
     private static Migration AWebMapMayBeProtectedFromDeletionV69 => Migration.Expand(
         new SchemaVersion(69),
         "A web map may be protected from deletion.",

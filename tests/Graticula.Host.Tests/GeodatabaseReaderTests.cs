@@ -166,6 +166,9 @@ public sealed class GeodatabaseReaderTests
 
                 // `export` joined on 2026-10-01: a layer written out as GPKG, a shapefile or XLSX (ADR-107).
                 "export",
+
+                // `tabular` joined on 2026-10-01: a CSV or Excel table with coordinates as GeoJSON (ADR-112).
+                "tabular",
             },
             named);
 

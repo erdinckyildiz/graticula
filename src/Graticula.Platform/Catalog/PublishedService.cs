@@ -203,6 +203,9 @@ public sealed class PublishedService
     /// <summary>What it is for, or null.</summary>
     public string? Description { get; }
 
+    /// <summary>The words the service is found by — ADR-111. Empty until somebody tags it.</summary>
+    public IReadOnlyList<string> Tags { get; init; } = [];
+
     /// <summary>Who owns it, or null.</summary>
     public Guid? Owner { get; }
 

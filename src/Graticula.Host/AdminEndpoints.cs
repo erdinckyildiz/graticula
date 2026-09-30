@@ -661,6 +661,10 @@ internal static partial class AdminEndpoints
 
         // Portal's Change owner for one item — an administrator's act (2026-10-01).
         app.MapPut("/admin/services/{name}/owner", ChangeServiceOwnerAsync);
+
+        // ADR-111: an item's tags.
+        app.MapPut("/admin/services/{name}/tags", SetServiceTagsAsync);
+        app.MapPut("/content/webmaps/{id}/tags", SetWebMapTagsAsync);
         app.MapPut("/content/webmaps/{id}/owner", ChangeWebMapOwnerAsync);
 
         // <b>A system service can be stopped, since 2026-08-17.</b> The owner asked why the
@@ -1214,6 +1218,7 @@ internal static partial class AdminEndpoints
                 folder = service.Folder,
                 kind = service.Kind,
                 description = service.Description,
+                tags = service.Tags,
                 owner = admin.OwnerName,
                 sharing = PostgresSharing(service.Sharing),
                 status = Wire(service.Status),
@@ -4672,6 +4677,69 @@ internal static partial class AdminEndpoints
         await Results.Json(new { name, folder = at, deleteProtected = request.Protected }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>What <c>…/tags</c> reads.</summary>
+    internal sealed record TagsRequest(string?[]? Tags);
+
+    /// <summary>Replaces a service's tags — its owner's act, or an administrator's (ADR-075, ADR-111).</summary>
+    private static async Task SetServiceTagsAsync(
+        HttpContext context, string name, string? folder, TagsRequest request, IAdminCatalog catalog,
+        IAuditLog audit, PostgresLayerCatalog owners, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (!await ManagesServiceAsync(context, owners, at, name, "tag", cancellation).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (ItemTags.Normalise(request.Tags, out string? why) is not { } tags)
+        {
+            await Refuse(context, 400, why!).ConfigureAwait(false);
+            return;
+        }
+
+        if (!await catalog.SetServiceTagsAsync(name, at, tags, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(context, audit, "service.tags", name, Detail(new { folder = at, tags }), succeeded: true, cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Json(new { name, folder = at, tags }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Replaces a web map's tags — whoever may change the map (ADR-111).</summary>
+    private static async Task SetWebMapTagsAsync(
+        HttpContext context, string id, TagsRequest request, IWebMapStore maps, IAuditLog audit, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (await maps.FindAsync(id, cancellation).ConfigureAwait(false) is not { } map
+            || !LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization))
+        {
+            await Refuse(context, 404, "No such map, or not one you may change.").ConfigureAwait(false);
+            return;
+        }
+
+        if (ItemTags.Normalise(request.Tags, out string? why) is not { } tags)
+        {
+            await Refuse(context, 400, why!).ConfigureAwait(false);
+            return;
+        }
+
+        await maps.SetTagsAsync(id, tags, cancellation).ConfigureAwait(false);
+
+        await AuditAsync(context, audit, "webmap.tags", id, Detail(new { tags }), succeeded: true, cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Json(new { id, tags }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
     /// <summary>What <c>…/owner</c> reads: the member who receives the item.</summary>
     internal sealed record OwnerRequest(string? To);
 
@@ -4760,7 +4828,7 @@ internal static partial class AdminEndpoints
     /// <summary>Refuses with 409 when a service is protected from deletion; true when it may go.</summary>
     /// <remarks>
     /// <b>Also what empties or replaces a layer's rows</b> — owner decision 2026-10-01 for overwrite, and truncate
-    /// with it (INFERRED): protection that stopped a delete and let every feature be wiped protected the item and not
+    /// with it (owner decision the same day): protection that stopped a delete and let every feature be wiped protected the item and not
     /// its data. <paramref name="what"/> names the act in the refusal.
     /// </remarks>
     internal static async Task<bool> NotProtectedAsync(

@@ -1447,7 +1447,7 @@ internal static class PortalEndpoints
             typeKeywords = WebMapKeywords,
             description = map.Snippet,
             snippet = map.Snippet,
-            tags = Array.Empty<string>(),
+            tags = map.Tags ?? [],
             url = (string?)null,
             access = Access(map.Sharing),
             spatialReference = (string?)null,
@@ -1700,7 +1700,9 @@ internal static class PortalEndpoints
             typeKeywords = Keywords(face, service.Layers.Count > 0 && service.Layers.All(l => l.Definition.IsHosted)),
             description = service.Description,
             snippet = service.Description,
-            tags = service.Folder is null ? Array.Empty<string>() : new[] { service.Folder },
+            // ADR-111: the service's own tags; the folder stays as one, as it always was.
+            tags = service.Tags.Concat(service.Folder is null ? [] : new[] { service.Folder })
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             url = $"{Origin(context)}/rest/services/{service.QualifiedName}/{face}",
 
             // Relative to the item's `info/`, as a portal's is — V-50; null when there is nothing to draw.
