@@ -229,7 +229,17 @@ internal sealed record HostSettings(
     // <b>How long past its lifetime a tile may still be served while its source cannot build it — ADR-010
     // §5.1a, owner decision 2026-09-29.</b> A day: a map keeps its tiles through a night's outage, and a picture
     // older than that is refused rather than passed off as the map. A layer may set its own; zero turns it off.
-    int TileStaleIfErrorHours = FileSystemTileCache.DefaultStaleIfErrorHours)
+    int TileStaleIfErrorHours = FileSystemTileCache.DefaultStaleIfErrorHours,
+
+    // <b>The most rows one feature export writes across the layers it holds — ADR-106 §5.4.</b> Two million: more
+    // than the synchronous route's million and still a file a person can open. An export over it is refused at the
+    // request, and failed with the same sentence if the layers grew while it ran, rather than cut.
+    long FeatureExportMaximumRows = FeatureExporter.DefaultMaximumRows,
+
+    // <b>How long the reader may take to write one layer of a feature export — ADR-106 §5.2.</b> An hour, INFERRED:
+    // the reader is killed at the deadline and the job fails naming it, which is better than a worker that waits
+    // for ever on a driver that hung.
+    int FeatureExportTimeoutMinutes = FeatureExporter.DefaultTimeoutMinutes)
 {
     /// <summary>How long past its lifetime a tile may be served while its source cannot build it.</summary>
     public TimeSpan TileStaleIfError => TimeSpan.FromHours(TileStaleIfErrorHours);
@@ -239,6 +249,19 @@ internal sealed record HostSettings(
 
     /// <summary>How long a written package is kept.</summary>
     public TimeSpan TileExportRetention => TimeSpan.FromHours(TileExportRetentionHours);
+
+    /// <summary>
+    /// Where feature exports are written: the <c>data</c> folder of <see cref="TileExportDirectory"/> — ADR-106 §5.4.
+    /// </summary>
+    /// <remarks>
+    /// <b>A subfolder, so neither export's stray sweep can mistake the other's files for its own.</b> The tile
+    /// exporter deletes what it does not know in the folder it owns; a feature export's files, one level down, are
+    /// not in that listing.
+    /// </remarks>
+    public string FeatureExportDirectory => Path.Combine(TileExportDirectory, "data");
+
+    /// <summary>How long the reader may take to write one layer of a feature export.</summary>
+    public TimeSpan FeatureExportTimeout => TimeSpan.FromMinutes(FeatureExportTimeoutMinutes);
 
     /// <summary>
     /// Where the map SDK comes from unless a deployment says otherwise.
@@ -629,7 +652,12 @@ internal sealed record HostSettings(
 
             // Megabytes on the wire, bytes in the record, like the cache's budget. Clamped at one megabyte: a budget
             // of nothing would refuse every export with a sentence about a number.
-            Math.Max(1L, keys.Value("TileExportBudgetMB", TileExporter.DefaultBudgetBytes / (1024 * 1024))) * 1024 * 1024,
+            //
+            // <b>`ExportBudgetMB` is the name since ADR-106 shared the budget between tile packages and feature
+            // exports; `TileExportBudgetMB` is still read as its old name</b>, so a deployment that set it keeps its
+            // ten gigabytes without being told.
+            Math.Max(1L, keys.Value("ExportBudgetMB", keys.Value("TileExportBudgetMB", TileExporter.DefaultBudgetBytes / (1024 * 1024))))
+                * 1024 * 1024,
 
             // At least an hour: a package deleted before anybody could fetch it is an export that did nothing.
             Math.Max(1, keys.Value("TileExportRetentionHours", TileExporter.DefaultRetentionHours)),
@@ -637,7 +665,11 @@ internal sealed record HostSettings(
 
             // Zero is off — no tile is served past its lifetime — and a negative number is the same zero rather
             // than a limit that has already passed.
-            Math.Max(0, keys.Value("TileStaleIfErrorHours", FileSystemTileCache.DefaultStaleIfErrorHours)));
+            Math.Max(0, keys.Value("TileStaleIfErrorHours", FileSystemTileCache.DefaultStaleIfErrorHours)),
+
+            // At least one row, so a cap of zero is not a refusal of every export with a sentence about a number.
+            Math.Max(1L, keys.Value("FeatureExportMaxRows", FeatureExporter.DefaultMaximumRows)),
+            Math.Max(1, keys.Value("FeatureExportTimeoutMinutes", FeatureExporter.DefaultTimeoutMinutes)));
     }
 
     /// <summary>

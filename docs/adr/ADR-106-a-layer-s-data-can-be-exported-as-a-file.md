@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `DRAFT` |
-| **Confidence** | `MEDIUM` — every format rests on a GDAL driver measured present and able to create on both platforms the server ships for (§4), and the job, budget, download and retention are ADR-098's, built and run; nothing in this ADR is built, no export has been written, and no reader (ArcGIS Pro, Excel, Google Earth) has opened one |
+| **Confidence** | `MEDIUM` — every format rests on a GDAL driver measured present and able to create on both platforms the server ships for (§4), and the job, budget, download and retention are ADR-098's, built and run; the job, its routes and all eight formats are built and were run against the fixture (2026-09-30), but the console has not been moved onto it and no reader (ArcGIS Pro, Excel, Google Earth) has opened a file |
 | **Decided** | 2026-09-30, by owner decision, answered as four questions. **1.** The result is **a downloadable file kept for a limited time**, as a tile package is — **not a new portal item**. ArcGIS Online's `content/users/{u}/export`, which the ArcGIS Python API's `item.export()` calls, makes an item, and an item needs [ADR-056](ADR-056-an-item-is-its-own-thing-and-a-service-is-one-kind.md)'s item table, which is not built; `item.export()` will not work against this server. **2.** **The service's owner and administrators may always export; any other signed-in reader only when the service offers `Extract`**, which the server now enforces for the first time; **anonymous callers never**. Queries stay open exactly as today. **3.** **Packaged as ArcGIS Online packages it**: the caller chooses the service's layers; GeoPackage, File Geodatabase, KML and Excel hold every chosen layer in one file; Shapefile, CSV and GeoJSON write a file per layer inside one `.zip`. **4.** **Attachments are not in the first version.** The owner asked for the eight formats ArcGIS Online offers: Shapefile, CSV, KML, Excel, File Geodatabase, GeoJSON, Feature Collection, GeoPackage. Every number, name, route and shape below that the owner did not state is this session's design and is marked **INFERRED** (§12). |
 | **Depends on** | [ADR-098](ADR-098-vector-tiles-can-be-exported-as-a-package.md), [ADR-011](ADR-011-job-system.md), [ADR-009](ADR-009-raster-engine.md) §2.2, [ADR-037](ADR-037-job-workers-come-in-two-kinds.md), [ADR-031](ADR-031-service-capability-configuration.md), [ADR-063](ADR-063-a-field-list-may-differ-from-the-table.md), [ADR-065](ADR-065-domains-and-subtypes.md), [ADR-087](ADR-087-domains-are-shared.md), [ADR-077](ADR-077-z-and-m-ride-beside-x-and-y.md), [ADR-075](ADR-075-a-layer-is-edited-by-its-owner.md), [ADR-102](ADR-102-the-studio-item-is-one-page-and-every-setting-has-one-home.md) |
 | **Amends** | — while a draft, which amends nothing. What it will amend on acceptance, and the note each amended ADR then gets, is in §6. |
@@ -24,8 +24,29 @@
 > File Geodatabase, KML, CSV and GeoJSON (ADR-107 §5.1); Extract is now enforced and announced as §5.5 says (the
 > catalogue drops it where the owner has not chosen, `capabilities` names it where the service offers it, Settings
 > draws it unticked until chosen). Esri JSON is written too (`format=esrijson`): the query
-> writer's own FeatureSet, every page handed to it as one read, without `exceededTransferLimit`. Still to come from
-> this ADR: the job with its 2,000,000 rows and multi-layer packaging.
+> writer's own FeatureSet, every page handed to it as one read, without `exceededTransferLimit`.
+>
+> **Progress, 2026-09-30, later: the server side of the job is built** — migration 68 (`feature_export`, `job_kind_known`
+> widened; 67 belongs to another change), `JobKind.FeatureExport`, `IFeatureExportStore`, `FeatureExporter` and
+> `/admin/services/{name}/data-exports` (§5.8), run against the fixture by `FeatureExportConformanceTests` (all eight
+> formats, cookie, anonymous, one export per caller, delete, the reader's own view) and `FeatureExportStoreTests`.
+> **What it does as §5 says:** a job per export with a checkpoint, a cancel and a restart-not-resume; 2,000,000 rows
+> across the chosen layers (`Graticula:FeatureExportMaxRows`), refused at the request and failed by the worker with the
+> same sentence rather than cut; **one budget with the tile packages** (`Graticula:ExportBudgetMB`, the old
+> `TileExportBudgetMB` still read) checked with the insert under the tile export's advisory lock; the files under
+> `<exports>/data/`; one export queued or running per caller (409); downloads only for the caller who started the
+> export or an administrator, with Extract asked again at every download, ranges and a constant-time token compare;
+> audit of start, download, delete and failure. **GeoPackage, File Geodatabase, KML and Excel hold every chosen layer in
+> one file** — measured 2026-09-30: GDAL's `-update -append` adds a layer to each of the four, so none needed the
+> zip-per-layer fallback; Shapefile, CSV, GeoJSON and Esri JSON write a file per layer and several make a zip.
+> **Where it departs from this text, and why:** staging is the GeoJSON ADR-107 already writes, not FlatGeobuf, so no
+> writer was added and the reader's `export` op gained one option (`append`); rows are paged by offset, as the
+> synchronous route pages them, not by keyset; KML holds a `Document` per layer, not a `Folder`; a workbook holds
+> attributes only, as ADR-107 built it, not X and Y columns; a Shapefile's field names are GDAL's, with no
+> `fieldnames.csv` or `domains.csv`; no `_desc` columns, no per-layer domains in GeoPackage or File Geodatabase, no
+> extent; the dry run's list of what a format loses is a fixed sentence per format, not what this data will lose.
+> **Still to come:** the console (§5.9: the dialog, the layer checkboxes, progress and the caller's list, and removing
+> the browser loop) and conditions 1 to 6 and 9 — no reader outside GDAL has opened a file yet.
 
 ## 1. Context
 

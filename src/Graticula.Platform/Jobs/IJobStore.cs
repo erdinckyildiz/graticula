@@ -53,15 +53,28 @@ public enum JobKind
     /// written into one file the caller downloads.
     /// </remarks>
     TileExport,
+
+    /// <summary>
+    /// Writing the rows of some of a service's layers into a file a caller can download — a GeoPackage, a
+    /// Shapefile, a workbook and the rest —
+    /// <see href="../../../docs/adr/ADR-106-a-layer-s-data-can-be-exported-as-a-file.md">ADR-106</see>.
+    /// </summary>
+    /// <remarks>
+    /// <b>A tile export's shape with rows for tiles.</b> The claim, the lease, the checkpoint, the file with a lifetime
+    /// and the one disk budget are ADR-098's; what is different is what is written — the host reads each layer through
+    /// its feature source and the import reader's GDAL makes the format — and who may ask, which is any signed-in
+    /// reader of a service that offers <c>Extract</c>, not only the people who manage it.
+    /// </remarks>
+    FeatureExport,
 }
 
 /// <summary>Where a job has got to.</summary>
 /// <remarks>
 /// <para>
-/// <b>Five states, and <see cref="Cancelled"/> is reached by two kinds only.</b> It is in the schema
+/// <b>Five states, and <see cref="Cancelled"/> is reached by three kinds only.</b> It is in the schema
 /// because a job somebody can watch is a job somebody will want to stop, and widening a check
 /// constraint later is cheaper than discovering the state was needed. **A tile seed can be cancelled
-/// since ADR-093, and a tile export since ADR-098; nothing else can**, because stopping a worker
+/// since ADR-093, a tile export since ADR-098 and a feature export since ADR-106; nothing else can**, because stopping a worker
 /// mid-write needs a decision about what it leaves behind. A seed leaves cached tiles, each of which
 /// is exactly what serving would have written; an export leaves those too, and its half-written
 /// package is deleted — nobody can download it, so there is nothing to keep. An import leaves a
@@ -88,7 +101,7 @@ public enum JobStatus
     /// <summary>It stopped and <see cref="JobRecord.Failure"/> says why.</summary>
     Failed,
 
-    /// <summary>Stopped on purpose. <b>Only a tile seed or a tile export can reach this state</b> — see the type's remarks.</summary>
+    /// <summary>Stopped on purpose. <b>Only a tile seed, a tile export or a feature export can reach this state</b> — see the type's remarks.</summary>
     Cancelled,
 }
 

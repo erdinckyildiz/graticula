@@ -375,8 +375,9 @@ public sealed class PostgresJobStore : IJobStore
         {
             throw new ArgumentException(
                 $"'{status}' is not an ending. A job finishes as Done or Failed; Queued and Running "
-                + "are where it was, and Cancelled is reached only by cancelling a tile seed or a tile "
-                + "export, through ITileSeedStore.CancelAsync or ITileExportStore.CancelAsync.",
+                + "are where it was, and Cancelled is reached only by cancelling a tile seed, a tile "
+                + "export or a feature export, through ITileSeedStore.CancelAsync, ITileExportStore.CancelAsync "
+                + "or IFeatureExportStore.CancelAsync.",
                 nameof(status));
         }
 
@@ -428,6 +429,7 @@ public sealed class PostgresJobStore : IJobStore
         JobKind.GeodatabaseImport => "geodatabase.import",
         JobKind.TileSeed => "tile.seed",
         JobKind.TileExport => "tile.export",
+        JobKind.FeatureExport => "feature.export",
 
         // enum-default-is-deliberate: refused rather than defaulted. A kind this build does not know
         // has no check-constraint value, so guessing one would write a row the schema rejects — and
@@ -475,6 +477,7 @@ public sealed class PostgresJobStore : IJobStore
         "geodatabase.import" => JobKind.GeodatabaseImport,
         "tile.seed" => JobKind.TileSeed,
         "tile.export" => JobKind.TileExport,
+        "feature.export" => JobKind.FeatureExport,
 
         _ => throw new InvalidOperationException(
             $"'{stored}' is not a job kind this build knows. The schema's check constraint should "

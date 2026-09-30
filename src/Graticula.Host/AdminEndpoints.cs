@@ -1063,6 +1063,7 @@ internal static partial class AdminEndpoints
             JobKind.GeodatabaseImport => "geodatabase.import",
             JobKind.TileSeed => "tile.seed",
             JobKind.TileExport => "tile.export",
+            JobKind.FeatureExport => "feature.export",
             _ => "unknown",
         },
         status = job.Status.ToString().ToLowerInvariant(),

@@ -196,8 +196,13 @@ internal static class Program
             // <b>ADR-107: a layer taken away as a GeoPackage, a zipped shapefile's folder or a workbook.</b> The host
             // writes the rows as GeoJSON in the layer's own reference and names it; this translates, so GDAL stays
             // out of the serving process as ADR-009 §2.2 keeps it.
+            //
+            // <b>`append` (ADR-106's job, 2026-09-30) adds the layer to an output that already exists</b> instead of
+            // making it, so several layers of one service can leave as one GeoPackage, File Geodatabase, KML or
+            // workbook. Absent, the request is what ADR-107's route has always sent.
             "export" => Export(
-                Text(request, "in"), Text(request, "out"), Text(request, "format"), Text(request, "layer")),
+                Text(request, "in"), Text(request, "out"), Text(request, "format"), Text(request, "layer"),
+                request.TryGetProperty("append", out JsonElement append) && append.ValueKind == JsonValueKind.True),
 
             _ => throw new ArgumentException(
                 $"'{operation}' is not an operation. This reader answers 'ping', 'layers', "
@@ -687,7 +692,15 @@ internal static class Program
     /// byte-order mark so Excel reads its Turkish as UTF-8, as the console's own CSV always did.
     /// </para>
     /// </remarks>
-    private static object Export(string input, string output, string format, string layer)
+    /// <param name="input">The staged GeoJSON.</param>
+    /// <param name="output">The file or folder to write.</param>
+    /// <param name="format">The format's request token.</param>
+    /// <param name="layer">The layer's name in the output.</param>
+    /// <param name="append">
+    /// <b>Add to an output that exists</b> — GDAL's <c>-update -append</c>. The host asks for it only for the formats it
+    /// has measured able to (ADR-106 §5.6); a format that could not would write a second dataset over the first.
+    /// </param>
+    private static object Export(string input, string output, string format, string layer, bool append = false)
     {
         string driver = format switch
         {
@@ -711,6 +724,8 @@ internal static class Program
                 ?? throw new InvalidOperationException($"GDAL could not open '{input}'.");
 
             List<string> options = ["-f", driver, "-nln", layer];
+
+            if (append) options.AddRange(["-update", "-append"]);
 
             if (format == "shapefile") options.AddRange(["-lco", "ENCODING=UTF-8"]);
 

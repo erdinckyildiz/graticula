@@ -26,7 +26,9 @@ namespace Graticula.Host;
 /// <b>The rows are written here, the file is made by the reader.</b> This process reads the layer through its own
 /// feature source, page by page, into a GeoJSON file in the layer's stored reference, named in the legacy
 /// <c>crs</c> member; the import reader, which is where GDAL lives (ADR-009 §2.2), translates that into the format
-/// asked for. Nothing is reprojected, so a TUREF layer leaves as TUREF with its <c>.prj</c>.
+/// asked for. Nothing is reprojected, so a TUREF layer leaves as TUREF with its <c>.prj</c>. <b>The rows are read by
+/// <see cref="LayerExportRows"/></b>, which <see cref="FeatureExporter"/> — ADR-106's job — reads them with too, so
+/// the two routes cannot come to disagree about what a layer's file holds.
 /// </para>
 /// <para>
 /// <b>Who may — owner decision 2026-10-01, relayed through ADR-106.</b> The layer's owner and administrators always;
@@ -160,7 +162,14 @@ internal static class LayerExportEndpoints
 
             string input = Path.Combine(work, "rows.geojson");
             int srid = layer.Definition.Srid;
-            long written = await WriteRowsAsync(input, source, described, layer, srid, cancellation).ConfigureAwait(false);
+            long written;
+
+            await using (FileStream staged = File.Create(input))
+            {
+                written = await LayerExportRows.WriteGeoJsonAsync(
+                        staged, source, described, layer, srid, MaximumRows, FeatureQuery.MaximumLimit, null, cancellation)
+                    .ConfigureAwait(false);
+            }
 
             if (written > MaximumRows)
             {
@@ -170,7 +179,7 @@ internal static class LayerExportEndpoints
                 return;
             }
 
-            string name = SafeName(layer.Definition.Name);
+            string name = LayerExportRows.SafeName(layer.Definition.Name);
             string output = Path.Combine(work, format switch
             {
                 "shapefile" => "shapefile",
@@ -232,81 +241,6 @@ internal static class LayerExportEndpoints
         }
     }
 
-    /// <summary>Writes every row, page by page, as GeoJSON in the layer's own reference; returns how many.</summary>
-    private static async Task<long> WriteRowsAsync(
-        string path, IFeatureSource source, LayerDescription described, PublishedLayer layer, int srid,
-        CancellationToken cancellation)
-    {
-        string identity = layer.Definition.IdentityColumn;
-        long count = 0;
-
-        // Every column the layer publishes, named: a query that names none answers with the identity alone.
-        List<string> fields = [.. described.Fields.Select(f => f.Name)];
-
-        await using FileStream file = File.Create(path);
-        await using Utf8JsonWriter json = new(file);
-
-        json.WriteStartObject();
-        json.WriteString("type", "FeatureCollection");
-
-        // CRS84 for WGS 84, so GDAL reads longitude first; the EPSG code otherwise.
-        json.WriteStartObject("crs");
-        json.WriteString("type", "name");
-        json.WriteStartObject("properties");
-        json.WriteString("name", srid == 4326 ? "urn:ogc:def:crs:OGC:1.3:CRS84" : $"EPSG:{srid}");
-        json.WriteEndObject();
-        json.WriteEndObject();
-
-        json.WriteStartArray("features");
-
-        for (int offset = 0; count <= MaximumRows; offset += FeatureQuery.MaximumLimit)
-        {
-            int page = 0;
-
-            await foreach (Feature feature in source.ReadAsync(
-                new FeatureQuery(FeatureQuery.MaximumLimit, fields: fields, offset: offset, orderBy: [new SortKey(identity, false)], outSrid: srid),
-                cancellation).ConfigureAwait(false))
-            {
-                page++;
-                count++;
-
-                json.WriteStartObject();
-                json.WriteString("type", "Feature");
-
-                if (feature.Geometry is { } geometry)
-                {
-                    json.WritePropertyName("geometry");
-                    GeoJsonWriter.WriteGeometry(json, geometry);
-                }
-                else
-                {
-                    json.WriteNull("geometry");
-                }
-
-                json.WriteStartObject("properties");
-
-                for (int i = 0; i < feature.Schema.Count; i++)
-                {
-                    json.WritePropertyName(feature.Schema.Names[i]);
-                    GeoJsonWriter.WriteValue(json, feature[i]);
-                }
-
-                json.WriteEndObject();
-                json.WriteEndObject();
-
-                if (json.BytesPending > 1 << 16) await json.FlushAsync(cancellation).ConfigureAwait(false);
-            }
-
-            if (page < FeatureQuery.MaximumLimit) break;
-        }
-
-        json.WriteEndArray();
-        json.WriteEndObject();
-        await json.FlushAsync(cancellation).ConfigureAwait(false);
-
-        return count;
-    }
-
     /// <summary>
     /// The layer as one Esri JSON FeatureSet — ADR-106's answer to ArcGIS Online's Feature Collection.
     /// </summary>
@@ -319,23 +253,13 @@ internal static class LayerExportEndpoints
         HttpContext context, PublishedLayer layer, IFeatureSource source, LayerDescription described, string work,
         (string Extension, string Type) kind, CancellationToken cancellation)
     {
-        string identity = layer.Definition.IdentityColumn;
-        int srid = layer.Definition.Srid;
-        List<string> fields = [.. described.Fields.Select(f => f.Name)];
-
-        FeatureQuery Page(int offset) =>
-            new(FeatureQuery.MaximumLimit, fields: fields, offset: offset, orderBy: [new SortKey(identity, false)], outSrid: srid);
-
-        string name = SafeName(layer.Definition.Name);
+        string name = LayerExportRows.SafeName(layer.Definition.Name);
         string file = Path.Combine(work, name + kind.Extension);
         long written;
 
         await using (FileStream stream = File.Create(file))
-        await using (Utf8JsonWriter json = new(stream))
         {
-            written = await new Graticula.Api.ArcGis.FeatureServerQueryWriter(
-                    layer.Definition, 0, described.Fields, geoJson: false, whole: true)
-                .WriteAsync(json, new WholeLayerSource(source, Page, MaximumRows), Page(0), layer.GeometryType, cancellation)
+            written = await LayerExportRows.WriteEsriJsonAsync(stream, layer, source, described, MaximumRows, cancellation)
                 .ConfigureAwait(false);
         }
 
@@ -354,14 +278,6 @@ internal static class LayerExportEndpoints
         await using FileStream sent = File.OpenRead(file);
         context.Response.ContentLength = sent.Length;
         await sent.CopyToAsync(context.Response.Body, cancellation).ConfigureAwait(false);
-    }
-
-    /// <summary>A file name made of the layer's name, safe on every file system.</summary>
-    private static string SafeName(string name)
-    {
-        char[] bad = Path.GetInvalidFileNameChars();
-        string safe = new([.. name.Select(c => bad.Contains(c) || c == ' ' ? '_' : c)]);
-        return string.IsNullOrWhiteSpace(safe) ? "layer" : safe;
     }
 
     private static Task RefuseAsync(HttpContext context, int code, string message) =>

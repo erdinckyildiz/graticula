@@ -131,6 +131,13 @@ public static class JobKinds
         // which is what an export that kills its process should get.
         JobKind.TileExport => JobRerun.Harmless,
 
+        // <b>Writes one file of its own, from the first row, every time — ADR-106 §5.1.</b> A second run reads each
+        // layer again and writes the export's own staging folder and `.part` afresh, under the export's own token;
+        // nothing outside them is written, and the source is only read. Restarted, not resumed, for the tile
+        // export's reason: a half-written GeoPackage or zip has no durable cursor, so a lost lease gives it one
+        // more try and then fails it.
+        JobKind.FeatureExport => JobRerun.Harmless,
+
         _ => throw new ArgumentOutOfRangeException(
             nameof(kind),
             kind,

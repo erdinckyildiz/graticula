@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(67);
+    public static SchemaVersion ComponentSchemaVersion => new(68);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -102,7 +102,78 @@ public static class PlatformMigrations
         ATileMayBeServedStaleAndAServiceHaveAQuotaV65,
         OwnersChooseEditingAndProtectDeletionV66,
         AWebMapIsSharedWithGroupsV67,
+        ALayersRowsMayBeExportedAsAFileV68,
     ]);
+
+    /// <summary>
+    /// The rows of a service's layers may be exported as a file — a GeoPackage, a Shapefile, a workbook and the
+    /// rest — as a job — ADR-106.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A fifth job kind and one table beside the job, as migration 64 did it for tile packages.</b> What a feature
+    /// export has that the job row has no column for is a file on disk: its format, the layers it holds, how many rows
+    /// it has read, its size, the random token that names it and makes its address unguessable, the name a download is
+    /// saved under, and when it expires. There is no cursor, because an export restarts from the first row rather than
+    /// resuming (ADR-106 §5.1): a half-written GeoPackage has none worth keeping.
+    /// </para>
+    /// <para>
+    /// <b>No column on <c>service</c>.</b> Who may export is <c>Extract</c>, which already lives in
+    /// <c>capability_ceiling</c> and <c>editing_offered</c> (migration 66); a second setting would be a second place
+    /// to forget.
+    /// </para>
+    /// <para>
+    /// <b>The budget is the tile exports', so nothing here holds one.</b> A feature export's <c>estimated_bytes</c>
+    /// while it runs and its <c>bytes</c> once written are summed with <c>tile_export</c>'s in one query, under one
+    /// advisory lock, so a package and a GeoPackage compete for the same disk and neither can take the other's
+    /// (ADR-106 §5.4).
+    /// </para>
+    /// <para>
+    /// <b>The token is unique and is 32 hexadecimal characters, checked here</b> as well as where it is made, for
+    /// migration 64's reason: no other writer can store one that is a path.
+    /// </para>
+    /// <para><b>Expand.</b> A wider check constraint and a new table. A build before this one reads a job of the new
+    /// kind as a kind it does not know and refuses the listing that holds it — migration 61's and 64's consequence,
+    /// again — and never reads the table.</para>
+    /// </remarks>
+    private static Migration ALayersRowsMayBeExportedAsAFileV68 => Migration.Expand(
+        new SchemaVersion(68),
+        "The rows of a service's layers may be exported as a file, as a job (ADR-106).",
+
+        "alter table job drop constraint if exists job_kind_known",
+
+        """
+        alter table job add constraint job_kind_known
+          check (kind in ('geodatabase.inspect', 'geodatabase.import', 'tile.seed', 'tile.export', 'feature.export'))
+        """,
+
+        """
+        create table if not exists feature_export (
+            job_id          uuid        not null primary key references job (id) on delete cascade,
+            service_id      uuid        not null references service (id) on delete cascade,
+            format          text        not null,
+            layers          integer[]   not null,
+            rows_total      bigint      not null,
+            rows_written    bigint      not null default 0,
+            phase           text        not null default 'reading',
+            estimated_bytes bigint      not null,
+            bytes           bigint      null,
+            token           char(32)    not null,
+            file_name       text        not null,
+            expires_at      timestamptz null,
+            removed_at      timestamptz null,
+            constraint feature_export_format_known
+              check (format in ('gpkg', 'shapefile', 'xlsx', 'fgdb', 'kml', 'csv', 'geojson', 'esrijson')),
+            constraint feature_export_phase_known check (phase in ('reading', 'writing')),
+            constraint feature_export_layers_named check (cardinality(layers) >= 1),
+            constraint feature_export_counts check (rows_total >= 0 and rows_written >= 0),
+            constraint feature_export_sizes check (estimated_bytes >= 0 and (bytes is null or bytes >= 0)),
+            constraint feature_export_token_is_a_name check (token ~ '^[0-9a-f]{32}$')
+        )
+        """,
+
+        "create unique index if not exists feature_export_token on feature_export (token)",
+        "create index if not exists feature_export_by_service on feature_export (service_id)");
 
     /// <summary>
     /// A layer's tiles may be served past their lifetime while the source cannot build them, for as long as the

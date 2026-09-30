@@ -3,44 +3,38 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Graticula.Geometries;
-using Graticula.Platform.Catalog;
 using Graticula.Platform.Jobs;
 using Npgsql;
-using NpgsqlTypes;
 
 namespace Graticula.Platform.Postgres;
 
 /// <summary>
-/// A tile export's record, in the platform store — migration 64, ADR-098.
+/// A feature export's record, in the platform store — migration 68, ADR-106.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Every change is one statement or one transaction, conditional in SQL</b>, for the reason
-/// <see cref="PostgresJobStore"/> gives, and the job row is inserted here beside the export's for the reason
-/// <see cref="PostgresTileSeedStore"/> gives: the budget check and the insert must be one transaction.
+/// <b><see cref="PostgresTileExportStore"/>'s shape, deliberately.</b> Every change is one statement or one
+/// transaction, conditional in SQL, and the job row is inserted here beside the export's, so the budget check and the
+/// insert are one transaction. What differs is the row: rows counted and written instead of tiles, a phase, and the
+/// caller — the job's owner — who is the only person besides an administrator who may see or download it.
 /// </para>
 /// <para>
-/// <b>The budget lock is one advisory lock for the whole server</b>, not one per service, because the export budget
-/// is shared by every service: two starts on two services racing for the last gigabyte must see each other.
+/// <b>The lock and the sum are shared with the tile store</b> (<see cref="ExportBudget"/>), so one budget bounds both
+/// kinds of file. <b>One export per caller is decided under the same lock</b>: a count made before the lock would let
+/// two starts by the same caller each find none running.
 /// </para>
 /// </remarks>
-public sealed class PostgresTileExportStore : ITileExportStore
+public sealed class PostgresFeatureExportStore : IFeatureExportStore
 {
     private const string ExportColumns =
-        "e.service_id, e.format, e.levels, e.min_x, e.min_y, e.max_x, e.max_y, e.whole, e.total, e.done, e.stored, "
-        + "e.estimated_bytes, e.bytes, e.token, e.scheme, e.origin, e.expires_at, e.removed_at, e.paused_until, "
-        + "e.paused_because";
-
-    /// <summary>What every live export holds — <b>tile packages and feature exports together</b>, as ADR-106 §5.4 shares the one budget.</summary>
-    /// <remarks>See <see cref="ExportBudget.HeldSql"/>, which both stores read.</remarks>
-    private const string HeldSql = ExportBudget.HeldSql;
+        "e.service_id, e.format, e.layers, e.rows_total, e.rows_written, e.phase, e.estimated_bytes, e.bytes, "
+        + "e.token, e.file_name, e.expires_at, e.removed_at";
 
     private readonly NpgsqlDataSource _dataSource;
 
     /// <summary>Creates the store over a data source.</summary>
     /// <param name="dataSource">The platform store.</param>
-    public PostgresTileExportStore(NpgsqlDataSource dataSource)
+    public PostgresFeatureExportStore(NpgsqlDataSource dataSource)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
@@ -48,25 +42,48 @@ public sealed class PostgresTileExportStore : ITileExportStore
     }
 
     /// <summary>The stored name of a format, which is also its name on the wire.</summary>
-    public static string Wire(TileExportFormat format) => format switch
+    public static string Wire(FeatureExportFormat format) => format switch
     {
-        TileExportFormat.Vtpk => "vtpk",
-        TileExportFormat.PmTiles => "pmtiles",
+        FeatureExportFormat.GeoPackage => "gpkg",
+        FeatureExportFormat.Shapefile => "shapefile",
+        FeatureExportFormat.Excel => "xlsx",
+        FeatureExportFormat.FileGeodatabase => "fgdb",
+        FeatureExportFormat.Kml => "kml",
+        FeatureExportFormat.Csv => "csv",
+        FeatureExportFormat.GeoJson => "geojson",
+        FeatureExportFormat.EsriJson => "esrijson",
         _ => throw new ArgumentOutOfRangeException(nameof(format), format, "There is no stored name for this format."),
     };
 
-    private static TileExportFormat ReadFormat(string stored) => stored switch
+    private static FeatureExportFormat ReadFormat(string stored) => stored switch
     {
-        "vtpk" => TileExportFormat.Vtpk,
-        "pmtiles" => TileExportFormat.PmTiles,
+        "gpkg" => FeatureExportFormat.GeoPackage,
+        "shapefile" => FeatureExportFormat.Shapefile,
+        "xlsx" => FeatureExportFormat.Excel,
+        "fgdb" => FeatureExportFormat.FileGeodatabase,
+        "kml" => FeatureExportFormat.Kml,
+        "csv" => FeatureExportFormat.Csv,
+        "geojson" => FeatureExportFormat.GeoJson,
+        "esrijson" => FeatureExportFormat.EsriJson,
         _ => throw new InvalidOperationException(
             $"'{stored}' is not an export format this build knows; the check constraint should have refused it."),
     };
 
+    private static string WirePhase(FeatureExportPhase phase) => phase switch
+    {
+        FeatureExportPhase.Reading => "reading",
+        FeatureExportPhase.Writing => "writing",
+        _ => throw new ArgumentOutOfRangeException(nameof(phase), phase, "There is no stored name for this phase."),
+    };
+
+    // enum-default-is-deliberate: an unrecognised phase reads as the first, which claims nothing about the file.
+    private static FeatureExportPhase ReadPhase(string stored) =>
+        stored == "writing" ? FeatureExportPhase.Writing : FeatureExportPhase.Reading;
+
     /// <inheritdoc/>
-    public async Task<TileExportStart> StartAsync(
+    public async Task<FeatureExportStart> StartAsync(
         Guid owner,
-        TileExportRequest request,
+        FeatureExportRequest request,
         string subject,
         string detail,
         long budget,
@@ -75,15 +92,16 @@ public sealed class PostgresTileExportStore : ITileExportStore
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         ArgumentException.ThrowIfNullOrWhiteSpace(detail);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.FileName);
 
         if (owner == Guid.Empty)
         {
             throw new ArgumentException("An export belongs to somebody, as every job does.", nameof(owner));
         }
 
-        if (request.Levels.Count == 0)
+        if (request.Layers.Count == 0)
         {
-            throw new ArgumentException("An export covers at least one level.", nameof(request));
+            throw new ArgumentException("An export covers at least one layer.", nameof(request));
         }
 
         Guid id = Guid.NewGuid();
@@ -93,15 +111,37 @@ public sealed class PostgresTileExportStore : ITileExportStore
         await using NpgsqlTransaction transaction =
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-        await using (NpgsqlCommand lockBudget = new(
-                         ExportBudget.LockSql, connection, transaction))
+        await using (NpgsqlCommand lockBudget = new(ExportBudget.LockSql, connection, transaction))
         {
             await lockBudget.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        // <b>One at a time per caller, decided under the lock</b> (ADR-106 §5.4). The row that is named is the caller's
+        // own, so the refusal can say which export to wait for or cancel.
+        await using (NpgsqlCommand running = new(
+                         """
+                         select f.job_id
+                           from feature_export f
+                           join job j on j.id = f.job_id
+                          where j.owner_principal_id = @owner and j.status in ('queued', 'running')
+                          order by j.created_at
+                          limit 1
+                         """,
+                         connection,
+                         transaction))
+        {
+            running.Parameters.AddWithValue("owner", owner);
+
+            if (await running.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is Guid already)
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return new FeatureExportStart(null, null, already);
+            }
+        }
+
         long held;
 
-        await using (NpgsqlCommand used = new(HeldSql, connection, transaction))
+        await using (NpgsqlCommand used = new(ExportBudget.HeldSql, connection, transaction))
         {
             held = (long)(await used.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? 0L);
         }
@@ -109,7 +149,7 @@ public sealed class PostgresTileExportStore : ITileExportStore
         if (held + request.EstimatedBytes > budget)
         {
             await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
-            return new TileExportStart(null, held);
+            return new FeatureExportStart(null, held, null);
         }
 
         await using (NpgsqlCommand job = new(
@@ -121,7 +161,7 @@ public sealed class PostgresTileExportStore : ITileExportStore
                          transaction))
         {
             job.Parameters.AddWithValue("id", id);
-            job.Parameters.AddWithValue("kind", PostgresJobStore.Wire(JobKind.TileExport));
+            job.Parameters.AddWithValue("kind", PostgresJobStore.Wire(JobKind.FeatureExport));
             job.Parameters.AddWithValue("owner", owner);
             job.Parameters.AddWithValue("subject", subject);
             job.Parameters.AddWithValue("detail", detail);
@@ -130,10 +170,9 @@ public sealed class PostgresTileExportStore : ITileExportStore
 
         await using (NpgsqlCommand export = new(
                          """
-                         insert into tile_export (job_id, service_id, format, levels, min_x, min_y, max_x, max_y, whole,
-                                                  total, estimated_bytes, token, scheme, origin)
-                         values (@id, @service, @format, @levels, @minx, @miny, @maxx, @maxy, @whole,
-                                 @total, @estimated, @token, @scheme, @origin)
+                         insert into feature_export (job_id, service_id, format, layers, rows_total, estimated_bytes,
+                                                     token, file_name)
+                         values (@id, @service, @format, @layers, @rows, @estimated, @token, @name)
                          """,
                          connection,
                          transaction))
@@ -141,47 +180,46 @@ public sealed class PostgresTileExportStore : ITileExportStore
             export.Parameters.AddWithValue("id", id);
             export.Parameters.AddWithValue("service", request.ServiceId);
             export.Parameters.AddWithValue("format", Wire(request.Format));
-            export.Parameters.AddWithValue("levels", request.Levels.Select(level => (short)level).ToArray());
-            export.Parameters.AddWithValue("minx", request.Area.MinX);
-            export.Parameters.AddWithValue("miny", request.Area.MinY);
-            export.Parameters.AddWithValue("maxx", request.Area.MaxX);
-            export.Parameters.AddWithValue("maxy", request.Area.MaxY);
-            export.Parameters.AddWithValue("whole", request.Whole);
-            export.Parameters.AddWithValue("total", request.Total);
+            export.Parameters.AddWithValue("layers", request.Layers.ToArray());
+            export.Parameters.AddWithValue("rows", Math.Max(0, request.RowsTotal));
             export.Parameters.AddWithValue("estimated", Math.Max(0, request.EstimatedBytes));
             export.Parameters.AddWithValue("token", request.Token);
-            export.Parameters.AddWithValue("scheme", request.Scheme);
-            export.Parameters.AddWithValue("origin", request.Origin);
+            export.Parameters.AddWithValue("name", request.FileName);
             await export.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
-        return new TileExportStart(await FindAsync(id, cancellationToken).ConfigureAwait(false), null);
+        return new FeatureExportStart(await FindAsync(id, cancellationToken).ConfigureAwait(false), null, null);
     }
 
     /// <inheritdoc/>
-    public async Task<TileExportState?> FindAsync(Guid job, CancellationToken cancellationToken)
+    public async Task<FeatureExportState?> FindAsync(Guid job, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             $"select {PostgresJobStore.JobColumns}, {ExportColumns} "
-            + "from tile_export e join job j on j.id = e.job_id where e.job_id = @id");
+            + "from feature_export e join job j on j.id = e.job_id where e.job_id = @id");
         command.Parameters.AddWithValue("id", job);
 
-        IReadOnlyList<TileExportState> found = await ReadAsync(command, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<FeatureExportState> found = await ReadAsync(command, cancellationToken).ConfigureAwait(false);
 
         return found.Count == 0 ? null : found[0];
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<TileExportState>> ListAsync(
-        Guid service, int limit, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<FeatureExportState>> ListAsync(
+        Guid service, Guid? owner, int limit, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             $"select {PostgresJobStore.JobColumns}, {ExportColumns} "
-            + "from tile_export e join job j on j.id = e.job_id where e.service_id = @service "
+            + "from feature_export e join job j on j.id = e.job_id "
+            + "where e.service_id = @service and (@owner::uuid is null or j.owner_principal_id = @owner::uuid) "
             + "order by j.created_at desc limit @limit");
         command.Parameters.AddWithValue("service", service);
+        command.Parameters.Add(new NpgsqlParameter("owner", NpgsqlTypes.NpgsqlDbType.Uuid)
+        {
+            Value = owner is { } who ? who : DBNull.Value,
+        });
         command.Parameters.AddWithValue("limit", Math.Clamp(limit, 1, 200));
 
         return await ReadAsync(command, cancellationToken).ConfigureAwait(false);
@@ -190,34 +228,27 @@ public sealed class PostgresTileExportStore : ITileExportStore
     /// <inheritdoc/>
     public async Task<long> HeldBytesAsync(CancellationToken cancellationToken)
     {
-        await using NpgsqlCommand command = _dataSource.CreateCommand(HeldSql);
+        await using NpgsqlCommand command = _dataSource.CreateCommand(ExportBudget.HeldSql);
 
         return (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? 0L);
     }
 
     /// <inheritdoc/>
     public async Task<bool> CheckpointAsync(
-        Guid job,
-        string worker,
-        long done,
-        long stored,
-        DateTimeOffset? pausedUntil,
-        string? pausedBecause,
-        int percent,
-        CancellationToken cancellationToken)
+        Guid job, string worker, long rowsWritten, FeatureExportPhase phase, int percent, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(worker);
 
-        // The seed's one statement: nothing is written unless the job is still running and still this worker's.
+        // The tile export's one statement: nothing is written unless the job is still running and still this worker's.
         const string Sql = """
             with mine as (
                 select id from job
-                 where id = @id and kind = 'tile.export' and status = 'running' and claimed_by = @worker
+                 where id = @id and kind = 'feature.export' and status = 'running' and claimed_by = @worker
                  for update
             ),
             counted as (
-                update tile_export
-                   set done = @done, stored = @stored, paused_until = @until, paused_because = @because
+                update feature_export
+                   set rows_written = @rows, phase = @phase
                  where job_id in (select id from mine)
                 returning job_id
             ),
@@ -230,16 +261,8 @@ public sealed class PostgresTileExportStore : ITileExportStore
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
         command.Parameters.AddWithValue("id", job);
         command.Parameters.AddWithValue("worker", worker);
-        command.Parameters.AddWithValue("done", Math.Max(0, done));
-        command.Parameters.AddWithValue("stored", Math.Max(0, stored));
-        command.Parameters.Add(new NpgsqlParameter("until", NpgsqlDbType.TimestampTz)
-        {
-            Value = pausedUntil is { } until ? until.ToUniversalTime() : DBNull.Value,
-        });
-        command.Parameters.Add(new NpgsqlParameter("because", NpgsqlDbType.Text)
-        {
-            Value = (object?)pausedBecause ?? DBNull.Value,
-        });
+        command.Parameters.AddWithValue("rows", Math.Max(0, rowsWritten));
+        command.Parameters.AddWithValue("phase", WirePhase(phase));
         command.Parameters.AddWithValue("percent", Math.Clamp(percent, 0, 100));
 
         object? held = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
@@ -249,22 +272,21 @@ public sealed class PostgresTileExportStore : ITileExportStore
 
     /// <inheritdoc/>
     public async Task<bool> FinishAsync(
-        Guid job, string worker, long bytes, long stored, TimeSpan retention, CancellationToken cancellationToken)
+        Guid job, string worker, long bytes, long rowsWritten, TimeSpan retention, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(worker);
 
-        // <b>The job and the export in one statement</b>, so a package is never *done* without a size and an
-        // expiry, and a cancel that landed first leaves both untouched and answers false.
+        // <b>The job and the export in one statement</b>, so a file is never *done* without a size and an expiry, and
+        // a cancel that landed first leaves both untouched and answers false.
         const string Sql = """
             with finished as (
                 update job
                    set status = 'done', finished_at = now(), progress = 100, lease_until = null, failure = null
-                 where id = @id and kind = 'tile.export' and status = 'running' and claimed_by = @worker
+                 where id = @id and kind = 'feature.export' and status = 'running' and claimed_by = @worker
                 returning id
             )
-            update tile_export
-               set bytes = @bytes, stored = @stored, done = total, expires_at = now() + @retention,
-                   paused_until = null, paused_because = null
+            update feature_export
+               set bytes = @bytes, rows_written = @rows, expires_at = now() + @retention
              where job_id in (select id from finished)
             """;
 
@@ -272,7 +294,7 @@ public sealed class PostgresTileExportStore : ITileExportStore
         command.Parameters.AddWithValue("id", job);
         command.Parameters.AddWithValue("worker", worker);
         command.Parameters.AddWithValue("bytes", Math.Max(0, bytes));
-        command.Parameters.AddWithValue("stored", Math.Max(0, stored));
+        command.Parameters.AddWithValue("rows", Math.Max(0, rowsWritten));
         command.Parameters.AddWithValue("retention", retention);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
@@ -281,16 +303,11 @@ public sealed class PostgresTileExportStore : ITileExportStore
     /// <inheritdoc/>
     public async Task<bool> CancelAsync(Guid job, CancellationToken cancellationToken)
     {
-        // Restricted to this kind in the statement, as the seed's is to its own.
+        // Restricted to this kind in the statement, as the tile export's is to its own.
         const string Sql = """
-            with stopped as (
-                update job
-                   set status = 'cancelled', finished_at = now(), lease_until = null
-                 where id = @id and kind = 'tile.export' and status in ('queued', 'running')
-                returning id
-            )
-            update tile_export set paused_until = null, paused_because = null
-             where job_id in (select id from stopped)
+            update job
+               set status = 'cancelled', finished_at = now(), lease_until = null
+             where id = @id and kind = 'feature.export' and status in ('queued', 'running')
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
@@ -303,7 +320,7 @@ public sealed class PostgresTileExportStore : ITileExportStore
     public async Task<bool> MarkRemovedAsync(Guid job, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "update tile_export set removed_at = now() where job_id = @id and removed_at is null");
+            "update feature_export set removed_at = now() where job_id = @id and removed_at is null");
         command.Parameters.AddWithValue("id", job);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
@@ -315,7 +332,7 @@ public sealed class PostgresTileExportStore : ITileExportStore
     {
         const string Sql = """
             select e.job_id, e.token
-              from tile_export e
+              from feature_export e
               join job j on j.id = e.job_id
              where e.removed_at is null
                and ((j.status = 'done' and e.expires_at <= @now) or j.status in ('failed', 'cancelled'))
@@ -343,7 +360,7 @@ public sealed class PostgresTileExportStore : ITileExportStore
     public async Task<IReadOnlySet<string>> LiveTokensAsync(CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "select token from tile_export where removed_at is null");
+            "select token from feature_export where removed_at is null");
 
         HashSet<string> tokens = new(StringComparer.Ordinal);
 
@@ -357,49 +374,10 @@ public sealed class PostgresTileExportStore : ITileExportStore
         return tokens;
     }
 
-    /// <inheritdoc/>
-    public async Task<TileExportPolicy?> SetPolicyAsync(
-        Guid service, TileExportPolicy policy, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(policy);
-
-        // The old value from inside the statement that replaces it, for the audit record's before and after.
-        const string Sql = """
-            update service s
-               set export_tiles_allowed = @allowed,
-                   export_tiles_anonymous = @anonymous,
-                   max_export_tiles = @maximum,
-                   updated_at = now()
-              from (select id, export_tiles_allowed, export_tiles_anonymous, max_export_tiles
-                      from service where id = @id for update) old
-             where s.id = old.id
-            returning old.export_tiles_allowed, old.export_tiles_anonymous, old.max_export_tiles
-            """;
-
-        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
-        command.Parameters.AddWithValue("id", service);
-        command.Parameters.AddWithValue("allowed", policy.Allowed);
-        command.Parameters.AddWithValue("anonymous", policy.Anonymous);
-        command.Parameters.Add(new NpgsqlParameter("maximum", NpgsqlDbType.Integer)
-        {
-            Value = (object?)policy.MaximumTiles ?? DBNull.Value,
-        });
-
-        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-
-        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            return null;
-        }
-
-        return new TileExportPolicy(
-            reader.GetBoolean(0), reader.GetBoolean(1), reader.IsDBNull(2) ? null : reader.GetInt32(2));
-    }
-
-    private static async Task<IReadOnlyList<TileExportState>> ReadAsync(
+    private static async Task<IReadOnlyList<FeatureExportState>> ReadAsync(
         NpgsqlCommand command, CancellationToken cancellationToken)
     {
-        List<TileExportState> exports = [];
+        List<FeatureExportState> exports = [];
 
         await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
@@ -411,26 +389,20 @@ public sealed class PostgresTileExportStore : ITileExportStore
             DateTimeOffset? When(int ordinal) =>
                 reader.IsDBNull(ordinal) ? null : reader.GetFieldValue<DateTimeOffset>(ordinal);
 
-            exports.Add(new TileExportState(
+            exports.Add(new FeatureExportState(
                 PostgresJobStore.Read(reader),
                 reader.GetGuid(At),
                 ReadFormat(reader.GetString(At + 1)),
-                [.. reader.GetFieldValue<short[]>(At + 2).Select(level => (int)level)],
-                new Envelope(
-                    reader.GetDouble(At + 3), reader.GetDouble(At + 4), reader.GetDouble(At + 5), reader.GetDouble(At + 6)),
-                reader.GetBoolean(At + 7),
-                reader.GetInt64(At + 8),
-                reader.GetInt64(At + 9),
-                reader.GetInt64(At + 10),
-                reader.GetInt64(At + 11),
-                reader.IsDBNull(At + 12) ? null : reader.GetInt64(At + 12),
-                reader.GetString(At + 13),
-                reader.GetString(At + 14),
-                reader.GetString(At + 15),
-                When(At + 16),
-                When(At + 17),
-                When(At + 18),
-                reader.IsDBNull(At + 19) ? null : reader.GetString(At + 19)));
+                reader.GetFieldValue<int[]>(At + 2),
+                reader.GetInt64(At + 3),
+                reader.GetInt64(At + 4),
+                ReadPhase(reader.GetString(At + 5)),
+                reader.GetInt64(At + 6),
+                reader.IsDBNull(At + 7) ? null : reader.GetInt64(At + 7),
+                reader.GetString(At + 8),
+                reader.GetString(At + 9),
+                When(At + 10),
+                When(At + 11)));
         }
 
         return exports;

@@ -171,7 +171,7 @@ internal sealed class TileExporter : BackgroundService
     /// <summary>The staging file of an export's walk.</summary>
     public static string? StagingOf(string directory, string token) => Inside(directory, token + ".staging", token);
 
-    private static string? Inside(string directory, string name, string token)
+    internal static string? Inside(string directory, string name, string token)
     {
         if (!IsToken(token))
         {

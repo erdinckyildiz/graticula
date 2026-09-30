@@ -381,6 +381,22 @@ public static class Program
 
         builder.Services.AddHostedService(services => services.GetRequiredService<TileExporter>());
 
+        /*
+          <b>The feature exporter — ADR-106 — a fifth poller on the same pool</b>, as its own worker so a long tile
+          package does not queue a small CSV. Registered as itself for the tile exporter's reason: the delete route
+          stops an export this node is running (`FeatureExporter.Stop`) and deletes its files. Its store shares the
+          tile exports' budget and advisory lock, so the two kinds count against one disk.
+        */
+        builder.Services.AddSingleton<Graticula.Platform.Jobs.IFeatureExportStore>(services =>
+            new PostgresFeatureExportStore(services.GetRequiredService<NpgsqlDataSource>()));
+
+        builder.Services.AddSingleton(services =>
+            ActivatorUtilities.CreateInstance<FeatureExporter>(
+                services,
+                services.GetRequiredKeyedService<Graticula.Platform.Jobs.IJobStore>(JobPool)));
+
+        builder.Services.AddHostedService(services => services.GetRequiredService<FeatureExporter>());
+
         // <b>Q-141's datum caution, aimed at the operator.</b> A singleton because
         // *said once* is a property of the server rather than of a request, and it is
         // read back by `/admin/health`.
@@ -2081,6 +2097,9 @@ public static class Program
 
         // ADR-107: a layer taken away as a GeoPackage, a zipped shapefile or an Excel workbook.
         LayerExportEndpoints.Map(app);
+
+        // ADR-106: the same layers as a job — several at once, a file kept for a day, a download of its own.
+        FeatureExportEndpoints.Map(app);
 
         // <b>Outside /rest/services, deliberately.</b> Every surface above is
         // ArcGIS-shaped and lives under that prefix; WFS is a different protocol

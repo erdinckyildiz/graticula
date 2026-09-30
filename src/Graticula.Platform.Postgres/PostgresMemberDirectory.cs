@@ -625,6 +625,25 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         string name,
         CancellationToken cancellationToken)
     {
+        // <b>Their data exports go with them</b> (ADR-106, 2026-09-30). `job.owner_principal_id` has no cascade, which
+        // was harmless while only administrators started jobs; a reader who exported a layer then made the member
+        // undeletable, answered 409 on `job_owner_principal_id_fkey`. An export is the member's own download, kept a
+        // day at most, and nobody else may fetch it, so it has no one left to serve; its row takes `feature_export`
+        // with it, and the exporter's stray sweep takes the file. A running one loses its row and stops at its next
+        // checkpoint. Every other kind of job stays as it was: only administrators start them.
+        await using (NpgsqlCommand exports = connection.CreateCommand())
+        {
+            exports.Transaction = transaction;
+            exports.CommandText = """
+                delete from job
+                 where kind = 'feature.export'
+                   and owner_principal_id in (select id from principal where lower(name) = lower(@name))
+                """;
+            exports.Parameters.AddWithValue("name", name);
+
+            await exports.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         await using NpgsqlCommand command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "delete from principal where lower(name) = lower(@name)";
