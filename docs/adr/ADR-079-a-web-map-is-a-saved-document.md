@@ -12,6 +12,8 @@
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
 > Confidence: `HIGH`, `MEDIUM`, `LOW`.
 
+
+> **Amended 2026-10-01 by [ADR-104](ADR-104-a-web-map-styles-its-own-layers.md):** a feature layer on a map may carry its own style in `layerDefinition.drawingInfo`, set from the viewer's *Style* panel; the layer's default is still the item's.
 ---
 
 ## 1. Context

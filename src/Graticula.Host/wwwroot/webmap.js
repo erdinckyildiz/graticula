@@ -715,11 +715,16 @@ function wmBuildLayer(layer, run, index) {
   const kind = wmKind(layer);
   const colour = WM_PALETTE[index % WM_PALETTE.length];
 
+  // <b>The map's own style first, then the layer's — ADR-104.</b> A layer styled in this map carries its renderer
+  // in the Web Map document's `layerDefinition.drawingInfo`, where ArcGIS clients look for it too.
+  const own = layer.layerDefinition && layer.layerDefinition.drawingInfo;
+  const info = own && own.renderer ? { ...run.info, drawingInfo: own } : run.info;
+
   // A map image is drawn by the server in the service's own symbology, which this page does not read.
-  run.swatches = kind === "image" ? [] : kind === "feature" ? wmSwatches(run.info, colour) : [colour];
+  run.swatches = kind === "image" ? [] : kind === "feature" ? wmSwatches(info, colour) : [colour];
 
   if (kind === "feature") {
-    const renderer = wmRendererStyle(run.info, colour);
+    const renderer = wmRendererStyle(info, colour);
     run.ownStyle = renderer.own;
 
     const idField = (run.info && run.info.objectIdField) || "objectid";
@@ -1018,9 +1023,13 @@ function wmDrawLayerList() {
           aria-label="Move ${wmEscape(title)} down">&darr;</button>
         ${readable && wmExtentOf(layer) ? `<button class="tiny" data-act="zoom" data-layer="${wmEscape(key)}"
           data-focus="zoom:${wmEscape(key)}">Zoom to</button>` : ""}
+        ${readable && kind === "feature" ? `<button class="tiny" data-act="style" data-layer="${wmEscape(key)}"
+          data-focus="style:${wmEscape(key)}" aria-expanded="${run.styleOpen ? "true" : "false"}"
+          aria-controls="sty-${wmEscape(key)}">Style</button>` : ""}
         <button class="tiny danger" data-act="remove" data-layer="${wmEscape(key)}"
           data-focus="remove:${wmEscape(key)}" aria-label="Remove ${wmEscape(title)} from the map">Remove</button>
       </div>
+      ${readable && kind === "feature" && run.styleOpen ? wmStyleMarkup(layer, run, key, title) : ""}
       ${kind === "feature" ? wmFilterMarkup(layer, run, key, title, filter) : ""}
     </li>`;
   }).join("");
@@ -1059,6 +1068,197 @@ function wmFilterMarkup(layer, run, key, title, filter) {
       </select>` : ""}
     ${error ? `<p class="lerr" id="flt-err-${k}">${wmEscape(error)}</p>` : ""}
   </div>`;
+}
+
+/**
+ * A feature layer's style in this map — ADR-104, Portal's *Styles* in its simple form.
+ *
+ * <b>Which level it changes is said on it.</b> *Apply* styles the layer in this map only and is saved with the map;
+ * *Save as the layer's default* changes it everywhere, and is offered only to a role that may publish — the server
+ * decides whether this user owns the layer.
+ */
+function wmStyleMarkup(layer, run, key, title) {
+  const k = wmEscape(key);
+  const draft = run.styleDraft || {};
+  const how = draft.how || (layer.layerDefinition && layer.layerDefinition.drawingInfo ? "single" : "default");
+  const fields = wmUserFields(run.info);
+  const texts = fields.filter(f => WM_FILTER_TYPES[f.type] !== "date");
+  const numbers = fields.filter(f => WM_FILTER_TYPES[f.type] === "number");
+  const geometry = (run.info && run.info.geometryType) || "";
+  const own = !!(layer.layerDefinition && layer.layerDefinition.drawingInfo);
+  const option = (value, label, chosen) => `<option value="${wmEscape(value)}"${value === chosen ? " selected" : ""}>${wmEscape(label)}</option>`;
+
+  return `<div class="lstyle" id="sty-${k}">
+    <p class="lkind">${own ? "Styled in this map." : "Drawn in the layer's own style."}</p>
+    <label class="lkind" for="styHow-${k}">Style</label>
+    <select id="styHow-${k}" data-style-how="${k}" data-focus="styHow:${k}">
+      ${option("default", "The layer's own style", how)}
+      ${option("single", "One colour", how)}
+      ${texts.length ? option("unique", "A colour per value", how) : ""}
+      ${numbers.length ? option("breaks", "Counts and amounts (classes)", how) : ""}
+    </select>
+    ${how === "single" ? `<div class="row">
+      <label class="lkind" for="styColour-${k}">Colour</label>
+      <input type="color" id="styColour-${k}" value="${wmEscape(draft.colour || "#1f5fa8")}">
+      <label class="lkind" for="stySize-${k}">${/Point/.test(geometry) ? "Size" : "Width"}</label>
+      <input type="number" id="stySize-${k}" min="0.5" max="40" step="0.5" style="width:5em"
+        value="${wmEscape(String(draft.size || (/Point/.test(geometry) ? 8 : 1.5)))}">
+    </div>` : ""}
+    ${how === "unique" ? `<div class="row">
+      <label class="lkind" for="styField-${k}">Field</label>
+      <select id="styField-${k}">${texts.map(f => option(f.name, f.alias || f.name, draft.field)).join("")}</select>
+    </div>` : ""}
+    ${how === "breaks" ? `<div class="row">
+      <label class="lkind" for="styField-${k}">Field</label>
+      <select id="styField-${k}">${numbers.map(f => option(f.name, f.alias || f.name, draft.field)).join("")}</select>
+      <label class="lkind" for="styClasses-${k}">Classes</label>
+      <input type="number" id="styClasses-${k}" min="2" max="9" step="1" style="width:4em" value="${wmEscape(String(draft.classes || 5))}">
+    </div>
+    <div class="row">
+      <label class="lkind" for="styMethod-${k}">Method</label>
+      <select id="styMethod-${k}">
+        ${option("esriClassifyNaturalBreaks", "Natural breaks", draft.method)}
+        ${option("esriClassifyEqualInterval", "Equal interval", draft.method)}
+        ${option("esriClassifyQuantile", "Quantile", draft.method)}
+      </select>
+      <label class="lkind" for="styRamp-${k}">Colours</label>
+      <select id="styRamp-${k}">
+        ${Object.entries(WM_RAMPS).map(([name, ramp]) => option(name, ramp.label, draft.ramp)).join("")}
+      </select>
+    </div>` : ""}
+    <div class="row">
+      <button class="tiny" data-act="styleApply" data-layer="${k}" data-focus="styleApply:${k}">Apply to this map</button>
+      ${wmMe.privileges.has("content:publishFeatures") && own
+        ? `<button class="tiny" data-act="styleDefault" data-layer="${k}" data-focus="styleDefault:${k}"
+            title="Every map and client that has not styled ${wmEscape(title)} itself draws it this way">Save as the layer's default</button>` : ""}
+    </div>
+    ${run.styleError ? `<p class="lerr">${wmEscape(run.styleError)}</p>` : ""}
+  </div>`;
+}
+
+/** The colour ramps the classes panel offers, light to strong. */
+const WM_RAMPS = {
+  reds: { label: "Yellow to red", from: [255, 255, 178, 255], to: [189, 0, 38, 255] },
+  blues: { label: "Light to dark blue", from: [222, 235, 247, 255], to: [8, 81, 156, 255] },
+  greens: { label: "Light to dark green", from: [229, 245, 224, 255], to: [0, 109, 44, 255] },
+  purples: { label: "Light to dark purple", from: [239, 237, 245, 255], to: [84, 39, 143, 255] },
+};
+
+/** One symbol of a colour, in the shape the layer's geometry takes. */
+function wmSimpleSymbol(geometry, hex, size) {
+  const rgb = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+  if (/Point/.test(geometry)) {
+    return { type: "esriSMS", style: "esriSMSCircle", color: [...rgb, 255], size,
+      outline: { type: "esriSLS", style: "esriSLSSolid", color: [255, 255, 255, 255], width: 0.75 } };
+  }
+  if (/Polyline/.test(geometry)) {
+    return { type: "esriSLS", style: "esriSLSSolid", color: [...rgb, 255], width: size };
+  }
+  return { type: "esriSFS", style: "esriSFSSolid", color: [...rgb, 150],
+    outline: { type: "esriSLS", style: "esriSLSSolid", color: [...rgb, 255], width: size } };
+}
+
+/** Draws a layer again after its style changed: the source's fields may have changed with it. */
+function wmRestyle(layer) {
+  const run = wmRuntime.get(layer);
+  if (!run) return;
+  // Only the drawn layer goes: `wmRemoveFromMap` also forgets the layer's state, which this keeps.
+  if (run.ol) wmMap.removeLayer(run.ol);
+  const index = wmLayers().indexOf(layer);
+  run.ol = wmBuildLayer(layer, run, Math.max(index, 0));
+  if (run.ol) {
+    wmMap.addLayer(run.ol);
+    wmApply(layer, index);
+  }
+}
+
+/** Reads the panel, builds the renderer — here or with the layer's `generateRenderer` — and puts it on the map. */
+async function wmApplyStyle(layer) {
+  const run = wmRuntime.get(layer);
+  const k = layer.id;
+  const how = (wm$(`styHow-${k}`) || {}).value || "default";
+  const geometry = (run.info && run.info.geometryType) || "";
+  run.styleError = null;
+
+  if (!layer.layerDefinition || typeof layer.layerDefinition !== "object") layer.layerDefinition = {};
+
+  try {
+    if (how === "default") {
+      delete layer.layerDefinition.drawingInfo;
+    } else if (how === "single") {
+      const colour = wm$(`styColour-${k}`).value;
+      const size = Number(wm$(`stySize-${k}`).value) || 1;
+      run.styleDraft = { how, colour, size };
+      layer.layerDefinition.drawingInfo = { renderer: { type: "simple", symbol: wmSimpleSymbol(geometry, colour, size) } };
+    } else {
+      const field = wm$(`styField-${k}`).value;
+      const base = wmSimpleSymbol(geometry, "#888888", /Point/.test(geometry) ? 8 : 1);
+      let definition;
+
+      if (how === "unique") {
+        run.styleDraft = { how, field };
+        definition = { type: "uniqueValueDef", uniqueValueFields: [field], baseSymbol: base };
+      } else {
+        const classes = Math.min(9, Math.max(2, Number(wm$(`styClasses-${k}`).value) || 5));
+        const method = wm$(`styMethod-${k}`).value;
+        const rampName = wm$(`styRamp-${k}`).value;
+        const ramp = WM_RAMPS[rampName] || WM_RAMPS.reds;
+        run.styleDraft = { how, field, classes, method, ramp: rampName };
+        definition = {
+          type: "classBreaksDef", classificationField: field, classificationMethod: method, breakCount: classes,
+          baseSymbol: base,
+          colorRamp: { type: "algorithmic", fromColor: ramp.from, toColor: ramp.to, algorithm: "esriCIELabAlgorithm" },
+        };
+      }
+
+      const renderer = await wmFetch(`${layer.url}/generateRenderer?` + wmParams({
+        classificationDef: JSON.stringify(definition), f: "json" }));
+      layer.layerDefinition.drawingInfo = { renderer };
+    }
+  } catch (e) {
+    run.styleError = `Not applied: ${e.message || e}`;
+    wmDrawLayerList();
+    return;
+  }
+
+  wmRestyle(layer);
+  wmMarkDirty();
+  wmDrawLayerList();
+  wmSayIn("layersStatus", how === "default"
+    ? `${layer.title} is drawn in its own style again.`
+    : `${layer.title} is styled in this map. Save the map to keep it.`);
+}
+
+/** Sends this map's style of a layer to the layer as its default, then lets the map follow it. */
+async function wmSaveStyleAsDefault(layer) {
+  const run = wmRuntime.get(layer);
+  const drawing = layer.layerDefinition && layer.layerDefinition.drawingInfo;
+  if (!run || !drawing) return;
+
+  const name = (run.info && run.info.name) || layer.title;
+  if (!confirm(`Make this the default style of '${name}'? Every map and client that has not styled it itself will draw it this way.`)) return;
+
+  try {
+    await wmFetch(`/admin/layers/${encodeURIComponent(name)}/symbology`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(drawing),
+    });
+  } catch (e) {
+    run.styleError = `Not saved as the default: ${e.message || e}`;
+    wmDrawLayerList();
+    return;
+  }
+
+  // The default now is what this map drew; the map's copy is dropped so it follows the layer from here on.
+  delete layer.layerDefinition.drawingInfo;
+  run.info = await wmFetch(`${wmProbeUrl(layer)}?f=json`).catch(() => run.info);
+  run.styleError = null;
+  run.styleDraft = { how: "default" };
+  wmRestyle(layer);
+  wmMarkDirty();
+  wmDrawLayerList();
+  wmSayIn("layersStatus", `${name}'s default style is now this one.`);
 }
 
 function wmLayerById(id) {
@@ -1121,6 +1321,16 @@ async function wmSetFilter(layer, expression) {
 
 wm$("layerList").addEventListener("change", event => {
   const t = event.target;
+
+  if (t.dataset && t.dataset.styleHow) {
+    const layer = wmLayerById(t.dataset.styleHow);
+    const run = layer && wmRuntime.get(layer);
+    if (run) {
+      run.styleDraft = { ...(run.styleDraft || {}), how: t.value };
+      wmDrawLayerList();
+    }
+    return;
+  }
 
   // Insert a field name where the cursor is in that layer's filter, and go back to the filter.
   if (t.dataset && t.dataset.insert) {
@@ -1201,6 +1411,14 @@ wm$("layerList").addEventListener("click", event => {
       break;
     }
     case "unfilter": wmSetFilter(layer, ""); break;
+    case "style": {
+      const run = wmRuntime.get(layer);
+      if (run) { run.styleOpen = !run.styleOpen; run.styleError = null; }
+      wmDrawLayerList();
+      break;
+    }
+    case "styleApply": wmApplyStyle(layer); break;
+    case "styleDefault": wmSaveStyleAsDefault(layer); break;
     case "remove": {
       const layers = wmLayers();
       const at = layers.indexOf(layer);

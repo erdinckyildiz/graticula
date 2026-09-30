@@ -169,6 +169,102 @@ public sealed class WebMapViewerTests : ConsoleTest
         }
     }
 
+    /// <summary>ADR-104: a layer is styled in the map, saved in its document, and can become the layer's default.</summary>
+    [Fact]
+    public async Task A_layer_is_styled_in_the_map_and_can_become_its_default()
+    {
+        (string token, string cookie) = await SignInAsync();
+
+        string layerUrl = await AnyFeatureLayerUrlAsync(token);
+
+        string document = JsonSerializer.Serialize(new
+        {
+            title = "ADR-104 console test",
+            sharing = "private",
+            document = new
+            {
+                operationalLayers = new object[]
+                {
+                    new { id = "styled", layerType = "ArcGISFeatureLayer", url = layerUrl, title = "Styled layer", visibility = true, opacity = 1 },
+                },
+                baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
+                version = "2.31",
+            },
+        });
+
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/webmaps", document);
+
+        Assert.True(status == 201, $"Saving the map through the API answered {status}: {body}");
+
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
+
+            await WaitForAsync("!!document.querySelector('#layerList button[data-act=style][data-layer=styled]')",
+                "A feature layer on the map offers no Style.");
+
+            await ClickAsync("#layerList button[data-act=style][data-layer=styled]");
+
+            await WaitForAsync("!!document.getElementById('styHow-styled')", "Style did not open the layer's style panel.");
+
+            await Browser.EvaluateAsync<bool>(
+                "(() => { const s = document.getElementById('styHow-styled'); s.value = 'single'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+
+            await WaitForAsync("!!document.getElementById('styColour-styled')", "One colour did not offer a colour.");
+
+            await Browser.EvaluateAsync<bool>("(() => { document.getElementById('styColour-styled').value = '#aa3377'; return true; })()");
+
+            await ClickAsync("#layerList button[data-act=styleApply][data-layer=styled]");
+
+            await WaitForAsync(
+                "(wmLayers()[0].layerDefinition || {}).drawingInfo?.renderer?.type === 'simple'",
+                "Apply did not put the map's own renderer in the map's document.");
+
+            // Saved with the map, where ArcGIS clients read it. <b>The body is read by wrapping fetch here</b>,
+            // because the harness records a write's method and address and, for a JSON body, nothing else — and
+            // what this asserts is precisely what the body carries.
+            await Browser.EvaluateAsync<bool>("""
+                (() => {
+                  const inner = window.fetch;
+                  window.__bodies = [];
+                  window.fetch = (input, init) => {
+                    if (init && typeof init.body === 'string') window.__bodies.push(init.body);
+                    return inner(input, init);
+                  };
+                  return true;
+                })()
+                """);
+
+            await ClickAsync("#headSave");
+
+            await WaitForAsync(
+                "(window.__bodies || []).some(b => b.includes('drawingInfo'))",
+                "Saving the map did not send the layer's style in its document.");
+
+            // The layer's default, from the map: the same drawingInfo, to the layer's symbology.
+            await WaitForAsync("!!document.querySelector('#layerList button[data-act=styleDefault][data-layer=styled]')",
+                "A styled layer offers no Save as the layer's default to a role that may publish.");
+
+            await ClickAsync("#layerList button[data-act=styleDefault][data-layer=styled]");
+
+            await WaitForAsync(
+                "(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/symbology'))",
+                "Save as the layer's default did not send the style to the layer.");
+
+            await WaitForAsync(
+                "!(wmLayers()[0].layerDefinition || {}).drawingInfo",
+                "After becoming the default, the map kept its own copy instead of following the layer.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
+    }
+
     /// <summary>The address of some feature layer this server publishes.</summary>
     private async Task<string> AnyFeatureLayerUrlAsync(string token)
     {

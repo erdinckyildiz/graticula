@@ -88,6 +88,9 @@
 
   /* The layer list: top of the list is top of the map. */
   #layerList { list-style: none; margin: 0; padding: 0; }
+  .lstyle { margin-top: 8px; padding: 8px; border: 1px solid var(--rule, #ddd); border-radius: 6px; }
+  .lstyle .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .lstyle select { max-width: 100%; }
   #layerList > li { border: 1px solid var(--rule); border-radius: 4px; padding: 7px 9px; margin-bottom: 7px; }
   #layerList > li.off { background: var(--surface-2); }
   .lhead { display: flex; align-items: flex-start; gap: 7px; }
