@@ -468,13 +468,14 @@ and as the checkbox draws it today — is simpler and is how the three edits beh
    `.gpkg` itself selected answers only *Failed to add data* — Pro will not add a database whole — while the table
    inside it (`main.tr_il`, from Catalog) adds and draws; the file was checked field by field first (GeoPackage 1.4,
    `LINESTRING` in 4326, the rtree extension, integrity `ok`), and neither marking it 1.2 nor renaming its `objectid`
-   column changed Pro's answer. Still open: the Shapefile and the Feature Collection, and field domains, which the
-   first build does not write.
+   column changed Pro's answer. The same day the owner opened the zipped Shapefile in Pro and the Feature Collection
+   with Pro's *JSON To Features*, so every format has now been opened by a reader outside GDAL. **Still open: field
+   domains shown as domains** in the GeoPackage and the File Geodatabase, which the first build does not write.
 3. **Turkish text survives every format.** A layer with `ğ`, `ş`, `İ`, `ı` in attribute values and in field names is
    exported in all eight formats and read back by condition 2's readers with every letter intact. **PARTLY DISCHARGED
    2026-09-30:** `tr_il`'s `il` values (Nevşehir, Kırşehir, Muş …) read back intact in Pro from the GeoPackage and the
-   File Geodatabase and in Excel from the CSV and the workbook. Not yet: Turkish letters in field names, the Shapefile,
-   the Feature Collection.
+   File Geodatabase and in Excel from the CSV and the workbook, and then from the Shapefile and the Feature Collection
+   in Pro. **Still open: Turkish letters in field names**, which `tr_il` does not have.
 4. **A Shapefile name collision** — three fields whose first ten bytes agree, one of them Turkish — gets §5.6's names and
    the `fieldnames.csv` says so.
 5. **A layer larger than 50,000 rows** (at least three pages) exports with every object id once, in every format; the
