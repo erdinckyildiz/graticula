@@ -369,7 +369,15 @@ None recorded.
    reads `exportTilesAllowed`, what it sends to `exportTiles`, whether it polls `jobs/{id}` and reads
    `results/out_service_url`, and whether it opens the package and draws it. What it does differently from §5.8 or §5.2
    is written back here, and the INFERRED rows of §4 are marked with what was seen. Web Mercator and a TUREF service
-   both.
+   both. **PARTLY DISCHARGED 2026-09-30: the package half, in ArcGIS Pro, on both grids.** The
+   owner exported the showcase's `turkiye/tr_ref` from the console's *Export tiles* as a VTPK twice — on Web Mercator,
+   and after switching the service to TUREF / TM30, levels 0-8 — and added each file to ArcGIS Pro with *Add Data*.
+   Pro opened both and drew them in their own reference: the Web Mercator package over Pro's basemap around the
+   Marmara, the TM30 package in a TM30 map on the same layer's FeatureServer (projected by Pro) with no visible offset
+   at 1:32,628 near Beşköprü. East of the grid's square, near Hafik, the FeatureServer drew a polygon and the package
+   nothing — [D-288](../architecture-debt.md), in the package as in the service. **Still open: the protocol half.** Both
+   packages came through the admin route; no ArcGIS client has yet read `exportTilesAllowed`, sent `exportTiles`, polled
+   `jobs/{id}` or fetched `results/out_service_url` — Pro's *Download Map* or a Field Maps offline area would.
 2. **A PMTiles reader takes an archive.** `pmtiles verify` and `pmtiles show` (the Protomaps command-line tool) accept an
    exported archive, and MapLibre with the `pmtiles://` protocol draws it. **DISCHARGED 2026-09-29, after a repair it
    found.** `pmtiles` 1.31.2 (`protomaps/go-pmtiles`) first **refused** an archive of the fixture's `hosted/ci_parcels`
