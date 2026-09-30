@@ -466,7 +466,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         // the layer's whole lifetime — an hour by default, measured on the showcase as the same
         // ETag and the same bytes after the delete. The writer is the one object both editing
         // faces (ArcGIS and OGC API Features) already get from here.
-        return _tiles is null ? writer : new TilePurgingWriter(writer, _tiles, layer.Id);
+        return _tiles is null ? writer : new TilePurgingWriter(writer, _tiles, [layer.Id, .. layer.ViewLayers]);
     }
 
     /// <summary>The object ids of the features carrying these GlobalIDs — <c>useGlobalIds=true</c>.</summary>
@@ -573,6 +573,12 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
                 if (outcomes[i].Adds.Concat(outcomes[i].Updates).Concat(outcomes[i].Deletes).Any(r => r.Succeeded))
                 {
                     _tiles.Purge(edits[i].Layer.Id);
+
+                    // The same rows under a view or its source (ADR-113).
+                    foreach (Guid shown in edits[i].Layer.ViewLayers)
+                    {
+                        _tiles.Purge(shown);
+                    }
                 }
             }
         }

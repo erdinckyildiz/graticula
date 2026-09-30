@@ -1034,6 +1034,145 @@ public sealed class PostGisImporter
         $"{LayerDefinition.Quote(HostedSchema)}.{LayerDefinition.Quote(table)}";
 
     /// <summary>
+    /// Makes, or remakes, the PostgreSQL view a hosted view layer reads — ADR-113.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The filter is enforced by the database.</b> The view is <c>select *</c> over the source's table with the
+    /// filter as its <c>where</c>, which PostgreSQL keeps automatically updatable: an insert through it takes the
+    /// table's defaults and fires its triggers, and an update or delete cannot reach a row the filter leaves out —
+    /// measured before this was written (ADR-113 §2).
+    /// </para>
+    /// <para>
+    /// <b><c>xmin</c> is carried as a column</b>, because a view has no system columns and the writer's optimistic
+    /// concurrency reads the row's. Describe leaves an <c>xid</c> out of the fields.
+    /// </para>
+    /// <para>
+    /// <b>No literal is quoted here.</b> <paramref name="filterSql"/> is <see cref="WhereClause"/>'s output — our
+    /// column names re-quoted, operators from a fixed table, every literal a <c>@wN</c> parameter — and DDL cannot
+    /// bind, so each value is handed to PostgreSQL's own <c>quote_nullable</c> and its answer put in the parameter's
+    /// place, highest index first so <c>@w1</c> never matches inside <c>@w10</c>.
+    /// </para>
+    /// <para>
+    /// <b>The attachments come too, when the source has them</b>: a view over each of its attachment tables, filtered
+    /// to the rows the layer's view can see, under the names the attachment store derives from the view's own — so a
+    /// view layer's attachments are its source's, and only for the features it shows.
+    /// </para>
+    /// </remarks>
+    /// <param name="sourceTable">The source layer's table in the hosted schema.</param>
+    /// <param name="viewTable">The view's name in the hosted schema.</param>
+    /// <param name="identityColumn">The source's integer identity, which the attachments reference.</param>
+    /// <param name="filterSql">The parsed filter's SQL, or null or empty for every row.</param>
+    /// <param name="parameters">Its <c>@wN</c> values, in order.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    public async Task CreateViewAsync(
+        string sourceTable,
+        string viewTable,
+        string identityColumn,
+        string? filterSql,
+        IReadOnlyList<object?> parameters,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+        RefuseOutsideHosted(HostedSchema, sourceTable, "make a view of");
+        RefuseOutsideHosted(HostedSchema, viewTable, "make");
+
+        await using NpgsqlConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        string where = filterSql ?? string.Empty;
+
+        if (where.Length > 0 && parameters.Count > 0)
+        {
+            string[] literals = new string[parameters.Count];
+
+            await using (NpgsqlCommand quoting = new(
+                "select " + string.Join(", ", Enumerable.Range(0, parameters.Count).Select(i => $"quote_nullable(@w{i})")),
+                connection, transaction))
+            {
+                for (int i = 0; i < parameters.Count; i++)
+                {
+                    quoting.Parameters.AddWithValue($"w{i}", parameters[i] ?? DBNull.Value);
+                }
+
+                await using NpgsqlDataReader quoted =
+                    await quoting.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                await quoted.ReadAsync(cancellationToken).ConfigureAwait(false);
+
+                for (int i = 0; i < parameters.Count; i++)
+                {
+                    literals[i] = quoted.GetString(i);
+                }
+            }
+
+            for (int i = parameters.Count - 1; i >= 0; i--)
+            {
+                where = where.Replace($"@w{i}", literals[i], StringComparison.Ordinal);
+            }
+        }
+
+        string filter = where.Length > 0 ? $" where ({where})" : string.Empty;
+
+        await ExecuteAsync(
+            connection, transaction,
+            $"create or replace view {Qualified(viewTable)} as select s.*, s.xmin as xmin from {Qualified(sourceTable)} s{filter}",
+            cancellationToken).ConfigureAwait(false);
+
+        string attachments = sourceTable + PostGisAttachmentStore.Suffix;
+
+        if (await ExistsAsync(connection, transaction, attachments, cancellationToken).ConfigureAwait(false))
+        {
+            string viewAttachments = viewTable + PostGisAttachmentStore.Suffix;
+
+            await ExecuteAsync(
+                connection, transaction,
+                $"create or replace view {Qualified(viewAttachments)} as select a.* from {Qualified(attachments)} a "
+                + $"where a.rel_objectid in (select v.{LayerDefinition.Quote(identityColumn)} from {Qualified(viewTable)} v)",
+                cancellationToken).ConfigureAwait(false);
+
+            await ExecuteAsync(
+                connection, transaction,
+                $"create or replace view {Qualified(viewAttachments + PostGisAttachmentStore.ChunkSuffix)} as select c.* "
+                + $"from {Qualified(attachments + PostGisAttachmentStore.ChunkSuffix)} c "
+                + $"where c.attachmentid in (select a.attachmentid from {Qualified(viewAttachments)} a)",
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Drops a view layer's PostgreSQL views, and never a table — ADR-113.</summary>
+    /// <param name="viewTable">The view's name in the hosted schema.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    public async Task DropViewAsync(string viewTable, CancellationToken cancellationToken)
+    {
+        RefuseOutsideHosted(HostedSchema, viewTable, "drop");
+
+        await using NpgsqlConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        string attachments = viewTable + PostGisAttachmentStore.Suffix;
+
+        foreach (string view in (string[])[attachments + PostGisAttachmentStore.ChunkSuffix, attachments, viewTable])
+        {
+            await ExecuteAsync(connection, transaction, $"drop view if exists {Qualified(view)}", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<bool> ExistsAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, string table, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = new("select to_regclass(@name) is not null", connection, transaction);
+        command.Parameters.AddWithValue("name", Qualified(table));
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
+    }
+
+    /// <summary>
     /// A table name derived from what the caller asked for, and safe by
     /// construction.
     /// </summary>

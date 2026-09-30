@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Geometries;
@@ -2313,6 +2314,75 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         command.Parameters.AddWithValue("name", serviceName);
         command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
         command.Parameters.AddWithValue("protected", protectedFromDeletion);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task MakeViewAsync(
+        Guid viewServiceId,
+        Guid sourceServiceId,
+        IReadOnlyList<(Guid LayerId, int LayerIndex, string? Definition)> layers,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(layers);
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlTransaction transaction =
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        // <b>Two steps, because the index is unique within a service</b> and the numbers the view was published
+        // with and the source's overlap: first out of the way (negative, which no layer uses), then into place.
+        Guid[] ids = [.. layers.Select(l => l.LayerId)];
+        int[] indices = [.. layers.Select(l => l.LayerIndex)];
+        string?[] definitions = [.. layers.Select(l => l.Definition)];
+
+        await using (NpgsqlCommand aside = new(
+            "update layer set layer_index = -1 - layer_index where id = any(@ids)", connection, transaction))
+        {
+            aside.Parameters.AddWithValue("ids", ids);
+            await aside.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await using (NpgsqlCommand place = new("""
+            update layer l set layer_index = p.idx, view_definition = p.def
+              from unnest(@ids, @indices, @definitions) as p(id, idx, def)
+             where l.id = p.id
+            """, connection, transaction))
+        {
+            place.Parameters.AddWithValue("ids", ids);
+            place.Parameters.AddWithValue("indices", indices);
+            place.Parameters.Add(new NpgsqlParameter("definitions", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text)
+            {
+                Value = definitions.Select(d => (object?)d ?? DBNull.Value).ToArray(),
+            });
+            await place.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await using (NpgsqlCommand link = new("""
+            update service set view_of = @source,
+                   next_layer_index = greatest(next_layer_index,
+                     (select coalesce(max(layer_index), -1) + 1 from layer where service_id = @view)),
+                   updated_at = now()
+             where id = @view
+            """, connection, transaction))
+        {
+            link.Parameters.AddWithValue("source", sourceServiceId);
+            link.Parameters.AddWithValue("view", viewServiceId);
+            await link.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetViewDefinitionAsync(Guid layerId, string? definition, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update layer set view_definition = @definition where id = @id");
+        command.Parameters.AddWithValue("id", layerId);
+        command.Parameters.AddWithValue("definition", (object?)definition ?? DBNull.Value);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }

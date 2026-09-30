@@ -3140,9 +3140,10 @@ public static class Program
         // client to a page size that does not exist. <b>The page size, since V-70 (ADR-084)</b>:
         // a service that set none advertised the deployment's ceiling, 50000, over queries
         // answering 1000, and a script paging by this number skipped rows.
+        string serviceCapabilities = CapabilitiesFor(context, service, WritabilityOf(shapes));
         object document = FeatureServerMetadataWriter.Service(
             layers,
-            CapabilitiesFor(context, service, WritabilityOf(shapes)),
+            serviceCapabilities,
             service.Description,
             groups,
             service.Limits.Cost.PageSize(
@@ -3154,6 +3155,9 @@ public static class Program
             // it service by service and every new service started at 50,000 again. Advertised here as
             // well as enforced in the parser, because a client sizes its paging from this number.
             settings.MaximumRecordCount);
+
+        // ADR-113: a view says so, and so does a source with views.
+        document = ViewFlags.Apply(context, document, service.ViewOf is not null, service.HasViews, serviceCapabilities);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
@@ -3431,6 +3435,7 @@ public static class Program
                     .ConfigureAwait(false)
                 : null;
 
+        string layerCapabilities = CapabilitiesFor(context, layer, description.Writable);
         object document = FeatureServerMetadataWriter.Layer(
             layer.Definition,
             layer.GeometryType,
@@ -3440,7 +3445,7 @@ public static class Program
             // [D-231](../../docs/architecture-debt.md). This document is what an ArcGIS client
             // reads before it shows an edit button, and it was offering one over relations
             // PostgreSQL refuses every write to.
-            CapabilitiesFor(context, layer, description.Writable),
+            layerCapabilities,
             declared ?? [],
             layer.LayerIndex,
 
@@ -3467,6 +3472,9 @@ public static class Program
             minScale: layer.VisibleRange.MinScale,
             maxScale: layer.VisibleRange.MaxScale,
             time: time is null ? null : (time.Field, time.From, time.Until));
+
+        // ADR-113: a view layer says so, and so does a source's.
+        document = ViewFlags.Apply(context, document, layer.ViewOf is not null, layer.HasViews, layerCapabilities);
 
         return (document, description);
     }

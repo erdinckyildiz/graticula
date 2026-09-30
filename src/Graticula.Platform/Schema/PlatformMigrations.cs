@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(70);
+    public static SchemaVersion ComponentSchemaVersion => new(71);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -105,6 +105,7 @@ public static class PlatformMigrations
         ALayersRowsMayBeExportedAsAFileV68,
         AWebMapMayBeProtectedFromDeletionV69,
         AnItemCarriesTagsV70,
+        AServiceMayBeAViewOfAnotherV71,
     ]);
 
     /// <summary>
@@ -142,6 +143,25 @@ public static class PlatformMigrations
     /// A web map may be protected from deletion, as a service may be (ADR-102 condition 2) — the ArcGIS review's second
     /// pass found maps the one item kind without it.
     /// </summary>
+    /// <summary>
+    /// A hosted service may be a view of another — ADR-113: the source it reads through, and each view layer's filter
+    /// as it was written. The rows are the source's, read through a PostgreSQL view the host makes; the catalogue keeps
+    /// only which service is whose and what the filter said.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>on delete restrict</c></b>, because a source deleted from under its views would leave services reading
+    /// PostgreSQL views over a table that is gone. The host refuses first and names the views; this is the floor.
+    /// </remarks>
+    private static Migration AServiceMayBeAViewOfAnotherV71 => Migration.Expand(
+        new SchemaVersion(71),
+        "A hosted service may be a view of another (ADR-113).",
+
+        "alter table service add column if not exists view_of uuid null references service(id) on delete restrict",
+
+        "create index if not exists service_view_of on service (view_of) where view_of is not null",
+
+        "alter table layer add column if not exists view_definition text null");
+
     /// <summary>
     /// An item carries tags — ADR-111: a service and a web map, the words Portal finds an item by.
     /// </summary>

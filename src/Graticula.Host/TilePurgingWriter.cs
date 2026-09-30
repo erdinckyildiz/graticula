@@ -31,7 +31,7 @@ namespace Graticula.Host;
 /// the datastore does not have for a hosted table.
 /// </para>
 /// </remarks>
-internal sealed class TilePurgingWriter(IFeatureWriter inner, ITileCache tiles, Guid layerId) : IFeatureWriter
+internal sealed class TilePurgingWriter(IFeatureWriter inner, ITileCache tiles, Guid[] layerIds) : IFeatureWriter
 {
     /// <inheritdoc/>
     public async Task<EditOutcome> ApplyAsync(EditBatch batch, CancellationToken cancellationToken)
@@ -41,7 +41,11 @@ internal sealed class TilePurgingWriter(IFeatureWriter inner, ITileCache tiles, 
         if (!outcome.RolledBack
             && outcome.Adds.Concat(outcome.Updates).Concat(outcome.Deletes).Any(result => result.Succeeded))
         {
-            tiles.Purge(layerId);
+            // The layer and every layer showing its rows under another service (ADR-113).
+            foreach (Guid layerId in layerIds)
+            {
+                tiles.Purge(layerId);
+            }
         }
 
         return outcome;

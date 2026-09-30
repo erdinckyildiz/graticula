@@ -1697,7 +1697,8 @@ internal static class PortalEndpoints
             // It was on every item, so a service over a registered PostGIS table or a GeoParquet
             // file was offered to Pro as hosted, and Pro's hosted-only actions (overwrite, append,
             // delete data with the item) pointed at somebody else's database or at a file.
-            typeKeywords = Keywords(face, service.Layers.Count > 0 && service.Layers.All(l => l.Definition.IsHosted)),
+            typeKeywords = Keywords(
+                face, service.Layers.Count > 0 && service.Layers.All(l => l.Definition.IsHosted), service.ViewOf is not null),
             description = service.Description,
             snippet = service.Description,
             // ADR-111: the service's own tags; the folder stays as one, as it always was.
@@ -1725,8 +1726,9 @@ internal static class PortalEndpoints
     /// <summary>The type keywords for an item, with <c>Hosted Service</c> only where it is true.</summary>
     /// <param name="face">The face the item is: FeatureServer, MapServer or VectorTileServer.</param>
     /// <param name="hosted">Whether every layer in it is hosted.</param>
+    /// <param name="view">Whether it is a view of another service (ADR-113).</param>
     /// <returns>The keywords.</returns>
-    internal static string[] Keywords(string face, bool hosted)
+    internal static string[] Keywords(string face, bool hosted, bool view = false)
     {
         string[] keywords = face switch
         {
@@ -1735,7 +1737,10 @@ internal static class PortalEndpoints
             _ => ["ArcGIS Server", "Data", "Feature Access", "Feature Service", "Service"],
         };
 
-        return hosted ? [.. keywords, "Hosted Service"] : keywords;
+        keywords = hosted ? [.. keywords, "Hosted Service"] : keywords;
+
+        // ADR-113: ArcGIS Pro reads this to keep Overwrite off a view.
+        return view && face == "FeatureServer" ? [.. keywords, "View Service"] : keywords;
     }
 
     /// <summary>

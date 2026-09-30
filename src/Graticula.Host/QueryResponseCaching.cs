@@ -350,6 +350,7 @@ internal static class QueryResponseCaching
             layer.LayerIndex,
             layer.ParentIndex,
             layer.AttachmentQuotaBytes,
+            layer.ViewDefinition,
         });
 
     /// <summary>The properties deliberately left out of <see cref="Fingerprint"/>, and why.</summary>
@@ -364,6 +365,9 @@ internal static class QueryResponseCaching
             [nameof(PublishedLayer.ConnectionString)] = "a secret; the data source name and definition identify the data",
             [nameof(PublishedLayer.PublishedSrid)] = "derived from ServedSrid and Definition.Srid",
             [nameof(PublishedLayer.IsRunning)] = "derived from Status",
+            [nameof(PublishedLayer.ViewOf)] = "says whose rows a view reads, not which; the filter is ViewDefinition",
+            [nameof(PublishedLayer.HasViews)] = "whether others read this layer's rows, which changes none of them",
+            [nameof(PublishedLayer.ViewLayers)] = "which tiles an edit empties, not what a query answers",
             [nameof(LayerDefinition.HasIntegerIdentity)] = "derived from IntegerIdentityColumn",
             [nameof(LayerDefinition.QuotedTable)] = "derived from SchemaName and TableName",
         };

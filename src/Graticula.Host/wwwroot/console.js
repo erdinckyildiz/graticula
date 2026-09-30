@@ -5449,8 +5449,10 @@ async function drawServiceDetails(qualified, knownKind) {
         // take their own data away, as in Portal; anybody else only when the service offers Extract.
         || !(manages || String(serviceDoc?.capabilities || "").split(",").map(one => one.trim()).includes("Extract"))
         ? "" : `<button type="button" id="exportDataOpen">Export data</button>`}
-      ${manages && !knownKind && serviceLayers.some(l => layerNamed(l.name || "").hosted)
+      ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
         ? `<button type="button" id="updateDataOpen">Update data</button>` : ""}
+      ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
+        ? `<button type="button" id="createViewOpen">Create view</button>` : ""}
       ${manages && tileLayerOf() ? `<button type="button" data-manage-tiles="1"
         title="What is cached, clear it, pre-build an area, offline packages">Manage tiles</button>` : ""}
     </div>
@@ -5514,7 +5516,7 @@ async function drawServiceDetails(qualified, knownKind) {
       : null;
 
     const rows = [
-      ["Type", h(itemTypeName(item.kind))],
+      ["Type", h(itemTypeName(item.kind) + (item.isView ? " (view)" : ""))],
       ["Owner", `${h(item.owner || "—")}${may("admin:manageAllContent")
         ? ` <button type="button" class="linkbtn" data-change-owner="service">Change owner…</button>` : ""}`],
       ["Folder", item.folder ? h(item.folder) : `<span class="val">the site root</span>`],
@@ -5528,6 +5530,9 @@ async function drawServiceDetails(qualified, knownKind) {
       ...(spatial ? [["Coordinates", spatial]] : []),
       ["Layers", `<span title="${num(serviceEntries)} entr${serviceEntries === 1 ? "y" : "ies"} in the service document, which counts a group layer and what is nested under it">${
         num(item.layers || serviceLayers.length || 0)}</span>`],
+      // ADR-113: a view names its source, and a source its views — filled in below.
+      ...(item.isView ? [["View of", `<span id="svcViewOf" class="val">…</span>`]] : []),
+      ...(item.hasViews ? [["Views", `<span id="svcViews" class="val">…</span>`]] : []),
       ["Published", item.created ? h(day(item.created)) : `<span class="val">—</span>`],
       ["Updated", item.updated ? h(day(item.updated)) : `<span class="val">—</span>`],
     ];
@@ -5552,6 +5557,7 @@ async function drawServiceDetails(qualified, knownKind) {
 
     serviceItem = item;
     drawServiceHead(item);
+    if (item.isView || item.hasViews) drawViewLinks(item);
   } catch {
     // The column's own reason — the address — is already on screen and needed no request. A failure
     // here loses the facts beside it and nothing somebody came for.
@@ -6451,7 +6457,7 @@ function drawServiceHead(item) {
 
   if (sub) {
     sub.textContent = [
-      itemTypeName(item.kind),
+      itemTypeName(item.kind) + (item.isView ? " (view)" : ""),
       `${num(item.layers || 0)} layer${(item.layers || 0) === 1 ? "" : "s"}`,
       item.owner ? `owner ${item.owner}` : "",
     ].filter(Boolean).join(" · ");
@@ -26584,3 +26590,233 @@ async function section(what, load, placeholder) {
 wireSymbologyForm();
 
 start().catch(e => toast(e.message));
+
+
+// ---------------------------------------------------------------- hosted feature layer views (ADR-113)
+
+/** The service page's address for a service, from its name and folder. */
+const servicePage = (name, folder) =>
+  `#/service/${[folder, name].filter(Boolean).map(encodeURIComponent).join("/")}`;
+
+/**
+ * <b>A view names its source and shows its filters; a source names its views</b> — Portal's *Source* and *Views*
+ * on the item page (ADR-113 §5.5). Read from the server rather than worked out, because the relation is stored.
+ */
+async function drawViewLinks(item) {
+  try {
+    const said = await api(`/admin/services/${encodeURIComponent(item.bare)}/views`
+      + `?folder=${encodeURIComponent(item.folder || "")}`);
+
+    const of = $("svcViewOf");
+    if (of && said.source) {
+      const one = (said.layers || []).length === 1;
+      const filters = (said.layers || []).map(l => `<li>${one ? "Filter:" : `${h(l.name)}:`}
+          ${l.definition ? `<code>${h(l.definition)}</code>` : "Every row (no filter)"}
+          ${item.manages !== false ? `<button type="button" class="linkbtn" data-view-filter="${l.id}"
+            data-view-filter-name="${h(l.name)}" data-view-filter-text="${h(l.definition || "")}">Change filter…</button>`
+            : ""}</li>`).join("");
+      of.className = "";
+      of.innerHTML = `<a href="${servicePage(said.source.name, said.source.folder)}">${h(said.source.name)}</a>
+        <ul class="plain">${filters}</ul>`;
+    }
+
+    const views = $("svcViews");
+    if (views) {
+      views.className = "";
+      views.innerHTML = (said.views || []).length
+        ? (said.views || []).map(v => `<a href="${servicePage(v.name, v.folder)}">${h(v.name)}</a>
+            ${pill(v.sharing)}`).join("<br>")
+        : `<span class="val">none</span>`;
+    }
+    return said;
+  } catch {
+    // The rest of the facts stand without it.
+  }
+}
+
+/** What a view may do, as Portal offers it when one is made. */
+const VIEW_ALLOWS = {
+  read: { label: "Read only", hint: "Query the rows; no edits.", capabilities: ["Query"] },
+  edit: { label: "Read and edit", hint: "See, add, change and delete — only rows that match the filter.",
+    capabilities: ["Query", "Create", "Update", "Delete"] },
+  add: { label: "Add only", hint: "People can add features but can't see, change or delete any. Use it for public surveys.",
+    capabilities: ["Create"] },
+};
+
+function openCreateView() {
+  const item = serviceItem;
+  const hosted = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")
+    && layerNamed(one.name || "").hosted);
+  if (!item || hosted.length === 0) return;
+
+  const many = hosted.length > 1;
+  $("createViewBody").innerHTML = `
+    <p class="hint">A view is a second layer over <b>${h(item.bare)}</b>'s rows, not a copy. Edits made through either
+      one show in both. The view has its own filter, editing and sharing; hide fields later on its Fields page.</p>
+    <div class="stacked"><label for="cvName">Name</label>
+      <input type="text" id="cvName" maxlength="40" value="${h(`${item.bare}_view`.slice(0, 40))}"
+        autocomplete="off" spellcheck="false"></div>
+    <fieldset class="offered"><legend>${many ? "Layers, and a filter for each" : "Filter"}</legend>
+      ${hosted.map(one => `<div class="cvlayer">
+        ${many ? `<label class="check"><input type="checkbox" data-cv-layer="${one.id}" checked>
+          <span>${h(one.name || `layer ${one.id}`)}</span></label>` : ""}
+        <input type="text" data-cv-filter="${one.id}" aria-label="Filter for ${h(one.name || `layer ${one.id}`)}"
+          placeholder="Leave empty to include every row" autocomplete="off" spellcheck="false">
+        <p class="hint fieldchips" data-cv-fields="${one.id}"></p></div>`).join("")}
+      <p class="hint" id="cvFilterHint">${VIEW_FILTER_HINT}</p>
+    </fieldset>
+    <fieldset class="offered"><legend>What it allows</legend>
+      ${Object.entries(VIEW_ALLOWS).map(([key, one], i) => `<label class="check">
+        <input type="radio" name="cvAllows" value="${key}"${i === 0 ? " checked" : ""}>
+        <span><b>${one.label}</b><span class="hint">${one.hint}</span></span></label>`).join("")}
+    </fieldset>
+    <div class="stacked"><label for="cvSharing">Sharing</label>
+      <select id="cvSharing">
+        <option value="private" selected>Owner only (private)</option>
+        <option value="organization">Organization</option>
+        <option value="public">Everyone (public)</option>
+      </select></div>`;
+  $("createViewFoot").innerHTML = `<p class="hint fill" id="createViewSays" role="status" aria-live="polite"></p>
+    <button type="button" class="ghost" id="createViewCancel">Cancel</button>
+    <button type="button" class="primary" id="createViewGo">Create view</button>`;
+  $("createView").showModal();
+  $("cvName").focus();
+  $("cvName").select();
+  hosted.forEach(one => offerFields(one.id, `[data-cv-filter="${one.id}"]`, `[data-cv-fields="${one.id}"]`));
+}
+
+/** The filter's rule of thumb, said the same way in both dialogs. */
+const VIEW_FILTER_HINT = `Only matching rows are in the view. Example: <code>status = 'open'</code>. Put text in single
+  quotes. Choose a field below to put its name in.`;
+
+/**
+ * <b>The field names, as buttons that put the name where the cursor is</b> — Portal offers an expression builder;
+ * this is the part of it a person needs most, which is knowing what the fields are called (design review 2026-10-01).
+ */
+async function offerFields(layerId, inputSelector, chipsSelector) {
+  const chips = document.querySelector(chipsSelector);
+  if (!chips || !serviceOpen) return;
+  try {
+    const doc = await api(`/rest/services/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`
+      + `/FeatureServer/${encodeURIComponent(String(layerId))}?f=json`);
+    const names = (doc.fields || []).filter(f => !/OID|GlobalID|Geometry/.test(f.type || "")).map(f => f.name);
+    chips.innerHTML = names.length ? `Fields: ${names.map(n => `<button type="button" class="linkbtn"
+      data-insert-field="${h(n)}" data-into="${h(inputSelector)}">${h(n)}</button>`).join(" ")}` : "";
+  } catch {
+    chips.innerHTML = "";
+  }
+}
+
+async function createView() {
+  const item = serviceItem;
+  const says = $("createViewSays");
+  const name = ($("cvName")?.value || "").trim();
+
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(name)) {
+    says.textContent = "Use letters, digits, _ and -, starting with a letter or digit.";
+    $("cvName").focus();
+    return;
+  }
+
+  const boxes = [...document.querySelectorAll("#createViewBody [data-cv-layer]")];
+  const layers = boxes.length ? boxes.filter(b => b.checked).map(b => Number(b.dataset.cvLayer)) : null;
+  if (layers && layers.length === 0) { says.textContent = "Choose at least one layer."; return; }
+
+  const definitions = {};
+  document.querySelectorAll("#createViewBody [data-cv-filter]").forEach(input => {
+    const text = input.value.trim();
+    if (text && (!layers || layers.includes(Number(input.dataset.cvFilter)))) definitions[input.dataset.cvFilter] = text;
+  });
+
+  const allows = document.querySelector("#createViewBody input[name=cvAllows]:checked")?.value || "read";
+  const go = $("createViewGo");
+  go.disabled = true;
+  says.textContent = "Creating the view…";
+
+  try {
+    const made = await api(`/admin/services/${encodeURIComponent(item.bare)}/views`
+      + `?folder=${encodeURIComponent(item.folder || "")}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, layers, definitions, capabilities: VIEW_ALLOWS[allows].capabilities,
+        sharing: $("cvSharing").value }),
+    });
+    $("createView").close();
+    location.hash = servicePage(made?.name || name, made?.folder ?? item.folder);
+  } catch (e) {
+    says.textContent = e.message || String(e);
+    go.disabled = false;
+  }
+}
+
+/** Changing one view layer's filter, in the same dialog's frame. */
+function openViewFilter(layerId, text, name) {
+  $("createViewTitle").textContent = "Change filter";
+  $("createViewBody").innerHTML = `
+    <div class="stacked"><label for="cvFilterOne">Filter for ${h(name || `layer ${layerId}`)}</label>
+      <input type="text" id="cvFilterOne" value="${h(text)}" placeholder="Leave empty to include every row"
+        autocomplete="off" spellcheck="false">
+      <p class="hint fieldchips" id="cvFilterOneFields"></p></div>
+    <p class="hint">${VIEW_FILTER_HINT}</p>`;
+  $("createViewFoot").innerHTML = `<p class="hint fill" id="createViewSays" role="status" aria-live="polite"></p>
+    <button type="button" class="ghost" id="createViewCancel">Cancel</button>
+    <button type="button" class="primary" id="viewFilterGo" data-layer="${h(String(layerId))}">Save filter</button>`;
+  $("createView").showModal();
+  $("cvFilterOne").focus();
+  offerFields(layerId, "#cvFilterOne", "#cvFilterOneFields");
+}
+
+async function saveViewFilter(layerId) {
+  const item = serviceItem;
+  const says = $("createViewSays");
+  says.textContent = "Saving…";
+  try {
+    await api(`/admin/services/${encodeURIComponent(item.bare)}/views/${encodeURIComponent(layerId)}/definition`
+      + `?folder=${encodeURIComponent(item.folder || "")}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ definition: $("cvFilterOne").value.trim() || null }),
+    });
+    $("createView").close();
+    await drawViewLinks(item);
+    const again = document.querySelector(`[data-view-filter="${CSS.escape(String(layerId))}"]`);
+    if (again) {
+      again.focus();
+      again.insertAdjacentHTML("afterend", ` <span role="status" class="hint">Filter saved.</span>`);
+    }
+  } catch (e) {
+    says.textContent = e.message || String(e);
+  }
+}
+
+document.addEventListener("click", e => {
+  const t = e.target instanceof Element ? e.target.closest("button") : null;
+  if (!t) return;
+  if (t.id === "createViewOpen") { $("createViewTitle").textContent = "Create view"; openCreateView(); return; }
+  if (t.id === "createViewGo") { createView(); return; }
+  if (t.dataset.viewFilter !== undefined) {
+    openViewFilter(t.dataset.viewFilter, t.dataset.viewFilterText || "", t.dataset.viewFilterName || "");
+    return;
+  }
+  if (t.dataset.insertField !== undefined) {
+    const input = document.querySelector(t.dataset.into);
+    if (!input) return;
+    const at = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? at;
+    input.value = input.value.slice(0, at) + t.dataset.insertField + input.value.slice(end);
+    input.focus();
+    input.setSelectionRange(at + t.dataset.insertField.length, at + t.dataset.insertField.length);
+    return;
+  }
+  if (t.id === "viewFilterGo") { saveViewFilter(t.dataset.layer); return; }
+  if (t.id === "createViewClose" || t.id === "createViewCancel") $("createView").close();
+});
+
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (!(t instanceof HTMLInputElement) || t.name !== "cvAllows") return;
+  const addOnly = t.value === "add" && t.checked;
+  document.querySelectorAll("#createViewBody [data-cv-filter]").forEach(input => { input.disabled = addOnly; });
+  const hint = $("cvFilterHint");
+  if (hint) hint.innerHTML = addOnly ? "A filter has no effect when nothing can be seen." : VIEW_FILTER_HINT;
+});

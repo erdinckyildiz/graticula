@@ -320,6 +320,24 @@ public sealed class PublishedLayer
     public ImmutableArray<FieldOverride> FieldOverrides { get; init; } =
         ImmutableArray<FieldOverride>.Empty;
 
+    /// <summary>
+    /// The service this layer's service is a view of, or null — ADR-113. A view layer's table is a PostgreSQL view
+    /// over its source layer's, so every read and write already obeys the filter; this says whose rows they are.
+    /// </summary>
+    public Guid? ViewOf { get; init; }
+
+    /// <summary>A view layer's filter as it was written, or null for none — ADR-113. Enforced by the database.</summary>
+    public string? ViewDefinition { get; init; }
+
+    /// <summary>Whether another service is a view of this layer's service — ADR-113.</summary>
+    public bool HasViews { get; init; }
+
+    /// <summary>
+    /// The layers that show this one's rows under another service — its views', its source's, its sibling views' —
+    /// whose tiles an edit here also empties (ADR-113). Empty for almost every layer.
+    /// </summary>
+    public ImmutableArray<Guid> ViewLayers { get; init; } = ImmutableArray<Guid>.Empty;
+
     /// <summary>The catalogue identity.</summary>
     public Guid Id { get; }
 

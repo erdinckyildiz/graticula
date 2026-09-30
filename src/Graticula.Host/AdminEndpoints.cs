@@ -605,6 +605,7 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/layers/{name}/cache", SetCacheLifetimeAsync);
         app.MapPut("/admin/layers/{name}/time-field", SetTimeFieldAsync);
         MapFieldOverrides(app);  // ADR-063 — AdminEndpoints.FieldOverrides.cs
+        MapViews(app);           // ADR-113 — AdminEndpoints.Views.cs
         MapVisibleRange(app);    // ADR-070 — AdminEndpoints.VisibleRange.cs
         MapServerSettings(app);  // ADR-084 — AdminEndpoints.Settings.cs
         MapSharedDomains(app);   // ADR-087 — AdminEndpoints.Domains.cs
@@ -1219,6 +1220,10 @@ internal static partial class AdminEndpoints
                 kind = service.Kind,
                 description = service.Description,
                 tags = service.Tags,
+
+                // ADR-113: whether it is a view, and whether it has any.
+                isView = service.ViewOf is not null,
+                hasViews = service.HasViews,
                 owner = admin.OwnerName,
                 sharing = PostgresSharing(service.Sharing),
                 status = Wire(service.Status),
@@ -1962,6 +1967,22 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // <b>A source goes after its views (ADR-113 §5.4)</b>: they read its rows through PostgreSQL views, and the
+        // catalogue's `on delete restrict` would refuse anyway — this says which views, before anything is touched.
+        PublishedService? target = await published.FindServiceAsync(at, name, cancellation).ConfigureAwait(false);
+
+        if (target is { HasViews: true })
+        {
+            string views = string.Join(", ", (await published.ListServicesAsync(cancellation).ConfigureAwait(false))
+                .Where(s => s.ViewOf == target.Id).Select(s => $"'{s.Name}'"));
+
+            await Refuse(context, 409, $"'{name}' has views ({views}). Delete them first; nothing was deleted.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        bool isView = target?.ViewOf is not null;
+
         // <b>`drop=true` empties the service on the way out — owner instruction, ADR-034 §5k.</b> The
         // copy under the delete button used to read *the tables in the datastore are not dropped*, and
         // the owner's answer was that it should not be true: *"servis hosted sa ve silindiyse, datastore
@@ -1982,8 +2003,8 @@ internal static partial class AdminEndpoints
 
         if (drop == true)
         {
-            IReadOnlyList<PublishedLayer> inside =
-                (await published.ListAsync(cancellation).ConfigureAwait(false))
+            IReadOnlyList<PublishedLayer> everything = await published.ListAsync(cancellation).ConfigureAwait(false);
+            IReadOnlyList<PublishedLayer> inside = everything
                 .Where(l => string.Equals(l.ServiceName, name, StringComparison.Ordinal)
                     && string.Equals(l.Folder ?? null, at, StringComparison.Ordinal))
                 .ToList();
@@ -2037,14 +2058,33 @@ internal static partial class AdminEndpoints
                     tiles.Purge(layer.Id);
                 }
 
-                if (unpublished && hosted)
+                // <b>A table another service still publishes is kept</b> — possible since migration 40 let two
+                // services name one table, and found while surveying for ADR-113: this dropped it from under the other.
+                PublishedLayer? sharer = everything.FirstOrDefault(other => other.ServiceId != layer.ServiceId
+                    && string.Equals(other.Definition.SchemaName, layer.Definition.SchemaName, StringComparison.Ordinal)
+                    && string.Equals(other.Definition.TableName, layer.Definition.TableName, StringComparison.Ordinal)
+                    && string.Equals(other.ConnectionString, layer.ConnectionString, StringComparison.Ordinal));
+
+                if (unpublished && hosted && sharer is not null)
+                {
+                    failure = $"kept: '{sharer.ServiceName}' still publishes the table.";
+                }
+                else if (unpublished && hosted)
                 {
                     try
                     {
-                        await importer.DropAsync(
-                            layer.Definition.SchemaName,
-                            layer.Definition.TableName,
-                            cancellation).ConfigureAwait(false);
+                        // A view's table is a PostgreSQL view over its source's, and only the view goes (ADR-113).
+                        if (isView)
+                        {
+                            await importer.DropViewAsync(layer.Definition.TableName, cancellation).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await importer.DropAsync(
+                                layer.Definition.SchemaName,
+                                layer.Definition.TableName,
+                                cancellation).ConfigureAwait(false);
+                        }
 
                         dropped = true;
                     }

@@ -1259,6 +1259,27 @@ public interface IAdminCatalog
     /// <returns>True when the service exists.</returns>
     Task<bool> SetDeleteProtectedAsync(string serviceName, string? folder, bool protectedFromDeletion, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Makes a freshly published service a view of another — ADR-113: records its source, gives each of its layers the
+    /// source layer's number, and keeps each filter as it was written.
+    /// </summary>
+    /// <param name="viewServiceId">The view's service.</param>
+    /// <param name="sourceServiceId">The source's service.</param>
+    /// <param name="layers">Each view layer: its id, the source layer's index it takes, and its filter or null.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    Task MakeViewAsync(
+        Guid viewServiceId,
+        Guid sourceServiceId,
+        IReadOnlyList<(Guid LayerId, int LayerIndex, string? Definition)> layers,
+        CancellationToken cancellationToken);
+
+    /// <summary>Replaces one view layer's filter as written — ADR-113. The PostgreSQL view is the host's to remake.</summary>
+    /// <param name="layerId">The view layer.</param>
+    /// <param name="definition">The filter, or null for every row.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the layer exists.</returns>
+    Task<bool> SetViewDefinitionAsync(Guid layerId, string? definition, CancellationToken cancellationToken);
+
     /// <summary>Replaces a service's tags — ADR-111.</summary>
     /// <param name="serviceName">The service.</param>
     /// <param name="folder">Its folder, or null.</param>

@@ -460,7 +460,7 @@ internal static class HostedDataEndpoints
     }
 
     /// <summary>Whether a layer of that name is already published.</summary>
-    private static async Task<bool> NameTakenAsync(
+    internal static async Task<bool> NameTakenAsync(
         IAdminCatalog catalog, string name, CancellationToken cancellation)
     {
         foreach (AdminLayer layer in
@@ -1149,7 +1149,7 @@ internal static class HostedDataEndpoints
     };
 
     /// <summary>The datastore's data source id, or empty when it is not registered.</summary>
-    private static async Task<Guid> DatastoreIdAsync(
+    internal static async Task<Guid> DatastoreIdAsync(
         IAdminCatalog catalog, CancellationToken cancellation)
     {
         foreach (RegisteredDataSource source in
@@ -1180,7 +1180,7 @@ internal static class HostedDataEndpoints
     // The marker tells `EnumeratedValuesAreCoveredTests` this is not the fourth-scope defect it exists
     // to catch: four of the five parsers that missed `group` had a discard arm too, and read a
     // group-scoped service as private, which is worse than refusing it.
-    private static SharingScope ParseSharing(string? raw) => raw?.ToLowerInvariant() switch
+    internal static SharingScope ParseSharing(string? raw) => raw?.ToLowerInvariant() switch
     {
         "public" => SharingScope.Public,
         "group" => SharingScope.Group,
@@ -2658,6 +2658,36 @@ internal static class HostedDataEndpoints
             return null;
         }
 
+        // <b>A view has no data of its own (ADR-113 §5.4)</b>: its rows are its source's, read through a PostgreSQL
+        // view, so every change to what it holds or what it is belongs to the source.
+        if (found.ViewOf is not null)
+        {
+            await Fail(
+                context, 409,
+                $"'{found.Definition.Name}' is a view: its rows are its source's, so this server does not {what} it. "
+                + "Change the source, and the view shows the change.")
+                .ConfigureAwait(false);
+
+            return null;
+        }
+
+        // <b>A source with views keeps its rows and its columns</b>: replacing every row would change what each view
+        // was made to show, and every view depends on every column (ADR-113 §5.4; Portal refuses the same).
+        if (found.HasViews && what is "overwrite" or "drop a field from")
+        {
+            string views = string.Join(", ", (await layers.ListServicesAsync(cancellation).ConfigureAwait(false))
+                .Where(s => s.ViewOf == found.ServiceId)
+                .Select(s => $"'{s.Name}'"));
+
+            await Fail(
+                context, 409,
+                $"'{found.Definition.Name}' has views ({views}), so this server does not {what} it: each view was made "
+                + "over its rows and columns as they are. Delete the views first.")
+                .ConfigureAwait(false);
+
+            return null;
+        }
+
         return found;
     }
 
@@ -2806,6 +2836,12 @@ internal static class HostedDataEndpoints
     {
         contexts.Forget(layer);
         tiles.Purge(layer.Id);
+
+        // The same rows under its views (ADR-113): a view's describe is its own, and so are its tiles.
+        foreach (Guid shown in layer.ViewLayers)
+        {
+            tiles.Purge(shown);
+        }
 
         // <b>The stamp, so anything listing the service sees that it changed.</b> ArcGIS moves a
         // timestamp on the item for exactly this; here the service row's `updated_at` is what a

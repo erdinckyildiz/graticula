@@ -27,7 +27,7 @@ public sealed class TilePurgingWriterTests
     public async Task A_kept_edit_empties_the_layer()
     {
         RecordingCache cache = new();
-        TilePurgingWriter writer = new(new FixedWriter(new([], [], [EditResult.Ok(1)], RolledBack: false)), cache, LayerId);
+        TilePurgingWriter writer = new(new FixedWriter(new([], [], [EditResult.Ok(1)], RolledBack: false)), cache, [LayerId]);
 
         await writer.ApplyAsync(Batch(), CancellationToken.None);
 
@@ -39,7 +39,7 @@ public sealed class TilePurgingWriterTests
     {
         RecordingCache cache = new();
         TilePurgingWriter writer = new(
-            new FixedWriter(new([EditResult.Ok(4), EditResult.Failed(-1, "bad")], [], [], RolledBack: true)), cache, LayerId);
+            new FixedWriter(new([EditResult.Ok(4), EditResult.Failed(-1, "bad")], [], [], RolledBack: true)), cache, [LayerId]);
 
         await writer.ApplyAsync(Batch(), CancellationToken.None);
 
@@ -51,7 +51,7 @@ public sealed class TilePurgingWriterTests
     {
         RecordingCache cache = new();
         TilePurgingWriter writer = new(
-            new FixedWriter(new([], [EditResult.Failed(7, "no such feature")], [], RolledBack: false)), cache, LayerId);
+            new FixedWriter(new([], [EditResult.Failed(7, "no such feature")], [], RolledBack: false)), cache, [LayerId]);
 
         await writer.ApplyAsync(Batch(), CancellationToken.None);
 

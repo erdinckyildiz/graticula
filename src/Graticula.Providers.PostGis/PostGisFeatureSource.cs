@@ -1506,7 +1506,10 @@ public sealed class PostGisFeatureSource
 
             // A second geometry or geography column is not an attribute either.
             // Rare, and the failure is the same one the doc comment describes.
-            if (type is "geometry" or "geography")
+            //
+            // <b>Nor is an `xid`</b>: it is the row version a view layer carries as `xmin`, because a PostgreSQL view
+            // has no system columns and the writer's optimistic concurrency reads one (ADR-113).
+            if (type is "geometry" or "geography" or "xid")
             {
                 continue;
             }

@@ -130,7 +130,20 @@ public sealed class PostgresLayerCatalog
         l.stale_seconds, s.tile_cache_quota_mb,
 
         -- The service's tags (ADR-111, migration 70). On the end, read by name.
-        s.tags as service_tags
+        s.tags as service_tags,
+
+        -- ADR-113, migration 71: the source this service is a view of, whether any service is a view of this one,
+        -- and the layer's filter as it was written. On the end, read by name.
+        s.view_of as service_view_of,
+        exists (select 1 from service sv where sv.view_of = s.id) as service_has_views,
+        l.view_definition,
+
+        -- The layers that show this one's rows under another service — its views', its source's and its sibling
+        -- views' layer of the same number — so an edit empties their tiles too (ADR-113).
+        array(select vl.id from layer vl join service vs on vs.id = vl.service_id
+               where vl.layer_index = l.layer_index and vl.id <> l.id
+                 and (vs.view_of = s.id or vs.id = s.view_of or (s.view_of is not null and vs.view_of = s.view_of)))
+          as view_layers
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -540,6 +553,14 @@ public sealed class PostgresLayerCatalog
             StaleLimit = reader.IsDBNull(reader.GetOrdinal("stale_seconds"))
                 ? null
                 : TimeSpan.FromSeconds(reader.GetInt32(reader.GetOrdinal("stale_seconds"))),
+
+            // ADR-113: a view's source and filter, and whether this layer's service has views.
+            ViewOf = reader.IsDBNull(reader.GetOrdinal("service_view_of"))
+                ? null
+                : reader.GetGuid(reader.GetOrdinal("service_view_of")),
+            ViewDefinition = Nullable(reader, "view_definition"),
+            HasViews = reader.GetBoolean(reader.GetOrdinal("service_has_views")),
+            ViewLayers = [.. reader.GetFieldValue<Guid[]>(reader.GetOrdinal("view_layers"))],
         };
     }
 
@@ -846,7 +867,7 @@ public sealed class PostgresLayerCatalog
             Guid? Owner, SharingScope Sharing, ServiceStatus Status, string? Style,
             ServiceCapabilityLimits Limits, Guid[] SharedWith, int? Srid,
             string? SridWkt, DateTimeOffset Created, DateTimeOffset Modified, string? TilingScheme,
-            int? TileCacheQuota, string[] Tags)> heads = [];
+            int? TileCacheQuota, string[] Tags, Guid? ViewOf, bool HasViews)> heads = [];
         List<Guid> order = [];
 
         // <b>Its own scope, so the reader is closed before the group query
@@ -915,7 +936,13 @@ public sealed class PostgresLayerCatalog
                         // ADR-111: its tags, by name.
                         reader.IsDBNull(reader.GetOrdinal("service_tags"))
                             ? []
-                            : reader.GetFieldValue<string[]>(reader.GetOrdinal("service_tags")));
+                            : reader.GetFieldValue<string[]>(reader.GetOrdinal("service_tags")),
+
+                        // ADR-113: whose view it is, and whether it has views.
+                        reader.IsDBNull(reader.GetOrdinal("service_view_of"))
+                            ? null
+                            : reader.GetGuid(reader.GetOrdinal("service_view_of")),
+                        reader.GetBoolean(reader.GetOrdinal("service_has_views")));
                 }
 
                 // A left join, so a service with no layers arrives as one row of
@@ -988,6 +1015,8 @@ public sealed class PostgresLayerCatalog
                 TileSchemeUnreadable = unreadable,
                 TileCacheQuotaMegabytes = head.TileCacheQuota,
                 Tags = head.Tags,
+                ViewOf = head.ViewOf,
+                HasViews = head.HasViews,
             });
         }
 

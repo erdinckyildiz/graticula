@@ -4497,3 +4497,17 @@ dialog h3[tabindex="-1"]:focus { outline: none; }
 /* ADR-111: an item's tags. */
 .tagline { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .tagline .tag { font-size: 12px; padding: 2px 8px; border: 1px solid var(--rule); border-radius: 999px; color: var(--ink, inherit); }
+
+/* ADR-113: the view dialog's layer rows, and the filters listed under View of. */
+.cvlayer { display: grid; gap: 4px; margin-bottom: var(--gap-2, 8px); }
+.cvlayer input[type=text] { width: 100%; }
+ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
+
+/* The view dialog's own layout (design review 2026-10-01): a label over its control, an option's name over its hint. */
+#createView .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3, 12px); }
+#createView .check > span { display: flex; flex-direction: column; }
+#createView .check .hint, #createView .dialogfoot .fill { margin: 0; }
+#createView .dialogfoot .fill { flex: 1; }
+#createView input[type=text], #createView select { width: 100%; font: inherit; }
+#createView fieldset + fieldset { margin-top: 14px; }
+#createView .fieldchips .linkbtn { margin-right: 6px; }
