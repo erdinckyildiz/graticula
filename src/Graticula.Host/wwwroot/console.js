@@ -15215,6 +15215,8 @@ async function saveServiceSettings(service, folder) {
     schemeBox.dataset.current = schemeBox.value;
     schemeSaid = set?.changed ? ` Tiles are cut on ${schemeBox.selectedOptions[0]?.textContent || schemeBox.value} now; `
       + `${nf.format(set.tilesPurged || 0)} cached tiles were emptied.` : "";
+    // Read back, so an older grid's own option goes once the service is on the current one.
+    if (set?.changed) await loadTileScheme(service, folder);
   }
 
   const ops = [...document.querySelectorAll("#ops input[data-op]")];
@@ -15285,13 +15287,22 @@ async function loadTileScheme(service, folder) {
   const current = mine.scheme?.id || "webmercator";
   const known = schemes.some(x => x.id === current && x.grid?.key === mine.scheme?.key);
 
+  // <b>A grid that is not today's built-in keeps an option of its own, under a value of its own.</b> It shared the
+  // built-in's value until 2026-09-30: a service set to TUREF / TM30 before D-288 moved that grid showed the
+  // built-in as chosen, and choosing it again sent nothing, because the value had not changed. Its own value is
+  // what makes "TUREF / TM30" a move, and Save with nothing touched still sends nothing.
+  const older = !known && current !== "custom" ? schemes.find(x => x.id === current) : null;
+  const asSet = known ? current : "as-set";
+
   box.innerHTML = schemes.map(x => `<option value="${h(x.id)}">${h(x.title)}`
       + `${suggested.has(x.id) ? " — the grid your data is stored in" : ""}</option>`).join("")
-    + (known ? "" : `<option value="${h(current)}">${h(current === "custom"
-      ? `Custom grid in EPSG:${mine.scheme?.latestWkid}` : current)} (as set)</option>`);
+    + (known ? "" : `<option value="as-set">${h(current === "custom"
+      ? `Custom grid in EPSG:${mine.scheme?.latestWkid}`
+      : older ? `${older.title} — an older grid; choose ${older.title} above to move to the current one`
+        : current)} (as set)</option>`);
 
-  box.value = current;
-  box.dataset.current = current;
+  box.value = asSet;
+  box.dataset.current = asSet;
   box.disabled = false;
 }
 
