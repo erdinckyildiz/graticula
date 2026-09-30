@@ -4869,7 +4869,7 @@ public static class Program
     {
         if (!layer.Definition.HasIntegerIdentity)
         {
-            return Join(limits.Restrict(["Query"]));
+            return Join(WithExtract(context, layer, limits, limits.Restrict(["Query"])));
         }
 
         /*
@@ -4898,14 +4898,48 @@ public static class Program
         */
         if (writable is false)
         {
-            return Join(limits.Restrict(["Query"]));
+            return Join(WithExtract(context, layer, limits, limits.Restrict(["Query"])));
         }
 
         // ADR-075: whose layer it is, asked exactly as the write path asks it. `Create` came off a layer with
         // Z or M in v1.0.113 and back on when `applyEdits` learnt to store them — ADR-077 §10.
         List<string> offered = PrivilegedCapabilities(context, layer);
 
-        return Join(limits.Restrict(offered));
+        return Join(WithExtract(context, layer, limits, limits.Restrict(offered)));
+    }
+
+    /// <summary>The capabilities, with <c>Extract</c> added where the service offers export to this signed-in caller.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Owner decision 2026-09-30, ADR-106 §5.5.</b> Until then `Extract` was a word the ceiling stored and nothing
+    /// read: no caller was ever offered it, so the console's gate for readers never opened. It is now named for a
+    /// signed-in caller where the service offers it — the owner has chosen it and the administrator's ceiling allows it
+    /// (the catalogue folds both into <c>limits</c>, and an owner who has not chosen offers none) — and for nobody
+    /// anonymous: the rule <see cref="LayerExportEndpoints"/> applies to readers, asked of <see cref="OffersExtract"/>.
+    /// </para>
+    /// <para>
+    /// <b>Not added for the owner or an administrator on a service that does not offer it</b>, though they may always
+    /// export. ArcGIS Online states Extract as the service's setting, not the caller's; the owner is the ArcGIS Pro
+    /// connection most often made, and naming a capability ArcGIS reads as <c>createReplica</c>'s on every layer they
+    /// open would promise an operation this server does not have (ADR-082). The console needs no word to show them
+    /// Export data: it asks whether they manage the item.
+    /// </para>
+    /// </remarks>
+    private static IReadOnlyList<string> WithExtract(
+        HttpContext context, PublishedLayer layer, ServiceCapabilityLimits limits, IReadOnlyList<string> set) =>
+        OffersExtract(context, layer, limits.Ceiling) && !set.Contains("Extract")
+            ? [.. set, "Extract"]
+            : set;
+
+    /// <summary>Whether the service offers export to this caller as a reader — ADR-106 §5.5.</summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layer">The layer.</param>
+    /// <param name="ceiling">The service's ceiling as served: the administrator's, narrowed to what the owner chose.</param>
+    internal static bool OffersExtract(HttpContext context, PublishedLayer layer, IReadOnlyCollection<string>? ceiling)
+    {
+        RequestPrincipal? current = context.Features.Get<RequestPrincipal>();
+
+        return current is { Principal.IsAnonymous: false } && ceiling?.Contains("Extract") == true;
     }
 
     /// <summary>

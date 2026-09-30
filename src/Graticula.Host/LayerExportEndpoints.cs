@@ -77,7 +77,6 @@ internal static class LayerExportEndpoints
         string serviceName,
         int layerId,
         CatalogFallback catalog,
-        IAdminCatalog admin,
         ServiceContexts contexts,
         GeodatabaseReader reader,
         ImportScratch scratch,
@@ -123,8 +122,9 @@ internal static class LayerExportEndpoints
             return;
         }
 
-        bool chosen = await admin.FindStewardshipAsync(service.Name, folder, cancellation).ConfigureAwait(false)
-            is { EditingOffered: { } offered } && offered.Contains("Extract", StringComparer.Ordinal);
+        // The ceiling as served folds the owner's choice in, and an owner who has not chosen offers no Extract;
+        // Program.OffersExtract is the same question the capability string asks (ADR-106 §5.5).
+        bool chosen = layer.CapabilityCeiling?.Contains("Extract") == true;
 
         if (!chosen && !await AdminEndpoints.ManagesAsync(
                 context, layer.Owner, layer.Sharing, layer.SharedWith, layer.Definition.Name, "export")

@@ -45,9 +45,10 @@ public sealed class PostgresLayerCatalog
         -- service nobody has configured, which is every service that existed
         -- before migration 16 — so reading them changes no document.
         -- <b>The ceiling as served: the administrator's, narrowed to Query and the edits the owner offers</b>
-        -- (migration 66, ADR-102). Null `editing_offered` is no choice made, which is the ceiling alone.
+        -- (migration 66, ADR-102). Null `editing_offered` is no choice made, which is the ceiling alone — except
+        -- Extract, which only an owner's choice offers (owner decision 2026-09-30, ADR-106 §5.5): unchosen is off.
         s.serves_features, s.serves_tiles,
-        case when s.editing_offered is null then s.capability_ceiling
+        case when s.editing_offered is null then array_remove(s.capability_ceiling, 'Extract')
              else array(select op from unnest(coalesce(s.capability_ceiling,
                           array['Query','Create','Update','Delete','Extract']::text[])) as op
                          where op = 'Query' or op = any (s.editing_offered))

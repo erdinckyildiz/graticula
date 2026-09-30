@@ -21,8 +21,10 @@
 > §12 proposed. **This is built on [ADR-107](ADR-107-a-layer-is-exported-as-geopackage-shapefile-or-workbook.md)**,
 > which another session had built without knowing of this draft: its synchronous `POST …/layers/{id}/export` went
 > first, and this ADR's job, packaging and the rest follow on top of it. Since then the same route also writes
-> File Geodatabase, KML, CSV and GeoJSON (ADR-107 §5.1); still to come from this ADR are Esri JSON, the job with its
-> 2,000,000 rows and multi-layer packaging, and Extract's announcement in `capabilities` with the console's gate.
+> File Geodatabase, KML, CSV and GeoJSON (ADR-107 §5.1); Extract is now enforced and announced as §5.5 says (the
+> catalogue drops it where the owner has not chosen, `capabilities` names it where the service offers it, Settings
+> draws it unticked until chosen). Still to come from this ADR: Esri JSON, and the job with its 2,000,000 rows and
+> multi-layer packaging.
 
 ## 1. Context
 
@@ -245,9 +247,16 @@ write Parquet through DuckDB or a new dependency, for a file that lives minutes.
 - **Enforced on the server**, through the existing `RefusedByCeilingAsync(context, layer, "Extract")` for the ceiling
   and the owner's offer, at the start **and again at every download**. A refused reader is answered 403 with the
   sentence; a caller who may not read the service gets the same 404 as every other route.
-- **Advertised**: a layer's and the service's `capabilities` include `Extract` for a signed-in caller who may export —
-  owner, administrator, or reader of a service that offers it — and for nobody else (INFERRED). `Editing` and
-  `hasStaticData` are derived from the edits and do not move (condition 7).
+- **Advertised**: a layer's and the service's `capabilities` include `Extract` for a signed-in caller **where the
+  service offers it**, and for nobody else. **Amended 2026-09-30, when it was built:** the draft said the owner and
+  administrators too, always; the first build did that and every capability string an administrator read grew
+  `,Extract`. Not kept, because ArcGIS Online states Extract as the service's setting and not the caller's, because
+  the owner is the ArcGIS Pro connection most often made and Extract is the word ArcGIS reads as `createReplica`'s,
+  which this server does not have (ADR-082), and because nothing needs it: the console shows the owner *Export data*
+  by asking whether they manage the item, and the export route admits them. The catalogue folds the owner's choice
+  into the ceiling as served and drops `Extract` from it where the owner has not chosen (`array_remove` in
+  `PostgresLayerCatalog`), so the capability string and the route read one fact. `Editing` and `hasStaticData` are
+  derived from the edits and do not move (condition 7).
 - **Query is untouched.** A reader of a service without `Extract` still pages `query`; that is the owner's decision,
   and the gate is a convenience gate (§3).
 

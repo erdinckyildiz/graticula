@@ -162,7 +162,9 @@ public sealed class GeodatabaseReaderTests
         Assert.Equal(
             new HashSet<string>(StringComparer.Ordinal)
             {
-                "ping", "layers", "convert", "features", "fixture",
+                // `export` joined on 2026-09-30 (ADR-107), and the test that exists to catch the two drifting apart
+                // went red in the same commit — the second time for this list.
+                "ping", "layers", "convert", "features", "fixture", "export",
             },
             named);
 

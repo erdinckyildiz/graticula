@@ -54,6 +54,47 @@ public sealed class ItemStewardshipConformanceTests : ArcGisClient
 
         JsonElement back = await GetJsonAsync($"/rest/services/{service}/FeatureServer/0?f=json");
         Assert.Contains("Create", back.GetProperty("capabilities").GetString() ?? "", StringComparison.Ordinal);
+
+        // Unchosen is off for Extract alone (owner decision 2026-09-30, ADR-106 §5.5): the edits came back with no
+        // choice made, and Extract did not.
+        Assert.DoesNotContain("Extract", back.GetProperty("capabilities").GetString() ?? "", StringComparison.Ordinal);
+    }
+
+    private static readonly string[] UpdateAndExtract = ["Update", "Extract"];
+
+    [Fact]
+    public async Task Extract_is_named_where_the_owner_chose_it_and_to_nobody_anonymous()
+    {
+        string service = Service();
+        string bare = service[(service.LastIndexOf('/') + 1)..];
+        string editing = $"/admin/services/{Uri.EscapeDataString(bare)}/editing{FolderQuery(service)}";
+        string root = await RequireServerAsync();
+
+        try
+        {
+            (int status, string body) = await AdminAsync(HttpMethod.Put, editing,
+                JsonSerializer.Serialize(new { operations = UpdateAndExtract }));
+
+            Assert.True(status == 200, $"Offering Update and Extract answered {status}: {body}");
+
+            JsonElement layer = await GetJsonAsync($"/rest/services/{service}/FeatureServer/0?f=json");
+            Assert.Equal("Query,Update,Extract", layer.GetProperty("capabilities").GetString());
+
+            // An anonymous caller is never offered it. Where the service is not public the document itself is refused,
+            // which says the same.
+            using HttpResponseMessage anonymous = await Http.GetAsync(
+                new Uri($"{root}/rest/services/{service}/FeatureServer/0?f=json"));
+            string seen = await anonymous.Content.ReadAsStringAsync();
+
+            if (anonymous.IsSuccessStatusCode && JsonDocument.Parse(seen).RootElement.TryGetProperty("capabilities", out JsonElement caps))
+            {
+                Assert.DoesNotContain("Extract", caps.GetString() ?? "", StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Put, editing, JsonSerializer.Serialize(new { operations = (string[]?)null }));
+        }
     }
 
     [Fact]

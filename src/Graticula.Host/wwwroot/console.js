@@ -6831,7 +6831,10 @@ async function drawFeatureFacts(name, folder) {
 
   const ceiling = Array.isArray(st.ceiling) ? st.ceiling : null;
   const allowed = op => ceiling === null || ceiling.includes(op);
-  const offered = op => allowed(op) && (st.editingOffered == null || st.editingOffered.includes(op));
+  // Unchosen is off for Export data alone (owner decision 2026-09-30, ADR-106 §5.5): the edits follow the ceiling
+  // until the owner chooses, Extract waits for the owner to choose it.
+  const offered = op => allowed(op)
+    && (st.editingOffered == null ? op !== "Extract" : st.editingOffered.includes(op));
   const words = [["Create", "Add features"], ["Update", "Update features"], ["Delete", "Delete features"],
                  ["Extract", "Export data"]];
   const path = (folder ? `${folder}/` : "") + name;
