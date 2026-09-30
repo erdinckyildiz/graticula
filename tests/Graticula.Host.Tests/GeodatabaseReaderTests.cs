@@ -163,6 +163,9 @@ public sealed class GeodatabaseReaderTests
             new HashSet<string>(StringComparer.Ordinal)
             {
                 "ping", "layers", "convert", "features", "fixture",
+
+                // `export` joined on 2026-10-01: a layer written out as GPKG, a shapefile or XLSX (ADR-107).
+                "export",
             },
             named);
 
