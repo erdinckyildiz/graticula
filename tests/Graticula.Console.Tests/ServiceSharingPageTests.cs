@@ -168,10 +168,11 @@ public sealed class ServiceSharingPageTests : ConsoleTest
                 "/", Array.ConvertAll(qualified.Split('/'), Uri.EscapeDataString)),
             token);
 
+        // <b>Since ADR-102 the level is stated in Settings › General and changed in the Share dialog</b> — one
+        // home; the radios here were a second one, and the two disagreed about group sharing.
         await WaitForAsync(
-            "!!document.getElementById('capSharing')",
-            "The service has no Sharing control on its own pages, so a service with no layers has "
-            + "nowhere to set its scope and a service with three has three places.");
+            "!!document.querySelector('#generalSharing') && !!document.querySelector('#page-general [data-share]')",
+            "The service's General settings neither state who can reach it nor offer the Share dialog.");
 
         // <b>It shows the scope the service actually has.</b> A control that opens on its first
         // option regardless reports `private` for a public service — and somebody who trusts it
@@ -188,12 +189,12 @@ public sealed class ServiceSharingPageTests : ConsoleTest
         // settings come back. A service always has a scope, so a check that never arrives is still
         // a failure — the wait's own message says which.
         await WaitForAsync(
-            "!!document.querySelector('#capSharing input:checked')",
-            "The Sharing control never showed which scope the service has. Every service has one, so "
-            + "a control with nothing chosen tells whoever reads it nothing.");
+            "!!document.getElementById('generalSharing')?.dataset.sharing",
+            "General never said which scope the service has. Every service has one, so a line with "
+            + "nothing in it tells whoever reads it nothing.");
 
         string chosen = await Browser.EvaluateAsync<string>(
-            "document.querySelector('#capSharing input:checked')?.value || ''") ?? string.Empty;
+            "document.getElementById('generalSharing').dataset.sharing || ''") ?? string.Empty;
 
         Assert.Contains(chosen, Scopes);
 

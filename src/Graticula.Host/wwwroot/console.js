@@ -6412,9 +6412,64 @@ function drawServiceDelete() {
  * service-scoped; the layer pages were resolving a layer to its service in order to call it, which
  * is the clearest possible sign of where they belonged.
  */
+/** Puts the delete panel back in its own place before Settings' pages are redrawn. */
+function parkServiceDanger() {
+  const danger = $("serviceDanger");
+  const home = $("serviceDangerHome");
+  if (danger && home && danger.parentElement !== home) home.appendChild(danger);
+}
+
+/** General › Sharing: the level and the groups, as the content listing states them, in Portal's words. */
+async function drawGeneralSharing(name, folder) {
+  const box = $("generalSharing");
+  if (!box) return;
+
+  const qualified = folder ? `${folder}/${name}` : name;
+  const item = ((await api("/content/items"))?.items || []).find(i => i.name === qualified);
+  if (!item || !$("generalSharing")) return;
+
+  const said = { private: "Owner", group: "Owner and groups", organization: "Organization", public: "Everyone (public)" };
+  const groups = (item.sharedWith || []).map(g => g.title || g.name);
+
+  box.dataset.sharing = item.sharing || "private";
+  box.innerHTML = `Shared with: ${pill(item.sharing || "private")} <b>${h(said[item.sharing] || item.sharing)}</b>${
+    groups.length ? ` — ${groups.map(h).join(", ")}` : ""}`;
+}
+
+/**
+ * Settings › Feature layer: what clients may do with this item's features, as the server administrator set it
+ * — read here, changed in Server (ADR-102 §10 condition 1 is whether an owner may choose it).
+ */
+async function drawFeatureFacts(name, folder) {
+  const box = $("featureFacts");
+  if (!box) return;
+
+  const c = await api(`/admin/services/${encodeURIComponent(name)}/capabilities?folder=${encodeURIComponent(folder || "")}`);
+  if (!$("featureFacts")) return;
+
+  const offered = Array.isArray(c.capabilities) ? c.capabilities : null;
+  const ops = ["Query", "Create", "Update", "Delete", "Extract"];
+  const words = { Query: "Query", Create: "Add features", Update: "Update features", Delete: "Delete features", Extract: "Export data" };
+  const on = op => offered === null ? (op === "Query" || op === "Extract" ? null : null) : offered.includes(op);
+  const path = (folder ? `${folder}/` : "") + name;
+
+  box.innerHTML = `
+    <dl class="facts">
+      ${ops.map(op => `<dt>${h(words[op])}</dt><dd>${offered === null
+        ? "as the server offers it"
+        : on(op) ? "allowed" : "not allowed"}</dd>`).join("")}
+      <dt>Rows in one answer</dt><dd>${num(c.maxRecordCount ?? c.serverPageSize ?? 0)}${c.maxRecordCount == null ? " (the server's own)" : ""}</dd>
+    </dl>
+    <p class="hint">Set by the server administrator.${may("admin:manageServer")
+      ? ` <a href="/server/#/service/${path.split("/").map(encodeURIComponent).join("/")}">Change these in Server</a>.`
+      : " Ask them if you need editing turned on or off."}</p>`;
+}
+
 function drawServiceSettings(name, folder) {
   const box = $("serviceEdit");
   if (!box) return;
+
+  parkServiceDanger();
 
   // <b>A publisher's page reads the publisher's listing first</b>, since `known` is an administrator's: the
   // Tile layer section depends on knowing which layers have tiles. Read once, then drawn again.
@@ -6451,7 +6506,7 @@ function drawServiceSettings(name, folder) {
   // Exactly: it was not, and a button that does nothing contradicts the sentence above it.
   $("servicePagesBody").innerHTML = serviceSettingsMarkup(name, folder)
     + (tiled ? `<section class="page" id="page-tiles">${tileLayerMarkup(tiled, tiled.name)}</section>` : "")
-    + (open === "sharing" || open === "tiles"
+    + (open === "general" || open === "feature" || open === "tiles"
       ? ""
       : `<div class="row" style="margin-top:22px">
            <button class="primary" data-service-save="${h(name)}"
@@ -6465,6 +6520,18 @@ function drawServiceSettings(name, folder) {
   box.hidden = false;
   section("capabilities", () => loadServiceCapabilities(name, folder));
 
+  // <b>Deleting is General's, in Studio.</b> The panel is one node, moved in and out rather than drawn twice,
+  // because its lock and its button keep state; it is parked outside the pages before they are redrawn.
+  const danger = $("serviceDanger");
+  const slot = $("generalDangerSlot");
+  if (danger && surfaceOfPath() === "studio") {
+    if (open === "general" && slot) { slot.appendChild(danger); danger.hidden = false; }
+    else danger.hidden = true;
+  }
+
+  if (open === "general") section("sharing", () => drawGeneralSharing(name, folder));
+  if (open === "feature") section("editing", () => drawFeatureFacts(name, folder));
+
   if (open === "tiles" && tiled) {
     section("the tile cache", () => loadSeed(tiled.name));
     section("the tile exports", () => loadExport(tiled.name));
@@ -6473,7 +6540,7 @@ function drawServiceSettings(name, folder) {
 }
 
 /** The labels the Settings list shows, where a page's key is not already its name. */
-const SERVICE_PAGE_LABELS = { tiles: "Tile layer" };
+const SERVICE_PAGE_LABELS = { general: "General", feature: "Feature layer", tiles: "Tile layer" };
 
 /**
  * The open service's first layer that has tiles, as the layer listing describes it, or null when it has none.
@@ -7218,50 +7285,17 @@ function serviceSettingsMarkup(name, folder) {
           </div>
     </section>
 
-    <section class="page" id="page-sharing">
-      <h4>Who may read this service</h4>
-      <!--
-        <b>Three cards, and it was a select of three.</b> Handoff 2026-09-04. The difference
-        between private, organization and public is a sentence each, and a dropdown can carry a
-        word — so the sentences were three paragraphs under the control, which is where an
-        explanation goes when the control has no room for it. Radio inputs keep the arrow keys,
-        the grouping and the applied-on-choice behaviour exactly as they were: the change handler
-        reads the value off whatever fired, and a radio has one.
+    <section class="page" id="page-general">
+      <h4>Sharing</h4>
+      <!-- Stated here and changed in one place, the Share dialog (ADR-102 §5.4). -->
+      <p class="lede" id="generalSharing">Reading who can reach this…</p>
+      <div class="row"><button type="button" data-share="${h(folder ? folder + "/" + name : name)}">Change sharing…</button></div>
+      <div id="generalDangerSlot"></div>
+    </section>
 
-        <b>capSharing is still the id that is read.</b> loadServiceCapabilities sets it from
-        the catalogue listing; a radio group has no single element to set, so the id stays on the
-        group and the setter picks the member.
-      -->
-      <div class="scopecards" id="capSharing" role="radiogroup"
-        aria-label="Who may read this service">
-        ${[
-          ["private", "Private", "The owner, and anybody with <i>view all content</i>."],
-          ["organization", "Organization", "Anybody who can sign in."],
-          ["public", "Public",
-            "Anybody, without a token — what an ArcGIS client with no credential sees."],
-          // <b>The fourth state, shown when it is the state — 2026-09-30.</b> A group-scoped service had
-          // no radio checked here, and pressing *Private* stored `private` with the group rows left in
-          // place: the share reached nobody while the Share dialog still showed the groups.
-          ["group", "Private, and its groups",
-            "The owner, and members of the groups it is shared with. Groups are chosen in <b>Share</b>."],
-        ].map(([value, label, said]) => `<label class="scopecard"${value === "group" ? ' data-only-when="group" hidden' : ""}>
-          <input type="radio" name="capSharing" value="${value}"
-            data-service-sharing="${h(name || "")}" data-folder="${h(folder || "")}">
-          <span><b>${label}</b><span class="said">${said}</span></span>
-        </label>`).join("")}
-      </div>
-      <p class="hint">Applied the moment it is chosen, not on Save — an owner narrowing who may see
-        a service has to be able to trust that it happened rather than press Save afterwards
-        (ADR-031 §2b, the same rule the role select follows).</p>
-      <p class="hint"><b>Groups</b> are chosen in the <b>Share</b> dialog. <b>Organization</b> and
-        <b>Public</b> already include every group member.</p>
-      <p class="hint"><b>One scope per service, and every layer inside it is read under that
-        scope.</b> There is no per-layer version: <code>service.sharing</code> is what the serving
-        path reads, and the console used to offer this page once per layer — D-61.</p>
-      <p class="hint"><b>A ceiling, not a grant.</b> <b>Private</b> is the owner plus anybody with
-        <i>view all content</i>; <b>organization</b> is any signed-in member; <b>public</b> is
-        anyone at all, including an anonymous caller. Sharing to public needs
-        <code>sharing:shareToPublic</code>, which not every role carries.</p>
+    <section class="page" id="page-feature">
+      <h4>Editing and export</h4>
+      <div id="featureFacts"><p class="hint">Reading what clients may do…</p></div>
     </section>
 
     <section class="page" id="page-limits">
@@ -11915,6 +11949,12 @@ const SERVICE_PAGES = {
   capabilities: "server",
   limits: "server",
 
+  // <b>General and Feature layer — ADR-102 step 5.</b> General holds what is the item's own — who can reach
+  // it, said once with the one control that changes it (the Share dialog), and its deletion; Feature layer says
+  // what clients may do with its features, which the server administrator sets.
+  general: "studio",
+  feature: "studio",
+
   // <b>Tile layer — ADR-102 step 6.</b> The tile cache is the service's, and it was a page under each of its
   // layers, reached by knowing to click a layer name. Portal's *Tile layer (hosted)* is a section of the
   // item's Settings, and so is this.
@@ -11929,7 +11969,8 @@ const SERVICE_PAGES = {
   // <b>Studio's, by owner decision 2026-08-17:</b> *"aslında bir servisin private mi organization
   // mu public mi olduğu studio tarafında ayarlanacak."* That decision is unchanged; what changes is
   // which *object* the page hangs off.
-  sharing: "studio",
+  // `sharing` left on 2026-10-01: it was the second home of a setting whose home is the Share dialog (ADR-102
+  // §5.4), and the two disagreed about group sharing until the day before. The item's level is stated in General.
 };
 
 /** The service pages this surface owns. */

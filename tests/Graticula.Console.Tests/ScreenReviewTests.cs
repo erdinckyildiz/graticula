@@ -131,9 +131,10 @@ public sealed class ScreenReviewTests : ConsoleTest
         await WaitForAsync(
             "location.pathname === '/studio/' "
             + "&& document.querySelector('#serviceNav a[aria-current=\"page\"]')?.textContent"
-            + "?.trim() === 'Sharing'",
-            "The link did not open Studio's Sharing page. It used to land on Capabilities, because the "
-            + "router forced the surface before the page set was chosen.");
+            + "?.trim() === 'General' && !!document.getElementById('generalSharing')",
+            "The link did not open Studio's General settings, where the sharing is stated with the Share "
+            + "dialog beside it (ADR-102; it was a Sharing page of its own). It used to land on Capabilities, "
+            + "because the router forced the surface before the page set was chosen.");
 
         string[] errors = await PageErrorsAsync();
         NothingWentWrong(errors);

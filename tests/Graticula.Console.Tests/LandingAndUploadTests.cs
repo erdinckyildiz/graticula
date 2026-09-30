@@ -123,14 +123,15 @@ public sealed class LandingAndUploadTests : ConsoleTest
 
             await OpenAsync($"/studio/#/service/{service}?tab=settings", token);
 
+            // <b>Stated, not offered as radios</b> (ADR-102): the Settings radios were the second control that could
+            // store private over a group share. General says the level and the Share dialog changes it.
             await WaitForAsync(
-                "!!document.querySelector('#capSharing input[value=\"group\"]:checked')",
-                "A group-scoped service shows no chosen sharing level on its Settings tab; pressing Private there stored private over the group share.");
+                "document.getElementById('generalSharing')?.dataset.sharing === 'group'",
+                "A group-scoped service's Settings do not say it is shared with groups.");
 
-            bool shown = await Browser.EvaluateAsync<bool>(
-                "!document.querySelector('#capSharing [data-only-when=\"group\"]').hidden");
+            bool radios = await Browser.EvaluateAsync<bool>("!!document.querySelector('#view-service input[name=\"capSharing\"]')");
 
-            Assert.True(shown, "The group state is checked but hidden.");
+            Assert.False(radios, "Settings still offers sharing radios beside the Share dialog.");
         }
         finally
         {

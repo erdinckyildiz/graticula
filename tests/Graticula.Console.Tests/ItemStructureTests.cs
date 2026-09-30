@@ -116,4 +116,31 @@ public sealed class ItemStructureTests : ConsoleTest
 
         NothingWentWrong(await PageErrorsAsync());
     }
+
+    /// <summary>Step 5: Settings is General, Feature layer and Tile layer; deleting is General's; editing is stated.</summary>
+    [Fact]
+    public async Task Settings_is_General_Feature_layer_and_Tile_layer()
+    {
+        (string token, _) = await SignInAsync();
+        string service = Environment.GetEnvironmentVariable("GRATICULA_TEST_LARGE") ?? "hosted/ci_many";
+
+        await OpenAsync($"/studio/#/service/{service}?tab=settings", token);
+
+        await WaitForAsync(
+            "[...document.querySelectorAll('#serviceNav a')].map(a => a.textContent.trim()).join('|') === 'General|Feature layer|Tile layer'",
+            "Settings' sections are not General, Feature layer and Tile layer, in that order.");
+
+        await WaitForAsync(
+            "(() => { const d = document.getElementById('serviceDanger'); return !!d && !d.hidden && !!d.closest('#page-general'); })()",
+            "Deleting the item is not in General.");
+
+        await ClickAsync("#serviceNav a[data-service-page=\"feature\"]");
+
+        await WaitForAsync(
+            "/Set by the server administrator/.test(document.getElementById('featureFacts')?.textContent || '')"
+            + " && document.getElementById('serviceDanger').hidden",
+            "Feature layer does not say who sets its editing, or the delete panel followed it there.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
 }
