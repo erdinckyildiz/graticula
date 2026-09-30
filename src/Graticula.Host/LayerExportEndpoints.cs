@@ -59,6 +59,10 @@ internal static class LayerExportEndpoints
             ["kml"] = (".kml", "application/vnd.google-earth.kml+xml"),
             ["csv"] = (".csv", "text/csv; charset=utf-8"),
             ["geojson"] = (".geojson", "application/geo+json"),
+
+            // ADR-106's Feature Collection: a FeatureSet as `query?f=json` answers it, written here, not by GDAL, which
+            // reads Esri JSON and does not write it.
+            ["esrijson"] = (".json", "application/json"),
         };
 
 
@@ -148,6 +152,12 @@ internal static class LayerExportEndpoints
 
         try
         {
+            if (format == "esrijson")
+            {
+                await WriteEsriJsonAsync(context, layer, source, described, work, kind, cancellation).ConfigureAwait(false);
+                return;
+            }
+
             string input = Path.Combine(work, "rows.geojson");
             int srid = layer.Definition.Srid;
             long written = await WriteRowsAsync(input, source, described, layer, srid, cancellation).ConfigureAwait(false);
@@ -295,6 +305,55 @@ internal static class LayerExportEndpoints
         await json.FlushAsync(cancellation).ConfigureAwait(false);
 
         return count;
+    }
+
+    /// <summary>
+    /// The layer as one Esri JSON FeatureSet — ADR-106's answer to ArcGIS Online's Feature Collection.
+    /// </summary>
+    /// <remarks>
+    /// <b>Written by the query writer</b>, so its fields, types, aliases, object ids and dates are exactly what
+    /// <c>query?f=json</c> answers, in the layer's own reference; <see cref="WholeLayerSource"/> hands it every page as
+    /// one read, and the writer leaves <c>exceededTransferLimit</c> out because a file has no next page.
+    /// </remarks>
+    private static async Task WriteEsriJsonAsync(
+        HttpContext context, PublishedLayer layer, IFeatureSource source, LayerDescription described, string work,
+        (string Extension, string Type) kind, CancellationToken cancellation)
+    {
+        string identity = layer.Definition.IdentityColumn;
+        int srid = layer.Definition.Srid;
+        List<string> fields = [.. described.Fields.Select(f => f.Name)];
+
+        FeatureQuery Page(int offset) =>
+            new(FeatureQuery.MaximumLimit, fields: fields, offset: offset, orderBy: [new SortKey(identity, false)], outSrid: srid);
+
+        string name = SafeName(layer.Definition.Name);
+        string file = Path.Combine(work, name + kind.Extension);
+        long written;
+
+        await using (FileStream stream = File.Create(file))
+        await using (Utf8JsonWriter json = new(stream))
+        {
+            written = await new Graticula.Api.ArcGis.FeatureServerQueryWriter(
+                    layer.Definition, 0, described.Fields, geoJson: false, whole: true)
+                .WriteAsync(json, new WholeLayerSource(source, Page, MaximumRows), Page(0), layer.GeometryType, cancellation)
+                .ConfigureAwait(false);
+        }
+
+        if (written > MaximumRows)
+        {
+            await RefuseAsync(context, 413,
+                $"'{layer.Definition.Name}' has more than {MaximumRows:N0} features, which is more than one export writes.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        context.Response.ContentType = kind.Type;
+        context.Response.Headers.ContentDisposition = $"attachment; filename=\"{name}{kind.Extension}\"";
+        context.Response.Headers.CacheControl = "no-store";
+
+        await using FileStream sent = File.OpenRead(file);
+        context.Response.ContentLength = sent.Length;
+        await sent.CopyToAsync(context.Response.Body, cancellation).ConfigureAwait(false);
     }
 
     /// <summary>A file name made of the layer's name, safe on every file system.</summary>

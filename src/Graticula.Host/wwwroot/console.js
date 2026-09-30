@@ -24309,6 +24309,7 @@ async function handleClick(event) {
         <label class="check"><input type="radio" name="exportDataFormat" value="geojson"> GeoJSON — with the geometry, in WGS 84</label>
         <label class="check"><input type="radio" name="exportDataFormat" value="csv"> CSV — the attributes, with X and Y for points or WKT for other shapes, in WGS 84</label>
         <label class="check"><input type="radio" name="exportDataFormat" value="xlsx"> Excel — the attributes, as a workbook</label>
+        <label class="check"><input type="radio" name="exportDataFormat" value="esrijson"> Esri JSON — a feature collection, as ArcGIS clients read it, in the layer's own coordinate system</label>
       </fieldset>
       ${tiled ? `<p class="hint">Tiles for offline use — a VTPK for ArcGIS Field Maps and Pro, or PMTiles — are built as
         packages in <a href="#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings&section=tiles">Settings › Tile layer</a>.</p>` : ""}

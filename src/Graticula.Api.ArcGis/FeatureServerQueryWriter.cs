@@ -66,6 +66,8 @@ public sealed class FeatureServerQueryWriter
 
     private readonly bool _geoJson;
 
+    private readonly bool _whole;
+
     /// <summary>Creates a writer for one layer.</summary>
     /// <param name="layer">The layer being written.</param>
     /// <param name="maximumBytes">
@@ -80,11 +82,17 @@ public sealed class FeatureServerQueryWriter
     /// can honestly say.
     /// </param>
     /// <param name="geoJson">Whether to write a GeoJSON FeatureCollection rather than Esri JSON — V-55.</param>
+    /// <param name="whole">
+    /// The answer is a whole layer written to a file, not a page of a query — ADR-106's Esri JSON export. It carries
+    /// no <c>exceededTransferLimit</c>: there is no next page to ask for, and a file of more than one page would
+    /// otherwise say there was.
+    /// </param>
     public FeatureServerQueryWriter(
         LayerDefinition layer,
         long maximumBytes = 0,
         IReadOnlyList<FieldDescription>? fields = null,
-        bool geoJson = false)
+        bool geoJson = false,
+        bool whole = false)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentOutOfRangeException.ThrowIfNegative(maximumBytes);
@@ -105,6 +113,7 @@ public sealed class FeatureServerQueryWriter
         _maximumBytes = maximumBytes;
         _fields = (fields ?? []).ToDictionary(field => field.Name, StringComparer.Ordinal);
         _geoJson = geoJson;
+        _whole = whole;
     }
 
     /// <summary>The media type of what this writes.</summary>
@@ -342,7 +351,11 @@ public sealed class FeatureServerQueryWriter
         // than from a count means we never have to buffer to find out — and a
         // full page is the only honest signal we have without asking the
         // database a second question.
-        writer.WriteBoolean("exceededTransferLimit", truncatedBySize || written >= query.Limit);
+        if (!_whole)
+        {
+            writer.WriteBoolean("exceededTransferLimit", truncatedBySize || written >= query.Limit);
+        }
+
         writer.WriteEndObject();
 
         await writer.FlushAsync(cancellationToken).ConfigureAwait(false);

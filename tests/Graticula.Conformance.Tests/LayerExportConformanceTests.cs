@@ -125,6 +125,22 @@ public sealed class LayerExportConformanceTests : ArcGisClient
             Assert.InRange(first[1].GetDouble(), -90, 90);
         }
 
+        // Esri JSON: a FeatureSet as `query?f=json` answers it, with no page flag, because a file has no next page.
+        (HttpStatusCode esri, string? esriType, byte[] featureSet) = await ExportAsync(root, token, "esrijson");
+
+        Assert.Equal(HttpStatusCode.OK, esri);
+        Assert.Equal("application/json", esriType);
+
+        using (JsonDocument parsed = JsonDocument.Parse(featureSet))
+        {
+            JsonElement set = parsed.RootElement;
+            Assert.True(set.TryGetProperty("geometryType", out _), "The FeatureSet names no geometry type.");
+            Assert.True(set.GetProperty("fields").GetArrayLength() > 0);
+            Assert.True(set.GetProperty("features").GetArrayLength() > 0);
+            Assert.True(set.GetProperty("features")[0].TryGetProperty("attributes", out _));
+            Assert.False(set.TryGetProperty("exceededTransferLimit", out _), "A whole layer's file says there is a next page.");
+        }
+
         (HttpStatusCode unknown, _, _) = await ExportAsync(root, token, "dxf");
 
         Assert.Equal(HttpStatusCode.BadRequest, unknown);

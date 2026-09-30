@@ -23,8 +23,9 @@
 > first, and this ADR's job, packaging and the rest follow on top of it. Since then the same route also writes
 > File Geodatabase, KML, CSV and GeoJSON (ADR-107 §5.1); Extract is now enforced and announced as §5.5 says (the
 > catalogue drops it where the owner has not chosen, `capabilities` names it where the service offers it, Settings
-> draws it unticked until chosen). Still to come from this ADR: Esri JSON, and the job with its 2,000,000 rows and
-> multi-layer packaging.
+> draws it unticked until chosen). Esri JSON is written too (`format=esrijson`): the query
+> writer's own FeatureSet, every page handed to it as one read, without `exceededTransferLimit`. Still to come from
+> this ADR: the job with its 2,000,000 rows and multi-layer packaging.
 
 ## 1. Context
 
