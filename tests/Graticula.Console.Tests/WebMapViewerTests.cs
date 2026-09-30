@@ -380,7 +380,7 @@ public sealed class WebMapViewerTests : ConsoleTest
 
             await WaitForAsync("document.getElementById('mapShare').open", "Share did not open.");
 
-            await Browser.EvaluateAsync<bool>("(document.querySelector('input[name=mapShareScope][value=organization]').checked = true, true)");
+            await Browser.EvaluateAsync<bool>("(() => { const r = document.querySelector('input[name=mapShareScope][value=organization]'); r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
 
             await ClickAsync("#mapShareSave");
 
@@ -446,6 +446,24 @@ public sealed class WebMapViewerTests : ConsoleTest
                   return boxes[0].dataset.popField;
                 })()
                 """) ?? "";
+
+            // A field that is not there is said, and nothing is applied.
+            await Browser.EvaluateAsync<bool>("(() => { const t = document.getElementById('popTitle-pops'); t.dataset.good = t.value; t.value = 'X {nosuchfield}'; return true; })()");
+
+            await ClickAsync("#layerList button[data-act=popupApply][data-layer=pops]");
+
+            await WaitForAsync(
+                "/nosuchfield/.test(document.getElementById('popSays-pops')?.textContent || '') && !wmLayers()[0].popupInfo",
+                "A title naming a field the layer does not have was applied, or not said.");
+
+            await Browser.EvaluateAsync<bool>($$"""
+                (() => {
+                  const boxes = [...document.querySelectorAll('#pop-pops [data-pop-field]')];
+                  boxes.forEach((b, i) => b.checked = i === 0);
+                  document.getElementById('popTitle-pops').value = 'Feature {{{first}}}';
+                  return true;
+                })()
+                """);
 
             await ClickAsync("#layerList button[data-act=popupApply][data-layer=pops]");
 

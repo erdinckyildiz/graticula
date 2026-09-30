@@ -4474,3 +4474,16 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
   text-decoration: underline; cursor: pointer; }
 #changeOwner .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
 #changeOwner select { font: inherit; max-width: 100%; }
+
+/* Design review 2026-10-01, round 4. */
+#mapSide { padding: 22px; }
+.maplayers .kindtag { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted, #667);
+  border: 1px solid var(--rule); border-radius: 4px; padding: 1px 6px; }
+dialog h3[tabindex="-1"]:focus { outline: none; }
+#exportData .formats .check > span { display: flex; flex-direction: column; }
+#exportData .formats .hint { margin: 0; }
+#exportData .dialogfoot .fill { flex: 1; margin: 0; }
+#changeOwner select[size] { min-height: 8em; }
+.linkbtn { min-height: 24px; }
+@media (max-width: 600px) { .linkbtn { min-height: 44px; } }
+#exportData .formats + .formats { margin-top: 14px; }

@@ -1022,12 +1022,13 @@ function wmDrawLayerList() {
           data-focus-fallback="up:${wmEscape(key)}" ${bottom ? "disabled" : ""}
           aria-label="Move ${wmEscape(title)} down">&darr;</button>
         ${readable && kind === "feature" ? `<button class="tiny" data-act="style" data-layer="${wmEscape(key)}"
-          data-focus="style:${wmEscape(key)}" aria-expanded="${run.styleOpen ? "true" : "false"}"
+          aria-label="Style of ${wmEscape(title)}" data-focus="style:${wmEscape(key)}" aria-expanded="${run.styleOpen ? "true" : "false"}"
           aria-controls="sty-${wmEscape(key)}">Style</button>
           <button class="tiny" data-act="popup" data-layer="${wmEscape(key)}"
-          data-focus="popup:${wmEscape(key)}" aria-expanded="${run.popupOpen ? "true" : "false"}"
+          aria-label="Pop-up of ${wmEscape(title)}" data-focus="popup:${wmEscape(key)}" aria-expanded="${run.popupOpen ? "true" : "false"}"
           aria-controls="pop-${wmEscape(key)}">Pop-up</button>` : ""}
         ${readable && wmExtentOf(layer) ? `<button class="tiny" data-act="zoom" data-layer="${wmEscape(key)}"
+          aria-label="Zoom to ${wmEscape(title)}"
           data-focus="zoom:${wmEscape(key)}">Zoom to</button>` : ""}
         <button class="tiny danger" data-act="remove" data-layer="${wmEscape(key)}"
           data-focus="remove:${wmEscape(key)}" aria-label="Remove ${wmEscape(title)} from the map">Remove</button>
@@ -1195,7 +1196,7 @@ function wmPopupPanel(layer, run, key, title) {
   const enabled = layer.popupEnabled !== false;
 
   return `<div class="lstyle" id="pop-${k}">
-    <p class="lsnote">${popup ? "This map's own pop-up." : "Every field, as the layer has them."}</p>
+    <p class="lsnote">${popup ? "Customised for this map." : "Showing every field (the default)."}</p>
     <label class="check"><input type="checkbox" id="popOn-${k}"${enabled ? " checked" : ""}> Show a pop-up when a feature is clicked</label>
     <label class="lkind" for="popTitle-${k}">Title — a field in braces is its value, as {${wmEscape((fields[0] || {}).name || "name")}}</label>
     <input type="text" id="popTitle-${k}" value="${wmEscape((popup && popup.title) || "")}" placeholder="${wmEscape(title)}">
@@ -1213,6 +1214,7 @@ function wmPopupPanel(layer, run, key, title) {
       <button class="tiny" data-act="popupApply" data-layer="${k}" data-focus="popupApply:${k}">Apply to this map</button>
       ${popup ? `<button class="tiny" data-act="popupReset" data-layer="${k}" data-focus="popupReset:${k}">Every field again</button>` : ""}
     </div>
+    <p class="lsnote" id="popSays-${k}" role="status" aria-live="polite">${wmEscape(run.popupSaid || "")}</p>
   </div>`;
 }
 
@@ -1225,11 +1227,25 @@ function wmApplyPopup(layer, reset = false) {
   layer.popupEnabled = wm$(`popOn-${k}`).checked;
   if (layer.popupEnabled) delete layer.popupEnabled;
 
+  const run = wmRuntime.get(layer);
+  const known = new Set(wmUserFields(run && run.info).map(f => f.name));
+  const unknown = [...(wm$(`popTitle-${k}`).value.matchAll(/\{([^}]+)\}/g))].map(m => m[1].trim()).filter(n => !known.has(n));
+
+  if (!reset && unknown.length) {
+    if (run) run.popupSaid = `${unknown.map(n => `{${n}}`).join(", ")} ${unknown.length === 1 ? "is not a field" : "are not fields"} of this layer; nothing was applied.`;
+    wmDrawLayerList();
+    wmSayIn("layersStatus", run ? run.popupSaid : "", true);
+    return;
+  }
+
   if (reset) {
     delete layer.popupInfo;
   } else {
     layer.popupInfo = {
       title: wm$(`popTitle-${k}`).value.trim() || undefined,
+      // A pop-up that does not say so hides a feature's attachments in ArcGIS clients (Field Maps among them); the
+      // map's pop-up chooses fields, not whether photos stay visible (ArcGIS review, 2026-10-01).
+      showAttachments: true,
       fieldInfos: [...panel.querySelectorAll("[data-pop-field]")].map(box => ({
         fieldName: box.dataset.popField,
         label: (panel.querySelector(`[data-pop-label="${CSS.escape(box.dataset.popField)}"]`) || {}).value || box.dataset.popField,
@@ -1238,11 +1254,13 @@ function wmApplyPopup(layer, reset = false) {
     };
   }
 
+  const said = reset
+    ? `${layer.title} shows every field again. Save the map to keep it.`
+    : `${layer.title}'s pop-up is set in this map. Save the map to keep it.`;
+  if (run) run.popupSaid = said;
   wmMarkDirty();
   wmDrawLayerList();
-  wmSayIn("layersStatus", reset
-    ? `${layer.title} shows every field again. Save the map to keep it.`
-    : `${layer.title}'s pop-up is set in this map. Save the map to keep it.`);
+  wmSayIn("layersStatus", said);
 }
 
 /** The colour ramps the classes panel offers, light to strong. */
@@ -1859,7 +1877,7 @@ function wmPopupMarkup(layer, attributes, info) {
   const rows = popup.fieldInfos.filter(f => f && f.visible !== false && f.fieldName)
     .map(f => `<tr><th scope="row">${wmEscape(f.label || f.fieldName)}</th><td>${wmEscape(value(f.fieldName))}</td></tr>`).join("");
 
-  return `${title ? `<p class="ptitle">${wmEscape(title)}</p>` : ""}<table class="feature">${rows
+  return `${title ? `<h4 class="ptitle">${wmEscape(title)}</h4>` : ""}<table class="feature">${rows
     || `<tr><td>This map's pop-up shows no fields for this layer.</td></tr>`}</table>`;
 }
 

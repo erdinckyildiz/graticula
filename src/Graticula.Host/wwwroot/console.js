@@ -3956,11 +3956,12 @@ async function showWebMapItem(id) {
   $("mapLayers").innerHTML = layers.length === 0
     ? `<p class="hint">This map has no layers yet. Open it in the Map Viewer and add some.</p>`
     : `<ul class="maplayers">${layers.slice().reverse().map(layer => {
-        const service = /\/rest\/services\/(.+?)\/(?:FeatureServer|MapServer|VectorTileServer)/.exec(layer.url || "")?.[1];
+        const service = /\/rest\/services\/(.+?)\/(?:FeatureServer|MapServer|VectorTileServer)/.exec(layer.url || layer.styleUrl || "")?.[1];
         const styled = layer.layerDefinition && layer.layerDefinition.drawingInfo;
-        return `<li><b>${service ? `<a href="#/service/${service}">${h(layer.title || service)}</a>` : h(layer.title || "Layer")}</b>
-          <span class="rowmeta">${h(WM_KIND[layer.layerType] || layer.layerType || "")}${styled ? " · styled in this map" : ""}${
-            layer.layerDefinition && layer.layerDefinition.definitionExpression ? " · filtered" : ""}</span></li>`;
+        return `<li><span class="kindtag">${h(WM_KIND[layer.layerType] || layer.layerType || "Layer")}</span>
+          <b>${service ? `<a href="#/service/${service}">${h(layer.title || service)}</a>` : h(layer.title || "Layer")}</b>
+          <span class="rowmeta">${styled ? "styled in this map" : ""}${styled && layer.layerDefinition.definitionExpression ? " · " : ""}${
+            layer.layerDefinition && layer.layerDefinition.definitionExpression ? "filtered" : ""}</span></li>`;
       }).join("")}</ul>`;
 
   $("mapSide").innerHTML = `
@@ -4051,7 +4052,11 @@ document.addEventListener("click", async event => {
       <p class="hint" id="mapShareSays" role="status" aria-live="polite"></p>`;
     $("mapShareFoot").innerHTML = `<span class="fill"></span>
       <button type="button" class="ghost" id="mapShareCancel">Cancel</button>
-      <button type="button" class="primary" id="mapShareSave">Save</button>`;
+      <button type="button" class="primary" id="mapShareSave" disabled>Save</button>`;
+    // Save means something only once the scope differs from the map's.
+    for (const radio of document.querySelectorAll('input[name="mapShareScope"]')) {
+      radio.onchange = () => { $("mapShareSave").disabled = radio.value === mapOpen.sharing; };
+    }
     $("mapShare").showModal();
     $("mapShareTitle").focus();
     return;
@@ -4103,9 +4108,12 @@ document.addEventListener("click", async event => {
       ? { kind, id: mapOpen?.id, name: mapOpen?.title, owner: mapOpen?.owner }
       : { kind, qualified: serviceOpen?.qualified, name: serviceOpen?.name, folder: serviceOpen?.folder, owner: serviceItem?.owner };
 
-    $("changeOwnerBody").innerHTML = `<p>Give <b>${h(ownerChanging.name || "")}</b> to another member.</p>
+    $("changeOwnerBody").innerHTML = `<p>Give <b>${h(ownerChanging.name || "")}</b> to another member.
+        <span class="hint">Now: ${h(ownerChanging.owner || "—")}</span></p>
+      <div class="stacked"><label for="changeOwnerFind">Find a member</label>
+        <input type="search" id="changeOwnerFind" autocomplete="off" placeholder="Type part of a name"></div>
       <div class="stacked"><label for="changeOwnerTo">New owner</label>
-        <select id="changeOwnerTo"><option value="">Reading the members…</option></select></div>
+        <select id="changeOwnerTo" size="6"><option value="">Reading the members…</option></select></div>
       <p class="hint">Nothing is unpublished: who may open it, its groups and every address a client holds stay as
         they are. The new owner can change and delete it from now on.</p>
       <p class="hint" id="changeOwnerSays" role="status" aria-live="polite"></p>`;
@@ -4119,9 +4127,15 @@ document.addEventListener("click", async event => {
       const listed = await api("/admin/members");
       const members = (listed.members || listed || []).map(m => m.name || m).filter(Boolean)
         .filter(name => name !== ownerChanging.owner).sort((a, b) => a.localeCompare(b));
-      $("changeOwnerTo").innerHTML = members.length
-        ? members.map(name => `<option value="${h(name)}">${h(name)}</option>`).join("")
-        : `<option value="">No other member to give it to</option>`;
+      const drawMembers = () => {
+        const find = ($("changeOwnerFind")?.value || "").trim().toLowerCase();
+        const shown = members.filter(name => !find || name.toLowerCase().includes(find));
+        $("changeOwnerTo").innerHTML = shown.length
+          ? shown.map((name, i) => `<option value="${h(name)}"${i === 0 ? " selected" : ""}>${h(name)}</option>`).join("")
+          : `<option value="">${members.length ? "No member matches" : "No other member to give it to"}</option>`;
+      };
+      drawMembers();
+      $("changeOwnerFind").oninput = drawMembers;
     } catch (e) {
       $("changeOwnerSays").textContent = e.message || String(e);
     }
@@ -24296,26 +24310,35 @@ async function handleClick(event) {
 
   if (t.id === "exportDataOpen" && serviceOpen) {
     const drawable = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group"));
+    // The layer's own reference, named — "the layer's own coordinate system" said nothing a reader could check.
+    const sr = serviceDoc?.spatialReference;
+    const own = sr ? `EPSG:${sr.latestWkid || sr.wkid} (the layer's own)` : "the layer's own reference";
     const tiled = tileLayerOf();
     $("exportDataBody").innerHTML = `
       <div class="stacked"><label for="exportDataLayer">Layer</label>
         <select id="exportDataLayer">${drawable.map(one => `<option value="${h(String(one.id ?? 0))}">${
           h(one.name || `layer ${one.id}`)}</option>`).join("")}</select></div>
-      <fieldset class="offered"><legend>Format</legend>
-        <label class="check"><input type="radio" name="exportDataFormat" value="gpkg" checked> GeoPackage — with the geometry, in the layer's own coordinate system</label>
-        <label class="check"><input type="radio" name="exportDataFormat" value="fgdb"> File Geodatabase (zipped) — for ArcGIS Pro, in the layer's own coordinate system</label>
-        <label class="check"><input type="radio" name="exportDataFormat" value="shapefile"> Shapefile (zipped) — for any desktop GIS, in the layer's own coordinate system</label>
-        <label class="check"><input type="radio" name="exportDataFormat" value="kml"> KML — for Google Earth, in WGS 84</label>
-        <label class="check"><input type="radio" name="exportDataFormat" value="geojson"> GeoJSON — with the geometry, in WGS 84</label>
-        <label class="check"><input type="radio" name="exportDataFormat" value="csv"> CSV — the attributes, with X and Y for points or WKT for other shapes, in WGS 84</label>
-        <label class="check"><input type="radio" name="exportDataFormat" value="xlsx"> Excel — the attributes, as a workbook</label>
-        <label class="check"><input type="radio" name="exportDataFormat" value="esrijson"> Esri JSON — a feature collection, as ArcGIS clients read it, in the layer's own coordinate system</label>
+      <fieldset class="offered formats"><legend>With the geometry</legend>
+        ${[["gpkg", "GeoPackage", `${own} · any GIS`],
+           ["fgdb", "File Geodatabase (zipped)", `${own} · ArcGIS Pro`],
+           ["shapefile", "Shapefile (zipped)", `${own} · any desktop GIS`],
+           ["kml", "KML", "WGS 84 · Google Earth"],
+           ["geojson", "GeoJSON", "WGS 84 · the web"],
+           ["esrijson", "Esri JSON", `${own} · a feature collection as ArcGIS clients read it`]].map(([value, name, said], i) =>
+          `<label class="check"><input type="radio" name="exportDataFormat" value="${value}"${i === 0 ? " checked" : ""}>
+            <span><b>${name}</b><span class="hint">${said}</span></span></label>`).join("")}
+      </fieldset>
+      <fieldset class="offered formats"><legend>As a table</legend>
+        <label class="check"><input type="radio" name="exportDataFormat" value="csv">
+          <span><b>CSV</b><span class="hint">attributes · X and Y for points, WKT otherwise · WGS 84</span></span></label>
+        <label class="check"><input type="radio" name="exportDataFormat" value="xlsx">
+          <span><b>Excel</b><span class="hint">attributes only · no geometry</span></span></label>
       </fieldset>
       ${tiled ? `<p class="hint">Tiles for offline use — a VTPK for ArcGIS Field Maps and Pro, or PMTiles — are built as
         packages in <a href="#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings&section=tiles">Settings › Tile layer</a>.</p>` : ""}
-      <p class="hint" id="exportDataSays" role="status" aria-live="polite">Every row of the layer is written by the server, up
-        to a million.</p>`;
-    $("exportDataFoot").innerHTML = `<span class="fill"></span>
+      <p class="hint">Every row of the layer is written by the server, up to a million.</p>`;
+    // The answer stands in the footer, in view at any width (design review 2026-10-01).
+    $("exportDataFoot").innerHTML = `<p class="hint fill" id="exportDataSays" role="status" aria-live="polite"></p>
       <button type="button" class="ghost" id="exportDataCancel">Cancel</button>
       <button type="button" class="primary" id="exportDataGo">Download</button>`;
     $("exportData").showModal();
