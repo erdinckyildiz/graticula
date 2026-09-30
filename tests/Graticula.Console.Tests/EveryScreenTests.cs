@@ -96,7 +96,9 @@ public sealed class EveryScreenTests : ConsoleTest
             // the one setting D-61's repair did not reach. Its absence is asserted at the end of
             // this method rather than left implicit, because *a page reappears on the wrong object*
             // is the regression this class exists for.
-            ["studio"] = ["symbology", "history", "caching", "maintenance"],
+            // <b>Caching left on 2026-10-01</b> — it is the item's Settings › Tile layer (ADR-102 step 6), and its
+            // old address is asserted to arrive there by TileCacheBoxTests.
+            ["studio"] = ["symbology", "history", "maintenance"],
         };
 
         foreach ((string surface, string[] names) in pages)

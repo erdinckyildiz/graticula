@@ -48,7 +48,8 @@ public sealed class TileCacheBoxTests : ConsoleTest
     [Fact]
     public async Task A_layer_with_a_lifetime_shows_it_in_the_box()
     {
-        string layer = await AnyLayerAsync();
+        string service = Environment.GetEnvironmentVariable("GRATICULA_TEST_LARGE") ?? "hosted/ci_many";
+        string layer = service[(service.LastIndexOf('/') + 1)..];
 
         // Set a lifetime through the API, so the fixture is this test's own rather than
         // a fact about whichever machine it runs on.
@@ -65,17 +66,19 @@ public sealed class TileCacheBoxTests : ConsoleTest
         {
             (string token, _) = await SignInAsync();
 
-            await OpenAsync($"/server/#/layer/{Uri.EscapeDataString(layer)}/caching", token);
+            // The old address, on purpose: it must still arrive at the layer's row, now under the item's
+            // Settings › Tile layer › Advanced (ADR-102 step 6).
+            await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/caching", token);
 
             await WaitForAsync(
-                "!!document.getElementById('ttl')",
-                "The layer's Caching page has no tile-lifetime control at all.");
+                $"!!document.querySelector('#cacheLayers input[aria-label^=\"Seconds {layer}\"]')",
+                "The item's Tile layer section has no tile-lifetime control for this layer.");
 
             // <b>Waiting for the value rather than reading it once.</b> The element is in
             // the markup from the first paint and the listing arrives afterwards, so a
             // single read races the fetch and would fail for the wrong reason.
             await WaitForAsync(
-                "document.getElementById('ttl')?.value === '137'",
+                $"document.querySelector('#cacheLayers input[aria-label^=\"Seconds {layer}\"]')?.value === '137'",
                 "The tile-lifetime box never showed the 137 seconds this layer is set to. "
                 + "A control that displays nothing for a value that exists is D-159: the "
                 + "next person to press Set sends an empty box.");
@@ -95,7 +98,8 @@ public sealed class TileCacheBoxTests : ConsoleTest
     [Fact]
     public async Task Pressing_set_with_an_empty_box_sends_no_lifetime_rather_than_zero()
     {
-        string layer = await AnyLayerAsync();
+        string service = Environment.GetEnvironmentVariable("GRATICULA_TEST_LARGE") ?? "hosted/ci_many";
+        string layer = service[(service.LastIndexOf('/') + 1)..];
 
         (int status, _) = await AdminAsync(
             HttpMethod.Put,
@@ -108,18 +112,20 @@ public sealed class TileCacheBoxTests : ConsoleTest
         {
             (string token, _) = await SignInAsync();
 
-            await OpenAsync($"/server/#/layer/{Uri.EscapeDataString(layer)}/caching", token);
+            // The old address, on purpose: it must still arrive at the layer's row, now under the item's
+            // Settings › Tile layer › Advanced (ADR-102 step 6).
+            await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}/caching", token);
 
             await WaitForAsync(
-                "!!document.querySelector('[data-cache]:not([data-clear])')",
-                "The layer's Caching page has no Set button.");
+                $"!!document.querySelector('[data-life-set=\"{layer}\"]')",
+                "The item's Tile layer section has no Set button for this layer.");
 
             // <b>Every step asserted, because a step that silently did nothing is how the
             // first version of this test passed against the defect.</b> If the box is
             // missing, or the click never lands, the page sends nothing — and "nothing
             // was sent" would read exactly like the fix working.
             bool emptied = await Browser.EvaluateAsync<bool>(
-                "(() => { const b = document.getElementById('ttl'); if (!b) return false; "
+                $"(() => {{ const b = document.querySelector('#cacheLayers input[aria-label^=\"Seconds {layer}\"]'); if (!b) return false; "
                 + "b.value = ''; return true; })()");
 
             Assert.True(emptied, "There is no tile-lifetime box on this layer's Caching page.");
@@ -135,7 +141,7 @@ public sealed class TileCacheBoxTests : ConsoleTest
                 + "return f(u, o); }; return true; })()");
 
             bool clicked = await Browser.EvaluateAsync<bool>(
-                "(() => { const b = document.querySelector('[data-cache]:not([data-clear])'); "
+                $"(() => {{ const b = document.querySelector('[data-life-set=\"{layer}\"]'); "
                 + "if (!b) return false; b.click(); return true; })()");
 
             Assert.True(clicked, "There is no Set button on this layer's Caching page.");

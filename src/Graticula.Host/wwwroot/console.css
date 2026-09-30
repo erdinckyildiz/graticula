@@ -4357,3 +4357,7 @@ button.thsort:focus-visible { outline: 2px solid var(--accent); outline-offset: 
 /* The item's one Layer select, beside its tabs (ADR-102 step 1). */
 #itemLayerField.itemlayer { margin: 0; flex: 0 1 280px; }
 #itemLayerField.itemlayer select { width: 100%; }
+
+/* Visualization's Style panel holds the layer's style editor (ADR-102). */
+.stylehost { margin-top: var(--gap-3); container: symeditor / inline-size; }
+.stylehost > #page-symbology { display: block; }

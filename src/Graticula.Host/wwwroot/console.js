@@ -2374,6 +2374,14 @@ function route() {
   // <b>A layer's page decides its own surface.</b> The editor is in both surfaces with different
   // pages in each (§5c), so `#/layer/x/sharing` asked for in Server is Studio's — the same
   // translation the screen table does one level up, one level down.
+  // <b>Old layer addresses go to where their page is now — ADR-102 step 2.</b> A row is switched on in the
+  // same change as the page it points to, so no address leads to a page that is not there yet.
+  const moved = legacyRoute(rest);
+  if (moved) {
+    location.replace(moved);
+    return;
+  }
+
   if (rest[0] === "layer" && rest[1] && rest[2] && LAYER_PAGES[rest[2]]
       && LAYER_PAGES[rest[2]] !== surface) {
     const owner = LAYER_PAGES[rest[2]];
@@ -2443,6 +2451,33 @@ function route() {
   // The folder a Server services screen is looking at, which is part of its address so that
   // "the services in turkiye" is a place you can link somebody to.
   openScreen(surface, screen, screen === "services" ? rest[1] ?? null : null);
+}
+
+/**
+ * Where an address of the retired layer screen goes now — `#/layer/{name}/{page}` → the item's own place.
+ *
+ * <b>Only the rows whose new home exists are listed.</b> ADR-102 §5.6: a row is added in the same change as
+ * the page it points to; an address with no row still opens the layer screen as before.
+ */
+const LEGACY_LAYER_ROUTES = {
+  caching: { tab: "settings", section: "tiles" },
+};
+
+function legacyRoute(rest) {
+  if (rest[0] !== "layer" || !rest[1]) return null;
+
+  const to = LEGACY_LAYER_ROUTES[rest[2]];
+  if (!to) return null;
+
+  const place = placeOf(decodeURIComponent(rest[1]));
+  if (!place) return null;
+
+  const query = new URLSearchParams();
+  if (to.tab) query.set("tab", to.tab);
+  if (to.section) query.set("section", to.section);
+  if (to.layer !== false && place.id !== undefined && to.tab !== "settings") query.set("layer", String(place.id));
+
+  return `/studio/#/service/${place.service.split("/").map(encodeURIComponent).join("/")}?${query}`;
 }
 
 /**
@@ -3996,6 +4031,10 @@ async function showService(qualified) {
   // standing one.
   if (askedLayer !== null) visLayerIndex = askedLayer;
   if (askedLayer !== null) dataLayerIndex = askedLayer;
+
+  // `?section=` names a part of Settings, as `?tab=settings&section=tiles` does (ADR-102).
+  const askedSection = hashQuery.get("section");
+  if (askedSection && SERVICE_PAGES[askedSection]) SERVICE_PAGE_OPEN = askedSection;
   if (askedMode === "tiles" || askedMode === "features") visMode = askedMode;
 
   // <b>The first crumb is the screen this surface came from.</b> It said *Services* on both,
@@ -4364,6 +4403,7 @@ function writeItemAddress() {
   const layer = itemLayerNow();
   if (layer !== null && serviceTab !== "overview" && serviceTab !== "settings") query.set("layer", layer);
   if (serviceTab === "visualization" && visMode === "tiles") query.set("mode", "tiles");
+  if (serviceTab === "settings" && SERVICE_PAGE_OPEN) query.set("section", SERVICE_PAGE_OPEN);
 
   const path = `#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`;
   const next = query.toString() ? `${path}?${query}` : path;
@@ -4718,6 +4758,12 @@ let visAsking = null;
  */
 function drawServiceLayers(layers, qualified) {
   serviceLayers = layers || [];
+
+  // <b>What depends on knowing the layers is drawn again once they are known</b> — the Tile layer section and
+  // Overview's *Manage tiles* (ADR-102). An address straight to `?tab=settings&section=tiles` otherwise drew
+  // Settings before the service document arrived, found no layer with tiles, and never looked again.
+  if (serviceOpen && serviceTab === "settings") drawServiceSettings(serviceOpen.name, serviceOpen.folder);
+  if (serviceItem && serviceOpen && serviceItem.name === serviceOpen.qualified) drawServiceHead(serviceItem);
 
   drawServiceDetails(qualified);
 
@@ -5869,6 +5915,8 @@ function drawServiceHead(item) {
         ${item.status === "stopped" ? "" : `<a class="btn primary"
           href="/studio/webmap.html?service=${encodeURIComponent(item.name)}">Open in Map Viewer</a>`}
         ${item.manages === false ? "" : `<button type="button" data-share="${h(item.name)}">Share</button>`}
+        ${item.manages === false || !tileLayerOf() ? "" : `<button type="button" data-manage-tiles="1"
+          title="What is cached, clear it, pre-build an area, offline packages">Manage tiles</button>`}
       </div>
     </div>`;
 
@@ -6295,6 +6343,17 @@ function drawServiceSettings(name, folder) {
   const box = $("serviceEdit");
   if (!box) return;
 
+  // <b>A publisher's page reads the publisher's listing first</b>, since `known` is an administrator's: the
+  // Tile layer section depends on knowing which layers have tiles. Read once, then drawn again.
+  if (known.length === 0 && content.size === 0 && !drawServiceSettings.asked) {
+    drawServiceSettings.asked = true;
+    api("/content/layers").then(layers => {
+      content = new Map([...(layers.mine || []), ...(layers.shared || []), ...(layers.notShared || [])]
+        .map(e => [e.name, e]));
+      if (serviceOpen && serviceOpen.name === name) drawServiceSettings(name, folder);
+    }).catch(() => null);
+  }
+
   const mine = servicePagesOf(surfaceOfPath());
 
   if (mine.length === 0) {
@@ -6304,9 +6363,13 @@ function drawServiceSettings(name, folder) {
 
   const page = SERVICE_PAGE_OPEN && mine.includes(SERVICE_PAGE_OPEN) ? SERVICE_PAGE_OPEN : mine[0];
 
-  $("serviceNav").innerHTML = mine.map(p =>
-    `<a href="#" data-service-page="${p}"${p === page ? ' aria-current="page"' : ""}>${
-      p[0].toUpperCase() + p.slice(1)}</a>`).join("");
+  const tiled = tileLayerOf();
+  const shownPages = mine.filter(p => p !== "tiles" || tiled);
+  const open = shownPages.includes(page) ? page : shownPages[0];
+
+  $("serviceNav").innerHTML = shownPages.map(p =>
+    `<a href="#" data-service-page="${p}"${p === open ? ' aria-current="page"' : ""}>${
+      SERVICE_PAGE_LABELS[p] || p[0].toUpperCase() + p.slice(1)}</a>`).join("");
 
   // <b>No Save on the Sharing page, because that page has nothing to save.</b> The scope applies the
   // moment it is chosen — ADR-031 §2b, so that an owner narrowing who may read a service can trust it
@@ -6314,7 +6377,8 @@ function drawServiceSettings(name, folder) {
   // sat underneath it. The owner: *"combo değiştiğinde kaydoluyor gibi. save neden dikkate alınmıyor."*
   // Exactly: it was not, and a button that does nothing contradicts the sentence above it.
   $("servicePagesBody").innerHTML = serviceSettingsMarkup(name, folder)
-    + (page === "sharing"
+    + (tiled ? `<section class="page" id="page-tiles">${tileLayerMarkup(tiled, tiled.name)}</section>` : "")
+    + (open === "sharing" || open === "tiles"
       ? ""
       : `<div class="row" style="margin-top:22px">
            <button class="primary" data-service-save="${h(name)}"
@@ -6322,15 +6386,109 @@ function drawServiceSettings(name, folder) {
          </div>`);
 
   for (const section of document.querySelectorAll("#servicePagesBody .page")) {
-    section.classList.toggle("on", section.id === `page-${page}`);
+    section.classList.toggle("on", section.id === `page-${open}`);
   }
 
   box.hidden = false;
   section("capabilities", () => loadServiceCapabilities(name, folder));
+
+  if (open === "tiles" && tiled) {
+    section("the tile cache", () => loadSeed(tiled.name));
+    section("the tile exports", () => loadExport(tiled.name));
+    $("page-tiles")?.querySelector("h4")?.setAttribute("tabindex", "-1");
+  }
+}
+
+/** The labels the Settings list shows, where a page's key is not already its name. */
+const SERVICE_PAGE_LABELS = { tiles: "Tile layer" };
+
+/**
+ * The open service's first layer that has tiles, as the layer listing describes it, or null when it has none.
+ *
+ * <b>Asked of the layer listing</b> (`known`, `/content/layers`), which is what says `tileable` — a hosted
+ * layer or a GeoParquet file has tiles, a registered table's features alone do not (D-264).
+ */
+function tileLayerOf() {
+  if (!serviceOpen) return null;
+
+  for (const layer of serviceLayers) {
+    if ((layer.type || "").toLowerCase().includes("group")) continue;
+
+    // An administrator's listing, else the reader's own (`/content/layers`), which a publisher has.
+    const info = known.find(l => l.name === layer.name
+        && (l.folder || "") === (serviceOpen.folder || "") && l.service === serviceOpen.name)
+      || content.get(layer.name);
+
+    if (info && info.tileable) return { ...info, name: layer.name };
+  }
+
+  return null;
 }
 
 /** Which of a service's pages is open. Held here because it is a screen state, not an address. */
 let SERVICE_PAGE_OPEN = null;
+
+/**
+ * Settings › Tile layer: what the cache does and holds, pre-building an area, offline use, and the numbers
+ * under Advanced — ADR-102 step 6.
+ *
+ * <b>Lifted out of the layer page, where it was once per layer.</b> Everything on it except two figures was
+ * the service's; the two that are a layer's — the tile lifetime and the stale limit — are rows of a table
+ * under Advanced, one per layer. `l` is the service's first layer with tiles, which the page's requests use
+ * only to name the service (`placeOf`).
+ */
+function tileLayerMarkup(l, name) {
+  return `
+      <!--
+        <b>Rebuilt 2026-09-30 around what the cache does, not how it is tuned.</b> The owner called this
+        page's logic *tamamen çağ dışı*, and the design review found why: the engine builds tiles on first
+        view and empties them on every edit, and the page led with seconds, hours, megabytes, level numbers
+        and a seed job, which is how a 2010 map cache was run. What it does now comes first, in one
+        sentence; pre-building an area is an option with a map to show the area on; everything tuned in
+        numbers is under *Advanced*.
+      -->
+      <h4>Tiles</h4>
+      <!-- tileable, not hosted (D-264): a GeoParquet layer is tiled (ADR-066 section 9) and is never
+           hosted, so this page told its operator there was no cache while the tiles were being cached. -->
+      ${l.tileable ? `
+      <p class="lede">Built the first time somebody views an area, and cleared as soon as this service's
+        data changes through this server.${l.coherence === "best-effort" ? ` Other tools can change this
+        layer's data without this server knowing; their changes show once the tiles expire.` : ""}</p>
+      <div id="tilesStatus"><p class="hint">Reading the service's cache…</p></div>
+
+      <h4>Pre-build tiles for an area</h4>
+      <p class="hint">For the area people will look at first, so its tiles are ready before anybody asks. An
+        edit clears pre-built tiles like any other, so this helps most for data that rarely changes, or for
+        the zoomed-out levels, which are the slowest to build.</p>
+      <div id="seedBox"><p class="hint">Reading the service's cache…</p></div>
+      <div id="seedMapHome"><div id="seedMapWrap" hidden>
+        <p class="hint" id="seedMapSays">Move and zoom the map to the area. The outline is where this
+          service's data is.</p>
+        <div id="seedMap" class="seedmap"></div>
+      </div></div>
+
+      <h4>Offline</h4>
+      <p class="hint">One file with this service's tiles, to take offline: a VTPK for ArcGIS Field Maps and ArcGIS
+        Pro, or a PMTiles archive for MapLibre. It is built in the background and kept for a limited time.</p>
+      <div id="exportBox"><p class="hint">Reading the service's exports…</p></div>
+
+      <details class="advanced">
+        <summary>Advanced</summary>
+        <h4>Per layer</h4>
+        <p class="hint">How long a browser and this server may keep a tile before asking again, and how long an
+          expired tile may still be served while the data source cannot build it. An edit through this server
+          clears the tiles either way; on a layer people edit, a long lifetime means a browser can go on
+          showing the old tile after an edit. Empty means the server's own figure.</p>
+        <div id="cacheLayers" class="widetable"></div>
+
+        <div id="cacheLimits"></div>
+        <div id="cacheDetails"></div>
+      </details>`
+      : `<p class="hint">No tile cache: this layer stays in its own database, and this server serves it as
+         features only. Tiles come from layers this server holds itself — data in its datastore, and
+         GeoParquet files it reads directly. To get tiles, publish a copy into the datastore.</p>`}
+`;
+}
 
 /**
  * The markup for a service's settings pages.
@@ -11102,7 +11260,7 @@ const LAYER_PAGES = {
   // is read by the people who edit it.
   history: "studio",
 
-  caching: "studio",
+  // `caching` left on 2026-10-01: it is the item's Settings › Tile layer (ADR-102 step 6).
 
   // <b>Last, so it is not the page a layer opens on — 2026-09-30.</b> A surface's first page here is where
   // `#/layer/{name}` lands, and a click on a layer's name in the item's Overview landed on a page whose
@@ -11127,6 +11285,11 @@ const EDIT_PAGES = Object.keys(LAYER_PAGES);
 const SERVICE_PAGES = {
   capabilities: "server",
   limits: "server",
+
+  // <b>Tile layer — ADR-102 step 6.</b> The tile cache is the service's, and it was a page under each of its
+  // layers, reached by knowing to click a layer name. Portal's *Tile layer (hosted)* is a section of the
+  // item's Settings, and so is this.
+  tiles: "studio",
 
   // <b>Sharing is a service's setting and was the one D-61's repair missed.</b> D-61 moved
   // Capabilities and Limits off the layer pages because their columns are on `service`;
@@ -11472,60 +11635,7 @@ function showLayer(name, page, pending = null) {
         does not own, so it cannot keep a history here (ADR-002 §4.2).</p>`}
     </section>
 
-    <section class="page" id="page-caching">
-      <!--
-        <b>Rebuilt 2026-09-30 around what the cache does, not how it is tuned.</b> The owner called this
-        page's logic *tamamen çağ dışı*, and the design review found why: the engine builds tiles on first
-        view and empties them on every edit, and the page led with seconds, hours, megabytes, level numbers
-        and a seed job, which is how a 2010 map cache was run. What it does now comes first, in one
-        sentence; pre-building an area is an option with a map to show the area on; everything tuned in
-        numbers is under *Advanced*.
-      -->
-      <h4>Tiles</h4>
-      <!-- tileable, not hosted (D-264): a GeoParquet layer is tiled (ADR-066 section 9) and is never
-           hosted, so this page told its operator there was no cache while the tiles were being cached. -->
-      ${l.tileable ? `
-      <p class="lede">Built the first time somebody views an area, and cleared as soon as this service's
-        data changes through this server.${l.coherence === "best-effort" ? ` Other tools can change this
-        layer's data without this server knowing; their changes show once the tiles expire.` : ""}</p>
-      <div id="tilesStatus"><p class="hint">Reading the service's cache…</p></div>
-
-      <h4>Pre-build tiles for an area</h4>
-      <p class="hint">For the area people will look at first, so its tiles are ready before anybody asks. An
-        edit clears pre-built tiles like any other, so this helps most for data that rarely changes, or for
-        the zoomed-out levels, which are the slowest to build.</p>
-      <div id="seedBox"><p class="hint">Reading the service's cache…</p></div>
-      <div id="seedMapWrap" hidden>
-        <p class="hint" id="seedMapSays">Move and zoom the map to the area. The outline is where this
-          service's data is.</p>
-        <div id="seedMap" class="seedmap"></div>
-      </div>
-
-      <h4>Offline packages</h4>
-      <p class="hint">One file with this service's tiles, to take offline: a VTPK for ArcGIS Field Maps and ArcGIS
-        Pro, or a PMTiles archive for MapLibre. It is built in the background and kept for a limited time.</p>
-      <div id="exportBox"><p class="hint">Reading the service's exports…</p></div>
-
-      <details class="advanced">
-        <summary>Advanced</summary>
-        <div class="setting"><span class="q">How long a browser and this server may keep a tile before
-          asking again:</span>
-          <input type="number" id="ttl" min="0" step="1" placeholder="${l.cacheSeconds == null && l.tileLifetimeSeconds != null ? `default, ${h(String(l.tileLifetimeSeconds))}` : "server default"}"><span class="u">seconds</span></div>
-        <p class="hint">An edit through this server clears the tiles either way. On a layer people edit,
-          a long time here means a browser can go on showing the old tile after an edit.</p>
-        <div class="row" style="margin-top:10px">
-          <button data-cache="${h(name)}">Set</button>
-          <button data-cache="${h(name)}" data-clear="1" class="ghost">Use the server's</button>
-        </div>
-
-        <div id="cacheLimits"></div>
-        <div id="cacheDetails"></div>
-      </details>`
-      : `<p class="hint">No tile cache: this layer stays in its own database, and this server serves it as
-         features only. Tiles come from layers this server holds itself — data in its datastore, and
-         GeoParquet files it reads directly. To get tiles, publish a copy into the datastore.</p>`}
-
-    </section>
+    <!-- The Caching page left this template on 2026-10-01: it is the item's Settings › Tile layer (ADR-102). -->
 
     <!--
       <b>The symbology editor, rebuilt to the owner's handoff (direction 1c) on 2026-09-04.</b>
@@ -12273,8 +12383,7 @@ function seedAddress(name) {
 }
 
 function seedShowing(name) {
-  return !!(editing && editing.name === name
-    && $("page-caching")?.classList.contains("on") && $("seedBox"));
+  return !!(seedState.name === name && $("page-tiles")?.classList.contains("on") && $("seedBox"));
 }
 
 async function loadSeed(name) {
@@ -12289,9 +12398,12 @@ async function loadSeed(name) {
 
   drawSeed(name, where, r);
 
-  // Drawn once per layer rather than on every poll, so a number being typed is not wiped by the seed's refresh.
+  // Drawn once per page rather than on every poll, so a number being typed is not wiped by the seed's refresh.
   const limits = $("cacheLimits");
-  if (limits && limits.dataset.for !== name) drawLimits(name, where, r);
+  if (limits && limits.dataset.for !== name) {
+    drawLimits(name, where, r);
+    drawLayerLifetimes(r);
+  }
 
   if (r.running) {
     seedState.timer = setTimeout(() => {
@@ -12348,6 +12460,34 @@ function seedQuota(q) {
  * <b>The layer route is sent `?service=`</b>, so a layer name two services share is not refused as ambiguous
  * (D-276); the quota route is sent the folder, as every service route is (D-275).
  */
+/**
+ * One row per layer: how long its tiles are kept, and how long past that they may stand in while the source
+ * is down — the two figures of the Tile layer page that are a layer's rather than the service's (ADR-102).
+ */
+function drawLayerLifetimes(r) {
+  const box = $("cacheLayers");
+  if (!box) return;
+
+  const rows = r.layers || [];
+  const defaultHours = r.stale?.defaultSeconds != null ? r.stale.defaultSeconds / 3600 : 24;
+
+  box.innerHTML = rows.length === 0 ? "" : `
+    <table>
+      <thead><tr><th>Layer</th><th>Kept for (seconds)</th><th>Served stale for (hours)</th><th></th></tr></thead>
+      <tbody>${rows.map((l, i) => `
+        <tr>
+          <td class="name">${h(l.name)}</td>
+          <td><input type="number" min="0" step="1" id="life-${i}" aria-label="Seconds ${h(l.name)}'s tiles are kept"
+            value="${l.lifetimeFrom === "layer" ? h(String(l.lifetimeSeconds)) : ""}"
+            placeholder="${h(String(l.lifetimeSeconds ?? ""))}"></td>
+          <td><input type="number" min="0" step="1" id="stale-${i}" aria-label="Hours ${h(l.name)}'s tiles may be served stale"
+            value="${l.staleFrom === "layer" ? h(String(l.staleSeconds / 3600)) : ""}"
+            placeholder="${h(String(defaultHours))}"></td>
+          <td class="right"><button type="button" class="tiny" data-life-set="${h(l.name)}" data-life-row="${i}">Set</button></td>
+        </tr>`).join("")}</tbody>
+    </table>`;
+}
+
 function drawLimits(name, where, r) {
   const box = $("cacheLimits");
   if (!box) return;
@@ -12364,17 +12504,6 @@ function drawLimits(name, where, r) {
     : "";
 
   box.innerHTML = `
-    <div class="setting"><label class="q" for="staleLimit">Serve an expired tile while the data source is down, for up to:</label>
-      <input type="number" id="staleLimit" min="0" step="1" placeholder="default, ${h(String(defaultHours))}"
-        value="${ownHours == null ? "" : h(String(ownHours))}"><span class="u">hours</span></div>
-    <p class="hint">When this layer's data source cannot build a tile — it is unreachable, busy or quiesced — the
-      cached copy is served, marked as stale, for up to this long past its lifetime. 0 means never. A tile removed
-      by an edit or a refresh is never served this way.${served}</p>
-    <div class="row" style="margin-top:10px">
-      <button type="button" id="staleSet">Set</button>
-      <button type="button" id="staleClear" class="ghost">Use the server's</button>
-    </div>
-
     <div class="setting"><label class="q" for="cacheQuota">Cache quota for this service:</label>
       <input type="number" id="cacheQuota" min="1" step="1" placeholder="none"
         value="${q.megabytes == null ? "" : h(String(q.megabytes))}"><span class="u">MB</span></div>
@@ -12426,8 +12555,6 @@ function drawLimits(name, where, r) {
     } catch (e) { says(e.message); }
   };
 
-  $("staleSet")?.addEventListener("click", () => setStale(false));
-  $("staleClear")?.addEventListener("click", () => setStale(true));
   $("quotaSet")?.addEventListener("click", () => setQuota(false));
   $("quotaClear")?.addEventListener("click", () => setQuota(true));
 }
@@ -12464,15 +12591,27 @@ let seedMap = null;
 let seedMapFor = null;
 
 /** Shows the area map when either form asks for it, and builds it on first need. */
-async function showSeedMap(name) {
+async function showSeedMap(name, from = "seed") {
   const wrap = $("seedMapWrap");
   if (!wrap) return;
 
   const wanted = $("seedArea")?.value === "map" || $("exportArea")?.value === "map";
+
+  // <b>Under the Area choice that asked for it</b> — it sat after the buttons, and when the export form asked
+  // it appeared 700 pixels above the reader with nothing visible changing (verification review).
+  const slot = $(from === "export" && $("exportArea")?.value === "map" ? "exportMapSlot"
+    : $("seedArea")?.value === "map" ? "seedMapSlot" : "exportMapSlot");
+  if (wanted && slot && wrap.parentElement !== slot) slot.appendChild(wrap);
+
   wrap.hidden = !wanted;
   if (!wanted) return;
 
-  if (seedMap && seedMapFor === name) { seedMap.updateSize(); return; }
+  // The same map only while it still draws into this page's element; a Settings redraw replaces the element.
+  if (seedMap && seedMapFor === name && seedMap.getTargetElement() === $("seedMap")) {
+    seedMap.updateSize();
+    wrap.scrollIntoView({ block: "nearest" });
+    return;
+  }
 
   if (!await loadOpenLayers()) {
     $("seedMapSays").textContent = "The map could not be loaded, so an area cannot be picked here.";
@@ -12482,10 +12621,33 @@ async function showSeedMap(name) {
   $("seedMap").innerHTML = "";
   const outline = new ol.source.Vector();
 
+  // The service's own tiles over the ground, so the area is chosen where the data can be seen. Asked with the
+  // session's token, as every other request of this page is.
+  const at0 = placeOf(name);
+  const tilesOf = at0 ? `/rest/services/${[at0.folder, at0.bare].filter(Boolean).map(encodeURIComponent).join("/")}/VectorTileServer` : null;
+  const own = tilesOf ? new ol.layer.VectorTile({
+    source: new ol.source.VectorTile({
+      format: new ol.format.MVT(),
+      url: `${tilesOf}/tile/{z}/{y}/{x}.pbf`,
+      maxZoom: 22,
+      tileLoadFunction: (tile, url) => tile.setLoader((extent, resolution, projection) =>
+        fetch(url, { headers: token ? { Authorization: "Bearer " + token } : {} })
+          .then(r => r.ok ? r.arrayBuffer() : new ArrayBuffer(0))
+          .then(bytes => tile.setFeatures(tile.getFormat().readFeatures(bytes, { extent, featureProjection: projection })))
+          .catch(() => tile.setFeatures([]))),
+    }),
+    style: new ol.style.Style({
+      fill: new ol.style.Fill({ color: "rgba(11, 97, 87, 0.28)" }),
+      stroke: new ol.style.Stroke({ color: "#0b6157", width: 1 }),
+      image: new ol.style.Circle({ radius: 3, fill: new ol.style.Fill({ color: "#0b6157" }) }),
+    }),
+  }) : null;
+
   seedMap = new ol.Map({
     target: $("seedMap"),
     layers: [
       new ol.layer.Tile({ source: new ol.source.OSM() }),
+      ...(own ? [own] : []),
       new ol.layer.Vector({
         source: outline,
         style: new ol.style.Style({ stroke: new ol.style.Stroke({ color: "#0b6157", width: 2, lineDash: [6, 4] }) }),
@@ -12512,6 +12674,16 @@ async function showSeedMap(name) {
   } catch { /* the world, then; the reader can still move to the area */ }
 }
 
+/**
+ * Puts the area map back in its own place before a form that holds it is redrawn — the map is built once and
+ * a redraw of `innerHTML` would destroy it with the form.
+ */
+function parkSeedMap() {
+  const wrap = $("seedMapWrap");
+  const home = $("seedMapHome");
+  if (wrap && home && wrap.parentElement !== home) home.appendChild(wrap);
+}
+
 /** The area shown on the area map, as a seed or an export takes it, or null when none is shown. */
 function seedMapExtent() {
   if (!seedMap || $("seedMapWrap")?.hidden) return null;
@@ -12525,27 +12697,45 @@ function seedMapExtent() {
  * <b>*Clear cached tiles* is new, 2026-09-30.</b> A publisher had no way to clear their own tiles; the one
  * control that did was Server's *Forget remembered shape*, admin-only and named for something else.
  */
+/**
+ * Which levels are pre-built and still cached, whether a pre-build has been cleared since, and when the last
+ * one ran. A level is warm only while `cached > 0`.
+ */
+function prebuiltSummary(levels) {
+  const seeded = levels.filter(l => l.lastSeeded);
+  const warm = seeded.filter(l => (l.cached ?? 0) > 0).map(l => l.zoom);
+  const last = seeded.map(l => l.lastSeeded).sort().pop() || null;
+  return { warm, cleared: seeded.length > 0 && warm.length === 0, last };
+}
+
 function drawTilesStatus(name, where, r) {
   const box = $("tilesStatus");
   if (!box) return;
 
   const b = r.budget || {};
-  const seeded = (r.levels || []).filter(l => l.lastSeeded).map(l => l.zoom);
-  const last = (r.levels || []).map(l => l.lastSeeded).filter(Boolean).sort().pop();
   const scheme = r.tilingScheme?.id;
+
+  // <b>Pre-built is what is cached now — the verification review's blocker, 2026-09-30.</b> This read every
+  // level that had ever been seeded, so after an edit or *Clear* emptied them it still said the area was
+  // warm. A level counts only while its pre-built tiles are cached; one seeded and since emptied is said so.
+  const { warm, cleared, last } = prebuiltSummary(r.levels || []);
+  const seeded = warm;
 
   box.innerHTML = `
     <dl class="facts">
-      <dt>Cached now</dt><dd>${num(b.serviceEntries || 0)} tile${b.serviceEntries === 1 ? "" : "s"} ·
-        ${h(seedSize(b.serviceBytes || 0))}</dd>
+      <dt>Cached now</dt><dd>${num(b.serviceEntries || 0)} tile${b.serviceEntries === 1 ? "" : "s"}${
+        (b.serviceEntries || 0) > 0 && !b.serviceBytes ? ", all of them empty at those scales"
+        : ` · ${h(seedSize(b.serviceBytes || 0))}`}</dd>
       <dt>Pre-built</dt><dd>${seeded.length
         ? `${h(levelLabel(Math.min(...seeded), scheme).split(" — ")[0])} to ${h(levelLabel(Math.max(...seeded), scheme).split(" — ")[0])}${last ? `, ${seedWhen(last)}` : ""}`
-        : "nothing — every tile is built when first viewed"}</dd>
+        : cleared
+          ? `nothing now — the last pre-build${last ? ` (${seedWhen(last)})` : ""} has been cleared since, by an edit or by Clear`
+          : "nothing — every tile is built when first viewed"}</dd>
       ${r.stale?.served ? `<dt>Served while the data source was down</dt><dd>${num(r.stale.served)} times,
         the last ${seedWhen(r.stale.lastServed)}</dd>` : ""}
     </dl>
     <div class="row" style="margin-top:10px">
-      <button type="button" class="ghost" id="tilesClear">Clear cached tiles</button>
+      <button type="button" id="tilesClear" ${(b.serviceEntries || 0) === 0 ? "disabled" : ""}>Clear cached tiles</button>
     </div>
     <p class="hint" id="tilesSays" role="status" aria-live="polite"></p>`;
 
@@ -12556,8 +12746,24 @@ function drawTilesStatus(name, where, r) {
       const c = await api(`${where.base}/clear${where.folder}`, { method: "POST" });
       toast(c.note, true);
       await loadSeed(name);
+      // The control that had focus is redrawn; the page's status line is where the reader is sent.
+      const said = $("tilesSays");
+      if (said) { said.textContent = c.note; said.tabIndex = -1; said.focus(); }
     } catch (e) { $("tilesSays").textContent = e.message; }
   });
+}
+
+/**
+ * A refusal from the seed or export routes, in this page's words: levels as scales, and no configuration key
+ * or request parameter a publisher never typed (verification review, 2026-09-30).
+ */
+function plainRefusal(text, scheme) {
+  return String(text || "")
+    .replace(/\s*\((?:Graticula|GisServer):[^)]*\)/g, "")
+    .replace(/'minZoom' (\d+) and 'maxZoom' (\d+): a seed covers levels 0 to \d+, and the first may not be above the last\./,
+      (m, a, b) => `${levelLabel(+a, scheme).split(" — ")[0]} is more detailed than ${levelLabel(+b, scheme).split(" — ")[0]}; choose From before To.`)
+    .replace(/\b[Ll]evels (\d+) to (\d+)\b/g,
+      (m, a, b) => `${levelLabel(+a, scheme).split(" — ")[0]} to ${levelLabel(+b, scheme).split(" — ")[0]}`);
 }
 
 function seedCounts(s) {
@@ -12573,6 +12779,9 @@ function drawSeed(name, where, r) {
   const scheme = r.tilingScheme?.id;
   const top = (r.tilingScheme?.levels ?? 23) - 1;
   const area = $("seedArea")?.value || "whole";
+  parkSeedMap();
+  const keptFrom = $("seedFrom")?.value;
+  const keptTo = $("seedTo")?.value;
 
   drawTilesStatus(name, where, r);
 
@@ -12592,12 +12801,13 @@ function drawSeed(name, where, r) {
         <option value="whole"${area === "whole" ? " selected" : ""}>Everywhere this service has data</option>
         <option value="map"${area === "map" ? " selected" : ""}>The area I show on a map</option>
       </select></div>
+    <div id="seedMapSlot"></div>
     <div class="setting"><label class="q" for="seedFrom">From:</label>
-      <select id="seedFrom">${levelOptions(d.minZoom, top, scheme)}</select></div>
+      <select id="seedFrom">${levelOptions(keptFrom ?? d.minZoom, top, scheme)}</select></div>
     <div class="setting"><label class="q" for="seedTo">To:</label>
-      <select id="seedTo">${levelOptions(d.maxZoom, top, scheme)}</select></div>
+      <select id="seedTo">${levelOptions(keptTo ?? d.maxZoom, top, scheme)}</select></div>
     <div class="row" style="margin-top:10px">
-      <button type="button" class="ghost" id="seedCount">Estimate</button>
+      <button type="button" id="seedCount">Estimate</button>
       <button type="button" class="primary" id="seedStart">Build tiles</button>
       <button type="button" class="danger" id="seedForce" hidden>Build anyway — may push out the most detailed tiles</button>
     </div>`;
@@ -12621,7 +12831,7 @@ function drawSeed(name, where, r) {
         ${num(r.cap)} tiles a run, ${num(r.concurrency)} at a time — each holding a connection to the data
         source, as a map's request does.</p>
       ${r.levels && r.levels.length ? `
-        <table>
+        <div class="widetable"><table>
           <thead><tr><th>Level</th><th class="num">Tiles in the pre-built area</th><th class="num">Cached now</th><th>Last pre-built</th></tr></thead>
           <tbody>${r.levels.map(l => `
             <tr>
@@ -12630,13 +12840,21 @@ function drawSeed(name, where, r) {
               <td class="num">${l.cached == null ? "—" : num(l.cached)}</td>
               <td>${seedWhen(l.lastSeeded)}</td>
             </tr>`).join("")}</tbody>
-        </table>` : `<p class="hint">${h(r.note || "")}</p>`}`;
+        </table></div>` : `<p class="hint">${h(r.note || "")}</p>`}`;
   }
 
-  $("seedArea")?.addEventListener("change", () => showSeedMap(name));
-  showSeedMap(name);
+  $("seedArea")?.addEventListener("change", () => showSeedMap(name, "seed"));
+  showSeedMap(name, "seed");
 
-  const says = text => { const s = $("seedSays"); if (s) s.textContent = text; };
+  // <b>A range cannot be reversed</b> — the server refused *'minZoom' 14 and 'maxZoom' 3* in its own words;
+  // moving one end past the other moves the other with it.
+  const from = $("seedFrom"), to = $("seedTo");
+  if (from && to) {
+    from.addEventListener("change", () => { if (Number(from.value) > Number(to.value)) to.value = from.value; });
+    to.addEventListener("change", () => { if (Number(to.value) < Number(from.value)) from.value = to.value; });
+  }
+
+  const says = text => { const s = $("seedSays"); if (s) s.textContent = plainRefusal(text, scheme); };
 
   const asked = () => {
     const body = { minZoom: Number($("seedFrom").value), maxZoom: Number($("seedTo").value) };
@@ -12736,8 +12954,7 @@ function exportAddress(name) {
 }
 
 function exportShowing(name) {
-  return !!(editing && editing.name === name
-    && $("page-caching")?.classList.contains("on") && $("exportBox"));
+  return !!(exportState.name === name && $("page-tiles")?.classList.contains("on") && $("exportBox"));
 }
 
 async function loadExport(name) {
@@ -12761,10 +12978,11 @@ async function loadExport(name) {
 
 function exportLevels(levels) {
   if (!levels || !levels.length) return "—";
+  const at = z => levelLabel(z, exportState.scheme).split(" — ")[0];
   const first = levels[0], last = levels[levels.length - 1];
   return levels.length === last - first + 1
-    ? (first === last ? `level ${first}` : `levels ${first} to ${last}`)
-    : `levels ${levels.join(", ")}`;
+    ? (first === last ? at(first) : `${at(first)} to ${at(last)}`)
+    : levels.map(at).join(", ");
 }
 
 function exportRow(e) {
@@ -12782,8 +13000,8 @@ function exportRow(e) {
     <tr>
       <td>${h(e.format.toUpperCase())}</td>
       <td>${h(exportLevels(e.levels))}</td>
-      <td class="num">${num(e.stored)}</td>
-      <td>${h(e.status)}</td>
+      <td class="num">${e.status === "done" && e.stored === 0 ? "—" : num(e.stored)}</td>
+      <td>${h(e.status === "done" && e.stored === 0 ? "empty" : e.status)}</td>
       <td>${what}</td>
       <td class="row">
         ${e.download ? `<button type="button" class="ghost" data-export-download="${h(e.id)}" data-export-format="${h(e.format)}">Download</button>` : ""}
@@ -12799,8 +13017,12 @@ function drawExport(name, where, r) {
   const formats = r.formats || ["vtpk"];
   const top = (r.tilingScheme?.levels ?? 23) - 1;
   const scheme = r.tilingScheme?.id;
+  exportState.scheme = scheme;
+  const keptArea = $("exportArea")?.value;
+  parkSeedMap();
 
   box.innerHTML = `
+    <h4>Offline use</h4>
     <div class="setting"><label class="q" for="exportAllowed">Readers may export these tiles:</label>
       <input type="checkbox" id="exportAllowed" ${p.allowed ? "checked" : ""}></div>
     <div class="setting"><label class="q" for="exportAnonymous">Also readers who are not signed in:</label>
@@ -12814,6 +13036,7 @@ function drawExport(name, where, r) {
       <button type="button" id="exportPolicySave">Save</button>
     </div>
 
+    <h4>Packages</h4>
     <div class="setting"><label class="q" for="exportFormat">Format:</label>
       <select id="exportFormat">
         ${formats.map(f => `<option value="${h(f)}">${f === "vtpk" ? "VTPK (ArcGIS vector tile package)" : "PMTiles"}</option>`).join("")}
@@ -12823,8 +13046,9 @@ function drawExport(name, where, r) {
     <div class="setting"><label class="q" for="exportArea">Area:</label>
       <select id="exportArea">
         <option value="whole">Everywhere this service has data</option>
-        <option value="map">The area I show on the map above</option>
+        <option value="map">The area I show on a map</option>
       </select></div>
+    <div id="exportMapSlot"></div>
     <div class="setting"><label class="q" for="exportFrom">From:</label>
       <select id="exportFrom">${levelOptions(d.minZoom, top, scheme)}</select></div>
     <div class="setting"><label class="q" for="exportTo">To:</label>
@@ -12838,14 +13062,16 @@ function drawExport(name, where, r) {
     </div>
     <p class="hint" id="exportSays" role="status" aria-live="polite"></p>
     ${r.exports && r.exports.length ? `
-      <table>
+      <div class="widetable"><table>
         <thead><tr><th>Format</th><th>Levels</th><th class="num">Tiles with data</th><th>Status</th><th>Details</th><th></th></tr></thead>
         <tbody>${r.exports.map(exportRow).join("")}</tbody>
-      </table>` : `<p class="hint">No exports of this service yet.</p>`}`;
+      </table></div>` : `<p class="hint">No exports of this service yet.</p>`}`;
 
-  const says = text => { const s = $("exportSays"); if (s) s.textContent = text; };
+  const says = text => { const s = $("exportSays"); if (s) s.textContent = plainRefusal(text, scheme); };
 
-  $("exportArea")?.addEventListener("change", () => showSeedMap(name));
+  if (keptArea && $("exportArea")) $("exportArea").value = keptArea;
+  $("exportArea")?.addEventListener("change", () => showSeedMap(name, "export"));
+  if (keptArea === "map") showSeedMap(name, "export");
 
   $("exportAllowed")?.addEventListener("change", event => {
     const anonymous = $("exportAnonymous");
@@ -21464,6 +21690,39 @@ async function handleClick(event) {
     return;
   }
 
+  // A layer's row under Tile layer › Advanced: its lifetime and its stale limit, each empty for the server's own.
+  if (d.lifeSet) {
+    const read = (id, scale) => {
+      const typed = ($(id)?.value || "").trim();
+      if (typed === "") return { value: null };
+      const n = Number(typed);
+      return Number.isFinite(n) && n >= 0 ? { value: Math.round(n * scale) } : { error: typed };
+    };
+    const life = read(`life-${d.lifeRow}`, 1);
+    const stale = read(`stale-${d.lifeRow}`, 3600);
+
+    if (life.error !== undefined || stale.error !== undefined) {
+      toast(`"${life.error ?? stale.error}" is not a number.`);
+      return;
+    }
+
+    const place = placeOf(d.lifeSet);
+    const which = place ? `?service=${encodeURIComponent(place.service)}` : "";
+
+    try {
+      for (const body of [{ seconds: life.value }, { staleSeconds: stale.value }]) {
+        await api(`/admin/layers/${encodeURIComponent(d.lifeSet)}/cache${which}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      }
+      toast(`${d.lifeSet}: saved.`, true);
+      t.focus();
+    } catch (e) { toast(e.message); }
+    return;
+  }
+
   if (d.cache) {
     // <b>D-159: an empty box is "nobody has said", not zero.</b> `Number("")` is 0
     // and the endpoint takes 0 as the real answer *never serve a cached tile*, so
@@ -23000,6 +23259,16 @@ async function handleClick(event) {
     return;
   }
 
+  // <b>Manage tiles — the owner's button (ADR-102).</b> Settings › Tile layer, where the cache now lives.
+  if (t.dataset?.manageTiles) {
+    SERVICE_PAGE_OPEN = "tiles";
+    showServiceTab("settings");
+    writeItemAddress();
+    if (serviceOpen) drawServiceSettings(serviceOpen.name, serviceOpen.folder);
+    setTimeout(() => $("page-tiles")?.querySelector("h4")?.focus({ preventScroll: false }), 50);
+    return;
+  }
+
   if (t.dataset?.describe) { editDescription(t.dataset.describe); return; }
   if (t.dataset?.describeSave) { await saveDescription(t.dataset.describeSave); return; }
   if (t.dataset?.describeCancel) {
@@ -23158,6 +23427,7 @@ async function handleClick(event) {
   if (t.dataset?.servicePage) {
     event.preventDefault();
     SERVICE_PAGE_OPEN = t.dataset.servicePage;
+    writeItemAddress();
 
     // <b>From `serviceOpen`, not from the breadcrumb.</b> See its own note: reading the folder back out
     // of rendered text lost it for every foldered service and turned a tab switch into a silent

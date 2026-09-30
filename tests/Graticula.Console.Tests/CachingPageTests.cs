@@ -32,7 +32,7 @@ public sealed class CachingPageTests : ConsoleTest
             "The Caching page never drew its status and pre-build form.");
 
         string lead = await Browser.EvaluateAsync<string>(
-            "document.querySelector('#page-caching .lede').textContent") ?? "";
+            "document.querySelector('#page-tiles .lede').textContent") ?? "";
 
         Assert.Contains("first time somebody views an area", lead, StringComparison.Ordinal);
 
@@ -43,8 +43,8 @@ public sealed class CachingPageTests : ConsoleTest
 
         // The tuning is present and closed: a reader sees it on asking, not on arriving.
         bool closed = await Browser.EvaluateAsync<bool>(
-            "(() => { const d = document.querySelector('#page-caching details.advanced');"
-            + " return !!d && !d.open && !!d.querySelector('#ttl') && !!d.querySelector('#cacheQuota'); })()");
+            "(() => { const d = document.querySelector('#page-tiles details.advanced');"
+            + " return !!d && !d.open && !!d.querySelector('#cacheLayers input') && !!d.querySelector('#cacheQuota'); })()");
 
         Assert.True(closed, "The lifetime and quota are not under a closed Advanced section.");
 

@@ -87,4 +87,33 @@ public sealed class ItemStructureTests : ConsoleTest
 
         Assert.False(asked, "The item page asked /limits of a feature service, which answers 404 on every page.");
     }
+
+    /// <summary>Step 6: Manage tiles on Overview opens Settings › Tile layer, and Pre-built counts only what is cached.</summary>
+    [Fact]
+    public async Task Manage_tiles_opens_the_Tile_layer_section_and_prebuilt_is_what_is_cached()
+    {
+        (string token, _) = await SignInAsync();
+        string service = Environment.GetEnvironmentVariable("GRATICULA_TEST_LARGE") ?? "hosted/ci_many";
+
+        await OpenAsync($"/studio/#/service/{service}", token);
+
+        await WaitForAsync("!!document.querySelector('[data-manage-tiles]')",
+            "Overview has no Manage tiles button for a service with tiles; the cache was reachable only through a layer.");
+
+        await ClickAsync("[data-manage-tiles]");
+
+        await WaitForAsync(
+            "!!document.querySelector('#page-tiles.on #tilesStatus dl') && /section=tiles/.test(location.hash)",
+            "Manage tiles did not open Settings › Tile layer with the cache's status.");
+
+        // The verification blocker, as the mechanism: a level seeded and since emptied is not pre-built.
+        bool[] summary = await Browser.EvaluateAsync<bool[]>(
+            "(() => { const a = prebuiltSummary([{ zoom: 3, lastSeeded: '2026-09-30T00:00:00Z', cached: 0 }]);"
+            + " const b = prebuiltSummary([{ zoom: 3, lastSeeded: '2026-09-30T00:00:00Z', cached: 1 }]);"
+            + " return [a.warm.length === 0, a.cleared, b.warm.length === 1, !b.cleared]; })()") ?? [];
+
+        Assert.Equal([true, true, true, true], summary);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
 }
