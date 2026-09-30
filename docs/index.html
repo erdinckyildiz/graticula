@@ -418,7 +418,7 @@ pre .k{color:var(--accent)}
           </div>
 
           <div class="cap">
-            <i class="sw half"><span class="vh">Partial.</span></i>
+            <i class="sw full"><span class="vh">Complete.</span></i>
             <div>
               <h3>Vector tile services</h3>
               <p>Tiles from hosted data, registered PostGIS tables and GeoParquet or DuckDB sources,
@@ -429,8 +429,10 @@ pre .k{color:var(--accent)}
               <b>a publisher uploads a sprite sheet per service</b>, so a style can draw icons; the
               server checks the style's icon names against it. The cache can be seeded before the
               first request, and an expired tile stands in while its source refuses. A service may
-              be cut on a TUREF grid instead of Web Mercator. <b>A registered table's tiles can lag
-              its edits by their cache lifetime</b>, five minutes by default. <b>A layer's own picture
+              be cut on a TUREF grid instead of Web Mercator, and every TUREF grid holds the whole of
+              Türkiye, its seas included. An edit made through this server empties the layer's tiles at
+              once; <b>a registered table edited in another tool can be drawn up to its cache lifetime
+              late</b>, five minutes by default. <b>A layer's own picture
               markers are drawn on every face</b>: the server packs them into the service's sprite sheet
               and the style draws them from it. There is no shared icon library.</p>
               <p class="ops"><code>tile</code><code>resources/styles</code><code>exportTiles</code></p>
@@ -505,7 +507,10 @@ pre .k{color:var(--accent)}
             <h3>Tiles to take offline</h3>
             <p>A vector tile service exports as a VTPK, through ArcGIS&rsquo;s
             <code>exportTiles</code>, or as a PMTiles archive &mdash; off until the service&rsquo;s
-            owner turns it on. <b>Not yet opened in Field Maps, Pro or a PMTiles reader.</b></p>
+            owner turns it on. ArcGIS Pro opens both kinds of VTPK, on Web Mercator and on TUREF;
+            Esri&rsquo;s own export client &mdash; the Maps SDK Field Maps is built on &mdash; completes
+            <code>exportTiles</code> against it; <code>pmtiles verify</code> accepts the archive and
+            MapLibre draws it. <b>The Field Maps app itself has not been watched.</b></p>
           </div>
         </div>
       </div>
@@ -555,8 +560,8 @@ pre .k{color:var(--accent)}
               <h3>No offline editing</h3>
               <p>No <code>createReplica</code> and no sync, so Field Maps offline areas and
               Pro&rsquo;s <em>Download Map</em> cannot take this server&rsquo;s features offline.
-              Deferred from v1 by decision, not overlooked. Vector tiles can be exported as a
-              package, which has not yet been tried in either.</p>
+              Deferred from v1 by decision, not overlooked. Vector tiles can be taken offline as a
+              package, which Pro opens and Esri&rsquo;s Maps SDK fetches through <code>exportTiles</code>.</p>
             </div>
           </div>
 
