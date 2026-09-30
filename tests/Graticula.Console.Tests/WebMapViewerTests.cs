@@ -396,6 +396,76 @@ public sealed class WebMapViewerTests : ConsoleTest
         }
     }
 
+    /// <summary>ADR-110: a layer's pop-up is set in the map — a title with a field in it, the fields shown.</summary>
+    [Fact]
+    public async Task A_layers_pop_up_is_set_in_the_map_and_drawn_from_it()
+    {
+        (string token, string cookie) = await SignInAsync();
+
+        string layerUrl = await AnyFeatureLayerUrlAsync(token);
+
+        string document = JsonSerializer.Serialize(new
+        {
+            title = "ADR-110 console test",
+            sharing = "private",
+            document = new
+            {
+                operationalLayers = new object[]
+                {
+                    new { id = "pops", layerType = "ArcGISFeatureLayer", url = layerUrl, title = "Popped", visibility = true, opacity = 1 },
+                },
+                baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
+                version = "2.31",
+            },
+        });
+
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/webmaps", document);
+
+        Assert.True(status == 201, $"Saving the map through the API answered {status}: {body}");
+
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
+
+            await WaitForAsync("!!document.querySelector('#layerList button[data-act=popup][data-layer=pops]')",
+                "A feature layer offers no Pop-up.");
+
+            await ClickAsync("#layerList button[data-act=popup][data-layer=pops]");
+
+            await WaitForAsync("document.querySelectorAll('#pop-pops [data-pop-field]').length > 0",
+                "The Pop-up panel lists none of the layer's fields.");
+
+            // Only the first field, and a title made of it.
+            string first = await Browser.EvaluateAsync<string>("""
+                (() => {
+                  const boxes = [...document.querySelectorAll('#pop-pops [data-pop-field]')];
+                  boxes.forEach((b, i) => b.checked = i === 0);
+                  document.getElementById('popTitle-pops').value = 'Feature {' + boxes[0].dataset.popField + '}';
+                  return boxes[0].dataset.popField;
+                })()
+                """) ?? "";
+
+            await ClickAsync("#layerList button[data-act=popupApply][data-layer=pops]");
+
+            await WaitForAsync("!!wmLayers()[0].popupInfo && wmLayers()[0].popupInfo.fieldInfos.filter(f => f.visible).length === 1",
+                "Apply did not put the pop-up in the map's document.");
+
+            string drawn = await Browser.EvaluateAsync<string>(
+                $"wmPopupMarkup(wmLayers()[0], {{ '{first}': 'seven', other: 'hidden' }}, null)") ?? "";
+
+            Assert.Contains("Feature seven", drawn, StringComparison.Ordinal);
+            Assert.DoesNotContain("hidden", drawn, StringComparison.Ordinal);
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
+    }
+
     /// <summary>The address of some feature layer this server publishes.</summary>
     private async Task<string> AnyFeatureLayerUrlAsync(string token)
     {

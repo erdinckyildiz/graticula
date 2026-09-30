@@ -9,6 +9,8 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-079](ADR-079-a-web-map-is-a-saved-document.md) (the map document carries a layer's style); [ADR-102](ADR-102-the-studio-item-is-one-page-and-every-setting-has-one-home.md) §5.4 (the layer default keeps its home; a map's own style is a second, narrower one) |
 
+
+> **2026-10-01: [ADR-110](ADR-110-a-web-map-sets-its-layers-pop-ups.md) adds the same for pop-ups** — `popupInfo` and `popupEnabled` beside `layerDefinition.drawingInfo`, from a *Pop-up* panel beside *Style*.
 ---
 
 ## 1. Context

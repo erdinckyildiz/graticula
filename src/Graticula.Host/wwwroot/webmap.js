@@ -1023,13 +1023,17 @@ function wmDrawLayerList() {
           aria-label="Move ${wmEscape(title)} down">&darr;</button>
         ${readable && kind === "feature" ? `<button class="tiny" data-act="style" data-layer="${wmEscape(key)}"
           data-focus="style:${wmEscape(key)}" aria-expanded="${run.styleOpen ? "true" : "false"}"
-          aria-controls="sty-${wmEscape(key)}">Style</button>` : ""}
+          aria-controls="sty-${wmEscape(key)}">Style</button>
+          <button class="tiny" data-act="popup" data-layer="${wmEscape(key)}"
+          data-focus="popup:${wmEscape(key)}" aria-expanded="${run.popupOpen ? "true" : "false"}"
+          aria-controls="pop-${wmEscape(key)}">Pop-up</button>` : ""}
         ${readable && wmExtentOf(layer) ? `<button class="tiny" data-act="zoom" data-layer="${wmEscape(key)}"
           data-focus="zoom:${wmEscape(key)}">Zoom to</button>` : ""}
         <button class="tiny danger" data-act="remove" data-layer="${wmEscape(key)}"
           data-focus="remove:${wmEscape(key)}" aria-label="Remove ${wmEscape(title)} from the map">Remove</button>
       </div>
       ${readable && kind === "feature" && run.styleOpen ? wmStyleMarkup(layer, run, key, title) : ""}
+      ${readable && kind === "feature" && run.popupOpen ? wmPopupPanel(layer, run, key, title) : ""}
       ${kind === "feature" ? wmFilterMarkup(layer, run, key, title, filter) : ""}
     </li>`;
   }).join("");
@@ -1176,6 +1180,69 @@ function wmStyleLegend(layer) {
   return `<ul class="lslegend">${shown.map(row => `<li><span class="swatch" aria-hidden="true"
       style="background:${wmEscape(wmSymbolColour(row.symbol) || "transparent")}"></span>${wmEscape(String(row.label ?? row.value ?? ""))}</li>`).join("")}
     ${rows.length > shown.length ? `<li class="lkind">and ${rows.length - shown.length} more</li>` : ""}</ul>`;
+}
+
+/**
+ * A layer's pop-up in this map — ADR-110, Portal's *Configure pop-ups* in its plain form: shown or not, a title with
+ * `{field}` in it, and which fields appear under what label. Saved in the Web Map as `popupInfo`, where ArcGIS
+ * clients read it.
+ */
+function wmPopupPanel(layer, run, key, title) {
+  const k = wmEscape(key);
+  const fields = wmUserFields(run.info);
+  const popup = layer.popupInfo || null;
+  const shown = new Map(((popup && popup.fieldInfos) || []).map(f => [f.fieldName, f]));
+  const enabled = layer.popupEnabled !== false;
+
+  return `<div class="lstyle" id="pop-${k}">
+    <p class="lsnote">${popup ? "This map's own pop-up." : "Every field, as the layer has them."}</p>
+    <label class="check"><input type="checkbox" id="popOn-${k}"${enabled ? " checked" : ""}> Show a pop-up when a feature is clicked</label>
+    <label class="lkind" for="popTitle-${k}">Title — a field in braces is its value, as {${wmEscape((fields[0] || {}).name || "name")}}</label>
+    <input type="text" id="popTitle-${k}" value="${wmEscape((popup && popup.title) || "")}" placeholder="${wmEscape(title)}">
+    <table class="popfields"><thead><tr><th>Show</th><th>Field</th><th>Label</th></tr></thead><tbody>
+      ${fields.map(f => {
+        const at = shown.get(f.name);
+        const visible = popup ? !!(at && at.visible !== false) : true;
+        return `<tr><td><input type="checkbox" data-pop-field="${wmEscape(f.name)}"${visible ? " checked" : ""}
+            aria-label="Show ${wmEscape(f.name)}"></td><td>${wmEscape(f.name)}</td>
+          <td><input type="text" data-pop-label="${wmEscape(f.name)}" value="${wmEscape((at && at.label) || f.alias || f.name)}"
+            aria-label="Label of ${wmEscape(f.name)}"></td></tr>`;
+      }).join("")}
+    </tbody></table>
+    <div class="row">
+      <button class="tiny" data-act="popupApply" data-layer="${k}" data-focus="popupApply:${k}">Apply to this map</button>
+      ${popup ? `<button class="tiny" data-act="popupReset" data-layer="${k}" data-focus="popupReset:${k}">Every field again</button>` : ""}
+    </div>
+  </div>`;
+}
+
+/** Reads a layer's Pop-up panel into the Web Map's `popupInfo` and `popupEnabled`. */
+function wmApplyPopup(layer, reset = false) {
+  const k = layer.id;
+  const panel = wm$(`pop-${k}`);
+  if (!panel) return;
+
+  layer.popupEnabled = wm$(`popOn-${k}`).checked;
+  if (layer.popupEnabled) delete layer.popupEnabled;
+
+  if (reset) {
+    delete layer.popupInfo;
+  } else {
+    layer.popupInfo = {
+      title: wm$(`popTitle-${k}`).value.trim() || undefined,
+      fieldInfos: [...panel.querySelectorAll("[data-pop-field]")].map(box => ({
+        fieldName: box.dataset.popField,
+        label: (panel.querySelector(`[data-pop-label="${CSS.escape(box.dataset.popField)}"]`) || {}).value || box.dataset.popField,
+        visible: box.checked,
+      })),
+    };
+  }
+
+  wmMarkDirty();
+  wmDrawLayerList();
+  wmSayIn("layersStatus", reset
+    ? `${layer.title} shows every field again. Save the map to keep it.`
+    : `${layer.title}'s pop-up is set in this map. Save the map to keep it.`);
 }
 
 /** The colour ramps the classes panel offers, light to strong. */
@@ -1460,7 +1527,7 @@ wm$("layerList").addEventListener("click", event => {
       if (run) {
         const opening = !run.styleOpen;
         // One panel at a time: two open ones push the list past the window.
-        for (const other of wmLayers()) { const r = wmRuntime.get(other); if (r) r.styleOpen = false; }
+        for (const other of wmLayers()) { const r = wmRuntime.get(other); if (r) { r.styleOpen = false; r.popupOpen = false; } }
         run.styleOpen = opening;
         run.styleError = null;
       }
@@ -1468,6 +1535,18 @@ wm$("layerList").addEventListener("click", event => {
       break;
     }
     case "styleApply": wmApplyStyle(layer); break;
+    case "popup": {
+      const run = wmRuntime.get(layer);
+      if (run) {
+        const opening = !run.popupOpen;
+        for (const other of wmLayers()) { const r = wmRuntime.get(other); if (r) { r.popupOpen = false; r.styleOpen = false; } }
+        run.popupOpen = opening;
+      }
+      wmDrawLayerList();
+      break;
+    }
+    case "popupApply": wmApplyPopup(layer); break;
+    case "popupReset": wmApplyPopup(layer, true); break;
     case "styleDefault": wmSaveStyleAsDefault(layer); break;
     case "remove": {
       const layers = wmLayers();
@@ -1760,6 +1839,30 @@ function wmSystemField(name, info) {
   return /^(objectid|fid|globalid|shape__?(area|length)|shape_(area|length)|st_(area|length)\(.*\))$/i.test(lower);
 }
 
+/**
+ * One feature's pop-up: the map's own for the layer when it has one — ADR-110, the Web Map's `popupInfo`, a title
+ * written with `{field}` and the fields shown, in order, under their labels — otherwise every attribute, as before.
+ */
+function wmPopupMarkup(layer, attributes, info) {
+  const popup = layer.popupInfo;
+
+  if (!popup || !Array.isArray(popup.fieldInfos)) {
+    return `<table class="feature">${wmAttributeRows(attributes, info)
+      || `<tr><td>No attributes besides its identifiers.</td></tr>`}</table>`;
+  }
+
+  const value = name => {
+    const v = (attributes || {})[name];
+    return v === null || v === undefined ? "—" : String(v);
+  };
+  const title = popup.title ? String(popup.title).replace(/\{([^}]+)\}/g, (_, name) => value(name.trim())) : "";
+  const rows = popup.fieldInfos.filter(f => f && f.visible !== false && f.fieldName)
+    .map(f => `<tr><th scope="row">${wmEscape(f.label || f.fieldName)}</th><td>${wmEscape(value(f.fieldName))}</td></tr>`).join("");
+
+  return `${title ? `<p class="ptitle">${wmEscape(title)}</p>` : ""}<table class="feature">${rows
+    || `<tr><td>This map's pop-up shows no fields for this layer.</td></tr>`}</table>`;
+}
+
 function wmAttributeRows(attributes, info) {
   const aliases = new Map(((info && info.fields) || []).map(f => [f.name, f.alias || f.name]));
   return Object.keys(attributes || {}).filter(key => !wmSystemField(key, info)).map(key => `<tr><th scope="row">${wmEscape(aliases.get(key) || key)}</th>
@@ -1782,7 +1885,8 @@ let wmMeasuring = null;
 async function wmIdentify(coordinate) {
   const card = wm$("identify");
   const turn = ++wmIdentifyTurn;
-  const layers = wmQueryable({ visibleOnly: true });
+  // A layer whose pop-up the map switched off is not asked (ADR-110, `popupEnabled`).
+  const layers = wmQueryable({ visibleOnly: true }).filter(layer => layer.popupEnabled !== false);
 
   wmHighlight.getSource().clear();
   card.hidden = true;
@@ -1835,8 +1939,7 @@ async function wmIdentify(coordinate) {
     wmHighlight.getSource().addFeatures(WM_ESRI.readFeatures(payload, { featureProjection: WM_MERCATOR }));
 
     return `<h3>${wmEscape(layer.title)} <span class="lkind">${features.length}${payload.exceededTransferLimit ? "+" : ""}</span></h3>`
-      + features.map(f => `<table class="feature">${wmAttributeRows(f.attributes, info)
-        || `<tr><td>No attributes besides its identifiers.</td></tr>`}</table>`).join("");
+      + features.map(f => wmPopupMarkup(layer, f.attributes, info)).join("");
   }).join("");
 
   if (!sections) {
