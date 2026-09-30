@@ -4432,4 +4432,13 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 /* Server › service › Layers (owner decision 2026-10-01). */
 #page-layers .srvlayer { padding: var(--gap-3) 0; border-bottom: 1px solid var(--rule); }
 #page-layers .srvlayer .row { display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
-#page-layers .srvlayer.asked { background: var(--accent-soft, transparent); }
+#page-layers .srvlayer.asked { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+#page-layers .srvlayer { scroll-margin-top: 160px; }
+#page-layers .srvlayer h4 { margin: 0; padding: 0; border: 0; text-transform: none; letter-spacing: 0;
+  font-size: inherit; color: inherit; font-weight: 600; }
+#page-layers .srvlayer { padding-left: 12px; padding-right: 12px; }
+#page-layers .srvlayer dd .val { font-family: inherit; }
+#page-layers .srvlayer:focus { outline: none; }
+#updateData .check > span { display: flex; flex-direction: column; }
+#updateData .check .hint { margin: 0; }
+#updateData .dialogfoot .fill { flex: 1; margin: 0; }

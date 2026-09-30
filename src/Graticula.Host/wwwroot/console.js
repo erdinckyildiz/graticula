@@ -2582,6 +2582,39 @@ document.addEventListener("toggle", event => {
 
 window.addEventListener("hashchange", route);
 
+/**
+ * Update data's button and warning follow the choice: *Replace all features* is said on the button, in the danger
+ * style, with the layer it empties named above it — the one irreversible choice in the dialog does not look like
+ * the other (design review 2026-10-01). The shapefile's coordinate system is asked only for a shapefile.
+ */
+function drawUpdateChoice() {
+  const replacing = document.querySelector('input[name="updateDataHow"]:checked')?.value === "overwrite";
+  const go = $("updateDataGo");
+  const warn = $("updateDataWarn");
+  const layer = $("updateDataLayer")?.value || "";
+
+  if (go) {
+    go.textContent = replacing ? "Replace all features" : "Add features";
+    go.classList.toggle("primary", !replacing);
+    go.classList.toggle("danger", replacing);
+  }
+
+  if (warn) {
+    warn.hidden = !replacing;
+    warn.innerHTML = replacing
+      ? `<b class="bad-inline">Removes every feature and attachment of ${h(layer)}.</b> They cannot be recovered.` : "";
+  }
+
+  const file = $("updateDataFile")?.files?.[0];
+  const row = $("updateDataSridRow");
+  if (row) row.hidden = !(file && /\.zip$/i.test(file.name));
+}
+
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (t instanceof Element && t.closest("#updateData")) drawUpdateChoice();
+});
+
 // The Export data dialog is about the page it was opened on; Back, a link or a typed address closes it.
 window.addEventListener("hashchange", () => {
   if ($("exportData")?.open) $("exportData").close();
@@ -6691,7 +6724,7 @@ function drawServiceSettings(name, folder) {
   if (open === "layers") {
     const asked = new URLSearchParams(location.hash.split("?")[1] || "").get("layer");
     const block = asked !== null ? $(`srvLayer-${asked}`) : null;
-    if (block) { block.scrollIntoView({ block: "start" }); block.classList.add("asked"); }
+    if (block) { block.classList.add("asked"); block.scrollIntoView({ block: "start" }); block.focus({ preventScroll: true }); }
   }
   if (open === "feature") section("editing", () => drawFeatureFacts(name, folder));
 
@@ -15300,17 +15333,17 @@ function serverLayersMarkup() {
       const name = one.name || "";
       const l = layerNamed(name);
       return `
-      <div class="srvlayer" id="srvLayer-${h(String(one.id ?? 0))}">
+      <div class="srvlayer" id="srvLayer-${h(String(one.id ?? 0))}" tabindex="-1">
         <div class="row">
-          <b>${h(name)}</b> <span class="rowmeta">id ${num(one.id ?? 0)}</span>
+          <h4>${h(name)}</h4> <span class="rowmeta">id ${num(one.id ?? 0)}</span>
           ${pill(l.hosted ? "hosted" : "registered")}
           <span style="flex:1"></span>
           <button type="button" class="tiny" data-show="${h(name)}">Show on map</button>
           <button type="button" class="tiny" data-refresh="${h(name)}"
-            title="Read the table's columns and extent again, after it was changed outside this server">Forget remembered shape</button>
+            title="After the table was changed outside this server">Re-read columns and extent</button>
         </div>
-        <dl class="facts">
-          <dt>Source table</dt><dd>${h(l.table || "—")}</dd>
+        <dl class="facts2">
+          <dt>Source table</dt><dd><code>${h(l.table || "—")}</code></dd>
           <dt>Data source</dt><dd>${h(l.dataSource || "—")}</dd>
           <dt>Owner</dt><dd>${h(l.owner || "—")}</dd>
           ${endpointsMarkup(name, l, placeOf(name))}
@@ -23740,23 +23773,27 @@ async function handleClick(event) {
         <select id="updateDataLayer">${hosted.map(one => `<option value="${h(one.name || "")}">${
           h(one.name || `layer ${one.id}`)}</option>`).join("")}</select></div>
       <fieldset class="offered"><legend>What to do</legend>
-        <label class="check"><input type="radio" name="updateDataHow" value="append" checked> Add features —
-          the file's features are added to those the layer has</label>
-        <label class="check"><input type="radio" name="updateDataHow" value="overwrite"> Replace all features —
-          every feature and attachment the layer has is removed, and the file's put in their place</label>
+        <label class="check"><input type="radio" name="updateDataHow" value="append" checked>
+          <span><b>Add features</b><span class="hint">The file's features are added to those the layer has.</span></span></label>
+        <label class="check"><input type="radio" name="updateDataHow" value="overwrite">
+          <span><b>Replace all features</b><span class="hint">Every feature and attachment the layer has now is
+            removed, and the file's are put in their place.</span></span></label>
       </fieldset>
+      <p class="hint" id="updateDataWarn" hidden></p>
+      <p class="hint"><b>If anything in the file does not fit, nothing is written.</b></p>
       <div class="stacked"><label for="updateDataFile">File — GeoJSON, or a zipped shapefile</label>
         <input type="file" id="updateDataFile" accept=".geojson,.json,.zip"></div>
-      <div class="stacked" id="updateDataSridRow"><label for="updateDataSrid">Coordinate system of a shapefile
+      <div class="stacked" id="updateDataSridRow" hidden><label for="updateDataSrid">Coordinate system of the shapefile
         (EPSG code; leave empty to read it from the .prj)</label>
         <input type="text" id="updateDataSrid" inputmode="numeric" placeholder="from the .prj"></div>
-      <p class="hint">The layer keeps its fields, its geometry type and its coordinate system: a column the file
-        has and the layer does not is left out and named, and the geometry is transformed if it needs to be. If
-        anything in the file does not fit, nothing is written.</p>
-      <p class="hint" id="updateDataSays" role="status" aria-live="polite"></p>`;
-    $("updateDataFoot").innerHTML = `<span class="fill"></span>
+      <details class="more"><summary>What is kept</summary><p class="hint">The layer keeps its fields, its geometry
+        type and its coordinate system: a column the file has and the layer does not is left out and named, and the
+        geometry is transformed into the layer's coordinate system if it needs to be.</p></details>`;
+    // The answer stands in the footer, where it is in view at any width (design review 2026-10-01).
+    $("updateDataFoot").innerHTML = `<p class="hint fill" id="updateDataSays" role="status" aria-live="polite"></p>
       <button type="button" class="ghost" id="updateDataCancel">Cancel</button>
-      <button type="button" class="primary" id="updateDataGo">Update</button>`;
+      <button type="button" class="primary" id="updateDataGo">Add features</button>`;
+    drawUpdateChoice();
     $("updateData").showModal();
     $("updateDataTitle").focus();
     return;
