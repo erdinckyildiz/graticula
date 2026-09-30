@@ -63,8 +63,13 @@ for a second step because Esri's own readers are the ones to measure it against 
 
 ## 5. Decision
 
-5.1 `GET /admin/services/{service}/layers/{id}/export?folder=…&format=gpkg|shapefile|xlsx` answers the file:
-`application/geopackage+sqlite3`, a zip of the shapefile's parts, or a workbook of the attributes.
+5.1 `POST /admin/services/{service}/layers/{id}/export?folder=…&format=gpkg|shapefile|xlsx` answers the file:
+`application/geopackage+sqlite3`, a zip of the shapefile's parts, or a workbook of the attributes. **Four more on the
+same road, 2026-09-30 (ADR-106 §5.6):** `fgdb` — a zipped `.gdb` folder written by OpenFileGDB, in the layer's own
+reference, the folder itself inside the zip as ArcGIS Online's is; `kml` (LIBKML), `geojson` (RFC 7946) and `csv` in
+WGS 84 — a point layer's CSV with X and Y columns, any other geometry as one WKT column, and a byte-order mark. The
+console's CSV and GeoJSON stopped being built in the browser, and their 100,000-row cap went with it. Alternative C's
+caution stands: Esri's own readers have not opened the File Geodatabase yet.
 
 5.2 **Who may** — owner decision 2026-10-01, relayed through ADR-106: the owner and administrators always; another
 signed-in reader only when the owner has *chosen* Extract in Settings › Feature layer (unchosen is off, and an

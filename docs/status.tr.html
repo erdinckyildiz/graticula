@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>e921c0e</code> · 2026-09-30 15:24</p>
+<p class="stamp">Şu commit’ten üretildi: <code>9c3c96e</code> · 2026-09-30 15:37</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">107</div><div class="kpi-l">ADR</div><div class="kpi-n">26 koşulsuz kabul</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4321</div><div class="kpi-l">test</div><div class="kpi-n">407 kaynak dosya, 180,889 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4321</div><div class="kpi-l">test</div><div class="kpi-n">407 kaynak dosya, 180,943 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -444,6 +444,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>9c3c96e</code><time>2026-09-30</time><span>A layer is exported as a GeoPackage, a zipped shapefile or a workbook (ADR-107, ADR-106&#x27;s first step); a web map has an item page</span></li>
 <li><code>e921c0e</code><time>2026-09-30</time><span>ADR-106 (draft): a layer&#x27;s data can be exported as a file, in the eight formats ArcGIS Online offers</span></li>
 <li><code>f59126e</code><time>2026-09-30</time><span>ArcGIS clients append to a hosted layer through uploads/upload and append (ADR-105); Settings lists Tile layer at once</span></li>
 <li><code>5004878</code><time>2026-09-30</time><span>Vector tile services are complete in the README and on the overview page</span></li>
@@ -457,7 +458,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>90f1a71</code><time>2026-09-30</time><span>Esri&#x27;s own export client completes against us: job status and results take POST, and the package address answers f=json</span></li>
 <li><code>d1b5e77</code><time>2026-09-30</time><span>Settings no longer redraws whole when the layers arrive; the delete panel shows only under General; the map&#x27;s Style panel starts from the style it has</span></li>
 <li><code>e9a5d8f</code><time>2026-09-30</time><span>A web map styles its own layers (ADR-104)</span></li>
-<li><code>a8b24d3</code><time>2026-09-30</time><span>The style preview is a layer of its map, so it zooms with the basemap instead of lagging behind it</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

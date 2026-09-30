@@ -5762,20 +5762,12 @@ async function loadServiceData() {
 }
 
 /**
- * Writes every row of the layer on the Data tab to a file — CSV of the attributes, or GeoJSON with the
- * geometry.
- *
- * <b>Read in pages through the layer's own query</b>, the same one any ArcGIS client uses, so what is
- * exported is exactly what this reader may read, and nothing new is exposed on the server. Stopped at
- * 100,000 rows and said so, because a browser tab holding more is the wrong tool; the layer's REST
- * address is the right one, and the note names it.
- */
-/**
- * A GeoPackage, a zipped shapefile or a workbook, made by the server — ADR-107. The server reads every row in the
- * layer's own reference and GDAL writes the file, so a TUREF layer leaves as TUREF; the answer is saved as it comes.
+ * A layer's rows as a file, made by the server — ADR-107 and ADR-106. The server reads every row and GDAL writes the
+ * file: GeoPackage, shapefile, File Geodatabase and the workbook in the layer's own reference, so a TUREF layer leaves
+ * as TUREF; KML, CSV and GeoJSON in WGS 84, as their readers expect. The answer is saved as it comes.
  */
 async function exportLayerFile(format, button, index) {
-  const says = text => { const s = $("exportDataSays"); if (s) s.textContent = text; };
+  const says = text => { const s = $("exportDataSays") || $("dataSays"); if (s) s.textContent = text; };
   const [folder, name] = serviceOpen.qualified.includes("/")
     ? serviceOpen.qualified.split("/") : ["", serviceOpen.qualified];
 
@@ -5812,72 +5804,17 @@ async function exportLayerFile(format, button, index) {
   }
 }
 
+/**
+ * Writes every row of the chosen layer to a file, made by the server — ADR-107, with ADR-106's formats.
+ *
+ * <b>No format is built in the browser any more.</b> CSV and GeoJSON were, from pages of the layer's query, and
+ * stopped at 100,000 rows; the server writes them as it writes the other five, up to a million.
+ */
 async function exportServiceData(format, button, chosen = null) {
   const index = chosen ?? $("dataLayer")?.value;
   if (!serviceOpen || index === undefined || index === "") return;
 
-  // The formats GDAL writes are the server's; CSV and GeoJSON are built here from the query, as before.
-  if (["gpkg", "shapefile", "xlsx"].includes(format)) {
-    await exportLayerFile(format, button, index);
-    return;
-  }
-
-  const root = `/rest/services/${
-    serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer/${encodeURIComponent(index)}`;
-  const says = text => { const s = $("exportDataSays") || $("dataSays"); if (s) s.textContent = text; };
-  const cap = 100000;
-  const page = 2000;
-  const geojson = format === "geojson";
-  const features = [];
-  let fields = null;
-
-  button.disabled = true;
-
-  try {
-    for (let offset = 0; offset < cap; offset += page) {
-      says(`Reading rows ${num(offset + 1)} onward…`);
-      const answer = await api(`${root}/query?where=1%3D1&outFields=*&returnGeometry=${geojson}`
-        + `&resultRecordCount=${page}&resultOffset=${offset}${geojson ? "&outSR=4326&f=geojson" : "&f=json"}`);
-      const got = answer.features || [];
-      if (!fields && answer.fields) fields = answer.fields;
-      features.push(...got);
-      if (got.length < page && !answer.exceededTransferLimit
-          && !(answer.properties && answer.properties.exceededTransferLimit)) break;
-    }
-
-    const name = (serviceOpen.qualified.split("/").pop() || "layer") + (index === "0" ? "" : `_${index}`);
-    let blob;
-
-    if (geojson) {
-      blob = new Blob([JSON.stringify({ type: "FeatureCollection", features })], { type: "application/geo+json" });
-    } else {
-      const names = (fields || []).map(f => f.name).filter(Boolean);
-      const columns = names.length ? names : [...new Set(features.flatMap(f => Object.keys(f.attributes || {})))];
-      const cell = v => {
-        if (v === null || v === undefined) return "";
-        const text = String(v);
-        return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-      };
-      const lines = [columns.map(cell).join(","),
-        ...features.map(f => columns.map(c => cell((f.attributes || {})[c])).join(","))];
-      // A byte-order mark, so a spreadsheet opens Turkish letters as letters.
-      blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
-    }
-
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `${name}.${geojson ? "geojson" : "csv"}`;
-    document.body.appendChild(link);
-    link.click();
-    setTimeout(() => { URL.revokeObjectURL(link.href); link.remove(); }, 1000);
-
-    says(`${num(features.length)} row${features.length === 1 ? "" : "s"} written to ${link.download}.${
-      features.length >= cap ? ` Stopped at ${num(cap)}; for more, query ${root} directly.` : ""}`);
-  } catch (e) {
-    says(`Not exported: ${e.message || e}`);
-  } finally {
-    button.disabled = false;
-  }
+  await exportLayerFile(format, button, index);
 }
 
 /**
@@ -24290,16 +24227,18 @@ async function handleClick(event) {
         <select id="exportDataLayer">${drawable.map(one => `<option value="${h(String(one.id ?? 0))}">${
           h(one.name || `layer ${one.id}`)}</option>`).join("")}</select></div>
       <fieldset class="offered"><legend>Format</legend>
-        <label class="check"><input type="radio" name="exportDataFormat" value="csv" checked> CSV — the attributes, for a spreadsheet</label>
-        <label class="check"><input type="radio" name="exportDataFormat" value="geojson"> GeoJSON — with the geometry, in WGS 84</label>
-        <label class="check"><input type="radio" name="exportDataFormat" value="gpkg"> GeoPackage — with the geometry, in the layer's own coordinate system</label>
+        <label class="check"><input type="radio" name="exportDataFormat" value="gpkg" checked> GeoPackage — with the geometry, in the layer's own coordinate system</label>
+        <label class="check"><input type="radio" name="exportDataFormat" value="fgdb"> File Geodatabase (zipped) — for ArcGIS Pro, in the layer's own coordinate system</label>
         <label class="check"><input type="radio" name="exportDataFormat" value="shapefile"> Shapefile (zipped) — for any desktop GIS, in the layer's own coordinate system</label>
+        <label class="check"><input type="radio" name="exportDataFormat" value="kml"> KML — for Google Earth, in WGS 84</label>
+        <label class="check"><input type="radio" name="exportDataFormat" value="geojson"> GeoJSON — with the geometry, in WGS 84</label>
+        <label class="check"><input type="radio" name="exportDataFormat" value="csv"> CSV — the attributes, with X and Y for points or WKT for other shapes, in WGS 84</label>
         <label class="check"><input type="radio" name="exportDataFormat" value="xlsx"> Excel — the attributes, as a workbook</label>
       </fieldset>
       ${tiled ? `<p class="hint">Tiles for offline use — a VTPK for ArcGIS Field Maps and Pro, or PMTiles — are built as
         packages in <a href="#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings&section=tiles">Settings › Tile layer</a>.</p>` : ""}
-      <p class="hint" id="exportDataSays" role="status" aria-live="polite">Every row of the layer is written — up to 100,000
-        as CSV or GeoJSON, a million as the other three.</p>`;
+      <p class="hint" id="exportDataSays" role="status" aria-live="polite">Every row of the layer is written by the server, up
+        to a million.</p>`;
     $("exportDataFoot").innerHTML = `<span class="fill"></span>
       <button type="button" class="ghost" id="exportDataCancel">Cancel</button>
       <button type="button" class="primary" id="exportDataGo">Download</button>`;

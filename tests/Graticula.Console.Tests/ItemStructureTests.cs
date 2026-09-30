@@ -254,7 +254,7 @@ public sealed class ItemStructureTests : ConsoleTest
         await ClickAsync("#exportDataGo");
 
         await WaitForAsync(
-            "/written to/.test(document.getElementById('exportDataSays').textContent)",
+            "/written to/i.test(document.getElementById('exportDataSays').textContent)",
             "The export dialog did not write the chosen layer.");
 
         await OpenAsync($"/studio/#/service/{Service()}?tab=data&layer=0", token);

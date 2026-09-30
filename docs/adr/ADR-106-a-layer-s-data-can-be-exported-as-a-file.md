@@ -16,6 +16,14 @@
 
 ---
 
+> **Progress, 2026-09-30.** The owner decided two more things the same day. **Unchosen Extract is off**: a reader
+> other than the owner and administrators exports only where the owner has chosen Extract, as §5.5 and the top of
+> §12 proposed. **This is built on [ADR-107](ADR-107-a-layer-is-exported-as-geopackage-shapefile-or-workbook.md)**,
+> which another session had built without knowing of this draft: its synchronous `POST …/layers/{id}/export` went
+> first, and this ADR's job, packaging and the rest follow on top of it. Since then the same route also writes
+> File Geodatabase, KML, CSV and GeoJSON (ADR-107 §5.1); still to come from this ADR are Esri JSON, the job with its
+> 2,000,000 rows and multi-layer packaging, and Extract's announcement in `capabilities` with the console's gate.
+
 ## 1. Context
 
 Studio's Overview › *Export data* (`console.js` `exportServiceData`, ~5591-5651) is a loop in the browser. It pages

@@ -53,7 +53,14 @@ internal static class LayerExportEndpoints
             ["gpkg"] = (".gpkg", "application/geopackage+sqlite3"),
             ["shapefile"] = (".zip", "application/zip"),
             ["xlsx"] = (".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+
+            // ADR-106's formats, on ADR-107's road. A File Geodatabase is a folder, zipped as the shapefile's is.
+            ["fgdb"] = (".gdb.zip", "application/zip"),
+            ["kml"] = (".kml", "application/vnd.google-earth.kml+xml"),
+            ["csv"] = (".csv", "text/csv; charset=utf-8"),
+            ["geojson"] = (".geojson", "application/geo+json"),
         };
+
 
     /// <summary>Maps the route.</summary>
     /// <param name="app">The application.</param>
@@ -87,7 +94,8 @@ internal static class LayerExportEndpoints
 
         if (!Formats.TryGetValue(format, out (string Extension, string Type) kind))
         {
-            await RefuseAsync(context, 400, "'format' is 'gpkg', 'shapefile' or 'xlsx'.").ConfigureAwait(false);
+            await RefuseAsync(context, 400, $"'format' is one of {string.Join(", ", Formats.Keys.Select(k => $"'{k}'"))}.")
+                .ConfigureAwait(false);
             return;
         }
 
@@ -153,7 +161,17 @@ internal static class LayerExportEndpoints
             }
 
             string name = SafeName(layer.Definition.Name);
-            string output = Path.Combine(work, format == "shapefile" ? "shapefile" : name + kind.Extension);
+            string output = Path.Combine(work, format switch
+            {
+                "shapefile" => "shapefile",
+
+                // The folder's own name is what ArcGIS Pro shows, so it is the layer's, with the suffix it needs.
+                "fgdb" => Path.Combine("fgdb", name + ".gdb"),
+                _ => name + kind.Extension,
+            });
+
+            // GDAL makes the .gdb folder but not the one it sits in.
+            if (format == "fgdb") Directory.CreateDirectory(Path.GetDirectoryName(output)!);
 
             using JsonDocument answer = await reader.AskAsync(
                 new { op = "export", @in = input, @out = output, format, layer = name },
@@ -172,6 +190,13 @@ internal static class LayerExportEndpoints
             {
                 file = Path.Combine(work, name + ".zip");
                 ZipFile.CreateFromDirectory(output, file);
+            }
+            else if (format == "fgdb")
+            {
+                // With the .gdb folder itself inside, as ArcGIS Online's File Geodatabase download is: unzipped, it
+                // is a geodatabase and not a loose set of tables.
+                file = Path.Combine(work, name + kind.Extension);
+                ZipFile.CreateFromDirectory(output, file, CompressionLevel.Optimal, includeBaseDirectory: true);
             }
 
             context.Response.ContentType = kind.Type;

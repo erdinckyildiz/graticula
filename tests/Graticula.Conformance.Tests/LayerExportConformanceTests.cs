@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -78,7 +79,53 @@ public sealed class LayerExportConformanceTests : ArcGisClient
             Assert.Contains(archive.Entries, e => e.FullName == "[Content_Types].xml");
         }
 
-        (HttpStatusCode unknown, _, _) = await ExportAsync(root, token, "kml");
+        // ADR-106's formats on the same road. A File Geodatabase is a zipped .gdb folder, the folder itself inside.
+        (HttpStatusCode fgdb, string? fgdbType, byte[] gdb) = await ExportAsync(root, token, "fgdb");
+
+        Assert.Equal(HttpStatusCode.OK, fgdb);
+        Assert.Equal("application/zip", fgdbType);
+
+        using (ZipArchive archive = new(new MemoryStream(gdb)))
+        {
+            Assert.All(archive.Entries, e => Assert.Contains(".gdb/", e.FullName, StringComparison.Ordinal));
+            Assert.Contains(archive.Entries, e => e.Name.EndsWith(".gdbtable", StringComparison.Ordinal));
+        }
+
+        (HttpStatusCode kml, string? kmlType, byte[] placemarks) = await ExportAsync(root, token, "kml");
+
+        Assert.Equal(HttpStatusCode.OK, kml);
+        Assert.Equal("application/vnd.google-earth.kml+xml", kmlType);
+        Assert.Contains("<kml", Encoding.UTF8.GetString(placemarks), StringComparison.Ordinal);
+
+        // CSV opens in Excel as UTF-8 because it starts with a byte-order mark; its coordinates are WGS 84.
+        (HttpStatusCode csv, _, byte[] table) = await ExportAsync(root, token, "csv");
+
+        Assert.Equal(HttpStatusCode.OK, csv);
+        Assert.Equal([0xEF, 0xBB, 0xBF], table.Take(3));
+        string header = Encoding.UTF8.GetString(table, 3, table.Length - 3).Split('\n')[0];
+        Assert.True(header.Contains("WKT", StringComparison.Ordinal) || header.StartsWith("X,Y", StringComparison.Ordinal),
+            $"The CSV's header carries no geometry: {header}");
+
+        (HttpStatusCode geojson, string? geojsonType, byte[] collection) = await ExportAsync(root, token, "geojson");
+
+        Assert.Equal(HttpStatusCode.OK, geojson);
+        Assert.Equal("application/geo+json", geojsonType);
+
+        using (JsonDocument parsed = JsonDocument.Parse(collection))
+        {
+            Assert.Equal("FeatureCollection", parsed.RootElement.GetProperty("type").GetString());
+            JsonElement first = parsed.RootElement.GetProperty("features")[0].GetProperty("geometry").GetProperty("coordinates");
+
+            while (first.ValueKind == JsonValueKind.Array && first[0].ValueKind == JsonValueKind.Array)
+            {
+                first = first[0];
+            }
+
+            Assert.InRange(first[0].GetDouble(), -180, 180);
+            Assert.InRange(first[1].GetDouble(), -90, 90);
+        }
+
+        (HttpStatusCode unknown, _, _) = await ExportAsync(root, token, "dxf");
 
         Assert.Equal(HttpStatusCode.BadRequest, unknown);
 

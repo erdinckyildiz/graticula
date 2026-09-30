@@ -669,11 +669,23 @@ internal static class Program
     /// operator is told the import worked.
     /// </para>
     /// </remarks>
-    /// <summary>Translates a GeoJSON file into a GeoPackage, a shapefile folder or an Excel workbook — ADR-107.</summary>
+    /// <summary>
+    /// Translates a GeoJSON file into a GeoPackage, a shapefile folder, a workbook, a File Geodatabase folder, KML, CSV
+    /// or GeoJSON — ADR-107, and ADR-106's formats on the same road.
+    /// </summary>
     /// <remarks>
-    /// The input names its reference in the legacy <c>crs</c> member, so nothing is reprojected: the rows leave in the
-    /// reference they are stored in. A shapefile is written into <paramref name="output"/> as a folder, which the host
-    /// zips; its text is UTF-8 and says so in a <c>.cpg</c>. A workbook holds the attributes only.
+    /// <para>
+    /// The input names its reference in the legacy <c>crs</c> member. <b>GeoPackage, shapefile, File Geodatabase and the
+    /// workbook are not reprojected</b>: the rows leave in the reference they are stored in, so a TUREF layer leaves as
+    /// TUREF. A shapefile and a File Geodatabase are written into <paramref name="output"/> as a folder, which the host
+    /// zips; the shapefile's text is UTF-8 and says so in a <c>.cpg</c>. A workbook holds the attributes only.
+    /// </para>
+    /// <para>
+    /// <b>KML, GeoJSON and CSV are WGS 84</b>, because their readers assume it: KML's specification fixes it, RFC 7946
+    /// fixes it for GeoJSON, and a spreadsheet's longitude and latitude are what a CSV of places is opened for (ADR-106
+    /// §5.6). A point layer's CSV carries X and Y columns; any other geometry is one WKT column. The CSV starts with a
+    /// byte-order mark so Excel reads its Turkish as UTF-8, as the console's own CSV always did.
+    /// </para>
     /// </remarks>
     private static object Export(string input, string output, string format, string layer)
     {
@@ -682,7 +694,12 @@ internal static class Program
             "gpkg" => "GPKG",
             "shapefile" => "ESRI Shapefile",
             "xlsx" => "XLSX",
-            _ => throw new ArgumentException($"'{format}' is not an export format; 'gpkg', 'shapefile' and 'xlsx' are."),
+            "fgdb" => "OpenFileGDB",
+            "kml" => "LIBKML",
+            "csv" => "CSV",
+            "geojson" => "GeoJSON",
+            _ => throw new ArgumentException(
+                $"'{format}' is not an export format; 'gpkg', 'shapefile', 'xlsx', 'fgdb', 'kml', 'csv' and 'geojson' are."),
         };
 
         List<string> said = [];
@@ -696,6 +713,18 @@ internal static class Program
             List<string> options = ["-f", driver, "-nln", layer];
 
             if (format == "shapefile") options.AddRange(["-lco", "ENCODING=UTF-8"]);
+
+            if (format is "kml" or "csv" or "geojson") options.AddRange(["-t_srs", "EPSG:4326"]);
+
+            if (format == "geojson") options.AddRange(["-lco", "RFC7946=YES"]);
+
+            if (format == "csv")
+            {
+                bool points = source.GetLayerCount() > 0
+                    && Ogr.GT_Flatten(source.GetLayer(0).GetGeomType()) == wkbGeometryType.wkbPoint;
+
+                options.AddRange(["-lco", points ? "GEOMETRY=AS_XY" : "GEOMETRY=AS_WKT", "-lco", "WRITE_BOM=YES"]);
+            }
 
             using Dataset written = Gdal.wrapper_GDALVectorTranslateDestName(
                 output, source, new GdalVectorTranslateOptions([.. options]), null, null)
