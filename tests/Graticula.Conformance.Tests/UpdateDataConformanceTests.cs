@@ -177,4 +177,121 @@ public sealed class UpdateDataConformanceTests : ArcGisClient
             using HttpResponseMessage gone = await Http.SendAsync(delete);
         }
     }
+
+    /// <summary>ADR-105: ArcGIS's uploads/upload then append, as the ArcGIS API for Python calls them.</summary>
+    [Fact]
+    public async Task An_ArcGIS_client_uploads_then_appends_maps_fields_and_is_refused_upsert()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        string name = $"zz_esriapp_{Guid.NewGuid():N}"[..20];
+
+        (HttpStatusCode made, string madeBody) =
+            await PostFileAsync(root, token, "/admin/hosted/import", Polygons("a", "b"), name);
+
+        Assert.True(made is HttpStatusCode.Created or HttpStatusCode.OK, $"The import failed: {(int)made} {madeBody}");
+
+        string service = $"{root}/rest/services/hosted/{name}/FeatureServer";
+
+        try
+        {
+            // A file whose column is called something else, mapped onto the layer's `name`.
+            string renamed = Polygons("mapped").Replace("\"name\"", "\"label\"", StringComparison.Ordinal);
+
+            string id = await UploadAsync(service, token!, renamed);
+
+            (HttpStatusCode upserted, string upsertBody) = await AppendFormAsync(service, token!, new()
+            {
+                ["appendUploadId"] = id, ["appendUploadFormat"] = "geojson", ["upsert"] = "true", ["f"] = "json",
+            });
+
+            Assert.True(upserted == HttpStatusCode.BadRequest, $"upsert=true answered {(int)upserted}: {upsertBody}");
+            Assert.Equal(2, await CountAsync(root, token!, name));
+
+            (HttpStatusCode appended, string appendBody) = await AppendFormAsync(service, token!, new()
+            {
+                ["appendUploadId"] = id, ["appendUploadFormat"] = "geojson",
+                ["fieldMappings"] = "[{\"name\":\"name\",\"source\":\"label\"}]", ["f"] = "json",
+            });
+
+            Assert.True(appended == HttpStatusCode.OK, $"append answered {(int)appended}: {appendBody}");
+
+            JsonElement said = JsonDocument.Parse(appendBody).RootElement;
+
+            Assert.Equal("Completed", said.GetProperty("status").GetString());
+            Assert.Equal(1, said.GetProperty("recordCount").GetInt32());
+            Assert.Equal(3, await CountAsync(root, token!, name));
+
+            using (HttpRequestMessage ask = new(HttpMethod.Get,
+                $"{service}/0/query?where=name%3D%27mapped%27&returnCountOnly=true&f=json"))
+            {
+                ask.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage got = await Http.SendAsync(ask);
+                int count = JsonDocument.Parse(await got.Content.ReadAsStringAsync()).RootElement.GetProperty("count").GetInt32();
+                Assert.True(count == 1, "fieldMappings did not put the file's 'label' into the layer's 'name'.");
+            }
+
+            // An upload is spent once appended.
+            (HttpStatusCode again, _) = await AppendFormAsync(service, token!, new()
+            {
+                ["appendUploadId"] = id, ["appendUploadFormat"] = "geojson", ["f"] = "json",
+            });
+
+            Assert.Equal(HttpStatusCode.BadRequest, again);
+
+            // truncateExisting replaces.
+            string replacing = await UploadAsync(service, token!, Polygons("only"));
+
+            (HttpStatusCode replaced, string replaceBody) = await AppendFormAsync(service, token!, new()
+            {
+                ["appendUploadId"] = replacing, ["appendUploadFormat"] = "geojson", ["truncateExisting"] = "true", ["f"] = "json",
+            });
+
+            Assert.True(replaced == HttpStatusCode.OK, $"append with truncateExisting answered {(int)replaced}: {replaceBody}");
+            Assert.Equal(1, await CountAsync(root, token!, name));
+        }
+        finally
+        {
+            using HttpRequestMessage delete = new(
+                HttpMethod.Delete, $"{root}/admin/featureservices/{name}?folder=hosted&drop=true");
+
+            delete.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using HttpResponseMessage gone = await Http.SendAsync(delete);
+        }
+    }
+
+    private async Task<string> UploadAsync(string service, string token, string json)
+    {
+        using MultipartFormDataContent form = new();
+        using ByteArrayContent bytes = new(Encoding.UTF8.GetBytes(json));
+
+        form.Add(bytes, "file", "more.geojson");
+        form.Add(new StringContent("json"), "f");
+
+        using HttpRequestMessage request = new(HttpMethod.Post, $"{service}/uploads/upload") { Content = form };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+        string body = await response.Content.ReadAsStringAsync();
+
+        Assert.True(response.IsSuccessStatusCode, $"uploads/upload answered {(int)response.StatusCode}: {body}");
+
+        return JsonDocument.Parse(body).RootElement.GetProperty("item").GetProperty("itemID").GetString()!;
+    }
+
+    private async Task<(HttpStatusCode Status, string Body)> AppendFormAsync(
+        string service, string token, System.Collections.Generic.Dictionary<string, string> fields)
+    {
+        using FormUrlEncodedContent content = new(fields);
+        using HttpRequestMessage request = new(HttpMethod.Post, $"{service}/0/append") { Content = content };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+
+        return (response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
 }

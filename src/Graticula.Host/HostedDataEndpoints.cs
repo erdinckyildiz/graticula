@@ -2011,14 +2011,50 @@ internal static class HostedDataEndpoints
             return;
         }
 
-        // Replacing every feature is refused while the item is protected — owner decision 2026-10-01 (ADR-103 §10.4).
-        if (replace
-            && !await AdminEndpoints.NotProtectedAsync(context, catalog, found.ServiceName, found.Folder, cancellation, "replaced")
-                .ConfigureAwait(false))
+        if (await ReadUpdateFileAsync(context, form, file, jobs, signal, reader, scratch, cancellation)
+            .ConfigureAwait(false) is not { } dataset)
         {
             return;
         }
 
+        if (await WriteUpdateAsync(context, found, dataset, replace, importer, contexts, tiles, catalog, audit, warmer, cancellation)
+            .ConfigureAwait(false) is not { } result)
+        {
+            return;
+        }
+
+        await Results.Json(new
+        {
+            layer = found.Definition.Name,
+            replaced = replace,
+            rows = result.Rows,
+            matched = result.Matched,
+            ignored = result.Ignored,
+            transformed = result.Transformed,
+            note = (replace
+                    ? $"Every feature of this layer was replaced by the file's {result.Rows}. Object ids keep counting from where they were."
+                    : $"{result.Rows} feature{(result.Rows == 1 ? " was" : "s were")} added.")
+                + (result.Ignored.Count == 0 ? string.Empty
+                    : $" {result.Ignored.Count} of the file's columns are not in the layer and were not written: "
+                      + string.Join(", ", result.Ignored) + ".")
+                + (result.Transformed ? " The geometry was transformed into the layer's coordinate system." : string.Empty),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads a file for Update data — GeoJSON, or a zipped shapefile with the form's <c>encoding</c> and <c>srid</c> —
+    /// or answers why not and returns null. Shared by the native route and ArcGIS's <c>append</c> (ADR-103, ADR-105).
+    /// </summary>
+    internal static async Task<ImportedDataset?> ReadUpdateFileAsync(
+        HttpContext context,
+        IFormCollection form,
+        IFormFile file,
+        IJobStore jobs,
+        JobSignal signal,
+        GeodatabaseReader reader,
+        ImportScratch scratch,
+        CancellationToken cancellation)
+    {
         byte[] head = new byte[4];
         int peeked;
 
@@ -2044,7 +2080,7 @@ internal static class HostedDataEndpoints
                     "This is a geodatabase, which holds many feature classes, and a layer is one. Export the "
                     + "feature class you mean as GeoJSON or a zipped shapefile and use that. Nothing was written.")
                     .ConfigureAwait(false);
-                return;
+                return null;
             }
 
             (bool ok, ImportedDataset shapes) = await TryShapefileAsync(
@@ -2052,7 +2088,7 @@ internal static class HostedDataEndpoints
 
             if (!ok)
             {
-                return;
+                return null;
             }
 
             dataset = shapes;
@@ -2071,14 +2107,44 @@ internal static class HostedDataEndpoints
             catch (JsonException e)
             {
                 await Fail(context, 400, $"The file is neither a ZIP nor valid JSON: {e.Message}").ConfigureAwait(false);
-                return;
+                return null;
             }
 
             if (!GeoJsonFeatures.TryRead(json, ImportLimits.Default, out dataset, out string? error))
             {
                 await Fail(context, 400, error!).ConfigureAwait(false);
-                return;
+                return null;
             }
+        }
+
+        return dataset;
+    }
+
+    /// <summary>
+    /// Writes a dataset into a hosted layer — added, or in place of every feature — and does what follows a change of
+    /// its rows; or answers why not and returns null. Shared by the native route and ArcGIS's <c>append</c>.
+    /// </summary>
+    internal static async Task<AppendResult?> WriteUpdateAsync(
+        HttpContext context,
+        PublishedLayer found,
+        ImportedDataset dataset,
+        bool replace,
+        PostGisImporter importer,
+        ServiceContexts contexts,
+        ITileCache tiles,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        ThumbnailWarmer warmer,
+        CancellationToken cancellation,
+        IReadOnlyDictionary<string, string>? mappings = null,
+        IReadOnlyCollection<string>? only = null)
+    {
+        // Replacing every feature is refused while the item is protected — owner decision 2026-10-01 (ADR-103 §10.4).
+        if (replace
+            && !await AdminEndpoints.NotProtectedAsync(context, catalog, found.ServiceName, found.Folder, cancellation, "replaced")
+                .ConfigureAwait(false))
+        {
+            return null;
         }
 
         AppendResult result;
@@ -2086,13 +2152,13 @@ internal static class HostedDataEndpoints
         try
         {
             result = await importer.AppendAsync(
-                found.Definition.SchemaName, found.Definition.TableName, dataset!, replace, cancellation)
+                found.Definition.SchemaName, found.Definition.TableName, dataset, replace, cancellation, mappings, only)
                 .ConfigureAwait(false);
         }
         catch (AppendRefusedException refused)
         {
             await Fail(context, 400, refused.Message).ConfigureAwait(false);
-            return;
+            return null;
         }
         catch (Npgsql.PostgresException blocked) when (blocked.SqlState == "55P03")
         {
@@ -2100,7 +2166,7 @@ internal static class HostedDataEndpoints
                 $"'{found.Definition.Name}' is being read right now, so it could not be "
                 + $"{(replace ? "overwritten" : "added to")} — abandoned rather than made to wait, and nothing was "
                 + "written. Try again.").ConfigureAwait(false);
-            return;
+            return null;
         }
         catch (Npgsql.PostgresException wrong) when (wrong.SqlState is not null
             && (wrong.SqlState.StartsWith("22", StringComparison.Ordinal) || wrong.SqlState.StartsWith("23", StringComparison.Ordinal)))
@@ -2110,7 +2176,7 @@ internal static class HostedDataEndpoints
             await Fail(context, 400,
                 $"A value in the file does not fit the layer, so nothing was written and the layer is as it was: "
                 + $"{wrong.MessageText}").ConfigureAwait(false);
-            return;
+            return null;
         }
 
         await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation).ConfigureAwait(false);
@@ -2122,22 +2188,7 @@ internal static class HostedDataEndpoints
             context, audit, replace ? "layer.overwrite" : "layer.append", found.Definition.Name,
             new { rows = result.Rows, ignored = result.Ignored }, cancellation).ConfigureAwait(false);
 
-        await Results.Json(new
-        {
-            layer = found.Definition.Name,
-            replaced = replace,
-            rows = result.Rows,
-            matched = result.Matched,
-            ignored = result.Ignored,
-            transformed = result.Transformed,
-            note = (replace
-                    ? $"Every feature of this layer was replaced by the file's {result.Rows}. Object ids keep counting from where they were."
-                    : $"{result.Rows} feature{(result.Rows == 1 ? " was" : "s were")} added.")
-                + (result.Ignored.Count == 0 ? string.Empty
-                    : $" {result.Ignored.Count} of the file's columns are not in the layer and were not written: "
-                      + string.Join(", ", result.Ignored) + ".")
-                + (result.Transformed ? " The geometry was transformed into the layer's coordinate system." : string.Empty),
-        }).ExecuteAsync(context).ConfigureAwait(false);
+        return result;
     }
 
     private static Task AppendAsync(

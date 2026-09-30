@@ -785,6 +785,14 @@ public sealed class SuiteStabilityTests
                 continue;
             }
 
+            // <b>ADR-105: ArcGIS puts `append` under `/rest/services`, and it is an administrative write.</b> Who may
+            // append is the layer's owner, which only the platform store knows; during an outage it must fail rather
+            // than act on remembered state — the reason the `/admin/` routes are exempt, at an address ArcGIS chose.
+            if (name == "ArcGisAppendEndpoints.cs")
+            {
+                continue;
+            }
+
 
             examined++;
 

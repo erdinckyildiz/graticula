@@ -92,7 +92,7 @@ them; a file column the layer lacks is ignored and named in the answer; a layer 
 default. The geometry is stamped with the file's reference and transformed into the layer's only when they
 differ, made multi when the layer is, and given the layer's ordinates.
 
-5.4 **Not in this decision:** ArcGIS's `FeatureServer/{id}/append` (Alternative B), upsert by a key field
+5.4 **Not in this decision:** ArcGIS's `FeatureServer/{id}/append` (Alternative B) *(built the same day over this engine — [ADR-105](ADR-105-arcgis-clients-append-through-uploads.md))*, upsert by a key field
 (*Add or update features*), and schema-changing overwrite. Each is a later decision on top of this engine.
 
 5.5 **Afterwards:** the layer's tiles are purged and its context forgotten (as any schema change), the service's

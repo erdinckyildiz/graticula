@@ -567,6 +567,10 @@ public sealed class PostGisImporter
     /// <param name="dataset">What was read from the file.</param>
     /// <param name="replace">Whether the table (and its attachments) is emptied first, in the same transaction.</param>
     /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="mappings">
+    /// A file column's name to the layer column it goes into, where they differ — ArcGIS <c>fieldMappings</c>.
+    /// </param>
+    /// <param name="only">The layer columns written, when not all that match — ArcGIS <c>appendFields</c>.</param>
     /// <returns>How many rows went in, and which of the file's columns found a column and which did not.</returns>
     /// <remarks>
     /// <para>
@@ -587,7 +591,8 @@ public sealed class PostGisImporter
     /// </para>
     /// </remarks>
     public async Task<AppendResult> AppendAsync(
-        string schemaName, string tableName, ImportedDataset dataset, bool replace, CancellationToken cancellationToken)
+        string schemaName, string tableName, ImportedDataset dataset, bool replace, CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, string>? mappings = null, IReadOnlyCollection<string>? only = null)
     {
         ArgumentNullException.ThrowIfNull(dataset);
         RefuseOutsideHosted(schemaName, tableName, replace ? "overwrite" : "append to");
@@ -666,9 +671,14 @@ public sealed class PostGisImporter
         List<InferredColumn> matched = [];
         List<string> ignored = [];
 
+        string TargetOf(InferredColumn column) =>
+            mappings is not null && mappings.TryGetValue(column.Name, out string? named) ? named : ColumnNameFor(column.Name);
+
         foreach (InferredColumn column in dataset.Columns)
         {
-            if (targetColumns.ContainsKey(ColumnNameFor(column.Name))) matched.Add(column);
+            string target = TargetOf(column);
+
+            if (targetColumns.ContainsKey(target) && (only is null || only.Contains(target))) matched.Add(column);
             else ignored.Add(column.Name);
         }
 
@@ -736,9 +746,9 @@ public sealed class PostGisImporter
 
         foreach (InferredColumn column in matched)
         {
-            string name = LayerDefinition.Quote(ColumnNameFor(column.Name));
-            into.Append(", ").Append(name);
-            select.Append(", ").Append(name).Append("::").Append(targetColumns[ColumnNameFor(column.Name)]);
+            into.Append(", ").Append(LayerDefinition.Quote(TargetOf(column)));
+            select.Append(", ").Append(LayerDefinition.Quote(ColumnNameFor(column.Name)))
+                .Append("::").Append(targetColumns[TargetOf(column)]);
         }
 
         int rows;

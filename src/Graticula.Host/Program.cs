@@ -2076,6 +2076,9 @@ public static class Program
         OAuthEndpoints.Map(app);
         ArcGisAdminEndpoints.Map(app);
 
+        // ADR-105: ArcGIS's uploads/upload and append on a hosted layer, over Update data's engine (ADR-103).
+        ArcGisAppendEndpoints.Map(app);
+
         // <b>Outside /rest/services, deliberately.</b> Every surface above is
         // ArcGIS-shaped and lives under that prefix; WFS is a different protocol
         // with a different discovery document, and a client pastes one address for

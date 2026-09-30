@@ -387,4 +387,40 @@ public sealed class ItemStructureTests : ConsoleTest
 
         NothingWentWrong(await PageErrorsAsync());
     }
+
+    /// <summary>
+    /// Settings opened straight from its address lists Tile layer without a second click — reported 2026-10-01 on
+    /// `turkiye/tr_ref`, where the list lacked it until Feature layer was pressed.
+    /// </summary>
+    [Fact]
+    public async Task Settings_opened_by_its_address_lists_Tile_layer_at_once()
+    {
+        (string token, _) = await SignInAsync();
+
+        string service = Environment.GetEnvironmentVariable("GRATICULA_TEST_TILE_SERVICE") ?? "hosted/ci_parcels";
+
+        await OpenAsync($"/studio/#/service/{service}?tab=settings", token);
+
+        await WaitForAsync(
+            "[...document.querySelectorAll('#serviceNav a')].some(a => a.textContent.trim() === 'Tile layer')",
+            "Settings opened by its address never listed Tile layer for a service with tiles.");
+
+        // And for a reader whose listing was drawn without `tileable` — the service's own answer decides.
+        // In the page, without a reload: the listing forgotten, the page drawn again, and nothing clicked.
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              content.clear(); known = []; serviceTileFace = null; serviceTileAsked = null;
+              drawServiceSettings.asked = serviceOpen.qualified;
+              SERVICE_PAGE_OPEN = "general";
+              drawServiceSettings(serviceOpen.name, serviceOpen.folder);
+              return true;
+            })()
+            """);
+
+        await WaitForAsync(
+            "[...document.querySelectorAll('#serviceNav a')].some(a => a.textContent.trim() === 'Tile layer')",
+            "With no listing to say so, the service's own tile face did not bring Tile layer back.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
 }

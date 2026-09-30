@@ -334,6 +334,12 @@ internal static class ArcGisAdminEndpoints
     /// The layer at an admin address, after the privilege — so a caller without it learns nothing
     /// about which services exist.
     /// </summary>
+    /// <summary>A hosted layer by its service and index, for a caller who manages it; or the refusal, and null.</summary>
+    internal static Task<PublishedLayer?> HostedLayerAtAsync(
+        HttpContext context, CatalogFallback services, PostgresLayerCatalog layers, string serviceName, int layerId,
+        string what, CancellationToken cancellation) =>
+        LayerAsync(context, services, layers, serviceName, layerId, what, cancellation);
+
     private static async Task<PublishedLayer?> LayerAsync(
         HttpContext context,
         CatalogFallback services,

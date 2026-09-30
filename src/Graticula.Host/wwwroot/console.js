@@ -4847,7 +4847,7 @@ function drawServiceLayers(layers, qualified) {
     }
 
     if (serviceTab === "settings" && surfaceOfPath() === "studio") {
-      if (!!tileLayerOf() !== !!$("page-tiles")) drawServiceSettings(serviceOpen.name, serviceOpen.folder);
+      if (!!tileLayerOf() !== !!$("page-tiles")) settingsFollowTiles();
       else if (SERVICE_PAGE_OPEN === "feature" && $("featureFacts")) {
         section("editing", () => drawFeatureFacts(serviceOpen.name, serviceOpen.folder));
       }
@@ -6738,14 +6738,20 @@ function drawServiceSettings(name, folder) {
 
   // <b>A publisher's page reads the publisher's listing first</b>, since `known` is an administrator's: the
   // Tile layer section depends on knowing which layers have tiles. Read once, then drawn again.
-  if (known.length === 0 && content.size === 0 && !drawServiceSettings.asked) {
-    drawServiceSettings.asked = true;
+  // Per service, not once a session: a listing read for another item, or one drawn by My content without the
+  // layers' `tileable`, left this one's Tile layer undecided with nothing asking again.
+  const listed = serviceLayers.length > 0 && serviceLayers.every(one =>
+    (one.type || "").toLowerCase().includes("group") || (content.get(one.name) || {}).tileable !== undefined);
+  if (known.length === 0 && !listed && drawServiceSettings.asked !== serviceOpen?.qualified) {
+    drawServiceSettings.asked = serviceOpen?.qualified;
     api("/content/layers").then(layers => {
-      content = new Map([...(layers.mine || []), ...(layers.shared || []), ...(layers.notShared || [])]
-        .map(e => [e.name, e]));
-      if (serviceOpen && serviceOpen.name === name) drawServiceSettings(name, folder);
+      for (const e of [...(layers.mine || []), ...(layers.shared || []), ...(layers.notShared || [])]) {
+        content.set(e.name, { ...(content.get(e.name) || {}), ...e });
+      }
+      settingsFollowTiles();
     }).catch(() => null);
   }
+  probeServiceTiles();
 
   const mine = servicePagesOf(surfaceOfPath());
 
@@ -6815,11 +6821,17 @@ const SERVICE_PAGE_LABELS = { general: "General", feature: "Feature layer", tile
 /**
  * The open service's first layer that has tiles, as the layer listing describes it, or null when it has none.
  *
- * <b>Asked of the layer listing</b> (`known`, `/content/layers`), which is what says `tileable` — a hosted
- * layer or a GeoParquet file has tiles, a registered table's features alone do not (D-264).
+ * <b>Asked of the layer listing</b> (`known`, `/content/layers`), which is what says `tileable`, <b>and of the
+ * service itself when the listing has not said</b>. This comment said a registered table's features have no tiles
+ * (D-264); since ADR-095 they do, and a reader who opened `turkiye/tr_ref` straight to Settings found no Tile layer
+ * until a second click drew the list again (reported 2026-10-01): the listing that says `tileable` had not arrived,
+ * or had arrived without it, and nothing looked again. The service's own `VectorTileServer` answer is the fact;
+ * `serviceTileFace` holds it once asked.
  */
 function tileLayerOf() {
   if (!serviceOpen) return null;
+
+  const drawable = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group"));
 
   for (const layer of serviceLayers) {
     if ((layer.type || "").toLowerCase().includes("group")) continue;
@@ -6832,7 +6844,43 @@ function tileLayerOf() {
     if (info && info.tileable) return { ...info, name: layer.name };
   }
 
+  // The service says it has a tile face, whatever the listing said or has not yet said.
+  if (serviceTileFace === serviceOpen.qualified && drawable.length) {
+    const first = drawable[0];
+    return { ...(content.get(first.name) || {}), name: first.name, tileable: true };
+  }
+
   return null;
+}
+
+/** The service whose `VectorTileServer` answered, and the one asked last — so each is asked once. */
+let serviceTileFace = null;
+let serviceTileAsked = null;
+
+/**
+ * Asks the open service whether it has a tile face, once, and draws Settings again when it does and the Tile layer
+ * section is not there. Any grid counts: Settings manages the cache whatever grid it is cut on.
+ */
+function probeServiceTiles() {
+  if (!serviceOpen || surfaceOfPath() !== "studio" || serviceTileAsked === serviceOpen.qualified) return;
+  const asked = serviceOpen.qualified;
+  serviceTileAsked = asked;
+
+  api(`/rest/services/${asked.split("/").map(encodeURIComponent).join("/")}/VectorTileServer?f=json`)
+    .then(doc => {
+      if (!doc || doc.error || !serviceOpen || serviceOpen.qualified !== asked) return;
+      serviceTileFace = asked;
+      settingsFollowTiles();
+    })
+    .catch(() => null);
+}
+
+/** Draws Settings again when whether the item has tiles has changed under it — the one redraw that adds a page. */
+function settingsFollowTiles() {
+  if (serviceOpen && serviceTab === "settings" && surfaceOfPath() === "studio"
+      && !!tileLayerOf() !== !!$("page-tiles")) {
+    drawServiceSettings(serviceOpen.name, serviceOpen.folder);
+  }
 }
 
 /** Which of a service's pages is open. Held here because it is a screen state, not an address. */
