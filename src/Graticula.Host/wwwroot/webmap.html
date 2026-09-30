@@ -91,6 +91,12 @@
   .lstyle { margin-top: 8px; padding: 8px; border: 1px solid var(--rule, #ddd); border-radius: 6px; }
   .lstyle .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
   .lstyle select { max-width: 100%; }
+  .lstyle .lsnote { margin: 0 0 6px; font-size: 13px; }
+  .lstyle .lsdefault { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rule, #ddd); }
+  .lstyle .lsdefault .lkind { margin: 4px 0 0; }
+  .lslegend { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12px; }
+  .lslegend li { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  @media (max-width: 600px) { .lstyle select, .lstyle input, .lstyle button { min-height: 44px; } }
   #layerList > li { border: 1px solid var(--rule); border-radius: 4px; padding: 7px 9px; margin-bottom: 7px; }
   #layerList > li.off { background: var(--surface-2); }
   .lhead { display: flex; align-items: flex-start; gap: 7px; }

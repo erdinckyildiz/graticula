@@ -4835,9 +4835,23 @@ function drawServiceLayers(layers, qualified) {
   // <b>What depends on knowing the layers is drawn again once they are known</b> — the Tile layer section and
   // Overview's *Manage tiles* (ADR-102). An address straight to `?tab=settings&section=tiles` otherwise drew
   // Settings before the service document arrived, found no layer with tiles, and never looked again.
-  // Server's service page has no tabs and its Layers section is one of these too (owner decision 2026-10-01).
-  if (serviceOpen && (serviceTab === "settings" || surfaceOfPath() === "server")) {
-    drawServiceSettings(serviceOpen.name, serviceOpen.folder);
+  // <b>Only what depends on the layers, not the whole form</b> — CI 2026-10-01. Drawing the settings again when the
+  // layers arrived reset every box to its unchecked default and read the server's values a second time, so a
+  // reader who had changed a box in between lost it, and the two reads raced. What the layers change is the Tile
+  // layer section's presence, Feature layer's list of layers and Server's Layers section; those are redrawn.
+  if (serviceOpen) {
+    const layersPage = $("page-layers");
+    if (layersPage) {
+      layersPage.innerHTML = serverLayersMarkup();
+      if (layersPage.classList.contains("on")) showAskedLayer();
+    }
+
+    if (serviceTab === "settings" && surfaceOfPath() === "studio") {
+      if (!!tileLayerOf() !== !!$("page-tiles")) drawServiceSettings(serviceOpen.name, serviceOpen.folder);
+      else if (SERVICE_PAGE_OPEN === "feature" && $("featureFacts")) {
+        section("editing", () => drawFeatureFacts(serviceOpen.name, serviceOpen.folder));
+      }
+    }
   }
   if (serviceItem && serviceOpen && serviceItem.name === serviceOpen.qualified) drawServiceHead(serviceItem);
 
@@ -6490,7 +6504,10 @@ function drawServiceDelete() {
   // arrived by accident when the tabs did.
   const panel = $("serviceDanger");
 
-  if (panel) panel.hidden = surfaceOfPath() !== "studio";
+  // Shown only where it lives — Settings › General (ADR-102). This showed it in Studio whichever section was open,
+  // and only a later redraw of the whole form hid it again, so on a fast answer the delete panel stood under
+  // Feature layer (CI 2026-10-01).
+  if (panel) panel.hidden = surfaceOfPath() !== "studio" || !panel.closest("#generalDangerSlot");
 
   if (surfaceOfPath() !== "studio") return;
 
@@ -6692,6 +6709,7 @@ function drawServiceSettings(name, folder) {
   // happened rather than press a button afterwards — and the page said so in its own copy while a Save
   // sat underneath it. The owner: *"combo değiştiğinde kaydoluyor gibi. save neden dikkate alınmıyor."*
   // Exactly: it was not, and a button that does nothing contradicts the sentence above it.
+  delete box.dataset.loaded;
   $("servicePagesBody").innerHTML = serviceSettingsMarkup(name, folder)
     + (tiled ? `<section class="page" id="page-tiles">${tileLayerMarkup(tiled, tiled.name)}</section>` : "")
     + (mine.includes("layers") ? `<section class="page" id="page-layers">${serverLayersMarkup()}</section>` : "")
@@ -6721,11 +6739,7 @@ function drawServiceSettings(name, folder) {
   if (open === "general") section("sharing", () => drawGeneralSharing(name, folder));
 
   // An old layer address lands here with `layer=`; that layer's block is the one brought into view.
-  if (open === "layers") {
-    const asked = new URLSearchParams(location.hash.split("?")[1] || "").get("layer");
-    const block = asked !== null ? $(`srvLayer-${asked}`) : null;
-    if (block) { block.classList.add("asked"); block.scrollIntoView({ block: "start" }); block.focus({ preventScroll: true }); }
-  }
+  if (open === "layers") showAskedLayer();
   if (open === "feature") section("editing", () => drawFeatureFacts(name, folder));
 
   if (open === "tiles" && tiled) {
@@ -15146,6 +15160,11 @@ async function loadServiceCapabilities(name, folderGiven) {
       ? String(c.serverRequestDeadlineSeconds)
       : "no bound";
   }
+
+  // <b>The form holds the server's values from here</b>, and says so: a reader — or a test — that reads the boxes
+  // before this line reads the unchecked defaults the markup starts with (CI 2026-10-01).
+  const edit = $("serviceEdit");
+  if (edit) edit.dataset.loaded = `${folder || ""}/${service}`;
 }
 
 /**
@@ -15376,6 +15395,13 @@ function serverLayersMarkup() {
         </dl>
       </div>`;
     }).join("")}`;
+}
+
+/** Brings the layer an old address asked for (`layer=`) into view in Server's Layers section, and focuses it. */
+function showAskedLayer() {
+  const asked = new URLSearchParams(location.hash.split("?")[1] || "").get("layer");
+  const block = asked !== null ? $(`srvLayer-${asked}`) : null;
+  if (block) { block.classList.add("asked"); block.scrollIntoView({ block: "start" }); block.focus({ preventScroll: true }); }
 }
 
 /** The addresses a layer answers at, as `<dt>`/`<dd>` pairs. */

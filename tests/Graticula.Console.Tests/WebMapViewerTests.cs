@@ -265,6 +265,78 @@ public sealed class WebMapViewerTests : ConsoleTest
         }
     }
 
+    private static readonly int[] Red = [200, 30, 30, 255];
+
+    /// <summary>ADR-104: a map reopened with a layer styled by value opens its Style on that, not on one colour.</summary>
+    [Fact]
+    public async Task A_reopened_maps_style_panel_starts_from_the_style_it_has()
+    {
+        (string token, string cookie) = await SignInAsync();
+
+        string layerUrl = await AnyFeatureLayerUrlAsync(token);
+
+        string document = JsonSerializer.Serialize(new
+        {
+            title = "ADR-104 reopened",
+            sharing = "private",
+            document = new
+            {
+                operationalLayers = new object[]
+                {
+                    new
+                    {
+                        id = "byvalue", layerType = "ArcGISFeatureLayer", url = layerUrl, title = "By value", visibility = true, opacity = 1,
+                        layerDefinition = new
+                        {
+                            drawingInfo = new
+                            {
+                                renderer = new
+                                {
+                                    type = "uniqueValue", field1 = "objectid",
+                                    uniqueValueInfos = new object[]
+                                    {
+                                        new { value = "1", label = "One", symbol = new { type = "esriSMS", style = "esriSMSCircle", color = Red, size = 8 } },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
+                version = "2.31",
+            },
+        });
+
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/webmaps", document);
+
+        Assert.True(status == 201, $"Saving the map through the API answered {status}: {body}");
+
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
+
+            await WaitForAsync("!!document.querySelector('#layerList button[data-act=style][data-layer=byvalue]')",
+                "The styled layer offers no Style.");
+
+            await ClickAsync("#layerList button[data-act=style][data-layer=byvalue]");
+
+            await WaitForAsync("document.getElementById('styHow-byvalue')?.value === 'unique'",
+                "The Style panel of a layer styled by value opened on another kind, where one Apply would replace it.");
+
+            string legend = await Browser.EvaluateAsync<string>("document.querySelector('#sty-byvalue .lslegend')?.innerText || ''") ?? "";
+
+            Assert.Contains("One", legend, StringComparison.Ordinal);
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
+    }
+
     /// <summary>The address of some feature layer this server publishes.</summary>
     private async Task<string> AnyFeatureLayerUrlAsync(string token)
     {

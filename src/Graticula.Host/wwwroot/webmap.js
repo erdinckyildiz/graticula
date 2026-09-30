@@ -1021,11 +1021,11 @@ function wmDrawLayerList() {
         <button class="tiny" data-act="down" data-layer="${wmEscape(key)}" data-focus="down:${wmEscape(key)}"
           data-focus-fallback="up:${wmEscape(key)}" ${bottom ? "disabled" : ""}
           aria-label="Move ${wmEscape(title)} down">&darr;</button>
-        ${readable && wmExtentOf(layer) ? `<button class="tiny" data-act="zoom" data-layer="${wmEscape(key)}"
-          data-focus="zoom:${wmEscape(key)}">Zoom to</button>` : ""}
         ${readable && kind === "feature" ? `<button class="tiny" data-act="style" data-layer="${wmEscape(key)}"
           data-focus="style:${wmEscape(key)}" aria-expanded="${run.styleOpen ? "true" : "false"}"
           aria-controls="sty-${wmEscape(key)}">Style</button>` : ""}
+        ${readable && wmExtentOf(layer) ? `<button class="tiny" data-act="zoom" data-layer="${wmEscape(key)}"
+          data-focus="zoom:${wmEscape(key)}">Zoom to</button>` : ""}
         <button class="tiny danger" data-act="remove" data-layer="${wmEscape(key)}"
           data-focus="remove:${wmEscape(key)}" aria-label="Remove ${wmEscape(title)} from the map">Remove</button>
       </div>
@@ -1079,8 +1079,8 @@ function wmFilterMarkup(layer, run, key, title, filter) {
  */
 function wmStyleMarkup(layer, run, key, title) {
   const k = wmEscape(key);
-  const draft = run.styleDraft || {};
-  const how = draft.how || (layer.layerDefinition && layer.layerDefinition.drawingInfo ? "single" : "default");
+  const draft = { ...wmDraftFromRenderer(layer), ...(run.styleDraft || {}) };
+  const how = draft.how;
   const fields = wmUserFields(run.info);
   const texts = fields.filter(f => WM_FILTER_TYPES[f.type] !== "date");
   const numbers = fields.filter(f => WM_FILTER_TYPES[f.type] === "number");
@@ -1089,7 +1089,9 @@ function wmStyleMarkup(layer, run, key, title) {
   const option = (value, label, chosen) => `<option value="${wmEscape(value)}"${value === chosen ? " selected" : ""}>${wmEscape(label)}</option>`;
 
   return `<div class="lstyle" id="sty-${k}">
-    <p class="lkind">${own ? "Styled in this map." : "Drawn in the layer's own style."}</p>
+    <p class="lsnote">${own
+      ? (wmState.dirty ? "Styled in this map — not saved yet. Save the map to keep it." : "Styled in this map.")
+      : "Drawn in the layer's own style, as every map draws it."}</p>
     <label class="lkind" for="styHow-${k}">Style</label>
     <select id="styHow-${k}" data-style-how="${k}" data-focus="styHow:${k}">
       ${option("default", "The layer's own style", how)}
@@ -1128,12 +1130,52 @@ function wmStyleMarkup(layer, run, key, title) {
     </div>` : ""}
     <div class="row">
       <button class="tiny" data-act="styleApply" data-layer="${k}" data-focus="styleApply:${k}">Apply to this map</button>
-      ${wmMe.privileges.has("content:publishFeatures") && own
-        ? `<button class="tiny" data-act="styleDefault" data-layer="${k}" data-focus="styleDefault:${k}"
-            title="Every map and client that has not styled ${wmEscape(title)} itself draws it this way">Save as the layer's default</button>` : ""}
     </div>
-    ${run.styleError ? `<p class="lerr">${wmEscape(run.styleError)}</p>` : ""}
+    ${own ? wmStyleLegend(layer) : ""}
+    ${wmMe.privileges.has("content:publishFeatures") && own
+      ? `<div class="lsdefault">
+          <button class="tiny" data-act="styleDefault" data-layer="${k}" data-focus="styleDefault:${k}">Make default everywhere…</button>
+          <p class="lkind">Changes ${wmEscape(title)} in every map that has not styled it itself.</p>
+        </div>` : ""}
+    ${run.styleError ? `<p class="lerr" role="alert">${wmEscape(run.styleError)}</p>` : ""}
   </div>`;
+}
+
+/**
+ * What the panel shows first: the style the map already has, read back from its renderer — a map reopened with a
+ * colour per value opens on *A colour per value* and its field, not on *One colour* in blue, where one press of
+ * Apply would have replaced it (design review 2026-10-01).
+ */
+function wmDraftFromRenderer(layer) {
+  const renderer = layer.layerDefinition && layer.layerDefinition.drawingInfo && layer.layerDefinition.drawingInfo.renderer;
+  if (!renderer) return { how: "default" };
+
+  const hex = colour => Array.isArray(colour)
+    ? "#" + colour.slice(0, 3).map(n => Math.max(0, Math.min(255, Number(n) || 0)).toString(16).padStart(2, "0")).join("")
+    : undefined;
+
+  if (renderer.type === "simple") {
+    const symbol = renderer.symbol || {};
+    return { how: "single", colour: hex(symbol.color), size: symbol.size || symbol.width || (symbol.outline || {}).width };
+  }
+  if (renderer.type === "uniqueValue") return { how: "unique", field: renderer.field1 };
+  if (renderer.type === "classBreaks") {
+    return { how: "breaks", field: renderer.field, classes: (renderer.classBreakInfos || []).length || 5 };
+  }
+  return { how: "default" };
+}
+
+/** What the colours mean: the values or class ranges of the map's own renderer, the first eight. */
+function wmStyleLegend(layer) {
+  const renderer = layer.layerDefinition && layer.layerDefinition.drawingInfo && layer.layerDefinition.drawingInfo.renderer;
+  if (!renderer) return "";
+  const rows = renderer.type === "uniqueValue" ? (renderer.uniqueValueInfos || [])
+    : renderer.type === "classBreaks" ? (renderer.classBreakInfos || []) : [];
+  if (!rows.length) return "";
+  const shown = rows.slice(0, 8);
+  return `<ul class="lslegend">${shown.map(row => `<li><span class="swatch" aria-hidden="true"
+      style="background:${wmEscape(wmSymbolColour(row.symbol) || "transparent")}"></span>${wmEscape(String(row.label ?? row.value ?? ""))}</li>`).join("")}
+    ${rows.length > shown.length ? `<li class="lkind">and ${rows.length - shown.length} more</li>` : ""}</ul>`;
 }
 
 /** The colour ramps the classes panel offers, light to strong. */
@@ -1188,7 +1230,7 @@ async function wmApplyStyle(layer) {
     } else if (how === "single") {
       const colour = wm$(`styColour-${k}`).value;
       const size = Number(wm$(`stySize-${k}`).value) || 1;
-      run.styleDraft = { how, colour, size };
+      run.styleDraft = { ...(run.styleDraft || {}), how, colour, size };
       layer.layerDefinition.drawingInfo = { renderer: { type: "simple", symbol: wmSimpleSymbol(geometry, colour, size) } };
     } else {
       const field = wm$(`styField-${k}`).value;
@@ -1196,14 +1238,14 @@ async function wmApplyStyle(layer) {
       let definition;
 
       if (how === "unique") {
-        run.styleDraft = { how, field };
+        run.styleDraft = { ...(run.styleDraft || {}), how, field };
         definition = { type: "uniqueValueDef", uniqueValueFields: [field], baseSymbol: base };
       } else {
         const classes = Math.min(9, Math.max(2, Number(wm$(`styClasses-${k}`).value) || 5));
         const method = wm$(`styMethod-${k}`).value;
         const rampName = wm$(`styRamp-${k}`).value;
         const ramp = WM_RAMPS[rampName] || WM_RAMPS.reds;
-        run.styleDraft = { how, field, classes, method, ramp: rampName };
+        run.styleDraft = { ...(run.styleDraft || {}), how, field, classes, method, ramp: rampName };
         definition = {
           type: "classBreaksDef", classificationField: field, classificationMethod: method, breakCount: classes,
           baseSymbol: base,
@@ -1218,6 +1260,7 @@ async function wmApplyStyle(layer) {
   } catch (e) {
     run.styleError = `Not applied: ${e.message || e}`;
     wmDrawLayerList();
+    wmSayIn("layersStatus", `The style of ${layer.title} was not applied.`, true);
     return;
   }
 
@@ -1247,6 +1290,7 @@ async function wmSaveStyleAsDefault(layer) {
   } catch (e) {
     run.styleError = `Not saved as the default: ${e.message || e}`;
     wmDrawLayerList();
+    wmSayIn("layersStatus", `${name}'s default style was not changed.`, true);
     return;
   }
 
@@ -1413,7 +1457,13 @@ wm$("layerList").addEventListener("click", event => {
     case "unfilter": wmSetFilter(layer, ""); break;
     case "style": {
       const run = wmRuntime.get(layer);
-      if (run) { run.styleOpen = !run.styleOpen; run.styleError = null; }
+      if (run) {
+        const opening = !run.styleOpen;
+        // One panel at a time: two open ones push the list past the window.
+        for (const other of wmLayers()) { const r = wmRuntime.get(other); if (r) r.styleOpen = false; }
+        run.styleOpen = opening;
+        run.styleError = null;
+      }
       wmDrawLayerList();
       break;
     }
@@ -2311,6 +2361,8 @@ async function wmSave(asNew, invoker = null) {
     history.replaceState(null, "", `?id=${encodeURIComponent(saved.id)}`);
     wmDrawSaved();
     wmDrawMapForm();
+    // An open Style panel said *not saved yet*; it is now.
+    if (wmLayers().some(l => (wmRuntime.get(l) || {}).styleOpen)) wmDrawLayerList();
     const done = creating ? `Saved as “${saved.title}”${asNew ? ", private" : ""}.` : "Saved.";
     wmSayIn("mapStatus", done);
     wmSay(done);
