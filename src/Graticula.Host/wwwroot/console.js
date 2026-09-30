@@ -10707,6 +10707,9 @@ function symPreviewSays() {
  */
 let symMap = null;
 
+/** The preview picture as a layer of `symMap`, georeferenced to the box it was drawn for. */
+let symDrawnLayer = null;
+
 /**
  * The reference the symbology map works in.
  *
@@ -10937,7 +10940,11 @@ async function drawSymbologyPreview(name, body) {
   const state = $("symPreviewState");
   const cap = $("symPreviewCap");
 
-  const says = why => { if (cap) cap.textContent = why; };
+  // A preview that fails takes the last picture off the map too, so the map never shows an old one as current.
+  const says = why => {
+    if (cap) cap.textContent = why;
+    if (why !== "rendered by this server" && symDrawnLayer && symMap) { symMap.removeLayer(symDrawnLayer); symDrawnLayer = null; }
+  };
 
   if (!image) return;
 
@@ -11019,6 +11026,25 @@ async function drawSymbologyPreview(name, body) {
     image.src = "data:image/png;base64," + btoa(binary);
     image.hidden = false;
     none.hidden = true;
+
+    // <b>On the map, at the extent it was drawn for — owner 2026-10-01: *"zoom in out yaparken geriden
+    // geliyorlar"*.</b> The picture was an image laid over the map in screen pixels, so while the basemap
+    // zoomed it stayed where it was until the next picture arrived: zoomed out, a picture of Turkey was
+    // stretched across half the world for the length of a round trip. As a static image layer georeferenced
+    // to the box it was asked for, it scales and pans with the basemap at once and is replaced when the new
+    // one lands. The `<img>` keeps the bytes and its state for whatever reads them, and is not shown.
+    if (at && symMap && window.ol) {
+      const drawn = new ol.layer.Image({
+        source: new ol.source.ImageStatic({ url: image.src, imageExtent: at.box, projection: "EPSG:3857" }),
+        zIndex: 10,
+      });
+      symMap.addLayer(drawn);
+      if (symDrawnLayer) symMap.removeLayer(symDrawnLayer);
+      symDrawnLayer = drawn;
+      image.classList.add("onmap");
+    } else {
+      image.classList.remove("onmap");
+    }
     // <b>The caption is about the picture, and it used to be about saving.</b> It read *Not
     // stored yet — this is what Store would keep*, which is true of a picture drawn from an
     // edited form and false forever after a Store, because nothing redraws the preview when a
