@@ -4442,3 +4442,6 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 #updateData .check > span { display: flex; flex-direction: column; }
 #updateData .check .hint { margin: 0; }
 #updateData .dialogfoot .fill { flex: 1; margin: 0; }
+
+/* The preview is drawn as a layer of the map; the <img> only holds it (owner 2026-10-01, lag on zoom). */
+#symPreview.onmap { visibility: hidden; }

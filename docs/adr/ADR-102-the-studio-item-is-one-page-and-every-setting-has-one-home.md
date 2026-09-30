@@ -109,7 +109,7 @@ linking to Server for an administrator.
 | Sharing and groups | the Share dialog only (Overview, My content row); stated once in Overview's details |
 | CSV and GeoJSON download; VTPK and PMTiles packages | Overview › *Export data* |
 | Field names, hidden fields, add field; feature history log | Data › Fields; Data › History |
-| Layer default style; visible range | Visualization › Styles, *Save as layer default*; Properties |
+| Layer default style; visible range | Visualization › Styles, *Save as layer default*; Properties. *(Amended 2026-10-01 by [ADR-104](ADR-104-a-web-map-styles-its-own-layers.md): a map may also style a layer for itself, in the Map Viewer — a second level, not a second home for the default, which the map reaches through the same* Save as the layer's default.*)* |
 | Delete protection (stored); Delete item | Settings › General |
 | Editing operations; export allowed | Settings › Feature layer › Editing |
 | Time field; history on/off; start tracking who edits (a one-way action); remove this layer | Settings › Feature layer › that layer |

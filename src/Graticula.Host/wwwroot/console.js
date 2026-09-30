@@ -4835,9 +4835,23 @@ function drawServiceLayers(layers, qualified) {
   // <b>What depends on knowing the layers is drawn again once they are known</b> — the Tile layer section and
   // Overview's *Manage tiles* (ADR-102). An address straight to `?tab=settings&section=tiles` otherwise drew
   // Settings before the service document arrived, found no layer with tiles, and never looked again.
-  // Server's service page has no tabs and its Layers section is one of these too (owner decision 2026-10-01).
-  if (serviceOpen && (serviceTab === "settings" || surfaceOfPath() === "server")) {
-    drawServiceSettings(serviceOpen.name, serviceOpen.folder);
+  // <b>Only what depends on the layers, not the whole form</b> — CI 2026-10-01. Drawing the settings again when the
+  // layers arrived reset every box to its unchecked default and read the server's values a second time, so a
+  // reader who had changed a box in between lost it, and the two reads raced. What the layers change is the Tile
+  // layer section's presence, Feature layer's list of layers and Server's Layers section; those are redrawn.
+  if (serviceOpen) {
+    const layersPage = $("page-layers");
+    if (layersPage) {
+      layersPage.innerHTML = serverLayersMarkup();
+      if (layersPage.classList.contains("on")) showAskedLayer();
+    }
+
+    if (serviceTab === "settings" && surfaceOfPath() === "studio") {
+      if (!!tileLayerOf() !== !!$("page-tiles")) drawServiceSettings(serviceOpen.name, serviceOpen.folder);
+      else if (SERVICE_PAGE_OPEN === "feature" && $("featureFacts")) {
+        section("editing", () => drawFeatureFacts(serviceOpen.name, serviceOpen.folder));
+      }
+    }
   }
   if (serviceItem && serviceOpen && serviceItem.name === serviceOpen.qualified) drawServiceHead(serviceItem);
 
@@ -6490,7 +6504,10 @@ function drawServiceDelete() {
   // arrived by accident when the tabs did.
   const panel = $("serviceDanger");
 
-  if (panel) panel.hidden = surfaceOfPath() !== "studio";
+  // Shown only where it lives — Settings › General (ADR-102). This showed it in Studio whichever section was open,
+  // and only a later redraw of the whole form hid it again, so on a fast answer the delete panel stood under
+  // Feature layer (CI 2026-10-01).
+  if (panel) panel.hidden = surfaceOfPath() !== "studio" || !panel.closest("#generalDangerSlot");
 
   if (surfaceOfPath() !== "studio") return;
 
@@ -6692,6 +6709,7 @@ function drawServiceSettings(name, folder) {
   // happened rather than press a button afterwards — and the page said so in its own copy while a Save
   // sat underneath it. The owner: *"combo değiştiğinde kaydoluyor gibi. save neden dikkate alınmıyor."*
   // Exactly: it was not, and a button that does nothing contradicts the sentence above it.
+  delete box.dataset.loaded;
   $("servicePagesBody").innerHTML = serviceSettingsMarkup(name, folder)
     + (tiled ? `<section class="page" id="page-tiles">${tileLayerMarkup(tiled, tiled.name)}</section>` : "")
     + (mine.includes("layers") ? `<section class="page" id="page-layers">${serverLayersMarkup()}</section>` : "")
@@ -6721,11 +6739,7 @@ function drawServiceSettings(name, folder) {
   if (open === "general") section("sharing", () => drawGeneralSharing(name, folder));
 
   // An old layer address lands here with `layer=`; that layer's block is the one brought into view.
-  if (open === "layers") {
-    const asked = new URLSearchParams(location.hash.split("?")[1] || "").get("layer");
-    const block = asked !== null ? $(`srvLayer-${asked}`) : null;
-    if (block) { block.classList.add("asked"); block.scrollIntoView({ block: "start" }); block.focus({ preventScroll: true }); }
-  }
+  if (open === "layers") showAskedLayer();
   if (open === "feature") section("editing", () => drawFeatureFacts(name, folder));
 
   if (open === "tiles" && tiled) {
@@ -10707,6 +10721,9 @@ function symPreviewSays() {
  */
 let symMap = null;
 
+/** The preview picture as a layer of `symMap`, georeferenced to the box it was drawn for. */
+let symDrawnLayer = null;
+
 /**
  * The reference the symbology map works in.
  *
@@ -10937,7 +10954,11 @@ async function drawSymbologyPreview(name, body) {
   const state = $("symPreviewState");
   const cap = $("symPreviewCap");
 
-  const says = why => { if (cap) cap.textContent = why; };
+  // A preview that fails takes the last picture off the map too, so the map never shows an old one as current.
+  const says = why => {
+    if (cap) cap.textContent = why;
+    if (why !== "rendered by this server" && symDrawnLayer && symMap) { symMap.removeLayer(symDrawnLayer); symDrawnLayer = null; }
+  };
 
   if (!image) return;
 
@@ -11019,6 +11040,25 @@ async function drawSymbologyPreview(name, body) {
     image.src = "data:image/png;base64," + btoa(binary);
     image.hidden = false;
     none.hidden = true;
+
+    // <b>On the map, at the extent it was drawn for — owner 2026-10-01: *"zoom in out yaparken geriden
+    // geliyorlar"*.</b> The picture was an image laid over the map in screen pixels, so while the basemap
+    // zoomed it stayed where it was until the next picture arrived: zoomed out, a picture of Turkey was
+    // stretched across half the world for the length of a round trip. As a static image layer georeferenced
+    // to the box it was asked for, it scales and pans with the basemap at once and is replaced when the new
+    // one lands. The `<img>` keeps the bytes and its state for whatever reads them, and is not shown.
+    if (at && symMap && window.ol) {
+      const drawn = new ol.layer.Image({
+        source: new ol.source.ImageStatic({ url: image.src, imageExtent: at.box, projection: "EPSG:3857" }),
+        zIndex: 10,
+      });
+      symMap.addLayer(drawn);
+      if (symDrawnLayer) symMap.removeLayer(symDrawnLayer);
+      symDrawnLayer = drawn;
+      image.classList.add("onmap");
+    } else {
+      image.classList.remove("onmap");
+    }
     // <b>The caption is about the picture, and it used to be about saving.</b> It read *Not
     // stored yet — this is what Store would keep*, which is true of a picture drawn from an
     // edited form and false forever after a Store, because nothing redraws the preview when a
@@ -15120,6 +15160,11 @@ async function loadServiceCapabilities(name, folderGiven) {
       ? String(c.serverRequestDeadlineSeconds)
       : "no bound";
   }
+
+  // <b>The form holds the server's values from here</b>, and says so: a reader — or a test — that reads the boxes
+  // before this line reads the unchecked defaults the markup starts with (CI 2026-10-01).
+  const edit = $("serviceEdit");
+  if (edit) edit.dataset.loaded = `${folder || ""}/${service}`;
 }
 
 /**
@@ -15350,6 +15395,13 @@ function serverLayersMarkup() {
         </dl>
       </div>`;
     }).join("")}`;
+}
+
+/** Brings the layer an old address asked for (`layer=`) into view in Server's Layers section, and focuses it. */
+function showAskedLayer() {
+  const asked = new URLSearchParams(location.hash.split("?")[1] || "").get("layer");
+  const block = asked !== null ? $(`srvLayer-${asked}`) : null;
+  if (block) { block.classList.add("asked"); block.scrollIntoView({ block: "start" }); block.focus({ preventScroll: true }); }
 }
 
 /** The addresses a layer answers at, as `<dt>`/`<dd>` pairs. */

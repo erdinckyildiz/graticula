@@ -56,6 +56,12 @@ public sealed class ScreenReviewTests : ConsoleTest
             "document.querySelectorAll('#serviceEdit input[type=checkbox]').length > 0",
             "Capabilities never rendered its checkboxes.");
 
+        // <b>The boxes are read once they hold the server's values</b> — CI 2026-10-01: read the moment they were
+        // drawn, they were still the markup's unchecked defaults whenever the capabilities answer was slow.
+        await WaitForAsync(
+            "!!document.getElementById('serviceEdit').dataset.loaded",
+            "The capabilities form never said it had the server's values.");
+
         string before = await BoxesAsync();
 
         await ClickAsync("#serviceNav a:nth-child(2)");
