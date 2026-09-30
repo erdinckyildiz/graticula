@@ -65,9 +65,12 @@ internal static class VectorTileExportEndpoints
                 .Governed(SharingGovernedExtensions.ByService);
             app.MapMethods($"{at}/estimateExportTilesSize", ["GET", "POST"], EstimateAsync)
                 .Governed(SharingGovernedExtensions.ByService);
-            app.MapGet($"{at}/jobs/{{jobId}}", JobAsync)
+            // <b>GET or POST, as ArcGIS's own job resources are.</b> Esri's ExportVectorTilesTask — Field Maps' and every
+            // Maps SDK's — asks for a job's status and results with POST f=json; answered 405 here until 2026-09-30, it
+            // retried every five seconds for ever and never saw its package.
+            app.MapMethods($"{at}/jobs/{{jobId}}", ["GET", "POST"], JobAsync)
                 .Governed(SharingGovernedExtensions.ByService);
-            app.MapGet($"{at}/jobs/{{jobId}}/results/{{parameter}}", ResultAsync)
+            app.MapMethods($"{at}/jobs/{{jobId}}/results/{{parameter}}", ["GET", "POST"], ResultAsync)
                 .Governed(SharingGovernedExtensions.ByService);
             app.MapGet($"{at}/jobs/{{jobId}}/package/{{file}}", DownloadAsync)
                 .Governed(SharingGovernedExtensions.ByService);
@@ -706,6 +709,21 @@ internal static class VectorTileExportEndpoints
                 Encoding.UTF8.GetBytes(file), Encoding.UTF8.GetBytes(expected)))
         {
             await Refuse(context, 404, "No such package.").ConfigureAwait(false);
+            return;
+        }
+
+        // <b>Asked with f=json, the address describes the file instead of being it</b>, as an ArcGIS output directory
+        // does. Esri's ExportVectorTilesTask reads out_service_url's value with ?f=json before downloading, and took the
+        // package's own bytes for JSON it could not parse (2026-09-30, Maps SDK for .NET 300.1). A downloader that
+        // asks without f still gets the file, which is what the console and every script here do.
+        if (context.Request.Query["f"] is var f && (f == "json" || f == "pjson"))
+        {
+            string self = TileFaces.Origin(context) + context.Request.Path.Value;
+            await Results.Json(new
+            {
+                folders = Array.Empty<string>(),
+                files = new[] { new { name = service.Name + TileExportPackage.Extension(export.Format), url = self, size = export.Bytes } },
+            }).ExecuteAsync(context).ConfigureAwait(false);
             return;
         }
 

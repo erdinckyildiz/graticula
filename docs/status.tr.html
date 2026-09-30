@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>ed54e21</code> · 2026-09-30 10:43</p>
+<p class="stamp">Şu commit’ten üretildi: <code>160252a</code> · 2026-09-30 10:44</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">103</div><div class="kpi-l">ADR</div><div class="kpi-n">26 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">243/324</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">78 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">244/324</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">77 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">267 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4312</div><div class="kpi-l">test</div><div class="kpi-n">405 kaynak dosya, 180,059 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4312</div><div class="kpi-l">test</div><div class="kpi-n">405 kaynak dosya, 180,077 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">92 madde</span></div><p><b>78 ADR conditions</b> outstanding across 50 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">91 madde</span></div><p><b>77 ADR conditions</b> outstanding across 49 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -180,7 +180,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-085 · A tile leaves out what it cannot d</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-098 · Vector tiles can be exported as a </div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -296,7 +295,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">095</td><td>Registered PostGIS layers serve vector tiles</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
 <tr><td class="id">096</td><td>A vector tile service may be tiled in another reference</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the grid arithmetic is tested by hand-worked numbers; what an ArcGIS client does…</td><td class="num"></td></tr>
 <tr><td class="id">097</td><td>Vector tiles are served through OGC API Tiles, TileJSON and WMTS</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the grids, documents and refusals are tested against numbers typed in from the…</td><td class="num"></td></tr>
-<tr><td class="id">098</td><td>Vector tiles can be exported as a package</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — both formats are written from their published specifications and read back in…</td><td class="num">2/3</td></tr>
+<tr><td class="id">098</td><td>Vector tiles can be exported as a package</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — both formats are written from their published specifications and read back in…</td><td class="num">3/3</td></tr>
 <tr><td class="id">099</td><td>Picture markers are drawn on every face</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — every face is written and unit-tested, and the Skia drawing is read back from…</td><td class="num"></td></tr>
 <tr><td class="id">100</td><td>Labels in more scripts</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the glyph ranges are generated, decoded and pinned by tests, and the raster…</td><td class="num"></td></tr>
 <tr><td class="id">101</td><td>Studio is walked the way a Portal user walks it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every change below was reproduced in a browser before it was made and is pinned…</td><td class="num">0/4</td></tr>
@@ -438,20 +437,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>160252a</code><time>2026-09-30</time><span>Merge remote-tracking branch &#x27;origin/main&#x27;</span></li>
 <li><code>ed54e21</code><time>2026-09-30</time><span>ADR-098 condition 1 is partly discharged: ArcGIS Pro opens an exported VTPK on Web Mercator and on TUREF</span></li>
-<li><code>6cb3ef1</code><time>2026-09-30</time><span>A tile size guess reads another grid&#x27;s level by its pixel, so a TUREF export is no longer estimated at 85 GB</span></li>
-<li><code>c61f61c</code><time>2026-09-29</time><span>README: an edit through this server empties a layer&#x27;s tiles at once; the lag is for edits made in another tool</span></li>
-<li><code>b556434</code><time>2026-09-29</time><span>A PMTiles archive&#x27;s header states the levels that have tiles, so pmtiles verify accepts it</span></li>
-<li><code>4b0bc9f</code><time>2026-09-29</time><span>ADR-100: labels in more scripts — Arabic, Hebrew, Armenian, Georgian, Devanagari, Bengali, Tamil and Thai</span></li>
-<li><code>2c9f4ee</code><time>2026-09-29</time><span>Merge remote-tracking branch &#x27;origin/main&#x27;</span></li>
-<li><code>c563378</code><time>2026-09-29</time><span>Picture markers are drawn on every face, and the tile face makes its own sprite for them</span></li>
-<li><code>f930be0</code><time>2026-09-29</time><span>Merge pull request #1 from erdinckyildiz/claude/relaxed-fermi-3jyse4</span></li>
-<li><code>04b1b46</code><time>2026-09-29</time><span>The overview page and README say what the vector tile work of 2026-09-29 made true</span></li>
-<li><code>ce8e677</code><time>2026-09-29</time><span>D-285 is closed: Pro names every URL-added vector tile layer &quot;Vector Tile Layer&quot;</span></li>
-<li><code>6ad848d</code><time>2026-09-29</time><span>Focus stays on the Publish screen&#x27;s root button when the tree is redrawn after Escape</span></li>
-<li><code>896dce8</code><time>2026-09-29</time><span>A line shorter than a pixel stays in its tile, so a boundary made of short pieces is drawn whole</span></li>
-<li><code>ba4b3c4</code><time>2026-09-29</time><span>An expired tile stands in while its source refuses, and a service may have a cache quota</span></li>
-<li><code>2c82fa3</code><time>2026-09-29</time><span>A vector tile service can be exported as a VTPK or PMTiles package for offline use</span></li>
+<li><code>8315dc0</code><time>2026-09-30</time><span>Update data says Replace on its button when it replaces; Server&#x27;s Layers section reads as one block per layer</span></li>
+<li><code>dfe3dc6</code><time>2026-09-30</time><span>Update data on a hosted layer (ADR-103); Server&#x27;s layer page becomes the service page&#x27;s Layers section</span></li>
+<li><code>ada47de</code><time>2026-09-30</time><span>ADR-102 steps 8-11: the item holds every publisher setting and Studio draws no layer screen</span></li>
+<li><code>54cb04f</code><time>2026-09-30</time><span>Owners choose their item&#x27;s edits and may protect it from deletion; the quota is the administrator&#x27;s; Overview is Portal&#x27;s shape</span></li>
+<li><code>43777b2</code><time>2026-09-30</time><span>ADR-102 verification round: Pre-built states the last run, the Layer select is a row, and the item fits a phone</span></li>
+<li><code>a6ddd6f</code><time>2026-09-30</time><span>ADR-102 step 5: Settings is General, Feature layer and Tile layer</span></li>
+<li><code>baf0e2e</code><time>2026-09-30</time><span>ADR-102 steps 3 and 4: styling is Visualization&#x27;s Style, and the item has one way into it</span></li>
+<li><code>7b17052</code><time>2026-09-30</time><span>ADR-102 step 6: the tile cache is the item&#x27;s Settings › Tile layer, reached by Manage tiles on Overview</span></li>
+<li><code>103b820</code><time>2026-09-30</time><span>ADR-102: the Studio item is one page and every setting has one home; steps 0 and 1</span></li>
+<li><code>365e1e2</code><time>2026-09-30</time><span>Three promises of v1.0.213 kept: /console stays in Studio, an upload opens its item, and Settings cannot undo a group share</span></li>
+<li><code>7214917</code><time>2026-09-30</time><span>Studio is walked the way a Portal user walks it: content, item page, upload, map viewer and the Caching page (ADR-101)</span></li>
+<li><code>dd38e1d</code><time>2026-09-30</time><span>The Share dialog keeps the level chosen before the group screen, and Owner with a group is saved as the group scope</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

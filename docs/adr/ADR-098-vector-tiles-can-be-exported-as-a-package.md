@@ -283,8 +283,8 @@ ArcGIS, at the root and in any folder, each governed by the service's sharing:
 |---|---|
 | `GET/POST …/VectorTileServer/exportTiles?levels=&exportExtent=&polygon=&exportBy=&f=json` | `{"jobId", "jobStatus": "esriJobSubmitted"}`; 403 where the caller may not export; 400 over the cap or the budget |
 | `GET/POST …/VectorTileServer/estimateExportTilesSize?…` | `{"jobId", "jobStatus": "esriJobSucceeded"}` — answered at once; the id carries the numbers, so any server answers its status and nothing is stored |
-| `GET …/VectorTileServer/jobs/{jobId}` | `jobStatus` (`esriJobSubmitted`, `esriJobExecuting`, `esriJobSucceeded`, `esriJobFailed`, `esriJobCancelled`), `progress`, `results.out_service_url.paramUrl` once written, `inputs`, `messages` |
-| `GET …/VectorTileServer/jobs/{jobId}/results/out_service_url` | `{"paramName", "dataType": "GPString", "value": "<absolute url>", "downloadUrl", "size", "expires"}` |
+| `GET` or `POST …/VectorTileServer/jobs/{jobId}` | `jobStatus` (`esriJobSubmitted`, `esriJobExecuting`, `esriJobSucceeded`, `esriJobFailed`, `esriJobCancelled`), `progress`, `results.out_service_url.paramUrl` once written, `inputs`, `messages` |
+| `GET` or `POST …/VectorTileServer/jobs/{jobId}/results/out_service_url` | `{"paramName", "dataType": "GPString", "value": "<absolute url>", "downloadUrl", "size", "expires"}`; the value asked with `?f=json` answers `{"folders": [], "files": [{"name", "url", "size"}]}`, as an ArcGIS output directory does, and without `f` is the file |
 | `GET …/VectorTileServer/jobs/{jobId}/results/out_service_tile_estimates` | `{"paramName", "dataType": "GPString", "value": {"totalSize", "totalTilesToExport"}}` |
 | `GET …/VectorTileServer/jobs/{jobId}/package/{token}.vtpk` | the package |
 
@@ -334,7 +334,7 @@ while an export runs its `.staging` and `.part` files. *Runtime*: the worker's m
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | Field Maps and Pro decide on `exportTilesAllowed`, submit `exportTiles` with level IDs, poll `jobs/{id}` and fetch `results/out_service_url`'s value | `UNVALIDATED` — condition 1 |
+| — | Field Maps and Pro decide on `exportTilesAllowed`, submit `exportTiles` with level IDs, poll `jobs/{id}` and fetch `results/out_service_url`'s value | **Measured 2026-09-30** with Esri's Maps SDK for .NET 300.1 — condition 1 |
 | — | A VTPK laid out as §5.2 says opens in Pro and in the ArcGIS Maps SDKs | `UNVALIDATED` — condition 1 |
 | — | 100,000 tiles, 10 GB and 24 hours are useful defaults | Reasoned (the first is ArcGIS's); not asked of an operator |
 | A-020 | Seeding absorbs the provider performance gap | `UNVALIDATED`, unchanged — an export walks at a seed's speed |
@@ -377,7 +377,21 @@ None recorded.
    at 1:32,628 near Beşköprü. East of the grid's square, near Hafik, the FeatureServer drew a polygon and the package
    nothing — [D-288](../architecture-debt.md), in the package as in the service. **Still open: the protocol half.** Both
    packages came through the admin route; no ArcGIS client has yet read `exportTilesAllowed`, sent `exportTiles`, polled
-   `jobs/{id}` or fetched `results/out_service_url` — Pro's *Download Map* or a Field Maps offline area would.
+   `jobs/{id}` or fetched `results/out_service_url` — Pro's *Download Map* or a Field Maps offline area would. **DISCHARGED
+   2026-09-30 — the protocol half, by Esri's own client library, and it found two faults.** `ExportVectorTilesTask` of the
+   ArcGIS Maps SDK for .NET 300.1 — the runtime Field Maps and every native ArcGIS app is built on — was pointed at the
+   fixture's `hosted/ci_parcels`, with every request it made logged by an `IHttpMessageInterceptor`. It read the service
+   document and `resources/styles`, then sent `POST exportTiles` with `f=json&exportBy=LevelID&exportExtent=<envelope
+   with its wkid>&levels=0,1,…,13&tilePackage=true` (the levels its `maxScale` allowed, as a comma list). **Fault 1:** it
+   asks for the job's status and its result with `POST … f=json`; both routes were GET only, it was answered 405 and
+   retried every five seconds for ever. **Fault 2:** it asks `results/out_service_url`'s value with `?f=json` before
+   downloading — §5.8's direct file URL gave it the package's bytes, which it could not parse. Both routes now take GET or
+   POST, and the package address asked with `f=json` describes the file as an ArcGIS output directory does
+   (`AnExportedTileIsAServedTileTests` asks both ways). After that the SDK's job succeeded on Web Mercator (levels 0-13,
+   4.7 MB) and, with the service switched to TUREF / TM33, on EPSG:5255 (levels 0-8, 4.9 MB), and the SDK opened each
+   package as an `ArcGISVectorTiledLayer` in its own reference. The SDK's `HasStyleResources` is false here as it is for
+   Esri's own `World_Basemap_v2` opened by URL: it reads style resources from a portal item. What was not watched is the
+   Field Maps app itself; it drives this same task.
 2. **A PMTiles reader takes an archive.** `pmtiles verify` and `pmtiles show` (the Protomaps command-line tool) accept an
    exported archive, and MapLibre with the `pmtiles://` protocol draws it. **DISCHARGED 2026-09-29, after a repair it
    found.** `pmtiles` 1.31.2 (`protomaps/go-pmtiles`) first **refused** an archive of the fixture's `hosted/ci_parcels`

@@ -80,9 +80,24 @@ public sealed class AnExportedTileIsAServedTileTests : ArcGisClient
                 "results/out_service_url",
                 job.GetProperty("results").GetProperty("out_service_url").GetProperty("paramUrl").GetString());
 
+            // <b>And by POST, which is how Esri's ExportVectorTilesTask asks</b> — Field Maps' and every Maps SDK's. Both
+            // were 405 until 2026-09-30, and the SDK retried the status for ever.
+            (int polled, string polledBody) = await AdminAsync(HttpMethod.Post, $"{service}/jobs/{jobId}?f=json");
+            Assert.True(polled == 200 && polledBody.Contains("esriJobSucceeded", StringComparison.Ordinal), $"POST jobs/{{id}}: {polled} {polledBody}");
+            (int fetched, string fetchedBody) = await AdminAsync(HttpMethod.Post, $"{service}/jobs/{jobId}/results/out_service_url?f=json");
+            Assert.True(fetched == 200 && fetchedBody.Contains(".vtpk", StringComparison.Ordinal), $"POST results: {fetched} {fetchedBody}");
+
             JsonElement result = await AdminJsonAsync(HttpMethod.Get, $"{service}/jobs/{jobId}/results/out_service_url?f=json");
             string url = result.GetProperty("value").GetString()!;
             Assert.EndsWith(".vtpk", url, StringComparison.Ordinal);
+
+            // <b>Asked with f=json, the address describes the file</b> — Esri's ExportVectorTilesTask reads it that way
+            // and downloads the file named in it (2026-09-30).
+            (HttpStatusCode described, byte[] listing, _) = await DownloadAsync(url + "?f=json", authenticated: true);
+            Assert.Equal(HttpStatusCode.OK, described);
+            JsonElement file = JsonDocument.Parse(listing).RootElement.GetProperty("files")[0];
+            Assert.Equal(url, file.GetProperty("url").GetString());
+            Assert.EndsWith(".vtpk", file.GetProperty("name").GetString(), StringComparison.Ordinal);
 
             (HttpStatusCode status, byte[] package, HttpResponseMessage headers) = await DownloadAsync(url, authenticated: true);
             Assert.True(status == HttpStatusCode.OK, $"Downloading {url} answered {(int)status}.");
