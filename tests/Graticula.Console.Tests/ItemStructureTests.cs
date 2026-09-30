@@ -19,13 +19,15 @@ public sealed class ItemStructureTests : ConsoleTest
         Environment.GetEnvironmentVariable("GRATICULA_TEST_MULTILAYER") ?? "hosted/ci_EarlyAlert";
 
     /// <summary>Step 0: at 768 pixels the item page does not scroll sideways, and states its sharing once.</summary>
-    [Fact]
-    public async Task At_768_the_item_page_fits_and_says_its_sharing_once()
+    [Theory]
+    [InlineData(768)]
+    [InlineData(390)]
+    public async Task At_narrow_widths_the_item_page_fits_and_says_its_sharing_once(int width)
     {
         (string token, _) = await SignInAsync();
 
         await Browser.CallAsync("Emulation.setDeviceMetricsOverride",
-            new { width = 768, height = 900, deviceScaleFactor = 1, mobile = false });
+            new { width, height = 900, deviceScaleFactor = 1, mobile = false });
 
         try
         {
@@ -37,7 +39,7 @@ public sealed class ItemStructureTests : ConsoleTest
                 "[document.documentElement.scrollWidth, document.documentElement.clientWidth]") ?? [];
 
             Assert.True(widths.Length == 2 && widths[0] <= widths[1],
-                $"At 768 the page is {widths[0]} wide in a {widths[1]} window — it scrolls sideways (813 before ADR-102).");
+                $"At {width} the page is {widths[0]} wide in a {widths[1]} window — it scrolls sideways (813 at 768 and 443 at 390 before ADR-102).");
 
             bool pill = await Browser.EvaluateAsync<bool>(
                 "(() => { const p = document.getElementById('serviceScope'); return !!p && !p.hidden && p.offsetParent !== null; })()");

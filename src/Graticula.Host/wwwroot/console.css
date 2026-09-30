@@ -4370,3 +4370,16 @@ button.thsort:focus-visible { outline: 2px solid var(--accent); outline-offset: 
 #app.symfull #view-service #editHead, #app.symfull #servicePagehead, #app.symfull #serviceVis > .toolbar { display: none; }
 #app.symfull .symstrip #visStyle { margin-right: var(--gap-3); }
 #app.symfull .stylehost { margin-top: 0; }
+
+/* Verification round 2 (ADR-102): the Layer select is a row of its own under the title, never a tall column;
+   the item's actions wrap on a phone; Packages' selects read as the Pre-build ones do. */
+#servicePagehead { flex-wrap: wrap; }
+#itemLayerField.itemlayer { flex: 0 0 100%; order: 3; width: min(360px, 100%); max-width: 360px; }
+@media (max-width: 1180px) { #itemLayerField.itemlayer { flex: none; width: min(360px, 100%); } }
+.itemhead .itemactions { flex-wrap: wrap; min-width: 0; }
+.itemhead .itemactions > * { flex: 1 1 auto; }
+.itemhead > div { min-width: 0; }
+#exportBox .setting select, #exportBox .setting input[type=number] { width: auto; min-width: 16rem; max-width: 100%;
+  text-align: left; font-family: inherit; }
+@media (max-width: 480px) { #serviceTabs a { min-height: 44px; display: inline-flex; align-items: center; } }
+@media (max-width: 720px) { .itemhead .itemactions { flex: 1 1 100%; } }

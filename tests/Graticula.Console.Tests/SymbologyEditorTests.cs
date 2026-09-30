@@ -138,7 +138,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         // the preview with JSON and the painted caption cannot be trusted.
         await WaitForAsync(
             "(document.getElementById('symPreviewState')?.textContent || '')"
-            + ".includes('Store would keep')",
+            + ".includes('Save as layer default would keep')",
             "The preview does not say it is unsaved, so a reader cannot tell what they are "
             + "looking at from what would be kept.");
 
@@ -747,7 +747,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
     /// <para>
     /// <b>The owner's screenshot held five sentences about saving and two of them were wrong.</b>
     /// A design review reproduced it: after storing 256 classes, the preview caption still read
-    /// *Not stored yet — this is what Store would keep* and the classify line still read *Nothing
+    /// *Not stored yet — this is what Save as layer default would keep* and the classify line still read *Nothing
     /// is stored yet — press Store to keep them*, while the state line and the toast both
     /// correctly said it was stored. Each sentence was written once by whatever function produced
     /// it and never revisited by the one that made it false.
@@ -799,7 +799,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         // raises.</b>
         string edited = await Browser.EvaluateAsync<string>("symPreviewSays()") ?? "";
 
-        Assert.Contains("Store would keep", edited, StringComparison.Ordinal);
+        Assert.Contains("Save as layer default would keep", edited, StringComparison.Ordinal);
 
         // <b>The wording that could go stale is gone, not merely corrected.</b> *Not stored yet*
         // was written on every preview render and revisited by nothing; a page that still
@@ -941,7 +941,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         await WaitForAsync(
             "(document.getElementById('symDoc')?.value || '')"
             + ".includes('CIMColorVisualVariable')",
-            "The variable never reached the document, so Store would keep a symbol that does "
+            "The variable never reached the document, so Save as layer default would keep a symbol that does "
             + "not vary.");
 
         // <b>The two ends are editable and both land.</b> A form that stored its defaults and
@@ -1033,7 +1033,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
         await WaitForAsync(
             "(document.getElementById('symDoc')?.value || '')"
             + ".split('CIMSolidStroke').length - 1 === 2",
-            "The chosen symbol never reached the document, so Store would keep the old one.");
+            "The chosen symbol never reached the document, so Save as layer default would keep the old one.");
 
         NothingWentWrong(await PageErrorsAsync());
     }

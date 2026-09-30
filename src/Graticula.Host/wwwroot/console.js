@@ -4851,7 +4851,7 @@ function drawServiceLayers(layers, qualified) {
               qualified.split("/").map(encodeURIComponent).join("/")}?tab=data&layer=${
               num(layer.id ?? 0)}" title="This layer's rows and its fields">Data</a>
 
-        <a class="tiny" href="${h(visHref(layer.name || "") || `${at}`)}"
+        <a class="tiny" href="${h(visHref(layer.name || "", "features") || `${at}`)}"
           title="Draw this layer on the map">Map</a>`}</td>
       </tr>`;
     }).join("");
@@ -6227,7 +6227,7 @@ function drawVisStyle() {
   // Offered to every reader: a reader who does not manage the layer sees its style and cannot change it,
   // which is what the layer page showed them (lockForReader).
   button.hidden = !name;
-  button.setAttribute("aria-pressed", String(visStyleOpen && !!name));
+  button.removeAttribute("aria-pressed");
   button.textContent = visStyleOpen ? "Back to the map" : "Style";
 
   // <b>The editor takes the page's width while it is open</b> — the state it had on its own page (`symfull`):
@@ -7140,7 +7140,7 @@ function tileLayerMarkup(l, name) {
         sentence; pre-building an area is an option with a map to show the area on; everything tuned in
         numbers is under *Advanced*.
       -->
-      <h4>Tiles</h4>
+      <h4>Tile layer</h4>
       <!-- tileable, not hosted (D-264): a GeoParquet layer is tiled (ADR-066 section 9) and is never
            hosted, so this page told its operator there was no cache while the tiles were being cached. -->
       ${l.tileable ? `
@@ -10229,7 +10229,8 @@ function drawSymStrip(name, at, trail) {
   // rather than from a list has no other way to know whether what they are styling is public.
   const scope = $("symScope");
 
-  if (scope) scope.innerHTML = l.sharing ? pill(l.sharing) : "";
+  // Not in the item's Style panel: the item states its sharing once, in Settings › General (ADR-102).
+  if (scope) scope.innerHTML = l.sharing && !$("visStyleHost")?.contains(scope) ? pill(l.sharing) : "";
 }
 
 /**
@@ -10397,8 +10398,8 @@ let symEditedSince = false;
 function symPreviewSays() {
   if (symEditedSince) {
     return symStored
-      ? "Edited — this is what Store would keep, not what is stored now."
-      : "Edited — this is what Store would keep.";
+      ? "Edited — this is what Save as layer default would keep, not what is stored now."
+      : "Edited — this is what Save as layer default would keep.";
   }
 
   return symStored ? "The stored appearance." : "Generated — no document is stored.";
@@ -12833,9 +12834,18 @@ function seedMapExtent() {
  */
 function prebuiltSummary(levels) {
   const seeded = levels.filter(l => l.lastSeeded);
-  const warm = seeded.filter(l => (l.cached ?? 0) > 0).map(l => l.zoom);
   const last = seeded.map(l => l.lastSeeded).sort().pop() || null;
-  return { warm, cleared: seeded.length > 0 && warm.length === 0, last };
+
+  // <b>The last run's levels, and only while every one of them still holds tiles.</b> The second verification
+  // review found the line fooled twice: a tile somebody merely viewed at a level seeded long ago made that level
+  // look pre-built, and a min–max hid the gaps. So the levels are the ones the latest run wrote (same seed), and
+  // the line claims them only when none has been emptied since; otherwise it says the pre-build was cleared.
+  const run = last ? seeded.filter(l => l.seed && l.seed === (seeded.find(x => x.lastSeeded === last) || {}).seed) : [];
+  const levelsOfRun = (run.length ? run : seeded.filter(l => l.lastSeeded === last)).map(l => l.zoom).sort((a, b) => a - b);
+  const intact = levelsOfRun.length > 0
+    && levelsOfRun.every(z => (levels.find(l => l.zoom === z)?.cached ?? 0) > 0);
+
+  return { warm: intact ? levelsOfRun : [], cleared: seeded.length > 0 && !intact, last };
 }
 
 function drawTilesStatus(name, where, r) {
@@ -12854,7 +12864,7 @@ function drawTilesStatus(name, where, r) {
   box.innerHTML = `
     <dl class="facts">
       <dt>Cached now</dt><dd>${num(b.serviceEntries || 0)} tile${b.serviceEntries === 1 ? "" : "s"}${
-        (b.serviceEntries || 0) > 0 && !b.serviceBytes ? ", all of them empty at those scales"
+        (b.serviceEntries || 0) > 0 && !b.serviceBytes ? ", none of them with data yet"
         : ` · ${h(seedSize(b.serviceBytes || 0))}`}</dd>
       <dt>Pre-built</dt><dd>${seeded.length
         ? `${h(levelLabel(Math.min(...seeded), scheme).split(" — ")[0])} to ${h(levelLabel(Math.max(...seeded), scheme).split(" — ")[0])}${last ? `, ${seedWhen(last)}` : ""}`
@@ -23398,12 +23408,10 @@ async function handleClick(event) {
     return;
   }
 
-  if (t.dataset?.manageTiles) {
-    SERVICE_PAGE_OPEN = "tiles";
-    showServiceTab("settings");
-    writeItemAddress();
-    if (serviceOpen) drawServiceSettings(serviceOpen.name, serviceOpen.folder);
-    setTimeout(() => $("page-tiles")?.querySelector("h4")?.focus({ preventScroll: false }), 50);
+  // A navigation, so Back returns to Overview (verification review): the address names the section.
+  if (t.dataset?.manageTiles && serviceOpen) {
+    location.hash = `#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`
+      + "?tab=settings&section=tiles";
     return;
   }
 

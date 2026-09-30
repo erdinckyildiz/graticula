@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>365e1e2</code> · 2026-09-30 02:40</p>
+<p class="stamp">Şu commit’ten üretildi: <code>a6ddd6f</code> · 2026-09-30 04:06</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">102</div><div class="kpi-l">ADR</div><div class="kpi-n">26 koşulsuz kabul</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">267 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4288</div><div class="kpi-l">test</div><div class="kpi-n">404 kaynak dosya, 179,269 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4293</div><div class="kpi-l">test</div><div class="kpi-n">404 kaynak dosya, 179,269 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -427,7 +427,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.7%"></div></div><div class="bar-n">622</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.9%"></div></div><div class="bar-n">518</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:34.4%"></div></div><div class="bar-n">406</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:19.4%"></div></div><div class="bar-n">229</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:19.8%"></div></div><div class="bar-n">234</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:17.5%"></div></div><div class="bar-n">206</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:10.5%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.7%"></div></div><div class="bar-n">115</div></div>
@@ -437,6 +437,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>a6ddd6f</code><time>2026-09-30</time><span>ADR-102 step 5: Settings is General, Feature layer and Tile layer</span></li>
+<li><code>baf0e2e</code><time>2026-09-30</time><span>ADR-102 steps 3 and 4: styling is Visualization&#x27;s Style, and the item has one way into it</span></li>
+<li><code>7b17052</code><time>2026-09-30</time><span>ADR-102 step 6: the tile cache is the item&#x27;s Settings › Tile layer, reached by Manage tiles on Overview</span></li>
+<li><code>103b820</code><time>2026-09-30</time><span>ADR-102: the Studio item is one page and every setting has one home; steps 0 and 1</span></li>
 <li><code>365e1e2</code><time>2026-09-30</time><span>Three promises of v1.0.213 kept: /console stays in Studio, an upload opens its item, and Settings cannot undo a group share</span></li>
 <li><code>7214917</code><time>2026-09-30</time><span>Studio is walked the way a Portal user walks it: content, item page, upload, map viewer and the Caching page (ADR-101)</span></li>
 <li><code>dd38e1d</code><time>2026-09-30</time><span>The Share dialog keeps the level chosen before the group screen, and Owner with a group is saved as the group scope</span></li>
@@ -447,10 +451,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>4b0bc9f</code><time>2026-09-29</time><span>ADR-100: labels in more scripts — Arabic, Hebrew, Armenian, Georgian, Devanagari, Bengali, Tamil and Thai</span></li>
 <li><code>2c9f4ee</code><time>2026-09-29</time><span>Merge remote-tracking branch &#x27;origin/main&#x27;</span></li>
 <li><code>c563378</code><time>2026-09-29</time><span>Picture markers are drawn on every face, and the tile face makes its own sprite for them</span></li>
-<li><code>f930be0</code><time>2026-09-29</time><span>Merge pull request #1 from erdinckyildiz/claude/relaxed-fermi-3jyse4</span></li>
-<li><code>04b1b46</code><time>2026-09-29</time><span>The overview page and README say what the vector tile work of 2026-09-29 made true</span></li>
-<li><code>ce8e677</code><time>2026-09-29</time><span>D-285 is closed: Pro names every URL-added vector tile layer &quot;Vector Tile Layer&quot;</span></li>
-<li><code>6ad848d</code><time>2026-09-29</time><span>Focus stays on the Publish screen&#x27;s root button when the tree is redrawn after Escape</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
