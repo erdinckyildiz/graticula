@@ -45,8 +45,13 @@
 > attributes only, as ADR-107 built it, not X and Y columns; a Shapefile's field names are GDAL's, with no
 > `fieldnames.csv` or `domains.csv`; no `_desc` columns, no per-layer domains in GeoPackage or File Geodatabase, no
 > extent; the dry run's list of what a format loses is a fixed sentence per format, not what this data will lose.
-> **Still to come:** the console (§5.9: the dialog, the layer checkboxes, progress and the caller's list, and removing
-> the browser loop) and conditions 1 to 6 and 9 — no reader outside GDAL has opened a file yet.
+> **The console, 2026-09-30:** Overview › *Export data* ticks every layer and starts the job; it polls the status,
+> says how many rows are written, fetches the file with the caller's token and saves it as the server named it, and
+> Cancel stops a running job. Driven once in headless Chrome against the fixture: three layers of `ci_EarlyAlert` in
+> one GeoPackage, 15 rows, 143 KB, an SQLite file. The console tests assert what the page sends — their harness answers
+> every write with an empty 200 — and ADR-107's synchronous dialog test had been passing on that answer, saving its two bytes as `export.gpkg`.
+> **Still to come:** the caller's list of past exports in the console (§5.9), and conditions 1 to 6 and 9 — no reader
+> outside GDAL has opened a file yet.
 
 ## 1. Context
 

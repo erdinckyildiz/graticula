@@ -5876,59 +5876,96 @@ async function loadServiceData() {
 }
 
 /**
- * A layer's rows as a file, made by the server — ADR-107 and ADR-106. The server reads every row and GDAL writes the
- * file: GeoPackage, shapefile, File Geodatabase and the workbook in the layer's own reference, so a TUREF layer leaves
- * as TUREF; KML, CSV and GeoJSON in WGS 84, as their readers expect. The answer is saved as it comes.
+ * Exports the chosen layers as one file, made by a job on the server — ADR-106, on ADR-107's formats.
+ *
+ * <b>Started, watched, then fetched</b>, rather than one request that holds the tab while the server writes a
+ * million rows: the job is queued, this polls its status every second and a half and says how far it is, and the
+ * finished file is fetched with the caller's token and saved as the server named it. Cancel stops a running job.
+ * GeoPackage, File Geodatabase, KML and the workbook hold every chosen layer in one file; the other formats write a
+ * file per layer, and several make one zip. Up to two million rows in all.
  */
-async function exportLayerFile(format, button, index) {
+let exportDataRunning = null;
+
+async function exportServiceData(format, button, chosen = null) {
   const says = text => { const s = $("exportDataSays") || $("dataSays"); if (s) s.textContent = text; };
+  const layers = Array.isArray(chosen) ? chosen : [chosen ?? $("dataLayer")?.value];
+  if (!serviceOpen || !layers.length || layers.some(one => one === undefined || one === "")) {
+    says("Choose at least one layer.");
+    return;
+  }
+
   const [folder, name] = serviceOpen.qualified.includes("/")
     ? serviceOpen.qualified.split("/") : ["", serviceOpen.qualified];
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = "Bearer " + token;
 
   button.disabled = true;
-  says("Writing the file on the server — a large layer takes a while…");
+  says("Starting the export…");
 
   try {
-    const headers = {};
-    if (token) headers.Authorization = "Bearer " + token;
-    const response = await fetch(`/admin/services/${encodeURIComponent(name)}/layers/${encodeURIComponent(index)}/export`
-      + `?folder=${encodeURIComponent(folder)}&format=${encodeURIComponent(format)}`, { method: "POST", headers });
+    const response = await fetch(`/admin/services/${encodeURIComponent(name)}/data-exports`
+      + `?folder=${encodeURIComponent(folder)}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ format, layers: layers.map(Number) }),
+    });
+    const started = await response.json().catch(() => null);
 
-    if (!response.ok) {
-      let why = `${response.status}`;
-      try { why = (await response.json())?.error?.message || why; } catch { /* not json */ }
-      says(`Not exported: ${why}`);
+    if (response.status !== 202) {
+      says(`Not exported: ${started?.error?.message || response.status}`);
       return;
     }
 
-    const disposition = response.headers.get("Content-Disposition") || "";
-    const file = /filename="([^"]+)"/.exec(disposition)?.[1] || `export.${format}`;
+    const watch = started.watch;
+    exportDataRunning = watch;
+
+    for (;;) {
+      await new Promise(done => setTimeout(done, 1500));
+      if (exportDataRunning !== watch) return;   // cancelled from the dialog
+
+      const job = await api(watch);
+      if (job.status === "done") break;
+
+      if (job.status === "failed" || job.status === "cancelled") {
+        says(job.status === "failed" ? `Not exported: ${job.failure || "the job failed."}` : "Cancelled.");
+        return;
+      }
+
+      says(job.status === "queued" ? "Waiting for the exporter…"
+        : `Writing — ${num(job.rowsWritten || 0)} of ${num(job.rows || 0)} rows${
+            job.percent ? ` (${job.percent}%)` : ""}…`);
+    }
+
+    const done = await api(watch);
+    says("Downloading…");
+
+    const auth = {};
+    if (token) auth.Authorization = "Bearer " + token;
+    const file = await fetch(done.download, { headers: auth });
+
+    if (!file.ok) {
+      let why = `${file.status}`;
+      try { why = (await file.json())?.error?.message || why; } catch { /* not json */ }
+      says(`Not downloaded: ${why}`);
+      return;
+    }
+
+    const disposition = file.headers.get("Content-Disposition") || "";
+    const saved = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition)?.[1] || done.fileName || `export.${format}`;
     const link = document.createElement("a");
-    link.href = URL.createObjectURL(await response.blob());
-    link.download = file;
+    link.href = URL.createObjectURL(await file.blob());
+    link.download = decodeURIComponent(saved);
     document.body.appendChild(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(link.href), 10000);
-    says(`Written to ${file}.`);
+    says(`Written to ${link.download} — ${num(done.rowsWritten || 0)} rows.`);
   } catch (e) {
     says(`Not exported: ${e.message || e}`);
   } finally {
+    exportDataRunning = null;
     button.disabled = false;
   }
-}
-
-/**
- * Writes every row of the chosen layer to a file, made by the server — ADR-107, with ADR-106's formats.
- *
- * <b>No format is built in the browser any more.</b> CSV and GeoJSON were, from pages of the layer's query, and
- * stopped at 100,000 rows; the server writes them as it writes the other five, up to a million.
- */
-async function exportServiceData(format, button, chosen = null) {
-  const index = chosen ?? $("dataLayer")?.value;
-  if (!serviceOpen || index === undefined || index === "") return;
-
-  await exportLayerFile(format, button, index);
 }
 
 /**
@@ -24354,9 +24391,10 @@ async function handleClick(event) {
     const own = sr ? `EPSG:${sr.latestWkid || sr.wkid} (the layer's own)` : "the layer's own reference";
     const tiled = tileLayerOf();
     $("exportDataBody").innerHTML = `
-      <div class="stacked"><label for="exportDataLayer">Layer</label>
-        <select id="exportDataLayer">${drawable.map(one => `<option value="${h(String(one.id ?? 0))}">${
-          h(one.name || `layer ${one.id}`)}</option>`).join("")}</select></div>
+      <fieldset class="offered" id="exportDataLayers"><legend>Layers</legend>
+        ${drawable.map(one => `<label class="check"><input type="checkbox" data-export-layer="${h(String(one.id ?? 0))}" checked>
+          ${h(one.name || `layer ${one.id}`)}</label>`).join("")}
+      </fieldset>
       <fieldset class="offered formats"><legend>With the geometry</legend>
         ${[["gpkg", "GeoPackage", `${own} · any GIS`],
            ["fgdb", "File Geodatabase (zipped)", `${own} · ArcGIS Pro`],
@@ -24375,7 +24413,8 @@ async function handleClick(event) {
       </fieldset>
       ${tiled ? `<p class="hint">Tiles for offline use — a VTPK for ArcGIS Field Maps and Pro, or PMTiles — are built as
         packages in <a href="#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings&section=tiles">Settings › Tile layer</a>.</p>` : ""}
-      <p class="hint">Every row of the layer is written by the server, up to a million.</p>`;
+      <p class="hint">Every row of the chosen layers is written by the server, up to two million in all. GeoPackage,
+        File Geodatabase, KML and Excel hold every layer in one file; the others write a file per layer, in one zip.</p>`;
     // The answer stands in the footer, in view at any width (design review 2026-10-01).
     $("exportDataFoot").innerHTML = `<p class="hint fill" id="exportDataSays" role="status" aria-live="polite"></p>
       <button type="button" class="ghost" id="exportDataCancel">Cancel</button>
@@ -24387,13 +24426,21 @@ async function handleClick(event) {
 
   // The link to Tile layer leaves the dialog too: an open modal over the page it leads to hides that page.
   if (t.id === "exportDataClose" || t.id === "exportDataCancel" || t.closest?.("#exportData a[href]")) {
+    // A running export is cancelled on the server, not left writing a file nobody will fetch.
+    if (exportDataRunning) {
+      const watch = exportDataRunning;
+      exportDataRunning = null;
+      api(watch, { method: "DELETE" }).catch(() => {});
+    }
     $("exportData").close();
     if (!t.closest?.("a[href]")) return;
   }
 
   if (t.id === "exportDataGo") {
     const format = document.querySelector('input[name="exportDataFormat"]:checked')?.value || "csv";
-    await exportServiceData(format, t, $("exportDataLayer")?.value);
+    const chosen = [...document.querySelectorAll("#exportDataLayers input[data-export-layer]:checked")]
+      .map(box => box.dataset.exportLayer);
+    await exportServiceData(format, t, chosen);
     return;
   }
 

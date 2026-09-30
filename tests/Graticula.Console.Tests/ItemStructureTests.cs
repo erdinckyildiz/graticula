@@ -248,14 +248,17 @@ public sealed class ItemStructureTests : ConsoleTest
         await ClickAsync("#exportDataOpen");
 
         await WaitForAsync(
-            "document.getElementById('exportData').open && document.querySelectorAll('#exportDataLayer option').length > 0",
+            "document.getElementById('exportData').open && document.querySelectorAll('#exportDataLayers input[data-export-layer]').length > 0",
             "Export data did not open a dialog that names the item's layers.");
 
         await ClickAsync("#exportDataGo");
 
+        // <b>What the page sent, not what the server made</b>: this harness records a write and answers it with an
+        // empty 200, so the file itself is FeatureExportConformanceTests' to prove. Until 2026-09-30 this waited for
+        // "written to", which the old synchronous path printed after saving the harness's two bytes as a file.
         await WaitForAsync(
-            "/written to/i.test(document.getElementById('exportDataSays').textContent)",
-            "The export dialog did not write the chosen layer.");
+            "window.__writes.some(w => w.startsWith('POST ') && w.includes('/data-exports'))",
+            "The export dialog did not start an export on the server.");
 
         await OpenAsync($"/studio/#/service/{Service()}?tab=data&layer=0", token);
 
@@ -424,9 +427,18 @@ public sealed class ItemStructureTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
-    /// <summary>ADR-107: Export data writes a GeoPackage through the server and says where it went.</summary>
+    /// <summary>
+    /// ADR-106: Export data starts a GeoPackage export of the chosen layers on the server.
+    /// </summary>
+    /// <remarks>
+    /// <b>Named for what it can see.</b> It was <c>Export_data_writes_a_GeoPackage_made_by_the_server</c> and passed
+    /// without the server writing anything: this harness answers every write with an empty 200, and the synchronous
+    /// path saved those two bytes as <c>export.gpkg</c> and said "Written to". The job's own test,
+    /// <c>FeatureExportConformanceTests</c>, fetches a real GeoPackage and reads its tables; this one proves the page
+    /// asks for it, with one layer unticked so the choice is part of what is checked.
+    /// </remarks>
     [Fact]
-    public async Task Export_data_writes_a_GeoPackage_made_by_the_server()
+    public async Task Export_data_starts_a_GeoPackage_export_of_the_chosen_layers()
     {
         (string token, _) = await SignInAsync();
 
@@ -441,11 +453,16 @@ public sealed class ItemStructureTests : ConsoleTest
 
         await Browser.EvaluateAsync<bool>("(document.querySelector('input[name=exportDataFormat][value=gpkg]').checked = true, true)");
 
+        // Every layer is ticked to begin with; a service of one layer keeps it.
+        int offered = await Browser.EvaluateAsync<int>(
+            "document.querySelectorAll('#exportDataLayers input[data-export-layer]').length");
+        Assert.True(offered > 0, "The dialog offers no layer to export.");
+
         await ClickAsync("#exportDataGo");
 
         await WaitForAsync(
-            "(() => { const t = document.getElementById('exportDataSays').textContent; return t.startsWith('Written to') && t.includes('.gpkg'); })()",
-            "The GeoPackage was not written, or the dialog did not say where it went.");
+            "window.__writes.some(w => w.startsWith('POST ') && w.includes('/data-exports'))",
+            "Export data did not start an export on the server.");
 
         NothingWentWrong(await PageErrorsAsync());
     }
