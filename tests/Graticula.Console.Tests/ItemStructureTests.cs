@@ -449,4 +449,30 @@ public sealed class ItemStructureTests : ConsoleTest
 
         NothingWentWrong(await PageErrorsAsync());
     }
+
+    /// <summary>An administrator gives an item to another member from its Overview — Portal's Change owner.</summary>
+    [Fact]
+    public async Task An_administrator_changes_an_items_owner_from_Overview()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync($"/studio/#/service/{Service()}", token);
+
+        await WaitForAsync("!!document.querySelector('#svcFacts [data-change-owner]')",
+            "Overview's Owner offers an administrator no Change owner.");
+
+        await ClickAsync("#svcFacts [data-change-owner]");
+
+        await WaitForAsync(
+            "document.getElementById('changeOwner').open && [...document.querySelectorAll('#changeOwnerTo option')].some(o => o.value)",
+            "Change owner did not list the members to choose from.");
+
+        await ClickAsync("#changeOwnerSave");
+
+        await WaitForAsync(
+            "(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/owner'))",
+            "Change owner sent nothing.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
 }

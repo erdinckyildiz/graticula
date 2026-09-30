@@ -1259,6 +1259,15 @@ public interface IAdminCatalog
     /// <returns>True when the service exists.</returns>
     Task<bool> SetDeleteProtectedAsync(string serviceName, string? folder, bool protectedFromDeletion, CancellationToken cancellationToken);
 
+    /// <summary>Gives one service to another member — Portal's *Change owner* for one item.</summary>
+    /// <param name="serviceName">The service.</param>
+    /// <param name="folder">Its folder, or null.</param>
+    /// <param name="receiver">The member who receives it, by name.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What happened.</returns>
+    Task<Graticula.Platform.Catalog.OwnerChange> ChangeServiceOwnerAsync(
+        string serviceName, string? folder, string receiver, CancellationToken cancellationToken);
+
     /// <summary>Replaces a service's description, addressed by folder and name.</summary>
     /// <param name="serviceName">The service.</param>
     /// <param name="folder">Its folder, or null for the root.</param>

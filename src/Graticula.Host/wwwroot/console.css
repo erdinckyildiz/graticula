@@ -4468,3 +4468,9 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 #mapShare .check > span { display: inline-flex; flex-direction: column; }
 @media (max-width: 900px) { .mapitem { grid-template-columns: 1fr; } }
 #mapAbout, #mapLayers { padding: var(--gap-3) var(--gap-4); }
+
+/* A button that reads as a link, beside a fact it changes (Change owner…). */
+.linkbtn { background: none; border: 0; padding: 0; margin-left: 6px; color: var(--accent); font: inherit; font-size: 13px;
+  text-decoration: underline; cursor: pointer; }
+#changeOwner .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
+#changeOwner select { font: inherit; max-width: 100%; }

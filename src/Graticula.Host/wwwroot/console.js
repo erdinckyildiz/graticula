@@ -3972,7 +3972,8 @@ async function showWebMapItem(id) {
     <h4>Details</h4>
     <dl class="facts2">
       <dt>Type</dt><dd>Web map</dd>
-      <dt>Owner</dt><dd>${h(map.owner || "—")}</dd>
+      <dt>Owner</dt><dd>${h(map.owner || "—")}${may("admin:manageAllContent")
+        ? ` <button type="button" class="linkbtn" data-change-owner="map">Change owner…</button>` : ""}</dd>
       <dt>Sharing</dt><dd>${pill(map.sharing)}</dd>
       <dt>Layers</dt><dd>${num(layers.length)}</dd>
       <dt>Created</dt><dd>${h(day(map.created))}</dd>
@@ -4081,6 +4082,76 @@ document.addEventListener("click", async event => {
       location.hash = "#/content";
     } catch (e) {
       toast(e.message || String(e));
+    }
+  }
+});
+
+/**
+ * Portal's *Change owner* for one item — a service or a web map, an administrator's act (2026-10-01). The members are
+ * listed to choose from; the item's sharing, its groups and its addresses are untouched, and the dialog says so.
+ */
+let ownerChanging = null;
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target : null;
+  if (!t) return;
+
+  const opener = t.closest("[data-change-owner]");
+  if (opener) {
+    const kind = opener.dataset.changeOwner;
+    ownerChanging = kind === "map"
+      ? { kind, id: mapOpen?.id, name: mapOpen?.title, owner: mapOpen?.owner }
+      : { kind, qualified: serviceOpen?.qualified, name: serviceOpen?.name, folder: serviceOpen?.folder, owner: serviceItem?.owner };
+
+    $("changeOwnerBody").innerHTML = `<p>Give <b>${h(ownerChanging.name || "")}</b> to another member.</p>
+      <div class="stacked"><label for="changeOwnerTo">New owner</label>
+        <select id="changeOwnerTo"><option value="">Reading the members…</option></select></div>
+      <p class="hint">Nothing is unpublished: who may open it, its groups and every address a client holds stay as
+        they are. The new owner can change and delete it from now on.</p>
+      <p class="hint" id="changeOwnerSays" role="status" aria-live="polite"></p>`;
+    $("changeOwnerFoot").innerHTML = `<span class="fill"></span>
+      <button type="button" class="ghost" id="changeOwnerCancel">Cancel</button>
+      <button type="button" class="primary" id="changeOwnerSave">Change owner</button>`;
+    $("changeOwner").showModal();
+    $("changeOwnerTitle").focus();
+
+    try {
+      const listed = await api("/admin/members");
+      const members = (listed.members || listed || []).map(m => m.name || m).filter(Boolean)
+        .filter(name => name !== ownerChanging.owner).sort((a, b) => a.localeCompare(b));
+      $("changeOwnerTo").innerHTML = members.length
+        ? members.map(name => `<option value="${h(name)}">${h(name)}</option>`).join("")
+        : `<option value="">No other member to give it to</option>`;
+    } catch (e) {
+      $("changeOwnerSays").textContent = e.message || String(e);
+    }
+    return;
+  }
+
+  if (t.id === "changeOwnerClose" || t.id === "changeOwnerCancel") { $("changeOwner").close(); return; }
+
+  if (t.id === "changeOwnerSave" && ownerChanging) {
+    const to = $("changeOwnerTo")?.value;
+    if (!to) { $("changeOwnerSays").textContent = "Choose a member."; return; }
+    t.disabled = true;
+    try {
+      const body = JSON.stringify({ to });
+      const headers = { "Content-Type": "application/json" };
+      if (ownerChanging.kind === "map") {
+        await api(`/content/webmaps/${encodeURIComponent(ownerChanging.id)}/owner`, { method: "PUT", headers, body });
+        $("changeOwner").close();
+        await showWebMapItem(ownerChanging.id);
+      } else {
+        await api(`/admin/services/${encodeURIComponent(ownerChanging.name)}/owner?folder=${encodeURIComponent(ownerChanging.folder || "")}`,
+          { method: "PUT", headers, body });
+        $("changeOwner").close();
+        await showService(ownerChanging.qualified);
+      }
+      toast(`${ownerChanging.name} now belongs to ${to}.`, true);
+    } catch (e) {
+      $("changeOwnerSays").textContent = e.message || String(e);
+    } finally {
+      t.disabled = false;
     }
   }
 });
@@ -5320,7 +5391,8 @@ async function drawServiceDetails(qualified, knownKind) {
 
     const rows = [
       ["Type", h(itemTypeName(item.kind))],
-      ["Owner", h(item.owner || "—")],
+      ["Owner", `${h(item.owner || "—")}${may("admin:manageAllContent")
+        ? ` <button type="button" class="linkbtn" data-change-owner="service">Change owner…</button>` : ""}`],
       ["Folder", item.folder ? h(item.folder) : `<span class="val">the site root</span>`],
       ["Sharing", `<button class="pillbtn" data-share="${h(item.name)}"
          title="Set who can reach this">${pill(item.sharing)}</button>`],

@@ -148,6 +148,28 @@ public sealed class PostgresWebMapStore : IWebMapStore
     }
 
     /// <inheritdoc/>
+    public async Task<OwnerChange> ChangeOwnerAsync(string id, string receiver, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        ArgumentException.ThrowIfNullOrWhiteSpace(receiver);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "with taker as (select id from principal where lower(name) = lower(@receiver)), "
+            + "moved as (update web_map set owner_principal_id = (select id from taker), modified_at = now() "
+            + "where id = @id and exists (select 1 from taker) returning 1) "
+            + "select (select count(*) from taker), (select count(*) from moved)");
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("receiver", receiver);
+
+        await using NpgsqlDataReader row = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        await row.ReadAsync(cancellationToken).ConfigureAwait(false);
+
+        return row.GetInt64(0) == 0 ? OwnerChange.NoMember
+            : row.GetInt64(1) == 0 ? OwnerChange.NoItem
+            : OwnerChange.Changed;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(id);

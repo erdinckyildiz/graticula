@@ -2318,6 +2318,40 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The service's owner is its layers' owner</b> (migration 11, D-24), so one row moves the item; its sharing,
+    /// its groups and every URL a client holds are untouched — the member transfer's rule, for one item.
+    /// </remarks>
+    public async Task<Graticula.Platform.Catalog.OwnerChange> ChangeServiceOwnerAsync(
+        string serviceName, string? folder, string receiver, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(receiver);
+
+        const string Sql = """
+            with taker as (select id from principal where lower(name) = lower(@receiver)),
+                 moved as (update service set owner_principal_id = (select id from taker), updated_at = now()
+                            where lower(name) = lower(@name)
+                              and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+                              and exists (select 1 from taker)
+                           returning 1)
+            select (select count(*) from taker), (select count(*) from moved)
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("receiver", receiver);
+
+        await using NpgsqlDataReader row = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        await row.ReadAsync(cancellationToken).ConfigureAwait(false);
+
+        return row.GetInt64(0) == 0 ? Graticula.Platform.Catalog.OwnerChange.NoMember
+            : row.GetInt64(1) == 0 ? Graticula.Platform.Catalog.OwnerChange.NoItem
+            : Graticula.Platform.Catalog.OwnerChange.Changed;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> SetServiceDescriptionAsync(
         string serviceName,
         string? folder,
