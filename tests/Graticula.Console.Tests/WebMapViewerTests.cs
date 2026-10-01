@@ -964,6 +964,54 @@ public sealed class WebMapViewerTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
+    [Fact]
+    public async Task A_feature_is_drawn_and_added_and_another_is_deleted()
+    {
+        // ADR-134 condition 2: Add on a layer that offers Create draws a shape and opens the new feature's form; Delete
+        // on a card asks and sends the delete.
+        (string token, string cookie) = await SignInAsync();
+        await OpenAsync("/studio/webmap.html?service=hosted%2Fci_observations", token, cookie);
+        await WaitForAsync("!!document.querySelector('#layerList [data-act=addFeature]')", "A layer that offers Create offers no Add.");
+
+        await ClickAsync("#layerList [data-act=addFeature]");
+        await WaitForAsync("!!wmAdding.draw", "Add did not start drawing.");
+
+        // Placed from the sketch bar, as a keyboard reader places it — and the map's own click that follows a placing
+        // click does not take the form away (design review 2026-10-01: the form vanished 150 ms after it opened).
+        await WaitForAsync("!document.getElementById('sketchBar').hidden && document.activeElement === document.getElementById('sketchPlace')",
+            "Drawing a point offers no way to place it without a mouse.");
+        await ClickAsync("#sketchPlace");
+        await WaitForAsync(
+            "document.querySelector('#identify .top b')?.textContent.startsWith('New feature') && !!document.querySelector('#identify [data-field=station]')",
+            "Placing the point did not open the new feature's form.");
+        await Browser.EvaluateAsync<bool>(
+            "(wmMap.dispatchEvent({ type: 'singleclick', coordinate: wmMap.getView().getCenter(), originalEvent: {} }), true)");
+        await Browser.EvaluateAsync<bool>("new Promise(r => setTimeout(() => r(true), 300))");
+        Assert.True(await Browser.EvaluateAsync<bool>(
+            "!document.getElementById('identify').hidden && !!document.querySelector('#identify form.editform') && document.querySelector('#identify button[type=submit]').textContent === 'Create'"),
+            "The new feature's form was taken away by the click that placed it, or its button is not Create.");
+
+        await Browser.EvaluateAsync<bool>(
+            "(window.__writes = [], document.querySelector('#identify [data-field=station]').value = 'Test station', true)");
+        await ClickAsync("#identify form.editform button[type=submit]");
+        await WaitForAsync("window.__writes.some(w => w.startsWith('POST') && w.includes('/FeatureServer/0/applyEdits'))",
+            "Saving the new feature sent nothing to applyEdits.");
+
+        // A feature the card shows is deleted after the reader says yes.
+        await Browser.EvaluateAsync<bool>(
+            "(window.__asked = null, wmFetch(wmLayers()[0].url + '/query?where=1%3D1&outFields=objectid&returnGeometry=true&outSR=3857&resultRecordCount=1&f=json')"
+            + ".then(p => { const g = WM_ESRI.readFeatures(p)[0].getGeometry(); wmFit(ol.extent.buffer(g.getExtent(), 50));"
+            + " return wmIdentify(g.getCoordinates()); }).then(() => window.__asked = true), true)");
+        await WaitForAsync("window.__asked === true && !!document.querySelector('#identify [data-delete]')",
+            "The card of a layer that offers Delete offers no Delete.");
+        await Browser.EvaluateAsync<bool>("(window.__writes = [], window.__confirmed = [], true)");
+        await ClickAsync("#identify [data-delete]");
+        await WaitForAsync("window.__confirmed.some(m => m.startsWith('Delete ')) && window.__writes.some(w => w.startsWith('POST') && w.includes('/applyEdits'))",
+            "Delete did not ask and then send the delete.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
     /// <summary>The address of some feature layer this server publishes.</summary>
     private async Task<string> AnyFeatureLayerUrlAsync(string token)
     {

@@ -1107,6 +1107,9 @@ function wmDrawLayerList() {
           <button class="tiny" data-act="labels" data-layer="${wmEscape(key)}"
           aria-label="Labels of ${wmEscape(title)}" data-focus="labels:${wmEscape(key)}" aria-expanded="${run.labelOpen ? "true" : "false"}"
           aria-controls="lab-${wmEscape(key)}">Labels</button>
+          ${wmEditable(layer, "Create") ? `<button class="tiny" data-act="addFeature" data-layer="${wmEscape(key)}"
+          data-focus="addFeature:${wmEscape(key)}" aria-pressed="${wmAdding.layer === layer ? "true" : "false"}"
+          aria-label="Add a feature to ${wmEscape(title)}">Add feature</button>` : ""}
           <button class="tiny" data-act="table" data-layer="${wmEscape(key)}" data-focus="table:${wmEscape(key)}"
           aria-pressed="${wmTable.layer === layer ? "true" : "false"}"
           aria-label="Attribute table of ${wmEscape(title)}">Table</button>` : ""}
@@ -1764,6 +1767,7 @@ wm$("layerList").addEventListener("click", event => {
     }
     case "styleApply": wmApplyStyle(layer); break;
     case "table": wmTable.layer === layer ? wmCloseTable() : wmOpenTable(layer); wmDrawLayerList(); break;
+    case "addFeature": wmAdding.layer === layer ? wmStopAdding() : wmStartAdding(layer); wmDrawLayerList(); break;
     // ADR-123: whether a click on this image answers its pixel — `popupEnabled`, as ArcGIS saves it.
     case "pixels":
       layer.popupEnabled = layer.popupEnabled === false;
@@ -2262,7 +2266,9 @@ async function wmIdentify(coordinate) {
         const key = wmRemember(layer, f);
         return `<div class="feat" data-feat="${wmEscape(key)}">${wmPopupMarkup(layer, f.attributes, info)}${wmEditable(layer)
           ? `<div class="row featacts"><button type="button" class="tiny" data-edit="${wmEscape(key)}"
-              aria-label="Edit ${wmEscape(wmFeatureName(wmIdentified.get(key)))}">Edit</button></div>` : ""}</div>`;
+              aria-label="Edit ${wmEscape(wmFeatureName(wmIdentified.get(key)))}">Edit</button>${wmEditable(layer, "Delete")
+              ? `<button type="button" class="tiny danger" data-delete="${wmEscape(key)}"
+              aria-label="Delete ${wmEscape(wmFeatureName(wmIdentified.get(key)))}">Delete</button>` : ""}</div>` : ""}</div>`;
       }).join("");
   }).map((html, i) => ({ layer: answers[i].layer, html }));
 
@@ -2319,12 +2325,31 @@ wm$("identify").addEventListener("click", event => {
 });
 
 function wmCloseIdentify() {
+  if (wmEditing.key) {
+    if (!wmMayLeaveEdit()) return;
+    const held = wmIdentified.get(wmEditing.key) || {};
+    wmEditing.key = null;
+    wmEditing.dirty = false;
+    if (held.isNew) {
+      wmSketch.getSource().clear();
+      wmSay("Nothing was added.");
+    }
+  }
   wm$("identify").hidden = true;
   wmHighlight.getSource().clear();
   wm$("map").focus();
 }
 
 document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && wmAdding.draw) {
+    const layer = wmAdding.layer;
+    wmStopAdding();
+    wmSketch.getSource().clear();
+    wmDrawLayerList();
+    wmSay("Adding stopped; nothing was added.");
+    if (layer) document.querySelector(`[data-act="addFeature"][data-layer="${CSS.escape(layer.id)}"]`)?.focus();
+    return;
+  }
   if (event.key !== "Escape" || wm$("identify").hidden) return;
   // In the form, Escape goes back to the card — asking first when something has been typed (ADR-134).
   if (wmEditing.key) {
@@ -2335,7 +2360,9 @@ document.addEventListener("keydown", event => {
 });
 
 wmMap.on("singleclick", event => {
-  if (wmMeasuring) return;
+  if (wmMeasuring || wmAdding.draw) return;
+  // The click that placed a new point arrives here too, a moment after the form it opened (design review 2026-10-01).
+  if (wmEditing.key && (wmIdentified.get(wmEditing.key) || {}).isNew) return;
   if (!wmMayLeaveEdit()) return;
   wmEditing.key = null;
   wmEditing.dirty = false;
@@ -3556,9 +3583,9 @@ function wmFieldControl(field, value) {
   }
   const text = value === null || value === undefined ? "" : String(value);
   // A long value, or a field with no limit, gets a box rather than a line.
-  return !field.length || field.length > 120 || text.length > 80
+  return field.length > 255 || text.length > 80
     ? `<textarea ${common} rows="3"${field.length ? ` maxlength="${field.length}"` : ""}>${wmEscape(text)}</textarea>`
-    : `<input type="text" ${common} maxlength="${field.length}" value="${wmEscape(text)}">`;
+    : `<input type="text" ${common}${field.length ? ` maxlength="${field.length}"` : ""} value="${wmEscape(text)}">`;
 }
 
 /** Turns the card into one feature's attribute form. */
@@ -3572,9 +3599,11 @@ function wmOpenEdit(key) {
   wmEditing.dirty = false;
   wmEditing.scroll = card.scrollTop;
   const required = fields.some(f => f.nullable === false);
-  card.innerHTML = `<div class="top"><b>Edit ${wmEscape(wmFeatureName(held))} <span class="lkind">${wmEscape(held.layer.title)}</span></b>
+  card.innerHTML = `<div class="top"><b>${held.isNew ? "New feature" : `Edit ${wmEscape(wmFeatureName(held))}`} <span class="lkind">${
+      wmEscape(held.layer.title)}</span></b>
       <button class="tiny" data-close aria-label="Close">&times;</button></div>
     <form class="editform" data-editing="${wmEscape(key)}" novalidate>
+      ${held.isNew ? `<p class="hint">${wmEscape(wmShapeSaid(held.geometry))}</p>` : ""}
       ${required ? `<p class="hint">* required</p>` : ""}
       ${fields.length ? fields.map(f => `<div class="editfield">
         <label class="field" for="${wmEscape(`edit-${f.name}`)}">${wmEscape(f.alias || f.name)}${
@@ -3584,7 +3613,7 @@ function wmOpenEdit(key) {
         : `<p class="hint">This layer has no attribute that can be changed.</p>`}
       <p class="said" id="editSays" role="status" aria-live="polite" tabindex="-1"></p>
       <div class="row editacts">
-        ${fields.length ? `<button type="submit" class="primary">Save</button>` : ""}
+        ${fields.length || held.isNew ? `<button type="submit" class="primary">${held.isNew ? "Create" : "Save"}</button>` : ""}
         <button type="button" data-edit-cancel>Cancel</button>
       </div>
     </form>`;
@@ -3644,7 +3673,7 @@ async function wmSaveEdit(form) {
     first.focus();
     return;
   }
-  if (!Object.keys(changed).length) {
+  if (!Object.keys(changed).length && !held.isNew) {
     says.textContent = "Nothing has changed.";
     return;
   }
@@ -3652,29 +3681,33 @@ async function wmSaveEdit(form) {
   wmEditing.saving = true;
   says.textContent = "Saving…";
   try {
+    const edit = held.isNew
+      ? { adds: JSON.stringify([{ geometry: held.geometry, attributes: { ...(held.preset || {}), ...changed } }]) }
+      : { updates: JSON.stringify([{ attributes: { [info.objectIdField || "objectid"]: held.oid, ...changed } }]) };
     const answer = await wmFetch(`${held.layer.url}/applyEdits`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        updates: JSON.stringify([{ attributes: { [info.objectIdField || "objectid"]: held.oid, ...changed } }]),
-        rollbackOnFailure: "true",
-        f: "json",
-      }),
+      body: new URLSearchParams({ ...edit, rollbackOnFailure: "true", f: "json" }),
     });
-    const result = ((answer || {}).updateResults || [])[0];
+    const result = ((answer || {})[held.isNew ? "addResults" : "updateResults"] || [])[0];
     if (result && result.success === false) {
       says.textContent = `Not saved: ${((result.error || {}).description) || "the server refused the change."}`;
       says.focus();
       return;
     }
-    const name = wmFeatureName(held);
+    const name = held.isNew ? `A new feature in ${held.layer.title}` : wmFeatureName(held);
+    const focusKey = held.isNew && result && result.objectId !== undefined ? `${held.layer.id}:${result.objectId}` : key;
     wmEditing.key = null;
     wmEditing.dirty = false;
+    wmSketch.getSource().clear();
     wmRefreshLayer(held.layer);
     if (wmLastClick) await wmIdentify(wmLastClick);
     // After the card is asked again, so its own "… here" does not speak over it.
-    wmSay(`${name} saved.`);
-    document.querySelector(`#identify [data-edit="${CSS.escape(key)}"]`)?.focus();
+    const shownNow = !!document.querySelector(`#identify [data-edit="${CSS.escape(focusKey)}"]`);
+    wmSay(held.isNew
+      ? (shownNow ? `${name} created.` : `${name} created, but the layer's filter or the time window hides it here.`)
+      : `${name} saved.`);
+    (document.querySelector(`#identify [data-edit="${CSS.escape(focusKey)}"]`) || wm$("identify").querySelector("button"))?.focus();
   } catch (e) {
     says.textContent = `Not saved: ${e.message || e}`;
     says.focus();
@@ -3686,6 +3719,16 @@ async function wmSaveEdit(form) {
 /** Leaves the form for the card it came from, where it was scrolled, on the feature's Edit. */
 async function wmCancelEdit() {
   const key = wmEditing.key;
+  if (key && (wmIdentified.get(key) || {}).isNew) {
+    wmEditing.key = null;
+    wmEditing.dirty = false;
+    wmSketch.getSource().clear();
+    wm$("identify").hidden = true;
+    wmSay("Nothing was added.");
+    const layer = wmIdentified.get(key).layer;
+    document.querySelector(`[data-act="addFeature"][data-layer="${CSS.escape(layer.id)}"]`)?.focus();
+    return;
+  }
   const scroll = wmEditing.scroll;
   wmEditing.key = null;
   wmEditing.dirty = false;
@@ -3699,6 +3742,170 @@ function wmMayLeaveEdit() {
   return !wmEditing.key || !wmEditing.dirty || confirm("Discard your changes to this feature?");
 }
 
+/** Deletes one feature through its layer's applyEdits, once the reader has said yes. */
+async function wmDeleteFeature(key) {
+  const held = wmIdentified.get(key);
+  if (!held) return;
+  const name = wmFeatureName(held);
+  if (!confirm(`Delete ${name} from ${held.layer.title}? This cannot be undone.`)) return;
+  try {
+    const answer = await wmFetch(`${held.layer.url}/applyEdits`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ deletes: String(held.oid), rollbackOnFailure: "true", f: "json" }),
+    });
+    const result = ((answer || {}).deleteResults || [])[0];
+    if (result && result.success === false) {
+      wmSay(`${name} was not deleted: ${((result.error || {}).description) || "the server refused."}`, true);
+      return;
+    }
+    wmRefreshLayer(held.layer);
+    if (wmLastClick) await wmIdentify(wmLastClick);
+    wmSay(`${name} deleted.`);
+    (wm$("identify").hidden ? wm$("map") : wm$("identify").querySelector("button"))?.focus();
+  } catch (e) {
+    wmSay(`${name} was not deleted: ${e.message || e}`, true);
+  }
+}
+
+// ---- adding a feature: draw its shape, then its attributes in the card's form
+
+/** The layer a feature is being added to, and the drawing in progress. */
+const wmAdding = { layer: null, draw: null };
+
+/** What is drawn for a new feature until it is saved or given up. */
+const wmSketch = new ol.layer.Vector({
+  source: new ol.source.Vector(),
+  zIndex: 1000,
+  style: new ol.style.Style({
+    fill: new ol.style.Fill({ color: "rgba(11, 97, 87, .2)" }),
+    stroke: new ol.style.Stroke({ color: "#0b6157", width: 2, lineDash: [6, 4] }),
+    image: new ol.style.Circle({ radius: 7, fill: new ol.style.Fill({ color: "#0b6157" }), stroke: new ol.style.Stroke({ color: "#fff", width: 2 }) }),
+  }),
+});
+wmMap.addLayer(wmSketch);
+
+/** The shape OpenLayers draws for a layer's geometry type. */
+function wmDrawType(layer) {
+  const type = String(((wmRuntime.get(layer) || {}).info || {}).geometryType || "");
+  return /Polygon/.test(type) ? "Polygon" : /Polyline/.test(type) ? "LineString" : /Multipoint/.test(type) ? "MultiPoint" : "Point";
+}
+
+function wmStopAdding() {
+  if (wmAdding.draw) wmMap.removeInteraction(wmAdding.draw);
+  wmAdding.draw = null;
+  wmAdding.layer = null;
+  wm$("sketchBar").hidden = true;
+  wm$("mapWrap").classList.remove("sketching");
+}
+
+/** What a drawn shape is, in words, for the new feature's form. */
+function wmShapeSaid(esri) {
+  if (!esri) return "";
+  if (Number.isFinite(esri.x)) {
+    const [lon, lat] = ol.proj.toLonLat([esri.x, esri.y]);
+    return `A point at ${lat.toFixed(5)}, ${lon.toFixed(5)}.`;
+  }
+  if (esri.paths) return `A line of ${esri.paths[0].length} points.`;
+  if (esri.rings) return `An area of ${Math.max(0, esri.rings[0].length - 1)} corners.`;
+  if (esri.points) return `${esri.points.length} points.`;
+  return "";
+}
+
+/** Places a point, or a vertex of a line or area, at the map's centre — how a keyboard or touch reader draws. */
+function wmPlaceAtCentre() {
+  const draw = wmAdding.draw;
+  if (!draw) return;
+  const centre = wmMap.getView().getCenter();
+  if (wmDrawType(wmAdding.layer) === "Point") {
+    const feature = new ol.Feature(new ol.geom.Point(centre));
+    wmSketch.getSource().addFeature(feature);
+    draw.dispatchEvent({ type: "drawend", feature });
+    return;
+  }
+  draw.appendCoordinates([centre]);
+}
+
+/** Counts the sketch's points as it is drawn, says each, and lets Finish go only once the shape can be one. */
+function wmSketchCount(type, geometry) {
+  const coordinates = type === "Polygon" ? (geometry.getCoordinates()[0] || []) : geometry.getCoordinates();
+  // OpenLayers keeps the moving pointer as the sketch's last point; placed points are the ones before it.
+  const placed = Math.max(0, coordinates.length - (type === "Polygon" ? 2 : 1));
+  const least = type === "Polygon" ? 3 : 2;
+  wm$("sketchFinish").disabled = placed < least;
+  if (placed !== wmAdding.placed) {
+    wmSay(placed > (wmAdding.placed || 0) ? `Point ${placed} placed.` : `Point removed; ${placed} left.`);
+    wmAdding.placed = placed;
+  }
+}
+
+/** Starts drawing a new feature for a layer; the form opens when the shape is finished. */
+function wmStartAdding(layer) {
+  if (!wmMayLeaveEdit()) return;
+  wmStopAdding();
+  wmStopMeasuring();
+  wmEditing.key = null;
+  wm$("identify").hidden = true;
+  wmSketch.getSource().clear();
+  const type = wmDrawType(layer);
+  const draw = new ol.interaction.Draw({ source: wmSketch.getSource(), type, style: wmSketch.getStyle() });
+  wmAdding.layer = layer;
+  wmAdding.draw = draw;
+  wmMap.addInteraction(draw);
+  // The sketch bar: placing at the centre, undoing and finishing without a mouse (design review 2026-10-01).
+  const bar = wm$("sketchBar");
+  bar.hidden = false;
+  wm$("sketchSays").textContent = type === "Point"
+    ? `New feature of ${layer.title}: click the map, or place it at the centre.`
+    : `New feature of ${layer.title}: click the map for each point, or place them at the centre; Finish when done.`;
+  wm$("sketchUndo").hidden = type === "Point";
+  wm$("sketchFinish").hidden = type === "Point";
+  wm$("sketchFinish").disabled = true;
+  wmAdding.placed = 0;
+  wm$("mapWrap").classList.add("sketching");
+  draw.on("drawstart", event => {
+    const geometry = event.feature.getGeometry();
+    geometry.on("change", () => wmSketchCount(type, geometry));
+  });
+  wm$("sketchPlace").focus();
+  wmSay(wm$("sketchSays").textContent);
+  draw.on("drawend", event => {
+    const geometry = event.feature.getGeometry();
+    const esri = WM_ESRI.writeGeometryObject(geometry, { featureProjection: WM_MERCATOR, dataProjection: WM_MERCATOR });
+    esri.spatialReference = { wkid: 102100, latestWkid: 3857 };
+    const at = geometry.getType() === "Polygon" ? geometry.getInteriorPoint().getCoordinates().slice(0, 2)
+      : geometry.getType() === "LineString" ? geometry.getCoordinateAt(0.5)
+      : ol.extent.getCenter(geometry.getExtent());
+    // The interaction is done with; removed after this event so it does not take the next click.
+    setTimeout(() => { wmStopAdding(); wmDrawLayerList(); }, 0);
+    wmLastClick = at;
+    const key = `${layer.id}:new`;
+    // On a layer with time, the new feature starts at the end of the time window, so the slider does not hide it the
+    // moment it is created (design review 2026-10-01); the reader may change it.
+    const timeField = (((wmRuntime.get(layer) || {}).info || {}).timeInfo || {}).startTimeField;
+    const attributes = timeField ? { [timeField]: wmTime.span ? Math.round(wmTimeAt(wmTime.end)) : Date.now() } : {};
+    wmIdentified.set(key, { layer, feature: { attributes }, oid: null, isNew: true, geometry: esri, preset: { ...attributes } });
+    wmOpenEdit(key);
+    wmSay(`Shape drawn. Fill in the new feature of ${layer.title}, then choose Create in the card.`);
+  });
+}
+
+wm$("sketchBar").addEventListener("click", event => {
+  const t = event.target instanceof Element ? event.target.closest("button") : null;
+  if (!t || !wmAdding.draw) return;
+  if (t.id === "sketchPlace") wmPlaceAtCentre();
+  else if (t.id === "sketchUndo") wmAdding.draw.removeLastPoint();
+  else if (t.id === "sketchFinish") wmAdding.draw.finishDrawing();
+  else if (t.id === "sketchCancel") {
+    const layer = wmAdding.layer;
+    wmStopAdding();
+    wmSketch.getSource().clear();
+    wmDrawLayerList();
+    wmSay("Adding stopped; nothing was added.");
+    if (layer) document.querySelector(`[data-act="addFeature"][data-layer="${CSS.escape(layer.id)}"]`)?.focus();
+  }
+});
+
 /** Draws a layer again from the server, and the open table with it. */
 function wmRefreshLayer(layer) {
   const run = wmRuntime.get(layer) || {};
@@ -3711,6 +3918,7 @@ wm$("identify").addEventListener("click", event => {
   const t = event.target instanceof Element ? event.target.closest("button") : null;
   if (!t) return;
   if (t.dataset.edit !== undefined) { wmOpenEdit(t.dataset.edit); return; }
+  if (t.dataset.delete !== undefined) { wmDeleteFeature(t.dataset.delete); return; }
   if (t.dataset.editCancel !== undefined && wmMayLeaveEdit()) wmCancelEdit();
 });
 wm$("identify").addEventListener("input", event => {

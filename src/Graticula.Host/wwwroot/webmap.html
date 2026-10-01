@@ -225,6 +225,23 @@
   #tableByExtent { width: 18px; height: 18px; }
   .bookmarks { border: 0; padding: 0; margin: 12px 0 0; }
   /* ADR-134: a feature's attributes edited in the card. */
+  #sketchBar { position: absolute; z-index: 36; left: 50%; top: 12px; transform: translateX(-50%); display: flex;
+    flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; max-width: calc(100% - 24px);
+    background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; box-shadow: 0 2px 6px rgba(0, 0, 0, .15); }
+  #sketchBar[hidden] { display: none; }
+  #sketchSays { font-size: 13px; flex: 1 1 100%; }
+  .lctl [data-act="addFeature"][aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  /* Where "Place at map centre" places: a crosshair at the centre while drawing (design review 2026-10-01). */
+  #mapWrap.sketching::after { content: ""; position: absolute; z-index: 34; left: 50%; top: 50%; width: 28px; height: 28px;
+    transform: translate(-50%, -50%); pointer-events: none;
+    background: linear-gradient(var(--accent), var(--accent)) center / 2px 100% no-repeat,
+      linear-gradient(var(--accent), var(--accent)) center / 100% 2px no-repeat; }
+  #mapWrap.withtable.sketching::after { top: 30%; }
+  @media (max-width: 600px) {
+    /* At phone width the bar is one row along the bottom, its words in the status line, so the centre stays clear. */
+    #sketchBar { top: auto; bottom: 8px; left: 8px; right: 8px; transform: none; flex-wrap: nowrap; overflow-x: auto; }
+    #sketchSays { display: none; }
+  }
   #identify .feat + .feat { border-top: 1px solid var(--rule); margin-top: 8px; padding-top: 8px; }
   #identify .featacts { margin: 6px 10px 8px; }
   #identify .editform { display: flex; flex-direction: column; padding: 8px 10px 0; }
@@ -238,7 +255,8 @@
   #identify .editform .editacts { position: sticky; bottom: 0; background: var(--surface); margin: 0 -10px;
     padding: 8px 10px; border-top: 1px solid var(--rule); }
   @media (max-width: 760px) {
-    #identify .editform input, #identify .editform select, #identify .editform textarea { min-height: 44px; }
+    #identify .editform input, #identify .editform select, #identify .editform textarea,
+    #identify .editform button, #identify .featacts button, #sketchBar button { min-height: 44px; }
   }
   .lrange { border: 0; padding: 0; margin: 6px 0 0; }
   .lrange legend { padding: 0; }
@@ -432,6 +450,14 @@
       <div id="map" tabindex="0" aria-label="Map. Click it to see the features or pixel values at that point."></div>
       <div id="identify" role="region" aria-label="What is here" hidden></div>
       <div id="strip"><span id="stripScale"></span><span id="stripWhere"></span></div>
+      <!-- ADR-134: drawing a new feature without a mouse — place at the centre, undo, finish, cancel. -->
+      <section id="sketchBar" aria-label="Drawing a new feature" hidden>
+        <span id="sketchSays"></span>
+        <button type="button" class="tiny primary" id="sketchPlace">Place at map centre</button>
+        <button type="button" class="tiny" id="sketchUndo">Undo last point</button>
+        <button type="button" class="tiny" id="sketchFinish">Finish</button>
+        <button type="button" class="tiny" id="sketchCancel">Cancel</button>
+      </section>
       <!-- ADR-132: the time window, when a layer on the map has time. -->
       <section id="timeBar" aria-label="Time window" hidden>
         <button type="button" class="tiny" id="timePlay">Play</button>

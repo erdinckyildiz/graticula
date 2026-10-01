@@ -78,5 +78,11 @@ the operation.
 
 1. **A feature's attributes are edited in the card a click opens** — **DISCHARGED 2026-10-01**,
    `WebMapViewerTests.A_features_attributes_are_edited_in_its_card`.
-2. **A feature is drawn on the map and added, and a feature is deleted.**
+2. **A feature is drawn on the map and added, and a feature is deleted** — **DISCHARGED 2026-10-01**,
+   `WebMapViewerTests.A_feature_is_drawn_and_added_and_another_is_deleted`. *Add feature* on a layer that offers
+   Create draws the layer's shape — by clicking, or from a sketch bar that places points at a crosshair at the map's
+   centre, undoes and finishes, so a keyboard or touch reader can draw too — then opens the new feature's form with
+   *Create*; a layer with time starts the feature at the time window's end so it is not hidden the moment it exists.
+   *Delete* on a card asks, then sends the delete. Two design-review passes; the first found a point's form taken away
+   by the click that placed it, and no way to draw without a mouse.
 3. **Attributes are edited in the attribute table.**
