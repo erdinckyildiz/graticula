@@ -783,6 +783,7 @@ function wmBuildLayer(layer, run, index) {
           returnGeometry: true,
           outSR: 3857,
           resultRecordCount: WM_DRAW_LIMIT,
+          ...wmTimeParam(layer),
           f: "json",
         });
 
@@ -923,6 +924,8 @@ async function wmLoadLayer(layer) {
     wmMap.addLayer(run.ol);
     wmApply(layer, index);
     run.status = "ok";
+    // A layer with time, added to a map that had none, brings the time slider (ADR-132).
+    if (run.info && run.info.timeInfo) wmDrawTime();
   } else {
     run.status = "unsupported";
   }
@@ -1081,6 +1084,7 @@ function wmDrawLayerList() {
         <span class="lkind">${wmEscape(kind ? WM_KIND_LABEL[kind] : layer.layerType || "Unknown")}</span>
       </div>
       ${state.text ? `<div class="lstate ${state.tone}">${wmEscape(state.text)}</div>` : ""}
+      ${readable && wmTimeNarrowed(layer) ? `<div class="lstate">Time: only features ${wmEscape(wmTimeBetween())}.</div>` : ""}
       ${readable && kind === "feature" && !run.ownStyle
         ? `<div class="lstate">Drawn in one colour: its document names no renderer this viewer reads.</div>` : ""}
       <div class="lctl">
@@ -1810,6 +1814,8 @@ wm$("layerList").addEventListener("click", event => {
       layers.splice(at, 1);
       wmApplyAll();
       wmMarkDirty();
+      if (wmTable.layer === layer) wmCloseTable();
+      wmDrawTime();
       wmDrawLayerList();
       wmSayIn("layersStatus", `${layer.title} was removed from the map.`);
       // Focus the neighbour the reader was next to, or the Add button when nothing is left.
@@ -2212,6 +2218,7 @@ async function wmIdentify(coordinate) {
         returnGeometry: true,
         outSR: 3857,
         resultRecordCount: 10,
+        ...wmTimeParam(layer),
         f: "json",
       }));
       return { layer, payload };
@@ -2263,7 +2270,8 @@ async function wmIdentify(coordinate) {
   if (!sections) {
     wmSay(asked === 1 && pixels.length === 1
       ? `${pixels[0].title} has no pixel here.`
-      : `Nothing here on the ${asked} layer${asked === 1 ? "" : "s"} switched on.`);
+      : `Nothing here on the ${asked} layer${asked === 1 ? "" : "s"} switched on${
+        layers.some(wmTimeNarrowed) ? ` ${wmTimeBetween()}` : ""}.`);
     return;
   }
 
@@ -2899,10 +2907,12 @@ async function wmOpen(doc) {
   }
 
   wmDrawBookmarks();
+  wmTime.span = null;
   wmDrawLayerList();
   await Promise.all(wmLayers().map(wmLoadLayer));
   wmApplyAll();
   wmDrawLayerList();
+  wmDrawTime();
 
   // Nothing said where to look: frame what could be read.
   if (!target) {
@@ -3481,7 +3491,7 @@ async function wmLoadTable() {
   const info = (wmRuntime.get(layer) || {}).info || {};
   const oid = info.objectIdField || "objectid";
   const box = wmQueryBox(wmMap.getView().calculateExtent(wmMap.getSize()));
-  const where = { where: wmWhere(layer) };
+  const where = { where: wmWhere(layer), ...wmTimeParam(layer) };
   const spatial = wmTable.byExtent
     ? { geometry: box.join(","), geometryType: "esriGeometryEnvelope", inSR: 3857, spatialRel: "esriSpatialRelIntersects" }
     : {};
@@ -3522,7 +3532,9 @@ async function wmLoadTable() {
     const last = first + wmTable.rows.length;
     const pages = Math.max(1, Math.ceil(wmTable.total / WM_TABLE_PAGE));
     wmSayIn("tableStatus", wmTable.total === 0
-      ? (wmTable.byExtent ? "No feature in view." : "No feature matches this layer's filter.")
+      ? (wmTimeNarrowed(layer)
+        ? `No feature ${wmTable.byExtent ? "in view " : ""}${wmTimeBetween()}. Widen the time window or choose Show all time.`
+        : wmTable.byExtent ? "No feature in view." : "No feature matches this layer's filter.")
       : `${first + 1}–${last} of ${wmTable.total.toLocaleString()}${wmTable.byExtent ? " in view" : ""}${
         wmWhere(layer) !== "1=1" ? ", filtered" : ""}.${pages > 1 ? ` Page ${wmTable.page + 1} of ${pages}.` : ""}`);
     wm$("tablePrev").disabled = wmTable.page === 0;
@@ -3611,6 +3623,249 @@ wmMap.on("moveend", () => {
     wmTable.page = 0;
     wmTable.chosen = -1;
     wmLoadTable();
+  }
+});
+
+
+// ---------------------------------------------------------------- the time slider (ADR-132)
+
+/**
+ * The map's time window — ADR-132, as ArcGIS Map Viewer's time slider: shown when a layer on the map has time, over
+ * the span its layers cover, cut into time stops of a unit that suits the span, and sent to every such layer as
+ * `time=start,end` so what is drawn, clicked and tabled is what falls in the window. Kept with the map in the Web Map's
+ * own `widgets.timeSlider`.
+ */
+const wmTime = { span: null, unit: 0, stops: 0, start: 0, end: 0, playing: null };
+
+/** Time-stop units, smallest first, as ArcGIS names them. */
+const WM_TIME_UNITS = [
+  [60000, "esriTimeUnitsMinutes"], [3600000, "esriTimeUnitsHours"], [86400000, "esriTimeUnitsDays"],
+  [7 * 86400000, "esriTimeUnitsWeeks"], [30 * 86400000, "esriTimeUnitsMonths"], [365 * 86400000, "esriTimeUnitsYears"],
+];
+
+/** The `time` a layer is asked with: the window, for a layer that has time; nothing otherwise. */
+function wmTimeParam(layer) {
+  const info = (wmRuntime.get(layer) || {}).info;
+  if (!wmTime.span || !info || !info.timeInfo) return {};
+  return { time: `${Math.round(wmTimeAt(wmTime.start))},${Math.round(wmTimeAt(wmTime.end))}` };
+}
+
+/** Whether the window is narrower than the whole span — what an empty answer should be blamed on. */
+function wmTimeNarrowed(layer) {
+  return !!(wmTime.span && ((wmRuntime.get(layer) || {}).info || {}).timeInfo && !wmTimeWhole());
+}
+
+function wmTimeWhole() {
+  return wmTime.start <= 0 && wmTime.end >= wmTime.stops;
+}
+
+/** The window in words, for an empty answer: "between … and …". */
+function wmTimeBetween() {
+  return `between ${wmTimeSaid(wmTimeAt(wmTime.start))} and ${wmTimeSaid(wmTimeAt(wmTime.end))}`;
+}
+
+/** The layers with time, loaded. */
+function wmTimeLayers() {
+  return wmLayers().filter(layer => wmKind(layer) === "feature" && ((wmRuntime.get(layer) || {}).info || {}).timeInfo);
+}
+
+/** A stop's moment: the span's start plus so many units, the last stop being the span's end. */
+function wmTimeAt(stop) {
+  return stop >= wmTime.stops ? wmTime.span[1] : wmTime.span[0] + stop * wmTime.unit;
+}
+
+/** A moment as a person reads it: with the time of day when the stops are shorter than a day. */
+function wmTimeSaid(ms) {
+  const d = new Date(ms);
+  return wmTime.unit < 86400000 ? d.toLocaleString() : d.toLocaleDateString();
+}
+
+/** Works out the span the map's layers cover and shows the slider, or hides it when none has time. */
+function wmDrawTime() {
+  const bar = wm$("timeBar");
+  if (!bar || !wmState.doc) return;
+  let low = Infinity;
+  let high = -Infinity;
+  for (const layer of wmTimeLayers()) {
+    const [from, until] = (wmRuntime.get(layer).info.timeInfo.timeExtent || []);
+    if (Number.isFinite(from)) low = Math.min(low, from);
+    if (Number.isFinite(until)) high = Math.max(high, until);
+  }
+
+  if (!(high > low)) {
+    wmStopPlaying();
+    wmTime.span = null;
+    bar.hidden = true;
+    wm$("mapWrap").classList.remove("withtime");
+    return;
+  }
+
+  const first = !wmTime.span;
+  wmTime.span = [low, high];
+  // The unit that cuts the span into no more than about two hundred stops.
+  const [unit] = WM_TIME_UNITS.find(([ms]) => (high - low) / ms <= 200) || WM_TIME_UNITS[WM_TIME_UNITS.length - 1];
+  wmTime.unit = unit;
+  wmTime.stops = Math.max(1, Math.ceil((high - low) / unit));
+  for (const id of ["timeStart", "timeEnd"]) wm$(id).max = String(wmTime.stops);
+
+  if (first) {
+    // The window the map was saved with, or the whole span.
+    const saved = (((wmState.doc.widgets || {}).timeSlider || {}).properties || {}).currentTimeExtent;
+    const toStop = ms => Math.max(0, Math.min(wmTime.stops, Math.round((ms - low) / unit)));
+    [wmTime.start, wmTime.end] = Array.isArray(saved) && saved.every(Number.isFinite)
+      ? [toStop(saved[0]), Math.max(toStop(saved[0]), toStop(saved[1]))]
+      : [0, wmTime.stops];
+  }
+  wm$("timeFirst").textContent = wmTimeSaid(low);
+  wm$("timeLast").textContent = wmTimeSaid(high);
+  bar.hidden = false;
+  wm$("mapWrap").classList.add("withtime");
+  wmDrawTimeControls();
+}
+
+function wmDrawTimeControls() {
+  if (!wmTime.span) return;
+  const start = wm$("timeStart");
+  const end = wm$("timeEnd");
+  start.value = String(wmTime.start);
+  end.value = String(wmTime.end);
+  start.setAttribute("aria-valuetext", wmTimeSaid(wmTimeAt(wmTime.start)));
+  end.setAttribute("aria-valuetext", wmTimeSaid(wmTimeAt(wmTime.end)));
+  // One track: the window is the part between the thumbs.
+  const at = v => `${(v / wmTime.stops) * 100}%`;
+  wm$("timeTrack").style.setProperty("--from", at(wmTime.start));
+  wm$("timeTrack").style.setProperty("--to", at(wmTime.end));
+  wm$("timeSaid").textContent = wmTimeWhole() ? "All time"
+    : `${wmTimeSaid(wmTimeAt(wmTime.start))} – ${wmTimeSaid(wmTimeAt(wmTime.end))}`;
+  wm$("timePlay").textContent = wmTime.playing ? "Pause" : "Play";
+}
+
+/** Says the window to a screen reader once a move is over, not at every step of it. */
+function wmAnnounceTime() {
+  wm$("timeAnnounce").textContent = wmTimeWhole() ? "Time window: all time."
+    : `Time window: ${wmTimeSaid(wmTimeAt(wmTime.start))} to ${wmTimeSaid(wmTimeAt(wmTime.end))}.`;
+}
+
+/** Asks every layer with time again for the window, and the open table with it; the open card is closed. */
+let wmTimeRefresh = null;
+function wmApplyTime() {
+  wmDrawTimeControls();
+  clearTimeout(wmTimeRefresh);
+  wmTimeRefresh = setTimeout(() => {
+    for (const layer of wmTimeLayers()) {
+      const run = wmRuntime.get(layer);
+      const source = run.ol && run.ol.getSource && run.ol.getSource();
+      if (source && source.refresh) source.refresh();
+    }
+    if (wmTable.layer && wmTimeLayers().includes(wmTable.layer)) {
+      wmTable.page = 0;
+      wmLoadTable();
+    }
+    // A card about a feature the window has just hidden would answer a question nobody is asking now.
+    if (!wm$("identify").hidden) {
+      wm$("identify").hidden = true;
+      wmHighlight.getSource().clear();
+    }
+    wmDrawLayerList();
+  }, 150);
+}
+
+/** Keeps the window in the map's document — once a move is over, not at every step. */
+function wmKeepTime() {
+  const widgets = (wmState.doc.widgets = wmState.doc.widgets || {});
+  widgets.timeSlider = {
+    properties: {
+      startTime: wmTime.span[0], endTime: wmTime.span[1], thumbCount: 2, thumbMovingRate: 2000,
+      timeStopInterval: { interval: 1, units: (WM_TIME_UNITS.find(([ms]) => ms === wmTime.unit) || [0, "esriTimeUnitsDays"])[1] },
+      currentTimeExtent: [Math.round(wmTimeAt(wmTime.start)), Math.round(wmTimeAt(wmTime.end))],
+    },
+  };
+  wmMarkDirty();
+}
+
+function wmStopPlaying() {
+  if (wmTime.playing) clearInterval(wmTime.playing);
+  wmTime.playing = null;
+}
+
+/** Moves the window by whole stops, keeping its width; the step buttons and Play. */
+function wmTimeShift(by) {
+  const width = wmTime.end - wmTime.start;
+  const start = Math.max(0, Math.min(wmTime.stops - width, wmTime.start + by));
+  wmTime.start = start;
+  wmTime.end = start + width;
+}
+
+for (const id of ["timeStart", "timeEnd"]) {
+  wm$(id).addEventListener("input", () => {
+    // The reader has taken the window: Play lets go of it.
+    if (wmTime.playing) wmStopPlaying();
+    let a = Number(wm$("timeStart").value);
+    let b = Number(wm$("timeEnd").value);
+    // The thumbs do not cross: the one moved stops at the other.
+    if (a > b) {
+      if (id === "timeStart") a = b; else b = a;
+    }
+    wmTime.start = a;
+    wmTime.end = b;
+    wmApplyTime();
+  });
+  wm$(id).addEventListener("change", () => {
+    wmKeepTime();
+    wmAnnounceTime();
+  });
+}
+
+wm$("timeBar").addEventListener("click", event => {
+  const t = event.target instanceof Element ? event.target.closest("button") : null;
+  if (!t || !wmTime.span) return;
+
+  if (t.id === "timePlay") {
+    if (wmTime.playing) {
+      wmStopPlaying();
+      wmDrawTimeControls();
+      wmKeepTime();
+      wmAnnounceTime();
+      return;
+    }
+    // From the whole span, Play walks a window of a twentieth of it from the start; a window already at the end
+    // starts again from the beginning (design review 2026-10-01: Play from the whole span did nothing).
+    if (wmTimeWhole()) {
+      wmTime.start = 0;
+      wmTime.end = Math.max(1, Math.round(wmTime.stops / 20));
+    } else if (wmTime.end >= wmTime.stops) {
+      wmTimeShift(-wmTime.stops);
+    }
+    wmTime.playing = setInterval(() => {
+      if (!wmTime.span || wmTime.end >= wmTime.stops) {
+        wmStopPlaying();
+        wmDrawTimeControls();
+        if (wmTime.span) { wmKeepTime(); wmAnnounceTime(); }
+        return;
+      }
+      wmTimeShift(1);
+      wmApplyTime();
+    }, 2000);
+    wmApplyTime();
+    return;
+  }
+
+  if (t.id === "timeBack" || t.id === "timeForward") {
+    wmStopPlaying();
+    wmTimeShift(t.id === "timeBack" ? -1 : 1);
+    wmApplyTime();
+    wmKeepTime();
+    wmAnnounceTime();
+    return;
+  }
+
+  if (t.id === "timeAll") {
+    wmStopPlaying();
+    wmTime.start = 0;
+    wmTime.end = wmTime.stops;
+    wmApplyTime();
+    wmKeepTime();
+    wmAnnounceTime();
   }
 });
 

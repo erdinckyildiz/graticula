@@ -862,6 +862,42 @@ public sealed class WebMapViewerTests : ConsoleTest
         }
     }
 
+    [Fact]
+    public async Task A_layer_with_time_gets_a_time_slider_that_filters_what_is_drawn()
+    {
+        // ADR-132: the seeded observations layer has a time field, so the map offers its time window.
+        (string token, string cookie) = await SignInAsync();
+        await OpenAsync("/studio/webmap.html?service=hosted%2Fci_observations", token, cookie);
+
+        await WaitForAsync("!document.getElementById('timeBar').hidden && document.getElementById('timeSaid').textContent === 'All time'",
+            "A map with a time-enabled layer offers no time slider.");
+
+        // The start moved halfway, as a reader drags it: the layer is asked for that time and the move is kept.
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const s = document.getElementById('timeStart'); s.value = String(Math.floor(Number(s.max) / 2));"
+            + " s.dispatchEvent(new Event('input')); s.dispatchEvent(new Event('change')); return true; })()");
+        await WaitForAsync(
+            @"performance.getEntriesByType('resource').some(e => e.name.includes('/ci_observations/FeatureServer/') && /[?&]time=\d+(%2C|,)\d+/.test(e.name))",
+            "Moving the window did not ask the layer for that time.");
+        Assert.True(await Browser.EvaluateAsync<bool>(
+            "(() => { const t = ((wmState.doc.widgets || {}).timeSlider || {}).properties; return !!t && t.currentTimeExtent[0] > t.startTime && wmState.dirty; })()"),
+            "The window was not kept in the map's document as a change.");
+
+        await WaitForAsync("document.getElementById('layerList').innerText.includes('Time: only features between')",
+            "The layer's row does not say it is narrowed to the time window.");
+
+        // Play from the whole span walks a narrower window rather than doing nothing.
+        await ClickAsync("#timeAll");
+        await WaitForAsync("document.getElementById('timeSaid').textContent === 'All time'", "Show all time did not show all of it.");
+        await ClickAsync("#timePlay");
+        await WaitForAsync(
+            "document.getElementById('timeSaid').textContent !== 'All time' && document.getElementById('timePlay').textContent === 'Pause'",
+            "Play from the whole span did not start a window.");
+        await ClickAsync("#timePlay");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
     /// <summary>The address of some feature layer this server publishes.</summary>
     private async Task<string> AnyFeatureLayerUrlAsync(string token)
     {

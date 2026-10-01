@@ -26,6 +26,9 @@
 
 > **Amended 2026-10-01 by [ADR-130](ADR-130-the-map-viewer-has-a-table-and-bookmarks.md).** The Map Viewer opens a layer's attribute table under the map, and a map keeps bookmarks in its document.
 
+
+> **Amended 2026-10-01 by [ADR-132](ADR-132-the-map-viewer-has-a-time-slider.md).** A map with a time-enabled layer has a time window, kept in its `widgets.timeSlider`.
+
 ---
 
 ## 1. Context

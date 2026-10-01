@@ -180,6 +180,29 @@
   #map { position: absolute; inset: 0; background: #dce7ec; }
   /* ADR-130: with the table open the map gives it the bottom of the frame. */
   #mapWrap.withtable #map { bottom: 40%; }
+  #timeBar { position: absolute; z-index: 32; left: 50%; transform: translateX(-50%); bottom: 44px; display: flex;
+    align-items: center; gap: 8px; padding: 6px 10px; background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 6px; box-shadow: 0 2px 6px rgba(0, 0, 0, .15); max-width: calc(100% - 24px); }
+  #timeBar[hidden] { display: none; }
+  #timeBar .timewrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 300px; }
+  #timeSaid { font-size: 12px; text-align: center; }
+  #timeBar .timeends { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  /* One track, two thumbs: both inputs lie on it and only their thumbs take the pointer; the window between them is
+     drawn on the track (design review 2026-10-01: two stacked sliders did not read as one window). */
+  #timeBar .timetrack { position: relative; height: 24px; --from: 0%; --to: 100%;
+    background: linear-gradient(to right, var(--rule) var(--from), var(--accent) var(--from), var(--accent) var(--to),
+      var(--rule) var(--to)) center / 100% 6px no-repeat; }
+  #timeBar .timetrack input[type="range"] { position: absolute; inset: 0; width: 100%; margin: 0; background: none;
+    pointer-events: none; -webkit-appearance: none; appearance: none; height: 24px; }
+  #timeBar .timetrack input[type="range"]::-webkit-slider-runnable-track { background: none; }
+  #timeBar .timetrack input[type="range"]::-moz-range-track { background: none; }
+  #timeBar .timetrack input[type="range"]::-webkit-slider-thumb { pointer-events: auto; -webkit-appearance: none;
+    width: 16px; height: 16px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); }
+  #timeBar .timetrack input[type="range"]::-moz-range-thumb { pointer-events: auto; width: 14px; height: 14px;
+    border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); }
+  #timeBar .timetrack input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--ink); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  #mapWrap.withtable #timeBar { bottom: calc(40% + 44px); }
   #mapWrap.withtable #strip { bottom: calc(40% + 12px); }
   #tablePanel { position: absolute; left: 0; right: 0; bottom: 0; height: 40%; z-index: 35; display: flex;
     flex-direction: column; background: var(--surface); border-top: 1px solid var(--rule); }
@@ -235,6 +258,12 @@
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   @media (max-width: 760px) {
+    #timeBar { left: 8px; right: 8px; transform: none; bottom: 36px; gap: 4px; padding: 4px 6px; }
+    #timeBar .timetrack, #timeBar .timetrack input[type="range"] { height: 44px; }
+    #timeBar button { min-width: 44px; min-height: 44px; }
+    #timeBar .timeends { display: none; }
+    /* With the table open the map is too short for the bar; it hides rather than covering what is left. */
+    #mapWrap.withtable #timeBar { display: none; }
     #mapWrap.withtable #map { bottom: 60%; }
     #mapWrap.withtable #strip { bottom: calc(60% + 12px); }
     #tablePanel { height: 60%; }
@@ -368,6 +397,22 @@
       <div id="map" tabindex="0" aria-label="Map. Click it to see the features or pixel values at that point."></div>
       <div id="identify" role="region" aria-label="What is here" hidden></div>
       <div id="strip"><span id="stripScale"></span><span id="stripWhere"></span></div>
+      <!-- ADR-132: the time window, when a layer on the map has time. -->
+      <section id="timeBar" aria-label="Time window" hidden>
+        <button type="button" class="tiny" id="timePlay">Play</button>
+        <button type="button" class="tiny" id="timeBack" aria-label="Step back">&lsaquo;</button>
+        <div class="timewrap">
+          <span id="timeSaid"></span>
+          <div class="timetrack" id="timeTrack">
+            <input type="range" id="timeStart" min="0" max="1" step="1" aria-label="Start of the time window">
+            <input type="range" id="timeEnd" min="0" max="1" step="1" aria-label="End of the time window">
+          </div>
+          <div class="timeends"><span id="timeFirst"></span><span id="timeLast"></span></div>
+        </div>
+        <button type="button" class="tiny" id="timeForward" aria-label="Step forward">&rsaquo;</button>
+        <button type="button" class="tiny ghost" id="timeAll">Show all time</button>
+        <span class="sr" id="timeAnnounce" role="status" aria-live="polite"></span>
+      </section>
       <!-- ADR-130: a layer's features as a table under the map. -->
       <section id="tablePanel" aria-labelledby="tableTitle" hidden>
         <div class="tablehead">
