@@ -23,6 +23,9 @@
 
 > **Amended 2026-10-01 by [ADR-129](ADR-129-several-items-at-once-and-a-maps-layers-reach.md).** A map's Share, on its item page, names the layers its chosen readers will not see and offers to share the reader's own as widely.
 
+
+> **Amended 2026-10-01 by [ADR-130](ADR-130-the-map-viewer-has-a-table-and-bookmarks.md).** The Map Viewer opens a layer's attribute table under the map, and a map keeps bookmarks in its document.
+
 ---
 
 ## 1. Context

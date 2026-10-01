@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>6a562e0</code> · 2026-10-01 20:15</p>
+<p class="stamp">Şu commit’ten üretildi: <code>3a98300</code> · 2026-10-01 20:50</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">128</div><div class="kpi-l">ADR</div><div class="kpi-n">41 koşulsuz kabul</div></div>
+<div class="kpi "><div class="kpi-v">129</div><div class="kpi-l">ADR</div><div class="kpi-n">42 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">282/375</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">90 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4429</div><div class="kpi-l">test</div><div class="kpi-n">423 kaynak dosya, 188,699 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4430</div><div class="kpi-l">test</div><div class="kpi-n">423 kaynak dosya, 188,699 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -333,6 +333,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">127</td><td>An image service exports its values as a GeoTIFF</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the file is read back by this server&#x27;s reader and by GDAL; what ArcGIS Pro does…</td><td class="num">0/1</td></tr>
 <tr><td class="id">128</td><td>An image service has histograms, and NaN is not a measurement</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the shape is ArcGIS&#x27;s documented one; what Pro draws from it is not measured here</td><td class="num"></td></tr>
 <tr><td class="id">129</td><td>Several items at once, and a map says which of its layers its readers will not see</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the shapes are Portal&#x27;s; each action is a sequence of requests the single-item…</td><td class="num"></td></tr>
+<tr><td class="id">130</td><td>The Map Viewer has an attribute table and bookmarks</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — both are ArcGIS Map Viewer&#x27;s shape over requests this server already answers</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -459,7 +460,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:53.1%"></div></div><div class="bar-n">654</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.3%"></div></div><div class="bar-n">262</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.3%"></div></div><div class="bar-n">263</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:16.7%"></div></div><div class="bar-n">206</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:10.1%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.3%"></div></div><div class="bar-n">115</div></div>
@@ -469,6 +470,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>3a98300</code><time>2026-10-01</time><span>Several items at once in My content, and a map says which of its layers its readers will not see</span></li>
 <li><code>6a562e0</code><time>2026-10-01</time><span>An image service has histograms, and a NaN pixel is not a measurement</span></li>
 <li><code>1190f31</code><time>2026-10-01</time><span>An image service exports its values as a GeoTIFF</span></li>
 <li><code>d155dcf</code><time>2026-10-01</time><span>An imagery item describes itself, has a picture, and sits in its owner&#x27;s folder</span></li>
@@ -482,7 +484,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>17fc3f4</code><time>2026-10-01</time><span>A member&#x27;s content has folders, and an item is moved between them</span></li>
 <li><code>8a5044f</code><time>2026-10-01</time><span>A hosted layer has views, and a view is a PostgreSQL view</span></li>
 <li><code>91db3b0</code><time>2026-09-30</time><span>An item carries tags, and a CSV or Excel table with coordinates is published and added to a layer</span></li>
-<li><code>dc991e1</code><time>2026-09-30</time><span>Update data maps the file&#x27;s columns before it writes; a web map can be protected from deletion (migration 69)</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

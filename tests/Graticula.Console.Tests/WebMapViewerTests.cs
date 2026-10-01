@@ -776,6 +776,79 @@ public sealed class WebMapViewerTests : ConsoleTest
         }
     }
 
+    [Fact]
+    public async Task A_layers_table_opens_under_the_map_and_a_bookmark_is_kept_with_it()
+    {
+        // ADR-130: the attribute table and the bookmarks Map Viewer authors use to hand a map over.
+        (string token, string cookie) = await SignInAsync();
+        string layerUrl = await AnyFeatureLayerUrlAsync(token);
+
+        string document = JsonSerializer.Serialize(new
+        {
+            title = "Table and bookmarks test",
+            sharing = "private",
+            document = new
+            {
+                operationalLayers = new object[]
+                {
+                    new { id = "t", layerType = "ArcGISFeatureLayer", url = layerUrl, title = "Tabled", visibility = true, opacity = 1 },
+                },
+                baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
+                version = "2.31",
+            },
+        });
+
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/webmaps", document);
+        Assert.True(status == 201, $"Saving the map answered {status}: {body}");
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
+            await WaitForAsync("!!document.querySelector('#layerList [data-act=table]')",
+                "A feature layer's row offers no table.");
+
+            // Every feature, not only those in view, so the test does not depend on where the map opened.
+            await ClickAsync("#layerList [data-act=table]");
+            await WaitForAsync("!document.getElementById('tablePanel').hidden", "Table did not open under the map.");
+            await Browser.EvaluateAsync<bool>(
+                "(() => { const b = document.getElementById('tableByExtent'); b.checked = false; b.dispatchEvent(new Event('change')); return true; })()");
+            await WaitForAsync(@"/ of [0-9,]+\.$|, filtered\.$/.test(document.getElementById('tableStatus').textContent)"
+                + " && document.querySelectorAll('#tableGrid tbody tr').length > 0",
+                "The table never listed the layer's features with a count.");
+
+            // A row takes the map to its feature, and stays chosen: the move is the table's own and does not start it over.
+            await ClickAsync("#tableGrid tbody tr");
+            await WaitForAsync("wmHighlight.getSource().getFeatures().length === 1", "A row did not outline its feature on the map.");
+            await WaitForAsync("document.querySelector('#tableGrid tr[aria-selected=true]') === document.activeElement",
+                "The chosen row was not kept, focused, after the map went to it.");
+
+            await ClickAsync("#tableClose");
+            await WaitForAsync("document.getElementById('tablePanel').hidden", "The table did not close.");
+
+            // A bookmark of this view, kept in the map's document.
+            // Bookmarks are a tab of their own, and Enter in the name adds one rather than saving the map.
+            await ClickAsync("#tab-bookmarks");
+            await Browser.EvaluateAsync<bool>("(window.__writes = [], document.getElementById('bookmarkName').value = 'Here', true)");
+            await Browser.EvaluateAsync<bool>(
+                "(() => { const i = document.getElementById('bookmarkName'); i.focus(); i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return true; })()");
+            await WaitForAsync("(wmState.doc.bookmarks || []).length === 1 && wmState.doc.bookmarks[0].name === 'Here'"
+                + " && Number.isFinite(wmState.doc.bookmarks[0].extent.xmin) && wmState.dirty",
+                "Adding a bookmark did not keep it in the map's document as a change.");
+            Assert.Contains("Here", await Browser.EvaluateAsync<string>("document.getElementById('bookmarkList').innerText") ?? "", StringComparison.Ordinal);
+
+            Assert.Empty(await WritesAsync());
+            await ClickAsync("#bookmarkList [data-unbookmark]");
+            await WaitForAsync("(wmState.doc.bookmarks || []).length === 0", "Removing the bookmark left it in the document.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
+    }
+
     /// <summary>The address of some feature layer this server publishes.</summary>
     private async Task<string> AnyFeatureLayerUrlAsync(string token)
     {

@@ -1102,7 +1102,10 @@ function wmDrawLayerList() {
           aria-controls="pop-${wmEscape(key)}">Pop-up</button>
           <button class="tiny" data-act="labels" data-layer="${wmEscape(key)}"
           aria-label="Labels of ${wmEscape(title)}" data-focus="labels:${wmEscape(key)}" aria-expanded="${run.labelOpen ? "true" : "false"}"
-          aria-controls="lab-${wmEscape(key)}">Labels</button>` : ""}
+          aria-controls="lab-${wmEscape(key)}">Labels</button>
+          <button class="tiny" data-act="table" data-layer="${wmEscape(key)}" data-focus="table:${wmEscape(key)}"
+          aria-pressed="${wmTable.layer === layer ? "true" : "false"}"
+          aria-label="Attribute table of ${wmEscape(title)}">Table</button>` : ""}
         ${readable && kind === "imagery" ? `<button class="tiny" data-act="pixels" data-layer="${wmEscape(key)}"
           data-focus="pixels:${wmEscape(key)}" aria-pressed="${layer.popupEnabled === false ? "false" : "true"}"
           title="Show pixel values when the map is clicked">Pixel values</button>` : ""}
@@ -1637,6 +1640,12 @@ async function wmSetFilter(layer, expression) {
     run.ol.getSource().refresh();
   }
 
+  // The table shows the filtered layer too, from its first page (design review 2026-10-01).
+  if (wmTable.layer === layer) {
+    wmTable.page = 0;
+    wmLoadTable();
+  }
+
   wmMarkDirty();
   wmDrawLayerList();
   wmSayIn("layersStatus", clause ? `${layer.title} is filtered.` : `${layer.title} shows every feature.`);
@@ -1750,6 +1759,7 @@ wm$("layerList").addEventListener("click", event => {
       break;
     }
     case "styleApply": wmApplyStyle(layer); break;
+    case "table": wmTable.layer === layer ? wmCloseTable() : wmOpenTable(layer); wmDrawLayerList(); break;
     // ADR-123: whether a click on this image answers its pixel — `popupEnabled`, as ArcGIS saves it.
     case "pixels":
       layer.popupEnabled = layer.popupEnabled === false;
@@ -2490,7 +2500,7 @@ wm$("measureClear").addEventListener("click", () => {
 
 // ----------------------------------------------------------------------------- tabs
 
-const WM_TABS = ["layers", "search", "measure", "map"];
+const WM_TABS = ["layers", "search", "measure", "bookmarks", "map"];
 
 function wmShowTab(name, focus = false) {
   for (const tab of WM_TABS) {
@@ -2888,6 +2898,7 @@ async function wmOpen(doc) {
     }
   }
 
+  wmDrawBookmarks();
   wmDrawLayerList();
   await Promise.all(wmLayers().map(wmLoadLayer));
   wmApplyAll();
@@ -3348,6 +3359,243 @@ wmMap.on("moveend", () => {
   if (wmMovedByHand && wmState.doc) {
     wmMovedByHand = false;
     if (!wmState.dirty) wmMarkDirty();
+  }
+});
+
+
+// ---------------------------------------------------------------- the attribute table (ADR-130)
+
+/** The table under the map: which layer, which page, and whether it follows the map's extent. */
+const wmTable = { layer: null, page: 0, total: 0, byExtent: true, turn: 0, rows: [], chosen: -1, selfMove: false };
+const WM_TABLE_PAGE = 50;
+
+/**
+ * Opens a layer's attribute table under the map — ADR-130, as ArcGIS Map Viewer's *Show table*: its features in the
+ * map's filter, by default only those in view and following the map as it moves, fifty to a page; a row takes the
+ * map to its feature.
+ */
+function wmOpenTable(layer) {
+  wmTable.layer = layer;
+  wmTable.page = 0;
+  wmTable.chosen = -1;
+  wm$("tablePanel").hidden = false;
+  wm$("mapWrap").classList.add("withtable");
+  wmMap.updateSize();
+  wmLoadTable();
+  // The heading first, so a screen reader hears whose table this is and how many rows it has.
+  wm$("tableTitle").focus();
+}
+
+function wmCloseTable() {
+  const layer = wmTable.layer;
+  wmTable.layer = null;
+  wm$("tablePanel").hidden = true;
+  wm$("mapWrap").classList.remove("withtable");
+  wmMap.updateSize();
+  wmHighlight.getSource().clear();
+  if (layer) document.querySelector(`[data-act="table"][data-layer="${CSS.escape(layer.id)}"]`)?.focus();
+}
+
+async function wmLoadTable() {
+  const layer = wmTable.layer;
+  if (!layer) return;
+  const turn = ++wmTable.turn;
+  const info = (wmRuntime.get(layer) || {}).info || {};
+  const oid = info.objectIdField || "objectid";
+  const box = wmQueryBox(wmMap.getView().calculateExtent(wmMap.getSize()));
+  const where = { where: wmWhere(layer) };
+  const spatial = wmTable.byExtent
+    ? { geometry: box.join(","), geometryType: "esriGeometryEnvelope", inSR: 3857, spatialRel: "esriSpatialRelIntersects" }
+    : {};
+
+  wm$("tableTitle").textContent = layer.title || "Layer";
+  wmSayIn("tableStatus", "Reading…");
+
+  try {
+    const [counted, page] = await Promise.all([
+      wmFetch(`${layer.url}/query?` + wmParams({ ...where, ...spatial, returnCountOnly: true, f: "json" })),
+      wmFetch(`${layer.url}/query?` + wmParams({
+        ...where, ...spatial, outFields: "*", returnGeometry: true, outSR: 3857, orderByFields: oid,
+        resultOffset: wmTable.page * WM_TABLE_PAGE, resultRecordCount: WM_TABLE_PAGE, f: "json",
+      })),
+    ]);
+    if (turn !== wmTable.turn || wmTable.layer !== layer) return;
+
+    wmTable.total = Number(counted && counted.count) || 0;
+    wmTable.rows = (page && page.features) || [];
+    // The pop-up's choice of fields, when the map has made one — ArcGIS's table hides what the pop-up hides.
+    const hidden = new Set(((layer.popupInfo && layer.popupInfo.fieldInfos) || [])
+      .filter(f => f.visible === false).map(f => String(f.fieldName).toLowerCase()));
+    const fields = (info.fields || []).filter(f => f.type !== "esriFieldTypeGeometry" && !wmSystemField(f.name, info)
+      && !hidden.has(String(f.name).toLowerCase()));
+    const shownFields = fields.length ? fields
+      : Object.keys((wmTable.rows[0] || {}).attributes || {}).map(name => ({ name, alias: name }));
+
+    wm$("tableGrid").innerHTML = `<thead><tr>${shownFields.map(f =>
+      `<th scope="col">${wmEscape(f.alias || f.name)}</th>`).join("")}</tr></thead>
+      <tbody>${wmTable.rows.map((feature, i) => `<tr tabindex="${i === Math.max(0, wmTable.chosen) ? 0 : -1}" data-row="${i}"
+        aria-selected="${i === wmTable.chosen ? "true" : "false"}">${shownFields.map(f => {
+        const value = (feature.attributes || {})[f.name];
+        const text = value === null || value === undefined ? "" : wmFormatValue(value, null, f.type);
+        return `<td title="${wmEscape(text)}">${wmEscape(text)}</td>`;
+      }).join("")}</tr>`).join("")}</tbody>`;
+
+    const first = wmTable.page * WM_TABLE_PAGE;
+    const last = first + wmTable.rows.length;
+    const pages = Math.max(1, Math.ceil(wmTable.total / WM_TABLE_PAGE));
+    wmSayIn("tableStatus", wmTable.total === 0
+      ? (wmTable.byExtent ? "No feature in view." : "No feature matches this layer's filter.")
+      : `${first + 1}–${last} of ${wmTable.total.toLocaleString()}${wmTable.byExtent ? " in view" : ""}${
+        wmWhere(layer) !== "1=1" ? ", filtered" : ""}.${pages > 1 ? ` Page ${wmTable.page + 1} of ${pages}.` : ""}`);
+    wm$("tablePrev").disabled = wmTable.page === 0;
+    wm$("tableNext").disabled = last >= wmTable.total;
+  } catch (e) {
+    if (turn === wmTable.turn) wmSayIn("tableStatus", `The table could not be read: ${e.message || e}`, true);
+  }
+}
+
+/**
+ * Chooses a row: outlines its feature and takes the map to it, and the table stays where it was — the move is the
+ * table's own, so it does not start the table over from page one (design review 2026-10-01).
+ */
+function wmTableGo(index) {
+  const feature = wmTable.rows[index];
+  if (!feature || !feature.geometry) return;
+  wmTable.chosen = index;
+  for (const row of document.querySelectorAll("#tableGrid tr[data-row]")) {
+    const on = Number(row.dataset.row) === index;
+    row.setAttribute("aria-selected", String(on));
+    row.tabIndex = on ? 0 : -1;
+  }
+  document.querySelector(`#tableGrid tr[data-row="${index}"]`)?.focus();
+  const read = WM_ESRI.readFeature(feature, { featureProjection: WM_MERCATOR });
+  wmHighlight.getSource().clear();
+  wmHighlight.getSource().addFeature(read);
+  wmTable.selfMove = true;
+  wmFit(read.getGeometry().getExtent());
+}
+
+wm$("tablePanel").addEventListener("click", event => {
+  const t = event.target instanceof Element ? event.target : null;
+  if (!t) return;
+  if (t.closest("#tableClose")) { wmCloseTable(); wmDrawLayerList(); return; }
+  if (t.closest("#tablePrev")) { wmTable.page = Math.max(0, wmTable.page - 1); wmTable.chosen = -1; wmLoadTable(); return; }
+  if (t.closest("#tableNext")) { wmTable.page++; wmTable.chosen = -1; wmLoadTable(); return; }
+  const row = t.closest("tr[data-row]");
+  if (row) wmTableGo(Number(row.dataset.row));
+});
+// One Tab stop for the rows: the arrows move between them, Home and End to the ends, Enter chooses (roving tabindex).
+wm$("tablePanel").addEventListener("keydown", event => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    wmCloseTable();
+    wmDrawLayerList();
+    return;
+  }
+  const row = event.target instanceof Element ? event.target.closest("tr[data-row]") : null;
+  if (!row) return;
+  const rows = [...document.querySelectorAll("#tableGrid tr[data-row]")];
+  const at = rows.indexOf(row);
+  const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: rows.length - 1 }[event.key];
+  if (to !== undefined) {
+    event.preventDefault();
+    const next = rows[Math.max(0, Math.min(rows.length - 1, to))];
+    rows.forEach(r => { r.tabIndex = r === next ? 0 : -1; });
+    next.focus();
+    return;
+  }
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    wmTableGo(Number(row.dataset.row));
+  }
+});
+wm$("tableByExtent").addEventListener("change", () => {
+  wmTable.byExtent = wm$("tableByExtent").checked;
+  wmTable.page = 0;
+  wmLoadTable();
+});
+// In view means what is in view now: the table follows the map, from its first page.
+wmMap.on("moveend", () => {
+  if (wmTable.selfMove) {
+    wmTable.selfMove = false;
+    return;
+  }
+  if (wmTable.layer && wmTable.byExtent) {
+    wmTable.page = 0;
+    wmTable.chosen = -1;
+    wmLoadTable();
+  }
+});
+
+
+// ---------------------------------------------------------------- bookmarks (ADR-130)
+
+/** The map's bookmarks — the Web Map's own `bookmarks`, each a name and an extent. */
+function wmBookmarks() {
+  if (!Array.isArray(wmState.doc.bookmarks)) wmState.doc.bookmarks = [];
+  return wmState.doc.bookmarks;
+}
+
+function wmDrawBookmarks() {
+  const list = wm$("bookmarkList");
+  if (!list || !wmState.doc) return;
+  const marks = Array.isArray(wmState.doc.bookmarks) ? wmState.doc.bookmarks : [];
+  list.innerHTML = marks.length
+    ? marks.map((mark, i) => `<li><button type="button" class="linkbtn" data-bookmark="${i}">${wmEscape(mark.name || "Bookmark")}</button>
+        <button type="button" class="tiny ghost" data-unbookmark="${i}" aria-label="Remove the bookmark ${wmEscape(mark.name || "")}">Remove</button></li>`).join("")
+    : `<li class="hint">No bookmarks yet. Move the map to a place, name it below and add it. Saving the map keeps its bookmarks.</li>`;
+}
+
+wm$("bookmarkName").addEventListener("keydown", event => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    wm$("bookmarkAdd").click();
+  }
+});
+
+wm$("bookmarkAdd").addEventListener("click", () => {
+  const name = wm$("bookmarkName").value.trim();
+  if (!name) {
+    wmSayIn("bookmarkStatus", "Give the bookmark a name.", true);
+    wm$("bookmarkName").focus();
+    return;
+  }
+  const box = wmQueryBox(wmMap.getView().calculateExtent(wmMap.getSize()));
+  wmBookmarks().push({
+    name,
+    extent: { xmin: box[0], ymin: box[1], xmax: box[2], ymax: box[3], spatialReference: { wkid: 102100, latestWkid: 3857 } },
+  });
+  wm$("bookmarkName").value = "";
+  wmDrawBookmarks();
+  wmMarkDirty();
+  wmSayIn("bookmarkStatus", `“${name}” added. Save the map to keep it.`);
+});
+
+wm$("bookmarkList").addEventListener("click", event => {
+  const t = event.target instanceof Element ? event.target.closest("button") : null;
+  if (!t) return;
+  const marks = wmBookmarks();
+  if (t.dataset.bookmark !== undefined) {
+    const e = (marks[Number(t.dataset.bookmark)] || {}).extent;
+    if (!e) return;
+    const reference = e.spatialReference || {};
+    const wkid = reference.latestWkid || reference.wkid || 102100;
+    try {
+      wmFit(ol.proj.transformExtent([e.xmin, e.ymin, e.xmax, e.ymax],
+        wkid === 102100 || wkid === 3857 ? WM_MERCATOR : `EPSG:${wkid}`, WM_MERCATOR), 0, 0);
+    } catch {
+      wmSayIn("bookmarkStatus", "This bookmark is in a reference this page cannot draw.", true);
+    }
+    return;
+  }
+  if (t.dataset.unbookmark !== undefined) {
+    const at = Number(t.dataset.unbookmark);
+    const [gone] = marks.splice(at, 1);
+    wmDrawBookmarks();
+    wmMarkDirty();
+    wmSayIn("bookmarkStatus", `“${gone ? gone.name : "The bookmark"}” removed. Save the map to keep the change.`);
+    // To the bookmark that took its place, or the one before; the name box when none is left.
+    (document.querySelector(`[data-bookmark="${Math.min(at, marks.length - 1)}"]`) || wm$("bookmarkName")).focus();
   }
 });
 
