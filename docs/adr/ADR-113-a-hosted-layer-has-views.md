@@ -75,7 +75,8 @@ the first thing that would make an ArcGIS user distrust it.
 - *A view layer is not called what its source's is.* Portal keeps the source's layer names; here the admin surface
   finds a layer by its name, and a second layer with the source's name would make every one of the source's pages
   ambiguous (409). A single-layer view's layer takes the view's name, as an import's does; a multi-layer view's are
-  `<view>_<source layer>`. Recorded as a difference from Portal.
+  `<view>_<source layer>`. Recorded as a difference from Portal, and **confirmed by the owner 2026-10-01**
+  (*"Tamam mantıklı ikisi de"*).
 
 ## 4. Evidence
 

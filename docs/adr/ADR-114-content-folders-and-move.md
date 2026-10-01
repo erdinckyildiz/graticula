@@ -89,7 +89,7 @@ filters by the folder chosen; *Move* moves the ticked items, and an item's page 
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | Refusing to delete a folder that holds items is acceptable to an ArcGIS user | `INFERRED` — the reviewer said Portal refuses; the public REST reference for *Delete Folder*, as I recall it, says the folder's items are deleted with it. Not checked against a running Portal. Refusing is chosen because it cannot lose data; **listed for the owner to confirm** |
+| — | Refusing to delete a folder that holds items is acceptable to an ArcGIS user | `INFERRED` — the reviewer said Portal refuses; the public REST reference for *Delete Folder*, as I recall it, says the folder's items are deleted with it. Not checked against a running Portal. Refusing is chosen because it cannot lose data. **Confirmed by the owner 2026-10-01** (*"Tamam mantıklı ikisi de"*) |
 
 ## 8. Dependencies
 
