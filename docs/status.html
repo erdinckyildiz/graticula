@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>5f23f34</code> · 2026-10-01 07:57</p>
+<p class="stamp">Generated from commit <code>b058e83</code> · 2026-10-01 08:29</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">119</div><div class="kpi-l">ADRs</div><div class="kpi-n">34 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">275/367</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">89 live · 3 deferred with their decision</div></div>
+<div class="kpi "><div class="kpi-v">121</div><div class="kpi-l">ADRs</div><div class="kpi-n">36 accepted outright</div></div>
+<div class="kpi good"><div class="kpi-v">277/369</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">89 live · 3 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">160 answered</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">open debts</div><div class="kpi-n">268 repaid · 6 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">4411</div><div class="kpi-l">tests</div><div class="kpi-n">422 source files, 187,226 lines</div></div>
+<div class="kpi good"><div class="kpi-v">4412</div><div class="kpi-l">tests</div><div class="kpi-n">422 source files, 187,226 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -323,6 +323,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">118</td><td>A web map&#x27;s pop-up formats numbers and dates</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — one Web Map field per field info, drawn by the viewer that draws the pop-up</td><td class="num">1/1</td></tr>
 <tr><td class="id">119</td><td>A web map has a description and a picture</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — two columns and the Map Viewer&#x27;s own canvas</td><td class="num">2/2</td></tr>
 <tr><td class="id">120</td><td>A GeoPackage or KML is imported as a geodatabase is</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — the geodatabase path, measured reading both formats through /vsizip/</td><td class="num">1/1</td></tr>
+<tr><td class="id">121</td><td>A point layer is drawn as a heat map, or sized by a number</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — Web Map&#x27;s own renderer shapes, drawn by OpenLayers&#x27; own layers</td><td class="num">1/1</td></tr>
+<tr><td class="id">122</td><td>A pop-up has text and an image</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — two Web Map fields, drawn as text</td><td class="num">1/1</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -448,7 +450,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.6%"></div></div><div class="bar-n">648</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.9%"></div></div><div class="bar-n">257</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.9%"></div></div><div class="bar-n">258</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:16.7%"></div></div><div class="bar-n">206</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:10.1%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.3%"></div></div><div class="bar-n">115</div></div>
@@ -458,6 +460,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>b058e83</code><time>2026-10-01</time><span>A pop-up formats numbers and dates, a web map has a description and a picture, and GeoPackage and KML import</span></li>
 <li><code>5f23f34</code><time>2026-10-01</time><span>Editors may be kept to their own features, Update data upserts, and a web map labels its layers</span></li>
 <li><code>65df2d3</code><time>2026-10-01</time><span>ADR-113 and ADR-114: the owner confirms the two differences from Portal</span></li>
 <li><code>17fc3f4</code><time>2026-10-01</time><span>A member&#x27;s content has folders, and an item is moved between them</span></li>
@@ -471,7 +474,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>30262dd</code><time>2026-09-30</time><span>The map item test makes the group it shares into</span></li>
 <li><code>23fc36c</code><time>2026-09-30</time><span>A service&#x27;s data is exported by a job: every chosen layer in one file, up to two million rows, kept a day</span></li>
 <li><code>43ba516</code><time>2026-09-30</time><span>A web map is shared with groups (ADR-079 condition 4); migration 67</span></li>
-<li><code>1285418</code><time>2026-09-30</time><span>Design review round 4: the pop-up&#x27;s title heads its card, the export list reads in two groups, Change owner finds members</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

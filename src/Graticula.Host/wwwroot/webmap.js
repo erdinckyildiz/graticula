@@ -612,8 +612,40 @@ function wmRendererStyle(info, colour) {
 
   if (!renderer) return { style: plain, fields: [], own: false };
 
+  // ADR-121: a symbol whose size follows a number — each size made once and kept.
+  const sizeInfo = (renderer.visualVariables || []).find(v => v && v.type === "sizeInfo" && v.field);
+  if (renderer.type === "simple" && sizeInfo) {
+    const sized = new Map();
+    const lo = Number(sizeInfo.minDataValue);
+    const hi = Number(sizeInfo.maxDataValue);
+    return {
+      style: feature => {
+        const value = Number(feature.get(sizeInfo.field));
+        if (!Number.isFinite(value)) return null;
+        const t = hi > lo ? Math.max(0, Math.min(1, (value - lo) / (hi - lo))) : 0;
+        const pt = Math.round(Number(sizeInfo.minSize) + t * (Number(sizeInfo.maxSize) - Number(sizeInfo.minSize)));
+        if (!sized.has(pt)) {
+          const symbol = { ...renderer.symbol, size: pt };
+          if (Array.isArray(symbol.color)) symbol.color = [...symbol.color.slice(0, 3), 204];
+          const style = wmSymbolStyle(symbol, colour) || plain;
+          // The large draw first and the small over them, so no small value is hidden under a large one.
+          if (style.setZIndex) style.setZIndex(Number(sizeInfo.maxSize) - pt);
+          sized.set(pt, style);
+        }
+        return sized.get(pt);
+      },
+      fields: [sizeInfo.field],
+      own: true,
+    };
+  }
+
   if (renderer.type === "simple") {
     return { style: wmSymbolStyle(renderer.symbol, colour) || plain, fields: [], own: true };
+  }
+
+  // A heat map is drawn as its own kind of layer (wmBuildLayer); here it only names the weight it reads.
+  if (renderer.type === "heatmap") {
+    return { style: plain, fields: renderer.field ? [renderer.field] : [], own: true, heat: renderer };
   }
 
   const fallbackStyle = wmSymbolStyle(renderer.defaultSymbol, colour);
@@ -671,6 +703,8 @@ function wmSymbolColour(symbol) {
 function wmSwatches(info, colour) {
   const renderer = info && info.drawingInfo && info.drawingInfo.renderer;
   if (!renderer) return [colour];
+
+  if (renderer.type === "heatmap") return WM_HEAT_STOPS.slice(-3).map(([, c]) => `rgb(${c[0]}, ${c[1]}, ${c[2]})`);
 
   const symbols = renderer.type === "simple"
     ? [renderer.symbol]
@@ -768,7 +802,8 @@ function wmBuildLayer(layer, run, index) {
       },
     });
 
-    const drawn = new ol.layer.Vector({ source, style: renderer.style, declutter: false });
+    const drawn = renderer.heat ? wmHeatLayer(source, renderer.heat)
+      : new ol.layer.Vector({ source, style: renderer.style, declutter: false });
     if (!label) return drawn;
 
     // ADR-117: the labels are a second layer over the same source, decluttered among themselves only — in one
@@ -910,8 +945,20 @@ function wmExtentOf(layer) {
 
 function wmRemoveFromMap(layer) {
   const run = wmRuntime.get(layer);
-  if (run && run.ol) wmMap.removeLayer(run.ol);
+  if (run && run.ol) wmDropDrawn(run.ol);
   wmRuntime.delete(layer);
+}
+
+/**
+ * Takes a drawn layer off the map and disposes it. <b>Disposed, not only removed</b>: a heat map draws with WebGL, and
+ * one that was only removed went on answering its source's loads and threw while drawing (ADR-121).
+ */
+function wmDropDrawn(drawn) {
+  wmMap.removeLayer(drawn);
+  const parts = drawn instanceof ol.layer.Group ? drawn.getLayers().getArray().slice() : [drawn];
+  for (const part of parts) {
+    try { part.dispose(); } catch { /* already gone */ }
+  }
 }
 
 // ----------------------------------------------------------------------------- the Layers tab
@@ -1116,7 +1163,9 @@ function wmStyleMarkup(layer, run, key, title) {
       ${option("default", "The layer's own style", how)}
       ${option("single", "One colour", how)}
       ${texts.length ? option("unique", "A colour per value", how) : ""}
-      ${numbers.length ? option("breaks", "Counts and amounts (classes)", how) : ""}
+      ${numbers.length ? option("breaks", "Counts and amounts (colour)", how) : ""}
+      ${numbers.length && /Point/.test(geometry) ? option("size", "Counts and amounts (size)", how) : ""}
+      ${/Point/.test(geometry) ? option("heat", "Heat map", how) : ""}
     </select>
     ${how === "single" ? `<div class="row">
       <label class="lkind" for="styColour-${k}">Colour</label>
@@ -1147,11 +1196,30 @@ function wmStyleMarkup(layer, run, key, title) {
         ${Object.entries(WM_RAMPS).map(([name, ramp]) => option(name, ramp.label, draft.ramp)).join("")}
       </select>
     </div>` : ""}
+    ${how === "size" ? `<div class="row">
+      <label class="lkind" for="styField-${k}">Field</label>
+      <select id="styField-${k}">${numbers.map(f => option(f.name, f.alias || f.name, draft.field)).join("")}</select>
+      <label class="lkind" for="styColour-${k}">Colour</label>
+      <input type="color" id="styColour-${k}" value="${wmEscape(draft.colour || "#1f5fa8")}">
+    </div>
+    <div class="row">
+      <label class="lkind" for="styMin-${k}">Smallest (pt)</label>
+      <input type="number" id="styMin-${k}" min="1" max="40" step="1" style="width:4em" value="${wmEscape(String(draft.minSize || 6))}">
+      <label class="lkind" for="styMax-${k}">Largest (pt)</label>
+      <input type="number" id="styMax-${k}" min="2" max="80" step="1" style="width:4em" value="${wmEscape(String(draft.maxSize || 30))}">
+    </div>` : ""}
+    ${how === "heat" ? `<div class="row">
+      <label class="lkind" for="styRadius-${k}">Area of influence (px)</label>
+      <input type="number" id="styRadius-${k}" min="2" max="60" step="1" style="width:4em" value="${wmEscape(String(draft.radius || 24))}">
+      <label class="lkind" for="styWeight-${k}">Weight by</label>
+      <select id="styWeight-${k}">${option("", "Every point the same", draft.field || "")}${numbers.map(f => option(f.name, f.alias || f.name, draft.field)).join("")}</select>
+    </div>
+    <p class="lsnote">Hot where points are dense. A heat map shows density, so you can't click it for one point.</p>` : ""}
     <div class="row">
       <button class="tiny" data-act="styleApply" data-layer="${k}" data-focus="styleApply:${k}">Apply to this map</button>
     </div>
     ${own ? wmStyleLegend(layer) : ""}
-    ${wmMe.privileges.has("content:publishFeatures") && own
+    ${wmMe.privileges.has("content:publishFeatures") && own && !["size", "heat"].includes(how)
       ? `<div class="lsdefault">
           <button class="tiny" data-act="styleDefault" data-layer="${k}" data-focus="styleDefault:${k}">Make default everywhere…</button>
           <p class="lkind">Changes ${wmEscape(title)} in every map that has not styled it itself.</p>
@@ -1173,6 +1241,14 @@ function wmDraftFromRenderer(layer) {
     ? "#" + colour.slice(0, 3).map(n => Math.max(0, Math.min(255, Number(n) || 0)).toString(16).padStart(2, "0")).join("")
     : undefined;
 
+  if (renderer.type === "heatmap") {
+    return { how: "heat", radius: renderer.blurRadius, field: renderer.field || "" };
+  }
+  const sizeInfo = (renderer.visualVariables || []).find(v => v && v.type === "sizeInfo");
+  if (renderer.type === "simple" && sizeInfo) {
+    return { how: "size", field: sizeInfo.field, minSize: sizeInfo.minSize, maxSize: sizeInfo.maxSize,
+      colour: hex((renderer.symbol || {}).color) };
+  }
   if (renderer.type === "simple") {
     const symbol = renderer.symbol || {};
     return { how: "single", colour: hex(symbol.color), size: symbol.size || symbol.width || (symbol.outline || {}).width };
@@ -1188,6 +1264,25 @@ function wmDraftFromRenderer(layer) {
 function wmStyleLegend(layer) {
   const renderer = layer.layerDefinition && layer.layerDefinition.drawingInfo && layer.layerDefinition.drawingInfo.renderer;
   if (!renderer) return "";
+  if (renderer.type === "heatmap") {
+    return `<p class="lslegend heatlegend"><span class="heatramp" aria-hidden="true"></span> Sparse to dense${
+      renderer.field ? `, weighted by ${wmEscape(renderer.field)} (low values fade)` : ""}</p>`;
+  }
+  const sizeInfo = (renderer.visualVariables || []).find(v => v && v.type === "sizeInfo");
+  if (sizeInfo) {
+    // Three circles, largest first, each labelled with the value it stands for — as ArcGIS shows it.
+    const lo = Number(sizeInfo.minDataValue);
+    const hi = Number(sizeInfo.maxDataValue);
+    const a = Number(sizeInfo.minSize);
+    const b = Number(sizeInfo.maxSize);
+    const colour = wmSymbolColour(renderer.symbol) || "#1f5fa8";
+    const steps = [[b, hi], [(a + b) / 2, (lo + hi) / 2], [a, lo]];
+    return `<ul class="lslegend sizelegend"><li class="lkind">${wmEscape(sizeInfo.field)}</li>${steps.map(([pt, value]) => {
+      const px = Math.round(wmPx(pt));
+      return `<li><span class="sizedot" aria-hidden="true" style="width:${px}px;height:${px}px;background:${wmEscape(colour)}"></span>${
+        wmEscape(Number(value).toLocaleString("en-US", { maximumFractionDigits: 2 }))}</li>`;
+    }).join("")}</ul>`;
+  }
   const rows = renderer.type === "uniqueValue" ? (renderer.uniqueValueInfos || [])
     : renderer.type === "classBreaks" ? (renderer.classBreakInfos || []) : [];
   if (!rows.length) return "";
@@ -1209,12 +1304,32 @@ function wmPopupPanel(layer, run, key, title) {
   const shown = new Map(((popup && popup.fieldInfos) || []).map(f => [f.fieldName, f]));
   const enabled = layer.popupEnabled !== false;
 
-  return `<div class="lstyle" id="pop-${k}">
+  const textMode = !!(popup && popup.description);
+
+  return `<div class="lstyle ${textMode ? "popmode-text" : "popmode-fields"}" id="pop-${k}">
     <p class="lsnote">${popup ? "Customised for this map." : "Showing every field (the default)."}</p>
     <label class="check"><input type="checkbox" id="popOn-${k}"${enabled ? " checked" : ""}> Show a pop-up when a feature is clicked</label>
     <label class="lkind" for="popTitle-${k}">Title — a field in braces is its value, as {${wmEscape((fields[0] || {}).name || "name")}}</label>
     <input type="text" id="popTitle-${k}" value="${wmEscape((popup && popup.title) || "")}" placeholder="${wmEscape(title)}">
-    <table class="popfields"><thead><tr><th>Show</th><th>Field</th><th>Label and format</th></tr></thead><tbody>
+    <fieldset class="popcontent"><legend>Content</legend>
+      <label class="check"><input type="radio" name="popMode-${k}" value="fields"${popup && popup.description ? "" : " checked"}> A list of fields</label>
+      <label class="check"><input type="radio" name="popMode-${k}" value="text"${popup && popup.description ? " checked" : ""}> Text</label>
+    </fieldset>
+    <div class="poptextpart">
+      <label class="lkind" for="popText-${k}">Text</label>
+      <textarea id="popText-${k}" rows="4" data-pop-text="${k}"
+        placeholder="${wmEscape(`{${(fields[0] || {}).name || "field"}}: {${(fields[1] || fields[0] || {}).name || "field"}}`)}&#10;Written here, with a field in braces filled in.">${wmEscape((popup && popup.description) || "")}</textarea>
+      <p class="lkind popinsert">Insert a field: ${fields.map(f => `<button type="button" class="tiny" data-act="popInsert"
+        data-layer="${k}" data-field="${wmEscape(f.name)}">{${wmEscape(f.name)}}</button>`).join(" ")}</p>
+    </div>
+    <label class="lkind" for="popImage-${k}">Image — a field holding its web address (https://…)</label>
+    <select id="popImage-${k}">
+      <option value="">No image</option>
+      ${fields.filter(f => WM_FILTER_TYPES[f.type] === "text").map(f => `<option value="${wmEscape(f.name)}"${wmPopupImageField(popup) === f.name ? " selected" : ""}>${wmEscape(f.alias || f.name)}</option>`).join("")}
+    </select>
+    <p class="lkind">Shown only for features whose value starts with http:// or https://.</p>
+    <table class="popfields"><thead><tr><th class="popshow">Show</th><th>Field</th>
+      <th><span class="popfieldshead">Label and format</span><span class="poptexthead">Format of {field} in the text</span></th></tr></thead><tbody>
       ${fields.map(f => {
         const at = shown.get(f.name);
         const visible = popup ? !!(at && at.visible !== false) : true;
@@ -1246,7 +1361,10 @@ function wmApplyPopup(layer, reset = false) {
 
   const run = wmRuntime.get(layer);
   const known = new Set(wmUserFields(run && run.info).map(f => f.name));
-  const unknown = [...(wm$(`popTitle-${k}`).value.matchAll(/\{([^}]+)\}/g))].map(m => m[1].trim()).filter(n => !known.has(n));
+  const textMode = (panel.querySelector(`input[name="popMode-${k}"]:checked`) || {}).value === "text";
+  const text = textMode ? (wm$(`popText-${k}`).value || "").trim() : "";
+  const unknown = [...(`${wm$(`popTitle-${k}`).value} ${text}`.matchAll(/\{([^}]+)\}/g))]
+    .map(m => m[1].trim()).filter(n => !known.has(n));
 
   if (!reset && unknown.length) {
     if (run) run.popupSaid = `${unknown.map(n => `{${n}}`).join(", ")} ${unknown.length === 1 ? "is not a field" : "are not fields"} of this layer; nothing was applied.`;
@@ -1263,6 +1381,11 @@ function wmApplyPopup(layer, reset = false) {
       // A pop-up that does not say so hides a feature's attachments in ArcGIS clients (Field Maps among them); the
       // map's pop-up chooses fields, not whether photos stay visible (ArcGIS review, 2026-10-01).
       showAttachments: true,
+      // ADR-122: text in place of the field list, and an image from a field holding its address.
+      ...(text ? { description: text } : {}),
+      ...(wm$(`popImage-${k}`).value
+        ? { mediaInfos: [{ type: "image", title: "", caption: "", value: { sourceURL: `{${wm$(`popImage-${k}`).value}}` } }] }
+        : {}),
       fieldInfos: [...panel.querySelectorAll("[data-pop-field]")].map(box => {
         const name = box.dataset.popField;
         const format = wmReadFormat(panel, name);
@@ -1312,7 +1435,7 @@ function wmRestyle(layer) {
   const run = wmRuntime.get(layer);
   if (!run) return;
   // Only the drawn layer goes: `wmRemoveFromMap` also forgets the layer's state, which this keeps.
-  if (run.ol) wmMap.removeLayer(run.ol);
+  if (run.ol) wmDropDrawn(run.ol);
   const index = wmLayers().indexOf(layer);
   run.ol = wmBuildLayer(layer, run, Math.max(index, 0));
   if (run.ol) {
@@ -1339,6 +1462,36 @@ async function wmApplyStyle(layer) {
       const size = Number(wm$(`stySize-${k}`).value) || 1;
       run.styleDraft = { ...(run.styleDraft || {}), how, colour, size };
       layer.layerDefinition.drawingInfo = { renderer: { type: "simple", symbol: wmSimpleSymbol(geometry, colour, size) } };
+    } else if (how === "heat") {
+      // ADR-121: ArcGIS's heatmap renderer, as Map Viewer writes one.
+      const radius = Math.max(2, Math.min(60, Number(wm$(`styRadius-${k}`).value) || 24));
+      const field = wm$(`styWeight-${k}`).value;
+      run.styleDraft = { ...(run.styleDraft || {}), how, radius, field };
+      layer.layerDefinition.drawingInfo = { renderer: {
+        type: "heatmap", blurRadius: radius, ...(field ? { field } : {}), maxPixelIntensity: 100, minPixelIntensity: 0,
+        colorStops: WM_HEAT_STOPS.map(([ratio, color]) => ({ ratio, color })),
+      } };
+    } else if (how === "size") {
+      // ADR-121: one symbol whose size follows a number, the range read from the layer's own statistics.
+      const field = wm$(`styField-${k}`).value;
+      const colour = wm$(`styColour-${k}`).value;
+      const minSize = Math.max(1, Number(wm$(`styMin-${k}`).value) || 6);
+      const maxSize = Math.max(minSize + 1, Number(wm$(`styMax-${k}`).value) || 30);
+      const stats = await wmFetch(`${layer.url}/query?` + wmParams({
+        where: "1=1", returnGeometry: false, f: "json",
+        outStatistics: JSON.stringify([
+          { statisticType: "min", onStatisticField: field, outStatisticFieldName: "lo" },
+          { statisticType: "max", onStatisticField: field, outStatisticFieldName: "hi" }]),
+      }));
+      const row = (((stats || {}).features || [])[0] || {}).attributes || {};
+      const lo = Number(row.lo ?? row.LO);
+      const hi = Number(row.hi ?? row.HI);
+      if (!Number.isFinite(lo) || !Number.isFinite(hi)) throw new Error(`the layer has no values of ${field} to size by`);
+      run.styleDraft = { ...(run.styleDraft || {}), how, field, colour, minSize, maxSize };
+      layer.layerDefinition.drawingInfo = { renderer: {
+        type: "simple", symbol: wmSimpleSymbol(geometry, colour, minSize),
+        visualVariables: [{ type: "sizeInfo", field, minDataValue: lo, maxDataValue: hi, minSize, maxSize }],
+      } };
     } else {
       const field = wm$(`styField-${k}`).value;
       const base = wmSimpleSymbol(geometry, "#888888", /Point/.test(geometry) ? 8 : 1);
@@ -1599,6 +1752,19 @@ wm$("layerList").addEventListener("click", event => {
       break;
     }
     case "labelsReset": wmApplyLabels(layer, true); break;
+    case "popInsert": {
+      // Puts `{field}` where the cursor is in the text, and goes back to it.
+      const area = wm$(`popText-${layer.id}`);
+      const button = event.target.closest("[data-field]");
+      if (!area || !button) break;
+      const token = `{${button.dataset.field}}`;
+      const at = area.selectionStart ?? area.value.length;
+      const end = area.selectionEnd ?? at;
+      area.value = area.value.slice(0, at) + token + area.value.slice(end);
+      area.focus();
+      area.setSelectionRange(at + token.length, at + token.length);
+      break;
+    }
     case "popupApply": wmApplyPopup(layer); break;
     case "popupReset": wmApplyPopup(layer, true); break;
     case "styleDefault": wmSaveStyleAsDefault(layer); break;
@@ -1916,8 +2082,18 @@ function wmPopupMarkup(layer, attributes, info) {
   const rows = popup.fieldInfos.filter(f => f && f.visible !== false && f.fieldName)
     .map(f => `<tr><th scope="row">${wmEscape(f.label || f.fieldName)}</th><td>${wmEscape(value(f.fieldName))}</td></tr>`).join("");
 
-  return `${title ? `<h4 class="ptitle">${wmEscape(title)}</h4>` : ""}<table class="feature">${rows
-    || `<tr><td>This map's pop-up shows no fields for this layer.</td></tr>`}</table>`;
+  // ADR-122: text with its fields filled in — drawn as text, whatever markup it holds — and an image from a field.
+  const body = popup.description
+    ? `<p class="ptext">${wmEscape(String(popup.description).replace(/\{([^}]+)\}/g, (_, name) => value(name.trim())))
+        .replace(/\n/g, "<br>")}</p>`
+    : `<table class="feature">${rows || `<tr><td>This map's pop-up shows no fields for this layer.</td></tr>`}</table>`;
+  const imageField = wmPopupImageField(popup);
+  const source = imageField ? String((attributes || {})[imageField] ?? "") : "";
+  const image = /^https?:\/\//i.test(source)
+    ? `<img class="pimage" src="${wmEscape(source)}" alt="${wmEscape(title || "Image")}" loading="lazy" referrerpolicy="no-referrer">`
+    : "";
+
+  return `${title ? `<h4 class="ptitle">${wmEscape(title)}</h4>` : ""}${body}${image}`;
 }
 
 function wmAttributeRows(attributes, info) {
@@ -1944,7 +2120,15 @@ async function wmIdentify(coordinate) {
   const card = wm$("identify");
   const turn = ++wmIdentifyTurn;
   // A layer whose pop-up the map switched off is not asked (ADR-110, `popupEnabled`).
-  const layers = wmQueryable({ visibleOnly: true }).filter(layer => layer.popupEnabled !== false);
+  const isHeat = layer => ((((layer.layerDefinition || {}).drawingInfo || {}).renderer) || {}).type === "heatmap";
+  const candidates = wmQueryable({ visibleOnly: true }).filter(layer => layer.popupEnabled !== false);
+  // ADR-121: a heat map shows density, so it is not asked for one feature.
+  const layers = candidates.filter(layer => !isHeat(layer));
+  if (layers.length === 0 && candidates.length > 0) {
+    const heat = candidates[0];
+    wmSay(`${heat.title} is a heat map, which shows density, not single features. To click one, set its Style to One colour.`);
+    return;
+  }
 
   wmHighlight.getSource().clear();
   card.hidden = true;
@@ -3073,5 +3257,79 @@ wmMap.on("moveend", () => {
   if (wmMovedByHand && wmState.doc) {
     wmMovedByHand = false;
     if (!wmState.dirty) wmMarkDirty();
+  }
+});
+
+
+// ---------------------------------------------------------------- heat maps (ADR-121)
+
+/** The colour stops a heat map is written with: transparent where sparse, through blue and yellow to red. */
+const WM_HEAT_STOPS = [
+  [0, [133, 193, 200, 0]], [0.01, [144, 161, 190, 0]], [0.0925, [144, 161, 190, 180]], [0.17875, [162, 145, 192, 210]],
+  [0.265, [176, 150, 175, 200]], [0.53, [250, 197, 113, 230]], [0.795, [252, 155, 85, 245]], [1, [255, 84, 35, 255]],
+];
+
+/**
+ * A heat map over the layer's source, from ArcGIS's `heatmap` renderer — its blur radius and its colour stops; the
+ * weight field, when there is one, scaled by the largest value drawn.
+ */
+function wmHeatLayer(source, renderer) {
+  const radius = Math.max(2, Number(renderer.blurRadius) || 24);
+  const stops = Array.isArray(renderer.colorStops) && renderer.colorStops.length
+    ? renderer.colorStops.map(s => [Number(s.ratio), s.color])
+    : WM_HEAT_STOPS;
+  // OpenLayers takes an evenly spaced gradient, so the stops are sampled at ten even ratios.
+  const gradient = Array.from({ length: 10 }, (_, i) => {
+    const at = i / 9;
+    const next = stops.findIndex(([r]) => r >= at);
+    const [r1, c1] = stops[Math.max(0, next)] || stops[stops.length - 1];
+    const [r0, c0] = stops[Math.max(0, next - 1)] || stops[0];
+    const t = r1 > r0 ? (at - r0) / (r1 - r0) : 0;
+    const mix = j => Math.round(c0[j] + (c1[j] - c0[j]) * t);
+    return `rgba(${mix(0)}, ${mix(1)}, ${mix(2)}, ${(mix(3) / 255).toFixed(3)})`;
+  });
+  let largest = 1;
+  if (renderer.field) {
+    source.on("change", () => {
+      largest = Math.max(1, ...source.getFeatures().map(f => Number(f.get(renderer.field)) || 0));
+    });
+  }
+  return new ol.layer.Heatmap({
+    source,
+    radius: Math.round(radius * 0.6),
+    blur: radius,
+    gradient,
+    weight: renderer.field ? f => Math.max(0, Math.min(1, (Number(f.get(renderer.field)) || 0) / largest)) : () => 1,
+  });
+}
+
+
+/** The field a pop-up's image comes from — `mediaInfos[0]` of type image whose address is one `{field}` — or null. */
+function wmPopupImageField(popup) {
+  const media = popup && Array.isArray(popup.mediaInfos) ? popup.mediaInfos.find(m => m && m.type === "image") : null;
+  const url = media && media.value && media.value.sourceURL;
+  const m = /^\s*\{([^}]+)\}\s*$/.exec(url || "");
+  return m ? m[1].trim() : null;
+}
+
+
+// ADR-122: the pop-up panel shows the part its content mode uses, and typing text chooses Text.
+wm$("layerList").addEventListener("change", event => {
+  const t = event.target;
+  if (!(t instanceof HTMLInputElement) || !/^popMode-/.test(t.name)) return;
+  const panel = t.closest(".lstyle");
+  if (!panel) return;
+  panel.classList.toggle("popmode-text", t.value === "text");
+  panel.classList.toggle("popmode-fields", t.value !== "text");
+});
+wm$("layerList").addEventListener("input", event => {
+  const t = event.target;
+  if (!(t instanceof HTMLTextAreaElement) || t.dataset.popText === undefined || !t.value) return;
+  const panel = t.closest(".lstyle");
+  const text = panel && panel.querySelector(`input[name="popMode-${CSS.escape(t.dataset.popText)}"][value="text"]`);
+  if (text && !text.checked) {
+    text.checked = true;
+    panel.classList.add("popmode-text");
+    panel.classList.remove("popmode-fields");
   }
 });

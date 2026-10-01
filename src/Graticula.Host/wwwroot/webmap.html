@@ -102,6 +102,22 @@
   .popfields th:nth-child(2) { width: 35%; }
   .popfields td:nth-child(2) { overflow-wrap: anywhere; }
   .popfields .popfmt { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+  /* ADR-122: a pop-up's text and image. */
+  .popcontent { border: 0; padding: 0; margin: 6px 0; display: flex; gap: 12px; flex-wrap: wrap; }
+  .popcontent legend { padding: 0; font-size: 12px; color: var(--muted, #555); }
+  .ptext { margin: 4px 0 8px; line-height: 1.45; }
+  .pimage { display: block; max-width: 100%; max-height: 220px; margin-top: 6px; border-radius: 4px; }
+  .popmode-fields .poptextpart, .popmode-fields .poptexthead { display: none; }
+  .popmode-text .popfieldshead, .popmode-text .popshow,
+  .popmode-text .popfields td:first-child, .popmode-text .popfields input[data-pop-label] { display: none; }
+  .popinsert { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  /* ADR-121: the heat map's legend is its ramp. */
+  .heatlegend { display: flex; align-items: center; gap: 8px; }
+  .sizelegend { list-style: none; padding: 0; margin: 6px 0; }
+  .sizelegend li { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+  .sizedot { display: inline-block; border-radius: 50%; opacity: .8; flex: 0 0 auto; }
+  .heatramp { display: inline-block; width: 96px; height: 10px; border-radius: 2px;
+    background: linear-gradient(90deg, rgba(144,161,190,.5), rgb(176,150,175), rgb(250,197,113), rgb(255,84,35)); }
   .popfields .popfmt label.check { margin: 0; display: inline-flex; align-items: center; gap: 4px; min-height: 24px; }
   .lstyle input[type=text] { width: 100%; box-sizing: border-box; }
   #identify .ptitle { font-size: 14px; font-weight: 600; margin: 10px 0 4px; padding: 0 12px; }

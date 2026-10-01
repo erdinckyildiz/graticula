@@ -499,6 +499,27 @@ public sealed class WebMapViewerTests : ConsoleTest
             await WaitForAsync("document.querySelectorAll('#pop-pops [data-pop-field]').length > 0",
                 "The Pop-up panel lists none of the layer's fields.");
 
+            // ADR-122: typing text chooses Text, and a field goes in where the cursor is.
+            Assert.True(await Browser.EvaluateAsync<bool>("""
+                (() => {
+                  const area = document.getElementById('popText-pops');
+                  area.value = 'Seen ';
+                  area.dispatchEvent(new Event('input', { bubbles: true }));
+                  area.setSelectionRange(5, 5);
+                  return document.querySelector('input[name="popMode-pops"][value=text]').checked
+                    && document.getElementById('pop-pops').classList.contains('popmode-text');
+                })()
+                """), "Typing text in the pop-up did not choose Text.");
+            await ClickAsync("#pop-pops [data-act=popInsert]");
+            Assert.Matches(@"^Seen \{[^}]+\}$", await Browser.EvaluateAsync<string>("document.getElementById('popText-pops').value") ?? "");
+            await Browser.EvaluateAsync<bool>("""
+                (() => {
+                  const r = document.querySelector('input[name="popMode-pops"][value=fields]');
+                  r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true }));
+                  return true;
+                })()
+                """);
+
             // Only the first field, and a title made of it.
             string first = await Browser.EvaluateAsync<string>("""
                 (() => {
@@ -550,6 +571,23 @@ public sealed class WebMapViewerTests : ConsoleTest
 
             Assert.Contains("1,234,567.89", formatted, StringComparison.Ordinal);
             Assert.Contains("December 21, 1997", formatted, StringComparison.Ordinal);
+
+            // ADR-122: text with its fields filled in, drawn as text; an image only from a web address.
+            string text = await Browser.EvaluateAsync<string>("""
+                wmPopupMarkup(
+                  { popupInfo: { description: 'Seen by {who}\n<b>{n}</b>', fieldInfos: [],
+                    mediaInfos: [{ type: 'image', value: { sourceURL: '{pic}' } }] } },
+                  { who: 'Ayşe', n: 3, pic: 'https://example.org/a.jpg' }, { fields: [] })
+                """) ?? "";
+            Assert.Contains("Seen by Ayşe<br>&lt;b&gt;3&lt;/b&gt;", text, StringComparison.Ordinal);
+            Assert.Contains("<img class=\"pimage\" src=\"https://example.org/a.jpg\"", text, StringComparison.Ordinal);
+
+            string unsafeImage = await Browser.EvaluateAsync<string>("""
+                wmPopupMarkup(
+                  { popupInfo: { fieldInfos: [], mediaInfos: [{ type: 'image', value: { sourceURL: '{pic}' } }] } },
+                  { pic: 'javascript:alert(1)' }, { fields: [] })
+                """) ?? "";
+            Assert.DoesNotContain("<img", unsafeImage, StringComparison.Ordinal);
 
             // An unformatted date is still a date, not milliseconds.
             string plain = await Browser.EvaluateAsync<string>(
@@ -652,6 +690,89 @@ public sealed class WebMapViewerTests : ConsoleTest
         finally
         {
             await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
+    }
+
+    /// <summary>ADR-121: a point layer is drawn as a heat map, or sized by a number, written as ArcGIS writes them.</summary>
+    [Fact]
+    public async Task A_point_layer_is_drawn_as_a_heat_map_or_sized_by_a_number()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string name = $"zz_heat_{Guid.NewGuid():N}"[..16];
+
+        using (MultipartFormDataContent form = new())
+        {
+            form.Add(new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(
+                """{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[32.85,39.93]},"properties":{"n":1}},{"type":"Feature","geometry":{"type":"Point","coordinates":[32.86,39.94]},"properties":{"n":50}},{"type":"Feature","geometry":{"type":"Point","coordinates":[32.87,39.95]},"properties":{"n":100}}]}""")),
+                "file", "pts.geojson");
+            form.Add(new StringContent(name), "name");
+            using HttpRequestMessage upload = new(HttpMethod.Post, new Uri($"{Root}/admin/hosted/import")) { Content = form };
+            upload.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage made = await Http.SendAsync(upload);
+            Assert.True(made.IsSuccessStatusCode, $"Importing the points answered {(int)made.StatusCode}: {await made.Content.ReadAsStringAsync()}");
+        }
+
+        string document = JsonSerializer.Serialize(new
+        {
+            title = "ADR-121 console test",
+            sharing = "private",
+            document = new
+            {
+                operationalLayers = new object[]
+                {
+                    new { id = "pts", layerType = "ArcGISFeatureLayer", url = $"{Root}/rest/services/hosted/{name}/FeatureServer/0", title = "Points", visibility = true, opacity = 1 },
+                },
+                baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
+                version = "2.31",
+            },
+        });
+
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/webmaps", document);
+        Assert.True(status == 201, $"Saving the map answered {status}: {body}");
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
+            await WaitForAsync("!!document.querySelector('#layerList button[data-act=style][data-layer=pts]')", "The layer offers no Style.");
+            await ClickAsync("#layerList button[data-act=style][data-layer=pts]");
+
+            async Task ChooseAsync(string how)
+            {
+                await WaitForAsync($"!!document.querySelector('#styHow-pts option[value={how}]')", $"Style offers no '{how}' for a point layer.");
+                await Browser.EvaluateAsync<bool>($"(() => {{ const s = document.getElementById('styHow-pts'); s.value = '{how}'; s.dispatchEvent(new Event('change', {{ bubbles: true }})); return true; }})()");
+            }
+
+            await ChooseAsync("heat");
+            await WaitForAsync("!!document.getElementById('styRadius-pts')", "Heat map asks for no radius.");
+            await ClickAsync("#layerList button[data-act=styleApply][data-layer=pts]");
+            await WaitForAsync("wmLayers()[0].layerDefinition.drawingInfo.renderer.type === 'heatmap'", "Apply wrote no heat map.");
+            Assert.True(await Browser.EvaluateAsync<bool>("wmRuntime.get(wmLayers()[0]).ol instanceof ol.layer.Heatmap"),
+                "The heat map is not drawn as one.");
+
+            await ChooseAsync("size");
+            await WaitForAsync("!!document.getElementById('styMin-pts')", "Size asks for no range.");
+            await ClickAsync("#layerList button[data-act=styleApply][data-layer=pts]");
+            await WaitForAsync(
+                "(wmLayers()[0].layerDefinition.drawingInfo.renderer.visualVariables || []).some(v => v.type === 'sizeInfo' && v.maxDataValue === 100)",
+                "Apply wrote no size by number, or not the layer's own range.");
+
+            // The largest value draws the largest symbol.
+            Assert.True(await Browser.EvaluateAsync<bool>("""
+                (() => {
+                  const r = wmRendererStyle({ drawingInfo: wmLayers()[0].layerDefinition.drawingInfo }, '#000');
+                  const small = r.style(new ol.Feature({ n: 1 })).getImage().getRadius();
+                  const large = r.style(new ol.Feature({ n: 100 })).getImage().getRadius();
+                  return large > small;
+                })()
+                """), "A larger value does not draw a larger symbol.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+            await AdminAsync(HttpMethod.Delete, $"/admin/featureservices/{name}?folder=hosted&drop=true");
         }
     }
 
