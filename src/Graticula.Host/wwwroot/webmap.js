@@ -728,7 +728,8 @@ function wmBuildLayer(layer, run, index) {
     run.ownStyle = renderer.own;
 
     const idField = (run.info && run.info.objectIdField) || "objectid";
-    const fields = [idField, ...renderer.fields].filter(Boolean);
+    const label = wmLabelOf(layer);
+    const fields = [idField, ...renderer.fields, label && label.field].filter(Boolean);
 
     const source = new ol.source.Vector({
       strategy: ol.loadingstrategy.bbox,
@@ -767,7 +768,16 @@ function wmBuildLayer(layer, run, index) {
       },
     });
 
-    return new ol.layer.Vector({ source, style: renderer.style, declutter: false });
+    const drawn = new ol.layer.Vector({ source, style: renderer.style, declutter: false });
+    if (!label) return drawn;
+
+    // ADR-117: the labels are a second layer over the same source, decluttered among themselves only — in one
+    // layer a point's own symbol claimed the space and every label beside it was dropped (design review 2026-10-01).
+    const group = new ol.layer.Group({
+      layers: [drawn, new ol.layer.Vector({ source, style: wmLabelStyle(label), declutter: true })],
+    });
+    group.getSource = () => source;
+    return group;
   }
 
   if (kind === "image") {
@@ -1026,7 +1036,10 @@ function wmDrawLayerList() {
           aria-controls="sty-${wmEscape(key)}">Style</button>
           <button class="tiny" data-act="popup" data-layer="${wmEscape(key)}"
           aria-label="Pop-up of ${wmEscape(title)}" data-focus="popup:${wmEscape(key)}" aria-expanded="${run.popupOpen ? "true" : "false"}"
-          aria-controls="pop-${wmEscape(key)}">Pop-up</button>` : ""}
+          aria-controls="pop-${wmEscape(key)}">Pop-up</button>
+          <button class="tiny" data-act="labels" data-layer="${wmEscape(key)}"
+          aria-label="Labels of ${wmEscape(title)}" data-focus="labels:${wmEscape(key)}" aria-expanded="${run.labelOpen ? "true" : "false"}"
+          aria-controls="lab-${wmEscape(key)}">Labels</button>` : ""}
         ${readable && wmExtentOf(layer) ? `<button class="tiny" data-act="zoom" data-layer="${wmEscape(key)}"
           aria-label="Zoom to ${wmEscape(title)}"
           data-focus="zoom:${wmEscape(key)}">Zoom to</button>` : ""}
@@ -1035,6 +1048,7 @@ function wmDrawLayerList() {
       </div>
       ${readable && kind === "feature" && run.styleOpen ? wmStyleMarkup(layer, run, key, title) : ""}
       ${readable && kind === "feature" && run.popupOpen ? wmPopupPanel(layer, run, key, title) : ""}
+      ${readable && kind === "feature" && run.labelOpen ? wmLabelPanel(layer, run, key) : ""}
       ${kind === "feature" ? wmFilterMarkup(layer, run, key, title, filter) : ""}
     </li>`;
   }).join("");
@@ -1495,6 +1509,9 @@ wm$("layerList").addEventListener("change", event => {
     wmApply(layer, wmLayers().indexOf(layer));
     wmMarkDirty();
   }
+
+  // ADR-117: a label setting takes effect as it is changed, as ArcGIS Map Viewer's do (design review 2026-10-01).
+  if (t.dataset.act === "labelsApply") wmApplyLabels(layer);
 });
 
 wm$("layerList").addEventListener("input", event => {
@@ -1545,7 +1562,7 @@ wm$("layerList").addEventListener("click", event => {
       if (run) {
         const opening = !run.styleOpen;
         // One panel at a time: two open ones push the list past the window.
-        for (const other of wmLayers()) { const r = wmRuntime.get(other); if (r) { r.styleOpen = false; r.popupOpen = false; } }
+        for (const other of wmLayers()) { const r = wmRuntime.get(other); if (r) { r.styleOpen = false; r.popupOpen = false; r.labelOpen = false; } }
         run.styleOpen = opening;
         run.styleError = null;
       }
@@ -1557,12 +1574,23 @@ wm$("layerList").addEventListener("click", event => {
       const run = wmRuntime.get(layer);
       if (run) {
         const opening = !run.popupOpen;
-        for (const other of wmLayers()) { const r = wmRuntime.get(other); if (r) { r.popupOpen = false; r.styleOpen = false; } }
+        for (const other of wmLayers()) { const r = wmRuntime.get(other); if (r) { r.popupOpen = false; r.styleOpen = false; r.labelOpen = false; } }
         run.popupOpen = opening;
       }
       wmDrawLayerList();
       break;
     }
+    case "labels": {
+      const run = wmRuntime.get(layer);
+      if (run) {
+        const opening = !run.labelOpen;
+        for (const other of wmLayers()) { const r = wmRuntime.get(other); if (r) { r.popupOpen = false; r.styleOpen = false; r.labelOpen = false; } }
+        run.labelOpen = opening;
+      }
+      wmDrawLayerList();
+      break;
+    }
+    case "labelsReset": wmApplyLabels(layer, true); break;
     case "popupApply": wmApplyPopup(layer); break;
     case "popupReset": wmApplyPopup(layer, true); break;
     case "styleDefault": wmSaveStyleAsDefault(layer); break;
@@ -2694,3 +2722,157 @@ async function wmStart() {
 }
 
 wmStart().catch(e => wmSay(`The map could not start: ${e.message || e}`, true));
+
+
+// ---------------------------------------------------------------- labels (ADR-117)
+
+/** Where ArcGIS puts a label, by the geometry the layer holds. */
+function wmLabelPlacement(geometryType) {
+  return /Point/.test(geometryType || "") ? "esriServerPointLabelPlacementAboveRight"
+    : /Polyline/.test(geometryType || "") ? "esriServerLinePlacementAboveAlong"
+    : "esriServerPolygonPlacementAlwaysHorizontal";
+}
+
+/**
+ * The label a layer shows in this map, read from the Web Map's `labelingInfo` — the field, the size and the colours —
+ * or null when it shows none. Only a label that is one field's value is read: `$feature["name"]`, `$feature.name`
+ * or the older `[name]`; anything else is an expression this viewer does not run, and the layer draws without one.
+ */
+function wmLabelOf(layer) {
+  if (!layer.showLabels) return null;
+  const info = ((layer.layerDefinition || {}).drawingInfo || {}).labelingInfo;
+  const one = Array.isArray(info) ? info[0] : null;
+  if (!one) return null;
+  const text = (one.labelExpressionInfo && one.labelExpressionInfo.expression) || one.labelExpression || "";
+  const m = /^\s*\$feature\[\s*["']([^"']+)["']\s*\]\s*$/.exec(text) || /^\s*\$feature\.([A-Za-z_][\w]*)\s*$/.exec(text)
+    || /^\s*\[([^\]]+)\]\s*$/.exec(text);
+  if (!m) return null;
+  const symbol = one.symbol || {};
+  return {
+    field: m[1],
+    size: Number((symbol.font || {}).size) || 10,
+    colour: wmColour(symbol.color, "#1f2933"),
+    halo: Number(symbol.haloSize) > 0 ? wmColour(symbol.haloColor, "#ffffff") : null,
+  };
+}
+
+/** A feature's label alone, as the label layer draws it. */
+function wmLabelStyle(label) {
+  const font = `${Math.round(label.size * 1.33)}px sans-serif`;
+  return feature => {
+    const value = feature.get(label.field);
+    if (value === null || value === undefined || value === "") return null;
+    return new ol.style.Style({
+      text: new ol.style.Text({
+        text: String(value),
+        font,
+        fill: new ol.style.Fill({ color: label.colour }),
+        stroke: label.halo ? new ol.style.Stroke({ color: label.halo, width: 3 }) : undefined,
+        offsetY: /Point/.test(feature.getGeometry()?.getType() || "") ? -12 : 0,
+        placement: /LineString/.test(feature.getGeometry()?.getType() || "") ? "line" : "point",
+        overflow: false,
+      }),
+    });
+  };
+}
+
+/** A colour as the colour input wants it. */
+function wmHex(rgba, fallback) {
+  if (!Array.isArray(rgba)) return fallback;
+  return "#" + rgba.slice(0, 3).map(v => Math.max(0, Math.min(255, Number(v) || 0)).toString(16).padStart(2, "0")).join("");
+}
+
+function wmLabelPanel(layer, run, key) {
+  const k = wmEscape(key);
+  // A date would print as milliseconds, so it is not offered; the rest are, the layer's display field first.
+  const fields = wmUserFields(run.info).filter(f => !/Date/.test(f.type || ""));
+  const label = wmLabelOf(layer);
+  const raw = (((layer.layerDefinition || {}).drawingInfo || {}).labelingInfo || [])[0];
+  const symbol = (raw && raw.symbol) || {};
+  const unread = layer.showLabels && raw && !label;
+  const display = (run.info && run.info.displayField) || (fields.find(f => /String/.test(f.type || "")) || fields[0] || {}).name;
+  const chosen = label ? label.field : display;
+  const on = raw ? !!layer.showLabels : true;
+
+  return `<div class="lstyle" id="lab-${k}">
+    <label class="check"><input type="checkbox" id="labOn-${k}" data-act="labelsApply" data-layer="${k}"
+      data-focus="labOn:${k}"${on ? " checked" : ""}> Show labels</label>
+    <label class="lkind" for="labField-${k}">Label field</label>
+    <select id="labField-${k}" data-act="labelsApply" data-layer="${k}" data-focus="labField:${k}">${fields.map(f =>
+      `<option value="${wmEscape(f.name)}"${chosen === f.name ? " selected" : ""}>${wmEscape(f.alias || f.name)}</option>`).join("")}</select>
+    <div class="row">
+      <label class="lkind" for="labSize-${k}">Size (pt)</label>
+      <input type="number" id="labSize-${k}" min="6" max="36" step="1" value="${label ? label.size : 10}" style="width:5em"
+        data-act="labelsApply" data-layer="${k}" data-focus="labSize:${k}">
+      <label class="lkind" for="labColour-${k}">Colour</label>
+      <input type="color" id="labColour-${k}" value="${wmHex(symbol.color, "#1f2933")}"
+        data-act="labelsApply" data-layer="${k}" data-focus="labColour:${k}">
+      <label class="check"><input type="checkbox" id="labHalo-${k}"${!raw || Number(symbol.haloSize) > 0 ? " checked" : ""}
+        data-act="labelsApply" data-layer="${k}" data-focus="labHalo:${k}"> Halo</label>
+    </div>
+    ${raw ? `<div class="row"><button class="tiny" data-act="labelsReset" data-layer="${k}" data-focus="labelsReset:${k}"
+      data-focus-fallback="labOn:${k}">Remove labels</button></div>` : ""}
+    <p class="lsnote" id="labSays-${k}" role="status" aria-live="polite">${wmEscape(run.labelSaid
+      || (label ? `Labels: ${label.field}, ${label.size} pt.` : unread
+        ? "This map labels the layer with an expression this viewer does not draw; a change here replaces it."
+        : "Choose a field to label with."))} Labels that would overlap are hidden.</p>
+  </div>`;
+}
+
+/**
+ * Reads a layer's Labels panel into the Web Map — `showLabels` and `layerDefinition.drawingInfo.labelingInfo`, where
+ * ArcGIS Pro and Field Maps read a map's labels. A layer with no style of its own in this map gets the service's
+ * renderer beside the labels, so a client that takes `drawingInfo` whole does not lose its symbols.
+ */
+function wmApplyLabels(layer, reset = false) {
+  const k = layer.id;
+  const run = wmRuntime.get(layer);
+  const drawing = ((layer.layerDefinition = layer.layerDefinition || {}).drawingInfo = layer.layerDefinition.drawingInfo || {});
+
+  if (reset) {
+    delete drawing.labelingInfo;
+    delete layer.showLabels;
+    if (!drawing.renderer && Object.keys(drawing).length === 0) delete layer.layerDefinition.drawingInfo;
+  } else {
+    const field = wm$(`labField-${k}`).value;
+    if (!field) return;
+    const size = Math.max(6, Math.min(36, Number(wm$(`labSize-${k}`).value) || 10));
+    const hex = wm$(`labColour-${k}`).value || "#1f2933";
+    const rgb = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+    const halo = wm$(`labHalo-${k}`).checked;
+    // A halo is the opposite of the text, so pale text keeps its edge too.
+    const pale = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) > 160;
+
+    if (!drawing.renderer && run && run.info && run.info.drawingInfo && run.info.drawingInfo.renderer) {
+      drawing.renderer = run.info.drawingInfo.renderer;
+    }
+
+    drawing.labelingInfo = [{
+      labelExpressionInfo: { expression: `$feature["${field.replace(/"/g, '\\"')}"]` },
+      labelExpression: `[${field}]`,
+      useCodedValues: true,
+      labelPlacement: wmLabelPlacement(run && run.info && run.info.geometryType),
+      symbol: {
+        type: "esriTS",
+        color: [...rgb, 255],
+        haloColor: pale ? [31, 41, 51, 255] : [255, 255, 255, 255],
+        haloSize: halo ? 1 : 0,
+        font: { family: "Arial", size },
+      },
+      minScale: 0,
+      maxScale: 0,
+    }];
+    layer.showLabels = wm$(`labOn-${k}`).checked;
+  }
+
+  const now = wmLabelOf(layer);
+  const said = reset
+    ? `No labels on ${layer.title}. Save the map to keep it.`
+    : layer.showLabels
+      ? `Labels: ${now ? `${now.field}, ${now.size} pt` : "set"}. Save the map to keep them.`
+      : `Labels for ${layer.title} are off. Turn on Show labels to see them.`;
+  if (run) run.labelSaid = said;
+  wmMarkDirty();
+  wmRestyle(layer);
+  wmDrawLayerList();
+}

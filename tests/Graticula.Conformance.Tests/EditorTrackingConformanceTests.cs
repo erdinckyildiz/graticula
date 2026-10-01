@@ -200,6 +200,41 @@ public sealed class EditorTrackingConformanceTests : ArcGisClient
             await ExpectAsync(HttpStatusCode.NoContent, "the administrator deleting anybody's feature",
                 HttpMethod.Delete, $"{items}/{ogcMine}", token!, json: null);
 
+            // ---- ADR-115: the owner keeps editors to the features they added ----
+            (HttpStatusCode kept, string keptBody) = await RequestAsync(
+                HttpMethod.Put, $"{root}/admin/layers/{layer}/ownership-access", token!, "{\"editOwnOnly\":true}");
+            Assert.True(kept == HttpStatusCode.OK, $"Keeping editors to their own answered {(int)kept}: {keptBody}");
+
+            JsonElement owned = (await GetJsonAsync(feature)).GetProperty("ownershipBasedAccessControlForFeatures");
+            Assert.False(owned.GetProperty("allowOthersToUpdate").GetBoolean(), owned.ToString());
+            Assert.False(owned.GetProperty("allowOthersToDelete").GetBoolean(), owned.ToString());
+
+            // The editor's own feature still changes; the one nobody owns, and the owner's, do not.
+            Assert.True(Result(await EditAsync(root, editor, feature, "updateFeatures",
+                ("features", Change(mine, "still mine")))).GetProperty("success").GetBoolean(),
+                "An editor kept to their own could not change their own feature.");
+
+            JsonElement notTheirs = Result(await EditAsync(root, editor, feature, "updateFeatures",
+                ("features", Change(nobodys, "not mine"))));
+            Assert.False(notTheirs.GetProperty("success").GetBoolean(), $"An editor kept to their own changed another's: {notTheirs}");
+            Assert.NotEqual("not mine", (await AttributesAsync(feature, nobodys)).GetProperty("label").GetString());
+
+            // The owner is not bound by it.
+            Assert.True(Result(await EditAsync(root, token!, feature, "updateFeatures",
+                ("features", Change(mine, "the owner may")))).GetProperty("success").GetBoolean(),
+                "The layer's owner was kept to their own features.");
+
+            // Recording cannot stop while it is relied on, and can once it is not.
+            (HttpStatusCode relied, string reliedBody) = await RequestAsync(
+                HttpMethod.Delete, $"{root}/admin/hosted/{layer}/editor-tracking", token!, json: null);
+            Assert.True(relied == HttpStatusCode.Conflict, $"Stopping tracking under own-only answered {(int)relied}: {reliedBody}");
+
+            await RequestAsync(HttpMethod.Put, $"{root}/admin/layers/{layer}/ownership-access", token!, "{\"editOwnOnly\":false}");
+
+            Assert.True(Result(await EditAsync(root, editor, feature, "updateFeatures",
+                ("features", Change(nobodys, "anybody's again")))).GetProperty("success").GetBoolean(),
+                "Lifting own-only did not let the group's editor change every feature again.");
+
             // ---- and the group does not reach what the layer *is* ----
             (HttpStatusCode emptied, string emptiedBody) = await RequestAsync(
                 HttpMethod.Post, $"{root}/admin/hosted/{layer}/truncate", editor, "{}");
@@ -233,6 +268,17 @@ public sealed class EditorTrackingConformanceTests : ArcGisClient
             Assert.Equal(
                 "created_user",
                 (await GetJsonAsync(feature)).GetProperty("editFieldsInfo").GetProperty("creatorField").GetString());
+
+            // ---- ADR-115: recording stops, and the columns and what they hold stay ----
+            (HttpStatusCode stopped, string stoppedBody) = await RequestAsync(
+                HttpMethod.Delete, $"{root}/admin/hosted/{layer}/editor-tracking", token!, json: null);
+            Assert.True(stopped == HttpStatusCode.OK, $"Stopping tracking answered {(int)stopped}: {stoppedBody}");
+
+            JsonElement untracked = await GetJsonAsync(feature);
+            Assert.True(
+                !untracked.TryGetProperty("editFieldsInfo", out JsonElement gone) || gone.ValueKind == JsonValueKind.Null,
+                $"The layer still says it records editors: {gone}");
+            Assert.Equal(Member, (await AttributesAsync(feature, mine)).GetProperty("created_user").GetString());
         }
         finally
         {

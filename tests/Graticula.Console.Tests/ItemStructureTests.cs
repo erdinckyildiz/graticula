@@ -391,6 +391,29 @@ public sealed class ItemStructureTests : ConsoleTest
         // Choosing the file asked the server to read it without writing — the mapping step's look (2026-10-01).
         Assert.Contains(await WritesAsync(), w => w.Contains("/append", StringComparison.Ordinal) && w.Contains("dryRun", StringComparison.Ordinal));
 
+        // ADR-116: upsert asks which field features are matched on, and will not go without one.
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              const r = document.querySelector('input[name="updateDataHow"][value="upsert"]');
+              r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true }));
+              window.__writes = [];
+              return true;
+            })()
+            """);
+        await WaitForAsync(Shown("#updateDataMatch"), "Update matching features does not ask what to match on.");
+        Assert.Equal("Update and add", await Browser.EvaluateAsync<string>("document.getElementById('updateDataGo').textContent.trim()"));
+        await ClickAsync("#updateDataGo");
+        await WaitForAsync("/matched on/.test(document.getElementById('updateDataSays').textContent)",
+            "Updating without a field to match on did not say what is missing.");
+        Assert.DoesNotContain(await WritesAsync(), w => w.Contains("/append", StringComparison.Ordinal) && !w.Contains("dryRun", StringComparison.Ordinal));
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              const r = document.querySelector('input[name="updateDataHow"][value="append"]');
+              r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true }));
+              return true;
+            })()
+            """);
+
         // A table offers its X and Y columns, and names them on the look as well as the write (ADR-112).
         Assert.False(await Browser.EvaluateAsync<bool>(Shown("#updateDataX")), "A GeoJSON file was offered X and Y columns.");
 

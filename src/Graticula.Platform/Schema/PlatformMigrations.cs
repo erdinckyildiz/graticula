@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(72);
+    public static SchemaVersion ComponentSchemaVersion => new(73);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -107,6 +107,7 @@ public static class PlatformMigrations
         AnItemCarriesTagsV70,
         AServiceMayBeAViewOfAnotherV71,
         AMembersContentHasFoldersV72,
+        AnEditorMayChangeOnlyTheirOwnV73,
     ]);
 
     /// <summary>
@@ -144,6 +145,16 @@ public static class PlatformMigrations
     /// A web map may be protected from deletion, as a service may be (ADR-102 condition 2) — the ArcGIS review's second
     /// pass found maps the one item kind without it.
     /// </summary>
+    /// <summary>
+    /// A layer may let its editors update and delete only the features they added — ADR-115, Portal's
+    /// ownership-based access control. Per layer, as Portal's is; the owner and administrators are not bound by it.
+    /// </summary>
+    private static Migration AnEditorMayChangeOnlyTheirOwnV73 => Migration.Expand(
+        new SchemaVersion(73),
+        "A layer may let editors change only the features they added (ADR-115).",
+
+        "alter table layer add column if not exists edit_own_only boolean not null default false");
+
     /// <summary>
     /// A member's content has folders — ADR-114: Portal's folders in My content, which are the member's own and are in
     /// no URL. The folder in <c>service.folder</c> is the other kind, part of the service's address, and is untouched.

@@ -1273,6 +1273,13 @@ public interface IAdminCatalog
         IReadOnlyList<(Guid LayerId, int LayerIndex, string? Definition)> layers,
         CancellationToken cancellationToken);
 
+    /// <summary>Sets whether a layer's editors change only the features they added — ADR-115.</summary>
+    /// <param name="layerId">The layer.</param>
+    /// <param name="editOwnOnly">On or off.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the layer exists.</returns>
+    Task<bool> SetEditOwnOnlyAsync(Guid layerId, bool editOwnOnly, CancellationToken cancellationToken);
+
     /// <summary>Replaces one view layer's filter as written — ADR-113. The PostgreSQL view is the host's to remake.</summary>
     /// <param name="layerId">The view layer.</param>
     /// <param name="definition">The filter, or null for every row.</param>

@@ -251,7 +251,7 @@ public sealed class UpdateDataConformanceTests : ArcGisClient
 
     /// <summary>ADR-105: ArcGIS's uploads/upload then append, as the ArcGIS API for Python calls them.</summary>
     [Fact]
-    public async Task An_ArcGIS_client_uploads_then_appends_maps_fields_and_is_refused_upsert()
+    public async Task An_ArcGIS_client_uploads_then_appends_maps_fields_and_an_upsert_needs_its_field()
     {
         string root = await RequireServerAsync();
         string? token = await TokenAsync(root);
@@ -279,7 +279,9 @@ public sealed class UpdateDataConformanceTests : ArcGisClient
                 ["appendUploadId"] = id, ["appendUploadFormat"] = "geojson", ["upsert"] = "true", ["f"] = "json",
             });
 
-            Assert.True(upserted == HttpStatusCode.BadRequest, $"upsert=true answered {(int)upserted}: {upsertBody}");
+            // ADR-116: upsert is offered, and refused without the field it matches on.
+            Assert.True(upserted == HttpStatusCode.BadRequest, $"upsert=true without upsertMatchingField answered {(int)upserted}: {upsertBody}");
+            Assert.Contains("upsertMatchingField", upsertBody, StringComparison.Ordinal);
             Assert.Equal(2, await CountAsync(root, token!, name));
 
             (HttpStatusCode appended, string appendBody) = await AppendFormAsync(service, token!, new()
@@ -364,5 +366,66 @@ public sealed class UpdateDataConformanceTests : ArcGisClient
         using HttpResponseMessage response = await Http.SendAsync(request);
 
         return (response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>ADR-116: upsert updates the features a row matches and adds the rest; a key the file repeats is refused.</summary>
+    [Fact]
+    public async Task An_upsert_updates_what_matches_and_adds_the_rest()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        string name = $"zz_upsert_{Guid.NewGuid():N}"[..20];
+
+        (HttpStatusCode made, string madeBody) =
+            await PostFileAsync(root, token, "/admin/hosted/import", Polygons("a", "b"), name);
+
+        Assert.True(made is HttpStatusCode.Created or HttpStatusCode.OK, $"The import failed: {(int)made} {madeBody}");
+
+        string service = $"{root}/rest/services/hosted/{name}/FeatureServer";
+
+        try
+        {
+            // "b" is there and moves; "c" is new. Polygons places by position, so the file's "b" is where "a" was.
+            string id = await UploadAsync(service, token!, Polygons("b", "c"));
+
+            (HttpStatusCode upserted, string upsertBody) = await AppendFormAsync(service, token!, new()
+            {
+                ["appendUploadId"] = id, ["appendUploadFormat"] = "geojson", ["upsert"] = "true",
+                ["upsertMatchingField"] = "name", ["f"] = "json",
+            });
+
+            Assert.True(upserted == HttpStatusCode.OK, $"The upsert answered {(int)upserted}: {upsertBody}");
+            Assert.Equal(2, JsonDocument.Parse(upsertBody).RootElement.GetProperty("recordCount").GetInt32());
+            Assert.Equal(3, await CountAsync(root, token!, name));
+
+            using (HttpRequestMessage ask = new(HttpMethod.Get,
+                $"{service}/0/query?where=name%3D%27b%27&outFields=name&returnGeometry=true&outSR=4326&f=json"))
+            {
+                ask.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage got = await Http.SendAsync(ask);
+                JsonElement[] bs = [.. JsonDocument.Parse(await got.Content.ReadAsStringAsync()).RootElement.GetProperty("features").EnumerateArray()];
+                Assert.Single(bs);
+                double x = bs[0].GetProperty("geometry").GetProperty("rings")[0][0][0].GetDouble();
+                Assert.True(Math.Abs(x - 28.97) < 1e-6, $"The matched feature did not take the file's geometry: x = {x}.");
+            }
+
+            // A key the file holds twice is refused, and nothing changes.
+            (HttpStatusCode twice, string twiceBody) = await PostFormAsync(root, token!, $"/admin/hosted/{name}/append",
+                Polygons("c", "c"), ("upsert", "true"), ("matchOn", "name"));
+
+            Assert.True(twice == HttpStatusCode.BadRequest, $"A repeated key answered {(int)twice}: {twiceBody}");
+            Assert.Contains("more than once", twiceBody, StringComparison.Ordinal);
+            Assert.Equal(3, await CountAsync(root, token!, name));
+        }
+        finally
+        {
+            using HttpRequestMessage delete = new(
+                HttpMethod.Delete, $"{root}/admin/featureservices/{name}?folder=hosted&drop=true");
+            delete.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage gone = await Http.SendAsync(delete);
+        }
     }
 }

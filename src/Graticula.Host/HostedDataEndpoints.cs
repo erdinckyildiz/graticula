@@ -106,6 +106,10 @@ internal static class HostedDataEndpoints
         // ADR-064: Portal's four editor-tracking columns, added and given their roles at once.
         app.MapPost("/admin/hosted/{layer}/editor-tracking", TrackEditsAsync);
 
+        // ADR-115: tracking stops — the columns and what they recorded stay — and editors may be held to their own.
+        app.MapDelete("/admin/hosted/{layer}/editor-tracking", StopTrackingAsync);
+        app.MapPut("/admin/layers/{layer}/ownership-access", SetOwnershipAccessAsync);
+
         // ADR-013 §2's GlobalID column, which no hosted layer had until 2026-09-15.
         app.MapPost("/admin/hosted/{layer}/global-ids", AddGlobalIdsAsync);
 
@@ -2225,8 +2229,16 @@ internal static class HostedDataEndpoints
 
         HashSet<string>? only = mappings is null ? null : [.. mappings.Values];
 
+        Upsert? upsert = UpsertOf(form, out string? upsertWhy);
+
+        if (upsertWhy is not null)
+        {
+            await Fail(context, 400, upsertWhy).ConfigureAwait(false);
+            return;
+        }
+
         if (await WriteUpdateAsync(context, found, dataset, replace, importer, contexts, tiles, catalog, audit, warmer, cancellation,
-                mappings, only)
+                mappings, only, upsert)
             .ConfigureAwait(false) is not { } result)
         {
             return;
@@ -2237,17 +2249,60 @@ internal static class HostedDataEndpoints
             layer = found.Definition.Name,
             replaced = replace,
             rows = result.Rows,
+            updated = result.Updated,
             matched = result.Matched,
             ignored = result.Ignored,
             transformed = result.Transformed,
             note = (replace
                     ? $"Every feature of this layer was replaced by the file's {result.Rows}. Object ids keep counting from where they were."
-                    : $"{result.Rows} feature{(result.Rows == 1 ? " was" : "s were")} added.")
+                    : upsert is not null
+                        ? $"{result.Updated} feature{(result.Updated == 1 ? " was" : "s were")} updated and "
+                          + $"{(result.Rows == 0 ? "none" : result.Rows.ToString(CultureInfo.InvariantCulture))} added, "
+                          + $"matched on '{upsert.MatchOn}'."
+                        : $"{result.Rows} feature{(result.Rows == 1 ? " was" : "s were")} added.")
                 + (result.Ignored.Count == 0 ? string.Empty
                     : $" {result.Ignored.Count} of the file's columns are not in the layer and were not written: "
                       + string.Join(", ", result.Ignored) + ".")
                 + (result.Transformed ? " The geometry was transformed into the layer's coordinate system." : string.Empty),
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// ArcGIS's <c>upsert</c> and its companions from a form — ADR-116: <c>upsertMatchingField</c> (or <c>matchOn</c>),
+    /// <c>skipUpdates</c>, <c>skipInserts</c> and <c>updateGeometry</c>. Null when no upsert was asked, or with the
+    /// sentence to refuse with.
+    /// </summary>
+    internal static Upsert? UpsertOf(IFormCollection form, out string? why)
+    {
+        why = null;
+
+        static bool Yes(string? value) => string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+
+        if (!Yes(form["upsert"].ToString()))
+        {
+            return null;
+        }
+
+        string matchOn = (form["upsertMatchingField"].ToString() is { Length: > 0 } named ? named : form["matchOn"].ToString()).Trim();
+
+        if (matchOn.Length == 0)
+        {
+            why = "'upsert=true' needs 'upsertMatchingField': the layer column a file row is matched on. Nothing was written.";
+            return null;
+        }
+
+        bool skipUpdates = Yes(form["skipUpdates"].ToString());
+        bool skipInserts = Yes(form["skipInserts"].ToString());
+
+        if (skipUpdates && skipInserts)
+        {
+            why = "'skipUpdates' and 'skipInserts' together leave nothing to do. Nothing was written.";
+            return null;
+        }
+
+        return new Upsert(
+            matchOn, skipUpdates, skipInserts,
+            UpdateGeometry: !string.Equals(form["updateGeometry"].ToString(), "false", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -2352,7 +2407,8 @@ internal static class HostedDataEndpoints
         ThumbnailWarmer warmer,
         CancellationToken cancellation,
         IReadOnlyDictionary<string, string>? mappings = null,
-        IReadOnlyCollection<string>? only = null)
+        IReadOnlyCollection<string>? only = null,
+        Upsert? upsert = null)
     {
         // Replacing every feature is refused while the item is protected — owner decision 2026-10-01 (ADR-103 §10.4).
         if (replace
@@ -2367,7 +2423,7 @@ internal static class HostedDataEndpoints
         try
         {
             result = await importer.AppendAsync(
-                found.Definition.SchemaName, found.Definition.TableName, dataset, replace, cancellation, mappings, only)
+                found.Definition.SchemaName, found.Definition.TableName, dataset, replace, cancellation, mappings, only, upsert)
                 .ConfigureAwait(false);
         }
         catch (AppendRefusedException refused)
@@ -2401,7 +2457,8 @@ internal static class HostedDataEndpoints
 
         await RecordAsync(
             context, audit, replace ? "layer.overwrite" : "layer.append", found.Definition.Name,
-            new { rows = result.Rows, ignored = result.Ignored }, cancellation).ConfigureAwait(false);
+            new { rows = result.Rows, updated = result.Updated, matchOn = upsert?.MatchOn, ignored = result.Ignored }, cancellation)
+            .ConfigureAwait(false);
 
         return result;
     }
@@ -3123,9 +3180,105 @@ internal static class HostedDataEndpoints
             layer = found.Definition.Name,
             added,
             tracks = portal.Select(p => new { column = p.Name, role = p.Role.ToString().ToLowerInvariant() }),
-            note = "Features added or changed from now on record who did it and when. Features that "
-                 + "were already there have no creator, so they are nobody's own: changing them "
-                 + "needs features:fullEdit.",
+            note = "Features added or changed from now on record who did it and when. Features that were already "
+                 + "there have no creator, so they belong to no one: where editors are limited to their own features, "
+                 + "changing those needs the layer's owner or an administrator.",
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+    /// <summary>
+    /// Stops recording who edited what — ADR-115, Portal's *Disable editor tracking*. The four columns and what they
+    /// hold are kept, as Portal keeps them; only their roles go, so nothing is written to them from now on.
+    /// </summary>
+    private static async Task StopTrackingAsync(
+        HttpContext context,
+        string layer,
+        PostgresLayerCatalog layers,
+        ServiceContexts contexts,
+        ITileCache tiles,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (await HostedLayerAsync(context, layers, layer, "stop tracking the edits of", cancellation)
+            .ConfigureAwait(false) is not { } found)
+        {
+            return;
+        }
+
+        if (found.EditOwnOnly)
+        {
+            await Fail(context, 409,
+                $"'{found.Definition.Name}' lets editors change only the features they added, which needs to know who "
+                + "added each one. Turn that off first.").ConfigureAwait(false);
+            return;
+        }
+
+        List<Graticula.Catalog.FieldOverride> overrides = [.. found.FieldOverrides
+            .Select(o => o with { Tracks = Graticula.Catalog.EditRole.None })
+            .Where(o => o.SaysSomething)];
+
+        await catalog.SetFieldOverridesAsync(found.Id, overrides, cancellation).ConfigureAwait(false);
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation).ConfigureAwait(false);
+
+        await RecordAsync(context, audit, "layer.editorTracking.stop", found.Definition.Name, new { }, cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            layer = found.Definition.Name,
+            tracking = false,
+            note = "Edits are no longer recorded. The columns and what they already hold are kept.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>What <c>PUT …/ownership-access</c> reads.</summary>
+    /// <param name="EditOwnOnly">Whether editors may update and delete only the features they added.</param>
+    internal sealed record OwnershipAccessRequest(bool EditOwnOnly);
+
+    /// <summary>
+    /// Lets a layer's editors update and delete only the features they added, or lifts that — ADR-115. A view's layer
+    /// may have it too (an add-only survey with editors kept to their own); it needs the creator recorded.
+    /// </summary>
+    private static async Task SetOwnershipAccessAsync(
+        HttpContext context,
+        string layer,
+        OwnershipAccessRequest request,
+        PostgresLayerCatalog layers,
+        ServiceContexts contexts,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (await AdminEndpoints.OneNamedLayerAsync(context, layers, layer, cancellation).ConfigureAwait(false) is not { } found
+            || !await AdminEndpoints.ManagesAsync(
+                context, found.Owner, found.Sharing, found.SharedWith, found.Definition.Name, "change who may edit")
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (request.EditOwnOnly)
+        {
+            (_, LayerDescription described) = await contexts.GetAsync(found, cancellation).ConfigureAwait(false);
+
+            if (described.Tracking.Creator is null)
+            {
+                await Fail(context, 409,
+                    $"'{found.Definition.Name}' does not record who added each feature, so no feature is anybody's own. "
+                    + "Turn on editor tracking first.").ConfigureAwait(false);
+                return;
+            }
+        }
+
+        await catalog.SetEditOwnOnlyAsync(found.Id, request.EditOwnOnly, cancellation).ConfigureAwait(false);
+        contexts.Forget(found);
+
+        await RecordAsync(context, audit, "layer.ownershipAccess", found.Definition.Name,
+            new { editOwnOnly = request.EditOwnOnly }, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { layer = found.Definition.Name, editOwnOnly = request.EditOwnOnly })
+            .ExecuteAsync(context).ConfigureAwait(false);
     }
 }

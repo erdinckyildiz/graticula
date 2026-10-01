@@ -41,7 +41,18 @@ public sealed record ImportResult(
 /// <param name="Matched">The file's columns that found a column of the layer's.</param>
 /// <param name="Ignored">The file's columns the layer does not have, which were not written.</param>
 /// <param name="Transformed">Whether the geometry was transformed into the layer's reference.</param>
-public sealed record AppendResult(int Rows, IReadOnlyList<string> Matched, IReadOnlyList<string> Ignored, bool Transformed);
+/// <param name="Updated">How many features an upsert changed in place — ADR-116.</param>
+public sealed record AppendResult(
+    int Rows, IReadOnlyList<string> Matched, IReadOnlyList<string> Ignored, bool Transformed, int Updated = 0);
+
+/// <summary>
+/// An append that updates the features it matches and adds the rest — ArcGIS's <c>upsert</c>, ADR-116.
+/// </summary>
+/// <param name="MatchOn">The layer column a file row is matched on.</param>
+/// <param name="SkipUpdates">Add only the rows that match nothing, and change nothing that does.</param>
+/// <param name="SkipInserts">Update the rows that match, and add nothing.</param>
+/// <param name="UpdateGeometry">Whether a matched feature takes the file's geometry, or keeps its own.</param>
+public sealed record Upsert(string MatchOn, bool SkipUpdates = false, bool SkipInserts = false, bool UpdateGeometry = true);
 
 /// <summary>An append or overwrite refused before anything was written, with the sentence to say.</summary>
 public sealed class AppendRefusedException : Exception
@@ -571,6 +582,7 @@ public sealed class PostGisImporter
     /// A file column's name to the layer column it goes into, where they differ — ArcGIS <c>fieldMappings</c>.
     /// </param>
     /// <param name="only">The layer columns written, when not all that match — ArcGIS <c>appendFields</c>.</param>
+    /// <param name="upsert">Update the features a row matches and add the rest — ADR-116 — or null to add every row.</param>
     /// <returns>How many rows went in, and which of the file's columns found a column and which did not.</returns>
     /// <remarks>
     /// <para>
@@ -592,9 +604,16 @@ public sealed class PostGisImporter
     /// </remarks>
     public async Task<AppendResult> AppendAsync(
         string schemaName, string tableName, ImportedDataset dataset, bool replace, CancellationToken cancellationToken,
-        IReadOnlyDictionary<string, string>? mappings = null, IReadOnlyCollection<string>? only = null)
+        IReadOnlyDictionary<string, string>? mappings = null, IReadOnlyCollection<string>? only = null,
+        Upsert? upsert = null)
     {
         ArgumentNullException.ThrowIfNull(dataset);
+
+        if (upsert is not null && replace)
+        {
+            throw new AppendRefusedException(
+                "Updating what matches and replacing everything cannot be asked at once. Nothing was written.");
+        }
         RefuseOutsideHosted(schemaName, tableName, replace ? "overwrite" : "append to");
 
         await using NpgsqlConnection connection =
@@ -682,6 +701,27 @@ public sealed class PostGisImporter
             else ignored.Add(column.Name);
         }
 
+        // ADR-116: the column an upsert matches on has to be one the file fills and the layer has.
+        InferredColumn? key = null;
+
+        if (upsert is not null)
+        {
+            if (!targetColumns.ContainsKey(upsert.MatchOn))
+            {
+                throw new AppendRefusedException(
+                    $"'{upsert.MatchOn}' is not a column of the layer a file row can be matched on. Nothing was written.");
+            }
+
+            key = matched.FirstOrDefault(column => TargetOf(column) == upsert.MatchOn);
+
+            if (key is null)
+            {
+                throw new AppendRefusedException(
+                    $"No column of the file goes into '{upsert.MatchOn}', so no row can be matched. Map one to it. "
+                    + "Nothing was written.");
+            }
+        }
+
         ImportedDataset staged = dataset with { Columns = matched };
 
         // The staging table: the file's own types, dropped with the transaction.
@@ -752,11 +792,19 @@ public sealed class PostGisImporter
         }
 
         int rows;
+        int updated = 0;
 
-        await using (NpgsqlCommand insert = new(
-            $"insert into {Qualified(tableName)} ({into}) select {select} from graticula_append", connection, transaction))
+        if (upsert is null)
         {
+            await using NpgsqlCommand insert = new(
+                $"insert into {Qualified(tableName)} ({into}) select {select} from graticula_append", connection, transaction);
             rows = await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            (rows, updated) = await UpsertAsync(
+                connection, transaction, tableName, upsert, key!, matched, targetColumns, TargetOf, shape, into.ToString(),
+                select.ToString(), cancellationToken).ConfigureAwait(false);
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -768,7 +816,112 @@ public sealed class PostGisImporter
             rows,
             [.. matched.Select(column => column.Name)],
             ignored,
-            dataset.Srid != targetSrid && targetSrid > 0 && dataset.Srid > 0);
+            dataset.Srid != targetSrid && targetSrid > 0 && dataset.Srid > 0,
+            updated);
+    }
+
+    /// <summary>
+    /// The upsert's two statements, after the staging table is filled — ADR-116. A file row whose key matches a
+    /// feature updates it; one whose key matches nothing, or is empty, is added.
+    /// </summary>
+    /// <remarks>
+    /// <b>A key that matches twice is refused before anything changes</b>: two file rows with one key would update
+    /// one feature twice in an order nobody chose, and one key held by two features would update both with one row.
+    /// Portal asks for a unique index on the matching field for the same reason; here the data is checked instead.
+    /// </remarks>
+    private static async Task<(int Added, int Updated)> UpsertAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string tableName,
+        Upsert upsert,
+        InferredColumn key,
+        IReadOnlyList<InferredColumn> matched,
+        Dictionary<string, string> targetColumns,
+        Func<InferredColumn, string> targetOf,
+        string shape,
+        string into,
+        string select,
+        CancellationToken cancellationToken)
+    {
+        string table = Qualified(tableName);
+        string layerKey = LayerDefinition.Quote(upsert.MatchOn);
+        string fileKey = $"s.{LayerDefinition.Quote(ColumnNameFor(key.Name))}::{targetColumns[upsert.MatchOn]}";
+
+        // The repeated values are named, up to three, so the file can be found and fixed (design review 2026-10-01).
+        await using (NpgsqlCommand twice = new(
+            $"select count(*) over (), k::text from (select {fileKey} as k from graticula_append s where {fileKey} is not null "
+            + "group by 1 having count(*) > 1) d limit 3", connection, transaction))
+        {
+            List<string> named = [];
+            long repeated = 0;
+
+            await using (NpgsqlDataReader row = await twice.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            {
+                while (await row.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    repeated = row.GetInt64(0);
+                    named.Add($"'{row.GetString(1)}'");
+                }
+            }
+
+            if (repeated > 0)
+            {
+                throw new AppendRefusedException(
+                    $"{repeated} value{(repeated == 1 ? "" : "s")} of '{upsert.MatchOn}' appear more than once in the file "
+                    + $"({string.Join(", ", named)}{(repeated > named.Count ? ", …" : "")}), so which row updates the feature "
+                    + "is not known. Nothing was written.");
+            }
+        }
+
+        await using (NpgsqlCommand held = new(
+            $"select count(*) from (select t.{layerKey} from {table} t where t.{layerKey} in "
+            + $"(select {fileKey} from graticula_append s) group by 1 having count(*) > 1) d", connection, transaction))
+        {
+            if ((long)(await held.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))! is long shared and > 0)
+            {
+                throw new AppendRefusedException(
+                    $"{shared} value{(shared == 1 ? "" : "s")} of '{upsert.MatchOn}' in the file belong to more than one "
+                    + "feature of the layer, so a row would update several. Match on a column whose values are unique. "
+                    + "Nothing was written.");
+            }
+        }
+
+        int updated = 0;
+
+        if (!upsert.SkipUpdates)
+        {
+            List<string> sets = [.. matched
+                .Where(column => targetOf(column) != upsert.MatchOn)
+                .Select(column => $"{LayerDefinition.Quote(targetOf(column))} = "
+                    + $"s.{LayerDefinition.Quote(ColumnNameFor(column.Name))}::{targetColumns[targetOf(column)]}")];
+
+            if (upsert.UpdateGeometry)
+            {
+                // A row without a geometry keeps the feature's, rather than erasing it.
+                sets.Add($"geom = case when s.import_wkb is null then t.geom else {shape.Replace("import_wkb", "s.import_wkb", StringComparison.Ordinal)} end");
+            }
+
+            if (sets.Count > 0)
+            {
+                await using NpgsqlCommand change = new(
+                    $"update {table} t set {string.Join(", ", sets)} from graticula_append s where t.{layerKey} = {fileKey}",
+                    connection, transaction);
+                updated = await change.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        int added = 0;
+
+        if (!upsert.SkipInserts)
+        {
+            await using NpgsqlCommand insert = new(
+                $"insert into {table} ({into}) select {select} from graticula_append s "
+                + $"where {fileKey} is null or not exists (select 1 from {table} t where t.{layerKey} = {fileKey})",
+                connection, transaction);
+            added = await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        return (added, updated);
     }
 
     /// <summary>

@@ -123,7 +123,7 @@ public sealed class HistoryPageTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
-    /// <summary>Recording who edits is a one-way action in Settings › Feature layer, and Data › Fields points there.</summary>
+    /// <summary>Recording who edits is started from Settings › Feature layer (and stopped there since ADR-115), and Data › Fields points there.</summary>
     [Fact]
     public async Task Recording_who_edits_is_started_from_Settings()
     {

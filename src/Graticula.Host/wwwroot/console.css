@@ -4524,3 +4524,11 @@ ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
 #contentFolderDialog .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
 #contentFolderDialog input[type=text], #contentFolderDialog select { width: 100%; font: inherit; }
 #contentFolderDialog .dialogfoot .fill { flex: 1; margin: 0; }
+
+/* ADR-115: the own-only box takes the row's width, its note indented under it (design review 2026-10-01). */
+#featureLayers .setting.ownonly { flex-wrap: wrap; }
+#featureLayers .setting.ownonly > label.check { flex: 1 1 100%; display: flex; gap: var(--gap-2, 8px); align-items: baseline; }
+#featureLayers .setting.ownonly > .rowmeta { padding-left: 24px; }
+
+/* ADR-116: at phone width the Update data answer takes its own line rather than a sliver beside the buttons. */
+@media (max-width: 480px) { #updateDataFoot { flex-wrap: wrap; } #updateDataSays { flex-basis: 100%; } }

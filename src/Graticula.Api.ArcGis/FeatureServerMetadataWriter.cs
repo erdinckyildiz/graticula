@@ -699,6 +699,7 @@ public static class FeatureServerMetadataWriter
     /// <param name="minScale">The largest scale the layer draws at, or 0 for no limit — ADR-070.</param>
     /// <param name="maxScale">The smallest scale the layer draws at, or 0 for no limit — ADR-070.</param>
     /// <param name="time">The layer's time field and its measured extent, or null when it has none.</param>
+    /// <param name="editOwnOnly">Whether editors may change only the features they added — ADR-115.</param>
     public static object Layer(
         LayerDefinition layer,
         GeometryKind geometryType,
@@ -737,7 +738,10 @@ public static class FeatureServerMetadataWriter
 
         // <b>The layer's time, for ArcGIS clients — 2026-09-15.</b> On the end and optional for the
         // reason the ones above give.
-        (string Field, DateTimeOffset? From, DateTimeOffset? Until)? time = null)
+        (string Field, DateTimeOffset? From, DateTimeOffset? Until)? time = null,
+
+        // ADR-115: editors change only what they added. On the end and optional, like the rest.
+        bool editOwnOnly = false)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
@@ -845,7 +849,21 @@ public static class FeatureServerMetadataWriter
             // feature — so the object would now tell a group's members they cannot change what the
             // server lets them change. ArcGIS emits it only where ownership-based access is
             // enforced, and nothing here enforces it any more.
-            ownershipBasedAccessControlForFeatures = (object?)null,
+            //
+            // <b>And said again since ADR-115, where it is enforced</b>: a layer that holds its editors to their own
+            // features says so, which is what Field Maps reads to offer Edit only on a feature the user added. Others
+            // still query; the owner and administrators are not bound, which ArcGIS does not express here either.
+            ownershipBasedAccessControlForFeatures = editOwnOnly
+                ? (object?)new
+                {
+                    allowOthersToQuery = true,
+                    allowOthersToUpdate = false,
+                    allowOthersToDelete = false,
+                    allowAnonymousToQuery = true,
+                    allowAnonymousToUpdate = false,
+                    allowAnonymousToDelete = false,
+                }
+                : null,
 
             // <b>What this layer looks like, which this document said nothing about until
             // 2026-08-17 (ADR-033).</b> An ArcGIS client with no `drawingInfo` invents a

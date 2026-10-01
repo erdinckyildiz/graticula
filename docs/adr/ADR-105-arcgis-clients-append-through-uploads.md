@@ -9,6 +9,10 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-103](ADR-103-a-hosted-layer-is-updated-from-a-file.md) §5.4 (the ArcGIS route it left out) |
 
+> **Amended 2026-10-01 by [ADR-116](ADR-116-an-update-may-upsert.md), owner decision (*"Sırayla git"*).** `upsert=true`
+> is no longer refused: with `upsertMatchingField` it updates the features a file row matches and adds the rest, and
+> without one it is refused for that reason. §5.3's list and the *Negative* line below describe the state before.
+
 ---
 
 ## 1. Context
@@ -97,5 +101,5 @@ it, for an hour; nothing in the catalogue.
 
 1. **Upload, append with a field mapping, the upload spent, and `truncateExisting` are tested against the running
    server**, and `upsert` refused. **DISCHARGED 2026-10-01** —
-   `UpdateDataConformanceTests.An_ArcGIS_client_uploads_then_appends_maps_fields_and_is_refused_upsert`.
+   `UpdateDataConformanceTests.An_ArcGIS_client_uploads_then_appends_maps_fields_and_an_upsert_needs_its_field` (renamed by ADR-116).
 2. **The ArcGIS API for Python's `FeatureLayer.append` is run against it** and the layer counted afterwards — not yet.

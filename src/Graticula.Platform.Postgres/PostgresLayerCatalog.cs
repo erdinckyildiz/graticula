@@ -146,7 +146,10 @@ public sealed class PostgresLayerCatalog
           as view_layers,
 
         -- ADR-114, migration 72: the owner's content folder the service is in, or null for the root. On the end.
-        s.content_folder_id as service_content_folder
+        s.content_folder_id as service_content_folder,
+
+        -- ADR-115, migration 73: whether its editors change only what they added. On the end.
+        l.edit_own_only
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -564,6 +567,9 @@ public sealed class PostgresLayerCatalog
             ViewDefinition = Nullable(reader, "view_definition"),
             HasViews = reader.GetBoolean(reader.GetOrdinal("service_has_views")),
             ViewLayers = [.. reader.GetFieldValue<Guid[]>(reader.GetOrdinal("view_layers"))],
+
+            // ADR-115.
+            EditOwnOnly = reader.GetBoolean(reader.GetOrdinal("edit_own_only")),
         };
     }
 

@@ -522,6 +522,88 @@ public sealed class WebMapViewerTests : ConsoleTest
         }
     }
 
+    /// <summary>ADR-117: a layer is labelled in the map with a field's value, written where ArcGIS clients read it.</summary>
+    [Fact]
+    public async Task A_layer_is_labelled_in_the_map_and_drawn_from_it()
+    {
+        (string token, string cookie) = await SignInAsync();
+
+        string layerUrl = await AnyFeatureLayerUrlAsync(token);
+
+        string document = JsonSerializer.Serialize(new
+        {
+            title = "ADR-117 console test",
+            sharing = "private",
+            document = new
+            {
+                operationalLayers = new object[]
+                {
+                    new { id = "labs", layerType = "ArcGISFeatureLayer", url = layerUrl, title = "Labelled", visibility = true, opacity = 1 },
+                },
+                baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
+                version = "2.31",
+            },
+        });
+
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/webmaps", document);
+        Assert.True(status == 201, $"Saving the map through the API answered {status}: {body}");
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
+
+            await WaitForAsync("!!document.querySelector('#layerList button[data-act=labels][data-layer=labs]')",
+                "A feature layer offers no Labels.");
+            await ClickAsync("#layerList button[data-act=labels][data-layer=labs]");
+            await WaitForAsync("document.querySelectorAll('#labField-labs option').length > 0",
+                "The Labels panel offers none of the layer's fields.");
+
+            // Show labels starts ticked, and a change takes effect at once.
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('labOn-labs').checked"),
+                "A layer with no labels opens the panel with Show labels off.");
+
+            string field = await Browser.EvaluateAsync<string>("""
+                (() => {
+                  const size = document.getElementById('labSize-labs');
+                  size.value = '12';
+                  size.dispatchEvent(new Event('change', { bubbles: true }));
+                  return document.getElementById('labField-labs').value;
+                })()
+                """) ?? "";
+
+            await WaitForAsync(
+                "wmLayers()[0].showLabels === true && wmLayers()[0].layerDefinition.drawingInfo.labelingInfo[0].symbol.font.size === 12",
+                "Apply did not put the labels in the map's document.");
+
+            Assert.Equal(field, await Browser.EvaluateAsync<string>("wmLabelOf(wmLayers()[0]).field"));
+            Assert.Contains(field, await Browser.EvaluateAsync<string>(
+                "wmLayers()[0].layerDefinition.drawingInfo.labelingInfo[0].labelExpressionInfo.expression") ?? "",
+                StringComparison.Ordinal);
+
+            // The label is drawn by its own decluttered layer over the same features, so a symbol cannot crowd it out.
+            Assert.True(await Browser.EvaluateAsync<bool>("wmRuntime.get(wmLayers()[0]).ol instanceof ol.layer.Group"),
+                "The labels are not a layer of their own.");
+            Assert.True(await Browser.EvaluateAsync<bool>($$"""
+                (() => {
+                  const f = new ol.Feature({ geometry: new ol.geom.Point([0, 0]), '{{field}}': 'Ankara' });
+                  const style = wmLabelStyle(wmLabelOf(wmLayers()[0]))(f, 1);
+                  return !!style && style.getText().getText() === 'Ankara';
+                })()
+                """), "The labelled style does not draw the field's value.");
+
+            await ClickAsync("#layerList button[data-act=labelsReset][data-layer=labs]");
+            await WaitForAsync("!wmLayers()[0].showLabels && !((wmLayers()[0].layerDefinition || {}).drawingInfo || {}).labelingInfo",
+                "Remove labels left them in the document.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
+    }
+
     /// <summary>The address of some feature layer this server publishes.</summary>
     private async Task<string> AnyFeatureLayerUrlAsync(string token)
     {

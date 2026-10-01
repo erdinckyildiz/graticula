@@ -112,7 +112,7 @@ linking to Server for an administrator.
 | Layer default style; visible range | Visualization › Styles, *Save as layer default*; Properties. *(Amended 2026-10-01 by [ADR-104](ADR-104-a-web-map-styles-its-own-layers.md): a map may also style a layer for itself, in the Map Viewer — a second level, not a second home for the default, which the map reaches through the same* Save as the layer's default.*)* |
 | Delete protection (stored); Delete item | Settings › General |
 | Editing operations; export allowed | Settings › Feature layer › Editing |
-| Time field; history on/off; start tracking who edits (a one-way action); remove this layer | Settings › Feature layer › that layer |
+| Time field; history on/off; start or stop tracking who edits (stop since ADR-115); editors kept to their own; remove this layer | Settings › Feature layer › that layer |
 | Cache status; Clear cached tiles; Pre-build an area | Settings › Tile layer |
 | Who may download tiles | Settings › Tile layer › Offline use |
 | Tile style override, named styles, sprite | Settings › Tile layer › Styles for vector tile clients |
@@ -157,7 +157,8 @@ export, anybody else only when Extract is offered.)*
 
 5.7 **Two differences between the reviewers, settled here.** Editor tracking is a one-way action per
 layer, not an item-wide checkbox: the endpoint adds columns and cannot be undone, and a box that cannot
-be unticked says something false. Visualization's *Features* mode says the server draws it and answers a
+be unticked says something false. *(Amended 2026-10-01 by ADR-115: recording now stops as well as starts — the
+columns stay — so it is a Start/Stop button per layer rather than a one-way one; still not an item-wide box.)* Visualization's *Features* mode says the server draws it and answers a
 click with the feature's attributes.
 
 ## 6. Consequences

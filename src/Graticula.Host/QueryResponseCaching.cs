@@ -368,6 +368,7 @@ internal static class QueryResponseCaching
             [nameof(PublishedLayer.ViewOf)] = "says whose rows a view reads, not which; the filter is ViewDefinition",
             [nameof(PublishedLayer.HasViews)] = "whether others read this layer's rows, which changes none of them",
             [nameof(PublishedLayer.ViewLayers)] = "which tiles an edit empties, not what a query answers",
+            [nameof(PublishedLayer.EditOwnOnly)] = "who may change a row, not what a query answers (ADR-115)",
             [nameof(LayerDefinition.HasIntegerIdentity)] = "derived from IntegerIdentityColumn",
             [nameof(LayerDefinition.QuotedTable)] = "derived from SchemaName and TableName",
         };

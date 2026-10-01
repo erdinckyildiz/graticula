@@ -33,7 +33,8 @@ namespace Graticula.Host;
 /// </para>
 /// <para>
 /// <b>What is offered, and what is refused by name.</b> GeoJSON and zipped shapefiles; <c>fieldMappings</c>,
-/// <c>appendFields</c> and <c>truncateExisting</c>. <c>upsert</c>, <c>appendItemId</c>, the other formats and
+/// <c>appendFields</c>, <c>truncateExisting</c> and, since ADR-116, <c>upsert</c> with <c>upsertMatchingField</c>,
+/// <c>skipUpdates</c>, <c>skipInserts</c> and <c>updateGeometry</c>. <c>appendItemId</c>, the other formats and
 /// <c>async=true</c> are refused with the reason rather than ignored, because a caller told it succeeded at something
 /// it did not do builds on it (ADR-008 §2).
 /// </para>
@@ -193,11 +194,12 @@ internal static class ArcGisAppendEndpoints
             return;
         }
 
-        if (IsTrue(form["upsert"]))
+        // ADR-116: upsert, matched on the field named — the nightly sync's way.
+        Upsert? upsert = HostedDataEndpoints.UpsertOf(form, out string? upsertWhy);
+
+        if (upsertWhy is not null)
         {
-            await RefuseAsync(context, 400,
-                "'upsert=true' is not offered: append adds features, or with truncateExisting=true replaces them all. "
-                + "Nothing was written.").ConfigureAwait(false);
+            await RefuseAsync(context, 400, upsertWhy).ConfigureAwait(false);
             return;
         }
 
@@ -270,7 +272,8 @@ internal static class ArcGisAppendEndpoints
             }
 
             result = await HostedDataEndpoints.WriteUpdateAsync(
-                context, found, dataset, replace, importer, contexts, tiles, catalog, audit, warmer, cancellation, mappings, only)
+                context, found, dataset, replace, importer, contexts, tiles, catalog, audit, warmer, cancellation, mappings, only,
+                upsert)
                 .ConfigureAwait(false);
         }
 
@@ -287,7 +290,7 @@ internal static class ArcGisAppendEndpoints
             layerName = found.Definition.Name,
             submissionTime = submitted.ToUnixTimeMilliseconds(),
             lastUpdatedTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            recordCount = result.Rows,
+            recordCount = result.Rows + result.Updated,
             status = "Completed",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }

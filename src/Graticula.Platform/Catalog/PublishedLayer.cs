@@ -338,6 +338,12 @@ public sealed class PublishedLayer
     /// </summary>
     public ImmutableArray<Guid> ViewLayers { get; init; } = ImmutableArray<Guid>.Empty;
 
+    /// <summary>
+    /// Whether its editors may update and delete only the features they added — ADR-115, Portal's ownership-based
+    /// access control. The layer's owner and administrators are not bound by it; it needs the creator recorded.
+    /// </summary>
+    public bool EditOwnOnly { get; init; }
+
     /// <summary>The catalogue identity.</summary>
     public Guid Id { get; }
 

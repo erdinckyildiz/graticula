@@ -2596,13 +2596,30 @@ window.addEventListener("hashchange", route);
  * the other (design review 2026-10-01). The shapefile's coordinate system is asked only for a shapefile.
  */
 function drawUpdateChoice() {
-  const replacing = document.querySelector('input[name="updateDataHow"]:checked')?.value === "overwrite";
+  const how = document.querySelector('input[name="updateDataHow"]:checked')?.value || "append";
+  const replacing = how === "overwrite";
   const go = $("updateDataGo");
   const warn = $("updateDataWarn");
   const layer = $("updateDataLayer")?.value || "";
 
+  // ADR-116: the field an upsert matches on, from the layer's own columns as the file's look read them.
+  const matchRow = $("updateDataMatchRow");
+  const match = $("updateDataMatch");
+  if (matchRow) matchRow.hidden = how !== "upsert";
+  if (match && how === "upsert") {
+    const kept = match.value;
+    // Who and when a feature was edited are never unique, so they are not offered as a key; a GlobalID is.
+    const keys = updateLayerColumns.filter(c => !UPDATE_NOT_KEYS.has(c.toLowerCase()));
+    match.disabled = keys.length === 0;
+    match.innerHTML = keys.length
+      ? `<option value="">Choose a field</option>${keys.map(c =>
+          `<option value="${h(c)}"${c === kept ? " selected" : ""}>${h(c)}</option>`).join("")}`
+      : `<option value="">Choose a file to list its fields</option>`;
+  }
+
   if (go) {
-    go.textContent = replacing ? "Replace all features" : "Add features";
+    delete go.dataset.done;
+    go.textContent = replacing ? "Replace all features" : how === "upsert" ? "Update and add" : "Add features";
     go.classList.toggle("primary", !replacing);
     go.classList.toggle("danger", replacing);
   }
@@ -2643,6 +2660,12 @@ document.addEventListener("change", e => {
  */
 let updateAsk = 0;
 
+/** The layer's columns as the last look at a file read them — what an upsert may match on (ADR-116). */
+let updateLayerColumns = [];
+
+/** Editor-tracking columns, which hold who and when and are never a key. */
+const UPDATE_NOT_KEYS = new Set(["created_user", "created_date", "last_edited_user", "last_edited_date"]);
+
 async function readUpdateColumns() {
   const box = $("updateDataMap");
   const file = $("updateDataFile")?.files?.[0];
@@ -2651,6 +2674,8 @@ async function readUpdateColumns() {
   if (!file || !layer) { box.hidden = true; box.innerHTML = ""; return; }
 
   const mine = ++updateAsk;
+  updateLayerColumns = [];
+  drawUpdateChoice();
   box.hidden = false;
   box.innerHTML = `<p class="hint" role="status">Reading the file's columns…</p>`;
 
@@ -2665,6 +2690,8 @@ async function readUpdateColumns() {
     const said = await api(`/admin/hosted/${encodeURIComponent(layer)}/append`, { method: "POST", body });
     if (mine !== updateAsk) return;
     const columns = said.layerColumns || [];
+    updateLayerColumns = columns;
+    drawUpdateChoice();
     const fields = said.fileColumns || [];
 
     box.innerHTML = fields.length === 0
@@ -7110,10 +7137,30 @@ async function fillLayerStewardship() {
     try {
       const doc = await api(`${layerUrl(name).replace(location.origin, "")}?f=json`);
       const tracked = !!(doc.editFieldsInfo && (doc.editFieldsInfo.creatorField || doc.editFieldsInfo.editorField));
+      const ownOnly = !!doc.ownershipBasedAccessControlForFeatures;
       state.textContent = tracked
-        ? `Recorded — ${[doc.editFieldsInfo.creatorField, doc.editFieldsInfo.editorField].filter(Boolean).join(", ")}`
+        ? `Recorded — ${[doc.editFieldsInfo.creatorField, doc.editFieldsInfo.editorField].filter(Boolean).join(", ")}${
+          ownOnly ? ". Can't stop while editors are limited to their own features." : ""}`
         : "Not recorded";
-      if (button) button.hidden = tracked;
+      // ADR-115: recording can stop as well as start; the columns and what they hold stay.
+      if (button) {
+        button.hidden = false;
+        button.textContent = tracked ? "Stop recording" : "Start recording";
+        button.dataset.on = tracked ? "1" : "0";
+        button.disabled = tracked && ownOnly;
+      }
+      const own = document.querySelector(`#featureLayers [data-own-only="${CSS.escape(name)}"]`);
+      const why = document.querySelector(`#featureLayers [data-own-only-why="${CSS.escape(name)}"]`);
+      if (own) {
+        own.checked = ownOnly;
+        own.disabled = !(doc.editFieldsInfo && doc.editFieldsInfo.creatorField);
+        if (why) {
+          why.textContent = own.disabled
+            ? "Requires recording who creates and edits (Start recording above)."
+            : "You and administrators are not limited. Features added before recording started belong to no one, so "
+              + "editors cannot change them.";
+        }
+      }
     } catch (e) {
       state.textContent = `Could not be read: ${e.message || e}`;
     }
@@ -7166,7 +7213,12 @@ async function drawFeatureFacts(name, folder) {
           <button type="button" class="tiny" data-history-toggle="${h(one.name || "")}" hidden></button></div>
         <div class="setting"><span class="q">Who creates and edits:</span>
           <span class="val" data-tracking-state="${h(one.name || "")}">reading…</span>
-          <button type="button" class="tiny" data-track-edits="${h(one.name || "")}" hidden>Start recording</button></div>` : ""}
+          ${serviceItem?.isView ? "" : `<button type="button" class="tiny" data-track-edits="${h(one.name || "")}"
+            hidden>Start recording</button>`}</div>
+        <div class="setting ownonly"><label class="check"><input type="checkbox" data-own-only="${h(one.name || "")}" disabled
+            aria-describedby="ownWhy-${h(one.name || "")}">
+          Editors can only update and delete the features they add</label>
+          <span class="rowmeta" id="ownWhy-${h(one.name || "")}" data-own-only-why="${h(one.name || "")}"></span></div>` : ""}
       </div>`).join("")}</div>
     ${st.manages ? `<p class="hint">A layer's <b>time column</b> is when each feature happened. Left empty, the server
       uses the layer's one date column, or publishes no time when it has none or several — name one when the table
@@ -15243,21 +15295,27 @@ document.addEventListener("click", async e => {
     } catch (e) { toast(`${name}: ${e.message || e}`); }
     t.disabled = false;
     await fillLayerStewardship();
+    document.querySelector(`#featureLayers [data-history-toggle="${CSS.escape(name)}"]`)?.focus();
     return;
   }
 
   if (t.dataset?.trackEdits) {
     const name = t.dataset.trackEdits;
-    // One way: four columns are added and given their roles, and a column is not taken away by unticking a box.
-    if (!confirm(`Record who creates and edits each feature of ${name}? Four columns are added — created by, `
-        + "created on, edited by, edited on — and this cannot be undone. Features already there belong to nobody.")) return;
+    const stopping = t.dataset.on === "1";
+    // Starting adds four columns; stopping keeps them and what they hold, as Portal does (ADR-115).
+    if (!confirm(stopping
+      ? `Stop recording who creates and edits features of ${name}? The four columns and what they already hold are kept.`
+      : `Record who creates and edits each feature of ${name}? Four columns are added — created by, created on, `
+        + "edited by, edited on. Features already there belong to nobody.")) return;
     t.disabled = true;
     try {
-      const answer = await api(`/admin/hosted/${encodeURIComponent(name)}/editor-tracking`, { method: "POST" });
-      toast(answer.note || "Editors are recorded from now on.", true);
+      const answer = await api(`/admin/hosted/${encodeURIComponent(name)}/editor-tracking`,
+        { method: stopping ? "DELETE" : "POST" });
+      toast(answer.note || (stopping ? "Edits are no longer recorded." : "Editors are recorded from now on."), true);
     } catch (e) { toast(`${name}: ${e.message || e}`); }
     t.disabled = false;
     await fillLayerStewardship();
+    document.querySelector(`#featureLayers [data-track-edits="${CSS.escape(name)}"]`)?.focus();
     return;
   }
 
@@ -24522,6 +24580,10 @@ async function handleClick(event) {
       <fieldset class="offered"><legend>What to do</legend>
         <label class="check"><input type="radio" name="updateDataHow" value="append" checked>
           <span><b>Add features</b><span class="hint">The file's features are added to those the layer has.</span></span></label>
+        <label class="check"><input type="radio" name="updateDataHow" value="upsert">
+          <span><b>Update matching features, add the rest</b><span class="hint">A feature whose Match on value is
+            also in the file takes that row's values and shape; the file's other rows are added. ArcGIS calls this
+            <i>Add features and update existing features</i>.</span></span></label>
         <label class="check"><input type="radio" name="updateDataHow" value="overwrite">
           <span><b>Replace all features</b><span class="hint">Every feature and attachment the layer has now is
             removed, and the file's are put in their place.</span></span></label>
@@ -24539,6 +24601,9 @@ async function handleClick(event) {
         (EPSG code; leave empty to read it from the .prj)</label>
         <input type="text" id="updateDataSrid" inputmode="numeric" placeholder="from the .prj"></div>
       <div id="updateDataMap" aria-live="polite" hidden></div>
+      <div class="stacked" id="updateDataMatchRow" hidden><label for="updateDataMatch">Match on</label>
+        <select id="updateDataMatch" disabled><option value="">Choose a file to list its fields</option></select>
+        <span class="hint">A field whose values are unique, such as an asset or parcel number.</span></div>
       <details class="more"><summary>What is kept</summary><p class="hint">The layer keeps its fields, its geometry
         type and its coordinate system: a column the file has and the layer does not is left out and named, and the
         geometry is transformed into the layer's coordinate system if it needs to be.</p></details>`;
@@ -24546,6 +24611,7 @@ async function handleClick(event) {
     $("updateDataFoot").innerHTML = `<p class="hint fill" id="updateDataSays" role="status" aria-live="polite"></p>
       <button type="button" class="ghost" id="updateDataCancel">Cancel</button>
       <button type="button" class="primary" id="updateDataGo">Add features</button>`;
+    updateLayerColumns = [];
     drawUpdateChoice();
     $("updateData").showModal();
     $("updateDataTitle").focus();
@@ -24554,6 +24620,8 @@ async function handleClick(event) {
 
   if (t.id === "updateDataClose" || t.id === "updateDataCancel") { $("updateData").close(); return; }
 
+  if (t.id === "updateDataGo" && t.dataset.done) { $("updateData").close(); return; }
+
   if (t.id === "updateDataGo") {
     const says = $("updateDataSays");
     const file = $("updateDataFile")?.files?.[0];
@@ -24561,6 +24629,13 @@ async function handleClick(event) {
     const how = document.querySelector('input[name="updateDataHow"]:checked')?.value || "append";
 
     if (!file || !layer) { says.textContent = "Choose a file first."; $("updateDataFile")?.focus(); return; }
+
+    const matchOn = $("updateDataMatch")?.value || "";
+    if (how === "upsert" && !matchOn) {
+      says.textContent = "Choose the field features are matched on.";
+      $("updateDataMatch")?.focus();
+      return;
+    }
 
     // Replacing is the one that cannot be undone, so it is asked once more, naming what goes.
     if (how === "overwrite" && !confirm(`Replace every feature of '${layer}' with the features in ${file.name}? `
@@ -24581,12 +24656,24 @@ async function handleClick(event) {
         .map(sel => ({ name: sel.value, source: sel.dataset.mapFrom }))));
     }
 
+    if (how === "upsert") {
+      body.append("upsert", "true");
+      body.append("matchOn", matchOn);
+    }
+
     t.disabled = true;
-    says.textContent = how === "overwrite" ? "Replacing the features…" : "Adding the features…";
+    says.textContent = how === "overwrite" ? "Replacing the features…"
+      : how === "upsert" ? "Updating and adding the features…" : "Adding the features…";
 
     try {
-      const answer = await api(`/admin/hosted/${encodeURIComponent(layer)}/${how}`, { method: "POST", body });
+      const answer = await api(`/admin/hosted/${encodeURIComponent(layer)}/${how === "upsert" ? "append" : how}`,
+        { method: "POST", body });
       says.textContent = answer.note || "Done.";
+      // Done: the primary closes now, so the same file is not added a second time by a second press.
+      t.dataset.done = "1";
+      t.textContent = "Close";
+      t.classList.remove("danger");
+      t.classList.add("primary");
       // The layer changed under the page: its facts, counts and picture are drawn again behind the dialog.
       if (serviceOpen) showService(serviceOpen.qualified);
     } catch (e) {
@@ -27062,3 +27149,39 @@ function folderTitleOf(id) {
   const f = myFolders.find(one => one.id === id);
   return f ? h(f.title) : `<span class="val">a folder</span>`;
 }
+
+
+// ADR-115: editors kept to the features they added, a layer at a time.
+document.addEventListener("change", async e => {
+  const box = e.target;
+  if (!(box instanceof HTMLInputElement) || box.dataset.ownOnly === undefined) return;
+  const name = box.dataset.ownOnly;
+  const on = box.checked;
+  box.disabled = true;
+  try {
+    const service = serviceOpen ? `?service=${encodeURIComponent(serviceOpen.qualified)}` : "";
+    await api(`/admin/layers/${encodeURIComponent(name)}/ownership-access${service}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ editOwnOnly: on }) });
+    toast(on ? `Editors of ${name} can now change only the features they added.`
+      : `Editors of ${name} can change every feature again.`, true);
+  } catch (err) {
+    box.checked = !on;
+    toast(`${name}: ${err.message || err}`);
+  }
+  await fillLayerStewardship();
+  document.querySelector(`#featureLayers [data-own-only="${CSS.escape(name)}"]`)?.focus();
+});
+
+// ADR-116: the mapping row that carries the key says so, and changing either redraws the mark.
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (!(t instanceof Element) || !t.closest("#updateData")) return;
+  if (!t.matches("#updateDataMatch, [data-map-from], input[name=updateDataHow]")) return;
+  const key = document.querySelector('input[name="updateDataHow"]:checked')?.value === "upsert" ? $("updateDataMatch")?.value : "";
+  document.querySelectorAll("#updateDataMap [data-map-from]").forEach(sel => {
+    const cell = sel.closest("tr")?.querySelector("td");
+    if (!cell) return;
+    cell.querySelector(".matchmark")?.remove();
+    if (key && sel.value === key) cell.insertAdjacentHTML("beforeend", ` <span class="matchmark hint">· matched on</span>`);
+  });
+});

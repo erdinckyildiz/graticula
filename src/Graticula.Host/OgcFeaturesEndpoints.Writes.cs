@@ -418,7 +418,8 @@ internal static partial class OgcFeaturesEndpoints
             .ApplyAsync(
                 new EditBatch(
                     [new FeatureAdd(read.Attributes, read.Geometry)], [], [],
-                    Editor: Editor(context)),
+                    Editor: Editor(context),
+                    OwnOnly: Program.OwnOnlyFor(context, target.Layer, target.Described)),
                 cancellation)
             .ConfigureAwait(false);
 
@@ -650,7 +651,8 @@ internal static partial class OgcFeaturesEndpoints
                     [new FeatureUpdate(objectId, read.Attributes, read.Geometry)],
                     [],
                     Expects: expects,
-                    Editor: Editor(context)),
+                    Editor: Editor(context),
+                    OwnOnly: Program.OwnOnlyFor(context, target.Layer, target.Described)),
                 cancellation)
             .ConfigureAwait(false);
 
@@ -731,7 +733,8 @@ internal static partial class OgcFeaturesEndpoints
                 new EditBatch(
                     [], [], [objectId],
                     Expects: expects,
-                    Editor: Editor(context)),
+                    Editor: Editor(context),
+                    OwnOnly: Program.OwnOnlyFor(context, target.Layer, target.Described)),
                 cancellation)
             .ConfigureAwait(false);
 

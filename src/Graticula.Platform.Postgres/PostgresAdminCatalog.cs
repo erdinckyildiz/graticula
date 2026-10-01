@@ -2377,6 +2377,16 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> SetEditOwnOnlyAsync(Guid layerId, bool editOwnOnly, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand("update layer set edit_own_only = @on where id = @id");
+        command.Parameters.AddWithValue("id", layerId);
+        command.Parameters.AddWithValue("on", editOwnOnly);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> SetViewDefinitionAsync(Guid layerId, string? definition, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(

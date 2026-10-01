@@ -3475,7 +3475,8 @@ public static class Program
             // ADR-070: the scales it draws at.
             minScale: layer.VisibleRange.MinScale,
             maxScale: layer.VisibleRange.MaxScale,
-            time: time is null ? null : (time.Field, time.From, time.Until));
+            time: time is null ? null : (time.Field, time.From, time.Until),
+            editOwnOnly: layer.EditOwnOnly && description.Tracking.Creator is not null);
 
         // ADR-113: a view layer says so, and so does a source's.
         document = ViewFlags.Apply(context, document, layer.ViewOf is not null, layer.HasViews, layerCapabilities);
@@ -4649,8 +4650,25 @@ public static class Program
         return (description, parsed, parsed.Batch with
         {
             Editor = context.Features.Get<RequestPrincipal>()!.Principal.Name,
+            OwnOnly = OwnOnlyFor(context, layer, description),
             KeepsGlobalIds = byGlobalId is not null,
         });
+    }
+
+    /// <summary>
+    /// Whether this caller's updates and deletes reach only the rows they added — ADR-115. The layer asks for it, it
+    /// records who added each row, and the caller is neither its owner nor an administrator.
+    /// </summary>
+    internal static bool OwnOnlyFor(HttpContext context, PublishedLayer layer, LayerDescription description)
+    {
+        if (!layer.EditOwnOnly || description.Tracking?.Creator is null)
+        {
+            return false;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        return !LayerAccess.MayManage(layer.Owner, current.Principal, current.Authorization);
     }
 
     /// <summary>
