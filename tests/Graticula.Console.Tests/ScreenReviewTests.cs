@@ -176,7 +176,17 @@ public sealed class ScreenReviewTests : ConsoleTest
             "document.querySelectorAll('#contentRows tr').length > 0",
             "Studio's content list never rendered.");
 
-        await ClickAsync("#contentRows td.name a");
+        // A feature service's row: an image service holds no layers to open (ADR-123), and its picture is drawn from
+        // its ImageServer — which is how the row says what it is.
+        Assert.True(await Browser.EvaluateAsync<bool>("""
+            (() => {
+              const row = [...document.querySelectorAll('#contentRows tr')]
+                .find(tr => tr.querySelector('td.name a') && !tr.querySelector('[data-thumb*="/ImageServer/"]'));
+              if (!row) return false;
+              row.querySelector('td.name a').click();
+              return true;
+            })()
+            """), "Studio's content list has no feature service to open.");
 
         await WaitForAsync(
             "location.hash.startsWith('#/service/') "

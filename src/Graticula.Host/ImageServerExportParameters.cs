@@ -207,24 +207,27 @@ internal sealed class ImageServerExportParameters
         return true;
     }
 
-    /// <summary>Reads the point an <c>identify</c> asks about.</summary>
+    /// <summary>Reads the point an <c>identify</c> asks about, and the reference it is written in.</summary>
     /// <param name="parameter">Reads one query parameter.</param>
     /// <param name="info">The coverage.</param>
     /// <param name="x">Its easting or longitude.</param>
     /// <param name="y">Its northing or latitude.</param>
+    /// <param name="srid">The reference it is written in; the caller projects it into the coverage's.</param>
     /// <param name="error">Why it was refused.</param>
     /// <returns>Whether it parsed.</returns>
     /// <remarks>
-    /// <b>Esri's <c>geometry</c> parameter, in its comma form only.</b> The JSON form
-    /// <c>{"x":1,"y":2}</c> is the other spelling and is not read here; a request using
-    /// it is refused with a sentence naming the form that works, rather than parsed
-    /// halfway and answered about the wrong pixel.
+    /// <b>Esri's <c>geometry</c> parameter in both its spellings, since ADR-123.</b> The comma form <c>x,y</c> was the
+    /// only one read, and ArcGIS clients send the JSON one — <c>{"x":…,"y":…,"spatialReference":{"wkid":102100}}</c> —
+    /// so a pixel pop-up from the JS SDK or Map Viewer was refused. The reference is the geometry's own when it carries
+    /// one, then <c>sr</c>, then the coverage's; a point in another reference is projected by the caller, one point
+    /// through the same engine that warps an export.
     /// </remarks>
     public static bool TryPoint(
         Func<string, string?> parameter,
         CoverageInfo info,
         out double x,
         out double y,
+        out int srid,
         out string? error)
     {
         ArgumentNullException.ThrowIfNull(parameter);
@@ -233,23 +236,8 @@ internal sealed class ImageServerExportParameters
         x = 0;
         y = 0;
 
-        // <b>`identify` still answers only in the coverage's own reference, and that is
-        // a smaller limitation than it sounds.</b> Warping a whole image is a grid of
-        // control points amortised over a million pixels; projecting one point is a
-        // round trip for one answer, and the point of `identify` is that it is cheap.
-        // The client already has the service document, which names the reference.
-        if (!TryReference(parameter("sr"), info, out int srid, out error))
+        if (!TryReference(parameter("sr"), info, out srid, out error))
         {
-            return false;
-        }
-
-        if (srid != info.Srid)
-        {
-            error = $"`identify` reads a point in this service's own reference, EPSG:"
-                + info.Srid.ToString(CultureInfo.InvariantCulture)
-                + $", and the request named EPSG:{srid.ToString(CultureInfo.InvariantCulture)}. "
-                + "Exporting an image will reproject; asking about one pixel will not.";
-
             return false;
         }
 
@@ -257,23 +245,52 @@ internal sealed class ImageServerExportParameters
 
         if (string.IsNullOrWhiteSpace(geometry))
         {
-            error = "`geometry` names the point to identify, written as `x,y` in this image "
-                + "service's own reference system.";
+            error = "`geometry` names the point to identify, as `x,y` or as an Esri point "
+                + "`{\"x\":…,\"y\":…,\"spatialReference\":{\"wkid\":…}}`.";
 
             return false;
         }
 
-        string[] parts = geometry.Split(',');
+        string trimmed = geometry.Trim();
 
-        if (parts.Length != 2
-            || !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out x)
-            || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out y))
+        if (trimmed.StartsWith('{'))
         {
-            error = $"`geometry={geometry}` is not a point. Write it as `x,y`. The JSON form "
-                + "this server does not read, so that a request using it is refused rather than "
-                + "answered about the wrong pixel.";
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(trimmed);
+                JsonElement point = document.RootElement;
 
-            return false;
+                if (point.ValueKind != JsonValueKind.Object
+                    || !point.TryGetProperty("x", out JsonElement px) || !px.TryGetDouble(out x)
+                    || !point.TryGetProperty("y", out JsonElement py) || !py.TryGetDouble(out y))
+                {
+                    error = $"`geometry={geometry}` is not a point: it needs numeric `x` and `y`.";
+                    return false;
+                }
+
+                if (point.TryGetProperty("spatialReference", out JsonElement reference)
+                    && !TryReference(reference.GetRawText(), info, out srid, out error))
+                {
+                    return false;
+                }
+            }
+            catch (JsonException)
+            {
+                error = $"`geometry={geometry}` is not JSON this server can read as a point.";
+                return false;
+            }
+        }
+        else
+        {
+            string[] parts = trimmed.Split(',');
+
+            if (parts.Length != 2
+                || !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out x)
+                || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out y))
+            {
+                error = $"`geometry={geometry}` is not a point. Write it as `x,y`, or as an Esri point with `x` and `y`.";
+                return false;
+            }
         }
 
         // See AllFinite. This is the one that answered a 500 without signing in.

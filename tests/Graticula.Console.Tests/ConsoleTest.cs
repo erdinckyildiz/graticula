@@ -1150,6 +1150,24 @@ public abstract class ConsoleTest : IAsyncLifetime
           // did once it was allowed to proceed.
           window.confirm = message => { window.__confirmed.push(String(message)); return true; };
 
+          // <b>And XMLHttpRequest, which an upload uses to say how far it has got</b> (ADR-123's imagery form): a write
+          // sent that way is recorded and answered the same as one sent with fetch, and never sent.
+          const xhrOpen = XMLHttpRequest.prototype.open;
+          const xhrSend = XMLHttpRequest.prototype.send;
+          XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+            this.__trap = { method: String(method).toUpperCase(), url: String(url) };
+            return xhrOpen.call(this, method, url, ...rest);
+          };
+          XMLHttpRequest.prototype.send = function (body) {
+            const trap = this.__trap;
+            if (!trap || trap.method === "GET" || trap.method === "HEAD") return xhrSend.call(this, body);
+            const fields = body instanceof FormData ? " [" + [...body.keys()].sort().join(",") + "]" : "";
+            window.__writes.push(trap.method + " " + trap.url + fields);
+            Object.defineProperty(this, "status", { value: 200 });
+            Object.defineProperty(this, "responseText", { value: "{}" });
+            setTimeout(() => this.onload && this.onload(), 0);
+          };
+
           const real = window.fetch.bind(window);
 
           window.fetch = async (input, init) => {

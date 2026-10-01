@@ -143,6 +143,10 @@
   .warnnote { color: var(--warn); font-size: 12.5px; margin: 6px 0 0; }
   #measureLive { font-family: var(--mono); font-size: 12.5px; min-height: 1.2em; margin: 6px 0 0; }
   .lctl { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin: 6px 0 0 22px; }
+  .lctl [data-act="remove"] { margin-left: auto; }
+  .lctl [data-act="pixels"][aria-pressed="true"] { font-weight: 600; }
+  img.swatch { object-fit: cover; }
+  table.pixel td { text-align: right; font-variant-numeric: tabular-nums; }
   .lctl input[type="range"] { width: 90px; }
   .lfilter { margin: 7px 0 0 22px; }
   .lfilter input { font-family: var(--mono); font-size: 12px; }
@@ -315,7 +319,7 @@
     </aside>
 
     <div id="mapWrap">
-      <div id="map" tabindex="0" aria-label="Map. Click a feature to see its attributes."></div>
+      <div id="map" tabindex="0" aria-label="Map. Click it to see the features or pixel values at that point."></div>
       <div id="identify" role="region" aria-label="What is here" hidden></div>
       <div id="strip"><span id="stripScale"></span><span id="stripWhere"></span></div>
     </div>

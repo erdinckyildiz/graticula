@@ -384,12 +384,14 @@ function wmKind(layer) {
   switch (layer.layerType) {
     case "ArcGISFeatureLayer": return layer.url ? "feature" : null;
     case "ArcGISMapServiceLayer": return layer.url ? "image" : null;
+    // ADR-123: an image service, drawn the way a map image is and asked for its pixel values.
+    case "ArcGISImageServiceLayer": return layer.url ? "imagery" : null;
     case "VectorTileLayer": return (layer.styleUrl || layer.url) ? "tiles" : null;
     default: return null;
   }
 }
 
-const WM_KIND_LABEL = { feature: "Features", image: "Map image", tiles: "Vector tiles" };
+const WM_KIND_LABEL = { feature: "Features", image: "Map image", imagery: "Imagery", tiles: "Vector tiles" };
 
 /** A vector tile layer's service address, from whichever of its two fields it carries. */
 function wmTileService(layer) {
@@ -755,7 +757,9 @@ function wmBuildLayer(layer, run, index) {
   const info = own && own.renderer ? { ...run.info, drawingInfo: own } : run.info;
 
   // A map image is drawn by the server in the service's own symbology, which this page does not read.
-  run.swatches = kind === "image" ? [] : kind === "feature" ? wmSwatches(info, colour) : [colour];
+  // An image is shown by its own small picture in the list rather than by a colour (design review 2026-10-01).
+  run.swatches = kind === "image" ? [] : kind === "imagery" ? null : kind === "feature" ? wmSwatches(info, colour) : [colour];
+  if (kind === "imagery") run.thumb = `${layer.url}/exportImage?size=32,32&format=png&f=image`;
 
   if (kind === "feature") {
     const renderer = wmRendererStyle(info, colour);
@@ -815,15 +819,17 @@ function wmBuildLayer(layer, run, index) {
     return group;
   }
 
-  if (kind === "image") {
+  if (kind === "image" || kind === "imagery") {
+    // OpenLayers asks an ImageServer for `exportImage` and a MapServer for `export`; the image service is asked for a
+    // PNG, so the transparency of its no-data shows the map beneath.
     const source = new ol.source.ImageArcGISRest({
       url: layer.url,
       ratio: 1,
-      params: { TRANSPARENT: true },
+      params: kind === "imagery" ? { FORMAT: "png" } : { TRANSPARENT: true },
     });
 
     source.on("imageloaderror", () => {
-      run.error = "The server refused to draw this layer's picture.";
+      run.error = "This layer's picture could not be drawn. Sign in again, or check that it is shared with you.";
       wmDrawLayerList();
     });
     source.on("imageloadend", () => {
@@ -1024,6 +1030,16 @@ function wmFilterExample(info) {
 
 /** The swatch before a layer's title, in the colours its renderer draws with. */
 function wmSwatchMarkup(run) {
+  // An image's own picture, fetched with the reader's credential — an <img> carries only the cookie — once.
+  if (run && run.thumbUrl) return `<img class="swatch" alt="" aria-hidden="true" src="${wmEscape(run.thumbUrl)}">`;
+  if (run && run.thumb && !run.thumbAsked) {
+    run.thumbAsked = true;
+    const headers = wmToken ? { Authorization: "Bearer " + wmToken } : {};
+    fetch(run.thumb, { headers })
+      .then(r => r.ok ? r.blob() : null)
+      .then(blob => { if (blob) { run.thumbUrl = URL.createObjectURL(blob); wmDrawLayerList(); } })
+      .catch(() => { /* the slot stays plain */ });
+  }
   const colours = (run && run.swatches) || [];
   if (!colours.length) return `<span class="swatch none" aria-hidden="true"></span>`;
   const fill = colours.length === 1
@@ -1087,6 +1103,9 @@ function wmDrawLayerList() {
           <button class="tiny" data-act="labels" data-layer="${wmEscape(key)}"
           aria-label="Labels of ${wmEscape(title)}" data-focus="labels:${wmEscape(key)}" aria-expanded="${run.labelOpen ? "true" : "false"}"
           aria-controls="lab-${wmEscape(key)}">Labels</button>` : ""}
+        ${readable && kind === "imagery" ? `<button class="tiny" data-act="pixels" data-layer="${wmEscape(key)}"
+          data-focus="pixels:${wmEscape(key)}" aria-pressed="${layer.popupEnabled === false ? "false" : "true"}"
+          title="Show pixel values when the map is clicked">Pixel values</button>` : ""}
         ${readable && wmExtentOf(layer) ? `<button class="tiny" data-act="zoom" data-layer="${wmEscape(key)}"
           aria-label="Zoom to ${wmEscape(title)}"
           data-focus="zoom:${wmEscape(key)}">Zoom to</button>` : ""}
@@ -1731,6 +1750,12 @@ wm$("layerList").addEventListener("click", event => {
       break;
     }
     case "styleApply": wmApplyStyle(layer); break;
+    // ADR-123: whether a click on this image answers its pixel — `popupEnabled`, as ArcGIS saves it.
+    case "pixels":
+      layer.popupEnabled = layer.popupEnabled === false;
+      wmMarkDirty();
+      wmDrawLayerList();
+      break;
     case "popup": {
       const run = wmRuntime.get(layer);
       if (run) {
@@ -1807,7 +1832,7 @@ async function wmReadServices() {
 
   const take = directory => {
     for (const service of directory.services || []) {
-      if (["FeatureServer", "MapServer", "VectorTileServer"].includes(service.type)) {
+      if (["FeatureServer", "MapServer", "VectorTileServer", "ImageServer"].includes(service.type)) {
         found.push({ name: service.name, type: service.type });
       }
     }
@@ -1826,10 +1851,10 @@ async function wmReadServices() {
   return found.sort((a, b) => a.name.localeCompare(b.name) || a.type.localeCompare(b.type));
 }
 
-const WM_TYPE_LABEL = { FeatureServer: "Features", MapServer: "Map image", VectorTileServer: "Vector tiles" };
+const WM_TYPE_LABEL = { FeatureServer: "Features", MapServer: "Map image", VectorTileServer: "Vector tiles", ImageServer: "Imagery" };
 
 /** The kinds a service is added as, the one a person almost always wants first. */
-const WM_TYPE_ORDER = ["FeatureServer", "VectorTileServer", "MapServer"];
+const WM_TYPE_ORDER = ["FeatureServer", "ImageServer", "VectorTileServer", "MapServer"];
 
 /** Services whose *other ways to draw it* the reader opened, so a redraw does not close it on them. */
 const wmOpenedKinds = new Set();
@@ -2004,6 +2029,12 @@ async function wmAddService(name, type, onlyLayer = null) {
       id: wmNewId(), layerType: "ArcGISMapServiceLayer", url, title: name.split("/").pop(),
       visibility: true, opacity: 1,
     });
+  } else if (type === "ImageServer") {
+    await wmFetch(`${url}?f=json`);
+    entries.push({
+      id: wmNewId(), layerType: "ArcGISImageServiceLayer", url, title: name.split("/").pop(),
+      visibility: true, opacity: 1,
+    });
   } else if (type === "VectorTileServer") {
     await wmFetch(`${url}?f=json`);
     entries.push({
@@ -2124,7 +2155,10 @@ async function wmIdentify(coordinate) {
   const candidates = wmQueryable({ visibleOnly: true }).filter(layer => layer.popupEnabled !== false);
   // ADR-121: a heat map shows density, so it is not asked for one feature.
   const layers = candidates.filter(layer => !isHeat(layer));
-  if (layers.length === 0 && candidates.length > 0) {
+  // ADR-123: an imagery layer switched on answers what its pixel is there.
+  const pixels = wmLayers().filter(layer => wmKind(layer) === "imagery" && layer.visibility !== false
+    && layer.popupEnabled !== false && (wmRuntime.get(layer) || {}).status === "ok");
+  if (layers.length === 0 && pixels.length === 0 && candidates.length > 0) {
     const heat = candidates[0];
     wmSay(`${heat.title} is a heat map, which shows density, not single features. To click one, set its Style to One colour.`);
     return;
@@ -2133,15 +2167,28 @@ async function wmIdentify(coordinate) {
   wmHighlight.getSource().clear();
   card.hidden = true;
 
-  if (layers.length === 0) {
-    wmSay("No feature layer is switched on, so a click has nothing to ask. Map image and tile layers are drawn, not identified.");
+  if (layers.length === 0 && pixels.length === 0) {
+    wmSay("No feature or imagery layer is switched on, so a click has nothing to ask. Map image and tile layers are drawn, not identified.");
     return;
   }
 
   const tolerance = wmMap.getView().getResolution() * 6;
   const box = [coordinate[0] - tolerance, coordinate[1] - tolerance, coordinate[0] + tolerance, coordinate[1] + tolerance];
 
-  wmSay(`Asking ${layers.length} layer${layers.length === 1 ? "" : "s"} what is here…`);
+  wmSay(`Asking ${layers.length + pixels.length} layer${layers.length + pixels.length === 1 ? "" : "s"} what is here…`);
+
+  const pixelAnswers = Promise.all(pixels.map(async layer => {
+    try {
+      const said = await wmFetch(`${layer.url}/identify?` + wmParams({
+        geometry: JSON.stringify({ x: coordinate[0], y: coordinate[1], spatialReference: { wkid: 102100, latestWkid: 3857 } }),
+        geometryType: "esriGeometryPoint",
+        f: "json",
+      }));
+      return { layer, value: said && said.value };
+    } catch (e) {
+      return { layer, error: e.message || String(e) };
+    }
+  }));
 
   const answers = await Promise.all(layers.map(async layer => {
     try {
@@ -2163,11 +2210,22 @@ async function wmIdentify(coordinate) {
     }
   }));
 
+  const pixelFound = await pixelAnswers;
   if (turn !== wmIdentifyTurn) return;
 
   let count = 0;
+  let valued = 0;
   let failed = 0;
-  const sections = answers.map(({ layer, payload, error }) => {
+  const pixelSections = pixelFound.map(({ layer, value, error }) => {
+    if (error) {
+      failed++;
+      return { layer, html: `<h3>${wmEscape(layer.title)}</h3><p>Could not be asked: ${wmEscape(error)}</p>` };
+    }
+    if (value === null || value === undefined || value === "" || value === "NoData") return { layer, html: "" };
+    valued++;
+    return { layer, html: `<h3>${wmEscape(layer.title)}</h3>${wmPixelMarkup(layer, value)}` };
+  });
+  const featureSections = answers.map(({ layer, payload, error }) => {
     const info = (wmRuntime.get(layer) || {}).info;
     if (error) {
       failed++;
@@ -2182,20 +2240,53 @@ async function wmIdentify(coordinate) {
 
     return `<h3>${wmEscape(layer.title)} <span class="lkind">${features.length}${payload.exceededTransferLimit ? "+" : ""}</span></h3>`
       + features.map(f => wmPopupMarkup(layer, f.attributes, info)).join("");
-  }).join("");
+  }).map((html, i) => ({ layer: answers[i].layer, html }));
 
+  // <b>In the layer list's order — the top of the map first</b>, so an image drawn under a feature layer answers
+  // after it, and of two images the one on top first (design review 2026-10-01).
+  const order = wmLayers();
+  const sections = [...pixelSections, ...featureSections]
+    .sort((a, b) => order.indexOf(b.layer) - order.indexOf(a.layer))
+    .map(one => one.html).join("");
+
+  const asked = layers.length + pixels.length;
   if (!sections) {
-    wmSay(`Nothing here on the ${layers.length} layer${layers.length === 1 ? "" : "s"} switched on.`);
+    wmSay(asked === 1 && pixels.length === 1
+      ? `${pixels[0].title} has no pixel here.`
+      : `Nothing here on the ${asked} layer${asked === 1 ? "" : "s"} switched on.`);
     return;
   }
+
+  // Where the click was asked about, which a pixel has no outline to show.
+  if (valued) wmHighlight.getSource().addFeature(new ol.Feature(new ol.geom.Point(coordinate)));
 
   card.innerHTML = `<div class="top"><b>What is here</b>
       <button class="tiny" data-close aria-label="Close">&times;</button></div>${sections}`;
   card.hidden = false;
 
-  wmSay(count
-    ? `${count} feature${count === 1 ? "" : "s"} here${failed ? `; ${failed} layer${failed === 1 ? "" : "s"} could not be asked` : ""}.`
+  const found = [count ? `${count} feature${count === 1 ? "" : "s"}` : "", valued ? `${valued} pixel value${valued === 1 ? "" : "s"}` : ""]
+    .filter(Boolean).join(" and ");
+  wmSay(found
+    ? `${found} here${failed ? `; ${failed} layer${failed === 1 ? "" : "s"} could not be asked` : ""}.`
     : `${failed} layer${failed === 1 ? "" : "s"} could not be asked.`);
+}
+
+/**
+ * A pixel's value as a reader reads it — ADR-123: one row a band, named red, green and blue for a colour image,
+ * and each a number to the precision its type holds rather than the seventeen digits a double prints.
+ */
+function wmPixelMarkup(layer, value) {
+  const parts = String(value).trim().split(/\s+/);
+  const info = (wmRuntime.get(layer) || {}).info || {};
+  const colour = parts.length >= 3;
+  const names = parts.map((_, i) => colour && i < 3 ? ["Red", "Green", "Blue"][i]
+    : String((info.bandNames || [])[i] || `Band ${i + 1}`).replace(/_/g, " "));
+  const shown = text => {
+    const number = Number(text);
+    return Number.isFinite(number) ? number.toLocaleString(undefined, { maximumSignificantDigits: 7 }) : text;
+  };
+  return `<table class="feature pixel">${parts.map((part, i) => `<tr><th scope="row">${
+    wmEscape(parts.length === 1 ? "Pixel value" : names[i])}</th><td>${wmEscape(shown(part))}</td></tr>`).join("")}</table>`;
 }
 
 wm$("identify").addEventListener("click", event => {
@@ -2504,7 +2595,7 @@ function wmServiceOf(layer) {
   if (address.origin !== location.origin) return null;
   let path = address.pathname;
   try { path = decodeURIComponent(path); } catch { /* compared as written */ }
-  const match = /\/rest\/services\/(.+?)\/(FeatureServer|MapServer|VectorTileServer)(\/|$)/.exec(path);
+  const match = /\/rest\/services\/(.+?)\/(FeatureServer|MapServer|VectorTileServer|ImageServer)(\/|$)/.exec(path);
   return match ? match[1] : null;
 }
 
@@ -2901,7 +2992,7 @@ async function wmStart() {
     let added = 0;
     let last = null;
 
-    for (const type of ["FeatureServer", "VectorTileServer", "MapServer"]) {
+    for (const type of ["FeatureServer", "VectorTileServer", "MapServer", "ImageServer"]) {
       try {
         added = await wmAddService(service, type, type === "FeatureServer" ? layer : null);
         if (added > 0) break;

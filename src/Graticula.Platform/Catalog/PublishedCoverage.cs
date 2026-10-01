@@ -191,6 +191,15 @@ public interface ICoverageCatalog
     System.Threading.Tasks.Task<bool> RemoveAsync(
         string? folder, string serviceName, System.Threading.CancellationToken cancellationToken);
 
+    /// <summary>Replaces how a coverage is drawn — ADR-123 — or clears it back to the default with null.</summary>
+    /// <param name="folder">The folder, or null for the root.</param>
+    /// <param name="serviceName">The service name.</param>
+    /// <param name="style">The style's compact text, or null.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the coverage exists.</returns>
+    System.Threading.Tasks.Task<bool> SetStyleAsync(
+        string? folder, string serviceName, string? style, System.Threading.CancellationToken cancellationToken);
+
     /// <summary>
     /// Starts or stops the service that publishes a coverage.
     /// </summary>

@@ -83,7 +83,22 @@ bands in order, a non-empty `mosaicRule` and a `time`. It reads and does not app
 ## 10. Conditions
 
 1. **An export refuses what it does not apply** — **DISCHARGED 2026-10-01**, `ImageServerConformanceTests`.
-2. **A GeoTIFF or COG is uploaded and published from Studio.**
-3. **An imagery layer's stretch and colours are set, and the default does not blacken 12-bit or whiten float data.**
-4. **The Map Viewer adds and draws an imagery layer.**
-5. **`identify` reads the point ArcGIS clients send.**
+2. **A GeoTIFF or COG is uploaded and published from Studio** — **DISCHARGED 2026-10-01**, `ImageryUploadTests` and
+   `ImportFormTests.A_GeoTIFF_is_offered_its_own_form_and_uploaded_from_it`. Kept under the state volume's `imagery/`
+   directory (it is primary data and must survive a container replacement), streamed to disk, at most 4 GB, and
+   deleted with its service; a file registered in place is still never touched.
+3. **An imagery layer's stretch and colours are set, and the default does not blacken 12-bit or whiten float data** —
+   **DISCHARGED 2026-10-01**, `ImageryDisplayTests` (a float elevation model drawn 0–255 by default where the format's
+   range drew it all 255) and `ImportFormTests.An_image_services_display_is_set_on_its_page`. Eight-bit data keeps the
+   full range; wider data is stretched over its sampled values — one band between its minimum and maximum, colour two
+   standard deviations about the mean — fixed, so tiles agree. `stretch:auto|full|lo,hi` and `;ramp:<name>` in the
+   stored style; five named ramps for one or two bands.
+   The Display page's picture is drawn under the controls before they are saved — `GET /admin/coverages/{name}/preview`,
+   its owner's only — with the ramp and the range it runs over beneath it (design review 2026-10-01).
+4. **The Map Viewer adds and draws an imagery layer** — **DISCHARGED 2026-10-01**,
+   `WebMapImageryTests.An_image_service_is_added_to_a_map_drawn_and_its_pixel_identified`. Listed under *Imagery* in
+   Add layer, saved as `ArcGISImageServiceLayer`, drawn from `exportImage` as PNG so its no-data shows the map beneath,
+   and a click on it answers the pixel's value beside any features there.
+5. **`identify` reads the point ArcGIS clients send** — **DISCHARGED 2026-10-01**, `ImageryDisplayTests`: an Esri JSON
+   point in Web Mercator is read and projected into the coverage's reference, where only `x,y` in the coverage's own
+   was read before.

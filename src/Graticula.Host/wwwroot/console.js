@@ -157,6 +157,10 @@ const ICONS = {
   // distinction rather than decoration.
   root: '<path d="M2.2 7.4 8 2.6l5.8 4.8"/><path d="M3.8 8.6v4.8h8.4V8.6"/>',
   folder: '<path d="M1.9 4.6h4l1.4 1.7h6.8v7.1H1.9z"/>',
+
+  // A picture: a frame with a hill and a sun, for an imagery layer — pixels rather than features.
+  imagery: '<rect x="2.2" y="2.8" width="11.6" height="10.4" rx="1.1"/>'
+         + '<path d="m2.6 11.4 3.6-3.8 2.6 2.6 1.6-1.6 3 3"/><circle cx="10.6" cy="5.8" r="1.2"/>',
 };
 
 /**
@@ -3847,7 +3851,7 @@ function drawMyContent() {
   if (typeBox) {
     if (contentType && !kinds.includes(contentType)) contentType = "";
     typeBox.innerHTML = `<option value="">All types</option>${kinds.map(k =>
-      `<option value="${h(k)}"${k === contentType ? " selected" : ""}>${h(k)}</option>`).join("")}`;
+      `<option value="${h(k)}"${k === contentType ? " selected" : ""}>${h(itemTypeName(k))}</option>`).join("")}`;
     typeBox.hidden = kinds.length < 2;
   }
 
@@ -3955,7 +3959,11 @@ function drawMyContent() {
               <b>The name still goes to Overview.</b> Two targets in one row are only worth having
               if they lead somewhere different.
             -->
-            <td class="thumbcell">${i.cover
+            <td class="thumbcell">${i.kind === "ImageServer"
+              ? `<a class="thumblink" href="#/service/${i.name.split("/").map(encodeURIComponent).join("/")}"
+                   title="Open ${h(i.name)}"><img class="thumb" alt="" loading="lazy"
+                   data-thumb="${h(thumbnailFor(`/rest/services/${i.name}/ImageServer`))}"></a>`
+              : i.cover
               ? `<a class="thumblink" href="${h(visHref(i.cover.layer || "", "features")
                    || `#/service/${i.name.split("/").map(encodeURIComponent).join("/")}`)}"
                    title="Draw ${h(i.cover.layer || i.name)} on the map"
@@ -3964,8 +3972,8 @@ function drawMyContent() {
               : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
             <td class="name"><a href="#/service/${
               i.name.split("/").map(encodeURIComponent).join("/")}" title="${h(i.name)}">${h(bareOf(i))}</a>
-              <div class="rowmeta">${stopped ? `${pill("stopped")} ` : ""}${h(i.kind)} · ${num(i.layers)}
-                layer${i.layers === 1 ? "" : "s"} · ${i.folder ? `service folder ${h(i.folder)}` : "service root"}${i.description
+              <div class="rowmeta">${stopped ? `${pill("stopped")} ` : ""}${h(itemTypeName(i.kind))} · ${
+                i.kind === "ImageServer" ? "" : `${num(i.layers)} layer${i.layers === 1 ? "" : "s"} · `}${i.folder ? `service folder ${h(i.folder)}` : "service root"}${i.description
                   ? ` · ${h(i.description)}` : ""}${i.owner && i.scope !== "mine"
                   ? ` · ${h(i.owner)}` : ""}${(i.throughGroups || []).length > 0
                   ? ` · via ${i.throughGroups.map(h).join(", ")}` : ""}${folderNote(i)}</div></td>
@@ -3984,7 +3992,16 @@ function drawMyContent() {
               i.because === "administrativeoverride"
                 ? ` <span class="val">by override</span>` : ""}</td>
             <td class="val">${day(i.updated)}</td>
-            <td style="text-align:right">${key === null
+            <td style="text-align:right">${i.kind === "ImageServer"
+              ? `<details class="menu">
+                  <summary title="More" aria-label="More actions">⋯</summary>
+                  <div class="sheet">
+                    ${stopped ? "" : `<a href="/studio/webmap.html?service=${encodeURIComponent(i.name)}">Open in Map Viewer</a>`}
+                    ${i.scope === "mine" ? `<button data-move-service="${h(i.name)}"
+                      data-move-folder="${h(i.contentFolder || "")}">Move to folder…</button>` : ""}
+                  </div>
+                </details>`
+              : key === null
               ? ""
               : `${stopped
                   ? ""
@@ -4518,6 +4535,7 @@ async function showService(qualified) {
   const { folder, name } = splitService(qualified);
 
   serviceOpen = { qualified, folder, name };
+  serviceOpenKind = null;
 
   // A different service, so the previous answer about tiles is somebody else's.
   visTiled = null;
@@ -4689,6 +4707,13 @@ async function showService(qualified) {
     kind = null;
   }
 
+  serviceOpenKind = kind;
+
+  // Settings drawn before the kind was known listed a feature service's pages; drawn again with the right ones.
+  if (kind === "ImageServer" && $("serviceEdit") && !$("serviceEdit").hidden && serviceOpen) {
+    drawServiceSettings(serviceOpen.name, serviceOpen.folder);
+  }
+
   if (kind === "ImageServer") {
     /*
       <b>Not a bare return any more — [D-200](../../docs/architecture-debt.md).</b> Everything
@@ -4705,6 +4730,10 @@ async function showService(qualified) {
       reviewer reported as *never populates at all*.
     */
     $("serviceFacts").textContent = "image service · a coverage rather than layers";
+    $("serviceLayersHead").hidden = true;
+    $("serviceLayersPanel").hidden = true;
+    // The delete panel was drawn before the kind was known; it says what an image service's delete takes.
+    drawServiceDelete();
 
     await drawServiceDetails(qualified, kind);
 
@@ -5317,6 +5346,10 @@ function drawServiceLayers(layers, qualified) {
   const box = $("serviceLayerRows");
   if (!box) return;
 
+  // An image service holds no layers, so its page has no Layers section (ADR-123); a feature service gets it back.
+  $("serviceLayersHead").hidden = false;
+  $("serviceLayersPanel").hidden = false;
+
   // <b>Ordered here rather than trusted to arrive ordered.</b> A group's children are its own rows in the
   // service document and today they happen to follow it; the review pointed out that the nesting reads
   // correctly by accident. `parentLayerId` is in the document and was being ignored.
@@ -5612,8 +5645,8 @@ async function drawServiceDetails(qualified, knownKind) {
       // row is absent rather than guessed.
       ...(source ? [["Source", source]] : []),
       ...(spatial ? [["Coordinates", spatial]] : []),
-      ["Layers", `<span title="${num(serviceEntries)} entr${serviceEntries === 1 ? "y" : "ies"} in the service document, which counts a group layer and what is nested under it">${
-        num(item.layers || serviceLayers.length || 0)}</span>`],
+      ...(kind === "ImageServer" ? [] : [["Layers", `<span title="${num(serviceEntries)} entr${serviceEntries === 1 ? "y" : "ies"} in the service document, which counts a group layer and what is nested under it">${
+        num(item.layers || serviceLayers.length || 0)}</span>`]]),
       // ADR-113: a view names its source, and a source its views — filled in below.
       ...(item.isView ? [["View of", `<span id="svcViewOf" class="val">…</span>`]] : []),
       ...(item.hasViews ? [["Views", `<span id="svcViews" class="val">…</span>`]] : []),
@@ -6515,9 +6548,13 @@ function drawServiceHead(item) {
   const coverId = /\/FeatureServer\/(\d+)$/.exec(item.cover?.url || "")?.[1];
   const coverLayer = coverId === undefined ? null : serviceLayers.find(one => String(one.id) === coverId);
 
+  const imagery = item.kind === "ImageServer";
   box.innerHTML = `
     <div class="itemhead">
-      ${item.cover
+      ${imagery
+        ? `<div class="thumbcol"><img class="thumb" id="layerThumb" alt=""
+             data-thumb="${h(thumbnailFor(`/rest/services/${item.name}/ImageServer`))}"></div>`
+        : item.cover
         ? `<div class="thumbcol"><img class="thumb" id="layerThumb" alt="" loading="lazy"
              data-thumb="${h(thumbnailFor(item.cover.url))}">${item.manages !== false && coverLayer ? `
            <button type="button" class="tiny" data-redraw-thumb="${h(coverLayer.name || "")}"
@@ -6549,7 +6586,7 @@ function drawServiceHead(item) {
   if (sub) {
     sub.textContent = [
       itemTypeName(item.kind) + (item.isView ? " (view)" : ""),
-      `${num(item.layers || 0)} layer${(item.layers || 0) === 1 ? "" : "s"}`,
+      imagery ? "" : `${num(item.layers || 0)} layer${(item.layers || 0) === 1 ? "" : "s"}`,
       item.owner ? `owner ${item.owner}` : "",
     ].filter(Boolean).join(" · ");
   }
@@ -7041,7 +7078,19 @@ function drawServiceDelete() {
   const hostedHere = serviceLayers.some(one => layerNamed(one.name || "").hosted)
     || (!serviceLayers.some(one => layerNamed(one.name || "").url) && (serviceOpen?.folder || "") === "hosted");
 
-  note.innerHTML = count === 0
+  // ADR-123: an image service holds a file rather than layers; whether the file goes is how it came.
+  if (serviceOpenKind === "ImageServer" && serviceOpen) {
+    note.textContent = "Reading what deleting it takes with it…";
+    const at = serviceOpen;
+    api(`/admin/coverages/${encodeURIComponent(at.name)}/style?folder=${encodeURIComponent(at.folder || "")}`)
+      .then(style => {
+        if (serviceOpen !== at) return;
+        note.textContent = style && style.uploaded
+          ? "Deleting this service also deletes the image you uploaded. It cannot be recovered."
+          : "Deleting this service removes only the service. The image file on the server is not touched.";
+      })
+      .catch(() => { note.textContent = "Deleting this service removes it; an image uploaded for it goes with it."; });
+  } else note.innerHTML = count === 0
     ? `This service holds no layers, so deleting it removes the service and no data.`
     : hostedHere
       ? `Deleting this service unpublishes <b>${num(count)} layer${count === 1 ? "" : "s"}</b> and
@@ -7310,7 +7359,10 @@ function drawServiceSettings(name, folder) {
   const page = SERVICE_PAGE_OPEN && mine.includes(SERVICE_PAGE_OPEN) ? SERVICE_PAGE_OPEN : mine[0];
 
   const tiled = tileLayerOf();
-  const shownPages = mine.filter(p => p !== "tiles" || tiled);
+  // An image service has a Display page and no Feature layer page; a feature service the other way round (ADR-123).
+  const imagery = serviceOpenKind === "ImageServer";
+  const shownPages = mine.filter(p => (p !== "tiles" || tiled)
+    && (p !== "imagery" || imagery) && (p !== "feature" || !imagery));
   const open = shownPages.includes(page) ? page : shownPages[0];
 
   $("serviceNav").innerHTML = shownPages.map(p =>
@@ -7339,6 +7391,7 @@ function drawServiceSettings(name, folder) {
 
   box.hidden = false;
   section("capabilities", () => loadServiceCapabilities(name, folder));
+  if (open === "imagery") drawCoverageDisplay(name, folder, null);
 
   // <b>Deleting is General's, in Studio.</b> The panel is one node, moved in and out rather than drawn twice,
   // because its lock and its button keep state; it is parked outside the pages before they are redrawn.
@@ -7363,7 +7416,7 @@ function drawServiceSettings(name, folder) {
 }
 
 /** The labels the Settings list shows, where a page's key is not already its name. */
-const SERVICE_PAGE_LABELS = { general: "General", feature: "Feature layer", tiles: "Tile layer", layers: "Layers" };
+const SERVICE_PAGE_LABELS = { general: "General", feature: "Feature layer", tiles: "Tile layer", layers: "Layers", imagery: "Display" };
 
 /**
  * The open service's first layer that has tiles, as the layer listing describes it, or null when it has none.
@@ -7432,6 +7485,9 @@ function settingsFollowTiles() {
 
 /** Which of a service's pages is open. Held here because it is a screen state, not an address. */
 let SERVICE_PAGE_OPEN = null;
+
+/** The open service's kind — FeatureServer or ImageServer — once the page has asked (ADR-123). */
+let serviceOpenKind = null;
 
 /**
  * The style editor for one layer — ADR-053's three columns — as Visualization's *Style* panel draws it
@@ -8200,6 +8256,9 @@ function serviceSettingsMarkup(name, folder) {
   // it on the service's behalf.
 
   return `
+    <section class="page" id="page-imagery">
+      <div id="coverageDisplay"><p class="hint">Reading how it is drawn…</p></div>
+    </section>
     <section class="page" id="page-capabilities">
       <div id="coverageSettings" hidden>
         <h4>This service holds a coverage</h4>
@@ -8207,12 +8266,12 @@ function serviceSettingsMarkup(name, folder) {
 
         <p class="hint"><b>An image service has no feature settings.</b> There is
           nothing to query, create or delete: it answers <code>exportImage</code> and
-          <code>identify</code>, and what it draws is decided by the coverage's own
-          rendering rule. Sharing and status are where every service's are.</p>
+          <code>identify</code>, and how it is drawn is set by its owner under Studio's Display. Sharing and
+          status are where every service's are.</p>
 
-        <p class="hint">Imagery is registered where it lives and is never copied, so
-          this server holds a reference rather than the file. Removing the registration
-          leaves the file untouched.</p>
+        <p class="hint">Imagery uploaded here is kept by this server and goes when the service is removed.
+          Imagery registered from a path on the server stays where it is, and removing the service leaves
+          that file untouched.</p>
 
         <p><a class="btn" id="coverageView" target="_blank" rel="noreferrer" href="#"
           >Open in the ArcGIS SDK viewer</a></p>
@@ -12539,10 +12598,10 @@ async function loadServices() {
 
         <td>
           <span class="name">${h(r.name)}</span>
-          <span class="rowmeta">${h(r.kind)}${r.description
+          <span class="rowmeta">${h(r.kind === "ImageServer" ? "Imagery" : r.kind)}${r.description
             ? `<span class="sep">·</span>${h(r.description)}` : ""}${r.system
             ? ""
-            : `<span class="sep">·</span><span class="count">${held || "empty"}</span>`}</span>
+            : `<span class="sep">·</span><span class="count">${r.kind === "ImageServer" ? "1 image" : held || "empty"}</span>`}</span>
         </td>
 
         <td>${pill(r.status)}${refusingSays(r.refusing)}</td>
@@ -12594,9 +12653,13 @@ async function loadServices() {
           <details class="menu">
             <summary title="More" aria-label="More actions">⋯</summary>
             <div class="sheet">
-              <button data-service-delete="${h(r.name)}" data-folder="${h(r.folder || "")}"
-                class="danger" ${r.empty ? "" : "disabled"}>Delete this service</button>
-              ${r.empty
+              ${r.kind === "ImageServer"
+                ? `<a href="/studio/#/service/${r.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings"
+                     >Delete it from the service's page</a>
+                   <div class="note">An image service is deleted where its owner works, which says whether its file goes too.</div>`
+                : `<button data-service-delete="${h(r.name)}" data-folder="${h(r.folder || "")}"
+                class="danger" ${r.empty ? "" : "disabled"}>Delete this service</button>`}
+              ${r.kind === "ImageServer" ? "" : r.empty
                 ? `<div class="note">It holds nothing, so nothing is unpublished by removing it.</div>`
                 : `<div class="note">It holds ${h(held)}. Unpublish them first — a service delete
                      never removes what is in it.</div>`}
@@ -12636,6 +12699,10 @@ async function loadServices() {
  * @returns {string|null} the thumbnail address, or null if the URL is not one we can read
  */
 function thumbnailFor(url) {
+  // ADR-123: an image service is its own picture — the whole extent, which `exportImage` draws when no box is given.
+  const image = /^\/rest\/services\/(.+)\/ImageServer$/.exec(url || "");
+  if (image) return `${url}/exportImage?size=400,266&format=png&f=image`;
+
   const parts = /^\/rest\/services\/(.+)\/FeatureServer\/(\d+)$/.exec(url || "");
 
   if (!parts) return null;
@@ -12943,6 +13010,9 @@ const SERVICE_PAGES = {
   // was Server's layer page, which by ADR-102 step 10 held only this: state, identity, addresses and *forget the
   // remembered shape*. A page per layer for four facts was the shape ADR-102 took apart in Studio.
   layers: "server",
+
+  // <b>Display — ADR-123: how an image service is drawn, in Studio where its owner works.</b>
+  imagery: "studio",
 
   // <b>General and Feature layer — ADR-102 step 5.</b> General holds what is the item's own — who can reach
   // it, said once with the one control that changes it (the Share dialog), and its deletion; Feature layer says
@@ -21074,6 +21144,7 @@ function drawAddItem() {
   else if (itemStep === "kind") drawLayerRoutes();
   else if (itemStep === "inspect") drawInspect();
   else if (itemStep === "publish") drawPublish();
+  else if (itemStep === "imagery") drawImageryForm();
   else drawRouteForm(itemStep);
 
   nameTheScreen();
@@ -21118,14 +21189,19 @@ function drawItemKinds() {
       <p>Drag and drop a file here</p>
       <button type="button" class="ghost" id="fromDevice" autofocus>${icon("device")} Your device</button>
       <span class="val">A zipped shapefile, a zipped File Geodatabase, a GeoPackage, KML or KMZ, a GeoJSON
-        FeatureCollection, or a CSV or Excel table with coordinates</span>
+        FeatureCollection, a CSV or Excel table with coordinates, or a GeoTIFF</span>
       <input type="file" id="deviceFile" hidden
-             accept=".zip,.json,.geojson,.csv,.txt,.xlsx,.gpkg,.kml,.kmz,application/zip,application/geo+json,text/csv">
+             accept=".zip,.json,.geojson,.csv,.txt,.xlsx,.gpkg,.kml,.kmz,.tif,.tiff,application/zip,application/geo+json,text/csv,image/tiff">
     </div>
 
     <p class="orbar"><span>or start from a type</span></p>
 
     <div class="newtiles">
+      <button type="button" class="newtile" id="kindImagery">
+        <span class="glyph">${icon("imagery")}</span>
+        <span><b>Imagery layer</b>
+          <span>Publish an orthophoto, a satellite image or an elevation model from a GeoTIFF or COG.</span></span>
+      </button>
       <button type="button" class="newtile" id="kindFeatureLayer">
         <span class="glyph">${icon("featurelayer")}</span>
         <span><b>Feature layer</b>
@@ -21159,6 +21235,10 @@ function drawItemKinds() {
     itemStep = "kind";
     drawAddItem();
   });
+  $("kindImagery").addEventListener("click", () => {
+    itemStep = "imagery";
+    drawAddItem();
+  });
 }
 
 /**
@@ -21171,8 +21251,10 @@ function takeFile(files) {
   if (!files || files.length === 0) return;
 
   handedFile = files[0];
-  itemRoute = "import";
-  itemStep = "import";
+  // ADR-123: a GeoTIFF is imagery, and goes to its own form.
+  const imagery = /\.tiff?$/i.test(handedFile.name || "");
+  itemRoute = imagery ? "imagery" : "import";
+  itemStep = imagery ? "imagery" : "import";
   drawAddItem();
 }
 
@@ -24805,6 +24887,24 @@ async function handleClick(event) {
   if (t.id === "svcDelete") {
     if (!serviceOpen) return;
 
+    // ADR-123: an image service holds a file rather than layers, and whether it goes depends on how it came.
+    if (serviceOpenKind === "ImageServer") {
+      const style = await api(`/admin/coverages/${encodeURIComponent(serviceOpen.name)}/style`
+        + `?folder=${encodeURIComponent(serviceOpen.folder || "")}`).catch(() => null);
+      if (!confirm(`Delete '${serviceOpen.qualified}'? ` + (style && style.uploaded
+        ? "The uploaded image is deleted with it and cannot be recovered."
+        : "The image file on the server is not touched; only the service goes."))) {
+        return;
+      }
+      try {
+        const answer = await api(`/admin/coverages/${encodeURIComponent(serviceOpen.name)}`
+          + `?folder=${encodeURIComponent(serviceOpen.folder || "")}`, { method: "DELETE" });
+        toast(answer?.note || `${serviceOpen.qualified}: deleted`, true);
+        location.hash = surfaceOfPath() === "studio" ? "#/content" : "#/services";
+      } catch (e) { toast(e.message); }
+      return;
+    }
+
     const count = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).length;
 
     // <b>The confirmation names the tables, because that is the irreversible part.</b> *Are you sure*
@@ -24832,7 +24932,7 @@ async function handleClick(event) {
         { method: "DELETE" });
 
       toast(answer.note || `${serviceOpen.qualified}: deleted`, true);
-      location.hash = "#/services";
+      location.hash = surfaceOfPath() === "studio" ? "#/content" : "#/services";
     } catch (e) { toast(e.message); }
 
     return;
@@ -27208,3 +27308,324 @@ document.addEventListener("change", e => {
     if (key && sel.value === key) cell.insertAdjacentHTML("beforeend", ` <span class="matchmark hint">· matched on</span>`);
   });
 });
+
+
+// ---------------------------------------------------------------- imagery (ADR-123)
+
+/** The New item screen for an imagery layer: a GeoTIFF or COG, a name, published private. */
+function drawImageryForm() {
+  $("addItemTitle").textContent = "Create an imagery layer";
+  $("addItemFoot").innerHTML = `
+    <button type="button" class="ghost" id="itemBack">Back</button>
+    <span class="fill"></span>
+    <button type="button" class="ghost" id="itemCancel">Cancel</button>
+    <button type="button" class="primary" id="itemSubmit">Upload and publish</button>`;
+  $("addItemBody").innerHTML = `
+    <p class="hint">A <b>GeoTIFF</b> or <b>Cloud Optimized GeoTIFF</b> — an orthophoto, a satellite image or an
+      elevation model. It is kept on this server and published as an image service, private until you share it.
+      Its coordinate system is read from the file.</p>
+    <form id="imageryForm" autocomplete="off">
+      <div class="row">
+        <label class="field">Name<input type="text" id="imgName" placeholder="orthophoto_2026" required
+          pattern="[A-Za-z0-9][A-Za-z0-9_\\-]{0,39}" title="Letters, digits, _ and -, starting with a letter or digit"></label>
+      </div>
+      <div class="row">
+        <label class="field">File<input id="imgFile" type="file" accept=".tif,.tiff,image/tiff" required></label>
+      </div>
+      <p class="hint" id="imgChosen" role="status" aria-live="polite" hidden></p>
+    </form>
+    <div id="imgResult" class="group" style="display:none" role="status" aria-live="polite"></div>`;
+
+  $("itemBack").addEventListener("click", () => { itemStep = "item"; drawAddItem(); });
+  $("itemCancel").addEventListener("click", () => $("addItem").close());
+  $("itemSubmit").addEventListener("click", () => $("imageryForm")?.requestSubmit());
+  $("imageryForm").addEventListener("submit", uploadImagery);
+  $("imgFile").addEventListener("change", drawImageryChosen);
+
+  if (handedFile) {
+    const carrier = new DataTransfer();
+    carrier.items.add(handedFile);
+    $("imgFile").files = carrier.files;
+    $("imgName").value = handedFile.name.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^[^A-Za-z0-9]+/, "").slice(0, 40);
+    handedFile = null;
+    drawImageryChosen();
+  }
+}
+
+function drawImageryChosen() {
+  const file = $("imgFile")?.files?.[0];
+  const chosen = $("imgChosen");
+  if (!chosen) return;
+  chosen.hidden = !file;
+  if (file) {
+    const mb = file.size / 1048576;
+    chosen.innerHTML = `<b>${h(file.name)}</b> <span class="val">· ${mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`}</span>`;
+  }
+  if (file && !$("imgName").value) {
+    $("imgName").value = file.name.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^[^A-Za-z0-9]+/, "").slice(0, 40);
+  }
+}
+
+async function uploadImagery(event) {
+  event.preventDefault();
+  const file = $("imgFile").files[0];
+  const name = $("imgName").value.trim();
+  if (!file || !name) return;
+
+  const body = new FormData();
+  body.append("name", name);
+  body.append("file", file);
+
+  const box = $("imgResult");
+  const go = $("itemSubmit");
+  const cancel = $("itemCancel");
+  go.disabled = true;
+  box.style.display = "";
+  box.setAttribute("role", "status");
+  const total = file.size / 1048576;
+  const mb = n => n >= 10 ? Math.round(n).toLocaleString() : n.toFixed(1);
+  box.innerHTML = `<p id="imgProgressSays">Uploading ${h(file.name)}…</p>
+    <progress id="imgProgress" max="${file.size}" value="0" aria-labelledby="imgProgressSays"></progress>`;
+
+  // <b>XMLHttpRequest, because fetch cannot say how much of a body has gone</b>, and a four-gigabyte orthophoto with
+  // one sentence beside it does not say whether anything is happening. Cancel becomes *Stop upload* and stops it.
+  const request = new XMLHttpRequest();
+  cancel.textContent = "Stop upload";
+  const stop = event => {
+    event.stopImmediatePropagation();
+    request.abort();
+  };
+  cancel.addEventListener("click", stop, { once: true, capture: true });
+
+  const finished = new Promise(resolve => {
+    request.upload.onprogress = event => {
+      const bar = $("imgProgress");
+      if (!bar || !event.lengthComputable) return;
+      bar.value = event.loaded;
+      $("imgProgressSays").textContent = event.loaded >= event.total
+        ? "Reading the image…"
+        : `Uploading ${mb(event.loaded / 1048576)} of ${mb(total)} MB`;
+    };
+    request.onload = () => resolve({ status: request.status, text: request.responseText });
+    request.onerror = () => resolve({ status: 0, text: "" });
+    request.onabort = () => resolve({ aborted: true });
+  });
+
+  request.open("POST", "/admin/coverages/upload");
+  if (token) request.setRequestHeader("Authorization", "Bearer " + token);
+  request.send(body);
+
+  const answer = await finished;
+  cancel.removeEventListener("click", stop, { capture: true });
+  if (answer.aborted) {
+    cancel.textContent = "Cancel";
+    box.innerHTML = `<p>Upload stopped. Nothing was published.</p>`;
+    go.disabled = false;
+    return;
+  }
+
+  let said = null;
+  try { said = answer.text ? JSON.parse(answer.text) : null; } catch { /* not json */ }
+
+  if (answer.status >= 200 && answer.status < 300) {
+    $("addItem").close();
+    const qualified = said?.name || `hosted/${name}`;
+    toast(`${qualified.split("/").pop()} is published. Only you can see it until you share it.`, true);
+    location.hash = `#/service/${qualified.split("/").map(encodeURIComponent).join("/")}`;
+    return;
+  }
+
+  const why = (said && said.error && said.error.message)
+    || (answer.status ? `The server answered ${answer.status}.` : "The connection was lost before the server answered.");
+  cancel.textContent = "Cancel";
+  box.setAttribute("role", "alert");
+  box.innerHTML = `<h3 id="imgRefused" tabindex="-1">Not published</h3><p>${h(why)}</p>`;
+  $("imgRefused").focus();
+  go.disabled = false;
+}
+
+
+// ---------------------------------------------------------------- imagery display (ADR-123)
+
+/** What *the pixel type's full range* is, for the integer types a GeoTIFF holds. */
+const FULL_RANGES = { Unsigned8: "0 to 255", Unsigned16: "0 to 65,535", Signed16: "−32,768 to 32,767",
+  Unsigned32: "0 to 4,294,967,295", Signed32: "−2,147,483,648 to 2,147,483,647" };
+
+/** The ramps' names as a person reads them. */
+const COVERAGE_RAMPS = { terrain: "Terrain", spectral: "Spectral", viridis: "Viridis", blues: "Blues", reds: "Reds" };
+
+/**
+ * <b>How an image service is drawn, set on its own page</b> — ADR-123: the stretch (from the image's values by
+ * default, the pixel type's full range, or a range chosen here) and, for one band of measurements, a colour ramp;
+ * with a picture of the result.
+ */
+async function drawCoverageDisplay(service, folder, doc) {
+  const box = $("coverageDisplay");
+  if (!box) return;
+  const query = `?folder=${encodeURIComponent(folder || "")}`;
+  const qualifiedName = folder ? `${folder}/${service}` : service;
+  if (!doc) {
+    doc = await api(`/rest/services/${qualifiedName.split("/").map(encodeURIComponent).join("/")}/ImageServer?f=json`).catch(() => null);
+  }
+  let said;
+
+  try {
+    said = await api(`/admin/coverages/${encodeURIComponent(service)}/style${query}`);
+  } catch (e) {
+    box.innerHTML = `<p class="hint">${h(e.message || String(e))}</p>`;
+    return;
+  }
+
+  const stats = (said.statistics || [])[0];
+  const range = stats ? `${Number(stats.minimum.toPrecision(6))} to ${Number(stats.maximum.toPrecision(6))}` : "";
+  const e = doc && doc.extent;
+
+  // <b>The picture is the extent's own shape</b>, at most 360 wide or 240 high, so a square model is not squashed.
+  const wide = e ? Math.abs(e.xmax - e.xmin) : 3;
+  const high = e ? Math.abs(e.ymax - e.ymin) : 2;
+  const scale = Math.min(360 / wide, 240 / high);
+  const size = { width: Math.max(16, Math.round(wide * scale)), height: Math.max(16, Math.round(high * scale)) };
+
+  const ramps = said.bands < 3;
+  box.innerHTML = `
+    <div class="coveragedisplay">
+      <div>
+        ${ramps ? `<label class="field">Colours
+          <span class="rampchoice"><select id="covRamp">
+            <option value="">Greyscale</option>
+            ${Object.entries(COVERAGE_RAMPS).map(([key, label]) => `<option value="${key}"${said.ramp === key ? " selected" : ""}>${label}</option>`).join("")}
+          </select><span class="rampswatch" id="covRampSwatch" aria-hidden="true"></span></span></label>`
+          : `<p class="hint">Three or more bands are drawn as red, green and blue. Colours apply to single-band images.</p>`}
+        <label class="field">Stretch
+          <select id="covStretch">
+            <option value="auto"${said.stretch === "auto" ? " selected" : ""}>From the image's values (default)</option>
+            ${/^Float/i.test(said.kind || "") ? "" : `<option value="full"${said.stretch === "full" ? " selected" : ""}>The pixel type's full range${
+              FULL_RANGES[said.kind] ? ` (${FULL_RANGES[said.kind]})` : ""}</option>`}
+            <option value="fixed"${said.stretch === "fixed" ? " selected" : ""}>A range I choose</option>
+          </select></label>
+        <div class="row" id="covRange"${said.stretch === "fixed" ? "" : " hidden"}>
+          <label class="field">From<input type="number" step="any" id="covMin" value="${said.minimum ?? (stats ? stats.minimum : "")}"></label>
+          <label class="field">To<input type="number" step="any" id="covMax" value="${said.maximum ?? (stats ? stats.maximum : "")}"
+            aria-describedby="covRangeSays"></label>
+        </div>
+        <p class="hint error" id="covRangeSays" role="alert"></p>
+        ${range ? `<p class="hint">The image's values run ${h(range)}${said.bands > 1 ? " in its first band" : ""}.</p>` : ""}
+        <div class="row covsave"><button type="button" class="primary" id="covSave">Save</button></div>
+        <p class="hint" id="covSays" role="status" aria-live="polite"></p>
+      </div>
+      <figure class="coveragefigure">
+        <img class="coveragepreview" id="covPreview" alt="${h(service)} as these settings draw it"
+          width="${size.width}" height="${size.height}" style="aspect-ratio: ${size.width} / ${size.height}">
+        <div class="ramplegend" id="covLegend" aria-hidden="true"></div>
+        <figcaption class="hint" id="covLegendSays"></figcaption>
+      </figure>
+    </div>`;
+
+  // <b>What the controls say, and whether it can be sent.</b> An empty box is not zero.
+  const chosen = () => {
+    const stretch = $("covStretch").value;
+    const body = { stretch, ramp: $("covRamp") ? $("covRamp").value || null : null };
+    if (stretch === "fixed") {
+      const low = $("covMin").value.trim();
+      const top = $("covMax").value.trim();
+      if (low === "" || top === "" || !(Number(low) < Number(top))) return { error: "Enter a From value lower than To." };
+      body.minimum = Number(low);
+      body.maximum = Number(top);
+    }
+    return { body };
+  };
+
+  // <b>The picture follows the controls rather than the last save</b>, as ArcGIS Map Viewer's does — drawn by the
+  // server under the settings not yet saved, so the owner does not commit blind (ux review 2026-10-01).
+  let previewTurn = 0;
+  let previewUrl = null;
+  const redraw = async () => {
+    const turn = ++previewTurn;
+    const { body, error } = chosen();
+    const says = $("covLegendSays");
+    const swatch = $("covRampSwatch");
+    if (swatch) swatch.style.background = coverageRampCss($("covRamp")?.value || null);
+    const fromBox = $("covMin"), toBox = $("covMax");
+    [fromBox, toBox].forEach(box => box.removeAttribute("aria-invalid"));
+    $("covRangeSays").textContent = "";
+    $("covPreview").classList.toggle("stale", !!error);
+    if (error) {
+      (fromBox.value.trim() === "" ? fromBox : toBox).setAttribute("aria-invalid", "true");
+      $("covRangeSays").textContent = error;
+      says.textContent = "";
+      return;
+    }
+
+    if (!ramps) {
+      $("covLegend").hidden = true;
+      says.textContent = "Each band is stretched over the image's values, shown as red, green and blue.";
+    }
+
+    const low = body.stretch === "fixed" ? body.minimum : said.stretch === "fixed" && body.stretch === said.stretch ? said.minimum : stats?.minimum;
+    const top = body.stretch === "fixed" ? body.maximum : said.stretch === "fixed" && body.stretch === said.stretch ? said.maximum : stats?.maximum;
+    if (ramps) $("covLegend").style.background = coverageRampCss(body.ramp);
+    const shown = body.stretch === "full" ? "the pixel type's full range"
+      : Number.isFinite(low) && Number.isFinite(top) ? `${Number(low.toPrecision(6))} to ${Number(top.toPrecision(6))}` : "";
+    let warning = "";
+    if (body.stretch === "fixed" && stats) {
+      if (stats.minimum >= body.maximum) warning = ` Every value is above ${Number(body.maximum.toPrecision(6))}, so the whole image is one colour.`;
+      else if (stats.maximum <= body.minimum) warning = ` Every value is below ${Number(body.minimum.toPrecision(6))}, so the whole image is one colour.`;
+    }
+    if (ramps) says.textContent = (shown ? `Colours run left to right over ${shown}.` : "") + warning;
+
+    const query2 = new URLSearchParams({ folder: folder || "", stretch: body.stretch, width: size.width, height: size.height });
+    if (body.ramp) query2.set("ramp", body.ramp);
+    if (body.stretch === "fixed") { query2.set("minimum", body.minimum); query2.set("maximum", body.maximum); }
+    try {
+      const response = await fetch(`/admin/coverages/${encodeURIComponent(service)}/preview?${query2}`,
+        { headers: token ? { Authorization: "Bearer " + token } : {} });
+      if (!response.ok || turn !== previewTurn) return;
+      const picture = URL.createObjectURL(await response.blob());
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrl = picture;
+      const img = $("covPreview");
+      if (img) img.src = picture;
+    } catch { /* the picture stays as it was */ }
+  };
+
+  let pending = null;
+  const soon = () => { clearTimeout(pending); pending = setTimeout(redraw, 250); };
+  $("covStretch").addEventListener("change", () => { $("covRange").hidden = $("covStretch").value !== "fixed"; redraw(); });
+  $("covRamp")?.addEventListener("change", redraw);
+  $("covMin").addEventListener("input", soon);
+  $("covMax").addEventListener("input", soon);
+  redraw();
+
+  $("covSave").addEventListener("click", async () => {
+    const says = $("covSays");
+    const { body, error } = chosen();
+    if (error) {
+      says.textContent = "";
+      $("covRangeSays").textContent = error;
+      $(($("covMin").value.trim() === "") ? "covMin" : "covMax").focus();
+      return;
+    }
+    says.textContent = "Saving…";
+    try {
+      await api(`/admin/coverages/${encodeURIComponent(service)}/style${query}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      await drawCoverageDisplay(service, folder, doc);
+      $("covSays").textContent = "Saved. Every map and client draws it this way now.";
+      $("covSave")?.focus();
+    } catch (err) {
+      says.textContent = err.message || String(err);
+    }
+  });
+}
+
+/** A ramp as a CSS gradient, for its swatch and the legend under the picture — the server's stops (CoverageStyle). */
+function coverageRampCss(ramp) {
+  const stops = {
+    terrain: ["#1a9641", "#a6d96a", "#ffffbf", "#bf812d", "#f5f5f5"],
+    spectral: ["#2b83ba", "#abdda4", "#ffffbf", "#fdae61", "#d7191c"],
+    viridis: ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"],
+    blues: ["#f7fbff", "#6baed6", "#08306b"],
+    reds: ["#fff5f0", "#fb6a4a", "#67000d"],
+  }[ramp] || ["#000", "#fff"];
+  return `linear-gradient(to right, ${stops.join(", ")})`;
+}

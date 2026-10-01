@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -283,5 +284,115 @@ public sealed class ImportFormTests : ConsoleTest
         Assert.Contains("[file,name,sharing,srid,x,y]", wrote, StringComparison.Ordinal);
 
         NothingWentWrong(await PageErrorsAsync());
+    }
+    /// <summary>ADR-123: New item offers an imagery layer; a GeoTIFF goes to its form and is uploaded there.</summary>
+    [Fact]
+    public async Task A_GeoTIFF_is_offered_its_own_form_and_uploaded_from_it()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/studio/#/content", token);
+
+        await WaitForAsync(
+            "document.querySelectorAll('#contentScopes a').length > 0",
+            "The content screen never rendered.");
+        await ClickAsync("#newLayer");
+        await WaitForAsync(Shown("#kindImagery"), "New item offers no imagery layer.");
+
+        // A GeoTIFF dropped on the first screen lands on the imagery form, named after itself.
+        await Browser.EvaluateAsync<bool>("""
+            (() => { takeFile([new File([new Uint8Array([73, 73, 42, 0])], 'Ortho 2026.tif', { type: 'image/tiff' })]); return true; })()
+            """);
+        await WaitForAsync(Shown("#imgFile"), "A GeoTIFF did not open the imagery form.");
+        Assert.Equal("Ortho_2026", await Browser.EvaluateAsync<string>("document.getElementById('imgName').value"));
+
+        await Browser.EvaluateAsync<bool>("(window.__writes = [], true)");
+        await ClickAsync("#itemSubmit");
+        await WaitForAsync(
+            "window.__writes.some(w => w.startsWith('POST') && w.includes('/admin/coverages/upload') && w.includes('[file,name]'))",
+            "Upload and publish sent no image.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+    /// <summary>ADR-123: an image service's page sets its stretch and colours, and says what its values are.</summary>
+    [Fact]
+    public async Task An_image_services_display_is_set_on_its_page()
+    {
+        (string token, _) = await SignInAsync();
+        string name = $"zz_disp_{Guid.NewGuid():N}"[..16];
+
+        DirectoryInfo? at = new(AppContext.BaseDirectory);
+        while (at is not null && at.GetFiles("*.sln").Length == 0) at = at.Parent;
+        byte[] tiff = File.ReadAllBytes(Path.Combine(at!.FullName, "tests", "Graticula.Raster.Tiff.Tests", "corpus", "gray-float32-deflate.tif"));
+
+        using (MultipartFormDataContent form = new())
+        {
+            form.Add(new ByteArrayContent(tiff), "file", "f.tif");
+            form.Add(new StringContent(name), "name");
+            using HttpRequestMessage upload = new(HttpMethod.Post, new Uri($"{Root}/admin/coverages/upload")) { Content = form };
+            upload.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage made = await Http.SendAsync(upload);
+            Assert.True(made.IsSuccessStatusCode, $"Uploading answered {(int)made.StatusCode}: {await made.Content.ReadAsStringAsync()}");
+        }
+
+        try
+        {
+            await OpenAsync($"/studio/#/service/hosted/{name}?tab=settings&section=imagery", token);
+            await WaitForAsync(Shown("#covStretch"), "An image service's page offers no Display settings.");
+            Assert.Equal("auto", await Browser.EvaluateAsync<string>("document.getElementById('covStretch').value"));
+            Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#serviceNav [data-service-page=feature]')"),
+                "An image service is offered a Feature layer page.");
+            Assert.Contains("values run", await Browser.EvaluateAsync<string>("document.getElementById('coverageDisplay').textContent") ?? "",
+                StringComparison.Ordinal);
+
+            // The picture is drawn under the controls before anything is saved.
+            await WaitForAsync("(document.getElementById('covPreview').src || '').startsWith('blob:')",
+                "The Display settings show no picture of what they draw.");
+
+            // An empty range is not zero: nothing is sent, and the page says why.
+            await Browser.EvaluateAsync<bool>("""
+                (() => {
+                  window.__writes = [];
+                  const s = document.getElementById('covStretch');
+                  s.value = 'fixed';
+                  s.dispatchEvent(new Event('change'));
+                  document.getElementById('covMin').value = '';
+                  return true;
+                })()
+                """);
+            await ClickAsync("#covSave");
+            await WaitForAsync("document.getElementById('covRangeSays').textContent.includes('lower than To')",
+                "An empty From was not refused.");
+            Assert.Empty(await WritesAsync());
+
+            await Browser.EvaluateAsync<bool>("""
+                (() => {
+                  const s = document.getElementById('covStretch');
+                  s.value = 'auto';
+                  s.dispatchEvent(new Event('change'));
+                  window.__writes = [];
+                  document.getElementById('covRamp').value = 'terrain';
+                  return true;
+                })()
+                """);
+            await ClickAsync("#covSave");
+            await WaitForAsync(
+                $"window.__writes.some(w => w.startsWith('PUT') && w.includes('/admin/coverages/{name}/style'))",
+                "Save sent nothing.");
+
+            // Its Overview has no Layers section, and General says the uploaded file goes with it.
+            await OpenAsync($"/studio/#/service/hosted/{name}", token);
+            await WaitForAsync("serviceOpenKind === 'ImageServer' && document.getElementById('serviceLayersHead').hidden",
+                "An image service's page still offers a Layers section.");
+            await OpenAsync($"/studio/#/service/hosted/{name}?tab=settings&section=general", token);
+            await WaitForAsync("(document.getElementById('svcDeleteNote')?.textContent || '').includes('cannot be recovered')",
+                "Settings › General does not say the uploaded image is deleted with the service.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
+        }
     }
 }

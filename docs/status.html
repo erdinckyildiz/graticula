@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>889babf</code> · 2026-10-01 09:33</p>
+<p class="stamp">Generated from commit <code>9a145b5</code> · 2026-10-01 12:43</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">122</div><div class="kpi-l">ADRs</div><div class="kpi-n">36 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">278/374</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">93 live · 3 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">282/374</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">89 live · 3 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open questions</div><div class="kpi-n">160 answered</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">open debts</div><div class="kpi-n">268 repaid · 6 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">4413</div><div class="kpi-l">tests</div><div class="kpi-n">422 source files, 187,291 lines</div></div>
+<div class="kpi good"><div class="kpi-v">4418</div><div class="kpi-l">tests</div><div class="kpi-n">422 source files, 187,934 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">1 open</span></div><p><b>Q-158</b> — Is imagery in scope now — its publishing, styling and Map Viewer in Studio?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">106 items</span></div><p><b>93 ADR conditions</b> outstanding across 56 decisions — the largest commitment on this page.</p><p><b>9 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">102 items</span></div><p><b>89 ADR conditions</b> outstanding across 55 decisions — the largest commitment on this page.</p><p><b>9 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -134,7 +134,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-106 · A layer&#x27;s data can be exported as </div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">9</div></div>
 <div class="bar"><div class="bar-l">ADR-078 · A hosted layer can keep its histor</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">6</div></div>
 <div class="bar"><div class="bar-l">ADR-101 · Studio is walked the way a Portal </div><div class="bar-t"><div class="bar-f" style="width:44%"></div></div><div class="bar-n">4</div></div>
-<div class="bar"><div class="bar-l">ADR-123 · Imagery comes into Studio, and an </div><div class="bar-t"><div class="bar-f" style="width:44%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-086 · The operator chooses the map groun</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
@@ -326,7 +325,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">120</td><td>A GeoPackage or KML is imported as a geodatabase is</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — the geodatabase path, measured reading both formats through /vsizip/</td><td class="num">1/1</td></tr>
 <tr><td class="id">121</td><td>A point layer is drawn as a heat map, or sized by a number</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — Web Map&#x27;s own renderer shapes, drawn by OpenLayers&#x27; own layers</td><td class="num">1/1</td></tr>
 <tr><td class="id">122</td><td>A pop-up has text and an image</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — two Web Map fields, drawn as text</td><td class="num">1/1</td></tr>
-<tr><td class="id">123</td><td>Imagery comes into Studio, and an export refuses what it does not apply</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the refusal is measured; the scope it opens is inferred</td><td class="num">1/5</td></tr>
+<tr><td class="id">123</td><td>Imagery comes into Studio, and an export refuses what it does not apply</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the refusal is measured; the scope it opens is inferred</td><td class="num">5/5</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -450,10 +449,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1232</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:61.0%"></div></div><div class="bar-n">751</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.7%"></div></div><div class="bar-n">649</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.8%"></div></div><div class="bar-n">651</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.9%"></div></div><div class="bar-n">258</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.2%"></div></div><div class="bar-n">261</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:16.7%"></div></div><div class="bar-n">206</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:10.1%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.3%"></div></div><div class="bar-n">115</div></div>
@@ -463,6 +462,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>9a145b5</code><time>2026-10-01</time><span>An image export refuses what it does not apply, and imagery comes into Studio</span></li>
 <li><code>889babf</code><time>2026-10-01</time><span>A point layer is drawn as a heat map or sized by a number, and a pop-up has text and an image</span></li>
 <li><code>b058e83</code><time>2026-10-01</time><span>A pop-up formats numbers and dates, a web map has a description and a picture, and GeoPackage and KML import</span></li>
 <li><code>5f23f34</code><time>2026-10-01</time><span>Editors may be kept to their own features, Update data upserts, and a web map labels its layers</span></li>
@@ -476,7 +476,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>70045cf</code><time>2026-09-30</time><span>Merge remote-tracking branch &#x27;origin/main&#x27;</span></li>
 <li><code>27154cc</code><time>2026-09-30</time><span>Export data in the console starts the job: every layer ticked, progress said, the file fetched when it is written</span></li>
 <li><code>30262dd</code><time>2026-09-30</time><span>The map item test makes the group it shares into</span></li>
-<li><code>23fc36c</code><time>2026-09-30</time><span>A service&#x27;s data is exported by a job: every chosen layer in one file, up to two million rows, kept a day</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

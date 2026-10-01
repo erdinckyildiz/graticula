@@ -4539,3 +4539,20 @@ ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
 .mapabout .mapitemthumb { width: 100%; max-width: 240px; aspect-ratio: 3 / 2; height: auto; object-fit: cover; display: block; }
 .mapabout > div { flex: 1 1 240px; min-width: 0; }
 .mapdescription { white-space: normal; line-height: 1.5; margin-bottom: 8px; }
+
+/* ADR-123: an image service's Display settings beside a picture of the result. */
+.coveragedisplay { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+.coveragedisplay > div { flex: 1 1 260px; min-width: 0; }
+.coveragedisplay .coveragefigure { margin: 0; flex: 0 1 360px; min-width: 0; }
+.coveragedisplay .coveragepreview { display: block; width: 100%; max-width: 360px; height: auto; object-fit: contain;
+  background: var(--surface-2); border: 1px solid var(--rule); border-radius: 6px; }
+.coveragedisplay .ramplegend { height: 10px; max-width: 360px; margin-top: 6px; border-radius: 3px; border: 1px solid var(--rule); }
+.coveragedisplay .covsave { margin-top: 16px; }
+.coveragedisplay .field { display: block; margin-bottom: 16px; }
+.coveragedisplay #covRange { gap: 16px; }
+.coveragedisplay #covRange .field { margin-bottom: 0; }
+.coveragedisplay .coveragepreview.stale { opacity: .4; }
+.coveragedisplay #covRangeSays:empty { display: none; }
+.rampchoice { display: flex; align-items: center; gap: 8px; }
+.rampchoice select { flex: 1 1 auto; min-width: 0; }
+.rampswatch { flex: 0 0 48px; height: 12px; border-radius: 3px; border: 1px solid var(--rule); }

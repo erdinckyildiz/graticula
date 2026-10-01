@@ -506,6 +506,7 @@ internal static class ImageServerEndpoints
     /// <param name="projector">Reprojects when the reference is not the coverage's own.</param>
     /// <param name="budget">Admission control.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="style">A style to draw with in place of the stored one — the Display settings' preview — or null.</param>
     /// <returns>A task.</returns>
     /// <remarks>
     /// <b>Shared by <c>exportImage</c> and <c>tile</c>, and that is the point of it.</b>
@@ -523,7 +524,8 @@ internal static class ImageServerEndpoints
         IMapCanvasFactory canvases,
         IProjector projector,
         ConnectionBudget budget,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        string? style = null)
     {
         /*
           <b>A reference this server does not have is refused before anything is drawn, and
@@ -591,13 +593,13 @@ internal static class ImageServerEndpoints
 
         if (asked.Srid == coverage.Info.Srid)
         {
-            await DrawAlignedAsync(canvas, coverage, asked, readers, cancellation)
+            await DrawAlignedAsync(canvas, coverage, asked, readers, style, cancellation)
                 .ConfigureAwait(false);
         }
         else
         {
             string? refused = await DrawWarpedAsync(
-                    canvas, coverage, asked, readers, projector, cancellation)
+                    canvas, coverage, asked, readers, projector, style, cancellation)
                 .ConfigureAwait(false);
 
             if (refused is not null)
@@ -669,6 +671,7 @@ internal static class ImageServerEndpoints
         PublishedCoverage coverage,
         ImageServerExportParameters asked,
         ICoverageReaderFactory readers,
+        string? style,
         CancellationToken cancellation)
     {
         CoveragePlan? plan =
@@ -689,7 +692,7 @@ internal static class ImageServerEndpoints
             read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
             .ConfigureAwait(false);
 
-        Rgba[] pixels = CoverageStyle.Parse(coverage.Style).Paint(window, coverage.Info.Bands);
+        Rgba[] pixels = (await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false)).Paint(window, coverage.Info.Bands);
 
         canvas.DrawImage(pixels, window.Width, window.Height, read.Destination);
     }
@@ -718,6 +721,7 @@ internal static class ImageServerEndpoints
     /// <param name="asked">What was asked for.</param>
     /// <param name="readers">Opens the file.</param>
     /// <param name="projector">Moves the control-point grid between references.</param>
+    /// <param name="style">A style in place of the stored one, or null.</param>
     /// <param name="cancellation">Cancellation.</param>
     /// <returns>Null when it drew; otherwise why it could not.</returns>
     /// <remarks>
@@ -743,6 +747,7 @@ internal static class ImageServerEndpoints
         ImageServerExportParameters asked,
         ICoverageReaderFactory readers,
         IProjector projector,
+        string? style,
         CancellationToken cancellation)
     {
         int steps = CoverageWarp.StepsFor(asked.Width, asked.Height);
@@ -811,7 +816,7 @@ internal static class ImageServerEndpoints
             read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
             .ConfigureAwait(false);
 
-        Rgba[] painted = CoverageStyle.Parse(coverage.Style).Paint(window, coverage.Info.Bands);
+        Rgba[] painted = (await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false)).Paint(window, coverage.Info.Bands);
 
         // <b>Asked of the planner rather than worked out again.</b> This was the same
         // division with the level lookup written out longhand beside it — one calculation in
@@ -1139,6 +1144,7 @@ internal static class ImageServerEndpoints
         string serviceName,
         ICoverageCatalog coverages,
         ICoverageReaderFactory readers,
+        IProjector projector,
         CancellationToken cancellation)
     {
         PublishedCoverage? coverage =
@@ -1153,13 +1159,31 @@ internal static class ImageServerEndpoints
             await ArcGisParameters.LookupAsync(context, cancellation).ConfigureAwait(false);
 
         if (!ImageServerExportParameters.TryPoint(
-                parameter, coverage.Info, out double x, out double y, out string? error))
+                parameter, coverage.Info, out double x, out double y, out int pointSrid, out string? error))
         {
             await RefuseAsync(context, 400, error!).ConfigureAwait(false);
             return;
         }
 
         CoverageInfo info = coverage.Info;
+
+        // ADR-123: a point written in another reference — Web Mercator, from a map — is projected into the coverage's.
+        if (pointSrid != info.Srid)
+        {
+            (IReadOnlyList<Geometry> projected, _) = await projector
+                .ProjectAsync([new Point(x, y)], pointSrid, info.Srid, cancellation).ConfigureAwait(false);
+
+            if (projected.Count != 1 || projected[0] is not Point moved || !double.IsFinite(moved.X) || !double.IsFinite(moved.Y))
+            {
+                await RefuseAsync(context, 400,
+                    $"The point could not be projected from EPSG:{pointSrid.ToString(CultureInfo.InvariantCulture)} into "
+                    + $"this image's EPSG:{info.Srid.ToString(CultureInfo.InvariantCulture)}.").ConfigureAwait(false);
+                return;
+            }
+
+            x = moved.X;
+            y = moved.Y;
+        }
 
         if (x < info.Extent.MinX || x > info.Extent.MaxX
             || y < info.Extent.MinY || y > info.Extent.MaxY)
@@ -1362,6 +1386,130 @@ internal static class ImageServerEndpoints
         string.Create(
             CultureInfo.InvariantCulture,
             $"{extent.MinX},{extent.MinY},{extent.MaxX},{extent.MaxY}");
+
+    /// <summary>The default style worked out for a coverage nobody has styled, by its file and when it changed.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CoverageStyle> Defaults = new();
+
+    /// <summary>
+    /// How a coverage is drawn — ADR-123: its stored style, or, when nobody has chosen one, a stretch worked out from
+    /// its own values.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The full range is right for bytes and wrong for everything else.</b> A 12-bit satellite image stretched over
+    /// 0–65535 is nearly black, and a float elevation model stretched over 0–1 is white — the reviewer's finding.
+    /// Eight-bit data keeps the full range, which is its own range; anything wider is stretched over what it holds:
+    /// one band between its sampled minimum and maximum, colour between two standard deviations either side of the
+    /// mean, as ArcGIS stretches imagery by default.
+    /// </para>
+    /// <para>
+    /// <b>Fixed, not per window</b>, so adjacent tiles agree — the property ADR-043 chose the full range for. Kept by
+    /// the file's path and the time it last changed, so a file replaced underneath gets a new one.
+    /// </para>
+    /// </remarks>
+    internal static Task<CoverageStyle> StyleOfAsync(
+        PublishedCoverage coverage, ICoverageReaderFactory readers, CancellationToken cancellation) =>
+        StyleOfAsync(coverage, coverage.Style, readers, cancellation);
+
+    /// <summary>How a coverage is drawn under a style's text — its stored one, or one being tried in Display.</summary>
+    private static async Task<CoverageStyle> StyleOfAsync(
+        PublishedCoverage coverage, string? text, ICoverageReaderFactory readers, CancellationToken cancellation)
+    {
+        if (!string.IsNullOrWhiteSpace(text) && !CoverageStyle.IsAuto(text))
+        {
+            return CoverageStyle.Parse(text);
+        }
+
+        // `stretch:auto;ramp:…` is the worked-out stretch with a ramp chosen over it.
+        string? ramp = text is null ? null : CoverageStyle.Parse(text).RampName;
+
+        if (coverage.Info.Bands.Count == 0 || coverage.Info.Bands[0].Kind == SampleKind.Unsigned8)
+        {
+            return CoverageStyle.Default.WithRamp(ramp);
+        }
+
+        string key = coverage.Path + "|" + (System.IO.File.Exists(coverage.Path)
+            ? System.IO.File.GetLastWriteTimeUtc(coverage.Path).Ticks.ToString(CultureInfo.InvariantCulture)
+            : "0");
+
+        if (!Defaults.TryGetValue(key, out CoverageStyle? known))
+        {
+            BandStatistics[] measured = await MeasureAsync(coverage, readers, cancellation).ConfigureAwait(false);
+            known = DefaultFrom(measured);
+            Defaults[key] = known;
+        }
+
+        return known.WithRamp(ramp);
+    }
+
+    /// <summary>
+    /// Draws a coverage's whole extent under a style not yet saved — ADR-123, the Display settings' picture, which
+    /// redraws as its owner changes the controls rather than after they commit.
+    /// </summary>
+    internal static async Task PreviewAsync(
+        HttpContext context,
+        PublishedCoverage coverage,
+        string style,
+        int width,
+        int height,
+        ICoverageReaderFactory readers,
+        IMapCanvasFactory canvases,
+        IProjector projector,
+        ConnectionBudget budget,
+        HostSettings settings,
+        CancellationToken cancellation)
+    {
+        Envelope e = coverage.Info.Extent;
+        Dictionary<string, string> asked = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["bbox"] = string.Join(',', new[] { e.MinX, e.MinY, e.MaxX, e.MaxY }.Select(v => v.ToString("R", CultureInfo.InvariantCulture))),
+            ["bboxSR"] = coverage.Info.Srid.ToString(CultureInfo.InvariantCulture),
+            ["size"] = FormattableString.Invariant($"{width},{height}"),
+            ["format"] = "png",
+        };
+
+        if (!ImageServerExportParameters.TryParse(
+                key => asked.TryGetValue(key, out string? value) ? value : null,
+                coverage.Info,
+                new WidthHeight(settings.MaximumImageWidth, settings.MaximumImageHeight),
+                out ImageServerExportParameters? parameters,
+                out string? error))
+        {
+            await RefuseAsync(context, 400, error!).ConfigureAwait(false);
+            return;
+        }
+
+        await ExportOnceAsync(context, coverage, parameters!, readers, canvases, projector, budget, cancellation, style)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>The default stretch for what a coverage's bands hold.</summary>
+    private static CoverageStyle DefaultFrom(BandStatistics[] bands)
+    {
+        if (bands.Length == 0 || bands.All(b => b.Maximum <= b.Minimum))
+        {
+            return CoverageStyle.Default;
+        }
+
+        if (bands.Length < 3)
+        {
+            return new CoverageStyle(StretchKind.Fixed, bands[0].Minimum, bands[0].Maximum);
+        }
+
+        BandStatistics[] colour = bands[..3];
+        double low = Math.Max(colour.Min(b => b.Minimum), colour.Min(b => b.Mean - (2 * b.StandardDeviation)));
+        double high = Math.Min(colour.Max(b => b.Maximum), colour.Max(b => b.Mean + (2 * b.StandardDeviation)));
+
+        return high > low
+            ? new CoverageStyle(StretchKind.Fixed, low, high)
+            : new CoverageStyle(StretchKind.Fixed, colour.Min(b => b.Minimum), colour.Max(b => b.Maximum));
+    }
+
+    /// <summary>A coverage's sampled band statistics, for the Display settings — ADR-123.</summary>
+    internal static async Task<IReadOnlyList<(double Minimum, double Maximum, double Mean, double StandardDeviation)>> StatisticsAsync(
+        PublishedCoverage coverage, ICoverageReaderFactory readers, CancellationToken cancellation) =>
+        [.. (await MeasureAsync(coverage, readers, cancellation).ConfigureAwait(false))
+            .Select(b => (b.Minimum, b.Maximum, b.Mean, b.StandardDeviation))];
 
     /// <summary>What a band's values look like, sampled.</summary>
     private readonly record struct BandStatistics(

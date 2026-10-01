@@ -216,6 +216,29 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> SetStyleAsync(
+        string? folder, string serviceName, string? style, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            update coverage c
+               set style = @style
+              from service s
+             where c.service_id = s.id
+               and lower(s.name) = lower(@name)
+               and coalesce(s.folder, '') = coalesce(@folder, '')
+            """);
+
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("style", (object?)style ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> SetStatusAsync(
         string? folder, string serviceName, ServiceStatus status, CancellationToken cancellationToken)
     {

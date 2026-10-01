@@ -121,6 +121,54 @@ public sealed class CoverageStyle
     /// <summary>The colours a single band passes through; empty means greyscale.</summary>
     public IReadOnlyList<RampStop> Ramp => _ramp;
 
+    /// <summary>The named ramp this style was read with, or null for greyscale — ADR-123.</summary>
+    public string? RampName { get; private init; }
+
+    /// <summary>
+    /// The colour ramps a single band may be drawn with — ADR-123, the few every raster viewer offers. Each runs
+    /// low to high; greyscale is the absence of one.
+    /// </summary>
+    public static IReadOnlyDictionary<string, IReadOnlyList<RampStop>> NamedRamps { get; } =
+        new Dictionary<string, IReadOnlyList<RampStop>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["terrain"] = Stops((0, 0x1a, 0x96, 0x41), (0.25, 0xa6, 0xd9, 0x6a), (0.5, 0xff, 0xff, 0xbf), (0.75, 0xbf, 0x81, 0x2d), (1, 0xf5, 0xf5, 0xf5)),
+            ["spectral"] = Stops((0, 0x2b, 0x83, 0xba), (0.25, 0xab, 0xdd, 0xa4), (0.5, 0xff, 0xff, 0xbf), (0.75, 0xfd, 0xae, 0x61), (1, 0xd7, 0x19, 0x1c)),
+            ["viridis"] = Stops((0, 0x44, 0x01, 0x54), (0.25, 0x3b, 0x52, 0x8b), (0.5, 0x21, 0x91, 0x8c), (0.75, 0x5e, 0xc9, 0x62), (1, 0xfd, 0xe7, 0x25)),
+            ["blues"] = Stops((0, 0xf7, 0xfb, 0xff), (0.5, 0x6b, 0xae, 0xd6), (1, 0x08, 0x30, 0x6b)),
+            ["reds"] = Stops((0, 0xff, 0xf5, 0xf0), (0.5, 0xfb, 0x6a, 0x4a), (1, 0x67, 0x00, 0x0d)),
+        };
+
+    private static RampStop[] Stops(params (double At, byte R, byte G, byte B)[] stops) =>
+        [.. stops.Select(s => new RampStop(s.At, new Rgba(s.R, s.G, s.B, 255)))];
+
+    /// <summary>This style with a named colour ramp, or greyscale with null — ADR-123.</summary>
+    /// <param name="name">A key of <see cref="NamedRamps"/>, or null.</param>
+    /// <returns>The style.</returns>
+    public CoverageStyle WithRamp(string? name) =>
+        name is not null && NamedRamps.TryGetValue(name, out IReadOnlyList<RampStop>? stops)
+            ? new CoverageStyle(Stretch, Minimum, Maximum, stops) { RampName = name.ToLowerInvariant() }
+            : new CoverageStyle(Stretch, Minimum, Maximum);
+
+    /// <summary>Whether a stored style asks for the stretch worked out from the data — <c>stretch:auto</c>, ADR-123.</summary>
+    /// <param name="text">The stored text.</param>
+    /// <returns>Whether it does.</returns>
+    public static bool IsAuto(string? text) =>
+        text is not null && text.TrimStart().StartsWith("stretch:auto", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The compact text <see cref="Parse"/> reads back — ADR-123.</summary>
+    /// <returns>The text.</returns>
+    public string ToText()
+    {
+        string stretch = Stretch switch
+        {
+            StretchKind.Window => "stretch:window",
+            StretchKind.Fixed => string.Create(CultureInfo.InvariantCulture, $"stretch:{Minimum},{Maximum}"),
+            _ => "stretch:full",
+        };
+
+        return RampName is null ? stretch : $"{stretch};ramp:{RampName.ToLowerInvariant()}";
+    }
+
     /// <summary>
     /// Turns a window of samples into the colours a canvas can draw.
     /// </summary>
@@ -354,7 +402,36 @@ public sealed class CoverageStyle
             return Default;
         }
 
+        // ADR-123: `;ramp:<name>` after the stretch names a colour ramp for a single band.
         string value = text.Trim();
+        string? rampName = null;
+        int semicolon = value.IndexOf(';', StringComparison.Ordinal);
+
+        if (semicolon >= 0)
+        {
+            string tail = value[(semicolon + 1)..].Trim();
+            value = value[..semicolon].Trim();
+
+            if (tail.StartsWith("ramp:", StringComparison.OrdinalIgnoreCase)
+                && NamedRamps.ContainsKey(tail["ramp:".Length..].Trim()))
+            {
+                rampName = tail["ramp:".Length..].Trim().ToLowerInvariant();
+            }
+        }
+
+        CoverageStyle parsed = ParseStretch(value);
+
+        return rampName is null
+            ? parsed
+            : new CoverageStyle(parsed.Stretch, parsed.Minimum, parsed.Maximum, NamedRamps[rampName]) { RampName = rampName };
+    }
+
+    private static CoverageStyle ParseStretch(string value)
+    {
+        if (value.Length == 0)
+        {
+            return Default;
+        }
 
         if (value.StartsWith("stretch:", StringComparison.OrdinalIgnoreCase))
         {
@@ -366,6 +443,12 @@ public sealed class CoverageStyle
             }
 
             if (rest.Equals("full", StringComparison.OrdinalIgnoreCase))
+            {
+                return new CoverageStyle(StretchKind.Full);
+            }
+
+            // `auto` is the stretch worked out from the data, which only the host can measure; read alone it is full.
+            if (rest.Equals("auto", StringComparison.OrdinalIgnoreCase))
             {
                 return new CoverageStyle(StretchKind.Full);
             }
