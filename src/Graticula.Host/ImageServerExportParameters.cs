@@ -99,6 +99,12 @@ internal sealed class ImageServerExportParameters
 
         asked = null;
 
+        // <b>What this server does not do is refused, not drawn as if it were — ADR-123, D-125.</b>
+        if (!TryUnoffered(parameter, info, out error))
+        {
+            return false;
+        }
+
         // <b>`bboxSR` says what the box is written in; `imageSR` says what to draw
         // in.</b> Esri allows them to differ and this server does not: a request that
         // gave two would have its extent read in one and its pixels laid out in the
@@ -139,6 +145,65 @@ internal sealed class ImageServerExportParameters
         }
 
         asked = new ImageServerExportParameters(extent, width, height, format, srid);
+        return true;
+    }
+
+    /// <summary>
+    /// Refuses the parameters that would change the picture and that this server does not apply — ADR-123.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Until 2026-10-01 they were read by nobody and answered with the unchanged image</b>: a client that asked for
+    /// a hillshade, bands 4-3-2 or one date got the default picture and no word that it was not what it asked for —
+    /// the *accepted and not applied* shape D-125 names. A raster function, a band order, a mosaic rule and a time
+    /// each change what is drawn, so each is refused with what this server does instead.
+    /// </para>
+    /// <para>
+    /// <b>Three are read and not applied, on purpose.</b> ArcGIS Pro sends <c>noData=0,0,0</c>,
+    /// <c>interpolation=RSP_NearestNeighbor</c> and <c>pixelType=U8</c> on every draw (the replayed request in
+    /// <c>ImageServerConformanceTests</c>), so refusing them refuses Pro. They are hints about edges and resampling,
+    /// not a different picture, and ADR-123 records the exception.
+    /// </para>
+    /// </remarks>
+    private static bool TryUnoffered(Func<string, string?> parameter, CoverageInfo info, out string? error)
+    {
+        error = null;
+
+        if (parameter("renderingRule") is { Length: > 0 } rule
+            && !rule.Replace(" ", string.Empty, StringComparison.Ordinal).Trim().Equals("{}", StringComparison.Ordinal)
+            && !rule.Contains("\"None\"", StringComparison.OrdinalIgnoreCase))
+        {
+            error = "`renderingRule` asks for a raster function, and this image service applies none "
+                + "(`allowRasterFunction` is false). It draws the image in its own style; refused rather than drawn as if "
+                + "the function had been applied.";
+            return false;
+        }
+
+        if (parameter("bandIds") is { Length: > 0 } bands)
+        {
+            string identity = string.Join(",", Enumerable.Range(0, info.Bands.Count));
+
+            if (!string.Equals(bands.Replace(" ", string.Empty, StringComparison.Ordinal), identity, StringComparison.Ordinal))
+            {
+                error = $"`bandIds={bands}` asks for another band order, and this image service draws its bands as they "
+                    + $"are ({identity}). Refused rather than drawn in the order you did not ask for.";
+                return false;
+            }
+        }
+
+        if (parameter("mosaicRule") is { Length: > 0 } mosaic
+            && !mosaic.Replace(" ", string.Empty, StringComparison.Ordinal).Equals("{}", StringComparison.Ordinal))
+        {
+            error = "`mosaicRule` chooses among the images of a mosaic, and this image service is one image.";
+            return false;
+        }
+
+        if (parameter("time") is { Length: > 0 } time && !time.Equals("null", StringComparison.OrdinalIgnoreCase))
+        {
+            error = "`time` asks for one moment, and this image service has no time (`timeInfo` is absent).";
+            return false;
+        }
+
         return true;
     }
 

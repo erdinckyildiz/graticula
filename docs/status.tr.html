@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>b058e83</code> · 2026-10-01 08:29</p>
+<p class="stamp">Şu commit’ten üretildi: <code>889babf</code> · 2026-10-01 09:33</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">121</div><div class="kpi-l">ADR</div><div class="kpi-n">36 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">277/369</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">89 canlı · 3 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">122</div><div class="kpi-l">ADR</div><div class="kpi-n">36 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">278/374</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">93 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4412</div><div class="kpi-l">test</div><div class="kpi-n">422 kaynak dosya, 187,226 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4413</div><div class="kpi-l">test</div><div class="kpi-n">422 kaynak dosya, 187,291 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-158</b> — Is imagery in scope now — its publishing, styling and Map Viewer in Studio?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">102 madde</span></div><p><b>89 ADR conditions</b> outstanding across 55 decisions — the largest commitment on this page.</p><p><b>9 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">106 madde</span></div><p><b>93 ADR conditions</b> outstanding across 56 decisions — the largest commitment on this page.</p><p><b>9 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -134,6 +134,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-106 · A layer&#x27;s data can be exported as </div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">9</div></div>
 <div class="bar"><div class="bar-l">ADR-078 · A hosted layer can keep its histor</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">6</div></div>
 <div class="bar"><div class="bar-l">ADR-101 · Studio is walked the way a Portal </div><div class="bar-t"><div class="bar-f" style="width:44%"></div></div><div class="bar-n">4</div></div>
+<div class="bar"><div class="bar-l">ADR-123 · Imagery comes into Studio, and an </div><div class="bar-t"><div class="bar-f" style="width:44%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-086 · The operator chooses the map groun</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
@@ -325,10 +326,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">120</td><td>A GeoPackage or KML is imported as a geodatabase is</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — the geodatabase path, measured reading both formats through /vsizip/</td><td class="num">1/1</td></tr>
 <tr><td class="id">121</td><td>A point layer is drawn as a heat map, or sized by a number</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — Web Map&#x27;s own renderer shapes, drawn by OpenLayers&#x27; own layers</td><td class="num">1/1</td></tr>
 <tr><td class="id">122</td><td>A pop-up has text and an image</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — two Web Map fields, drawn as text</td><td class="num">1/1</td></tr>
+<tr><td class="id">123</td><td>Imagery comes into Studio, and an export refuses what it does not apply</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the refusal is measured; the scope it opens is inferred</td><td class="num">1/5</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
+<article class="card"><div class="card-h"><span class="id">Q-158</span><span class="owner">[OWNER]</span></div><p>Is imagery in scope now — its publishing, styling and Map Viewer in Studio?</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -447,7 +450,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1232</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:61.0%"></div></div><div class="bar-n">751</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.6%"></div></div><div class="bar-n">648</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.7%"></div></div><div class="bar-n">649</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.9%"></div></div><div class="bar-n">258</div></div>
@@ -460,6 +463,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>889babf</code><time>2026-10-01</time><span>A point layer is drawn as a heat map or sized by a number, and a pop-up has text and an image</span></li>
 <li><code>b058e83</code><time>2026-10-01</time><span>A pop-up formats numbers and dates, a web map has a description and a picture, and GeoPackage and KML import</span></li>
 <li><code>5f23f34</code><time>2026-10-01</time><span>Editors may be kept to their own features, Update data upserts, and a web map labels its layers</span></li>
 <li><code>65df2d3</code><time>2026-10-01</time><span>ADR-113 and ADR-114: the owner confirms the two differences from Portal</span></li>
@@ -473,7 +477,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>27154cc</code><time>2026-09-30</time><span>Export data in the console starts the job: every layer ticked, progress said, the file fetched when it is written</span></li>
 <li><code>30262dd</code><time>2026-09-30</time><span>The map item test makes the group it shares into</span></li>
 <li><code>23fc36c</code><time>2026-09-30</time><span>A service&#x27;s data is exported by a job: every chosen layer in one file, up to two million rows, kept a day</span></li>
-<li><code>43ba516</code><time>2026-09-30</time><span>A web map is shared with groups (ADR-079 condition 4); migration 67</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

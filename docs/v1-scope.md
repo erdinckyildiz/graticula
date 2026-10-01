@@ -125,6 +125,11 @@ narrowed to PostGIS estates, and it is the price of shipping.
 
 **WMS, ArcGIS MapServer, ImageServer, OGC API Maps and Coverages, WCS.**
 
+> **ImageServer, 2026-10-01 — [ADR-123](adr/ADR-123-imagery-comes-into-studio.md).** Already served beside v1 by
+> ADR-043; bringing its publishing, styling and Map Viewer into Studio is **`INFERRED`** from the owner's
+> *"Başlayalım"* and listed as [Q-158](open-questions.md) for confirmation. Until it is answered, read imagery as
+> beside v1, as before.
+
 - **Q-85 dissolves.** ~~ADR-004 stays `DEFERRED`~~ and no longer contradicts an
   in-scope capability, which was review finding S2/A7.
 - **ADR-009 can re-close.** ImageServer was what reopened it; the near-free

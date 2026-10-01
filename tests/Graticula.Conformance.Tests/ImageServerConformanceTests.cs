@@ -566,6 +566,50 @@ public sealed class ImageServerConformanceTests : ArcGisClient
         Assert.Equal(256, height);
     }
 
+    /// <summary>
+    /// ADR-123: a raster function, a band order, a mosaic rule and a time are refused, not drawn as the default — and
+    /// the identity band order is not one of them.
+    /// </summary>
+    [Fact]
+    public async Task What_this_server_does_not_apply_is_refused_not_drawn_as_the_default()
+    {
+        string? service = await AnyImageServiceAsync();
+
+        if (service is null)
+        {
+            return;
+        }
+
+        string root = await RequireServerAsync();
+        string box = "bbox=" + Uri.EscapeDataString("{\"xmin\":3300000,\"ymin\":4974400,\"xmax\":3325600,\"ymax\":5000000}")
+            + "&bboxSR=3857&size=64,64&f=image";
+
+        foreach (string extra in new[]
+        {
+            "renderingRule=" + Uri.EscapeDataString("{\"rasterFunction\":\"Hillshade\"}"),
+            "bandIds=2,1,0",
+            "mosaicRule=" + Uri.EscapeDataString("{\"mosaicMethod\":\"esriMosaicLockRaster\"}"),
+            "time=1700000000000",
+        })
+        {
+            using HttpRequestMessage request = new(HttpMethod.Get,
+                new Uri($"{root}/rest/services/{service}/ImageServer/exportImage?{box}&{extra}"));
+            await AuthenticateAsync(request, root);
+            using HttpResponseMessage response = await Http.SendAsync(request);
+            string body = await response.Content.ReadAsStringAsync();
+
+            Assert.NotEqual("image/png", response.Content.Headers.ContentType?.MediaType);
+            Assert.Contains("\"code\":400", body.Replace(" ", string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
+        }
+
+        // An empty rule and the identity band order ask for nothing different, and are drawn.
+        using HttpRequestMessage plain = new(HttpMethod.Get,
+            new Uri($"{root}/rest/services/{service}/ImageServer/exportImage?{box}&renderingRule=%7B%7D&mosaicRule=%7B%7D"));
+        await AuthenticateAsync(plain, root);
+        using HttpResponseMessage drawn = await Http.SendAsync(plain);
+        Assert.Equal("image/png", drawn.Content.Headers.ContentType?.MediaType);
+    }
+
     [Fact]
     public async Task An_extent_written_as_an_envelope_object_is_read()
     {

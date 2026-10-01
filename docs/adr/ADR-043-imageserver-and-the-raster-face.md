@@ -8,6 +8,11 @@
 | **Amends** | [ADR-009](ADR-009-raster-engine.md) — reverses §2.1's central decision for the export path and keeps it for direct delivery |
 | **Answers** | [Q-77](../open-questions.md) (the Tier 1 line), [Q-121](../open-questions.md) (registered in place), and the expensive third of [Q-17c](../open-questions.md) |
 
+> **Amended 2026-10-01 by [ADR-123](ADR-123-imagery-comes-into-studio.md).** `exportImage` no longer reads and ignores
+> `renderingRule`, `bandIds`, `mosaicRule` and `time`: each is refused, with what the server does instead. Imagery's
+> publishing, styling and Map Viewer are being brought into Studio — `INFERRED` from the owner's *"Başlayalım"*,
+> [Q-158](../open-questions.md).
+
 ---
 
 ## 1. What was asked, and what the register already held
