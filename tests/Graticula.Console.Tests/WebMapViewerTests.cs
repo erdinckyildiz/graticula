@@ -1012,6 +1012,59 @@ public sealed class WebMapViewerTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
+    [Fact]
+    public async Task Attributes_are_edited_in_the_table_and_saved_together()
+    {
+        // ADR-134 condition 3: Edit in table makes the editable cells controls; changed rows go in one applyEdits.
+        (string token, string cookie) = await SignInAsync();
+        await OpenAsync("/studio/webmap.html?service=hosted%2Fci_parcels", token, cookie);
+        await WaitForAsync("!!document.querySelector('#layerList [data-act=table]')", "The parcels did not load.");
+        await ClickAsync("#layerList [data-act=table]");
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const b = document.getElementById('tableByExtent'); b.checked = false; b.dispatchEvent(new Event('change')); return true; })()");
+        await WaitForAsync("document.querySelectorAll('#tableGrid tbody tr').length > 1 && !document.getElementById('tableEdit').hidden",
+            "The table of an editable layer offers no Edit in table.");
+
+        await ClickAsync("#tableEdit");
+        await WaitForAsync("!!document.querySelector('#tableGrid [data-cell][data-field=parcel]') && document.activeElement.matches('[data-cell]')",
+            "Edit in table did not make the cells controls, or did not take the focus into them.");
+
+        // Two rows changed: both marked, counted, and sent in one request.
+        await Browser.EvaluateAsync<bool>(
+            "(() => { window.__writes = []; for (const i of [...document.querySelectorAll('#tableGrid [data-field=parcel]')].slice(0, 2)) {"
+            + " i.value = i.value + ' x'; i.dispatchEvent(new Event('input', { bubbles: true })); } return true; })()");
+        await WaitForAsync("document.getElementById('tableSave').textContent === 'Save 2 rows' && document.querySelectorAll('#tableGrid td.changed').length === 2",
+            "The changed cells were not marked and counted.");
+
+        // A fraction in a whole-number cell stops the save and is marked.
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const i = document.querySelector('#tableGrid [data-field=area_m2]'); i.value = '1.5'; i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()");
+        await ClickAsync("#tableSave");
+        await WaitForAsync("document.querySelector('#tableGrid [data-field=area_m2]').getAttribute('aria-invalid') === 'true'"
+            + " && document.getElementById('tableStatus').textContent.includes('whole number')", "A fraction in a whole-number cell was not refused.");
+        Assert.Empty(await WritesAsync());
+
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const i = document.querySelector('#tableGrid [data-field=area_m2]'); i.value = i.defaultValue; i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()");
+        // The server refuses one of the two: its report stays, its cell stays typed, marked and focused.
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const real = wmFetch; window.__realFetch = real;"
+            + " const ids = wmTableChanges().map(c => wmTable.rows[c.index].attributes.objectid);"
+            + " wmFetch = async (url, o) => url.includes('/applyEdits') ? { updateResults: [{ objectId: ids[0], success: true },"
+            + " { objectId: ids[1], success: false, error: { description: 'parcel must be unique' } }] } : real(url, o); return true; })()");
+        await ClickAsync("#tableSave");
+        await WaitForAsync("document.getElementById('tableStatus').textContent.startsWith('1 of 2 saved.')"
+            + " && document.activeElement.matches('[data-cell][aria-invalid=true]') && document.activeElement.value.endsWith(' x')",
+            "A partly refused save did not keep the refused cell typed, marked and focused, or lost its report.");
+        await Browser.EvaluateAsync<bool>("(wmFetch = window.__realFetch, true)");
+
+        await ClickAsync("#tableSave");
+        await WaitForAsync("window.__writes.filter(w => w.startsWith('POST') && w.includes('/FeatureServer/0/applyEdits')).length === 1",
+            "The changed rows were not sent together in one applyEdits.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
     /// <summary>The address of some feature layer this server publishes.</summary>
     private async Task<string> AnyFeatureLayerUrlAsync(string token)
     {

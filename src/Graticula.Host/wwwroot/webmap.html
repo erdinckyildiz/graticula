@@ -223,6 +223,23 @@
   #tableGrid td { max-width: 24em; overflow: hidden; text-overflow: ellipsis; }
   #tablePanel .tablehead button { min-width: 32px; min-height: 32px; }
   #tableByExtent { width: 18px; height: 18px; }
+  /* ADR-134: a cell being edited, and one changed and not yet saved. */
+  #tableGrid td.celledit { padding: 2px 4px; }
+  #tableGrid td.celledit input, #tableGrid td.celledit select { width: 100%; min-width: 7em; box-sizing: border-box;
+    font: inherit; padding: 2px 4px; }
+  #tableGrid td.changed { background: #fdf2e0; box-shadow: inset 4px 0 0 var(--warn); }
+  #tableGrid td.changed input, #tableGrid td.changed select { background: #fdf2e0; }
+  #tableGrid td.num, #tableGrid th.num, #tableGrid td.num input { text-align: right; font-variant-numeric: tabular-nums; }
+  @media (max-width: 600px) {
+    /* The title and the page buttons share the first row; the rest wrap below it, so the grid keeps its height. */
+    #tablePanel .tablehead { gap: 4px; padding: 4px 6px; }
+    #tableTitle { order: 0; flex: 1 1 auto; }
+    #tablePrev, #tableNext, #tableClose { order: 1; }
+    #tablePanel .tablehead .fill { display: none; }
+    #tablePanel .tablehead label.check, #tableStatus, #tableEdit, #tableSave, #tableDiscard { order: 2; }
+  }
+  #tableGrid [aria-invalid="true"] { border-color: var(--alert); }
+  #tableEdit[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
   .bookmarks { border: 0; padding: 0; margin: 12px 0 0; }
   /* ADR-134: a feature's attributes edited in the card. */
   #sketchBar { position: absolute; z-index: 36; left: 50%; top: 12px; transform: translateX(-50%); display: flex;
@@ -481,6 +498,9 @@
           <label class="check"><input type="checkbox" id="tableByExtent" checked> Only features in view</label>
           <span class="said" id="tableStatus" role="status" aria-live="polite"></span>
           <span class="fill"></span>
+          <button type="button" class="tiny" id="tableEdit" aria-pressed="false" hidden>Edit in table</button>
+          <button type="button" class="tiny primary" id="tableSave" hidden disabled>Save changes</button>
+          <button type="button" class="tiny" id="tableDiscard" hidden disabled>Discard</button>
           <button type="button" class="tiny" id="tablePrev" aria-label="Previous page">&lsaquo;</button>
           <button type="button" class="tiny" id="tableNext" aria-label="Next page">&rsaquo;</button>
           <button type="button" class="tiny" id="tableClose" aria-label="Close the table">&times;</button>

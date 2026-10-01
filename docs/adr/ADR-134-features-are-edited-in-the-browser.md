@@ -85,4 +85,9 @@ the operation.
    *Create*; a layer with time starts the feature at the time window's end so it is not hidden the moment it exists.
    *Delete* on a card asks, then sends the delete. Two design-review passes; the first found a point's form taken away
    by the click that placed it, and no way to draw without a mouse.
-3. **Attributes are edited in the attribute table.**
+3. **Attributes are edited in the attribute table** — **DISCHARGED 2026-10-01**,
+   `WebMapViewerTests.Attributes_are_edited_in_the_table_and_saved_together`. *Edit in table* makes the editable cells
+   controls; changed rows are counted and sent in one `applyEdits`; a refused row keeps its value and its mark and the
+   report stays; nothing typed is dropped by Escape, paging, closing, the in-view switch or the map moving without
+   asking; a feature saved from the card while its row is being edited is taken into the row, and a clash is named.
+   Two design-review passes found four ways typed cells were lost and a partial refusal erasing its own report.

@@ -1648,7 +1648,7 @@ async function wmSetFilter(layer, expression) {
   }
 
   // The table shows the filtered layer too, from its first page (design review 2026-10-01).
-  if (wmTable.layer === layer) {
+  if (wmTable.layer === layer && !wmTableChanges().length) {
     wmTable.page = 0;
     wmLoadTable();
   }
@@ -1766,7 +1766,11 @@ wm$("layerList").addEventListener("click", event => {
       break;
     }
     case "styleApply": wmApplyStyle(layer); break;
-    case "table": wmTable.layer === layer ? wmCloseTable() : wmOpenTable(layer); wmDrawLayerList(); break;
+    case "table":
+      if (!wmMayLeaveTable()) break;
+      wmTable.layer === layer ? wmCloseTable() : wmOpenTable(layer);
+      wmDrawLayerList();
+      break;
     case "addFeature": wmAdding.layer === layer ? wmStopAdding() : wmStartAdding(layer); wmDrawLayerList(); break;
     // ADR-123: whether a click on this image answers its pixel — `popupEnabled`, as ArcGIS saves it.
     case "pixels":
@@ -3561,10 +3565,12 @@ function wmLocalInput(ms) {
 const WM_INT_RANGE = { esriFieldTypeSmallInteger: [-32768, 32767], esriFieldTypeInteger: [-2147483648, 2147483647] };
 
 /** One field's control, as its type and domain ask: a list for coded values, a number, a date, a line or a box of text. */
-function wmFieldControl(field, value) {
-  const id = wmEscape(`edit-${field.name}`);
+function wmFieldControl(field, value, cell = null) {
+  const id = wmEscape(cell ? `cell-${field.name}-${cell.row}` : `edit-${field.name}`);
   const name = wmEscape(field.name);
-  const common = `id="${id}" data-field="${name}" aria-describedby="${id}-says"${field.nullable === false ? " required aria-required=\"true\"" : ""}`;
+  const common = `id="${id}" data-field="${name}"${cell
+    ? ` data-cell="${cell.row}" aria-label="${wmEscape(cell.label)}"`
+    : ` aria-describedby="${id}-says"`}${field.nullable === false ? " required aria-required=\"true\"" : ""}`;
   const domain = field.domain || {};
   if (domain.type === "codedValue") {
     return `<select ${common}>
@@ -3575,15 +3581,19 @@ function wmFieldControl(field, value) {
   if (WM_NUMBER_TYPES.has(field.type)) {
     const whole = /Integer/.test(field.type);
     const range = domain.type === "range" && Array.isArray(domain.range) ? ` min="${domain.range[0]}" max="${domain.range[1]}"` : "";
-    return `<input type="number" ${common} step="${whole ? 1 : "any"}"${range}
-      value="${value === null || value === undefined ? "" : wmEscape(String(value))}">`;
+    // In a table cell a number is typed, as text: arrows move between rows and the wheel scrolls (design review).
+    return cell
+      ? `<input type="text" inputmode="${whole ? "numeric" : "decimal"}" ${common}${range}
+          value="${value === null || value === undefined ? "" : wmEscape(String(value))}">`
+      : `<input type="number" ${common} step="${whole ? 1 : "any"}"${range}
+          value="${value === null || value === undefined ? "" : wmEscape(String(value))}">`;
   }
   if (field.type === "esriFieldTypeDate") {
     return `<input type="datetime-local" step="1" ${common} value="${wmEscape(wmLocalInput(value))}">`;
   }
   const text = value === null || value === undefined ? "" : String(value);
   // A long value, or a field with no limit, gets a box rather than a line.
-  return field.length > 255 || text.length > 80
+  return !cell && (field.length > 255 || text.length > 80)
     ? `<textarea ${common} rows="3"${field.length ? ` maxlength="${field.length}"` : ""}>${wmEscape(text)}</textarea>`
     : `<input type="text" ${common}${field.length ? ` maxlength="${field.length}"` : ""} value="${wmEscape(text)}">`;
 }
@@ -3622,6 +3632,37 @@ function wmOpenEdit(key) {
   card.querySelector("[data-field]")?.focus();
 }
 
+/**
+ * One control's value, typed as its field is, against what the feature held: `same` when it has not changed (a date
+ * compared at the control's own precision, so a date not touched is not rewritten), or the problem to say.
+ */
+function wmReadControl(control, field, was) {
+  const label = field.alias || field.name;
+  const raw = control.value;
+  if (raw === "") return field.nullable === false ? { problem: `${label} is required.` } : { value: null, same: was === null };
+  if (field.type === "esriFieldTypeDate") {
+    if (raw === wmLocalInput(was)) return { same: true };
+    const value = new Date(raw).getTime();
+    return Number.isFinite(value) ? { value } : { problem: `${label} is not a date.` };
+  }
+  if (WM_NUMBER_TYPES.has(field.type) || ((field.domain || {}).type === "codedValue"
+    && typeof ((field.domain.codedValues || [])[0] || {}).code === "number")) {
+    const value = Number(raw);
+    const limits = WM_INT_RANGE[field.type];
+    if (!Number.isFinite(value)) return { problem: `${label} takes a number.` };
+    if (/Integer/.test(field.type) && !Number.isInteger(value)) return { problem: `${label} takes a whole number.` };
+    if (limits && (value < limits[0] || value > limits[1])) {
+      return { problem: `${label} takes a whole number from ${limits[0].toLocaleString()} to ${limits[1].toLocaleString()}.` };
+    }
+    const min = control.getAttribute("min");
+    const max = control.getAttribute("max");
+    if (min !== null && min !== "" && value < Number(min)) return { problem: `${label} is at least ${min}.` };
+    if (max !== null && max !== "" && value > Number(max)) return { problem: `${label} is at most ${max}.` };
+    return { value, same: value === was };
+  }
+  return { value: raw, same: raw === (was === null ? null : String(was)) };
+}
+
 /** Reads the form's changed values, typed as their fields are; a problem is said under its field. */
 function wmReadEdit(form, held) {
   const info = (wmRuntime.get(held.layer) || {}).info || {};
@@ -3631,32 +3672,11 @@ function wmReadEdit(form, held) {
   for (const control of form.querySelectorAll("[data-field]")) {
     const field = (info.fields || []).find(f => f.name === control.dataset.field);
     if (!field) continue;
-    const label = field.alias || field.name;
-    const raw = control.value;
-    const was = before[field.name] === undefined ? null : before[field.name];
-    let value;
-    let problem = "";
-    if (raw === "") value = null;
-    else if (field.type === "esriFieldTypeDate") {
-      // Compared at the control's own precision: a date not touched is not sent, whatever its milliseconds.
-      if (raw === wmLocalInput(was)) { control.setAttribute("aria-invalid", "false"); wm$(`${control.id}-says`).textContent = ""; continue; }
-      value = new Date(raw).getTime();
-      if (!Number.isFinite(value)) problem = `${label} is not a date.`;
-    } else if (WM_NUMBER_TYPES.has(field.type) || ((field.domain || {}).type === "codedValue"
-      && typeof ((field.domain.codedValues || [])[0] || {}).code === "number")) {
-      value = Number(raw);
-      const limits = WM_INT_RANGE[field.type];
-      if (!Number.isFinite(value)) problem = `${label} takes a number.`;
-      else if (/Integer/.test(field.type) && !Number.isInteger(value)) problem = `${label} takes a whole number.`;
-      else if (limits && (value < limits[0] || value > limits[1])) problem = `${label} takes a whole number from ${limits[0].toLocaleString()} to ${limits[1].toLocaleString()}.`;
-      else if (control.min !== "" && value < Number(control.min)) problem = `${label} is at least ${control.min}.`;
-      else if (control.max !== "" && value > Number(control.max)) problem = `${label} is at most ${control.max}.`;
-    } else value = raw;
-    if (!problem && value === null && field.nullable === false) problem = `${label} is required.`;
-    control.setAttribute("aria-invalid", problem ? "true" : "false");
-    wm$(`${control.id}-says`).textContent = problem;
-    if (problem && !first) first = control;
-    if (!problem && value !== was) changed[field.name] = value;
+    const read = wmReadControl(control, field, before[field.name] === undefined ? null : before[field.name]);
+    control.setAttribute("aria-invalid", read.problem ? "true" : "false");
+    wm$(`${control.id}-says`).textContent = read.problem || "";
+    if (read.problem && !first) first = control;
+    if (!read.problem && !read.same) changed[field.name] = read.value;
   }
   return { changed, first };
 }
@@ -3696,6 +3716,7 @@ async function wmSaveEdit(form) {
       return;
     }
     const name = held.isNew ? `A new feature in ${held.layer.title}` : wmFeatureName(held);
+    if (!held.isNew) wmTableTakeSaved(held.layer, held.oid, changed, name);
     const focusKey = held.isNew && result && result.objectId !== undefined ? `${held.layer.id}:${result.objectId}` : key;
     wmEditing.key = null;
     wmEditing.dirty = false;
@@ -3907,11 +3928,17 @@ wm$("sketchBar").addEventListener("click", event => {
 });
 
 /** Draws a layer again from the server, and the open table with it. */
-function wmRefreshLayer(layer) {
+function wmRefreshLayer(layer, mapOnly = false) {
   const run = wmRuntime.get(layer) || {};
   const source = run.ol && run.ol.getSource && run.ol.getSource();
   if (source && source.refresh) source.refresh();
-  if (wmTable.layer === layer) wmLoadTable();
+  if (mapOnly || wmTable.layer !== layer) return;
+  // Unsaved cells are not read over; the table says the card saved (design review 2026-10-01).
+  if (wmTableChanges().length) {
+    if (!wmTable.keepSaid) wmSayIn("tableStatus", "Saved from the card; the table still has unsaved changes.");
+    return;
+  }
+  wmLoadTable();
 }
 
 wm$("identify").addEventListener("click", event => {
@@ -3935,7 +3962,7 @@ wm$("identify").addEventListener("submit", event => {
 // ---------------------------------------------------------------- the attribute table (ADR-130)
 
 /** The table under the map: which layer, which page, and whether it follows the map's extent. */
-const wmTable = { layer: null, page: 0, total: 0, byExtent: true, turn: 0, rows: [], chosen: -1, selfMove: false };
+const wmTable = { layer: null, page: 0, total: 0, byExtent: true, turn: 0, rows: [], chosen: -1, selfMove: false, editing: false };
 const WM_TABLE_PAGE = 50;
 
 /**
@@ -3947,6 +3974,7 @@ function wmOpenTable(layer) {
   wmTable.layer = layer;
   wmTable.page = 0;
   wmTable.chosen = -1;
+  wmTable.editing = false;
   wm$("tablePanel").hidden = false;
   wm$("mapWrap").classList.add("withtable");
   wmMap.updateSize();
@@ -4000,18 +4028,37 @@ async function wmLoadTable() {
     const shownFields = fields.length ? fields
       : Object.keys((wmTable.rows[0] || {}).attributes || {}).map(name => ({ name, alias: name }));
 
+    // ADR-134 condition 3: in edit mode a cell of an editable field is its control, as the card's form makes it.
+    const editable = new Set(wmTable.editing ? wmEditFields(info).map(f => f.name) : []);
+    const named = feature => {
+      const shown = info.displayField && (feature.attributes || {})[info.displayField];
+      return shown !== null && shown !== undefined && shown !== "" ? String(shown) : `feature ${(feature.attributes || {})[oid]}`;
+    };
+    wmTable.keepSaid = false;
     wm$("tableGrid").innerHTML = `<thead><tr>${shownFields.map(f =>
-      `<th scope="col">${wmEscape(f.alias || f.name)}</th>`).join("")}</tr></thead>
-      <tbody>${wmTable.rows.map((feature, i) => `<tr tabindex="${i === Math.max(0, wmTable.chosen) ? 0 : -1}" data-row="${i}"
+      `<th scope="col"${WM_NUMBER_TYPES.has(f.type) && !(f.domain && f.domain.type === "codedValue") ? ' class="num"' : ""}>${
+        wmEscape(f.alias || f.name)}</th>`).join("")}</tr></thead>
+      <tbody>${wmTable.rows.map((feature, i) => `<tr tabindex="${!wmTable.editing && i === Math.max(0, wmTable.chosen) ? 0 : -1}" data-row="${i}"
         aria-selected="${i === wmTable.chosen ? "true" : "false"}">${shownFields.map(f => {
         const value = (feature.attributes || {})[f.name];
+        const number = WM_NUMBER_TYPES.has(f.type) && !(f.domain && f.domain.type === "codedValue");
+        if (editable.has(f.name)) {
+          return `<td class="celledit${number ? " num" : ""}">${wmFieldControl(f, value, { row: i, label: `${f.alias || f.name} of ${named(feature)}` })}</td>`;
+        }
         const text = value === null || value === undefined ? "" : wmFormatValue(value, null, f.type);
-        return `<td title="${wmEscape(text)}">${wmEscape(text)}</td>`;
+        return `<td title="${wmEscape(text)}"${number ? ' class="num"' : ""}>${wmEscape(text)}</td>`;
       }).join("")}</tr>`).join("")}</tbody>`;
+    wm$("tableEdit").hidden = !wmEditable(layer);
+    wm$("tableEdit").textContent = wmTable.editing ? "Stop editing" : "Edit in table";
+    wm$("tableEdit").setAttribute("aria-pressed", String(wmTable.editing));
+    wmTable.named = named;
+    wmTableCount();
 
     const first = wmTable.page * WM_TABLE_PAGE;
     const last = first + wmTable.rows.length;
     const pages = Math.max(1, Math.ceil(wmTable.total / WM_TABLE_PAGE));
+    wmTable.countSaid = wmTable.total === 0 ? "" : `${first + 1}–${last} of ${wmTable.total.toLocaleString()}${wmTable.byExtent ? " in view" : ""}${
+        wmWhere(layer) !== "1=1" ? ", filtered" : ""}.${pages > 1 ? ` Page ${wmTable.page + 1} of ${pages}.` : ""}`;
     wmSayIn("tableStatus", wmTable.total === 0
       ? (wmTimeNarrowed(layer)
         ? `No feature ${wmTable.byExtent ? "in view " : ""}${wmTimeBetween()}. Widen the time window or choose Show all time.`
@@ -4024,6 +4071,167 @@ async function wmLoadTable() {
     if (turn === wmTable.turn) wmSayIn("tableStatus", `The table could not be read: ${e.message || e}`, true);
   }
 }
+
+/** The table's changed cells, by row: what the feature held and what is typed now. */
+function wmTableChanges() {
+  if (!wmTable.editing || !wmTable.layer) return [];
+  const info = (wmRuntime.get(wmTable.layer) || {}).info || {};
+  const rows = new Map();
+  for (const control of document.querySelectorAll("#tableGrid [data-cell]")) {
+    const field = (info.fields || []).find(f => f.name === control.dataset.field);
+    const feature = wmTable.rows[Number(control.dataset.cell)];
+    if (!field || !feature) continue;
+    const was = (feature.attributes || {})[field.name];
+    const read = wmReadControl(control, field, was === undefined ? null : was);
+    control.closest("td").classList.toggle("changed", !read.same);
+    // A cell the server refused stays marked until it is typed in again (design review 2026-10-01).
+    control.setAttribute("aria-invalid", read.problem || control.dataset.refused ? "true" : "false");
+    control.title = read.problem || control.dataset.refused || "";
+    if (read.same) continue;
+    const row = rows.get(control.dataset.cell) || { index: Number(control.dataset.cell), changed: {}, problems: [], first: null };
+    const of = wmTable.named ? ` of ${wmTable.named(feature)}` : "";
+    if (read.problem) { row.problems.push(read.problem.replace(field.alias || field.name, `${field.alias || field.name}${of}`)); row.first = row.first || control; }
+    else row.changed[field.name] = read.value;
+    rows.set(control.dataset.cell, row);
+  }
+  return [...rows.values()];
+}
+
+/** Says how many rows have changed, and offers Save and Discard while any has. */
+function wmTableCount() {
+  const changes = wmTableChanges();
+  const n = changes.length;
+  wm$("tableSave").hidden = !wmTable.editing;
+  wm$("tableDiscard").hidden = !wmTable.editing;
+  wm$("tableSave").disabled = n === 0;
+  wm$("tableDiscard").disabled = n === 0;
+  wm$("tableSave").textContent = n ? `Save ${n} ${n === 1 ? "row" : "rows"}` : "Save changes";
+}
+
+/**
+ * Takes a feature saved from the card into its table row: a cell not typed in shows the saved value, a typed one is
+ * compared against it — so Save in the table cannot overwrite the card's save unnoticed (design review 2026-10-01).
+ * Whether the row still has typed cells that differ.
+ */
+function wmTableTakeSaved(layer, oid, changed, name) {
+  if (wmTable.layer !== layer || !wmTable.editing) return false;
+  const info = (wmRuntime.get(layer) || {}).info || {};
+  const index = wmTable.rows.findIndex(f => String((f.attributes || {})[info.objectIdField || "objectid"]) === String(oid));
+  if (index < 0) return false;
+  const before = { ...wmTable.rows[index].attributes };
+  Object.assign(wmTable.rows[index].attributes, changed);
+  let clash = false;
+  for (const control of document.querySelectorAll(`#tableGrid [data-cell="${index}"]`)) {
+    if (!(control.dataset.field in changed)) continue;
+    const field = (info.fields || []).find(f => f.name === control.dataset.field);
+    const typed = !wmReadControl(control, field, before[field.name] === undefined ? null : before[field.name]).same;
+    const shown = changed[field.name] === null ? "" : field.type === "esriFieldTypeDate" ? wmLocalInput(changed[field.name]) : String(changed[field.name]);
+    if (typed) clash = true;
+    else control.value = shown;
+    control.defaultValue = shown;
+  }
+  wmTableCount();
+  if (clash) {
+    wmTable.keepSaid = true;
+    wmSayIn("tableStatus", `${name} was saved from the card; its table cells still differ. Save the table to replace the card's values, or Discard.`, true);
+  }
+  return clash;
+}
+
+/** Whether the table may be left or moved: asked when cells have changed, rather than dropped. */
+function wmMayLeaveTable() {
+  return !wmTableChanges().length || confirm("Discard your changes in the table?");
+}
+
+function wmToggleTableEdit() {
+  if (wmTable.editing && !wmMayLeaveTable()) return;
+  wmTable.editing = !wmTable.editing;
+  wmLoadTable().then(() => {
+    (wmTable.editing ? document.querySelector("#tableGrid [data-cell]") : wm$("tableEdit"))?.focus();
+  });
+}
+
+/** Ends an edit of the table — after a save, or discarding what was typed — and reads it again. */
+async function wmTableEditDone(saved) {
+  if (!saved && !confirm("Discard your changes in the table?")) return;
+  await wmLoadTable();
+  if (!saved) wmSayIn("tableStatus", "Changes discarded.");
+  document.querySelector("#tableGrid [data-cell]")?.focus();
+}
+
+/** Sends every changed row in one applyEdits, and says which rows the server refused. */
+async function wmSaveTable() {
+  wmTable.keepSaid = false;
+  const layer = wmTable.layer;
+  const info = (wmRuntime.get(layer) || {}).info || {};
+  const oid = info.objectIdField || "objectid";
+  const changes = wmTableChanges();
+  const wrong = changes.find(c => c.problems.length);
+  if (wrong) {
+    wmSayIn("tableStatus", `Not saved: ${wrong.problems[0]}`, true);
+    wrong.first.focus();
+    return;
+  }
+  if (!changes.length) return;
+  wm$("tableSave").disabled = true;
+  wmSayIn("tableStatus", "Saving…");
+  try {
+    const updates = changes.map(c => ({ attributes: { [oid]: (wmTable.rows[c.index].attributes || {})[oid], ...c.changed } }));
+    const answer = await wmFetch(`${layer.url}/applyEdits`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ updates: JSON.stringify(updates), rollbackOnFailure: "false", f: "json" }),
+    });
+    const refused = ((answer || {}).updateResults || []).filter(r => r.success === false);
+    if (refused.length) {
+      // The rows that saved take their new values as what they hold; the refused ones stay typed and marked, and the
+      // table is not read again over them (design review 2026-10-01: the report was erased within 100 ms).
+      const no = new Set(refused.map(r => String(r.objectId)));
+      for (const c of changes) {
+        const feature = wmTable.rows[c.index];
+        const id = String((feature.attributes || {})[oid]);
+        const controls = document.querySelectorAll(`#tableGrid [data-cell="${c.index}"]`);
+        if (no.has(id)) {
+          const why = ((refused.find(r => String(r.objectId) === id) || {}).error || {}).description || "refused";
+          controls.forEach(control => { if (control.closest("td").classList.contains("changed")) control.dataset.refused = why; });
+          continue;
+        }
+        Object.assign(feature.attributes, c.changed);
+        controls.forEach(control => { control.defaultValue = control.value; });
+      }
+      const source = (wmRuntime.get(layer) || {}).ol;
+      if (source && source.getSource && source.getSource().refresh) source.getSource().refresh();
+      wmTableCount();
+      wmTable.keepSaid = true;
+      wmSayIn("tableStatus", `${updates.length - refused.length} of ${updates.length} saved. Not saved: ${refused.map(r => {
+        const c = changes.find(x => String((wmTable.rows[x.index].attributes || {})[oid]) === String(r.objectId));
+        return `${c ? wmTable.named(wmTable.rows[c.index]) : `feature ${r.objectId}`} (${((r.error || {}).description) || "refused"})`;
+      }).join(", ")}.`, true);
+      document.querySelector('#tableGrid [aria-invalid="true"]')?.focus();
+      return;
+    }
+    wmRefreshLayer(layer, true);
+    await wmLoadTable();
+    wmSayIn("tableStatus", `${updates.length} ${updates.length === 1 ? "row" : "rows"} saved.`);
+    document.querySelector("#tableGrid [data-cell]")?.focus();
+  } catch (e) {
+    wmSayIn("tableStatus", `Not saved: ${e.message || e}`, true);
+    wm$("tableSave").disabled = false;
+  }
+}
+
+wm$("tablePanel").addEventListener("input", event => {
+  if (!(event.target instanceof Element && event.target.matches("[data-cell]"))) return;
+  delete event.target.dataset.refused;
+  wmTableCount();
+  // A problem said for a cell goes once the cells have none, and the line says the rows again.
+  if (/^Not saved: /.test(wm$("tableStatus").textContent) && !wmTableChanges().some(c => c.problems.length)) {
+    wmSayIn("tableStatus", wmTable.countSaid || "");
+  }
+});
+wm$("tablePanel").addEventListener("change", event => {
+  if (event.target instanceof Element && event.target.matches("[data-cell]")) wmTableCount();
+});
 
 /**
  * Chooses a row: outlines its feature and takes the map to it, and the table stays where it was — the move is the
@@ -4049,21 +4257,43 @@ function wmTableGo(index) {
 wm$("tablePanel").addEventListener("click", event => {
   const t = event.target instanceof Element ? event.target : null;
   if (!t) return;
-  if (t.closest("#tableClose")) { wmCloseTable(); wmDrawLayerList(); return; }
-  if (t.closest("#tablePrev")) { wmTable.page = Math.max(0, wmTable.page - 1); wmTable.chosen = -1; wmLoadTable(); return; }
-  if (t.closest("#tableNext")) { wmTable.page++; wmTable.chosen = -1; wmLoadTable(); return; }
+  if (t.closest("#tableClose") && wmMayLeaveTable()) { wmTable.editing = false; wmCloseTable(); wmDrawLayerList(); return; }
+  if (t.closest("#tablePrev") && wmMayLeaveTable()) { wmTable.page = Math.max(0, wmTable.page - 1); wmTable.chosen = -1; wmLoadTable(); return; }
+  if (t.closest("#tableNext") && wmMayLeaveTable()) { wmTable.page++; wmTable.chosen = -1; wmLoadTable(); return; }
+  if (t.closest("#tableEdit")) { wmToggleTableEdit(); return; }
+  if (t.closest("#tableSave")) { wmSaveTable(); return; }
+  if (t.closest("#tableDiscard")) { wmTableEditDone(false); return; }
+  if (t.closest("input, select, textarea")) return;
   const row = t.closest("tr[data-row]");
   if (row) wmTableGo(Number(row.dataset.row));
 });
 // One Tab stop for the rows: the arrows move between them, Home and End to the ends, Enter chooses (roving tabindex).
 wm$("tablePanel").addEventListener("keydown", event => {
+  const cell = event.target instanceof Element && event.target.matches("[data-cell]") ? event.target : null;
   if (event.key === "Escape") {
     event.preventDefault();
+    event.stopPropagation();
+    // In a cell, Escape puts back what the cell held, as ArcGIS's table does; the table stays.
+    if (cell) {
+      if (cell.tagName === "SELECT") [...cell.options].forEach(o => { o.selected = o.defaultSelected; });
+      else cell.value = cell.defaultValue;
+      wmTableCount();
+      return;
+    }
+    if (!wmMayLeaveTable()) return;
+    wmTable.editing = false;
     wmCloseTable();
     wmDrawLayerList();
     return;
   }
-  const row = event.target instanceof Element ? event.target.closest("tr[data-row]") : null;
+  // Up and Down in a text cell move to the same field in the row above or below.
+  if (cell && (event.key === "ArrowUp" || event.key === "ArrowDown") && cell.tagName === "INPUT" && cell.type === "text") {
+    const next = document.querySelector(`#tableGrid [data-field="${CSS.escape(cell.dataset.field)}"][data-cell="${
+      Number(cell.dataset.cell) + (event.key === "ArrowDown" ? 1 : -1)}"]`);
+    if (next) { event.preventDefault(); next.focus(); next.select?.(); }
+    return;
+  }
+  const row = event.target instanceof Element && event.target.matches("tr[data-row]") ? event.target : null;
   if (!row) return;
   const rows = [...document.querySelectorAll("#tableGrid tr[data-row]")];
   const at = rows.indexOf(row);
@@ -4081,6 +4311,11 @@ wm$("tablePanel").addEventListener("keydown", event => {
   }
 });
 wm$("tableByExtent").addEventListener("change", () => {
+  if (!wmMayLeaveTable()) {
+    wm$("tableByExtent").checked = wmTable.byExtent;
+    wmSayIn("tableStatus", wmTable.countSaid || "");
+    return;
+  }
   wmTable.byExtent = wm$("tableByExtent").checked;
   wmTable.page = 0;
   wmLoadTable();
@@ -4101,6 +4336,11 @@ wmMap.on("moveend", () => {
     return;
   }
   if (wmTable.layer && wmTable.byExtent) {
+    // Unsaved cells are not thrown away because the map moved; the table follows once they are saved or discarded.
+    if (wmTableChanges().length) {
+      wmSayIn("tableStatus", "The map moved; save or discard your changes to see the features now in view.");
+      return;
+    }
     wmTable.page = 0;
     wmTable.chosen = -1;
     wmLoadTable();
