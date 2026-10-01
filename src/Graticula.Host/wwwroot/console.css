@@ -4564,3 +4564,20 @@ h4.spaced { margin-top: 24px; }
   #groupItems .widecol, #view-group th.widecol, th.widecol { display: none; }
   #groupItems .narrowonly { display: inline; }
 }
+
+/* ADR-129: My content's selection — a tick column and the bar of what can be done to every ticked item. */
+#view-content th.tick, #contentRows td.tick { width: 28px; text-align: center; }
+.bulkbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 8px;
+  padding: 8px 12px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface-2); }
+.bulkbar[hidden] { display: none; }
+
+#contentRows td.tick input, #contentPickAll { width: 20px; height: 20px; }
+#contentRows td.tick { cursor: pointer; }
+.bulkbar .bulksaid { flex: 1 0 100%; margin: 0; }
+.sharewarn { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 6px;
+  padding: 8px 10px; margin: 8px 0; }
+.sharewarn > span[aria-hidden] { font-weight: 700; }
+/* At phone width the picture gives its room to the name, which a bulk delete must be read by. */
+@media (max-width: 480px) {
+  #contentRows td.thumbcell { display: none; }
+}

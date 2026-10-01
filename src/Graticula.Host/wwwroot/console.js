@@ -3914,20 +3914,20 @@ function drawMyContent() {
   // ADR-034 §5j renamed the page action — so the one instruction this screen gave named a control that
   // is not on it. D-83's exact shape: the page's own instruction unfollowable.
   $("contentRows").innerHTML = total === 0
-    ? `<tr><td colspan="5" class="empty">${h(answer.note || "Nothing here yet.")}
+    ? `<tr><td colspan="6" class="empty">${h(answer.note || "Nothing here yet.")}
          <b>New item</b> publishes one.</td></tr>`
     : inScope.length === 0 && contentFolderPick
-      ? `<tr><td colspan="5" class="empty">${contentFolderPick === "root"
+      ? `<tr><td colspan="6" class="empty">${contentFolderPick === "root"
           ? "Everything of yours is in a folder."
           : `Nothing in ${h(myFolders.find(f => f.id === contentFolderPick)?.title || "this folder")} yet. Use
              <b>Move to folder…</b> in an item's ⋯ menu to put it here.`}</td></tr>`
     : inScope.length === 0
-      ? `<tr><td colspan="5" class="empty">Nothing arrived this way.
+      ? `<tr><td colspan="6" class="empty">Nothing arrived this way.
            ${contentScope === "mine"
              ? `<b>New item</b> publishes something of your own.`
              : `<b>Everything</b> shows all ${num(total)} you can see.`}</td></tr>`
       : visible.length === 0
-        ? `<tr><td colspan="5" class="empty">Nothing matches${contentFilter
+        ? `<tr><td colspan="6" class="empty">Nothing matches${contentFilter
              ? ` <b>${h(contentFilter)}</b>` : ""}${contentType ? ` among ${h(contentType)} items` : ""}.
              The search reads a name, its type, description, owner and folder.</td></tr>`
         : pageOf("contentRows", visible).map(i => {
@@ -3951,6 +3951,7 @@ function drawMyContent() {
           // rows go to each layer.
           return `
           <tr>
+            ${pickCell(i, `service:${i.name}`)}
             <!--
               <b>The picture is a target, and it looked like one already.</b> Handoff 2026-09-04.
               A reader scanning this list is scanning the thumbnails; clicking one did nothing,
@@ -4033,6 +4034,281 @@ function drawMyContent() {
         }).join("");
 
   $("contentRowsPager").innerHTML = pagerFor("contentRows", visible.length);
+  drawContentBulk();
+}
+
+// ---------------------------------------------------------------- several items at once (ADR-129)
+
+/** What is ticked in My content: `service:<qualified>` or `webmap:<id>`, kept across pages and redraws. */
+const contentPicked = new Set();
+
+/** What the last bulk action did, said in the bar until the selection changes — a toast went before it was read. */
+let contentBulkSaid = "";
+
+/** A row's tick, offered on what the reader owns — the items a bulk action may change. */
+function pickCell(item, key) {
+  return `<td class="tick" data-tick>${item.scope === "mine"
+    ? `<input type="checkbox" data-pick="${h(key)}"${contentPicked.has(key) ? " checked" : ""}
+        aria-label="Select ${h(item.bare || item.name)}">`
+    : ""}</td>`;
+}
+
+/** The bar over the list: how many are ticked and what can be done to them all, as Portal's Content page has it. */
+function drawContentBulk() {
+  const bar = $("contentBulk");
+  if (!bar) return;
+
+  // What is ticked and no longer listed (deleted, or another user's view) does not stay ticked.
+  const listed = new Set([...document.querySelectorAll("#contentRows [data-pick]")].map(b => b.dataset.pick));
+  for (const key of [...contentPicked]) if (!listed.has(key) && !contentAnswerHas(key)) contentPicked.delete(key);
+
+  const n = contentPicked.size;
+  const here = [...contentPicked].filter(key => listed.has(key)).length;
+  bar.hidden = n === 0 && !contentBulkSaid;
+  bar.innerHTML = (contentBulkSaid ? `<p class="bulksaid">${contentBulkSaid}</p>` : "") + (n === 0 ? "" : `<b role="status">${num(n)} selected${
+      here < n ? ` · ${num(n - here)} not on this page` : ""}</b>
+    <button type="button" class="tiny" id="bulkShare">Share…</button>
+    <button type="button" class="tiny" id="bulkMove">Move to folder…</button>
+    <button type="button" class="tiny danger" id="bulkDelete">Delete…</button>
+    <button type="button" class="tiny ghost" id="bulkClear">Clear selection</button>`);
+
+  const all = $("contentPickAll");
+  if (all) {
+    const boxes = [...document.querySelectorAll("#contentRows [data-pick]")];
+    all.checked = boxes.length > 0 && boxes.every(b => b.checked);
+    all.indeterminate = !all.checked && boxes.some(b => b.checked);
+    all.disabled = boxes.length === 0;
+  }
+}
+
+/** Whether a picked key is still among the loaded items. */
+function contentAnswerHas(key) {
+  if (!contentAnswer) return false;
+  const [kind, ...rest] = key.split(":");
+  const id = rest.join(":");
+  return kind === "webmap"
+    ? (contentAnswer.maps.webMaps || []).some(m => m.id === id && m.mine)
+    : (contentAnswer.answer.items || []).some(i => i.name === id && i.scope === "mine");
+}
+
+/** The ticked items, each with what it is and how it is addressed. */
+function pickedItems() {
+  const services = new Map((contentAnswer?.answer.items || []).map(i => [i.name, i]));
+  const maps = new Map((contentAnswer?.maps.webMaps || []).map(m => [m.id, m]));
+  return [...contentPicked].map(key => {
+    const [kind, ...rest] = key.split(":");
+    const id = rest.join(":");
+    return kind === "webmap"
+      ? { key, webmap: id, title: maps.get(id)?.title || "Untitled map", what: "web map", sharing: maps.get(id)?.sharing || "private" }
+      : { key, service: id, title: id.split("/").pop(), kind: services.get(id)?.kind,
+        what: `${itemTypeName(services.get(id)?.kind)}, ${id.includes("/") ? `service folder ${id.split("/")[0]}` : "site root"}`,
+        sharing: services.get(id)?.sharing || "private" };
+  });
+}
+
+/** Runs one request an item and says which did not go — a bulk action reports per item, as Portal's does. */
+async function eachPicked(items, act) {
+  const failed = [];
+  for (const item of items) {
+    try {
+      await act(item);
+    } catch (e) {
+      failed.push({ key: item.key, title: item.title, why: e.message || String(e) });
+    }
+  }
+  return failed;
+}
+
+/** What a bulk share leaves a map's readers unable to see: its layers shared more narrowly than the map, said in a line. */
+async function narrowerLayersOf(maps, scope) {
+  const rank = SCOPE_RANK[scope] ?? 0;
+  if (!maps.length || rank === 0) return "";
+  const scopes = new Map(((await api("/content/items").catch(() => null))?.items || []).map(i => [String(i.name).toLowerCase(), i]));
+  const lines = [];
+  for (const m of maps) {
+    const map = await api(`/content/webmaps/${encodeURIComponent(m.webmap)}`).catch(() => null);
+    const doc = !map ? {} : typeof map.document === "string" ? JSON.parse(map.document) : (map.document || {});
+    const narrow = (doc.operationalLayers || []).filter(l => {
+      const service = serviceOfLayerUrl(l.url || l.styleUrl || "");
+      const item = service ? scopes.get(service.toLowerCase()) : null;
+      return item && (SCOPE_RANK[item.sharing] ?? 0) < rank;
+    });
+    if (narrow.length) {
+      lines.push(`${h(m.title)} is ${scope === "public" ? "public" : "shared with your organization"}, but ${narrow.length} of its
+        layers ${narrow.length === 1 ? "is" : "are"} not: ${narrow.map(l => h(l.title || "a layer")).join(", ")}. Open the map's Share to
+        fix this.`);
+    }
+  }
+  return lines.join(" ");
+}
+
+/** The service's name and folder from its qualified name. */
+function splitQualified(qualified) {
+  const parts = qualified.split("/");
+  return parts.length > 1 ? { folder: parts[0], name: parts.slice(1).join("/") } : { folder: "", name: qualified };
+}
+
+// The whole cell toggles its tick, so a thumb on a phone does not have to find a 20-pixel box.
+document.addEventListener("click", e => {
+  const cell = e.target instanceof Element ? e.target.closest("td[data-tick]") : null;
+  if (!cell || e.target instanceof HTMLInputElement) return;
+  const box = cell.querySelector("input[data-pick]");
+  if (!box) return;
+  box.checked = !box.checked;
+  box.dispatchEvent(new Event("change", { bubbles: true }));
+});
+
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (!(t instanceof HTMLInputElement)) return;
+
+  if (t.dataset.pick !== undefined) {
+    if (t.checked) contentPicked.add(t.dataset.pick); else contentPicked.delete(t.dataset.pick);
+    contentBulkSaid = "";
+    drawContentBulk();
+    return;
+  }
+
+  if (t.id === "contentPickAll") {
+    for (const box of document.querySelectorAll("#contentRows [data-pick]")) {
+      box.checked = t.checked;
+      if (t.checked) contentPicked.add(box.dataset.pick); else contentPicked.delete(box.dataset.pick);
+    }
+    drawContentBulk();
+  }
+});
+
+document.addEventListener("click", async e => {
+  const t = e.target instanceof Element ? e.target.closest("button") : null;
+  if (!t) return;
+
+  if (t.id === "bulkClear") {
+    contentPicked.clear();
+    contentBulkSaid = "";
+    document.querySelectorAll("#contentRows [data-pick]").forEach(b => { b.checked = false; });
+    drawContentBulk();
+    $("contentPickAll")?.focus();
+    return;
+  }
+
+  if (t.id === "bulkMove") {
+    openFolderDialog(
+      `Move ${num(contentPicked.size)} item${contentPicked.size === 1 ? "" : "s"}`,
+      `<div class="stacked"><label for="moveTo">Folder</label>
+        <select id="moveTo">
+          <option value="">Not in a folder</option>
+          ${myFolders.map(f => `<option value="${h(f.id)}">${h(f.title)}</option>`).join("")}
+        </select></div>
+       <p class="hint">Folders only organise your content. Moving changes no address and no sharing.</p>`,
+      "bulkmove", "Move");
+    return;
+  }
+
+  if (t.id === "bulkShare") {
+    // <b>No scope is chosen for the reader</b> unless every ticked item already has the same one: a default of
+    // *only you* made one careless Enter un-share everything ticked (design review 2026-10-01).
+    const scopes = new Set(pickedItems().map(i => i.sharing));
+    const same = scopes.size === 1 ? [...scopes][0] : "";
+    openFolderDialog(
+      `Share ${num(contentPicked.size)} item${contentPicked.size === 1 ? "" : "s"}`,
+      `<div class="stacked"><label for="bulkScope">Who can reach them</label>
+        <select id="bulkScope">
+          <option value=""${same ? "" : " selected"} disabled>Choose…</option>
+          <option value="private"${same === "private" ? " selected" : ""}>Owner — only you</option>
+          <option value="organization"${same === "organization" ? " selected" : ""}>Your organization</option>
+          <option value="public"${same === "public" ? " selected" : ""}>Everyone (public)</option>
+        </select></div>
+       <p class="hint">Every selected item is set to this. Sharing with groups is done from each item's own Share,
+         where its groups are chosen.</p>`,
+      "bulkshare", "Share");
+    const go = $("contentFolderGo");
+    go.disabled = true;
+    $("bulkScope").addEventListener("change", () => { go.disabled = !$("bulkScope").value || $("bulkScope").value === same; });
+    return;
+  }
+
+  if (t.id === "bulkDelete") {
+    const items = pickedItems();
+    if (!confirm(`Delete ${items.length} item${items.length === 1 ? "" : "s"}? ${items.map(i => `${i.title} (${i.what})`).join(", ")}.\n\n`
+      + "A hosted layer's data is deleted with it, and an uploaded image with its service. This cannot be undone. "
+      + "A registered layer's table and an image registered from a path are not touched.")) return;
+    t.disabled = true;
+    const failed = await eachPicked(items, item => {
+      if (item.webmap) return api(`/content/webmaps/${encodeURIComponent(item.webmap)}`, { method: "DELETE" });
+      const { folder, name } = splitQualified(item.service);
+      return item.kind === "ImageServer"
+        ? api(`/admin/coverages/${encodeURIComponent(name)}?folder=${encodeURIComponent(folder)}`, { method: "DELETE" })
+        : api(`/admin/featureservices/${encodeURIComponent(name)}?folder=${encodeURIComponent(folder)}&drop=true`,
+          { method: "DELETE" });
+    });
+    settleBulk(items, failed, "Deleted");
+    await loadMyContent();
+    $("contentPickAll")?.focus();
+  }
+});
+
+/**
+ * Says what a bulk action did in the bar, and leaves ticked only what it could not do — so the reader sees which and
+ * can try again (design review 2026-10-01: a toast and a cleared selection lost both).
+ */
+function settleBulk(items, failed, verb, after = "", missedAs = `Not ${verb.toLowerCase()}`) {
+  const missed = new Map(failed.map(f => [f.key, f.why]));
+  contentPicked.clear();
+  for (const item of items) if (missed.has(item.key)) contentPicked.add(item.key);
+  const done = items.length - failed.length;
+  contentBulkSaid = `${h(verb)} ${num(done)} of ${num(items.length)}${h(after)}.${failed.length
+    ? ` ${h(missedAs)}: ${failed.map(f => `${h(f.title)} (${h(f.why)})`).join(", ")} — still ticked.` : ""}`;
+}
+
+/** The bulk Move and Share, run from the folder dialog's button. */
+async function bulkGo(go) {
+  const says = $("contentFolderSays");
+  const items = pickedItems();
+
+  if (go === "bulkmove") {
+    const to = $("moveTo").value || null;
+    const answer = await api("/content/move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: items.map(i => i.webmap ? { webmap: i.webmap } : { service: i.service }), to }),
+    }).catch(e => { says.textContent = e.message || String(e); return null; });
+    if (!answer) return;
+    // The server answers each item by its label — a service's qualified name, a map's id.
+    const failed = (answer.results || []).filter(r => !r.success).map(r => {
+      const item = items.find(i => (i.service || i.webmap) === r.item);
+      return { key: item?.key, title: item?.title || r.item, why: (r.error || "refused").replace(/\.$/, "").toLowerCase() };
+    });
+    const where = to ? (myFolders.find(f => f.id === to)?.title || "the folder") : "no folder";
+    settleBulk(items, failed, "Moved", ` to ${where}`);
+  } else {
+    const sharing = $("bulkScope").value;
+    const failed = await eachPicked(items, item => {
+      if (item.webmap) {
+        // A map is written whole, so it is read first and written back with only its sharing changed.
+        const at = `/content/webmaps/${encodeURIComponent(item.webmap)}`;
+        return api(at).then(map => api(at, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: map.title, snippet: map.snippet || null, sharing,
+            document: typeof map.document === "string" ? JSON.parse(map.document) : map.document,
+          }) }));
+      }
+      const { folder, name } = splitQualified(item.service);
+      return api(`/admin/services/${encodeURIComponent(name)}/sharing?folder=${encodeURIComponent(folder)}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sharing }) });
+    });
+    const [verb, after] = { private: ["Made", " private"], organization: ["Shared", " with your organization"],
+      public: ["Made", " public"] }[sharing];
+    settleBulk(items, failed, verb, after, "Not changed");
+
+    // A map made wider than its layers says so here too, as its own Share does (design review 2026-10-01).
+    const wider = await narrowerLayersOf(items.filter(i => i.webmap && !failed.some(f => f.key === i.key)), sharing);
+    if (wider) contentBulkSaid += ` ${wider}`;
+  }
+
+  $("contentFolderDialog").close();
+  await loadMyContent();
+  $("contentPickAll")?.focus();
 }
 
 
@@ -4058,6 +4334,110 @@ const MAP_SCOPES = [
  * A web map's item page — its description, its layers with the way to each one's item, who may open it, and the
  * ways on: Open in Map Viewer, Share, Delete. Portal's web map item, Overview only (2026-10-01).
  */
+/** How widely each scope reaches, for comparing a map's with its layers'. */
+const SCOPE_RANK = { private: 0, group: 1, organization: 2, public: 3 };
+
+/** The services this signed-in reader can see, with their scope and whether they are theirs — read once a dialog. */
+let mapLayerScopes = null;
+
+/** The reader's own layers the open Share would raise to the map's scope, if its box is ticked on Save. */
+let mapShareRaisable = [];
+
+/** Which drawing of the layer note is the latest — a slower answer for a scope already left is dropped. */
+let mapReachTurn = 0;
+
+/** A scope as the rest of Studio says it, for the layer note (design review 2026-10-01: three wordings in three places). */
+const SCOPE_SAID = { private: "only you", group: "groups", organization: "your organization", public: "everyone" };
+
+/**
+ * Says which of the open map's layers the people it is shared with would not see — ADR-129, as Portal does when a map
+ * is shared more widely than its layers — and offers to share the ones this reader owns as widely as the map.
+ */
+async function drawMapLayerReach(scope) {
+  const box = $("mapShareLayers");
+  if (!box || !mapOpen) return;
+  const turn = ++mapReachTurn;
+  const rank = SCOPE_RANK[scope] ?? 0;
+  mapShareRaisable = [];
+  if (rank === 0) { box.innerHTML = ""; return; }
+
+  if (mapLayerScopes === null) {
+    try {
+      const listed = await api("/content/items");
+      mapLayerScopes = new Map((listed.items || []).map(i => [String(i.name).toLowerCase(), i]));
+    } catch {
+      mapLayerScopes = new Map();
+    }
+  }
+
+  const doc = typeof mapOpen.document === "string" ? JSON.parse(mapOpen.document) : (mapOpen.document || {});
+  const narrow = [];
+  let unknown = 0;
+
+  for (const layer of Array.isArray(doc.operationalLayers) ? doc.operationalLayers : []) {
+    const service = serviceOfLayerUrl(layer.url || layer.styleUrl || "");
+    const item = service ? mapLayerScopes.get(service.toLowerCase()) : null;
+    if (!item) { unknown++; continue; }
+    if ((SCOPE_RANK[item.sharing] ?? 0) < rank) narrow.push({ layer, item });
+  }
+
+  if (!$("mapShareLayers") || turn !== mapReachTurn) return;
+  const ours = narrow.filter(n => n.item.scope === "mine" && scope !== "group");
+  mapShareRaisable = ours.map(n => n.item);
+  const named = list => list.map(n => `${h(n.layer.title || n.item.name)} <span class="hint">(${h(SCOPE_SAID[n.item.sharing] || n.item.sharing)})</span>`).join(", ");
+  const raiseLabel = ours.length === 1
+    ? (scope === "public" ? `Make ${h(ours[0].item.name.split("/").pop())} public too`
+      : `Share ${h(ours[0].item.name.split("/").pop())} with your organization too`)
+    : (scope === "public" ? `Make the ${ours.length} layers you own public too`
+      : `Share the ${ours.length} layers you own with your organization too`);
+
+  // <b>Group scope compares how widely, not which groups</b>, so it says so rather than claiming the groups will not
+  // see a layer that may be in them.
+  box.innerHTML = (narrow.length
+    ? `<p class="sharewarn"><span aria-hidden="true">!</span> <b>${scope === "group"
+        ? `Layers not shared with groups: `
+        : `${narrow.length} layer${narrow.length === 1 ? " is" : "s are"} shared more narrowly than this; ${
+          h(SCOPE_SAID[scope])} will not see ${narrow.length === 1 ? "it" : "them"}: `}</b>${named(narrow)}.</p>
+       ${ours.length ? `<label class="check"><input type="checkbox" id="mapShareRaise">
+         <span>${raiseLabel} <span class="hint">— applied when you press Save</span></span></label>` : ""}`
+    : "")
+    + (unknown ? `<p class="hint">${unknown} layer${unknown === 1 ? "" : "s"} could not be checked: the service is not one you
+         can see, or it is on another server.</p>` : "");
+
+  // Ticking it is a change worth saving even when the map's own scope is not.
+  $("mapShareRaise")?.addEventListener("change", () => {
+    const save = $("mapShareSave");
+    if (save && $("mapShareRaise").checked) save.disabled = false;
+  });
+}
+
+/** Shares the reader's own layers as widely as the map, when Share's box says so — run on Save, before the map. */
+async function raiseMapLayers(scope) {
+  if (!$("mapShareRaise")?.checked || !mapShareRaisable.length) return [];
+  const failed = [];
+  for (const item of mapShareRaisable) {
+    const { folder, name } = splitQualified(item.name);
+    try {
+      await api(`/admin/services/${encodeURIComponent(name)}/sharing?folder=${encodeURIComponent(folder)}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sharing: scope }) });
+    } catch (e) {
+      failed.push(`${item.name.split("/").pop()}: ${e.message || e}`);
+    }
+  }
+  return failed;
+}
+
+/** The qualified service name a layer address on this server names, or null. */
+function serviceOfLayerUrl(url) {
+  let address;
+  try { address = new URL(url, location.href); } catch { return null; }
+  if (address.origin !== location.origin) return null;
+  let path = address.pathname;
+  try { path = decodeURIComponent(path); } catch { /* compared as written */ }
+  const match = /\/rest\/services\/(.+?)\/(FeatureServer|MapServer|VectorTileServer|ImageServer)(\/|$)/.exec(path);
+  return match ? match[1] : null;
+}
+
 async function showWebMapItem(id) {
   showView("view-map", "content");
   $("mapCrumb").innerHTML = `<a href="#/content">My content</a> › <b>…</b>`;
@@ -4207,6 +4587,7 @@ document.addEventListener("click", async event => {
   }
 
   if (t.id === "mapShareOpen") {
+    mapLayerScopes = null;
     $("mapShareBody").innerHTML = `<fieldset class="offered"><legend>Who can open this map</legend>
       ${MAP_SCOPES.map(([value, label, said]) => `<label class="check"><input type="radio" name="mapShareScope" value="${value}"${
         value === mapOpen.sharing ? " checked" : ""}> <span><b>${h(label)}</b> <span class="hint">${h(said)}</span></span></label>`).join("")}
@@ -4215,6 +4596,7 @@ document.addEventListener("click", async event => {
         <p class="hint">Reading your groups…</p></fieldset>
       <p class="hint">A layer on the map is still shown only to whoever may read it; sharing the map does not share its
         layers.</p>
+      <div id="mapShareLayers" role="status" aria-live="polite"></div>
       <p class="hint" id="mapShareSays" role="status" aria-live="polite"></p>`;
     $("mapShareFoot").innerHTML = `<span class="fill"></span>
       <button type="button" class="ghost" id="mapShareCancel">Cancel</button>
@@ -4227,7 +4609,9 @@ document.addEventListener("click", async event => {
       $("mapShareGroups").hidden = scope !== "group";
       $("mapShareSave").disabled = scope === mapOpen.sharing
         && ticked.size === had.size && [...ticked].every(g => had.has(g));
+      drawMapLayerReach(scope);
     };
+    drawMapLayerReach(mapOpen.sharing);
     for (const radio of document.querySelectorAll('input[name="mapShareScope"]')) radio.onchange = changed;
 
     // The groups this user may put it in: those they own or manage, or every group for an administrator.
@@ -4258,7 +4642,9 @@ document.addEventListener("click", async event => {
         await api(`/admin/groups/${encodeURIComponent(group)}/maps/${encodeURIComponent(mapOpen.id)}`,
           { method: box.checked ? "PUT" : "DELETE" });
       }
+      const notRaised = await raiseMapLayers(sharing);
       await saveMapItem({ sharing });
+      if (notRaised.length) toast(`The map is saved; some layers were not shared: ${notRaised.join("; ")}`);
       $("mapShare").close();
       await showWebMapItem(mapOpen.id);
       $("mapShareOpen")?.focus();
@@ -4378,6 +4764,7 @@ function mapRow(i) {
   const open = `/studio/webmap.html?id=${encodeURIComponent(m.id)}`;
 
   return `<tr>
+    ${pickCell(i, `webmap:${m.id}`)}
     <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}"
       >${m.thumbnail ? `<img class="thumb" alt="" loading="lazy" data-thumb="${h(m.thumbnail)}">`
         : `<div class="thumb empty mapthumb" aria-hidden="true"></div>`}</a></td>
@@ -27156,6 +27543,7 @@ function focusFolderPick() {
 }
 
 async function folderGo(go) {
+  if (go === "bulkmove" || go === "bulkshare") return bulkGo(go);
   const says = $("contentFolderSays");
   const title = ($("folderTitle")?.value || "").trim();
 

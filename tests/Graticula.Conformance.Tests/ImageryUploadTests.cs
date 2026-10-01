@@ -62,6 +62,7 @@ public sealed class ImageryUploadTests : ArcGisClient
         Assert.False(token is null, "No administrator credential; set the suite's user and password.");
 
         string name = $"zz_imgmeta_{Guid.NewGuid():N}"[..20];
+        string? folder = null;
 
         try
         {
@@ -93,10 +94,24 @@ public sealed class ImageryUploadTests : ArcGisClient
             using HttpResponseMessage drawn = await Http.SendAsync(picture);
             Assert.True(drawn.IsSuccessStatusCode, $"The item's picture answered {(int)drawn.StatusCode}.");
             Assert.Equal("image/png", drawn.Content.Headers.ContentType?.MediaType);
+
+            // ADR-129: it moves into its owner's folder as any item does — Move answered *no such item* for an image.
+            (HttpStatusCode madeFolder, string folderBody) = await SendAsync(root, token!, HttpMethod.Post, "/content/folders",
+                new StringContent($"{{\"title\":\"{name}\"}}", Encoding.UTF8, "application/json"));
+            Assert.True(madeFolder is HttpStatusCode.OK or HttpStatusCode.Created, $"Making a folder answered {(int)madeFolder}: {folderBody}");
+            folder = JsonDocument.Parse(folderBody).RootElement.GetProperty("id").GetString();
+            (_, string moved) = await SendAsync(root, token!, HttpMethod.Post, "/content/move",
+                new StringContent($"{{\"items\":[{{\"service\":\"hosted/{name}\"}}],\"to\":\"{folder}\"}}", Encoding.UTF8, "application/json"));
+            Assert.True(JsonDocument.Parse(moved).RootElement.GetProperty("results")[0].GetProperty("success").GetBoolean(), moved);
+            (_, string mine) = await SendAsync(root, token!, HttpMethod.Get, "/content/items");
+            JsonElement listed = JsonDocument.Parse(mine).RootElement.GetProperty("items").EnumerateArray()
+                .First(i => i.GetProperty("name").GetString() == $"hosted/{name}");
+            Assert.Equal(folder, listed.GetProperty("contentFolder").GetString());
         }
         finally
         {
             await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
+            if (folder is not null) await SendAsync(root, token!, HttpMethod.Delete, $"/content/folders/{folder}");
         }
     }
 

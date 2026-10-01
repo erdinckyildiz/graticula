@@ -20,6 +20,9 @@
 > **Amended 2026-10-01 by [ADR-110](ADR-110-a-web-map-sets-its-layers-pop-ups.md):** a feature layer on a map may carry its own pop-up in `popupInfo` and `popupEnabled`, set from the viewer's *Pop-up* panel.
 
 > **Amended 2026-10-01 by [ADR-104](ADR-104-a-web-map-styles-its-own-layers.md):** a feature layer on a map may carry its own style in `layerDefinition.drawingInfo`, set from the viewer's *Style* panel; the layer's default is still the item's.
+
+> **Amended 2026-10-01 by [ADR-129](ADR-129-several-items-at-once-and-a-maps-layers-reach.md).** A map's Share, on its item page, names the layers its chosen readers will not see and offers to share the reader's own as widely.
+
 ---
 
 ## 1. Context

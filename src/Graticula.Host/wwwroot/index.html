@@ -608,9 +608,12 @@
       it (ADR-079 §5.5 kept them apart on the grounds that four of seven cells would be blank; with five,
       a map fills all of them).
     -->
+    <!-- ADR-129: what is ticked, and what can be done to all of it at once. -->
+    <div class="bulkbar" id="contentBulk" role="region" aria-label="Selected items" hidden></div>
     <div class="panel widetable">
       <table>
         <thead><tr>
+          <th class="tick"><input type="checkbox" id="contentPickAll" aria-label="Select every item of yours shown"></th>
           <th colspan="2">Name</th><th>Sharing</th><th>Modified</th><th></th>
         </tr></thead>
         <tbody id="contentRows"></tbody>

@@ -1064,7 +1064,7 @@ internal static class PortalEndpoints
             return refused;
         }
 
-        string? error = await MoveOneAsync(id, to, current, folders, published, maps, cancellation).ConfigureAwait(false);
+        string? error = await MoveOneAsync(id, to, current, folders, published, maps, context.RequestServices.GetService(typeof(ICoverageCatalog)) as ICoverageCatalog, cancellation).ConfigureAwait(false);
 
         return error is null
             ? Results.Ok(new { success = true, itemId = id, owner = current.Principal.Name, folder = to?.ToString("N") })
@@ -1098,7 +1098,7 @@ internal static class PortalEndpoints
 
         foreach (string id in form["items"].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            string? error = await MoveOneAsync(id, to, current, folders, published, maps, cancellation).ConfigureAwait(false);
+            string? error = await MoveOneAsync(id, to, current, folders, published, maps, context.RequestServices.GetService(typeof(ICoverageCatalog)) as ICoverageCatalog, cancellation).ConfigureAwait(false);
             results.Add(error is null
                 ? new { itemId = id, success = true, error = (object?)null }
                 : new { itemId = id, success = false, error = (object?)new { code = 400, message = error } });
@@ -1128,7 +1128,7 @@ internal static class PortalEndpoints
     /// <summary>Moves one of the caller's own items by its portal id, or says why not.</summary>
     private static async Task<string?> MoveOneAsync(
         string id, Guid? to, RequestPrincipal current, IContentFolderStore folders, CatalogFallback published,
-        IWebMapStore maps, CancellationToken cancellation)
+        IWebMapStore maps, ICoverageCatalog? coverages, CancellationToken cancellation)
     {
         if (Guid.TryParse(id, out Guid serviceId)
             && (await published.ListServicesAsync(cancellation).ConfigureAwait(false)).Services?.FirstOrDefault(s => s.Id == serviceId) is { } service)
@@ -1136,6 +1136,17 @@ internal static class PortalEndpoints
             return service.Owner != current.Principal.Id
                 ? "Item does not exist or is inaccessible."
                 : await folders.MoveServiceAsync(service.Id, to, cancellation).ConfigureAwait(false) ? null : "Item does not exist or is inaccessible.";
+        }
+
+        // An image service's item id is derived from its coverage (ADR-129: it moved nowhere, being looked for among
+        // feature services only).
+        if (coverages is not null
+            && (await coverages.ListAsync(cancellation).ConfigureAwait(false))
+                .FirstOrDefault(c => string.Equals(CoverageItemId(c), id, StringComparison.OrdinalIgnoreCase)) is { } image)
+        {
+            return image.Owner != current.Principal.Id
+                ? "Item does not exist or is inaccessible."
+                : await folders.MoveServiceAsync(image.ServiceId, to, cancellation).ConfigureAwait(false) ? null : "Item does not exist or is inaccessible.";
         }
 
         return await maps.FindAsync(id, cancellation).ConfigureAwait(false) is { } map && map.Owner == current.Principal.Id

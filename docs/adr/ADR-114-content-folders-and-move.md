@@ -11,6 +11,9 @@
 
 > **Amended 2026-10-01 by [ADR-126](ADR-126-an-imagery-item-describes-itself.md).** My content lists an image service in the content folder it was moved to, not always at the root.
 
+
+> **Amended 2026-10-01 by [ADR-129](ADR-129-several-items-at-once-and-a-maps-layers-reach.md).** My content moves, shares and deletes several ticked items at once.
+
 ---
 
 ## 1. Context

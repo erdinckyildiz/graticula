@@ -102,6 +102,29 @@ public sealed class WebMapImageryTests : ConsoleTest
                 Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#layerList [data-act=pixels][aria-pressed=false]')"),
                     "The saved map's choice not to answer clicks with pixel values was lost.");
                 NothingWentWrong(await PageErrorsAsync());
+
+                // ADR-129: sharing the map wider than its private image says so on the map's item page, and offers to
+                // share the image, which is this user's, as widely.
+                await OpenAsync($"/studio/#/map/{map}", token);
+                await WaitForAsync("!!document.getElementById('mapShareOpen')", "The map's item page did not open.");
+                await ClickAsync("#mapShareOpen");
+                await WaitForAsync("document.getElementById('mapShare').open", "Share did not open.");
+                await Browser.EvaluateAsync<bool>(
+                    "(() => { const r = document.querySelector('input[name=mapShareScope][value=organization]'); r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+                await WaitForAsync(
+                    "(document.getElementById('mapShareLayers').textContent || '').includes('shared more narrowly') && !!document.getElementById('mapShareRaise')",
+                    "Sharing the map with the organization did not say its private image layer would not be seen.");
+
+                // The layer is shared on Save, with the map — not the moment the box is ticked.
+                await Browser.EvaluateAsync<bool>("(window.__writes = [], true)");
+                await ClickAsync("#mapShareRaise");
+                Assert.Empty(await WritesAsync());
+                await ClickAsync("#mapShareSave");
+                await WaitForAsync(
+                    $"window.__writes.some(w => w.startsWith('PUT') && w.includes('/admin/services/{name}/sharing'))"
+                    + $" && window.__writes.some(w => w.startsWith('PUT') && w.includes('/content/webmaps/{map}'))",
+                    "Saving the map's sharing with the box ticked did not share the layer and the map.");
+                NothingWentWrong(await PageErrorsAsync());
             }
             finally
             {

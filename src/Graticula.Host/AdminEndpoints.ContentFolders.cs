@@ -207,7 +207,8 @@ internal static partial class AdminEndpoints
         foreach (MoveItem item in items)
         {
             (string label, Guid? owner, Func<Task<bool>>? move) = await ResolveMoveAsync(
-                item, request.To, folders, published, maps, cancellation).ConfigureAwait(false);
+                item, request.To, folders, published, maps,
+                context.RequestServices.GetService(typeof(ICoverageCatalog)) as ICoverageCatalog, cancellation).ConfigureAwait(false);
 
             string? error =
                 move is null ? "No such item."
@@ -237,6 +238,7 @@ internal static partial class AdminEndpoints
         IContentFolderStore folders,
         PostgresLayerCatalog published,
         IWebMapStore maps,
+        ICoverageCatalog? coverages,
         CancellationToken cancellation)
     {
         if (!string.IsNullOrWhiteSpace(item.Service))
@@ -246,9 +248,17 @@ internal static partial class AdminEndpoints
             string? folder = slash < 0 ? null : qualified[..slash];
             string name = slash < 0 ? qualified : qualified[(slash + 1)..];
 
-            return await published.FindServiceAsync(folder, name, cancellation).ConfigureAwait(false) is { } service
-                ? (qualified, service.Owner, () => folders.MoveServiceAsync(service.Id, to, cancellation))
-                : (qualified, null, null);
+            if (await published.FindServiceAsync(folder, name, cancellation).ConfigureAwait(false) is { } service)
+            {
+                return (qualified, service.Owner, () => folders.MoveServiceAsync(service.Id, to, cancellation));
+            }
+
+            // An image service is a service row too, and moves as one (ADR-129: Move answered *no such item* for every
+            // image, because only feature services were looked for).
+            return coverages is not null
+                && await coverages.FindAsync(folder, name, cancellation).ConfigureAwait(false) is { } coverage
+                    ? (qualified, coverage.Owner, () => folders.MoveServiceAsync(coverage.ServiceId, to, cancellation))
+                    : (qualified, null, null);
         }
 
         if (!string.IsNullOrWhiteSpace(item.Webmap))
