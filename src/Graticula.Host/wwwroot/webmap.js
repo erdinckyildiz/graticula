@@ -813,7 +813,7 @@ function wmBuildLayer(layer, run, index) {
     // ADR-117: the labels are a second layer over the same source, decluttered among themselves only — in one
     // layer a point's own symbol claimed the space and every label beside it was dropped (design review 2026-10-01).
     const group = new ol.layer.Group({
-      layers: [drawn, new ol.layer.Vector({ source, style: wmLabelStyle(label), declutter: true })],
+      layers: [drawn, new ol.layer.Vector({ source, style: wmLabelStyle(label), declutter: true, ...wmScaleRange(label) })],
     });
     group.getSource = () => source;
     return group;
@@ -3051,11 +3051,65 @@ function wmLabelOf(layer) {
   if (!m) return null;
   const symbol = one.symbol || {};
   return {
+    minScale: Number(one.minScale) || 0,
+    maxScale: Number(one.maxScale) || 0,
     field: m[1],
     size: Number((symbol.font || {}).size) || 10,
     colour: wmColour(symbol.color, "#1f2933"),
     halo: Number(symbol.haloSize) > 0 ? wmColour(symbol.haloColor, "#ffffff") : null,
   };
+}
+
+/**
+ * The scales a map's labels are drawn between, as OpenLayers resolutions — ADR-131. ArcGIS's `minScale` is the most
+ * zoomed-out scale they show at and `maxScale` the most zoomed-in, zero meaning no limit; a Web Mercator metre at the
+ * equator is 1 / (96 dpi × 39.37 in/m) of a scale's denominator, which is how ArcGIS converts them.
+ */
+function wmScaleRange(label) {
+  const perScale = 1 / (96 * 39.37);
+  return {
+    ...(label.minScale > 0 ? { maxResolution: label.minScale * perScale } : {}),
+    ...(label.maxScale > 0 ? { minResolution: label.maxScale * perScale } : {}),
+  };
+}
+
+/** The scales a Labels panel offers, ArcGIS's named ones, from the world down to a building. */
+const WM_SCALES = [
+  [0, "No limit"], [50000000, "Continent"], [10000000, "Country"], [5000000, "Region"], [1000000, "County"],
+  [300000, "City"], [150000, "Town"], [75000, "Neighborhood"], [40000, "Streets"], [20000, "Street"],
+  [10000, "Buildings"], [5000, "Building"],
+];
+
+/**
+ * A scale choice's options, with the one the map already has selected — and kept as its own option when it is not one
+ * of the named scales, so a range set in ArcGIS at another scale survives a change made here.
+ */
+function wmScaleOptions(current, side, other) {
+  const now = Number(current) || 0;
+  const limit = Number(other) || 0;
+  const named = WM_SCALES.filter(([v]) => v > 0);
+  // *Zoomed out to* runs from no limit inward; *zoomed in to* runs outward to no limit — the order a slider has.
+  const list = side === "out"
+    ? [[0, "No limit"], ...named]
+    : [...named, [0, "No limit"]];
+  if (now && !named.some(([v]) => v === now)) list.unshift([now, "Custom"]);
+  // The two cannot cross: a choice that would leave no scale between them is not offered (design review 2026-10-01).
+  const crosses = v => v && limit && (side === "out" ? v <= limit : v >= limit);
+  return list.map(([v, n]) => `<option value="${v}"${v === now ? " selected" : ""}${crosses(v) ? " disabled" : ""}>${
+    v ? `${n} (1:${v.toLocaleString()})` : n}</option>`).join("");
+}
+
+/** The map's scale now, as ArcGIS writes it: the denominator of 1:n. */
+function wmCurrentScale() {
+  return Math.round((wmMap.getView().getResolution() || 0) * 96 * 39.37);
+}
+
+/** The Labels panel's line under the range: where the map is now, and whether its labels show there. */
+function wmScaleNote(layer) {
+  const label = wmLabelOf(layer);
+  const now = wmCurrentScale();
+  const shown = !label || ((!label.minScale || now <= label.minScale) && (!label.maxScale || now >= label.maxScale));
+  return `Current map scale 1:${now.toLocaleString()}${label && !shown ? " — labels are hidden at this scale" : ""}.`;
 }
 
 /** A feature's label alone, as the label layer draws it. */
@@ -3112,6 +3166,17 @@ function wmLabelPanel(layer, run, key) {
       <label class="check"><input type="checkbox" id="labHalo-${k}"${!raw || Number(symbol.haloSize) > 0 ? " checked" : ""}
         data-act="labelsApply" data-layer="${k}" data-focus="labHalo:${k}"> Halo</label>
     </div>
+    <fieldset class="lrange"><legend class="lkind">Visible range</legend>
+      <div class="row">
+        <label class="lkind" for="labFrom-${k}">Zoomed out to</label>
+        <select id="labFrom-${k}" data-act="labelsApply" data-layer="${k}" data-focus="labFrom:${k}">${
+          wmScaleOptions((raw || {}).minScale, "out", (raw || {}).maxScale)}</select>
+        <label class="lkind" for="labTo-${k}">Zoomed in to</label>
+        <select id="labTo-${k}" data-act="labelsApply" data-layer="${k}" data-focus="labTo:${k}">${
+          wmScaleOptions((raw || {}).maxScale, "in", (raw || {}).minScale)}</select>
+      </div>
+      <p class="lsnote" id="labScale-${k}">${wmEscape(wmScaleNote(layer))}</p>
+    </fieldset>
     ${raw ? `<div class="row"><button class="tiny" data-act="labelsReset" data-layer="${k}" data-focus="labelsReset:${k}"
       data-focus-fallback="labOn:${k}">Remove labels</button></div>` : ""}
     <p class="lsnote" id="labSays-${k}" role="status" aria-live="polite">${wmEscape(run.labelSaid
@@ -3119,6 +3184,14 @@ function wmLabelPanel(layer, run, key) {
         ? "This map labels the layer with an expression this viewer does not draw; a change here replaces it."
         : "Choose a field to label with."))} Labels that would overlap are hidden.</p>
   </div>`;
+}
+
+/** The Labels panel's scale range, the wider first whichever way round it was chosen; zero is no limit. */
+function wmReadScales(k) {
+  const from = Number(wm$(`labFrom-${k}`)?.value) || 0;
+  const to = Number(wm$(`labTo-${k}`)?.value) || 0;
+  // The options cannot cross; a range read from elsewhere that does is no range rather than labels never drawn.
+  return from && to && to >= from ? { minScale: 0, maxScale: 0 } : { minScale: from, maxScale: to };
 }
 
 /**
@@ -3161,17 +3234,22 @@ function wmApplyLabels(layer, reset = false) {
         haloSize: halo ? 1 : 0,
         font: { family: "Arial", size },
       },
-      minScale: 0,
-      maxScale: 0,
+      // ADR-131: the scales the labels show between — zoomed out no further than *from*, in no further than *to*.
+      ...wmReadScales(k),
     }];
     layer.showLabels = wm$(`labOn-${k}`).checked;
   }
 
   const now = wmLabelOf(layer);
+  const scale = v => `1:${v.toLocaleString()}`;
+  const range = !now || (!now.minScale && !now.maxScale) ? ""
+    : now.minScale && now.maxScale ? `, from ${scale(now.minScale)} to ${scale(now.maxScale)}`
+    : now.minScale ? `, once zoomed in past ${scale(now.minScale)}`
+    : `, until zoomed in past ${scale(now.maxScale)}`;
   const said = reset
     ? `No labels on ${layer.title}. Save the map to keep it.`
     : layer.showLabels
-      ? `Labels: ${now ? `${now.field}, ${now.size} pt` : "set"}. Save the map to keep them.`
+      ? `Labels: ${now ? `${now.field}, ${now.size} pt${range}` : "set"}. Save the map to keep them.`
       : `Labels for ${layer.title} are off. Turn on Show labels to see them.`;
   if (run) run.labelSaid = said;
   wmMarkDirty();
@@ -3515,6 +3593,15 @@ wm$("tableByExtent").addEventListener("change", () => {
   wmLoadTable();
 });
 // In view means what is in view now: the table follows the map, from its first page.
+// The Labels panel's current scale follows the map.
+wmMap.on("moveend", () => {
+  if (!wmState.doc) return;
+  for (const layer of wmLayers()) {
+    const note = wm$(`labScale-${layer.id}`);
+    if (note) note.textContent = wmScaleNote(layer);
+  }
+});
+
 wmMap.on("moveend", () => {
   if (wmTable.selfMove) {
     wmTable.selfMove = false;

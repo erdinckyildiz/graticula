@@ -8,6 +8,9 @@
 | **Supersedes** | — |
 | **Superseded by** | — |
 
+
+> **Amended 2026-10-01 by [ADR-131](ADR-131-labels-have-a-visible-range.md).** A label class carries the scales it shows between, set in the Labels panel, where `minScale` and `maxScale` were written as zero and never read.
+
 ---
 
 ## 1. Context

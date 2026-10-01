@@ -672,6 +672,19 @@ public sealed class WebMapViewerTests : ConsoleTest
                 })()
                 """), "The labelled style does not draw the field's value.");
 
+            // ADR-131: the labels show between two scales — written as ArcGIS writes them, and drawn only there.
+            await Browser.EvaluateAsync<bool>(
+                "(() => { const f = document.getElementById('labFrom-labs'); f.value = '300000'; f.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            await WaitForAsync("!!document.getElementById('labTo-labs')", "The Labels panel did not come back after the change.");
+            await Browser.EvaluateAsync<bool>(
+                "(() => { const t = document.getElementById('labTo-labs'); t.value = '20000'; t.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            await WaitForAsync(
+                "(() => { const i = wmLayers()[0].layerDefinition.drawingInfo.labelingInfo[0]; return i.minScale === 300000 && i.maxScale === 20000; })()",
+                "The labels' scale range was not written into the map.");
+            await WaitForAsync(
+                "(() => { const g = wmRuntime.get(wmLayers()[0]).ol; const l = g.getLayers && g.getLayers().item(1); return !!l && l.getMaxResolution() < 100 && l.getMinResolution() > 1; })()",
+                "The label layer is drawn at every scale despite its range.");
+
             // ADR-119: the picture taken of this view is of something — the layer's features — not one flat colour.
             await ClickAsync("#layerList button[data-act=zoom][data-layer=labs]");
             await WaitForAsync(
