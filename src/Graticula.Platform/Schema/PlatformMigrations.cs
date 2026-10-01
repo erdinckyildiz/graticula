@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(73);
+    public static SchemaVersion ComponentSchemaVersion => new(74);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -108,6 +108,7 @@ public static class PlatformMigrations
         AServiceMayBeAViewOfAnotherV71,
         AMembersContentHasFoldersV72,
         AnEditorMayChangeOnlyTheirOwnV73,
+        AWebMapHasADescriptionAndAPictureV74,
     ]);
 
     /// <summary>
@@ -145,6 +146,18 @@ public static class PlatformMigrations
     /// A web map may be protected from deletion, as a service may be (ADR-102 condition 2) — the ArcGIS review's second
     /// pass found maps the one item kind without it.
     /// </summary>
+    /// <summary>
+    /// A web map has a description and a picture — ADR-119: Portal's item description beside its summary, and the
+    /// thumbnail the Map Viewer draws of the map when it is saved, kept as the PNG it sent.
+    /// </summary>
+    private static Migration AWebMapHasADescriptionAndAPictureV74 => Migration.Expand(
+        new SchemaVersion(74),
+        "A web map has a description and a picture (ADR-119).",
+
+        "alter table web_map add column if not exists description text null",
+
+        "alter table web_map add column if not exists thumbnail bytea null");
+
     /// <summary>
     /// A layer may let its editors update and delete only the features they added — ADR-115, Portal's
     /// ownership-based access control. Per layer, as Portal's is; the owner and administrators are not bound by it.

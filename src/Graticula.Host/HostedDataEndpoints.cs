@@ -214,6 +214,19 @@ internal static class HostedDataEndpoints
             peeked = await probe.ReadAsync(head, cancellation).ConfigureAwait(false);
         }
 
+        // ADR-120: a GeoPackage or KML sent on its own, not zipped, is wrapped in one so it takes the archive's way.
+        System.IO.FileStream? wrapped = null;
+
+        if (!(peeked == 4 && BoundedArchive.LooksLikeZip(head)) && LoneFileKind(file.FileName) is not null)
+        {
+            wrapped = await WrapAsync(file, scratch, cancellation).ConfigureAwait(false);
+            file = new FormFile(wrapped, 0, wrapped.Length, file.Name, System.IO.Path.ChangeExtension(file.FileName, ".zip"));
+            peeked = 4;
+            head = [0x50, 0x4B, 0x03, 0x04];
+        }
+
+        await using System.IO.FileStream? disposeWrapped = wrapped;
+
         if (TableKind(file.FileName, peeked == 4 && BoundedArchive.LooksLikeZip(head)) is { } table)
         {
             dataset = await TryTableAsync(context, form, file, table, reader, scratch, cancellation)
@@ -542,7 +555,8 @@ internal static class HostedDataEndpoints
         // child process minutes after this request has been answered, so the request cannot carry the
         // answer — it opens a job and says where to watch it. ADR-011 §3.2 decided the claim protocol;
         // this is the first kind of work that uses it.
-        if (foreign == ForeignArchive.Geodatabase && reader.Available)
+        // ADR-120: a GeoPackage or a KML (a KMZ is a zipped one) goes the same way — layers listed, then chosen.
+        if (foreign is ForeignArchive.Geodatabase or ForeignArchive.GeoPackage or ForeignArchive.Kml && reader.Available)
         {
             await OpenInspectAsync(context, jobs, signal, scratch, file, cancellation)
                 .ConfigureAwait(false);
@@ -705,6 +719,40 @@ internal static class HostedDataEndpoints
             ".xlsx" when zip => ".xlsx",
             _ => null,
         };
+    }
+
+    /// <summary>A GeoPackage or KML sent on its own, by its name — ADR-120 — or null.</summary>
+    internal static string? LoneFileKind(string? fileName)
+    {
+        string extension = System.IO.Path.GetExtension(fileName ?? string.Empty).ToLowerInvariant();
+        return extension is ".gpkg" or ".kml" ? extension : null;
+    }
+
+    /// <summary>
+    /// A lone GeoPackage or KML, written into a one-entry zip beside the scratch uploads and deleted when closed, so
+    /// it is recognised and read as the same file in an archive is.
+    /// </summary>
+    private static async Task<System.IO.FileStream> WrapAsync(IFormFile file, ImportScratch scratch, CancellationToken cancellation)
+    {
+        System.IO.Directory.CreateDirectory(scratch.Directory);
+
+        System.IO.FileStream zipped = new(
+            System.IO.Path.Combine(scratch.Directory, $"{Guid.NewGuid():N}.wrap"),
+            System.IO.FileMode.CreateNew, System.IO.FileAccess.ReadWrite, System.IO.FileShare.Read, 81920,
+            System.IO.FileOptions.DeleteOnClose | System.IO.FileOptions.Asynchronous);
+
+        using (System.IO.Compression.ZipArchive zip = new(zipped, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            System.IO.Compression.ZipArchiveEntry entry = zip.CreateEntry(
+                System.IO.Path.GetFileName(file.FileName), System.IO.Compression.CompressionLevel.NoCompression);
+
+            await using System.IO.Stream into = entry.Open();
+            await using System.IO.Stream from = file.OpenReadStream();
+            await from.CopyToAsync(into, cancellation).ConfigureAwait(false);
+        }
+
+        zipped.Position = 0;
+        return zipped;
     }
 
     /// <summary>What a workbook may unpack to, as its own directory declares it.</summary>
@@ -1668,9 +1716,9 @@ internal static class HostedDataEndpoints
                 job = job.Id,
                 status = "pending",
                 watch = $"/admin/jobs/{job.Id}",
-                note = "A File Geodatabase is read by a separate process, which takes as long as the "
-                    + "archive is large. This job reports the feature classes inside it; publishing "
-                    + "one is a second request naming the layer you want.",
+                note = "A File Geodatabase, a GeoPackage or KML is read by a separate process, which takes as "
+                    + "long as the file is large. This job reports the layers inside it; publishing one is a "
+                    + "second request naming the layer you want.",
             },
             statusCode: 202).ExecuteAsync(context).ConfigureAwait(false);
     }
@@ -1784,15 +1832,14 @@ internal static class HostedDataEndpoints
             + "needs the same reader and will refuse too; a GeoJSON FeatureCollection imports "
             + "without it.",
 
+        // ADR-120: these are read by the same reader as a geodatabase, so they refuse for the same reason.
         ForeignArchive.GeoPackage =>
-            "This is a GeoPackage, and this server does not import one yet. ADR-024 condition 3 is "
-            + "deliberate about it: a second archive format does not reuse the shapefile exception "
-            + "without its own decision, because 'we already decompress' is not an argument. What "
-            + "imports today is a zipped shapefile, or a GeoJSON FeatureCollection.",
+            "This is a GeoPackage. Reading one needs the import reader, which this deployment did not ship — "
+            + "a packaging fault rather than something you did. A GeoJSON FeatureCollection imports without it.",
 
         ForeignArchive.Kml =>
-            "This looks like KML in an archive, and this server does not import one yet — ADR-024 "
-            + "condition 3. What imports today is a zipped shapefile, or a GeoJSON FeatureCollection.",
+            "This is KML. Reading it needs the import reader, which this deployment did not ship — a packaging "
+            + "fault rather than something you did. A GeoJSON FeatureCollection imports without it.",
 
         _ => "This archive is not one this server imports.",
     };
@@ -2344,7 +2391,7 @@ internal static class HostedDataEndpoints
                 foreign = RecogniseArchive(looking);
             }
 
-            if (foreign == ForeignArchive.Geodatabase)
+            if (foreign is ForeignArchive.Geodatabase or ForeignArchive.GeoPackage or ForeignArchive.Kml)
             {
                 await Fail(context, 400,
                     "This is a geodatabase, which holds many feature classes, and a layer is one. Export the "

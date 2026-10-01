@@ -1214,14 +1214,17 @@ function wmPopupPanel(layer, run, key, title) {
     <label class="check"><input type="checkbox" id="popOn-${k}"${enabled ? " checked" : ""}> Show a pop-up when a feature is clicked</label>
     <label class="lkind" for="popTitle-${k}">Title — a field in braces is its value, as {${wmEscape((fields[0] || {}).name || "name")}}</label>
     <input type="text" id="popTitle-${k}" value="${wmEscape((popup && popup.title) || "")}" placeholder="${wmEscape(title)}">
-    <table class="popfields"><thead><tr><th>Show</th><th>Field</th><th>Label</th></tr></thead><tbody>
+    <table class="popfields"><thead><tr><th>Show</th><th>Field</th><th>Label and format</th></tr></thead><tbody>
       ${fields.map(f => {
         const at = shown.get(f.name);
         const visible = popup ? !!(at && at.visible !== false) : true;
         return `<tr><td><input type="checkbox" data-pop-field="${wmEscape(f.name)}"${visible ? " checked" : ""}
             aria-label="Show ${wmEscape(f.name)}"></td><td>${wmEscape(f.name)}</td>
           <td><input type="text" data-pop-label="${wmEscape(f.name)}" value="${wmEscape((at && at.label) || f.alias || f.name)}"
-            aria-label="Label of ${wmEscape(f.name)}"></td></tr>`;
+            aria-label="Label of ${wmEscape(f.name)}">${(() => {
+              const control = wmFormatControl(f, at && at.format);
+              return control ? `<div class="popfmt">${control}</div>` : "";
+            })()}</td></tr>`;
       }).join("")}
     </tbody></table>
     <div class="row">
@@ -1260,11 +1263,16 @@ function wmApplyPopup(layer, reset = false) {
       // A pop-up that does not say so hides a feature's attachments in ArcGIS clients (Field Maps among them); the
       // map's pop-up chooses fields, not whether photos stay visible (ArcGIS review, 2026-10-01).
       showAttachments: true,
-      fieldInfos: [...panel.querySelectorAll("[data-pop-field]")].map(box => ({
-        fieldName: box.dataset.popField,
-        label: (panel.querySelector(`[data-pop-label="${CSS.escape(box.dataset.popField)}"]`) || {}).value || box.dataset.popField,
-        visible: box.checked,
-      })),
+      fieldInfos: [...panel.querySelectorAll("[data-pop-field]")].map(box => {
+        const name = box.dataset.popField;
+        const format = wmReadFormat(panel, name);
+        return {
+          fieldName: name,
+          label: (panel.querySelector(`[data-pop-label="${CSS.escape(name)}"]`) || {}).value || name,
+          visible: box.checked,
+          ...(format ? { format } : {}),
+        };
+      }),
     };
   }
 
@@ -1897,9 +1905,12 @@ function wmPopupMarkup(layer, attributes, info) {
       || `<tr><td>No attributes besides its identifiers.</td></tr>`}</table>`;
   }
 
+  // ADR-118: a field's value in the format the map's pop-up gives it.
+  const formats = new Map(popup.fieldInfos.filter(f => f && f.format).map(f => [f.fieldName, f.format]));
+  const types = new Map(((info && info.fields) || []).map(f => [f.name, f.type]));
   const value = name => {
     const v = (attributes || {})[name];
-    return v === null || v === undefined ? "—" : String(v);
+    return v === null || v === undefined ? "—" : wmFormatValue(v, formats.get(name), types.get(name));
   };
   const title = popup.title ? String(popup.title).replace(/\{([^}]+)\}/g, (_, name) => value(name.trim())) : "";
   const rows = popup.fieldInfos.filter(f => f && f.visible !== false && f.fieldName)
@@ -1911,8 +1922,9 @@ function wmPopupMarkup(layer, attributes, info) {
 
 function wmAttributeRows(attributes, info) {
   const aliases = new Map(((info && info.fields) || []).map(f => [f.name, f.alias || f.name]));
+  const types = new Map(((info && info.fields) || []).map(f => [f.name, f.type]));
   return Object.keys(attributes || {}).filter(key => !wmSystemField(key, info)).map(key => `<tr><th scope="row">${wmEscape(aliases.get(key) || key)}</th>
-    <td>${wmEscape(attributes[key] === null ? "—" : attributes[key])}</td></tr>`).join("");
+    <td>${wmEscape(attributes[key] === null ? "—" : wmFormatValue(attributes[key], null, types.get(key)))}</td></tr>`).join("");
 }
 
 let wmIdentifyTurn = 0;
@@ -2508,11 +2520,15 @@ async function wmSave(asNew, invoker = null) {
     wmAdopt(saved);
     wmState.dirty = false;
     history.replaceState(null, "", `?id=${encodeURIComponent(saved.id)}`);
+    // ADR-119: the map's picture, as it looks now — Portal's Map Viewer does the same on save.
+    const picture = await wmSendThumbnail(saved.id);
     wmDrawSaved();
     wmDrawMapForm();
     // An open Style panel said *not saved yet*; it is now.
     if (wmLayers().some(l => (wmRuntime.get(l) || {}).styleOpen)) wmDrawLayerList();
-    const done = creating ? `Saved as “${saved.title}”${asNew ? ", private" : ""}.` : "Saved.";
+    const done = (creating ? `Saved as “${saved.title}”${asNew ? ", private" : ""}.` : "Saved.")
+      + (picture === "taken" ? " Its picture is the view you saved."
+        : picture === "empty" ? " The view was empty, so it has no new picture." : " Its picture could not be taken.");
     wmSayIn("mapStatus", done);
     wmSay(done);
   } catch (e) {
@@ -2876,3 +2892,186 @@ function wmApplyLabels(layer, reset = false) {
   wmRestyle(layer);
   wmDrawLayerList();
 }
+
+
+// ---------------------------------------------------------------- pop-up formats (ADR-118)
+
+const WM_NUMBER_TYPES = new Set(["esriFieldTypeSmallInteger", "esriFieldTypeInteger", "esriFieldTypeBigInteger",
+  "esriFieldTypeSingle", "esriFieldTypeDouble"]);
+
+/** ArcGIS's date formats a pop-up names, with how each reads. */
+const WM_DATE_FORMATS = [
+  ["shortDate", "12/21/1997"],
+  ["dayShortMonthYear", "21 Dec 1997"],
+  ["longMonthDayYear", "December 21, 1997"],
+  ["longDate", "Sunday, December 21, 1997"],
+  ["shortDateShortTime", "12/21/1997 6:00 PM"],
+  ["shortDateLE", "21/12/1997"],
+  ["shortDateLEShortTime", "21/12/1997 6:00 PM"],
+];
+
+/** The Format cell of one field: decimal places and thousands for a number, a date format for a date. */
+function wmFormatControl(field, format) {
+  const n = wmEscape(field.name);
+  if (WM_NUMBER_TYPES.has(field.type)) {
+    const places = format && Number.isFinite(Number(format.places)) ? String(format.places) : "";
+    return `<select data-pop-places="${n}" aria-label="Decimal places of ${n}">
+        <option value=""${places === "" ? " selected" : ""}>Default places</option>
+        ${[0, 1, 2, 3, 4].map(p => `<option value="${p}"${places === String(p) ? " selected" : ""}>${p} decimal places</option>`).join("")}
+      </select>
+      <label class="check"><input type="checkbox" data-pop-sep="${n}" aria-label="Thousands separator for ${n}"${
+        format && format.digitSeparator ? " checked" : ""}> 1,000 separator</label>`;
+  }
+  if (field.type === "esriFieldTypeDate") {
+    const chosen = (format && format.dateFormat) || "";
+    return `<select data-pop-date="${n}" aria-label="Date format of ${n}">
+        <option value=""${chosen ? "" : " selected"}>Default (12/21/1997 6:00 PM)</option>
+        ${WM_DATE_FORMATS.map(([key, shown]) => `<option value="${key}"${chosen === key ? " selected" : ""}>${shown}</option>`).join("")}
+      </select>`;
+  }
+  return "";
+}
+
+/** A field's format as ArcGIS writes it, from its Format cell, or null for none. */
+function wmReadFormat(panel, name) {
+  const places = panel.querySelector(`[data-pop-places="${CSS.escape(name)}"]`);
+  if (places) {
+    const separator = !!panel.querySelector(`[data-pop-sep="${CSS.escape(name)}"]`)?.checked;
+    if (places.value === "" && !separator) return null;
+    return { ...(places.value === "" ? {} : { places: Number(places.value) }), digitSeparator: separator };
+  }
+  const date = panel.querySelector(`[data-pop-date="${CSS.escape(name)}"]`);
+  return date && date.value ? { dateFormat: date.value } : null;
+}
+
+/** A value in its format: a number with its places and separators, a date in the format named. */
+function wmFormatValue(value, format, type) {
+  if (type === "esriFieldTypeDate" && Number.isFinite(Number(value))) {
+    const d = new Date(Number(value));
+    const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+      "November", "December"];
+    const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const [day, month, year] = [d.getDate(), d.getMonth(), d.getFullYear()];
+    const h12 = d.getHours() % 12 || 12;
+    const time = `${h12}:${String(d.getMinutes()).padStart(2, "0")} ${d.getHours() < 12 ? "AM" : "PM"}`;
+    const us = `${month + 1}/${day}/${year}`;
+    const le = `${day}/${month + 1}/${year}`;
+    return ({
+      shortDate: us,
+      dayShortMonthYear: `${day} ${months[month].slice(0, 3)} ${year}`,
+      longMonthDayYear: `${months[month]} ${day}, ${year}`,
+      longDate: `${days[d.getDay()]}, ${months[month]} ${day}, ${year}`,
+      shortDateShortTime: `${us} ${time}`,
+      shortDateLE: le,
+      shortDateLEShortTime: `${le} ${time}`,
+    })[(format && format.dateFormat) || "shortDateShortTime"] || `${us} ${time}`;
+  }
+  if (WM_NUMBER_TYPES.has(type) && format && Number.isFinite(Number(value))) {
+    const places = Number.isFinite(Number(format.places)) ? Number(format.places) : undefined;
+    return Number(value).toLocaleString("en-US", {
+      minimumFractionDigits: places, maximumFractionDigits: places ?? 20, useGrouping: !!format.digitSeparator,
+    });
+  }
+  return String(value);
+}
+
+
+// ---------------------------------------------------------------- the map's picture (ADR-119)
+
+/**
+ * The view as a 600 × 400 PNG, sent as the map's picture — composed the way OpenLayers' own export example does it,
+ * after the map has finished drawing, the whole view fitted inside the frame rather than cropped. <b>Not sent when it
+ * cannot be read</b> (a basemap from another origin taints the canvas) <b>or when it is one colour</b> — a picture of
+ * nothing is worse than none. Answers what happened, for the save's status line.
+ */
+function wmSendThumbnail(id) {
+  return new Promise(resolve => {
+    // <b>At most three seconds' wait</b>: a layer that never finishes loading — one the map cannot read — means
+    // `rendercomplete` never comes, and a save must not wait on its picture for ever. What is drawn by then is taken.
+    let done = false;
+    const take = () => { if (!done) { done = true; resolve(wmTakeThumbnail(id)); } };
+    try {
+      wmMap.once("rendercomplete", take);
+      setTimeout(take, 3000);
+      wmMap.renderSync();
+    } catch {
+      if (!done) { done = true; resolve("not taken"); }
+    }
+  });
+}
+
+async function wmTakeThumbnail(id) {
+  try {
+    const size = wmMap.getSize();
+    if (!size || !size[0] || !size[1]) return "not taken";
+    const whole = document.createElement("canvas");
+    whole.width = size[0];
+    whole.height = size[1];
+    const context = whole.getContext("2d");
+    const ground = getComputedStyle(wmMap.getViewport()).backgroundColor;
+    context.fillStyle = ground && ground !== "rgba(0, 0, 0, 0)" ? ground : "#ffffff";
+    context.fillRect(0, 0, whole.width, whole.height);
+
+    for (const canvas of wmMap.getViewport().querySelectorAll(".ol-layer canvas, canvas.ol-layer")) {
+      if (!(canvas.width > 0)) continue;
+      const opacity = canvas.parentNode.style.opacity || canvas.style.opacity;
+      context.globalAlpha = opacity === "" ? 1 : Number(opacity);
+      const transform = canvas.style.transform;
+      const matrix = transform
+        ? transform.match(/^matrix\(([^(]*)\)$/)[1].split(",").map(Number)
+        : [parseFloat(canvas.style.width) / canvas.width, 0, 0, parseFloat(canvas.style.height) / canvas.height, 0, 0];
+      context.setTransform(...matrix);
+      const background = canvas.parentNode.style.backgroundColor;
+      if (background) {
+        context.fillStyle = background;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      context.drawImage(canvas, 0, 0);
+    }
+
+    context.globalAlpha = 1;
+    context.setTransform(1, 0, 0, 1, 0, 0);
+
+    const out = document.createElement("canvas");
+    out.width = 600;
+    out.height = 400;
+    const frame = out.getContext("2d");
+    frame.fillStyle = context.fillStyle;
+    frame.fillRect(0, 0, 600, 400);
+    const scale = Math.min(600 / whole.width, 400 / whole.height);
+    const w = whole.width * scale;
+    const h = whole.height * scale;
+    frame.drawImage(whole, (600 - w) / 2, (400 - h) / 2, w, h);
+
+    // One colour throughout is a picture of nothing.
+    const pixels = frame.getImageData(0, 0, 600, 400).data;
+    let varied = false;
+    for (let i = 4; i < pixels.length && !varied; i += 4 * 37) {
+      varied = pixels[i] !== pixels[0] || pixels[i + 1] !== pixels[1] || pixels[i + 2] !== pixels[2];
+    }
+    if (!varied) return "empty";
+
+    const blob = await new Promise(done => out.toBlob(done, "image/png"));
+    if (!blob) return "not taken";
+    await wmFetch(`/content/webmaps/${encodeURIComponent(id)}/thumbnail`, {
+      method: "PUT", headers: { "Content-Type": "image/png" }, body: blob,
+    });
+    return "taken";
+  } catch {
+    // A tainted canvas, or a refused upload: the picture stays as it was.
+    return "not taken";
+  }
+}
+
+// ADR-119: a view the reader moved is a change — the saved view and the picture come from it — but a view the page
+// moved itself (opening, zooming to a layer) is not.
+let wmMovedByHand = false;
+for (const kind of ["pointerdown", "wheel", "keydown"]) {
+  wmMap.getViewport().addEventListener(kind, () => { wmMovedByHand = true; }, { passive: true });
+}
+wmMap.on("moveend", () => {
+  if (wmMovedByHand && wmState.doc) {
+    wmMovedByHand = false;
+    if (!wmState.dirty) wmMarkDirty();
+  }
+});

@@ -98,6 +98,11 @@
   .popfields { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 12px; }
   .popfields th, .popfields td { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--rule, #ddd); }
   .popfields input[type=text] { width: 100%; box-sizing: border-box; }
+  /* ADR-118: a field's format sits under its label, so the label keeps the cell's width (design review 2026-10-01). */
+  .popfields th:nth-child(2) { width: 35%; }
+  .popfields td:nth-child(2) { overflow-wrap: anywhere; }
+  .popfields .popfmt { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+  .popfields .popfmt label.check { margin: 0; display: inline-flex; align-items: center; gap: 4px; min-height: 24px; }
   .lstyle input[type=text] { width: 100%; box-sizing: border-box; }
   #identify .ptitle { font-size: 14px; font-weight: 600; margin: 10px 0 4px; padding: 0 12px; }
   .lstyle label.check { display: flex; gap: 6px; align-items: center; margin: 4px 0 8px; }
@@ -261,7 +266,7 @@
         <form id="mapForm">
           <label class="field" for="mapTitle" style="margin-top:0">Title</label>
           <input type="text" id="mapTitle" maxlength="250" required>
-          <label class="field" for="mapSnippet">Description</label>
+          <label class="field" for="mapSnippet">Summary</label>
           <textarea id="mapSnippet" rows="3" maxlength="2048"></textarea>
           <div id="sharingField">
             <label class="field" for="mapSharing">Who can open it</label>

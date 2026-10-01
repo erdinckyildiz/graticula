@@ -4114,6 +4114,8 @@ function drawMapAbout(editing = false) {
         <textarea id="mapEditSnippet" rows="3">${h(map.snippet || "")}</textarea></div>
       <div class="stacked"><label for="mapEditTags">Tags — separated by commas</label>
         <input type="text" id="mapEditTags" value="${h((map.tags || []).join(", "))}"></div>
+      <div class="stacked"><label for="mapEditDescription">Description</label>
+        <textarea id="mapEditDescription" rows="6" maxlength="64000">${h(map.description || "")}</textarea></div>
       <div class="row"><button type="button" class="primary" id="mapEditSave">Save</button>
         <button type="button" class="ghost" id="mapEditCancel">Cancel</button></div>
       <p class="hint" id="mapAboutSays" role="status" aria-live="polite"></p>`;
@@ -4121,11 +4123,27 @@ function drawMapAbout(editing = false) {
     return;
   }
 
+  // ADR-119: the picture the Map Viewer took when the map was saved, and the description beside the summary.
   $("mapAbout").innerHTML = `
-    <p>${map.snippet ? h(map.snippet) : `<span class="hint">No summary yet. A line on what the map shows makes it easier to find.</span>`}</p>
-    ${(map.tags || []).length ? `<p class="tagline">${map.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : ""}
-    ${map.manages ? `<button type="button" class="tiny ghost" id="mapEditOpen">Edit title, summary and tags</button>` : ""}
+    <div class="mapabout">
+      <figure class="mapfigure">
+        ${map.thumbnail
+          ? `<img class="thumb mapitemthumb" data-thumb="${h(map.thumbnail)}" alt="Picture of ${h(map.title)}, taken when it was last saved">`
+          : `<div class="thumb empty mapitemthumb" aria-hidden="true"></div>
+             <figcaption class="hint">No picture yet. Open the map in the Map Viewer and save it; the view you save
+               becomes its picture.</figcaption>`}
+      </figure>
+      <div>
+        <p>${map.snippet ? h(map.snippet) : `<span class="hint">No summary yet. A line on what the map shows makes it easier to find.</span>`}</p>
+        ${(map.tags || []).length ? `<p class="tagline">${map.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : ""}
+      </div>
+    </div>
+    <h4>Description</h4>
+    ${map.description ? `<div class="mapdescription">${h(map.description).replace(/\n/g, "<br>")}</div>`
+      : `<p class="hint">No description yet. What the map is for, where its data comes from and how current it is.</p>`}
+    ${map.manages ? `<button type="button" class="tiny ghost" id="mapEditOpen">Edit title, summary, tags and description</button>` : ""}
     <p class="hint" id="mapAboutSays" role="status" aria-live="polite"></p>`;
+  paintPreviews();
 }
 
 /** Saves the map with one thing changed, sending the rest as the server last gave it. */
@@ -4156,6 +4174,9 @@ document.addEventListener("click", async event => {
       await api(`/content/webmaps/${encodeURIComponent(mapOpen.id)}/tags`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tags: $("mapEditTags").value.split(",").map(t => t.trim()).filter(Boolean) }) });
+      await api(`/content/webmaps/${encodeURIComponent(mapOpen.id)}/description`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: $("mapEditDescription").value.trim() || null }) });
       await showWebMapItem(mapOpen.id);
       $("mapAboutSays").textContent = "Saved.";
       $("mapEditOpen")?.focus();
@@ -4339,7 +4360,8 @@ function mapRow(i) {
 
   return `<tr>
     <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}"
-      ><div class="thumb empty mapthumb" aria-hidden="true"></div></a></td>
+      >${m.thumbnail ? `<img class="thumb" alt="" loading="lazy" data-thumb="${h(m.thumbnail)}">`
+        : `<div class="thumb empty mapthumb" aria-hidden="true"></div>`}</a></td>
     <td class="name"><a href="#/map/${encodeURIComponent(m.id)}">${h(i.name)}</a>
       <div class="rowmeta">Web map${folderNote(i)}${i.description ? ` · ${h(i.description)}` : ""}${
         i.scope !== "mine" && i.owner ? ` · ${h(i.owner)}` : ""}</div></td>
@@ -20996,7 +21018,7 @@ const ITEM_ROUTES = [
     id: "import",
     icon: "upload",
     title: "Upload a file",
-    lede: "Use the fields and the data in a zipped shapefile, a File Geodatabase, a GeoJSON file, or a CSV or Excel "
+    lede: "Use the fields and the data in a zipped shapefile, a File Geodatabase, a GeoPackage, KML, a GeoJSON file, or a CSV or Excel "
       + "table with coordinates.",
     form: "importForm",
     submit: "Import and publish",
@@ -21095,10 +21117,10 @@ function drawItemKinds() {
       ${icon("upload")}
       <p>Drag and drop a file here</p>
       <button type="button" class="ghost" id="fromDevice" autofocus>${icon("device")} Your device</button>
-      <span class="val">A zipped shapefile, a zipped File Geodatabase, a GeoJSON
+      <span class="val">A zipped shapefile, a zipped File Geodatabase, a GeoPackage, KML or KMZ, a GeoJSON
         FeatureCollection, or a CSV or Excel table with coordinates</span>
       <input type="file" id="deviceFile" hidden
-             accept=".zip,.json,.geojson,.csv,.txt,.xlsx,application/zip,application/geo+json,text/csv">
+             accept=".zip,.json,.geojson,.csv,.txt,.xlsx,.gpkg,.kml,.kmz,application/zip,application/geo+json,text/csv">
     </div>
 
     <p class="orbar"><span>or start from a type</span></p>
@@ -21281,9 +21303,10 @@ function drawDesignForm() {
 function drawImportForm() {
   $("addItemBody").innerHTML = `
     <p class="hint">For data you already have. The schema is read from the file — a
-      <b>zipped shapefile</b>, a <b>zipped File Geodatabase</b>, a
-      <b>GeoJSON FeatureCollection</b>, or a <b>CSV or Excel table</b> whose rows carry coordinates. A geodatabase holds many feature classes, so it is read by a
-      separate process and this screen reports what is in it rather than publishing straight away.</p>
+      <b>zipped shapefile</b>, a <b>zipped File Geodatabase</b>, a <b>GeoPackage</b>, <b>KML or KMZ</b>, a
+      <b>GeoJSON FeatureCollection</b>, or a <b>CSV or Excel table</b> whose rows carry coordinates. A geodatabase,
+      GeoPackage or KML can hold many layers, so it is read by a separate process and this screen reports what is in
+      it rather than publishing straight away.</p>
     <form id="importForm" autocomplete="off">
       <div class="row">
         <label class="field">Name<input type="text" id="iName" placeholder="parks" required></label>
@@ -21295,7 +21318,7 @@ function drawImportForm() {
       </div>
       <div class="row">
         <label class="field">File<input id="iFile" type="file"
-          accept=".zip,.json,.geojson,.csv,.txt,.xlsx,application/zip,application/geo+json,text/csv" required></label>
+          accept=".zip,.json,.geojson,.csv,.txt,.xlsx,.gpkg,.kml,.kmz,application/zip,application/geo+json,text/csv" required></label>
       </div>
       <p class="hint" id="iChosen" role="status" aria-live="polite" hidden></p>
       <div class="row" id="iTableRow" hidden>
@@ -21960,9 +21983,9 @@ function drawInspect() {
   }
 
   if (state.status === "queued" || state.status === "running") {
-    $("addItemTitle").textContent = "Reading the geodatabase";
+    $("addItemTitle").textContent = "Reading the file's layers";
     $("addItemBody").innerHTML = `
-      <p class="hint">A File Geodatabase holds many feature classes, so it is read by a separate
+      <p class="hint">A File Geodatabase, GeoPackage or KML can hold many layers, so it is read by a separate
         process rather than inside the upload. This takes as long as the archive is large, and closing
         this does not stop it — the job is the server's.</p>
       <p class="val" id="inspectAge">${h(state.status)} — just started</p>`;

@@ -425,6 +425,30 @@ public sealed class WebMapViewerTests : ConsoleTest
                 $"(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/maps/{id}'))",
                 "Sharing the map into a group sent nothing to the group.");
 
+            // ADR-119: a description, edited with the title and summary.
+            // A fresh page: the share's save redraws this one, and an edit opened under it would be drawn over.
+            await OpenAsync($"/studio/#/map/{id}", token, cookie);
+            await WaitForAsync("!!document.getElementById('mapEditOpen')", "The map's page offers no way to edit it.");
+            await ClickAsync("#mapEditOpen");
+            await WaitForAsync("!!document.getElementById('mapEditDescription')", "Editing a map offers no description.");
+            await Browser.EvaluateAsync<bool>("(document.getElementById('mapEditDescription').value = 'What it is for.', true)");
+            await ClickAsync("#mapEditSave");
+            await WaitForAsync(
+                $"(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/content/webmaps/{id}/description'))",
+                "Saving the map's details did not send its description.");
+
+            // And the Map Viewer takes the map's picture — a flat colour is not sent, a view of features is
+            // (asserted in A_layer_is_labelled_in_the_map_and_drawn_from_it).
+            await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
+            await WaitForAsync("typeof wmSendThumbnail === 'function' && !!wmMap.getSize()", "The Map Viewer did not open the map.");
+            await Browser.EvaluateAsync<bool>($"(window.__writes = [], window.__thumb = null, wmSendThumbnail('{id}').then(r => window.__thumb = r), true)");
+            await WaitForAsync("window.__thumb !== null", "Taking the map's picture never finished.");
+            // It finishes even though this map holds a layer it cannot read, whose drawing never completes; and it
+            // sends a picture only when there is one.
+            string thumb = await Browser.EvaluateAsync<string>("window.__thumb") ?? "";
+            Assert.True(thumb is "taken" or "empty", $"Taking the picture ended '{thumb}'.");
+            Assert.Equal(thumb == "taken", (await WritesAsync()).Any(w => w.Contains("/thumbnail", StringComparison.Ordinal)));
+
             NothingWentWrong(await PageErrorsAsync());
         }
         finally
@@ -514,6 +538,24 @@ public sealed class WebMapViewerTests : ConsoleTest
             Assert.Contains("Feature seven", drawn, StringComparison.Ordinal);
             Assert.DoesNotContain("hidden", drawn, StringComparison.Ordinal);
 
+            // ADR-118: a number and a date in the format the pop-up gives them.
+            string formatted = await Browser.EvaluateAsync<string>("""
+                wmPopupMarkup(
+                  { popupInfo: { fieldInfos: [
+                    { fieldName: 'n', label: 'N', visible: true, format: { places: 2, digitSeparator: true } },
+                    { fieldName: 'd', label: 'D', visible: true, format: { dateFormat: 'longMonthDayYear' } } ] } },
+                  { n: 1234567.891, d: Date.UTC(1997, 11, 21, 12) },
+                  { fields: [{ name: 'n', type: 'esriFieldTypeDouble' }, { name: 'd', type: 'esriFieldTypeDate' }] })
+                """) ?? "";
+
+            Assert.Contains("1,234,567.89", formatted, StringComparison.Ordinal);
+            Assert.Contains("December 21, 1997", formatted, StringComparison.Ordinal);
+
+            // An unformatted date is still a date, not milliseconds.
+            string plain = await Browser.EvaluateAsync<string>(
+                "wmFormatValue(Date.UTC(1997, 11, 21, 12), null, 'esriFieldTypeDate')") ?? "";
+            Assert.Matches(@"^12/2\d/1997 \d{1,2}:\d{2} (AM|PM)$", plain);
+
             NothingWentWrong(await PageErrorsAsync());
         }
         finally
@@ -591,6 +633,15 @@ public sealed class WebMapViewerTests : ConsoleTest
                   return !!style && style.getText().getText() === 'Ankara';
                 })()
                 """), "The labelled style does not draw the field's value.");
+
+            // ADR-119: the picture taken of this view is of something — the layer's features — not one flat colour.
+            await ClickAsync("#layerList button[data-act=zoom][data-layer=labs]");
+            await WaitForAsync(
+                "(() => { const o = wmRuntime.get(wmLayers()[0]).ol; const src = o.getSource(); return src.getFeatures().length > 0; })()",
+                "The layer drew no features to take a picture of.");
+            await Browser.EvaluateAsync<bool>($"(window.__thumb = null, wmSendThumbnail('{id}').then(r => window.__thumb = r), true)");
+            await WaitForAsync("window.__thumb !== null", "Taking the map's picture never finished.");
+            Assert.Equal("taken", await Browser.EvaluateAsync<string>("window.__thumb"));
 
             await ClickAsync("#layerList button[data-act=labelsReset][data-layer=labs]");
             await WaitForAsync("!wmLayers()[0].showLabels && !((wmLayers()[0].layerDefinition || {}).drawingInfo || {}).labelingInfo",

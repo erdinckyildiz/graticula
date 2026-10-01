@@ -29,6 +29,8 @@ namespace Graticula.Platform.Catalog;
 /// <param name="DeleteProtected">Whether a delete is refused until its owner turns this off (2026-10-01).</param>
 /// <param name="Tags">The words it is found by — ADR-111.</param>
 /// <param name="ContentFolder">The owner's content folder it is in, or null for the root — ADR-114.</param>
+/// <param name="Description">What it is about at length — ADR-119 — or null.</param>
+/// <param name="HasThumbnail">Whether it has a picture — ADR-119.</param>
 public sealed record WebMap(
     string Id,
     string Title,
@@ -43,7 +45,9 @@ public sealed record WebMap(
     IReadOnlyList<string>? SharedWithNames = null,
     bool DeleteProtected = false,
     IReadOnlyList<string>? Tags = null,
-    Guid? ContentFolder = null);
+    Guid? ContentFolder = null,
+    string? Description = null,
+    bool HasThumbnail = false);
 
 /// <summary>The rules a saved web map is held to, in one place for the store and the endpoints.</summary>
 public static class WebMaps
@@ -156,6 +160,26 @@ public interface IWebMapStore
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>Whether the map exists.</returns>
     Task<bool> SetTagsAsync(string id, IReadOnlyList<string> tags, CancellationToken cancellationToken);
+
+    /// <summary>Replaces a map's description — ADR-119.</summary>
+    /// <param name="id">The map.</param>
+    /// <param name="description">The description, or null.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the map exists.</returns>
+    Task<bool> SetDescriptionAsync(string id, string? description, CancellationToken cancellationToken);
+
+    /// <summary>Replaces a map's picture — ADR-119.</summary>
+    /// <param name="id">The map.</param>
+    /// <param name="png">The PNG, already checked.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the map exists.</returns>
+    Task<bool> SetThumbnailAsync(string id, byte[] png, CancellationToken cancellationToken);
+
+    /// <summary>A map's picture, or null when it has none — ADR-119.</summary>
+    /// <param name="id">The map.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The PNG, or null.</returns>
+    Task<byte[]?> ThumbnailAsync(string id, CancellationToken cancellationToken);
 
     /// <summary>Protects a map from deletion, or stops protecting it — as an item's delete protection (ADR-102).</summary>
     /// <param name="id">The map.</param>

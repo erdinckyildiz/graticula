@@ -316,7 +316,7 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
     /// called next.
     /// </para>
     /// </remarks>
-    private static string Reader()
+    internal static string Reader()
     {
         DirectoryInfo? at = new(AppContext.BaseDirectory);
 
@@ -351,7 +351,7 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
     }
 
     /// <summary>Asks the reader one question and returns its answer.</summary>
-    private static string Ask(string reader, string request)
+    internal static string Ask(string reader, string request)
     {
         ProcessStartInfo start = new(reader)
         {

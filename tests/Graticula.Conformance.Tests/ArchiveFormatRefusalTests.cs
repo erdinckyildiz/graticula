@@ -156,18 +156,18 @@ public sealed class ArchiveFormatRefusalTests : ArcGisClient
     }
 
     /// <summary>
-    /// GeoPackage and KML are named too, and each cites the condition that deferred it.
+    /// GeoPackage and KML are no longer refused by name but read — ADR-120 — and one that is not what it says ends
+    /// its inspection with the reader's reason rather than a refusal at the door.
     /// </summary>
     /// <remarks>
-    /// <b>ADR-024 condition 3 is the subject.</b> *"A second archive format does not reuse this
-    /// exception without its own ADR… because 'we already decompress' is not one."* The refusals say
-    /// so, which is the difference between a deferral and a gap.
+    /// <b>ADR-024 condition 3 asked for a decision of their own</b> before a second archive format reused the
+    /// shapefile's exception; ADR-120 is it. A real GeoPackage and KML are imported in
+    /// <see cref="GeoPackageAndKmlImportTests"/>; these are sixty-four bytes of nothing under those names.
     /// </remarks>
     [Theory]
-    [InlineData("cities.gpkg", "GeoPackage")]
-    [InlineData("tour.kml", "KML")]
-    public async Task A_deferred_archive_format_is_named_and_cites_its_condition(
-        string member, string expected)
+    [InlineData("cities.gpkg")]
+    [InlineData("tour.kml")]
+    public async Task A_GeoPackage_or_KML_archive_is_inspected_and_a_false_one_says_why(string member)
     {
         string root = await RequireServerAsync();
         string? token = await TokenAsync(root);
@@ -177,9 +177,13 @@ public sealed class ArchiveFormatRefusalTests : ArcGisClient
         (HttpStatusCode status, string message) = await ImportAsync(
             root, token!, Zip((member, 64)), "probe.zip", "zz_deferred_refusal");
 
-        Assert.Equal(HttpStatusCode.BadRequest, status);
-        Assert.Contains(expected, message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("ADR-024", message, StringComparison.Ordinal);
+        Assert.True(status == HttpStatusCode.Accepted, $"A {member} archive answered {(int)status}: {message}");
+
+        string job = JsonDocument.Parse(message).RootElement.GetProperty("job").GetString()!;
+        (string settled, string failure) = await SettledAsync(root, token!, job);
+
+        Assert.True(settled == "failed", $"Inspecting sixty-four bytes called {member} ended '{settled}'.");
+        Assert.False(string.IsNullOrWhiteSpace(failure), "The failed inspection gave no reason.");
     }
 
     /// <summary>

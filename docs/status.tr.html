@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>65df2d3</code> · 2026-10-01 06:53</p>
+<p class="stamp">Şu commit’ten üretildi: <code>5f23f34</code> · 2026-10-01 07:57</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">116</div><div class="kpi-l">ADR</div><div class="kpi-n">31 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">271/363</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">89 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">119</div><div class="kpi-l">ADR</div><div class="kpi-n">34 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">275/367</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">89 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4409</div><div class="kpi-l">test</div><div class="kpi-n">422 kaynak dosya, 186,973 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4411</div><div class="kpi-l">test</div><div class="kpi-n">422 kaynak dosya, 187,226 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -320,6 +320,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">115</td><td>Editor tracking stops as well as starts, and editors may be kept to their own features</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — the writer&#x27;s own-only predicate existed and was measured dormant; this turns it on…</td><td class="num">3/3</td></tr>
 <tr><td class="id">116</td><td>Update data may update the features a file matches and add the rest</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — two statements in the transaction append already runs</td><td class="num">2/2</td></tr>
 <tr><td class="id">117</td><td>A web map labels its layers</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — Web Map&#x27;s own fields, drawn by the viewer that already draws the layer</td><td class="num">1/1</td></tr>
+<tr><td class="id">118</td><td>A web map&#x27;s pop-up formats numbers and dates</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — one Web Map field per field info, drawn by the viewer that draws the pop-up</td><td class="num">1/1</td></tr>
+<tr><td class="id">119</td><td>A web map has a description and a picture</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — two columns and the Map Viewer&#x27;s own canvas</td><td class="num">2/2</td></tr>
+<tr><td class="id">120</td><td>A GeoPackage or KML is imported as a geodatabase is</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — the geodatabase path, measured reading both formats through /vsizip/</td><td class="num">1/1</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -442,7 +445,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1232</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:61.0%"></div></div><div class="bar-n">751</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.4%"></div></div><div class="bar-n">646</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.6%"></div></div><div class="bar-n">648</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.9%"></div></div><div class="bar-n">257</div></div>
@@ -455,6 +458,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">17</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>5f23f34</code><time>2026-10-01</time><span>Editors may be kept to their own features, Update data upserts, and a web map labels its layers</span></li>
 <li><code>65df2d3</code><time>2026-10-01</time><span>ADR-113 and ADR-114: the owner confirms the two differences from Portal</span></li>
 <li><code>17fc3f4</code><time>2026-10-01</time><span>A member&#x27;s content has folders, and an item is moved between them</span></li>
 <li><code>8a5044f</code><time>2026-10-01</time><span>A hosted layer has views, and a view is a PostgreSQL view</span></li>
@@ -468,7 +472,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>23fc36c</code><time>2026-09-30</time><span>A service&#x27;s data is exported by a job: every chosen layer in one file, up to two million rows, kept a day</span></li>
 <li><code>43ba516</code><time>2026-09-30</time><span>A web map is shared with groups (ADR-079 condition 4); migration 67</span></li>
 <li><code>1285418</code><time>2026-09-30</time><span>Design review round 4: the pop-up&#x27;s title heads its card, the export list reads in two groups, Change owner finds members</span></li>
-<li><code>332f8c7</code><time>2026-09-30</time><span>The two test classes that set the missing-glyph hook no longer run beside each other</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

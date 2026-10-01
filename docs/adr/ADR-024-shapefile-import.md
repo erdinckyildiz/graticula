@@ -177,8 +177,11 @@ Nothing in it outlives the job, which is why it is not under `StatePath`.
    in an ADR with the numbers derived from the format** —
    [ADR-037](ADR-037-job-workers-come-in-two-kinds.md) §5b: the owner's archives run to 338
    members with one compressing **430×**, against this decision's 32 and 100×, *so the
-   shapefile numbers were never going to serve both formats.* **GeoPackage-in-a-zip and KMZ
-   are still refused by name**, citing this condition, so the dormant half stays armed.
+   shapefile numbers were never going to serve both formats.* ~~**GeoPackage-in-a-zip and KMZ
+   are still refused by name**, citing this condition, so the dormant half stays armed.~~
+   *(Discharged 2026-10-01 for the other two by [ADR-120](ADR-120-a-geopackage-or-kml-is-imported-as-a-geodatabase-is.md),
+   owner decision: GeoPackage and KML/KMZ take FileGDB's path, not this exception — no `BoundedArchive`, GDAL reads
+   them in place through `/vsizip/`, under ADR-037 §5b's job bounds.)*
 4. **The largest real shapefile anybody imports is measured against the 256 MB
    ceiling**, before the first deployment that matters. A-062 is a guess.
 5. **Dropping Z and M is stated in the import response**, not only in this

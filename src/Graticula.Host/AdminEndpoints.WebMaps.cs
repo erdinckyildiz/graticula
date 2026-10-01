@@ -47,6 +47,11 @@ internal static partial class AdminEndpoints
 
         // An item's delete protection, for a map too (2026-10-01, the ArcGIS review's second pass).
         app.MapPut("/content/webmaps/{id}/protection", SetWebMapProtectionAsync);
+
+        // ADR-119: what it is about at length, and its picture.
+        app.MapPut("/content/webmaps/{id}/description", SetWebMapDescriptionAsync);
+        app.MapPut("/content/webmaps/{id}/thumbnail", SetWebMapThumbnailAsync);
+        app.MapGet("/content/webmaps/{id}/thumbnail", WebMapThumbnailAsync);
     }
 
     /// <summary>The maps this caller may open: their own first, then what is shared with them.</summary>
@@ -322,6 +327,8 @@ internal static partial class AdminEndpoints
         deleteProtected = map.DeleteProtected,
         tags = map.Tags ?? [],
         contentFolder = map.ContentFolder,
+        description = map.Description,
+        thumbnail = map.HasThumbnail ? $"/content/webmaps/{map.Id}/thumbnail?v={map.Modified.ToUnixTimeSeconds()}" : null,
         // The groups it is shared with (ADR-079 condition 4) — named only to whoever manages it.
         groups = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization)
             ? map.SharedWithNames ?? [] : null,
@@ -345,8 +352,10 @@ internal static partial class AdminEndpoints
                 mine = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id,
                 manages = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization),
                 deleteProtected = map.DeleteProtected,
-        tags = map.Tags ?? [],
-        contentFolder = map.ContentFolder,
+                tags = map.Tags ?? [],
+                contentFolder = map.ContentFolder,
+                description = map.Description,
+                thumbnail = map.HasThumbnail ? $"/content/webmaps/{map.Id}/thumbnail?v={map.Modified.ToUnixTimeSeconds()}" : null,
                 // As Describe says it: the groups, named only to whoever manages the map (ADR-079 condition 4).
                 groups = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization)
                     ? map.SharedWithNames ?? [] : null,
@@ -497,4 +506,96 @@ internal static partial class AdminEndpoints
     private static string TooLarge() =>
         $"A web map's document is at most {WebMaps.MaximumDocumentBytes / 1024 / 1024} MB. A map is a list of "
         + "layers by address, a basemap and a view; data belongs in a layer.";
+    /// <summary>What <c>…/description</c> reads.</summary>
+    /// <param name="Description">The description, or null to clear it.</param>
+    internal sealed record WebMapDescriptionRequest(string? Description);
+
+    /// <summary>The largest picture a map keeps — far more than a 600 × 400 PNG needs.</summary>
+    private const int MaximumThumbnailBytes = 1 << 20;
+
+    private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+    /// <summary>Replaces a map's description — ADR-119, whoever may change the map.</summary>
+    private static async Task SetWebMapDescriptionAsync(
+        HttpContext context, string id, WebMapDescriptionRequest request, IWebMapStore maps, IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (await ManagedMapAsync(context, current, id, "describe", maps, audit, cancellation).ConfigureAwait(false) is null)
+        {
+            return;
+        }
+
+        string? text = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+
+        if (text is { Length: > 64_000 })
+        {
+            await Refuse(context, 400, "A description is at most 64,000 characters.").ConfigureAwait(false);
+            return;
+        }
+
+        await maps.SetDescriptionAsync(id, text, cancellation).ConfigureAwait(false);
+        await Results.Json(new { id, description = text }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Replaces a map's picture — ADR-119: the PNG the Map Viewer draws of the map when it is saved. Checked for what
+    /// it says it is and for size, and kept as sent.
+    /// </summary>
+    private static async Task SetWebMapThumbnailAsync(
+        HttpContext context, string id, IWebMapStore maps, IAuditLog audit, CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (await ManagedMapAsync(context, current, id, "change the picture of", maps, audit, cancellation).ConfigureAwait(false) is null)
+        {
+            return;
+        }
+
+        using MemoryStream body = new();
+        byte[] buffer = new byte[81920];
+        int read;
+
+        while ((read = await context.Request.Body.ReadAsync(buffer, cancellation).ConfigureAwait(false)) > 0)
+        {
+            if (body.Length + read > MaximumThumbnailBytes)
+            {
+                await Refuse(context, 413, "A map's picture is at most 1 MB.").ConfigureAwait(false);
+                return;
+            }
+
+            body.Write(buffer, 0, read);
+        }
+
+        byte[] png = body.ToArray();
+
+        if (png.Length < PngSignature.Length || !png.AsSpan(0, PngSignature.Length).SequenceEqual(PngSignature))
+        {
+            await Refuse(context, 400, "A map's picture is a PNG.").ConfigureAwait(false);
+            return;
+        }
+
+        await maps.SetThumbnailAsync(id, png, cancellation).ConfigureAwait(false);
+        await Results.Json(new { id, bytes = png.Length }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>A map's picture, to whoever may open the map.</summary>
+    private static async Task WebMapThumbnailAsync(
+        HttpContext context, string id, IWebMapStore maps, CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (await maps.FindAsync(id, cancellation).ConfigureAwait(false) is not { } map
+            || !Readable(current, map)
+            || await maps.ThumbnailAsync(id, cancellation).ConfigureAwait(false) is not { } png)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        context.Response.Headers.CacheControl = "private, max-age=300";
+        await Results.Bytes(png, "image/png").ExecuteAsync(context).ConfigureAwait(false);
+    }
 }

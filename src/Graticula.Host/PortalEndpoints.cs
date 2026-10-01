@@ -1355,10 +1355,21 @@ internal static class PortalEndpoints
         Graticula.Cartography.IMapCanvasFactory canvases,
         ServiceThumbnails held,
         HostSettings settings,
+        IWebMapStore maps,
         string id,
         string file,
         CancellationToken cancellation)
     {
+        // ADR-119: a web map's own picture, to whoever may open the map.
+        if (string.Equals(file, ThumbnailFile, StringComparison.OrdinalIgnoreCase)
+            && (await ReadableMapsAsync(context, maps, cancellation).ConfigureAwait(false))
+                .FirstOrDefault(m => string.Equals(m.Id, id, StringComparison.OrdinalIgnoreCase)) is { HasThumbnail: true } map
+            && await maps.ThumbnailAsync(map.Id, cancellation).ConfigureAwait(false) is { } png)
+        {
+            await Results.Bytes(png, "image/png").ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         IReadOnlyList<PublishedService>? visible = string.Equals(file, ThumbnailFile, StringComparison.OrdinalIgnoreCase)
             ? await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false)
             : [];
@@ -1677,7 +1688,9 @@ internal static class PortalEndpoints
             name = (string?)null,
             type = "Web Map",
             typeKeywords = WebMapKeywords,
-            description = map.Snippet,
+            // ADR-119: the description when there is one, the summary as before when not; and the picture.
+            description = map.Description ?? map.Snippet,
+            thumbnail = map.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,
             snippet = map.Snippet,
             tags = map.Tags ?? [],
             url = (string?)null,

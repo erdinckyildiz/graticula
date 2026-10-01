@@ -4532,3 +4532,10 @@ ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
 
 /* ADR-116: at phone width the Update data answer takes its own line rather than a sliver beside the buttons. */
 @media (max-width: 480px) { #updateDataFoot { flex-wrap: wrap; } #updateDataSays { flex-basis: 100%; } }
+
+/* ADR-119: the web map item's picture beside its summary, and its description. */
+.mapabout { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.mapabout .mapfigure { margin: 0; flex: 0 0 auto; width: 100%; max-width: 240px; }
+.mapabout .mapitemthumb { width: 100%; max-width: 240px; aspect-ratio: 3 / 2; height: auto; object-fit: cover; display: block; }
+.mapabout > div { flex: 1 1 240px; min-width: 0; }
+.mapdescription { white-space: normal; line-height: 1.5; margin-bottom: 8px; }

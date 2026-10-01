@@ -1098,7 +1098,22 @@ internal static class Program
             }
         }
 
-        return best is null ? null : inside + "/" + best;
+        if (best is not null)
+        {
+            return inside + "/" + best;
+        }
+
+        // <b>ADR-120: a GeoPackage or a KML in the archive</b>, the one nearest its root — GDAL reads either through
+        // /vsizip/ in place, so neither is unpacked. A shapefile's archive has neither and opens at its root as before.
+        string? file = entries
+            .Select(entry => entry.Replace('\\', '/'))
+            .Where(path => path.EndsWith(".gpkg", StringComparison.OrdinalIgnoreCase)
+                || path.EndsWith(".kml", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(path => path.Count(c => c == '/'))
+            .ThenBy(path => path.Length)
+            .FirstOrDefault();
+
+        return file is null ? null : inside + "/" + file;
     }
 
     /// <summary>The layer's authority code, or null when it has none.</summary>
