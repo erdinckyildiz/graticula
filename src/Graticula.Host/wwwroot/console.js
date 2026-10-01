@@ -5639,8 +5639,11 @@ async function drawServiceDetails(qualified, knownKind) {
       // ADR-114: two kinds of folder, and each named for what it is — the service's is in its address.
       ["Service folder", item.folder ? h(item.folder) : `<span class="val">the site root</span>`],
       ...(item.scope === "mine" ? [["Folder", `<span id="svcContentFolder">${folderTitleOf(item.contentFolder)}</span>`]] : []),
+      // Which groups, beside the pill that says *group* — Settings › General already named them (design review
+      // 2026-10-01).
       ["Sharing", `<button class="pillbtn" data-share="${h(item.name)}"
-         title="Set who can reach this">${pill(item.sharing)}</button>`],
+         title="Set who can reach this">${pill(item.sharing)}</button>${(item.sharedWith || []).length
+           ? ` ${h(item.sharedWith.map(g => g.title || g.name).join(", "))}` : ""}`],
       // <b>Only when it is known, rather than inferred from the folder's name.</b> A service in
       // a folder called `hosted` is usually hosted and a convention is not a fact; the
       // administrative listing carries the answer and Studio's reader may not have it, so the
@@ -7161,11 +7164,14 @@ async function drawGeneralSharing(name, folder) {
   const item = ((await api("/content/items"))?.items || []).find(i => i.name === qualified);
   if (!item || !$("generalSharing")) return;
 
-  const said = { private: "Owner", group: "Owner and groups", organization: "Organization", public: "Everyone (public)" };
+  // One statement of who reaches it — the pill said the scope and the bold word said it again (design review
+  // 2026-10-01: *"Shared with: private Owner"*).
+  const said = { private: "Owner — only you", group: "Owner and groups", organization: "Your organization",
+    public: "Everyone (public)" };
   const groups = (item.sharedWith || []).map(g => g.title || g.name);
 
   box.dataset.sharing = item.sharing || "private";
-  box.innerHTML = `Shared with: ${pill(item.sharing || "private")} <b>${h(said[item.sharing] || item.sharing)}</b>${
+  box.innerHTML = `Shared with: <b>${h(said[item.sharing] || item.sharing)}</b>${
     groups.length ? ` — ${groups.map(h).join(", ")}` : ""}`;
 }
 

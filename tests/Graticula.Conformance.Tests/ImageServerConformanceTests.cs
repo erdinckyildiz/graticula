@@ -1197,7 +1197,7 @@ public sealed class ImageServerConformanceTests : ArcGisClient
         {
             ("bbox=1,2,3", "bbox"),
             ("size=nonsense", "size"),
-            ("format=tiff", "format"),
+            ("format=bmp", "format"),
             ("bbox=10,10,5,5", "bbox"),
         })
         {

@@ -291,7 +291,8 @@ internal static class ImageServerEndpoints
             // <b>Named, because a client reads this before it asks.</b> `jpgpng` is
             // first for the same reason it is the SDK's default, and it is answered as
             // PNG — which is what the format means when the picture has transparency.
-            supportedImageFormatTypes = "JPGPNG,PNG,PNG8,PNG24,PNG32,JPG,JPEG",
+            // ADR-127: TIFF is the values themselves, which Pro's Export Raster and a client's own renderer read.
+            supportedImageFormatTypes = "JPGPNG,PNG,PNG8,PNG24,PNG32,JPG,JPEG,TIFF",
 
             // <b>Absent rather than zero when the file declares none.</b> Zero is a
             // legitimate measurement, so reporting it as the no-data value would tell a
@@ -609,6 +610,22 @@ internal static class ImageServerEndpoints
             await budget.EnterAsync($"coverage:{coverage.Path}", cancellation)
                 .ConfigureAwait(false);
 
+        // ADR-127: the values themselves, as a GeoTIFF in their own type — read through the same plan the picture is.
+        if (asked.Raw)
+        {
+            (byte[]? file, string? refusal) = await RawAsync(coverage, asked, readers, projector, cancellation)
+                .ConfigureAwait(false);
+
+            if (refusal is not null)
+            {
+                await RefuseAsync(context, 400, refusal).ConfigureAwait(false);
+                return;
+            }
+
+            await AnswerAsync(context, asked, file!, "image/tiff", cancellation).ConfigureAwait(false);
+            return;
+        }
+
         using IMapCanvas canvas = canvases.Create(asked.Width, asked.Height);
 
         canvas.Clear(asked.Format == MapImageFormat.Png ? Rgba.Transparent : Rgba.White);
@@ -654,6 +671,14 @@ internal static class ImageServerEndpoints
         */
         byte[] image = canvas.Encode(asked.Format, 90);
 
+        await AnswerAsync(context, asked, image, asked.Format == MapImageFormat.Png ? "image/png" : "image/jpeg", cancellation)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Writes an export: the file, or with <c>f=json</c> where it is.</summary>
+    private static async Task AnswerAsync(
+        HttpContext context, ImageServerExportParameters asked, byte[] image, string contentType, CancellationToken cancellation)
+    {
         if (ArcGisResponseFormat.WantsJson(context))
         {
             string href = $"{context.Request.Scheme}://{context.Request.Host}"
@@ -673,10 +698,135 @@ internal static class ImageServerEndpoints
             return;
         }
 
-        context.Response.ContentType =
-            asked.Format == MapImageFormat.Png ? "image/png" : "image/jpeg";
+        context.Response.ContentType = contentType;
 
         await context.Response.Body.WriteAsync(image, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The coverage's values over the asked extent and size, as a GeoTIFF in their own type — ADR-127. Nearest
+    /// neighbour, as the picture is resampled, so a value in the file is one the coverage holds. Ground the coverage
+    /// does not cover is its no-data value, or zero when it declares none.
+    /// </summary>
+    private static async Task<(byte[]? File, string? Refused)> RawAsync(
+        PublishedCoverage coverage,
+        ImageServerExportParameters asked,
+        ICoverageReaderFactory readers,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
+        CoverageInfo info = coverage.Info;
+        int width = asked.Width;
+        int height = asked.Height;
+        int bands = Math.Max(1, info.Bands.Count);
+        double? noData = info.Bands.Count > 0 ? info.Bands[0].NoData : null;
+
+        double[] samples = new double[width * height * bands];
+        Array.Fill(samples, noData ?? 0);
+
+        int[]? taken = null;
+        CoverageWindow? window = null;
+
+        if (asked.Srid == info.Srid)
+        {
+            if (CoveragePlanner.Plan(info, asked.Extent, width, height) is { } read)
+            {
+                using ICoverageReader reader = await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
+                window = await reader.ReadAsync(read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
+                    .ConfigureAwait(false);
+
+                PixelBox to = read.Destination;
+                double across = to.MaxX - to.MinX;
+                double down = to.MaxY - to.MinY;
+                taken = new int[width * height];
+                Array.Fill(taken, -1);
+
+                for (int y = 0; y < height && across > 0 && down > 0; y++)
+                {
+                    double py = y + 0.5;
+
+                    if (py < to.MinY || py >= to.MaxY)
+                    {
+                        continue;
+                    }
+
+                    int row = Math.Clamp((int)((py - to.MinY) / down * window.Height), 0, window.Height - 1);
+
+                    for (int x = 0; x < width; x++)
+                    {
+                        double px = x + 0.5;
+
+                        if (px < to.MinX || px >= to.MaxX)
+                        {
+                            continue;
+                        }
+
+                        int column = Math.Clamp((int)((px - to.MinX) / across * window.Width), 0, window.Width - 1);
+                        taken[(y * width) + x] = (row * window.Width) + column;
+                    }
+                }
+            }
+        }
+        else
+        {
+            (CoverageWarp? warp, CoveragePlan? planned, string? refused) =
+                await WarpPlanAsync(coverage, asked, projector, cancellation).ConfigureAwait(false);
+
+            if (refused is not null)
+            {
+                return (null, refused);
+            }
+
+            if (planned is { } read)
+            {
+                using ICoverageReader reader = await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
+                window = await reader.ReadAsync(read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
+                    .ConfigureAwait(false);
+
+                (double perPixelX, double perPixelY) = CoveragePlanner.PixelSize(info, read.Overview);
+                taken = warp!.Indices(
+                    window.Width,
+                    window.Height,
+                    info.Extent.MinX + (read.X * perPixelX),
+                    info.Extent.MaxY - (read.Y * perPixelY),
+                    perPixelX,
+                    perPixelY);
+            }
+        }
+
+        if (taken is not null && window is not null)
+        {
+            int carried = Math.Min(bands, window.Bands);
+
+            for (int i = 0; i < taken.Length; i++)
+            {
+                if (taken[i] < 0)
+                {
+                    continue;
+                }
+
+                for (int band = 0; band < carried; band++)
+                {
+                    samples[(i * bands) + band] = window.Samples[(taken[i] * window.Bands) + band];
+                }
+            }
+        }
+
+        byte[] file = GeoTiffWriter.Write(
+            samples,
+            width,
+            height,
+            bands,
+            info.Bands.Count > 0 ? info.Bands[0].Kind : SampleKind.Unsigned8,
+            asked.Extent.MinX,
+            asked.Extent.MaxY,
+            asked.Extent.Width / width,
+            asked.Extent.Height / height,
+            asked.Srid,
+            AxisOrder.IsGeographic(asked.Srid),
+            noData);
+
+        return (file, null);
     }
 
     /// <summary>
@@ -772,6 +922,61 @@ internal static class ImageServerEndpoints
         string? style,
         CancellationToken cancellation)
     {
+        (CoverageWarp? warp, CoveragePlan? planned, string? refused) =
+            await WarpPlanAsync(coverage, asked, projector, cancellation).ConfigureAwait(false);
+
+        if (refused is not null)
+        {
+            return refused;
+        }
+
+        // <b>No overlap, and that is an answer rather than a failure.</b> A box that
+        // misses the coverage draws an empty picture, which ADR-043's suite asserts.
+        if (planned is not { } read)
+        {
+            return null;
+        }
+
+        using ICoverageReader reader =
+            await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
+
+        CoverageWindow window = await reader.ReadAsync(
+            read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
+            .ConfigureAwait(false);
+
+        Rgba[] painted = (await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false)).Paint(window, coverage.Info.Bands);
+
+        // <b>Asked of the planner rather than worked out again.</b> This was the same
+        // division with the level lookup written out longhand beside it — one calculation in
+        // two places, and the other copy is the one that chose the read window.
+        (double perPixelX, double perPixelY) =
+            CoveragePlanner.PixelSize(coverage.Info, read.Overview);
+
+        Rgba[] pixels = warp!.Resample(
+            painted,
+            window.Width,
+            window.Height,
+            coverage.Info.Extent.MinX + (read.X * perPixelX),
+            coverage.Info.Extent.MaxY - (read.Y * perPixelY),
+            perPixelX,
+            perPixelY);
+
+        canvas.DrawImage(
+            pixels, asked.Width, asked.Height, new PixelBox(0, 0, asked.Width, asked.Height));
+
+        return null;
+    }
+
+    /// <summary>
+    /// Where a request written in another reference falls on the coverage: the warp from canvas to ground, and what to
+    /// read — or why it cannot be answered. Shared by the picture and the raw values (ADR-127), so the two agree.
+    /// </summary>
+    private static async Task<(CoverageWarp? Warp, CoveragePlan? Plan, string? Refused)> WarpPlanAsync(
+        PublishedCoverage coverage,
+        ImageServerExportParameters asked,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
         int steps = CoverageWarp.StepsFor(asked.Width, asked.Height);
 
         Point[] grid = CoverageWarp.ControlPoints(asked.Extent, asked.Width, asked.Height, steps);
@@ -795,7 +1000,7 @@ internal static class ImageServerEndpoints
                 // A projector that returned something other than the points it was
                 // given has broken its own contract; drawing a partial picture from the
                 // rest would be a map with a hole nobody can see.
-                return Unprojectable(asked.Srid, coverage.Info.Srid);
+                return (null, null, Unprojectable(asked.Srid, coverage.Info.Srid));
             }
 
             groundX[i] = point.X;
@@ -818,7 +1023,7 @@ internal static class ImageServerEndpoints
         if (!double.IsFinite(minX) || !double.IsFinite(minY)
             || !double.IsFinite(maxX) || !double.IsFinite(maxY))
         {
-            return Unprojectable(asked.Srid, coverage.Info.Srid);
+            return (null, null, Unprojectable(asked.Srid, coverage.Info.Srid));
         }
 
         CoveragePlan? plan = CoveragePlanner.Plan(
@@ -826,41 +1031,7 @@ internal static class ImageServerEndpoints
 
         // <b>No overlap, and that is an answer rather than a failure.</b> A box that
         // misses the coverage draws an empty picture, which ADR-043's suite asserts.
-        if (plan is not { } read)
-        {
-            return null;
-        }
-
-        using ICoverageReader reader =
-            await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
-
-        CoverageWindow window = await reader.ReadAsync(
-            read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
-            .ConfigureAwait(false);
-
-        Rgba[] painted = (await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false)).Paint(window, coverage.Info.Bands);
-
-        // <b>Asked of the planner rather than worked out again.</b> This was the same
-        // division with the level lookup written out longhand beside it — one calculation in
-        // two places, and the other copy is the one that chose the read window.
-        (double perPixelX, double perPixelY) =
-            CoveragePlanner.PixelSize(coverage.Info, read.Overview);
-
-        CoverageWarp warp = new(asked.Width, asked.Height, steps, groundX, groundY);
-
-        Rgba[] pixels = warp.Resample(
-            painted,
-            window.Width,
-            window.Height,
-            coverage.Info.Extent.MinX + (read.X * perPixelX),
-            coverage.Info.Extent.MaxY - (read.Y * perPixelY),
-            perPixelX,
-            perPixelY);
-
-        canvas.DrawImage(
-            pixels, asked.Width, asked.Height, new PixelBox(0, 0, asked.Width, asked.Height));
-
-        return null;
+        return (new CoverageWarp(asked.Width, asked.Height, steps, groundX, groundY), plan, null);
     }
 
     /// <summary>Why a request in another reference could not be drawn.</summary>

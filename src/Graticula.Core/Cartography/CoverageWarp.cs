@@ -237,6 +237,52 @@ public sealed class CoverageWarp
         return canvas;
     }
 
+    /// <summary>
+    /// Which source pixel each canvas pixel takes — the same nearest-neighbour choice as <see cref="Resample"/>, as
+    /// an index into the source or -1 — so values that are not colours can be carried across (ADR-127, a raw export).
+    /// </summary>
+    /// <param name="sourceWidth">The source's width.</param>
+    /// <param name="sourceHeight">The source's height.</param>
+    /// <param name="originX">The ground X of the source's left edge.</param>
+    /// <param name="originY">The ground Y of the source's top edge.</param>
+    /// <param name="perPixelX">The source's pixel width in ground units.</param>
+    /// <param name="perPixelY">The source's pixel height in ground units.</param>
+    /// <returns>One index a canvas pixel.</returns>
+    public int[] Indices(
+        int sourceWidth,
+        int sourceHeight,
+        double originX,
+        double originY,
+        double perPixelX,
+        double perPixelY)
+    {
+        int[] taken = new int[_width * _height];
+        Array.Fill(taken, -1);
+
+        if (sourceWidth <= 0 || sourceHeight <= 0 || perPixelX == 0 || perPixelY == 0)
+        {
+            return taken;
+        }
+
+        for (int y = 0; y < _height; y++)
+        {
+            for (int x = 0; x < _width; x++)
+            {
+                (double groundX, double groundY) = Ground(x + 0.5, y + 0.5);
+
+                int column = (int)Math.Floor((groundX - originX) / perPixelX);
+                int row = (int)Math.Floor((originY - groundY) / perPixelY);
+
+                if (column >= 0 && column < sourceWidth && row >= 0 && row < sourceHeight)
+                {
+                    taken[(y * _width) + x] = (row * sourceWidth) + column;
+                }
+            }
+        }
+
+        return taken;
+    }
+
     private static double Bilinear(double[] values, int at, int stride, double fx, double fy)
     {
         double top = values[at] + ((values[at + 1] - values[at]) * fx);

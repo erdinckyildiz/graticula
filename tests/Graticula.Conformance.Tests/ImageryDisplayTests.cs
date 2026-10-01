@@ -141,6 +141,37 @@ public sealed class ImageryDisplayTests : ArcGisClient
         return pixels;
     }
 
+    /// <summary>The 32-bit float values of a one-band, one-strip, little-endian TIFF.</summary>
+    private static float[] Floats(byte[] tiff)
+    {
+        Assert.Equal((byte)'I', tiff[0]);
+        int directory = BitConverter.ToInt32(tiff, 4);
+        int entries = BitConverter.ToUInt16(tiff, directory);
+        int width = 0, height = 0, bits = 0, format = 0, offset = 0;
+
+        for (int i = 0; i < entries; i++)
+        {
+            int at = directory + 2 + (i * 12);
+            int tag = BitConverter.ToUInt16(tiff, at);
+            int type = BitConverter.ToUInt16(tiff, at + 2);
+            int value = type == 3 ? BitConverter.ToUInt16(tiff, at + 8) : BitConverter.ToInt32(tiff, at + 8);
+
+            switch (tag)
+            {
+                case 256: width = value; break;
+                case 257: height = value; break;
+                case 258: bits = value; break;
+                case 273: offset = value; break;
+                case 339: format = value; break;
+            }
+        }
+
+        Assert.True(bits == 32 && format == 3, $"The TIFF holds {bits}-bit samples of format {format}, not the model's float.");
+        float[] values = new float[width * height];
+        Buffer.BlockCopy(tiff, offset, values, 0, values.Length * 4);
+        return values;
+    }
+
     private static int Paeth(int a, int b, int c)
     {
         int p = a + b - c, pa = Math.Abs(p - a), pb = Math.Abs(p - b), pc = Math.Abs(p - c);
@@ -225,6 +256,24 @@ public sealed class ImageryDisplayTests : ArcGisClient
             Assert.True(identified == HttpStatusCode.OK && !pixel.Contains("\"error\"", StringComparison.Ordinal),
                 $"identify with an Esri point in Web Mercator answered {(int)identified}: {pixel}");
             Assert.Contains("800", pixel, StringComparison.Ordinal);
+
+            // ADR-127: the values themselves, as a float GeoTIFF — in the image's own reference and warped into Web
+            // Mercator — whatever the style; every value one the model holds.
+            foreach (string box in new[]
+            {
+                "bbox=30,40.36,30.64,41&bboxSR=4326",
+                "bbox=3340000,4920000,3400000,5000000&bboxSR=3857",
+            })
+            {
+                (HttpStatusCode exported, byte[] tiff) = await SendAsync(root, token!, HttpMethod.Get,
+                    $"{service}/exportImage?{box}&size=32,32&format=tiff&f=image");
+                Assert.Equal(HttpStatusCode.OK, exported);
+                float[] values = Floats(tiff);
+                Assert.Equal(32 * 32, values.Length);
+                float[] measured = [.. values.Where(v => v != 0)];
+                Assert.NotEmpty(measured);
+                Assert.All(measured, v => Assert.InRange(v, 800f, 2500f));
+            }
 
             // A fixed range that runs backwards, and a ramp that does not exist, are refused.
             (HttpStatusCode backwards, _) = await SendAsync(root, token!, HttpMethod.Put, $"/admin/coverages/{name}/style?folder=hosted",

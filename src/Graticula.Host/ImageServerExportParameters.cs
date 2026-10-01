@@ -47,8 +47,9 @@ internal sealed class ImageServerExportParameters
         new(extent, size, size, MapImageFormat.Png, srid);
 
     private ImageServerExportParameters(
-        Envelope extent, int width, int height, MapImageFormat format, int srid)
+        Envelope extent, int width, int height, MapImageFormat format, int srid, bool raw = false)
     {
+        Raw = raw;
         Extent = extent;
         Width = width;
         Height = height;
@@ -67,6 +68,12 @@ internal sealed class ImageServerExportParameters
 
     /// <summary>What to encode as.</summary>
     public MapImageFormat Format { get; }
+
+    /// <summary>
+    /// Whether the values are asked for rather than a picture — <c>format=tiff</c>, ADR-127: a GeoTIFF of the pixels
+    /// in their own type, unstyled.
+    /// </summary>
+    public bool Raw { get; }
 
     /// <summary>
     /// The reference the extent is written in, and the image is drawn in.
@@ -139,12 +146,17 @@ internal sealed class ImageServerExportParameters
             return false;
         }
 
-        if (!TryFormat(parameter("format"), out MapImageFormat format, out error))
+        // ADR-127: `tiff` asks for the values themselves.
+        bool raw = parameter("format") is { } named && named.Trim().Equals("tiff", StringComparison.OrdinalIgnoreCase);
+
+        MapImageFormat format = MapImageFormat.Png;
+
+        if (!raw && !TryFormat(parameter("format"), out format, out error))
         {
             return false;
         }
 
-        asked = new ImageServerExportParameters(extent, width, height, format, srid);
+        asked = new ImageServerExportParameters(extent, width, height, format, srid, raw);
         return true;
     }
 
@@ -720,8 +732,8 @@ internal sealed class ImageServerExportParameters
                 // message used to say *png, jpg and jpgpng* while `png8`, `png24`, `png32`
                 // and `jpeg` all worked — a refusal that undersells the server is as
                 // misleading as one that oversells it.
-                error = $"`format={text}` is not one this server writes. It writes png, png8, "
-                    + "png24, png32, jpg, jpeg, and jpgpng — which it answers as png. An "
+                error = $"`format={text}` is not one this server writes. It writes tiff — the values themselves — "
+                    + "and png, png8, png24, png32, jpg, jpeg, and jpgpng, which it answers as png. An "
                     + "absent format, an empty one, or `None` all mean this server chooses.";
 
                 return false;
