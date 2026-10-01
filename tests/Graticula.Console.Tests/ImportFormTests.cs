@@ -384,6 +384,9 @@ public sealed class ImportFormTests : ConsoleTest
             await OpenAsync($"/studio/#/service/hosted/{name}", token);
             await WaitForAsync("serviceOpenKind === 'ImageServer' && document.getElementById('serviceLayersHead').hidden",
                 "An image service's page still offers a Layers section.");
+            // ADR-126: its owner describes and tags it there, as a feature service's owner does.
+            await WaitForAsync("!!document.querySelector('#serviceDescription [data-describe]')",
+                "An image service's page offers no way to describe it.");
             await OpenAsync($"/studio/#/service/hosted/{name}?tab=settings&section=general", token);
             await WaitForAsync("(document.getElementById('svcDeleteNote')?.textContent || '').includes('cannot be recovered')",
                 "Settings › General does not say the uploaded image is deleted with the service.");

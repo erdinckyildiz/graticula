@@ -199,7 +199,7 @@ internal static class CoverageAdminEndpoints
     internal static string ImageryDirectory(HostSettings settings) => Path.Combine(settings.StatePath, "imagery");
 
     /// <summary>Whether a coverage's file is one this server keeps, rather than one registered where it lives.</summary>
-    private static bool Uploaded(HostSettings settings, string path)
+    internal static bool Uploaded(HostSettings settings, string path)
     {
         string root = Path.GetFullPath(ImageryDirectory(settings)) + Path.DirectorySeparatorChar;
         return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);

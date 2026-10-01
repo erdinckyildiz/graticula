@@ -93,6 +93,15 @@ public sealed class PublishedCoverage
     /// </summary>
     public ImmutableArray<Guid> SharedWith { get; }
 
+    /// <summary>What its owner wrote about it — ADR-126 — or null.</summary>
+    public string? Description { get; init; }
+
+    /// <summary>Its tags — ADR-126.</summary>
+    public IReadOnlyList<string> Tags { get; init; } = [];
+
+    /// <summary>The owner's content folder it sits in — ADR-114 — or null for the root.</summary>
+    public Guid? ContentFolder { get; init; }
+
     /// <summary>Its own identifier.</summary>
     public Guid Id { get; }
 

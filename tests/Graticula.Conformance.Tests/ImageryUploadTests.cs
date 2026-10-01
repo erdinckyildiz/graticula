@@ -51,6 +51,56 @@ public sealed class ImageryUploadTests : ArcGisClient
     }
 
     [Fact]
+    public async Task An_imagery_item_has_its_owners_description_tags_and_a_picture()
+    {
+        // ADR-126: an image service's portal item said nothing about itself — null description, the folder as its
+        // only tag, no picture — and its owner could not change that, the description and tags writes refusing an
+        // image service as not one they owned.
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        string name = $"zz_imgmeta_{Guid.NewGuid():N}"[..20];
+
+        try
+        {
+            using MultipartFormDataContent form = Upload(name, Corpus("rgb-byte-deflate.tif"), "ortho.tif");
+            (HttpStatusCode made, string madeBody) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", form);
+            Assert.True(made == HttpStatusCode.Created, $"Uploading answered {(int)made}: {madeBody}");
+
+            (HttpStatusCode described, string describedBody) = await SendAsync(root, token!, HttpMethod.Put,
+                $"/admin/services/{name}/description?folder=hosted",
+                new StringContent("{\"description\":\"Orthophoto of the test square.\"}", Encoding.UTF8, "application/json"));
+            Assert.True(described == HttpStatusCode.OK, $"Describing it answered {(int)described}: {describedBody}");
+            (HttpStatusCode tagged, string taggedBody) = await SendAsync(root, token!, HttpMethod.Put,
+                $"/admin/services/{name}/tags?folder=hosted",
+                new StringContent("{\"tags\":[\"ortho\",\"2026\"]}", Encoding.UTF8, "application/json"));
+            Assert.True(tagged == HttpStatusCode.OK, $"Tagging it answered {(int)tagged}: {taggedBody}");
+
+            (_, string search) = await SendAsync(root, token!, HttpMethod.Get, $"/sharing/rest/search?q={name}&f=json");
+            JsonElement item = JsonDocument.Parse(search).RootElement.GetProperty("results").EnumerateArray()
+                .First(r => r.GetProperty("name").GetString() == name);
+            Assert.Equal("Orthophoto of the test square.", item.GetProperty("description").GetString());
+            string[] tags = [.. item.GetProperty("tags").EnumerateArray().Select(t => t.GetString() ?? "")];
+            Assert.Contains("ortho", tags);
+            Assert.Contains("Hosted Service", item.GetProperty("typeKeywords").EnumerateArray().Select(t => t.GetString()));
+
+            string thumbnail = item.GetProperty("thumbnail").GetString()!;
+            using HttpRequestMessage picture = new(HttpMethod.Get,
+                new Uri($"{root}/sharing/rest/content/items/{item.GetProperty("id").GetString()}/info/{thumbnail}"));
+            picture.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage drawn = await Http.SendAsync(picture);
+            Assert.True(drawn.IsSuccessStatusCode, $"The item's picture answered {(int)drawn.StatusCode}.");
+            Assert.Equal("image/png", drawn.Content.Headers.ContentType?.MediaType);
+        }
+        finally
+        {
+            await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
+        }
+    }
+
+    [Fact]
     public async Task A_GeoTIFF_is_uploaded_published_and_drawn_and_goes_with_its_service()
     {
         string root = await RequireServerAsync();

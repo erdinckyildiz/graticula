@@ -8,6 +8,9 @@
 | **Supersedes** | — |
 | **Superseded by** | — |
 
+
+> **Amended 2026-10-01 by [ADR-126](ADR-126-an-imagery-item-describes-itself.md).** An image service's item carries its owner's tags too, which its owner can now set.
+
 ---
 
 ## 1. Context

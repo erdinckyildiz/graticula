@@ -946,9 +946,10 @@ internal static class PortalEndpoints
                 .Where(map => map.Owner == current.Principal.Id && map.ContentFolder == folderId)
                 .Select(map => MapItem(context, map)),
 
-            // And the image services they registered — V-80. They have no folder yet, so they are at the root.
+            // And the image services they registered — V-80 — in the content folder they were moved to (ADR-114).
             .. images
-                .Where(coverage => folderId is null && coverage.Owner is { } owner && owner == current.Principal.Id)
+                .Where(coverage => coverage.Owner is { } owner && owner == current.Principal.Id
+                    && coverage.ContentFolder == folderId)
                 .Select(coverage => CoverageItem(context, coverage)),
         ];
 
@@ -1370,6 +1371,25 @@ internal static class PortalEndpoints
             return;
         }
 
+        // ADR-126: an image service's picture is the image itself, drawn whole as it is styled.
+        if (string.Equals(file, ThumbnailFile, StringComparison.OrdinalIgnoreCase)
+            && context.RequestServices.GetService(typeof(ICoverageCatalog)) is ICoverageCatalog coverages
+            && (await VisibleCoveragesAsync(context, coverages, cancellation).ConfigureAwait(false) ?? [])
+                .FirstOrDefault(c => string.Equals(CoverageItemId(c), id, StringComparison.OrdinalIgnoreCase)) is { } image)
+        {
+            IServiceProvider services = context.RequestServices;
+            await ImageServerEndpoints.PreviewAsync(
+                    context, image, image.Style ?? "stretch:auto", 400, 266,
+                    (Graticula.Coverages.ICoverageReaderFactory)services.GetService(typeof(Graticula.Coverages.ICoverageReaderFactory))!,
+                    canvases,
+                    (Graticula.Geometries.IProjector)services.GetService(typeof(Graticula.Geometries.IProjector))!,
+                    (ConnectionBudget)services.GetService(typeof(ConnectionBudget))!,
+                    settings,
+                    cancellation)
+                .ConfigureAwait(false);
+            return;
+        }
+
         IReadOnlyList<PublishedService>? visible = string.Equals(file, ThumbnailFile, StringComparison.OrdinalIgnoreCase)
             ? await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false)
             : [];
@@ -1572,9 +1592,9 @@ internal static class PortalEndpoints
 
     /// <summary>One image service as a portal item.</summary>
     /// <remarks>
-    /// <b>Owned by the same rule as a service's</b> (<see cref="Item"/>, Q-127), and with no thumbnail:
-    /// this server keeps pictures of vector layers, and an item that names no thumbnail is one a client
-    /// does not ask for.
+    /// <b>Owned by the same rule as a service's</b> (<see cref="Item"/>, Q-127). <b>Its description, tags and
+    /// picture are its own</b> — ADR-126: they were written as null, empty and none, so an imagery item in Pro's
+    /// portal pane had nothing to say about itself; the picture is the image drawn whole, as Display draws it.
     /// </remarks>
     private static object CoverageItem(HttpContext context, PublishedCoverage coverage, double[][]? extent = null)
     {
@@ -1590,12 +1610,16 @@ internal static class PortalEndpoints
             title = coverage.ServiceName,
             name = coverage.ServiceName,
             type = "Image Service",
-            typeKeywords = ImageServiceKeywords,
-            description = (string?)null,
-            snippet = (string?)null,
-            tags = coverage.Folder is null ? Array.Empty<string>() : new[] { coverage.Folder },
+            typeKeywords = context.RequestServices.GetService(typeof(HostSettings)) is HostSettings settings
+                && CoverageAdminEndpoints.Uploaded(settings, coverage.Path)
+                    ? [.. ImageServiceKeywords, "Hosted Service"]
+                    : ImageServiceKeywords,
+            description = coverage.Description,
+            snippet = coverage.Description,
+            tags = coverage.Tags.Concat(coverage.Folder is null ? [] : new[] { coverage.Folder })
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             url = $"{Origin(context)}/rest/services/{coverage.QualifiedName}/ImageServer",
-            thumbnail = (string?)null,
+            thumbnail = $"thumbnail/{ThumbnailFile}",
             access = Access(coverage.Sharing),
             spatialReference = (string?)null,
             extent = extent ?? [],

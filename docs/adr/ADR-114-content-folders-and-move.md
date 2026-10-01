@@ -8,6 +8,9 @@
 | **Supersedes** | ADR-108's deferral of *Move* |
 | **Superseded by** | — |
 
+
+> **Amended 2026-10-01 by [ADR-126](ADR-126-an-imagery-item-describes-itself.md).** My content lists an image service in the content folder it was moved to, not always at the root.
+
 ---
 
 ## 1. Context

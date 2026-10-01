@@ -36,7 +36,8 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
         s.sharing, s.status, s.owner_principal_id,
         s.created_at, s.updated_at,
         (select coalesce(array_agg(gi.group_id), '{}')
-           from sharing_group_item gi where gi.service_id = s.id) as shared_with_groups
+           from sharing_group_item gi where gi.service_id = s.id) as shared_with_groups,
+        s.description, s.tags, s.content_folder_id
         """;
 
     private readonly NpgsqlDataSource _dataSource;
@@ -330,7 +331,13 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
             reader.IsDBNull(22) ? null : reader.GetGuid(22),
             reader.GetFieldValue<DateTimeOffset>(23),
             reader.GetFieldValue<DateTimeOffset>(24),
-            reader.GetFieldValue<Guid[]>(25));
+            reader.GetFieldValue<Guid[]>(25))
+        {
+            // ADR-126: what its owner wrote about it, kept on its service row as a feature service's is.
+            Description = reader.IsDBNull(26) ? null : reader.GetString(26),
+            Tags = reader.IsDBNull(27) ? [] : reader.GetFieldValue<string[]>(27),
+            ContentFolder = reader.IsDBNull(28) ? null : reader.GetGuid(28),
+        };
     }
 
     /// <summary>Reads the status, refusing an unknown one.</summary>
