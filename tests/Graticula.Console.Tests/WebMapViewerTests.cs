@@ -913,6 +913,57 @@ public sealed class WebMapViewerTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
+    [Fact]
+    public async Task A_features_attributes_are_edited_in_its_card()
+    {
+        // ADR-134: the card a click opens offers Edit on a layer that can be updated; the form sends applyEdits.
+        (string token, string cookie) = await SignInAsync();
+        await OpenAsync("/studio/webmap.html?service=hosted%2Fci_parcels", token, cookie);
+        await WaitForAsync("!!wmState.doc && wmLayers().length > 0 && (wmRuntime.get(wmLayers()[0]) || {}).status === 'ok'",
+            "The parcels did not load.");
+
+        // A click inside the first parcel, wherever it is.
+        await Browser.EvaluateAsync<bool>(
+            "(window.__asked = null, wmFetch(wmLayers()[0].url + '/query?where=1%3D1&outFields=objectid&returnGeometry=true&outSR=3857&resultRecordCount=1&f=json')"
+            + ".then(p => { const f = WM_ESRI.readFeatures(p)[0]; const g = f.getGeometry();"
+            + " const at = g.getInteriorPoint ? g.getInteriorPoint().getCoordinates().slice(0, 2) : ol.extent.getCenter(g.getExtent());"
+            + " wmFit(g.getExtent()); return wmIdentify(at); }).then(() => window.__asked = true), true)");
+        await WaitForAsync("window.__asked === true && !!document.querySelector('#identify [data-edit]')",
+            "The card of an editable layer's feature offers no Edit.");
+
+        await ClickAsync("#identify [data-edit]");
+        await WaitForAsync("!!document.querySelector('#identify form.editform [data-field]')", "Edit did not open the attribute form.");
+        Assert.True(await Browser.EvaluateAsync<bool>("document.activeElement === document.querySelector('#identify [data-field]')"),
+            "The form did not take the focus.");
+
+        // Nothing changed is said, not sent.
+        await Browser.EvaluateAsync<bool>("(window.__writes = [], true)");
+        await ClickAsync("#identify form.editform button[type=submit]");
+        await WaitForAsync("document.getElementById('editSays').textContent.includes('Nothing has changed')", "An unchanged form was not told so.");
+        Assert.Empty(await WritesAsync());
+
+        // A whole-number field given a fraction is said under the field, and nothing is sent.
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const i = document.querySelector('#identify [data-field=area_m2]'); window.__area = i.value; i.value = '1.5'; return true; })()");
+        await ClickAsync("#identify form.editform button[type=submit]");
+        await WaitForAsync(
+            "document.querySelector('#identify [data-field=area_m2]').getAttribute('aria-invalid') === 'true'"
+            + " && document.getElementById('edit-area_m2-says').textContent.includes('whole number')"
+            + " && document.activeElement === document.querySelector('#identify [data-field=area_m2]')",
+            "A fraction in a whole-number field was not said on the field.");
+        Assert.Empty(await WritesAsync());
+        await Browser.EvaluateAsync<bool>(
+            "(() => { document.querySelector('#identify [data-field=area_m2]').value = window.__area; return true; })()");
+
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const i = document.querySelector('#identify [data-field=parcel]'); i.value = i.value + ' (edited)'; return true; })()");
+        await ClickAsync("#identify form.editform button[type=submit]");
+        await WaitForAsync("window.__writes.some(w => w.startsWith('POST') && w.includes('/FeatureServer/0/applyEdits'))",
+            "Saving the form did not send the change to the layer's applyEdits.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
     /// <summary>The address of some feature layer this server publishes.</summary>
     private async Task<string> AnyFeatureLayerUrlAsync(string token)
     {

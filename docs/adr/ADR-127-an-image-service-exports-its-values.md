@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` — the file is read back by this server's reader and by GDAL; what ArcGIS Pro does with it is not yet measured |
-| **Decided** | 2026-10-01. **`INFERRED`** from the owner's *"devam et"*, said to a report that asked whether to build the raw export — read as yes, listed under [Q-158](../open-questions.md) with the scope it extends |
+| **Decided** | 2026-10-01. Inferred from the owner's *"devam et"*, said to a report that asked whether to build the raw export — read as yes, listed under [Q-158](../open-questions.md) with the scope it extends — **confirmed by the owner 2026-10-01** |
 | **Supersedes** | — |
 | **Superseded by** | — |
 | **Amends** | [ADR-043](ADR-043-imageserver-and-the-raster-face.md) (the formats `exportImage` writes) |
@@ -69,7 +69,7 @@ names `TIFF`. `f=json` answers where it is, as for a picture.
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | The owner's *"devam et"* takes the raw export in, with imagery's scope | `INFERRED` — [Q-158](../open-questions.md) |
+| — | The owner's *"devam et"* takes the raw export in, with imagery's scope | Confirmed by the owner 2026-10-01 — [Q-158](../open-questions.md) |
 
 ## 8. Dependencies
 

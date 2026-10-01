@@ -2164,6 +2164,8 @@ let wmMeasuring = null;
  * a card appears for features, or for a layer that could not be asked.
  */
 async function wmIdentify(coordinate) {
+  wmLastClick = coordinate;
+  wmIdentified.clear();
   const card = wm$("identify");
   const turn = ++wmIdentifyTurn;
   // A layer whose pop-up the map switched off is not asked (ADR-110, `popupEnabled`).
@@ -2256,7 +2258,12 @@ async function wmIdentify(coordinate) {
     wmHighlight.getSource().addFeatures(WM_ESRI.readFeatures(payload, { featureProjection: WM_MERCATOR }));
 
     return `<h3>${wmEscape(layer.title)} <span class="lkind">${features.length}${payload.exceededTransferLimit ? "+" : ""}</span></h3>`
-      + features.map(f => wmPopupMarkup(layer, f.attributes, info)).join("");
+      + features.map(f => {
+        const key = wmRemember(layer, f);
+        return `<div class="feat" data-feat="${wmEscape(key)}">${wmPopupMarkup(layer, f.attributes, info)}${wmEditable(layer)
+          ? `<div class="row featacts"><button type="button" class="tiny" data-edit="${wmEscape(key)}"
+              aria-label="Edit ${wmEscape(wmFeatureName(wmIdentified.get(key)))}">Edit</button></div>` : ""}</div>`;
+      }).join("");
   }).map((html, i) => ({ layer: answers[i].layer, html }));
 
   // <b>In the layer list's order — the top of the map first</b>, so an image drawn under a feature layer answers
@@ -2318,11 +2325,20 @@ function wmCloseIdentify() {
 }
 
 document.addEventListener("keydown", event => {
-  if (event.key === "Escape" && !wm$("identify").hidden) wmCloseIdentify();
+  if (event.key !== "Escape" || wm$("identify").hidden) return;
+  // In the form, Escape goes back to the card — asking first when something has been typed (ADR-134).
+  if (wmEditing.key) {
+    if (wmMayLeaveEdit()) wmCancelEdit();
+    return;
+  }
+  wmCloseIdentify();
 });
 
 wmMap.on("singleclick", event => {
   if (wmMeasuring) return;
+  if (!wmMayLeaveEdit()) return;
+  wmEditing.key = null;
+  wmEditing.dirty = false;
   wmIdentify(event.coordinate);
 });
 
@@ -3460,6 +3476,251 @@ wmMap.on("moveend", () => {
     wmMovedByHand = false;
     if (!wmState.dirty) wmMarkDirty();
   }
+});
+
+
+// ---------------------------------------------------------------- editing (ADR-134)
+
+/** The features the open card shows, by `layerId:objectId`, so an edit works on what was read. */
+const wmIdentified = new Map();
+
+/** Where the card was asked about, so it can be asked again after a save or a cancel. */
+let wmLastClick = null;
+
+/** The form open in the card — which feature, whether it has been typed in, and where the card was scrolled. */
+const wmEditing = { key: null, dirty: false, scroll: 0, saving: false };
+
+function wmRemember(layer, feature) {
+  const info = (wmRuntime.get(layer) || {}).info || {};
+  const oid = (feature.attributes || {})[info.objectIdField || "objectid"];
+  const key = `${layer.id}:${oid}`;
+  wmIdentified.set(key, { layer, feature, oid });
+  return key;
+}
+
+/** A feature as a person names it: its display field's value, or its id. */
+function wmFeatureName(held) {
+  const info = (wmRuntime.get(held.layer) || {}).info || {};
+  const shown = info.displayField && (held.feature.attributes || {})[info.displayField];
+  return shown !== null && shown !== undefined && shown !== "" ? String(shown) : `feature ${held.oid}`;
+}
+
+/**
+ * Whether the reader may try to change this layer's features — ADR-134: a signed-in reader, on a layer whose service
+ * offers the operation. The server decides the rest (ownership, ADR-075 and ADR-115), and its refusal is shown as said.
+ */
+function wmEditable(layer, operation = "Update") {
+  const info = (wmRuntime.get(layer) || {}).info || {};
+  return !!(wmMe.authenticated && wmToken && String(info.capabilities || "").split(",").map(c => c.trim()).includes(operation));
+}
+
+/** The fields an attribute form offers: the layer's editable ones, not its bookkeeping or editor tracking. */
+function wmEditFields(info) {
+  const tracking = new Set(Object.values(info.editFieldsInfo || {}).filter(v => typeof v === "string").map(v => v.toLowerCase()));
+  return (info.fields || []).filter(f => f.editable !== false && !wmSystemField(f.name, info)
+    && !["esriFieldTypeOID", "esriFieldTypeGlobalID", "esriFieldTypeGeometry", "esriFieldTypeBlob", "esriFieldTypeRaster"].includes(f.type)
+    && !tracking.has(String(f.name).toLowerCase()));
+}
+
+/** A date's milliseconds as a `datetime-local` value to the second, in the reader's own time. */
+function wmLocalInput(ms) {
+  if (ms === null || ms === undefined || !Number.isFinite(Number(ms))) return "";
+  const d = new Date(Number(ms));
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+/** The whole-number limits ArcGIS's integer types hold. */
+const WM_INT_RANGE = { esriFieldTypeSmallInteger: [-32768, 32767], esriFieldTypeInteger: [-2147483648, 2147483647] };
+
+/** One field's control, as its type and domain ask: a list for coded values, a number, a date, a line or a box of text. */
+function wmFieldControl(field, value) {
+  const id = wmEscape(`edit-${field.name}`);
+  const name = wmEscape(field.name);
+  const common = `id="${id}" data-field="${name}" aria-describedby="${id}-says"${field.nullable === false ? " required aria-required=\"true\"" : ""}`;
+  const domain = field.domain || {};
+  if (domain.type === "codedValue") {
+    return `<select ${common}>
+      ${field.nullable === false ? "" : `<option value=""${value === null || value === undefined ? " selected" : ""}>—</option>`}
+      ${(domain.codedValues || []).map(c => `<option value="${wmEscape(String(c.code))}"${String(c.code) === String(value) ? " selected" : ""}>${
+        wmEscape(c.name)}</option>`).join("")}</select>`;
+  }
+  if (WM_NUMBER_TYPES.has(field.type)) {
+    const whole = /Integer/.test(field.type);
+    const range = domain.type === "range" && Array.isArray(domain.range) ? ` min="${domain.range[0]}" max="${domain.range[1]}"` : "";
+    return `<input type="number" ${common} step="${whole ? 1 : "any"}"${range}
+      value="${value === null || value === undefined ? "" : wmEscape(String(value))}">`;
+  }
+  if (field.type === "esriFieldTypeDate") {
+    return `<input type="datetime-local" step="1" ${common} value="${wmEscape(wmLocalInput(value))}">`;
+  }
+  const text = value === null || value === undefined ? "" : String(value);
+  // A long value, or a field with no limit, gets a box rather than a line.
+  return !field.length || field.length > 120 || text.length > 80
+    ? `<textarea ${common} rows="3"${field.length ? ` maxlength="${field.length}"` : ""}>${wmEscape(text)}</textarea>`
+    : `<input type="text" ${common} maxlength="${field.length}" value="${wmEscape(text)}">`;
+}
+
+/** Turns the card into one feature's attribute form. */
+function wmOpenEdit(key) {
+  const held = wmIdentified.get(key);
+  if (!held) return;
+  const info = (wmRuntime.get(held.layer) || {}).info || {};
+  const fields = wmEditFields(info);
+  const card = wm$("identify");
+  wmEditing.key = key;
+  wmEditing.dirty = false;
+  wmEditing.scroll = card.scrollTop;
+  const required = fields.some(f => f.nullable === false);
+  card.innerHTML = `<div class="top"><b>Edit ${wmEscape(wmFeatureName(held))} <span class="lkind">${wmEscape(held.layer.title)}</span></b>
+      <button class="tiny" data-close aria-label="Close">&times;</button></div>
+    <form class="editform" data-editing="${wmEscape(key)}" novalidate>
+      ${required ? `<p class="hint">* required</p>` : ""}
+      ${fields.length ? fields.map(f => `<div class="editfield">
+        <label class="field" for="${wmEscape(`edit-${f.name}`)}">${wmEscape(f.alias || f.name)}${
+          f.nullable === false ? " <span aria-hidden=\"true\">*</span>" : ""}</label>
+        ${wmFieldControl(f, (held.feature.attributes || {})[f.name])}
+        <p class="fieldsays" id="${wmEscape(`edit-${f.name}-says`)}"></p></div>`).join("")
+        : `<p class="hint">This layer has no attribute that can be changed.</p>`}
+      <p class="said" id="editSays" role="status" aria-live="polite" tabindex="-1"></p>
+      <div class="row editacts">
+        ${fields.length ? `<button type="submit" class="primary">Save</button>` : ""}
+        <button type="button" data-edit-cancel>Cancel</button>
+      </div>
+    </form>`;
+  card.hidden = false;
+  card.scrollTop = 0;
+  card.querySelector("[data-field]")?.focus();
+}
+
+/** Reads the form's changed values, typed as their fields are; a problem is said under its field. */
+function wmReadEdit(form, held) {
+  const info = (wmRuntime.get(held.layer) || {}).info || {};
+  const before = held.feature.attributes || {};
+  const changed = {};
+  let first = null;
+  for (const control of form.querySelectorAll("[data-field]")) {
+    const field = (info.fields || []).find(f => f.name === control.dataset.field);
+    if (!field) continue;
+    const label = field.alias || field.name;
+    const raw = control.value;
+    const was = before[field.name] === undefined ? null : before[field.name];
+    let value;
+    let problem = "";
+    if (raw === "") value = null;
+    else if (field.type === "esriFieldTypeDate") {
+      // Compared at the control's own precision: a date not touched is not sent, whatever its milliseconds.
+      if (raw === wmLocalInput(was)) { control.setAttribute("aria-invalid", "false"); wm$(`${control.id}-says`).textContent = ""; continue; }
+      value = new Date(raw).getTime();
+      if (!Number.isFinite(value)) problem = `${label} is not a date.`;
+    } else if (WM_NUMBER_TYPES.has(field.type) || ((field.domain || {}).type === "codedValue"
+      && typeof ((field.domain.codedValues || [])[0] || {}).code === "number")) {
+      value = Number(raw);
+      const limits = WM_INT_RANGE[field.type];
+      if (!Number.isFinite(value)) problem = `${label} takes a number.`;
+      else if (/Integer/.test(field.type) && !Number.isInteger(value)) problem = `${label} takes a whole number.`;
+      else if (limits && (value < limits[0] || value > limits[1])) problem = `${label} takes a whole number from ${limits[0].toLocaleString()} to ${limits[1].toLocaleString()}.`;
+      else if (control.min !== "" && value < Number(control.min)) problem = `${label} is at least ${control.min}.`;
+      else if (control.max !== "" && value > Number(control.max)) problem = `${label} is at most ${control.max}.`;
+    } else value = raw;
+    if (!problem && value === null && field.nullable === false) problem = `${label} is required.`;
+    control.setAttribute("aria-invalid", problem ? "true" : "false");
+    wm$(`${control.id}-says`).textContent = problem;
+    if (problem && !first) first = control;
+    if (!problem && value !== was) changed[field.name] = value;
+  }
+  return { changed, first };
+}
+
+/** Sends one feature's changed attributes through the layer's applyEdits, and says what the server said. */
+async function wmSaveEdit(form) {
+  const key = form.dataset.editing;
+  const held = wmIdentified.get(key);
+  if (!held || wmEditing.saving) return;
+  const says = wm$("editSays");
+  const { changed, first } = wmReadEdit(form, held);
+  if (first) {
+    says.textContent = "Not saved: correct the field marked below it.";
+    first.focus();
+    return;
+  }
+  if (!Object.keys(changed).length) {
+    says.textContent = "Nothing has changed.";
+    return;
+  }
+  const info = (wmRuntime.get(held.layer) || {}).info || {};
+  wmEditing.saving = true;
+  says.textContent = "Saving…";
+  try {
+    const answer = await wmFetch(`${held.layer.url}/applyEdits`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        updates: JSON.stringify([{ attributes: { [info.objectIdField || "objectid"]: held.oid, ...changed } }]),
+        rollbackOnFailure: "true",
+        f: "json",
+      }),
+    });
+    const result = ((answer || {}).updateResults || [])[0];
+    if (result && result.success === false) {
+      says.textContent = `Not saved: ${((result.error || {}).description) || "the server refused the change."}`;
+      says.focus();
+      return;
+    }
+    const name = wmFeatureName(held);
+    wmEditing.key = null;
+    wmEditing.dirty = false;
+    wmRefreshLayer(held.layer);
+    if (wmLastClick) await wmIdentify(wmLastClick);
+    // After the card is asked again, so its own "… here" does not speak over it.
+    wmSay(`${name} saved.`);
+    document.querySelector(`#identify [data-edit="${CSS.escape(key)}"]`)?.focus();
+  } catch (e) {
+    says.textContent = `Not saved: ${e.message || e}`;
+    says.focus();
+  } finally {
+    wmEditing.saving = false;
+  }
+}
+
+/** Leaves the form for the card it came from, where it was scrolled, on the feature's Edit. */
+async function wmCancelEdit() {
+  const key = wmEditing.key;
+  const scroll = wmEditing.scroll;
+  wmEditing.key = null;
+  wmEditing.dirty = false;
+  if (wmLastClick) await wmIdentify(wmLastClick);
+  wm$("identify").scrollTop = scroll;
+  if (key) document.querySelector(`#identify [data-edit="${CSS.escape(key)}"]`)?.focus();
+}
+
+/** Whether a form typed in may be left: asked, rather than dropped without a word (design review 2026-10-01). */
+function wmMayLeaveEdit() {
+  return !wmEditing.key || !wmEditing.dirty || confirm("Discard your changes to this feature?");
+}
+
+/** Draws a layer again from the server, and the open table with it. */
+function wmRefreshLayer(layer) {
+  const run = wmRuntime.get(layer) || {};
+  const source = run.ol && run.ol.getSource && run.ol.getSource();
+  if (source && source.refresh) source.refresh();
+  if (wmTable.layer === layer) wmLoadTable();
+}
+
+wm$("identify").addEventListener("click", event => {
+  const t = event.target instanceof Element ? event.target.closest("button") : null;
+  if (!t) return;
+  if (t.dataset.edit !== undefined) { wmOpenEdit(t.dataset.edit); return; }
+  if (t.dataset.editCancel !== undefined && wmMayLeaveEdit()) wmCancelEdit();
+});
+wm$("identify").addEventListener("input", event => {
+  if (event.target instanceof Element && event.target.closest("form.editform")) wmEditing.dirty = true;
+});
+wm$("identify").addEventListener("submit", event => {
+  const form = event.target instanceof HTMLFormElement ? event.target : null;
+  if (!form || !form.dataset.editing) return;
+  event.preventDefault();
+  wmSaveEdit(form);
 });
 
 

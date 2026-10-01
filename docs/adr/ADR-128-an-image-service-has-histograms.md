@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED` |
 | **Confidence** | `MEDIUM` — the shape is ArcGIS's documented one; what Pro draws from it is not measured here |
-| **Decided** | 2026-10-01, in [ADR-123](ADR-123-imagery-comes-into-studio.md)'s order — its scope is [Q-158](../open-questions.md), still `INFERRED` |
+| **Decided** | 2026-10-01, in [ADR-123](ADR-123-imagery-comes-into-studio.md)'s order — its scope is [Q-158](../open-questions.md), confirmed by the owner 2026-10-01 |
 | **Supersedes** | — |
 | **Superseded by** | — |
 | **Amends** | [ADR-125](ADR-125-an-image-service-has-a-legend-and-statistics.md) (`hasHistograms`, and what statistics leave out) |
@@ -60,7 +60,7 @@ declared no-data value is.
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | Imagery is in scope | `INFERRED` — [Q-158](../open-questions.md) |
+| — | Imagery is in scope | Confirmed by the owner 2026-10-01 — [Q-158](../open-questions.md) |
 
 ## 8. Dependencies
 

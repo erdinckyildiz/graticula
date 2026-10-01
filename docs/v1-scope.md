@@ -126,9 +126,9 @@ narrowed to PostGIS estates, and it is the price of shipping.
 **WMS, ArcGIS MapServer, ImageServer, OGC API Maps and Coverages, WCS.**
 
 > **ImageServer, 2026-10-01 — [ADR-123](adr/ADR-123-imagery-comes-into-studio.md).** Already served beside v1 by
-> ADR-043; bringing its publishing, styling and Map Viewer into Studio is **`INFERRED`** from the owner's
-> *"Başlayalım"* and listed as [Q-158](open-questions.md) for confirmation. Until it is answered, read imagery as
-> beside v1, as before.
+> ADR-043; bringing its publishing, styling and Map Viewer into Studio was inferred from the owner's *"Başlayalım"* and
+> **confirmed by the owner 2026-10-01** ([Q-158](open-questions.md)): imagery is in scope, its raw export with it
+> ([ADR-127](adr/ADR-127-an-image-service-exports-its-values.md)).
 
 - **Q-85 dissolves.** ~~ADR-004 stays `DEFERRED`~~ and no longer contradicts an
   in-scope capability, which was review finding S2/A7.

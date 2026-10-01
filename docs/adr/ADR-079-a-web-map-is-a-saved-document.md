@@ -32,6 +32,9 @@
 
 > **Amended 2026-10-01 by [ADR-133](ADR-133-the-map-viewer-prints.md).** The Map Viewer prints the view as an A4 page, or downloads it as a PNG.
 
+
+> **Amended 2026-10-01 by [ADR-134](ADR-134-features-are-edited-in-the-browser.md).** The Map Viewer edits features through their layer's `applyEdits`.
+
 ---
 
 ## 1. Context

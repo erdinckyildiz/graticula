@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED` |
 | **Confidence** | `HIGH` — each defect is reproduced by a test that failed before the change |
-| **Decided** | 2026-10-01, in [ADR-123](ADR-123-imagery-comes-into-studio.md)'s order — its scope is [Q-158](../open-questions.md), still `INFERRED` |
+| **Decided** | 2026-10-01, in [ADR-123](ADR-123-imagery-comes-into-studio.md)'s order — its scope is [Q-158](../open-questions.md), confirmed by the owner 2026-10-01 |
 | **Supersedes** | — |
 | **Superseded by** | — |
 | **Amends** | [ADR-036](ADR-036-groups.md) (what a group holds), [ADR-123](ADR-123-imagery-comes-into-studio.md) §5.1 (what identify reads) |
@@ -72,7 +72,7 @@ no-data value, answers `"value": "NoData"` with its location. `exportImage` refu
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | Imagery is in scope | `INFERRED` — [Q-158](../open-questions.md) |
+| — | Imagery is in scope | Confirmed by the owner 2026-10-01 — [Q-158](../open-questions.md) |
 
 ## 8. Dependencies
 

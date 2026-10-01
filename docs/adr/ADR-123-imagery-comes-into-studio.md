@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `MEDIUM` — the refusal is measured; the scope it opens is inferred |
-| **Decided** | 2026-10-01. The refusal by this ADR; **bringing imagery's publishing, styling and Map Viewer into Studio is `INFERRED`** from the owner's *"Başlayalım"*, said to a question that offered either the refusal alone or imagery taken into scope in order — listed as [Q-158](../open-questions.md) |
+| **Confidence** | `MEDIUM` — the refusal is measured; the scope it opens was inferred and is confirmed |
+| **Decided** | 2026-10-01. The refusal by this ADR; **bringing imagery's publishing, styling and Map Viewer into Studio** was inferred from the owner's *"Başlayalım"*, said to a question that offered either the refusal alone or imagery taken into scope in order — listed as [Q-158](../open-questions.md) — **confirmed by the owner 2026-10-01** (*"1 ve 2 onayladım"*) |
 | **Supersedes** | — |
 | **Superseded by** | — |
 | **Amends** | [ADR-043](ADR-043-imageserver-and-the-raster-face.md) (what an export reads), [v1-scope](../v1-scope.md) §3b (imagery's place) |
@@ -70,7 +70,7 @@ bands in order, a non-empty `mosaicRule` and a `time`. It reads and does not app
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | The owner's *"Başlayalım"* takes imagery into scope in the order offered | `INFERRED` — [Q-158](../open-questions.md) |
+| — | The owner's *"Başlayalım"* takes imagery into scope in the order offered | Confirmed by the owner 2026-10-01 — [Q-158](../open-questions.md) |
 
 ## 8. Dependencies
 

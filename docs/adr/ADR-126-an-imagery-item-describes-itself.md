@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED` |
 | **Confidence** | `HIGH` — measured on the portal face Pro and the Python API read |
-| **Decided** | 2026-10-01, in [ADR-123](ADR-123-imagery-comes-into-studio.md)'s order — its scope is [Q-158](../open-questions.md), still `INFERRED` |
+| **Decided** | 2026-10-01, in [ADR-123](ADR-123-imagery-comes-into-studio.md)'s order — its scope is [Q-158](../open-questions.md), confirmed by the owner 2026-10-01 |
 | **Supersedes** | — |
 | **Superseded by** | — |
 | **Amends** | [ADR-111](ADR-111-an-item-carries-tags.md) (whose tags an item carries), [ADR-114](ADR-114-content-folders-and-move.md) (which items a folder holds) |
@@ -61,7 +61,7 @@ lists it in the content folder it was moved to.
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | Imagery is in scope | `INFERRED` — [Q-158](../open-questions.md) |
+| — | Imagery is in scope | Confirmed by the owner 2026-10-01 — [Q-158](../open-questions.md) |
 
 ## 8. Dependencies
 

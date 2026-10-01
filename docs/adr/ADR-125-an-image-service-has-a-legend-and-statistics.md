@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED` |
 | **Confidence** | `MEDIUM` — the shapes are ArcGIS's documented ones; what Pro does with each is read from its requests, not from Pro |
-| **Decided** | 2026-10-01, in [ADR-123](ADR-123-imagery-comes-into-studio.md)'s order — its scope is [Q-158](../open-questions.md), still `INFERRED` |
+| **Decided** | 2026-10-01, in [ADR-123](ADR-123-imagery-comes-into-studio.md)'s order — its scope is [Q-158](../open-questions.md), confirmed by the owner 2026-10-01 |
 | **Supersedes** | — |
 | **Superseded by** | — |
 | **Amends** | [ADR-043](ADR-043-imageserver-and-the-raster-face.md) (the operations the face serves) |
@@ -62,7 +62,7 @@ stretch uses, so the two agree.
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | Imagery is in scope | `INFERRED` — [Q-158](../open-questions.md) |
+| — | Imagery is in scope | Confirmed by the owner 2026-10-01 — [Q-158](../open-questions.md) |
 
 ## 8. Dependencies
 

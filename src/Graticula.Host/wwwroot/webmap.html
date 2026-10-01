@@ -224,6 +224,22 @@
   #tablePanel .tablehead button { min-width: 32px; min-height: 32px; }
   #tableByExtent { width: 18px; height: 18px; }
   .bookmarks { border: 0; padding: 0; margin: 12px 0 0; }
+  /* ADR-134: a feature's attributes edited in the card. */
+  #identify .feat + .feat { border-top: 1px solid var(--rule); margin-top: 8px; padding-top: 8px; }
+  #identify .featacts { margin: 6px 10px 8px; }
+  #identify .editform { display: flex; flex-direction: column; padding: 8px 10px 0; }
+  #identify .editform .editfield { margin-bottom: 10px; }
+  #identify .editform input, #identify .editform select, #identify .editform textarea { width: 100%; box-sizing: border-box;
+    min-height: 32px; padding: 4px 6px; font: inherit; }
+  #identify .editform [aria-invalid="true"] { border-color: var(--alert); }
+  #identify .editform .fieldsays { color: var(--alert); font-size: 12px; margin: 2px 0 0; padding: 0; }
+  #identify .editform .fieldsays:empty { display: none; }
+  /* Save stays in reach however many fields there are (design review 2026-10-01: off-screen at 390 px). */
+  #identify .editform .editacts { position: sticky; bottom: 0; background: var(--surface); margin: 0 -10px;
+    padding: 8px 10px; border-top: 1px solid var(--rule); }
+  @media (max-width: 760px) {
+    #identify .editform input, #identify .editform select, #identify .editform textarea { min-height: 44px; }
+  }
   .lrange { border: 0; padding: 0; margin: 6px 0 0; }
   .lrange legend { padding: 0; }
   .linkbtn { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; }
