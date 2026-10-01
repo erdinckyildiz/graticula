@@ -29,6 +29,9 @@
 
 > **Amended 2026-10-01 by [ADR-132](ADR-132-the-map-viewer-has-a-time-slider.md).** A map with a time-enabled layer has a time window, kept in its `widgets.timeSlider`.
 
+
+> **Amended 2026-10-01 by [ADR-133](ADR-133-the-map-viewer-prints.md).** The Map Viewer prints the view as an A4 page, or downloads it as a PNG.
+
 ---
 
 ## 1. Context

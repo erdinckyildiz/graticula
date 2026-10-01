@@ -2508,7 +2508,7 @@ wm$("measureClear").addEventListener("click", () => {
 
 // ----------------------------------------------------------------------------- tabs
 
-const WM_TABS = ["layers", "search", "measure", "bookmarks", "map"];
+const WM_TABS = ["layers", "search", "measure", "bookmarks", "print", "map"];
 
 function wmShowTab(name, focus = false) {
   for (const tab of WM_TABS) {
@@ -2523,6 +2523,7 @@ function wmShowTab(name, focus = false) {
   // Measuring belongs to its tab; leaving it puts the map back to identifying.
   if (name !== "measure") wmStopMeasuring();
   if (name === "map") wmDrawMapForm();
+  if (name === "print" && !wm$("printTitle").value) wm$("printTitle").value = wmState.meta.title || "";
 }
 
 wm$("tabs").addEventListener("click", event => {
@@ -3374,37 +3375,48 @@ function wmSendThumbnail(id) {
   });
 }
 
+/**
+ * The map as one picture: every layer's canvas drawn in order onto one, as OpenLayers' own export example does — the
+ * thumbnail's and the print's (ADR-133), so the two cannot disagree about what the map looks like. Null with no size.
+ */
+function wmComposeMap() {
+  const size = wmMap.getSize();
+  if (!size || !size[0] || !size[1]) return null;
+  const whole = document.createElement("canvas");
+  whole.width = size[0];
+  whole.height = size[1];
+  const context = whole.getContext("2d");
+  const ground = getComputedStyle(wmMap.getViewport()).backgroundColor;
+  context.fillStyle = ground && ground !== "rgba(0, 0, 0, 0)" ? ground : "#ffffff";
+  context.fillRect(0, 0, whole.width, whole.height);
+
+  for (const canvas of wmMap.getViewport().querySelectorAll(".ol-layer canvas, canvas.ol-layer")) {
+    if (!(canvas.width > 0)) continue;
+    const opacity = canvas.parentNode.style.opacity || canvas.style.opacity;
+    context.globalAlpha = opacity === "" ? 1 : Number(opacity);
+    const transform = canvas.style.transform;
+    const matrix = transform
+      ? transform.match(/^matrix\(([^(]*)\)$/)[1].split(",").map(Number)
+      : [parseFloat(canvas.style.width) / canvas.width, 0, 0, parseFloat(canvas.style.height) / canvas.height, 0, 0];
+    context.setTransform(...matrix);
+    const background = canvas.parentNode.style.backgroundColor;
+    if (background) {
+      context.fillStyle = background;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    context.drawImage(canvas, 0, 0);
+  }
+
+  context.globalAlpha = 1;
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  return whole;
+}
+
 async function wmTakeThumbnail(id) {
   try {
-    const size = wmMap.getSize();
-    if (!size || !size[0] || !size[1]) return "not taken";
-    const whole = document.createElement("canvas");
-    whole.width = size[0];
-    whole.height = size[1];
+    const whole = wmComposeMap();
+    if (!whole) return "not taken";
     const context = whole.getContext("2d");
-    const ground = getComputedStyle(wmMap.getViewport()).backgroundColor;
-    context.fillStyle = ground && ground !== "rgba(0, 0, 0, 0)" ? ground : "#ffffff";
-    context.fillRect(0, 0, whole.width, whole.height);
-
-    for (const canvas of wmMap.getViewport().querySelectorAll(".ol-layer canvas, canvas.ol-layer")) {
-      if (!(canvas.width > 0)) continue;
-      const opacity = canvas.parentNode.style.opacity || canvas.style.opacity;
-      context.globalAlpha = opacity === "" ? 1 : Number(opacity);
-      const transform = canvas.style.transform;
-      const matrix = transform
-        ? transform.match(/^matrix\(([^(]*)\)$/)[1].split(",").map(Number)
-        : [parseFloat(canvas.style.width) / canvas.width, 0, 0, parseFloat(canvas.style.height) / canvas.height, 0, 0];
-      context.setTransform(...matrix);
-      const background = canvas.parentNode.style.backgroundColor;
-      if (background) {
-        context.fillStyle = background;
-        context.fillRect(0, 0, canvas.width, canvas.height);
-      }
-      context.drawImage(canvas, 0, 0);
-    }
-
-    context.globalAlpha = 1;
-    context.setTransform(1, 0, 0, 1, 0, 0);
 
     const out = document.createElement("canvas");
     out.width = 600;
@@ -3866,6 +3878,272 @@ wm$("timeBar").addEventListener("click", event => {
     wmApplyTime();
     wmKeepTime();
     wmAnnounceTime();
+  }
+});
+
+
+// ---------------------------------------------------------------- print (ADR-133)
+
+/**
+ * The map as a page — ADR-133, as ArcGIS Map Viewer's Print: the area in view drawn again at the page's own resolution
+ * (150 dpi on A4, as OpenLayers' export example does — a screenshot stretched to the page was blurred and its scale
+ * false), with a title, a legend of what is drawn class by class, a scale bar and the true scale of the paper, a north
+ * arrow, the date, the time window when there is one, and the credits. Downloaded as a PNG, or opened as a page to
+ * print or save as PDF from the browser.
+ */
+const WM_PRINT_DPI = 150;
+
+/** The legend rows of one layer: one per class, each with its label and colour, or one for a single symbol. */
+function wmLegendRows(layer) {
+  const run = wmRuntime.get(layer) || {};
+  const renderer = ((layer.layerDefinition || {}).drawingInfo || {}).renderer
+    || (((run.info || {}).drawingInfo || {}).renderer);
+  const geometry = String((run.info || {}).geometryType || "");
+  const shape = /Point/.test(geometry) ? "point" : /Polyline/.test(geometry) ? "line" : "area";
+  if (!renderer || renderer.type === "simple") {
+    return [{ label: "", colour: (renderer && wmSymbolColour(renderer.symbol)) || (run.swatches || [])[0], shape }];
+  }
+  if (renderer.type === "heatmap") return [{ label: "Density, low to high", colour: null, shape: "heat" }];
+  const classes = renderer.type === "uniqueValue" ? renderer.uniqueValueInfos || []
+    : renderer.type === "classBreaks" ? renderer.classBreakInfos || [] : [];
+  return classes.map(entry => ({ label: String(entry.label ?? entry.value ?? ""), colour: wmSymbolColour(entry.symbol), shape }));
+}
+
+/** Draws a legend swatch: a circle for points, a stroke for lines, a filled and outlined square for areas. */
+function wmDrawSwatch(c, shape, colour, x, y) {
+  c.save();
+  c.fillStyle = colour || "#cccccc";
+  c.strokeStyle = "#576a66";
+  c.lineWidth = 1.5;
+  if (shape === "point") {
+    c.beginPath(); c.arc(x + 11, y + 11, 8, 0, Math.PI * 2); c.fill(); c.stroke();
+  } else if (shape === "line") {
+    c.strokeStyle = colour || "#576a66"; c.lineWidth = 4;
+    c.beginPath(); c.moveTo(x, y + 11); c.lineTo(x + 22, y + 11); c.stroke();
+  } else if (shape === "heat") {
+    const g = c.createLinearGradient(x, 0, x + 22, 0);
+    g.addColorStop(0, "rgb(144,161,190)"); g.addColorStop(0.5, "rgb(250,197,113)"); g.addColorStop(1, "rgb(255,84,35)");
+    c.fillStyle = g; c.fillRect(x, y, 22, 22);
+  } else {
+    c.fillRect(x, y, 22, 22); c.strokeRect(x, y, 22, 22);
+  }
+  c.restore();
+}
+
+/** Text cut to a width with an ellipsis, measured, rather than squeezed by the canvas. */
+function wmEllipsize(c, text, width) {
+  if (c.measureText(text).width <= width) return text;
+  let t = text;
+  while (t.length > 1 && c.measureText(`${t}…`).width > width) t = t.slice(0, -1);
+  return `${t}…`;
+}
+
+/** Text over at most two lines of a width, the second ellipsized. */
+function wmWrap(c, text, width) {
+  if (c.measureText(text).width <= width) return [text];
+  const words = text.split(/\s+/);
+  let first = "";
+  while (words.length && c.measureText(`${first} ${words[0]}`.trim()).width <= width) first = `${first} ${words.shift()}`.trim();
+  return first ? [first, wmEllipsize(c, words.join(" "), width)] : [wmEllipsize(c, text, width)];
+}
+
+/** A round length for a scale bar: 1, 2 or 5 times a power of ten, no longer than `most` metres. */
+function wmNiceLength(most) {
+  const power = Math.pow(10, Math.floor(Math.log10(most)));
+  return [5, 2, 1].map(n => n * power).find(n => n <= most) || power;
+}
+
+/**
+ * Draws the area in view at a size, and gives back the picture and the ground metres a pixel of it covers at its
+ * centre. The map is set to that size and resolution for one render, then put back as it was.
+ */
+async function wmRenderAt(width, height) {
+  const view = wmMap.getView();
+  const size = wmMap.getSize();
+  const resolution = view.getResolution();
+  const extent = view.calculateExtent(size);
+  const printed = Math.max((extent[2] - extent[0]) / width, (extent[3] - extent[1]) / height);
+  try {
+    await new Promise(done => {
+      const timer = setTimeout(done, 8000);
+      wmMap.once("rendercomplete", () => { clearTimeout(timer); done(); });
+      wmMap.setSize([width, height]);
+      view.setResolution(printed);
+      wmMap.renderSync();
+    });
+    const picture = wmComposeMap();
+    const metres = ol.proj.getPointResolution(view.getProjection(), printed, view.getCenter(), "m");
+    return { picture, metres };
+  } finally {
+    wmMap.setSize(size);
+    view.setResolution(resolution);
+  }
+}
+
+async function wmComposePage() {
+  if (!wmMap.getSize()) return null;
+  const portrait = wm$("printLayout").value === "portrait";
+  const [W, H] = portrait ? [1240, 1754] : [1754, 1240];
+  const pad = 48;
+  const page = document.createElement("canvas");
+  page.width = W;
+  page.height = H;
+  const c = page.getContext("2d");
+  c.fillStyle = "#ffffff";
+  c.fillRect(0, 0, W, H);
+
+  const title = wm$("printTitle").value.trim() || wmState.meta.title || "Map";
+  c.fillStyle = "#0f1e1b";
+  c.font = "600 44px sans-serif";
+  const titleLines = wmWrap(c, title, W - 2 * pad);
+  titleLines.forEach((line, i) => c.fillText(line, pad, pad + 40 + i * 52));
+  const top = pad + 40 + titleLines.length * 52;
+
+  // What the legend lists: layers switched on that draw something in view, top of the map first, class by class.
+  const extent = wmMap.getView().calculateExtent(wmMap.getSize());
+  const shown = wmLayers().slice().reverse().filter(layer => {
+    const run = wmRuntime.get(layer) || {};
+    if (layer.visibility === false || run.status !== "ok") return false;
+    const source = wmKind(layer) === "feature" && run.ol && run.ol.getSource && run.ol.getSource();
+    return !source || !source.getFeaturesInExtent || source.getFeaturesInExtent(extent).length > 0;
+  });
+  const rows = shown.flatMap(layer => {
+    const classes = wmLegendRows(layer);
+    return classes.length === 1 && !classes[0].label
+      ? [{ ...classes[0], label: layer.title || "Layer", heading: false }]
+      : [{ label: layer.title || "Layer", heading: true }, ...classes.map(r => ({ ...r, indent: true }))];
+  });
+
+  const footer = 124;
+  const legendW = portrait ? W - 2 * pad : 420;
+  const rowH = 32;
+  const legendRowsFit = portrait ? Math.min(rows.length, 12) : Math.floor((H - top - footer - 40) / rowH);
+  const legendH = portrait ? 48 + Math.min(rows.length, legendRowsFit) * rowH : 0;
+  const box = portrait
+    ? { x: pad, y: top, w: W - 2 * pad, h: H - top - footer - legendH - 24 }
+    : { x: pad, y: top, w: W - 3 * pad - legendW, h: H - top - footer };
+
+  // The area in view, drawn again at the paper's pixels.
+  const { picture, metres } = await wmRenderAt(Math.round(box.w), Math.round(box.h));
+  if (!picture) return null;
+  c.drawImage(picture, box.x, box.y, box.w, box.h);
+  c.strokeStyle = "#d7e0dc";
+  c.lineWidth = 2;
+  c.strokeRect(box.x, box.y, box.w, box.h);
+
+  // A north arrow in the map's corner: Web Mercator's north is up.
+  const nx = box.x + box.w - 44;
+  const ny = box.y + 20;
+  c.fillStyle = "rgba(255,255,255,.85)";
+  c.fillRect(nx - 18, ny - 8, 40, 70);
+  c.fillStyle = "#0f1e1b";
+  c.beginPath(); c.moveTo(nx + 2, ny); c.lineTo(nx + 14, ny + 36); c.lineTo(nx + 2, ny + 28); c.lineTo(nx - 10, ny + 36); c.closePath(); c.fill();
+  c.font = "600 18px sans-serif";
+  c.fillText("N", nx - 4, ny + 56);
+
+  // The legend.
+  const lx = portrait ? pad : box.x + box.w + pad;
+  let ly = portrait ? box.y + box.h + 40 : top + 24;
+  c.fillStyle = "#0f1e1b";
+  c.font = "600 26px sans-serif";
+  c.fillText("Legend", lx, ly);
+  ly += 12;
+  c.font = "21px sans-serif";
+  const drawn = rows.slice(0, legendRowsFit);
+  for (const row of drawn) {
+    ly += rowH;
+    const x = lx + (row.indent ? 24 : 0);
+    if (row.heading) {
+      c.font = "600 21px sans-serif";
+      c.fillStyle = "#0f1e1b";
+      c.fillText(wmEllipsize(c, row.label, legendW - 8), x, ly);
+      c.font = "21px sans-serif";
+      continue;
+    }
+    wmDrawSwatch(c, row.shape, row.colour, x, ly - 18);
+    c.fillStyle = "#0f1e1b";
+    c.fillText(wmEllipsize(c, row.label, legendW - (x - lx) - 40), x + 34, ly);
+  }
+  if (rows.length > drawn.length) {
+    ly += rowH;
+    c.fillStyle = "#576a66";
+    c.fillText(`+${rows.length - drawn.length} more`, lx, ly);
+  }
+
+  // The scale bar and the paper's own scale: ground metres a page pixel covers, over the page pixel's length.
+  const barMetres = wmNiceLength(metres * box.w / 4);
+  const barPx = barMetres / metres;
+  const by = H - pad - 52;
+  c.fillStyle = "#0f1e1b";
+  c.fillRect(pad, by, barPx, 6);
+  c.fillRect(pad, by - 8, 2, 14);
+  c.fillRect(pad + barPx - 2, by - 8, 2, 14);
+  c.font = "18px sans-serif";
+  c.fillText(barMetres >= 1000 ? `${barMetres / 1000} km` : `${barMetres} m`, pad + barPx + 10, by + 6);
+  const scale = Math.round(metres / (0.0254 / WM_PRINT_DPI));
+
+  const parts = [`Scale 1:${scale.toLocaleString()} on A4`, `Printed ${new Date().toLocaleDateString(undefined, { dateStyle: "long" })}`];
+  if (wmTime.span && !wmTimeWhole()) parts.push(`Time ${wmTimeSaid(wmTimeAt(wmTime.start))} – ${wmTimeSaid(wmTimeAt(wmTime.end))}`);
+  const credits = [...new Set(shown.map(l => ((wmRuntime.get(l) || {}).info || {}).copyrightText).filter(Boolean))];
+  const ground = ((wmState.doc.baseMap || {}).title || "");
+  if (/openstreetmap/i.test(ground) || wm$("mapBasemap").value === "osm") credits.push("Map data © OpenStreetMap contributors");
+  c.fillStyle = "#576a66";
+  c.font = "20px sans-serif";
+  c.fillText(wmEllipsize(c, parts.join("   ·   "), W - 2 * pad), pad, H - pad);
+  if (credits.length) c.fillText(wmEllipsize(c, credits.join(" · "), W - 2 * pad), pad, H - pad + 26 > H - 8 ? H - 8 : H - pad + 26);
+  return { page, title, scale };
+}
+
+/** A file name from the title: letters, digits and dashes, cut before the dashes are trimmed. */
+function wmPrintName(title) {
+  return (title.replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 60).replace(/^-+|-+$/g, "") || "map");
+}
+
+wm$("printPng").addEventListener("click", async () => {
+  const button = wm$("printPng");
+  button.disabled = true;
+  wmSayIn("printStatus", "Drawing the page…");
+  try {
+    const made = await wmComposePage();
+    if (!made) { wmSayIn("printStatus", "The map has no size yet; try again once it has drawn.", true); return; }
+    const blob = await new Promise(done => made.page.toBlob(done, "image/png"));
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${wmPrintName(made.title)}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+    wmSayIn("printStatus", `${link.download} downloaded, at 1:${made.scale.toLocaleString()} on A4.`);
+  } catch (e) {
+    wmSayIn("printStatus", `The map could not be made into a picture: ${e.message || e}`, true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+wm$("printPdf").addEventListener("click", async () => {
+  // The page is opened before the drawing, while the click still allows a new window.
+  const sheet = window.open("", "_blank");
+  if (!sheet) { wmSayIn("printStatus", "The browser blocked the print page. Allow pop-ups for this site, or download the PNG.", true); return; }
+  sheet.document.write("<!doctype html><title>Preparing the print…</title><p style=\"font:16px sans-serif\">Preparing the print…</p>");
+  wmSayIn("printStatus", "Drawing the page…");
+  try {
+    const made = await wmComposePage();
+    if (!made) { sheet.close(); wmSayIn("printStatus", "The map has no size yet; try again once it has drawn.", true); return; }
+    const portrait = wm$("printLayout").value === "portrait";
+    sheet.document.open();
+    sheet.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${wmEscape(made.title)}</title>
+      <style>@page { size: A4 ${portrait ? "portrait" : "landscape"}; margin: 0; } html, body { margin: 0; }
+      img { width: 100%; height: auto; display: block; }</style></head>
+      <body><img alt="${wmEscape(made.title)}" src="${made.page.toDataURL("image/png")}"></body></html>`);
+    sheet.document.close();
+    sheet.onafterprint = () => sheet.close();
+    sheet.onload = () => { sheet.focus(); sheet.print(); };
+    wmSayIn("printStatus", "Print page opened. To get a PDF, choose Save as PDF as the printer.");
+  } catch (e) {
+    sheet.close();
+    wmSayIn("printStatus", `The map could not be printed: ${e.message || e}`, true);
   }
 });
 

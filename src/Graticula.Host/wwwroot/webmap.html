@@ -302,6 +302,7 @@
         <button role="tab" id="tab-search" aria-controls="pane-search" aria-selected="false" tabindex="-1">Search</button>
         <button role="tab" id="tab-measure" aria-controls="pane-measure" aria-selected="false" tabindex="-1">Measure</button>
         <button role="tab" id="tab-bookmarks" aria-controls="pane-bookmarks" aria-selected="false" tabindex="-1">Bookmarks</button>
+        <button role="tab" id="tab-print" aria-controls="pane-print" aria-selected="false" tabindex="-1">Print</button>
         <button role="tab" id="tab-map" aria-controls="pane-map" aria-selected="false" tabindex="-1">Map</button>
       </div>
 
@@ -355,6 +356,24 @@
             </div>
             <p class="said" id="bookmarkStatus" role="status" aria-live="polite"></p>
           </div>
+      </section>
+
+      <!-- ADR-133: the view as a page, with a title, a legend, the scale and the date. -->
+      <section class="tabpanel" id="pane-print" role="tabpanel" aria-labelledby="tab-print" hidden>
+        <label class="field" for="printTitle">Title</label>
+        <input type="text" id="printTitle" maxlength="120">
+        <label class="field" for="printLayout">Layout</label>
+        <select id="printLayout">
+          <option value="landscape">A4 landscape</option>
+          <option value="portrait">A4 portrait</option>
+        </select>
+        <p class="hint">The page prints the area in view now, drawn again for the paper, with a legend, a scale bar, the
+          scale on A4, a north arrow and the date.</p>
+        <div class="row">
+          <button type="button" class="primary" id="printPdf">Print or save as PDF</button>
+          <button type="button" id="printPng">Download PNG</button>
+        </div>
+        <p class="said" id="printStatus" role="status" aria-live="polite"></p>
       </section>
 
       <section class="tabpanel" id="pane-map" role="tabpanel" aria-labelledby="tab-map" hidden>

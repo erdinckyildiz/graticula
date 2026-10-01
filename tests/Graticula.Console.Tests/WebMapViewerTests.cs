@@ -854,6 +854,21 @@ public sealed class WebMapViewerTests : ConsoleTest
             await ClickAsync("#bookmarkList [data-unbookmark]");
             await WaitForAsync("(wmState.doc.bookmarks || []).length === 0", "Removing the bookmark left it in the document.");
 
+            // ADR-133: the view as a page — an A4 sheet with the map, its title and a legend — and as a PNG.
+            await ClickAsync("#tab-print");
+            Assert.Equal("Table and bookmarks test", await Browser.EvaluateAsync<string>("document.getElementById('printTitle').value"));
+            // Drawn again for the paper: an A4 sheet, the map back at its own size afterwards, and a scale of the paper.
+            await Browser.EvaluateAsync<bool>(
+                "(window.__page = null, window.__size = wmMap.getSize().join(), wmComposePage().then(m => window.__page = m), true)");
+            await WaitForAsync("window.__page !== null", "Composing the print page never finished.");
+            Assert.True(await Browser.EvaluateAsync<bool>(
+                "window.__page.page.width === 1754 && window.__page.page.height === 1240 && window.__page.scale > 0"
+                + " && wmMap.getSize().join() === window.__size"),
+                "The print page was not an A4 landscape sheet with a scale, or the map was left at the paper's size.");
+            await ClickAsync("#printPng");
+            await WaitForAsync("document.getElementById('printStatus').textContent.includes('downloaded')",
+                "Download PNG did not make the page into a file.");
+
             NothingWentWrong(await PageErrorsAsync());
         }
         finally
