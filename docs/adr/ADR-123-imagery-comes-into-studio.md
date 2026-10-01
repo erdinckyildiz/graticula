@@ -9,6 +9,8 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-043](ADR-043-imageserver-and-the-raster-face.md) (what an export reads), [v1-scope](../v1-scope.md) §3b (imagery's place) |
 
+> **Amended 2026-10-01 by [ADR-124](ADR-124-an-image-service-is-shared-to-a-group.md).** §5.1's refusal now covers `identify` too, and an image service is shared to a group.
+
 ---
 
 ## 1. Context

@@ -580,8 +580,7 @@ function drawGroupOverview(one) {
   $("groupRecent").innerHTML = items.length === 0
     ? `<p class="hint">Nothing yet. <b>Add item</b>, on Content, offers what you have published.</p>`
     : inert.length === 0
-      ? `<p class="hint">Nothing to repair: every service shared with this group is
-           <b>group</b>-scoped, so all ${num(reaching)} of them reach its members.</p>`
+      ? `<p class="hint">Every service shared here reaches its members.</p>`
       : `<table><tbody>${inert.map(i => `
           <tr>
             <td class="name"><a href="#/service/${i.name.split("/").map(encodeURIComponent).join("/")}"
@@ -696,15 +695,18 @@ function drawGroupContent(one) {
            service's name, its kind and who shared it.</td></tr>`
       : pageOf("groupItems", shown).map(i => `
         <tr>
-          <td class="thumbcell">${i.cover
+          <td class="thumbcell">${coverOf(i)
             ? `<img class="thumb" alt="" loading="lazy"
-                 data-thumb="${h(thumbnailFor(i.cover.url))}">`
+                 data-thumb="${h(thumbnailFor(coverOf(i)))}">`
             : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
           <td class="name"><a href="${i.mapId ? `#/map/${encodeURIComponent(i.mapId)}`
             : `#/service/${i.name.split("/").map(encodeURIComponent).join("/")}`}"
-            >${h(i.name)}</a></td>
-          <td class="val">${h(i.kind || "service")}</td>
-          <td>${i.sharing === "group"
+            title="${h(i.name)}">${h(i.name.split("/").pop())}</a>
+            <div class="rowmeta">${h(i.kind ? itemTypeName(i.kind) : "Service")}${i.name.includes("/")
+              ? ` · service folder ${h(i.name.split("/")[0])}` : ""}<span class="narrowonly"> · ${
+              i.sharing === "group" ? "reaches members" : "does not reach members"}</span></div></td>
+          <td class="val widecol">${h(i.kind ? itemTypeName(i.kind) : "service")}</td>
+          <td class="widecol">${i.sharing === "group"
             ? `yes`
             : `<b>no</b> <span class="val">— its own scope is ${h(i.sharing)}</span>`}</td>
           <td class="val">${day(i.shared)}${i.sharedBy
@@ -1057,9 +1059,9 @@ async function drawGroupAdd(one) {
           <td class="tick"><input type="checkbox" data-add="${h(i.name)}"
             ${here || addPicked.has(i.name) ? "checked" : ""}${here ? " disabled" : ""}
             aria-label="${here ? `${h(i.name)}, already in this group` : `Add ${h(i.name)}`}"></td>
-          <td class="thumbcell">${i.cover
+          <td class="thumbcell">${coverOf(i)
             ? `<img class="thumb" alt="" loading="lazy"
-                 data-thumb="${h(thumbnailFor(i.cover.url))}">`
+                 data-thumb="${h(thumbnailFor(coverOf(i)))}">`
             : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
           <td class="name">${h(i.name)}
             <div class="rowmeta">${h(i.kind)}${i.description
@@ -6494,12 +6496,15 @@ async function saveShare() {
 
   const said = { private: "Owner", group: "Owner", organization: "Organization", public: "Everyone" };
   const groups = sharing.wanted.size;
+  const bareShared = sharing.qualified.split("/").pop();
 
   toast(failed.length === 0
     ? scope === "group"
-      ? `${sharing.qualified}: shared with ${groups} group${groups === 1 ? "" : "s"}.`
-      : `${sharing.qualified}: shared with ${said[scope] || scope}${groups
-          ? ` and ${groups} group${groups === 1 ? "" : "s"}` : ""}.`
+      ? `${bareShared} is shared with ${groups <= 3 ? [...sharing.wanted].join(", ") : `${groups} groups`}.`
+      : scope === "private" && !groups
+        ? `${bareShared} is private again. Only you can see it.`
+        : `${bareShared} is ${scope === "public" ? "public" : `shared with ${scope === "organization" ? "your organization" : said[scope] || scope}`}${groups
+          ? ` and ${groups <= 3 ? [...sharing.wanted].join(", ") : `${groups} groups`}` : ""}.`
     : `Some group changes did not apply — ${failed.join("; ")}`, failed.length === 0);
 
   const shared = sharing.qualified;
@@ -7127,6 +7132,8 @@ let serviceStewardship = null;
 
 /** Reads the owner's settings of the open item (ADR-102, owner decision 2026-10-01). */
 async function readStewardship(name, folder) {
+  // An image service has neither edits nor delete protection to read (ADR-123).
+  if (serviceOpenKind === "ImageServer") return (serviceStewardship = null);
   serviceStewardship = await api(`/admin/services/${encodeURIComponent(name)}/stewardship`
     + `?folder=${encodeURIComponent(folder || "")}`);
   return serviceStewardship;
@@ -7462,7 +7469,8 @@ let serviceTileAsked = null;
  * section is not there. Any grid counts: Settings manages the cache whatever grid it is cut on.
  */
 function probeServiceTiles() {
-  if (!serviceOpen || surfaceOfPath() !== "studio" || serviceTileAsked === serviceOpen.qualified) return;
+  if (!serviceOpen || surfaceOfPath() !== "studio" || serviceTileAsked === serviceOpen.qualified
+    || serviceOpenKind === "ImageServer") return;
   const asked = serviceOpen.qualified;
   serviceTileAsked = asked;
 
@@ -12698,6 +12706,12 @@ async function loadServices() {
  * @param {string} url the cover layer's address
  * @returns {string|null} the thumbnail address, or null if the URL is not one we can read
  */
+/** What an item's picture is drawn from: its cover layer, or an image service's own image (ADR-123). */
+function coverOf(item) {
+  if (item && item.kind === "ImageServer") return `/rest/services/${item.name}/ImageServer`;
+  return item && item.cover ? item.cover.url : null;
+}
+
 function thumbnailFor(url) {
   // ADR-123: an image service is its own picture — the whole extent, which `exportImage` draws when no box is given.
   const image = /^\/rest\/services\/(.+)\/ImageServer$/.exec(url || "");
@@ -24891,7 +24905,7 @@ async function handleClick(event) {
     if (serviceOpenKind === "ImageServer") {
       const style = await api(`/admin/coverages/${encodeURIComponent(serviceOpen.name)}/style`
         + `?folder=${encodeURIComponent(serviceOpen.folder || "")}`).catch(() => null);
-      if (!confirm(`Delete '${serviceOpen.qualified}'? ` + (style && style.uploaded
+      if (!confirm(`Delete ${serviceOpen.name}? ` + (style && style.uploaded
         ? "The uploaded image is deleted with it and cannot be recovered."
         : "The image file on the server is not touched; only the service goes."))) {
         return;
@@ -27448,8 +27462,8 @@ async function uploadImagery(event) {
 // ---------------------------------------------------------------- imagery display (ADR-123)
 
 /** What *the pixel type's full range* is, for the integer types a GeoTIFF holds. */
-const FULL_RANGES = { Unsigned8: "0 to 255", Unsigned16: "0 to 65,535", Signed16: "−32,768 to 32,767",
-  Unsigned32: "0 to 4,294,967,295", Signed32: "−2,147,483,648 to 2,147,483,647" };
+const FULL_RANGES = { Unsigned8: "0 to 255", Unsigned16: "0 to 65,535", Signed16: "0 to 32,767",
+  Signed32: "0 to 2,147,483,647" };
 
 /** The ramps' names as a person reads them. */
 const COVERAGE_RAMPS = { terrain: "Terrain", spectral: "Spectral", viridis: "Viridis", blues: "Blues", reds: "Reds" };

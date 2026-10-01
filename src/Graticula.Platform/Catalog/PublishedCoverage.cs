@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using Graticula.Coverages;
 using Graticula.Geometries;
 using Graticula.Platform.Identity;
@@ -48,6 +49,7 @@ public sealed class PublishedCoverage
     /// <param name="owner">Who published it.</param>
     /// <param name="created">When its service was registered, or null when not read.</param>
     /// <param name="modified">When its service last changed, or null when not read.</param>
+    /// <param name="sharedWith">The groups its service is shared with — ADR-124 — or none.</param>
     public PublishedCoverage(
         Guid id,
         Guid serviceId,
@@ -61,7 +63,8 @@ public sealed class PublishedCoverage
         ServiceStatus status,
         Guid? owner,
         DateTimeOffset? created = null,
-        DateTimeOffset? modified = null)
+        DateTimeOffset? modified = null,
+        IEnumerable<Guid>? sharedWith = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -81,7 +84,14 @@ public sealed class PublishedCoverage
         Owner = owner;
         Created = created;
         Modified = modified;
+        SharedWith = sharedWith is null ? [] : [.. sharedWith];
     }
+
+    /// <summary>
+    /// The groups its service is shared with — ADR-124. An image service is shared to a group as a feature service
+    /// is, through the same <c>sharing_group_item</c> rows on the same <c>service</c>.
+    /// </summary>
+    public ImmutableArray<Guid> SharedWith { get; }
 
     /// <summary>Its own identifier.</summary>
     public Guid Id { get; }

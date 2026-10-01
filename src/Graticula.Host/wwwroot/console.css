@@ -4556,3 +4556,11 @@ ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
 .rampchoice { display: flex; align-items: center; gap: 8px; }
 .rampchoice select { flex: 1 1 auto; min-width: 0; }
 .rampswatch { flex: 0 0 48px; height: 12px; border-radius: 3px; border: 1px solid var(--rule); }
+
+/* A group's Content at phone width: kind and reach under the name rather than in columns scrolled out of view. */
+.narrowonly { display: none; }
+h4.spaced { margin-top: 24px; }
+@media (max-width: 600px) {
+  #groupItems .widecol, #view-group th.widecol, th.widecol { display: none; }
+  #groupItems .narrowonly { display: inline; }
+}

@@ -102,6 +102,16 @@ internal static class ImageServerEndpoints
             app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/identify", Read, IdentifyAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // ADR-125: what a legend widget, Pro's contents pane and a stretch dialog ask of an image service.
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/legend", Read, LegendAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/keyProperties", Read, KeyPropertiesAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/statistics", Read, StatisticsOperationAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
             app.MapMethods(
                     $"{prefix}/{{serviceName}}/ImageServer/tile/{{level:int}}/{{row:int}}"
                         + "/{column:int}",
@@ -236,7 +246,7 @@ internal static class ImageServerEndpoints
                 + "Nothing follows the operation name.",
 
         _ => $"`{operation}` is not an operation this image service serves. It serves "
-            + "exportImage, identify, tile and tilemap.",
+            + "exportImage, identify, legend, keyProperties, statistics, tile and tilemap.",
     };
 
     private static async Task ServiceAsync(
@@ -294,7 +304,8 @@ internal static class ImageServerEndpoints
             maxImageHeight = 4096,
             maxImageWidth = 4096,
             allowRasterFunction = false,
-            supportsStatistics = false,
+            // ADR-125: `statistics` answers, from a sample of the image's coarsest resolution.
+            supportsStatistics = true,
             supportsAdvancedQueries = false,
             editFieldsInfo = (object?)null,
             hasColormap = false,
@@ -477,6 +488,17 @@ internal static class ImageServerEndpoints
 
         if (coverage is null)
         {
+            return;
+        }
+
+        // `f` is a picture or the JSON that says where one is; a KMZ asked for was answered with a PNG (reviewer,
+        // 2026-10-01) — refused rather than answered as something else.
+        if (ArcGisResponseFormat.Asked(context) is { Length: > 0 } f
+            && !(f.Equals("image", StringComparison.OrdinalIgnoreCase) || ArcGisResponseFormat.WantsJson(context)))
+        {
+            await RefuseAsync(context, 400,
+                $"`f={f}` is not a format this image service answers; `f=image` returns the picture and `f=json` "
+                + "says where it is.").ConfigureAwait(false);
             return;
         }
 
@@ -1158,6 +1180,14 @@ internal static class ImageServerEndpoints
         Func<string, string?> parameter =
             await ArcGisParameters.LookupAsync(context, cancellation).ConfigureAwait(false);
 
+        // <b>What export refuses, identify refuses too</b> — a slope asked for and the elevation answered is the same
+        // accepted-and-not-applied shape (D-125), found by the reviewer's second pass on this operation.
+        if (!ImageServerExportParameters.TryUnoffered(parameter, coverage.Info, out string? unoffered))
+        {
+            await RefuseAsync(context, 400, unoffered!).ConfigureAwait(false);
+            return;
+        }
+
         if (!ImageServerExportParameters.TryPoint(
                 parameter, coverage.Info, out double x, out double y, out int pointSrid, out string? error))
         {
@@ -1185,10 +1215,14 @@ internal static class ImageServerEndpoints
             y = moved.Y;
         }
 
+        // <b>`NoData`, as ArcGIS spells it, and the point beside it</b> — a null value with no location read as a fault
+        // rather than as *nothing measured here* (reviewer, 2026-10-01).
+        object location = new { x, y, spatialReference = new { wkid = info.Srid, latestWkid = info.Srid } };
+
         if (x < info.Extent.MinX || x > info.Extent.MaxX
             || y < info.Extent.MinY || y > info.Extent.MaxY)
         {
-            await Results.Ok(new { objectId = 0, name = "Pixel", value = (string?)null })
+            await Results.Ok(new { objectId = 0, name = "Pixel", value = "NoData", location })
                 .ExecuteAsync(context).ConfigureAwait(false);
 
             return;
@@ -1237,26 +1271,25 @@ internal static class ImageServerEndpoints
         // not read; ADR-005's rule is that a compatibility surface speaks the other
         // product's dialect and the honesty lives in the documentation.
         string[] values = new string[window.Bands];
+        bool measured = false;
 
         for (int band = 0; band < window.Bands; band++)
         {
-            values[band] = window.At(0, 0, band).ToString(CultureInfo.InvariantCulture);
+            double sample = window.At(0, 0, band);
+            values[band] = sample.ToString(CultureInfo.InvariantCulture);
+            measured |= !(band < info.Bands.Count && info.Bands[band].NoData is { } empty
+                && (sample.Equals(empty) || (double.IsNaN(sample) && double.IsNaN(empty))));
         }
 
         await Results.Ok(new
         {
             objectId = 0,
             name = "Pixel",
-            value = string.Join(' ', values),
+            value = measured ? string.Join(' ', values) : "NoData",
             // <b>`latestWkid` beside `wkid`, because every other reference object on this
             // face carries both</b> and a client that reads one field on the service
             // document and a different one here has to special-case this response.
-            location = new
-            {
-                x,
-                y,
-                spatialReference = new { wkid = info.Srid, latestWkid = info.Srid },
-            },
+            location,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -1290,7 +1323,7 @@ internal static class ImageServerEndpoints
         LayerAccess.Reason reason = coverage is null
             ? LayerAccess.Reason.Denied
             : LayerAccess.Evaluate(
-                coverage.Sharing, coverage.Owner, principal.Principal, principal.Authorization);
+                coverage.Sharing, coverage.Owner, principal.Principal, principal.Authorization, coverage.SharedWith);
 
         if (!reason.IsAllowed())
         {
@@ -1481,6 +1514,146 @@ internal static class ImageServerEndpoints
 
         await ExportOnceAsync(context, coverage, parameters!, readers, canvases, projector, budget, cancellation, style)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The image service's legend — ADR-125: the colours it is drawn in, as ArcGIS writes a raster layer's legend, so
+    /// the JS SDK's Legend widget and Pro's contents pane show the ramp its owner chose rather than nothing.
+    /// </summary>
+    /// <remarks>
+    /// A single band is <c>Stretched</c>: its high and low values with the colours at the ends of its ramp. Three or
+    /// more are an <c>RGB Composite</c>: the first three bands named for the channels they are drawn in.
+    /// </remarks>
+    private static async Task LegendAsync(
+        HttpContext context,
+        string serviceName,
+        ICoverageCatalog coverages,
+        ICoverageReaderFactory readers,
+        IMapCanvasFactory canvases,
+        CancellationToken cancellation)
+    {
+        if (await FindAsync(context, serviceName, coverages, cancellation).ConfigureAwait(false) is not { } coverage)
+        {
+            return;
+        }
+
+        CoverageStyle style = await StyleOfAsync(coverage, readers, cancellation).ConfigureAwait(false);
+        IReadOnlyList<BandInfo> bands = coverage.Info.Bands;
+
+        object Entry(string label, Rgba colour)
+        {
+            using IMapCanvas swatch = canvases.Create(20, 20);
+            swatch.Clear(colour);
+            return new
+            {
+                label,
+                url = string.Empty,
+                imageData = Convert.ToBase64String(swatch.Encode(MapImageFormat.Png, 90)),
+                contentType = "image/png",
+                height = 20,
+                width = 20,
+            };
+        }
+
+        object[] entries;
+        string kind;
+
+        if (bands.Count >= 3)
+        {
+            kind = "RGB Composite";
+            entries =
+            [
+                Entry("Red: Band_1", new Rgba(255, 0, 0, 255)),
+                Entry("Green: Band_2", new Rgba(0, 255, 0, 255)),
+                Entry("Blue: Band_3", new Rgba(0, 0, 255, 255)),
+            ];
+        }
+        else
+        {
+            kind = "Stretched";
+            (double low, double high) = style.Minimum is { } min && style.Maximum is { } max
+                ? (min, max)
+                : FullRange(bands.Count > 0 ? bands[0].Kind : SampleKind.Unsigned8);
+            entries =
+            [
+                Entry("High : " + high.ToString("G6", CultureInfo.InvariantCulture), style.Along(1)),
+                Entry("Low : " + low.ToString("G6", CultureInfo.InvariantCulture), style.Along(0)),
+            ];
+        }
+
+        await Results.Ok(new
+        {
+            layers = new[]
+            {
+                new
+                {
+                    layerId = 0,
+                    layerName = coverage.ServiceName,
+                    layerType = "Raster Layer",
+                    minScale = 0,
+                    maxScale = 0,
+                    legendType = kind,
+                    legend = entries,
+                },
+            },
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>The range a pixel type's full stretch runs over.</summary>
+    /// <remarks>From zero, as <see cref="CoverageStyle"/> stretches it: a float band has no range and is given one.</remarks>
+    private static (double Low, double High) FullRange(SampleKind kind) => kind switch
+    {
+        SampleKind.Unsigned8 => (0, 255),
+        SampleKind.Signed16 => (0, short.MaxValue),
+        SampleKind.Unsigned16 => (0, ushort.MaxValue),
+        SampleKind.Signed32 => (0, int.MaxValue),
+        _ => (0, 1),
+    };
+
+    /// <summary>
+    /// The image's key properties — ADR-125. An image service over one file has none of the catalog's (sensor,
+    /// acquisition date, cloud cover); an empty object is ArcGIS's own answer for that, where a refusal stopped clients
+    /// that ask before drawing.
+    /// </summary>
+    private static async Task KeyPropertiesAsync(
+        HttpContext context, string serviceName, ICoverageCatalog coverages, CancellationToken cancellation)
+    {
+        if (await FindAsync(context, serviceName, coverages, cancellation).ConfigureAwait(false) is null)
+        {
+            return;
+        }
+
+        await Results.Ok(new { }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Each band's minimum, maximum, mean and standard deviation — ADR-125 — which ArcGIS Pro's stretch reads. Sampled
+    /// from the coarsest resolution the file holds, the same sample the default stretch is worked out from.
+    /// </summary>
+    private static async Task StatisticsOperationAsync(
+        HttpContext context,
+        string serviceName,
+        ICoverageCatalog coverages,
+        ICoverageReaderFactory readers,
+        CancellationToken cancellation)
+    {
+        if (await FindAsync(context, serviceName, coverages, cancellation).ConfigureAwait(false) is not { } coverage)
+        {
+            return;
+        }
+
+        BandStatistics[] measured = await MeasureAsync(coverage, readers, cancellation).ConfigureAwait(false);
+
+        await Results.Ok(new
+        {
+            statistics = measured.Select(b => new
+            {
+                min = b.Minimum,
+                max = b.Maximum,
+                mean = b.Mean,
+                standardDeviation = b.StandardDeviation,
+            }),
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>The default stretch for what a coverage's bands hold.</summary>

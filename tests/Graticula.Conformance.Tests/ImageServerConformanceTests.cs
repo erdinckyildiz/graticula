@@ -928,6 +928,38 @@ public sealed class ImageServerConformanceTests : ArcGisClient
     }
 
     [Fact]
+    public async Task Identify_refuses_what_it_does_not_apply_and_says_NoData_off_the_image()
+    {
+        // The reviewer's second pass (2026-10-01): a slope asked of identify answered the elevation, a point off the
+        // image answered `null` with no location, and `exportImage?f=kmz` answered a PNG.
+        string? service = await AnyImageServiceAsync();
+
+        if (service is null)
+        {
+            return;
+        }
+
+        foreach (string extra in new[]
+        {
+            "renderingRule=" + Uri.EscapeDataString("{\"rasterFunction\":\"Slope\"}"),
+            "mosaicRule=" + Uri.EscapeDataString("{\"mosaicMethod\":\"esriMosaicLockRaster\",\"lockRasterIds\":[1]}"),
+        })
+        {
+            (_, string refused, _) = await FetchAsync($"/rest/services/{service}/ImageServer/identify?geometry=0,0&{extra}&f=json");
+            Assert.Contains("\"error\"", refused, StringComparison.Ordinal);
+        }
+
+        (_, string off, _) = await FetchAsync(
+            $"/rest/services/{service}/ImageServer/identify?geometry=-179.9,-89.9&geometryType=esriGeometryPoint&f=json");
+        using JsonDocument nothing = JsonDocument.Parse(off);
+        Assert.Equal("NoData", nothing.RootElement.GetProperty("value").GetString());
+        Assert.True(nothing.RootElement.TryGetProperty("location", out _), $"A point off the image has no location: {off}");
+
+        (_, string kmz, _) = await FetchAsync($"/rest/services/{service}/ImageServer/exportImage?size=16,16&f=kmz");
+        Assert.Contains("\"error\"", kmz, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_coordinate_that_is_not_a_number_is_refused_rather_than_serialised()
     {
         // <b>This was a 500 reachable without signing in.</b> `double.TryParse` accepts

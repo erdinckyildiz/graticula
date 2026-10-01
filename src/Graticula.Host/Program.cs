@@ -2520,7 +2520,7 @@ public static class Program
                     c.Folder ?? string.Empty, folder ?? string.Empty, StringComparison.Ordinal))
                 .Where(c => seesStopped || c.Status == ServiceStatus.Started)
                 .Where(c => LayerAccess.Evaluate(
-                    c.Sharing, c.Owner, current.Principal, current.Authorization).IsAllowed()),
+                    c.Sharing, c.Owner, current.Principal, current.Authorization, c.SharedWith).IsAllowed()),
         ];
 
         List<(string Name, string Type)> everything =

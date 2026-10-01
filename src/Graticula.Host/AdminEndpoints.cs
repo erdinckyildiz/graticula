@@ -12011,6 +12011,16 @@ internal static partial class AdminEndpoints
     {
         if (await layers.FindServiceAsync(folder, name, cancellation).ConfigureAwait(false) is not { } service)
         {
+            // <b>An image service is a service too</b> — ADR-124. Its row is in the same table and its sharing is set
+            // by the same statement; only this lookup, which reads feature services, did not find it, so an image
+            // service's scope could not be changed from its page.
+            if (context.RequestServices.GetService(typeof(ICoverageCatalog)) is ICoverageCatalog coverages
+                && await coverages.FindAsync(folder, name, cancellation).ConfigureAwait(false) is { } coverage)
+            {
+                return await ManagesAsync(context, coverage.Owner, coverage.Sharing, coverage.SharedWith, name, what)
+                    .ConfigureAwait(false);
+            }
+
             // The folder is named, as every other service refusal names it: a service that exists at
             // the root and was asked for in the wrong folder is the mistake this message is for.
             await Refuse(

@@ -196,6 +196,23 @@ public sealed class ImageryDisplayTests : ArcGisClient
             Assert.Equal("terrain", said.GetProperty("ramp").GetString());
             Assert.Equal("auto", said.GetProperty("stretch").GetString());
 
+            // ADR-125: the legend a client draws says the range and the ramp's ends, and Pro's stretch has its numbers.
+            string service = $"/rest/services/hosted/{name}/ImageServer";
+            JsonElement layer = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}/legend?f=json")).Body)
+                .RootElement.GetProperty("layers")[0];
+            Assert.Equal("Stretched", layer.GetProperty("legendType").GetString());
+            string[] labels = [.. layer.GetProperty("legend").EnumerateArray().Select(e => e.GetProperty("label").GetString() ?? "")];
+            Assert.True(labels.Length == 2 && labels[0].StartsWith("High : 2", StringComparison.Ordinal)
+                && labels[1].StartsWith("Low : 8", StringComparison.Ordinal), $"The legend reads {string.Join(" | ", labels)}.");
+            Assert.False(string.IsNullOrEmpty(layer.GetProperty("legend")[0].GetProperty("imageData").GetString()));
+
+            Assert.Equal("{}", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get, $"{service}/keyProperties?f=json")).Body).Trim());
+
+            JsonElement band = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}/statistics?f=json")).Body)
+                .RootElement.GetProperty("statistics")[0];
+            Assert.InRange(band.GetProperty("min").GetDouble(), 799, 900);
+            Assert.InRange(band.GetProperty("max").GetDouble(), 2400, 2501);
+
             // ADR-123 condition 5: a pixel asked about as an ArcGIS client asks — an Esri point in Web Mercator.
             double lon = 30.005, lat = 40.995;
             double mx = lon * 20037508.342789244 / 180;

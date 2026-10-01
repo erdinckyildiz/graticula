@@ -34,7 +34,9 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
         c.min_x, c.min_y, c.max_x, c.max_y,
         c.tile_width, c.tile_height, c.overview_count, c.style,
         s.sharing, s.status, s.owner_principal_id,
-        s.created_at, s.updated_at
+        s.created_at, s.updated_at,
+        (select coalesce(array_agg(gi.group_id), '{}')
+           from sharing_group_item gi where gi.service_id = s.id) as shared_with_groups
         """;
 
     private readonly NpgsqlDataSource _dataSource;
@@ -327,7 +329,8 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
             ParseStatus(reader.GetString(21)),
             reader.IsDBNull(22) ? null : reader.GetGuid(22),
             reader.GetFieldValue<DateTimeOffset>(23),
-            reader.GetFieldValue<DateTimeOffset>(24));
+            reader.GetFieldValue<DateTimeOffset>(24),
+            reader.GetFieldValue<Guid[]>(25));
     }
 
     /// <summary>Reads the status, refusing an unknown one.</summary>

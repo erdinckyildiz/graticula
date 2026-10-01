@@ -165,7 +165,7 @@ internal sealed class ImageServerExportParameters
     /// not a different picture, and ADR-123 records the exception.
     /// </para>
     /// </remarks>
-    private static bool TryUnoffered(Func<string, string?> parameter, CoverageInfo info, out string? error)
+    internal static bool TryUnoffered(Func<string, string?> parameter, CoverageInfo info, out string? error)
     {
         error = null;
 

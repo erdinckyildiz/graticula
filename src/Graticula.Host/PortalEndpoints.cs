@@ -1520,8 +1520,8 @@ internal static class PortalEndpoints
     /// </para>
     /// <para>
     /// <b>The rule <c>ImageServerEndpoints.FindAsync</c> reads by</b> — <see cref="LayerAccess.Evaluate"/>
-    /// over the coverage's sharing and owner — so an item is listed exactly when its service answers. A
-    /// coverage has no group shares, which is why nothing is passed for them.
+    /// over the coverage's sharing, owner and groups — so an item is listed exactly when its service answers. Its
+    /// groups are its service's, shared as a feature service's are (ADR-124).
     /// </para>
     /// <para>
     /// <b>Null rather than empty, for the reason <see cref="VisibleAsync"/> gives</b> (D-127): a listing
@@ -1550,7 +1550,7 @@ internal static class PortalEndpoints
             .. all.Where(coverage =>
                 (coverage.Status == ServiceStatus.Started || seesStopped)
                 && LayerAccess
-                    .Evaluate(coverage.Sharing, coverage.Owner, current.Principal, current.Authorization)
+                    .Evaluate(coverage.Sharing, coverage.Owner, current.Principal, current.Authorization, coverage.SharedWith)
                     .IsAllowed()),
         ];
     }
