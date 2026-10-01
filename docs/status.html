@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>d155dcf</code> · 2026-10-01 14:50</p>
+<p class="stamp">Generated from commit <code>1190f31</code> · 2026-10-01 19:28</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">126</div><div class="kpi-l">ADRs</div><div class="kpi-n">39 accepted outright</div></div>
+<div class="kpi "><div class="kpi-v">127</div><div class="kpi-l">ADRs</div><div class="kpi-n">40 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">282/375</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">90 live · 3 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open questions</div><div class="kpi-n">160 answered</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">open debts</div><div class="kpi-n">268 repaid · 6 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">4428</div><div class="kpi-l">tests</div><div class="kpi-n">423 source files, 188,597 lines</div></div>
+<div class="kpi good"><div class="kpi-v">4428</div><div class="kpi-l">tests</div><div class="kpi-n">423 source files, 188,678 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -331,6 +331,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">125</td><td>An image service has a legend, key properties and statistics</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the shapes are ArcGIS&#x27;s documented ones; what Pro does with each is read from…</td><td class="num"></td></tr>
 <tr><td class="id">126</td><td>An imagery item describes itself, and sits in its owner&#x27;s folder</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — measured on the portal face Pro and the Python API read</td><td class="num"></td></tr>
 <tr><td class="id">127</td><td>An image service exports its values as a GeoTIFF</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the file is read back by this server&#x27;s reader and by GDAL; what ArcGIS Pro does…</td><td class="num">0/1</td></tr>
+<tr><td class="id">128</td><td>An image service has histograms, and NaN is not a measurement</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the shape is ArcGIS&#x27;s documented one; what Pro draws from it is not measured here</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -467,6 +468,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>1190f31</code><time>2026-10-01</time><span>An image service exports its values as a GeoTIFF</span></li>
 <li><code>d155dcf</code><time>2026-10-01</time><span>An imagery item describes itself, has a picture, and sits in its owner&#x27;s folder</span></li>
 <li><code>276e56d</code><time>2026-10-01</time><span>An image service is shared to a group, has a legend and statistics, and identify refuses what it does not apply</span></li>
 <li><code>7fbea3a</code><time>2026-10-01</time><span>Imagery is uploaded, styled and drawn from Studio, and the Map Viewer adds it</span></li>
@@ -480,7 +482,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>91db3b0</code><time>2026-09-30</time><span>An item carries tags, and a CSV or Excel table with coordinates is published and added to a layer</span></li>
 <li><code>dc991e1</code><time>2026-09-30</time><span>Update data maps the file&#x27;s columns before it writes; a web map can be protected from deletion (migration 69)</span></li>
 <li><code>eb51124</code><time>2026-09-30</time><span>ADR-106: every export format has now been opened outside GDAL</span></li>
-<li><code>4ac7868</code><time>2026-09-30</time><span>ADR-106 conditions 2 and 3 are partly discharged: ArcGIS Pro, Excel and Google Earth open the exports</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

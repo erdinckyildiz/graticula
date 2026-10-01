@@ -33,6 +33,9 @@ public sealed class ImageryDisplayTests : ArcGisClient
         using BinaryWriter w = new(file);
 
         float[] heights = [.. Enumerable.Range(0, Side * Side).Select(i => 800f + ((i % Side) + (i / Side)) * 1700f / ((2 * Side) - 2))];
+
+        // One hole, as a float model marks one: NaN, which no declared no-data value catches (ADR-128).
+        heights[^1] = float.NaN;
         byte[] image = new byte[heights.Length * 4];
         Buffer.BlockCopy(heights, 0, image, 0, image.Length);
 
@@ -244,6 +247,12 @@ public sealed class ImageryDisplayTests : ArcGisClient
             Assert.InRange(band.GetProperty("min").GetDouble(), 799, 900);
             Assert.InRange(band.GetProperty("max").GetDouble(), 2400, 2501);
 
+            // ADR-128: the histogram Pro's stretch draws counts every measured pixel and not the hole.
+            JsonElement histogram = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}/histograms?f=json")).Body)
+                .RootElement.GetProperty("histograms")[0];
+            Assert.Equal(256, histogram.GetProperty("size").GetInt32());
+            Assert.Equal((Side * Side) - 1, histogram.GetProperty("counts").EnumerateArray().Sum(c => c.GetInt64()));
+
             // ADR-123 condition 5: a pixel asked about as an ArcGIS client asks — an Esri point in Web Mercator.
             double lon = 30.005, lat = 40.995;
             double mx = lon * 20037508.342789244 / 180;
@@ -270,7 +279,7 @@ public sealed class ImageryDisplayTests : ArcGisClient
                 Assert.Equal(HttpStatusCode.OK, exported);
                 float[] values = Floats(tiff);
                 Assert.Equal(32 * 32, values.Length);
-                float[] measured = [.. values.Where(v => v != 0)];
+                float[] measured = [.. values.Where(v => v != 0 && !float.IsNaN(v))];
                 Assert.NotEmpty(measured);
                 Assert.All(measured, v => Assert.InRange(v, 800f, 2500f));
             }

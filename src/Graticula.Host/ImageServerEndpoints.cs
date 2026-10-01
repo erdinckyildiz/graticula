@@ -112,6 +112,10 @@ internal static class ImageServerEndpoints
             app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/statistics", Read, StatisticsOperationAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // ADR-128: what Pro's stretch dialog draws its curve from.
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/histograms", Read, HistogramsAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
             app.MapMethods(
                     $"{prefix}/{{serviceName}}/ImageServer/tile/{{level:int}}/{{row:int}}"
                         + "/{column:int}",
@@ -246,7 +250,7 @@ internal static class ImageServerEndpoints
                 + "Nothing follows the operation name.",
 
         _ => $"`{operation}` is not an operation this image service serves. It serves "
-            + "exportImage, identify, legend, keyProperties, statistics, tile and tilemap.",
+            + "exportImage, identify, legend, keyProperties, statistics, histograms, tile and tilemap.",
     };
 
     private static async Task ServiceAsync(
@@ -372,7 +376,8 @@ internal static class ImageServerEndpoints
             exportTilesAllowed = false,
             tileInfo = TileInfo(scheme),
 
-            hasHistograms = false,
+            // ADR-128: `histograms` answers, from the same sample as the statistics.
+            hasHistograms = true,
             hasRasterAttributeTable = false,
 
             // A raster dataset has no attribute rows, so the field list is empty and
@@ -1827,6 +1832,57 @@ internal static class ImageServerEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Each band's histogram — ADR-128 — which ArcGIS Pro's stretch dialog draws and its percent-clip and standard
+    /// deviation stretches read. 256 bins over the band's sampled range (an 8-bit band's bins are its 256 values), from
+    /// the sample the statistics come from, no-data left out.
+    /// </summary>
+    private static async Task HistogramsAsync(
+        HttpContext context,
+        string serviceName,
+        ICoverageCatalog coverages,
+        ICoverageReaderFactory readers,
+        CancellationToken cancellation)
+    {
+        if (await FindAsync(context, serviceName, coverages, cancellation).ConfigureAwait(false) is not { } coverage)
+        {
+            return;
+        }
+
+        BandStatistics[] measured = await MeasureAsync(coverage, readers, cancellation).ConfigureAwait(false);
+        CoverageWindow? sample = await SampleAsync(coverage, readers, cancellation).ConfigureAwait(false);
+        const int Size = 256;
+        List<object> histograms = [];
+
+        for (int band = 0; band < measured.Length; band++)
+        {
+            bool bytes = coverage.Info.Bands[band].Kind == SampleKind.Unsigned8;
+            double low = bytes ? -0.5 : measured[band].Minimum;
+            double high = bytes ? 255.5 : measured[band].Maximum;
+            long[] counts = new long[Size];
+            double? noData = coverage.Info.Bands[band].NoData;
+
+            if (sample is not null && high > low)
+            {
+                for (int i = band; i < sample.Samples.Length; i += sample.Bands)
+                {
+                    double value = sample.Samples[i];
+
+                    if (double.IsNaN(value) || (noData is { } absent && value == absent))
+                    {
+                        continue;
+                    }
+
+                    counts[Math.Clamp((int)((value - low) / (high - low) * Size), 0, Size - 1)]++;
+                }
+            }
+
+            histograms.Add(new { size = Size, min = low, max = high, counts });
+        }
+
+        await Results.Ok(new { histograms }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
     /// <summary>The default stretch for what a coverage's bands hold.</summary>
     private static CoverageStyle DefaultFrom(BandStatistics[] bands)
     {
@@ -1882,6 +1938,45 @@ internal static class ImageServerEndpoints
     /// and a storage hiccup should not take the service description down with it.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The sample a coverage is described from: its coarsest resolution, at most 512 pixels a side — shared by the
+    /// statistics and the histograms (ADR-128), so the two describe the same pixels.
+    /// </summary>
+    private static async Task<CoverageWindow> ReadSampleAsync(
+        PublishedCoverage coverage, ICoverageReaderFactory readers, CancellationToken cancellation)
+    {
+        CoverageInfo info = coverage.Info;
+        int level = info.Overviews.Count;
+
+        (int width, int height) = level == 0
+            ? (info.Width, info.Height)
+            : (info.Overviews[level - 1].Width, info.Overviews[level - 1].Height);
+
+        // Bounded, so a file with no pyramid does not read a hundred megapixels to
+        // describe itself.
+        width = Math.Min(width, 512);
+        height = Math.Min(height, 512);
+
+        using ICoverageReader reader =
+            await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
+
+        return await reader.ReadAsync(level, 0, 0, width, height, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>The sample, or null when the file cannot be read now.</summary>
+    private static async Task<CoverageWindow?> SampleAsync(
+        PublishedCoverage coverage, ICoverageReaderFactory readers, CancellationToken cancellation)
+    {
+        try
+        {
+            return await ReadSampleAsync(coverage, readers, cancellation).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     private static async Task<BandStatistics[]> MeasureAsync(
         PublishedCoverage coverage,
         ICoverageReaderFactory readers,
@@ -1893,23 +1988,7 @@ internal static class ImageServerEndpoints
 
         try
         {
-            int level = info.Overviews.Count;
-
-            (int width, int height) = level == 0
-                ? (info.Width, info.Height)
-                : (info.Overviews[level - 1].Width, info.Overviews[level - 1].Height);
-
-            // Bounded, so a file with no pyramid does not read a hundred megapixels to
-            // describe itself.
-            width = Math.Min(width, 512);
-            height = Math.Min(height, 512);
-
-            using ICoverageReader reader =
-                await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
-
-            CoverageWindow window = await reader
-                .ReadAsync(level, 0, 0, width, height, cancellation)
-                .ConfigureAwait(false);
+            CoverageWindow window = await ReadSampleAsync(coverage, readers, cancellation).ConfigureAwait(false);
 
             for (int band = 0; band < info.Bands.Count; band++)
             {
@@ -1925,7 +2004,9 @@ internal static class ImageServerEndpoints
                 {
                     double value = window.Samples[i];
 
-                    if (noData is { } absent && value == absent)
+                    // A float image's absent pixels are often NaN, which no comparison with a declared value catches
+                    // and which turns every statistic it touches into NaN (ADR-128).
+                    if (double.IsNaN(value) || (noData is { } absent && value == absent))
                     {
                         continue;
                     }

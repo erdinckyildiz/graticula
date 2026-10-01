@@ -67,6 +67,46 @@ public sealed class WebMapImageryTests : ConsoleTest
                 StringComparison.Ordinal);
 
             NothingWentWrong(await PageErrorsAsync());
+
+            // Saved with the image in it, and opened again: the layer comes back as one this viewer draws, with its
+            // pixel values off as they were left.
+            string document = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                title = $"zz imagery map {name}",
+                sharing = "private",
+                document = new
+                {
+                    operationalLayers = new object[]
+                    {
+                        new
+                        {
+                            id = "img", layerType = "ArcGISImageServiceLayer", title = "Saved imagery",
+                            url = $"{Root}/rest/services/hosted/{name}/ImageServer", visibility = true, opacity = 0.8,
+                            popupEnabled = false,
+                        },
+                    },
+                    baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
+                    version = "2.31",
+                },
+            });
+            (int saved, string savedBody) = await AdminAsync(HttpMethod.Post, "/content/webmaps", document);
+            Assert.True(saved == 201, $"Saving a map with an image in it answered {saved}: {savedBody}");
+            string map = System.Text.Json.JsonDocument.Parse(savedBody).RootElement.GetProperty("id").GetString()!;
+
+            try
+            {
+                await OpenAsync($"/studio/webmap.html?id={map}", token);
+                await WaitForAsync(
+                    "!!wmState.doc && wmLayers().some(l => l.title === 'Saved imagery' && (wmRuntime.get(l) || {}).status === 'ok')",
+                    "A saved map's imagery layer did not come back as one the viewer draws.");
+                Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#layerList [data-act=pixels][aria-pressed=false]')"),
+                    "The saved map's choice not to answer clicks with pixel values was lost.");
+                NothingWentWrong(await PageErrorsAsync());
+            }
+            finally
+            {
+                await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{map}");
+            }
         }
         finally
         {

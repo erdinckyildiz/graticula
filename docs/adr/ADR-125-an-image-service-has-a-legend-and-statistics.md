@@ -9,6 +9,8 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-043](ADR-043-imageserver-and-the-raster-face.md) (the operations the face serves) |
 
+> **Amended 2026-10-01 by [ADR-128](ADR-128-an-image-service-has-histograms.md).** `histograms` is served too, and NaN pixels are left out of the statistics.
+
 ---
 
 ## 1. Context
