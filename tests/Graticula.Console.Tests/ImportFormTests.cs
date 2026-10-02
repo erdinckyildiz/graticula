@@ -314,6 +314,72 @@ public sealed class ImportFormTests : ConsoleTest
 
         NothingWentWrong(await PageErrorsAsync());
     }
+
+    /// <summary>
+    /// ADR-139's review: while an image uploads and its pyramids are built, every way out of the dialog stops it — the ✕
+    /// and Escape stopped nothing, and the page jumped to the new service minutes later — and the wait says what it is.
+    /// </summary>
+    [Fact]
+    public async Task An_upload_in_progress_is_stopped_by_every_way_out_and_says_what_it_is_doing()
+    {
+        (string token, _) = await SignInAsync();
+
+        foreach (string way in new[] { "#itemCancel", "#addItemClose", "escape" })
+        {
+            await OpenAsync("/studio/#/content", token);
+            await WaitForAsync("document.querySelectorAll('#contentScopes a').length > 0", "The content screen never rendered.");
+            await ClickAsync("#newLayer");
+            await WaitForAsync(Shown("#kindImagery"), "New item offers no imagery layer.");
+            await Browser.EvaluateAsync<bool>("""
+                (() => { takeFile([new File([new Uint8Array(4096)], 'Ortho 2026.tif', { type: 'image/tiff' })]); return true; })()
+                """);
+            await WaitForAsync(Shown("#imgFile"), "A GeoTIFF did not open the imagery form.");
+
+            // The request is held, as a large one is, instead of answered at once as the harness answers writes.
+            await Browser.EvaluateAsync<bool>("""
+                (() => {
+                  XMLHttpRequest.prototype.send = function () { window.__held = this; this.abort = () => this.onabort && this.onabort(); };
+                  return true;
+                })()
+                """);
+            await ClickAsync("#itemSubmit");
+            await WaitForAsync("!!window.__held", "Upload and publish sent nothing.");
+
+            Assert.Equal("itemCancel", await Browser.EvaluateAsync<string>("document.activeElement.id"));
+            Assert.True(await Browser.EvaluateAsync<bool>(
+                "document.getElementById('itemBack').hidden && document.getElementById('imgName').disabled && document.getElementById('itemSubmit').disabled"),
+                "During the upload Back was offered or the fields could still be changed.");
+
+            // Every byte sent: the server is building pyramids now, and the dialog says so with a running clock.
+            await Browser.EvaluateAsync<bool>(
+                "(window.__held.upload.onprogress({ lengthComputable: true, loaded: 4096, total: 4096 }), true)");
+            await WaitForAsync(
+                "/Preparing the image… 0:0\\d/.test(document.getElementById('imgProgressSays').textContent)"
+                + " && !document.getElementById('imgProgress').hasAttribute('value')"
+                + " && !document.getElementById('imgProgressHint').hidden"
+                + " && document.getElementById('itemCancel').textContent === 'Stop'",
+                "Once uploaded, the dialog did not say it was preparing the image.");
+
+            if (way == "escape")
+            {
+                await Browser.EvaluateAsync<bool>(
+                    "(document.getElementById('addItem').dispatchEvent(new Event('cancel', { cancelable: true })), true)");
+            }
+            else
+            {
+                await ClickAsync(way);
+            }
+
+            await WaitForAsync(
+                "document.getElementById('addItem').open && /Nothing was published/.test(document.getElementById('imgResult').textContent)",
+                $"{way} during the upload did not stop it and say so.");
+            Assert.True(await Browser.EvaluateAsync<bool>(
+                "!document.getElementById('itemBack').hidden && !document.getElementById('imgName').disabled && !document.getElementById('itemSubmit').disabled"),
+                "After stopping, the form was not given back.");
+            NothingWentWrong(await PageErrorsAsync());
+        }
+    }
+
     /// <summary>ADR-123: an image service's page sets its stretch and colours, and says what its values are.</summary>
     [Fact]
     public async Task An_image_services_display_is_set_on_its_page()

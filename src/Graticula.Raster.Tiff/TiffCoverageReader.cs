@@ -40,15 +40,31 @@ namespace Graticula.Raster.Tiff;
 public sealed class TiffCoverageReader : ICoverageReader
 {
     private readonly BitMiracle.LibTiff.Classic.Tiff _tiff;
-    private readonly List<int> _directories;
+    private readonly BitMiracle.LibTiff.Classic.Tiff? _pyramid;
+    private readonly List<(bool InPyramid, short Page)> _directories;
+    private BitMiracle.LibTiff.Classic.Tiff _current;
 
     private TiffCoverageReader(
-        BitMiracle.LibTiff.Classic.Tiff tiff, CoverageInfo info, List<int> directories)
+        BitMiracle.LibTiff.Classic.Tiff tiff,
+        BitMiracle.LibTiff.Classic.Tiff? pyramid,
+        CoverageInfo info,
+        List<(bool InPyramid, short Page)> directories)
     {
         _tiff = tiff;
+        _pyramid = pyramid;
+        _current = tiff;
         _directories = directories;
         Info = info;
     }
+
+    /// <summary>
+    /// Where a file's overviews are kept when they are not inside it — ADR-139: GDAL's external overview, the
+    /// <c>.ovr</c> beside the image, which ArcGIS's Build Pyramids also writes for a TIFF and which this server writes
+    /// for an image uploaded without them.
+    /// </summary>
+    /// <param name="path">The image.</param>
+    /// <returns>The overview file's path.</returns>
+    public static string PyramidPath(string path) => path + ".ovr";
 
     /// <inheritdoc/>
     public CoverageInfo Info { get; }
@@ -72,12 +88,34 @@ public sealed class TiffCoverageReader : ICoverageReader
                 $"'{path}' is not a TIFF this server can read. A coverage is registered as a "
                 + "GeoTIFF, and a cloud-optimised one is the arrangement it reads fastest.");
 
+        BitMiracle.LibTiff.Classic.Tiff? pyramid = null;
+
         try
         {
-            return new TiffCoverageReader(tiff, Describe(tiff, out List<int> pages), pages);
+            CoverageInfo info = Describe(tiff, out List<(bool InPyramid, short Page)> pages);
+
+            // ADR-139: overviews inside the file win; otherwise an external overview beside it, when it matches.
+            if (info.Overviews.Count == 0 && File.Exists(PyramidPath(path)))
+            {
+                pyramid = BitMiracle.LibTiff.Classic.Tiff.Open(PyramidPath(path), "r");
+
+                if (pyramid is not null)
+                {
+                    info = WithPyramid(info, tiff, pyramid, pages);
+
+                    if (info.Overviews.Count == 0)
+                    {
+                        pyramid.Dispose();
+                        pyramid = null;
+                    }
+                }
+            }
+
+            return new TiffCoverageReader(tiff, pyramid, info, pages);
         }
         catch
         {
+            pyramid?.Dispose();
             tiff.Dispose();
             throw;
         }
@@ -116,15 +154,21 @@ public sealed class TiffCoverageReader : ICoverageReader
     }
 
     /// <inheritdoc/>
-    public void Dispose() => _tiff.Dispose();
+    public void Dispose()
+    {
+        _pyramid?.Dispose();
+        _tiff.Dispose();
+    }
 
     private CoverageWindow Read(
         int overview, int x, int y, int width, int height, CancellationToken cancellationToken)
     {
-        _tiff.SetDirectory((short)_directories[overview]);
+        (bool inPyramid, short page) = _directories[overview];
+        _current = inPyramid ? _pyramid! : _tiff;
+        _current.SetDirectory(page);
 
-        int imageWidth = Scalar(_tiff, TiffTag.IMAGEWIDTH);
-        int imageHeight = Scalar(_tiff, TiffTag.IMAGELENGTH);
+        int imageWidth = Scalar(_current, TiffTag.IMAGEWIDTH);
+        int imageHeight = Scalar(_current, TiffTag.IMAGELENGTH);
         int bands = Info.Bands.Count;
 
         double[] samples = new double[(long)width * height * bands is var n && n <= int.MaxValue
@@ -150,7 +194,7 @@ public sealed class TiffCoverageReader : ICoverageReader
             }
         }
 
-        bool tiled = _tiff.IsTiled();
+        bool tiled = _current.IsTiled();
 
         if (tiled)
         {
@@ -178,12 +222,12 @@ public sealed class TiffCoverageReader : ICoverageReader
         int bands,
         CancellationToken cancellationToken)
     {
-        int tileWidth = Scalar(_tiff, TiffTag.TILEWIDTH);
-        int tileHeight = Scalar(_tiff, TiffTag.TILELENGTH);
-        int bits = Scalar(_tiff, TiffTag.BITSPERSAMPLE);
+        int tileWidth = Scalar(_current, TiffTag.TILEWIDTH);
+        int tileHeight = Scalar(_current, TiffTag.TILELENGTH);
+        int bits = Scalar(_current, TiffTag.BITSPERSAMPLE);
         SampleKind kind = Info.Bands[0].Kind;
 
-        byte[] tile = new byte[_tiff.TileSize()];
+        byte[] tile = new byte[_current.TileSize()];
 
         int firstColumn = Math.Max(0, x / tileWidth);
         int lastColumn = Math.Min((imageWidth - 1) / tileWidth, (x + width - 1) / tileWidth);
@@ -199,7 +243,7 @@ public sealed class TiffCoverageReader : ICoverageReader
                 int originX = column * tileWidth;
                 int originY = row * tileHeight;
 
-                if (_tiff.ReadTile(tile, 0, originX, originY, 0, 0) < 0)
+                if (_current.ReadTile(tile, 0, originX, originY, 0, 0) < 0)
                 {
                     continue;
                 }
@@ -221,11 +265,11 @@ public sealed class TiffCoverageReader : ICoverageReader
         int bands,
         CancellationToken cancellationToken)
     {
-        int rowsPerStrip = Scalar(_tiff, TiffTag.ROWSPERSTRIP);
-        int bits = Scalar(_tiff, TiffTag.BITSPERSAMPLE);
+        int rowsPerStrip = Scalar(_current, TiffTag.ROWSPERSTRIP);
+        int bits = Scalar(_current, TiffTag.BITSPERSAMPLE);
         SampleKind kind = Info.Bands[0].Kind;
 
-        byte[] strip = new byte[_tiff.StripSize()];
+        byte[] strip = new byte[_current.StripSize()];
 
         int firstStrip = Math.Max(0, y / rowsPerStrip);
         int lastStrip = Math.Min((imageHeight - 1) / rowsPerStrip, (y + height - 1) / rowsPerStrip);
@@ -234,7 +278,7 @@ public sealed class TiffCoverageReader : ICoverageReader
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (_tiff.ReadEncodedStrip(index, strip, 0, -1) < 0)
+            if (_current.ReadEncodedStrip(index, strip, 0, -1) < 0)
             {
                 continue;
             }
@@ -325,7 +369,7 @@ public sealed class TiffCoverageReader : ICoverageReader
 
     /// <summary>Reads everything knowable without touching a pixel.</summary>
     private static CoverageInfo Describe(
-        BitMiracle.LibTiff.Classic.Tiff tiff, out List<int> directories)
+        BitMiracle.LibTiff.Classic.Tiff tiff, out List<(bool InPyramid, short Page)> directories)
     {
         tiff.SetDirectory(0);
 
@@ -349,7 +393,7 @@ public sealed class TiffCoverageReader : ICoverageReader
 
         (int srid, Envelope extent) = Georeference(tiff, width, height);
 
-        directories = [0];
+        directories = [(false, 0)];
         List<OverviewInfo> overviews = [];
 
         // <b>Reduced-resolution subdirectories, and only those.</b> A GeoTIFF may carry
@@ -366,7 +410,7 @@ public sealed class TiffCoverageReader : ICoverageReader
 
             if (reduced)
             {
-                directories.Add(page);
+                directories.Add((false, page));
                 overviews.Add(new OverviewInfo(
                     overviews.Count + 1,
                     Scalar(tiff, TiffTag.IMAGEWIDTH),
@@ -387,6 +431,45 @@ public sealed class TiffCoverageReader : ICoverageReader
             overviews,
             tiff.IsTiled() ? Scalar(tiff, TiffTag.TILEWIDTH) : 0,
             tiff.IsTiled() ? Scalar(tiff, TiffTag.TILELENGTH) : 0);
+    }
+
+    /// <summary>
+    /// The overviews of an external overview file — ADR-139: each of its directories that has the image's bands and
+    /// sample type and is smaller than the one before, largest first. One that does not match is not this image's.
+    /// </summary>
+    private static CoverageInfo WithPyramid(
+        CoverageInfo info,
+        BitMiracle.LibTiff.Classic.Tiff image,
+        BitMiracle.LibTiff.Classic.Tiff pyramid,
+        List<(bool InPyramid, short Page)> directories)
+    {
+        image.SetDirectory(0);
+        int bits = Scalar(image, TiffTag.BITSPERSAMPLE);
+        List<OverviewInfo> overviews = [];
+        int previous = info.Width;
+        short page = 0;
+
+        while (pyramid.SetDirectory(page))
+        {
+            int width = Scalar(pyramid, TiffTag.IMAGEWIDTH);
+            int height = Scalar(pyramid, TiffTag.IMAGELENGTH);
+
+            if (width <= 0 || width >= previous || height <= 0
+                || Math.Max(1, Scalar(pyramid, TiffTag.SAMPLESPERPIXEL)) != info.Bands.Count
+                || Scalar(pyramid, TiffTag.BITSPERSAMPLE) != bits)
+            {
+                break;
+            }
+
+            directories.Add((true, page));
+            overviews.Add(new OverviewInfo(overviews.Count + 1, width, height));
+            previous = width;
+            page++;
+        }
+
+        return overviews.Count == 0
+            ? info
+            : new CoverageInfo(info.Width, info.Height, info.Srid, info.Extent, info.Bands, overviews, info.TileWidth, info.TileHeight);
     }
 
     private static SampleKind KindOf(int bits, int format) => (bits, format) switch

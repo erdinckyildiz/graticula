@@ -119,3 +119,19 @@ public interface ICoverageReaderFactory
     /// <returns>The reader, which the caller disposes.</returns>
     Task<ICoverageReader> OpenAsync(string path, CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// Builds the overviews of an image that has none — ADR-139 — so a zoomed-out picture of it reads a small level instead
+/// of every pixel. Registered beside <see cref="ICoverageReaderFactory"/>, so nothing above Tier 1 names a format.
+/// </summary>
+public interface ICoveragePyramidBuilder
+{
+    /// <summary>
+    /// Writes the overviews of the image at a path beside it, where its reader finds them, halving it until it fits in
+    /// one tile.
+    /// </summary>
+    /// <param name="path">The image.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>How many overviews were written; none when the image already has them or is small enough.</returns>
+    Task<int> BuildAsync(string path, CancellationToken cancellationToken);
+}

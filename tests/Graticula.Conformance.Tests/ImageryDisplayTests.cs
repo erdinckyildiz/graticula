@@ -27,12 +27,14 @@ public sealed class ImageryDisplayTests : ArcGisClient
     private const int Side = 64;
 
     /// <summary>A float elevation model as the smallest GeoTIFF this server opens.</summary>
-    private static byte[] Elevation()
+    private static byte[] Elevation() => Elevation(Side);
+
+    private static byte[] Elevation(int side)
     {
         using MemoryStream file = new();
         using BinaryWriter w = new(file);
 
-        float[] heights = [.. Enumerable.Range(0, Side * Side).Select(i => 800f + ((i % Side) + (i / Side)) * 1700f / ((2 * Side) - 2))];
+        float[] heights = [.. Enumerable.Range(0, side * side).Select(i => 800f + ((i % side) + (i / side)) * 1700f / ((2 * side) - 2))];
 
         // One hole, as a float model marks one: NaN, which no declared no-data value catches (ADR-128).
         heights[^1] = float.NaN;
@@ -45,14 +47,14 @@ public sealed class ImageryDisplayTests : ArcGisClient
         w.Write((ushort)42);
         w.Write(ifdAt);
         w.Write(image);
-        foreach (double d in new[] { 0.01, 0.01, 0.0 }) w.Write(d);
+        foreach (double d in new[] { 0.64 / side, 0.64 / side, 0.0 }) w.Write(d);
         foreach (double d in new[] { 0.0, 0.0, 0.0, 30.0, 41.0, 0.0 }) w.Write(d);
         foreach (ushort k in new ushort[] { 1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, 1, 2048, 0, 1, 4326 }) w.Write(k);
 
         (ushort Tag, ushort Type, int Count, int Value)[] tags =
         [
-            (256, 3, 1, Side), (257, 3, 1, Side), (258, 3, 1, 32), (259, 3, 1, 1), (262, 3, 1, 1), (273, 4, 1, imageAt),
-            (277, 3, 1, 1), (278, 3, 1, Side), (279, 4, 1, image.Length), (284, 3, 1, 1), (339, 3, 1, 3),
+            (256, 3, 1, side), (257, 3, 1, side), (258, 3, 1, 32), (259, 3, 1, 1), (262, 3, 1, 1), (273, 4, 1, imageAt),
+            (277, 3, 1, 1), (278, 3, 1, side), (279, 4, 1, image.Length), (284, 3, 1, 1), (339, 3, 1, 3),
             (33550, 12, 3, scaleAt), (33922, 12, 6, tieAt), (34735, 3, 16, geoAt),
         ];
 
@@ -188,6 +190,48 @@ public sealed class ImageryDisplayTests : ArcGisClient
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         using HttpResponseMessage response = await Http.SendAsync(request);
         return (response.StatusCode, await response.Content.ReadAsByteArrayAsync());
+    }
+
+    [Fact]
+    public async Task An_image_uploaded_without_overviews_is_given_them_and_its_values_are_its_own()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        // ADR-139: 600 pixels a side and no overviews, so the server halves it twice, to 300 and 150.
+        string name = $"zz_pyr_{Guid.NewGuid():N}"[..16];
+        string service = $"/rest/services/hosted/{name}/ImageServer";
+
+        try
+        {
+            using MultipartFormDataContent form = new();
+            form.Add(new ByteArrayContent(Elevation(600)), "file", "dem.tif");
+            form.Add(new StringContent(name), "name");
+            (HttpStatusCode made, byte[] madeBody) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", form);
+            Assert.True(made == HttpStatusCode.Created, $"Uploading answered {(int)made}: {Encoding.UTF8.GetString(madeBody)}");
+            Assert.Equal(2, JsonDocument.Parse(madeBody).RootElement.GetProperty("overviews").GetInt32());
+
+            // Zoomed out, it draws from an overview; close up, a value is the file's own, not an average.
+            List<(byte Red, byte Green)> whole = Pixels((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?bbox=30,40.36,30.64,41&bboxSR=4326&size=100,100&format=png&f=image")).Body);
+            Assert.True(whole.Count > 9000 && whole.Max(p => p.Red) - whole.Min(p => p.Red) > 200,
+                "The image drawn whole from its overviews is not the model's contrast.");
+
+            // Pixel (10, 20) of a 600-pixel model whose cells are 0.64/600 degrees: its centre, and its height.
+            double cell = 0.64 / 600;
+            string at = FormattableString.Invariant($"{30 + (10.5 * cell)},{41 - (20.5 * cell)}");
+            string value = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/identify?geometry={at}&geometryType=esriGeometryPoint&renderingRule={Uri.EscapeDataString("{\"rasterFunction\":\"None\"}")}&f=json")).Body)
+                .RootElement.GetProperty("value").GetString()!;
+            Assert.Equal(800f + (30 * 1700f / 1198), float.Parse(value, System.Globalization.CultureInfo.InvariantCulture), 2);
+        }
+        finally
+        {
+            (HttpStatusCode removed, _) = await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
+            Assert.Equal(HttpStatusCode.OK, removed);
+        }
     }
 
     [Fact]

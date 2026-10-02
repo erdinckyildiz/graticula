@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>8e5440a</code> · 2026-10-02 14:47</p>
+<p class="stamp">Şu commit’ten üretildi: <code>702ca78</code> · 2026-10-02 15:14</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">137</div><div class="kpi-l">ADR</div><div class="kpi-n">49 koşulsuz kabul</div></div>
+<div class="kpi "><div class="kpi-v">138</div><div class="kpi-l">ADR</div><div class="kpi-n">50 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">285/378</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">90 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4486</div><div class="kpi-l">test</div><div class="kpi-n">430 kaynak dosya, 190,886 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4495</div><div class="kpi-l">test</div><div class="kpi-n">431 kaynak dosya, 191,359 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -342,6 +342,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">136</td><td>An elevation model is shaded, sloped and given its aspect</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — the arithmetic is checked on planes whose answers are known in closed form, and…</td><td class="num"></td></tr>
 <tr><td class="id">137</td><td>An image service answers LERC</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — every blob type opens in Esri&#x27;s own decoder with the values it was given, and the…</td><td class="num"></td></tr>
 <tr><td class="id">138</td><td>A renderer sent as a rendering rule is drawn</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — every chain is the one the SDK was measured sending, and each is drawn where it…</td><td class="num"></td></tr>
+<tr><td class="id">139</td><td>An uploaded image is given its overviews</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — measured before and after on the same image, and the full resolution is…</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -464,7 +465,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1232</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.9%"></div></div><div class="bar-n">800</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:53.2%"></div></div><div class="bar-n">655</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:53.2%"></div></div><div class="bar-n">656</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.8%"></div></div><div class="bar-n">269</div></div>
@@ -473,10 +474,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.3%"></div></div><div class="bar-n">115</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:4.1%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.7%"></div></div><div class="bar-n">46</div></div>
-<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">24</div></div>
+<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.6%"></div></div><div class="bar-n">32</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>702ca78</code><time>2026-10-02</time><span>A renderer sent as a rendering rule is drawn</span></li>
 <li><code>8e5440a</code><time>2026-10-02</time><span>An image service answers LERC</span></li>
 <li><code>212c244</code><time>2026-10-02</time><span>An elevation model is shaded, sloped and given its aspect</span></li>
 <li><code>34afa0f</code><time>2026-10-02</time><span>A service counts its use, and the owner sees what nobody uses</span></li>
@@ -490,7 +492,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>3a98300</code><time>2026-10-01</time><span>Several items at once in My content, and a map says which of its layers its readers will not see</span></li>
 <li><code>6a562e0</code><time>2026-10-01</time><span>An image service has histograms, and a NaN pixel is not a measurement</span></li>
 <li><code>1190f31</code><time>2026-10-01</time><span>An image service exports its values as a GeoTIFF</span></li>
-<li><code>d155dcf</code><time>2026-10-01</time><span>An imagery item describes itself, has a picture, and sits in its owner&#x27;s folder</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

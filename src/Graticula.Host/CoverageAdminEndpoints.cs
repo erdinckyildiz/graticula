@@ -151,6 +151,8 @@ internal static class CoverageAdminEndpoints
             try
             {
                 File.Delete(before!.Path);
+                // ADR-139: and the overviews built for it beside it.
+                File.Delete(Graticula.Raster.Tiff.TiffCoverageReader.PyramidPath(before.Path));
                 fileRemoved = true;
             }
             catch (IOException)
@@ -291,10 +293,17 @@ internal static class CoverageAdminEndpoints
         Directory.CreateDirectory(directory);
         string path = Path.Combine(directory, $"{Guid.NewGuid():N}.tif");
 
-        await using (FileStream into = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true))
-        await using (Stream from = file.OpenReadStream())
+        try
         {
+            await using FileStream into = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true);
+            await using Stream from = file.OpenReadStream();
             await from.CopyToAsync(into, cancellation).ConfigureAwait(false);
+        }
+        catch
+        {
+            // An upload stopped part way left its bytes here, in no catalogue entry that would ever remove them.
+            File.Delete(path);
+            throw;
         }
 
         CoverageInfo info;
@@ -327,6 +336,35 @@ internal static class CoverageAdminEndpoints
             return;
         }
 
+        // ADR-139: an image uploaded without overviews is given them, so a zoomed-out picture of it reads a small level
+        // instead of every pixel. The image is servable without them, so a failure here is logged and not a refusal.
+        if (info.Overviews.Count == 0)
+        {
+            try
+            {
+                if (await context.RequestServices.GetRequiredService<ICoveragePyramidBuilder>()
+                        .BuildAsync(path, cancellation).ConfigureAwait(false) > 0)
+                {
+                    using ICoverageReader reader = await readers.OpenAsync(path, cancellation).ConfigureAwait(false);
+                    info = reader.Info;
+                }
+            }
+            catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
+            {
+                Log.PyramidNotBuilt(
+                    context.RequestServices.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Graticula.Coverages"),
+                    Path.GetFileName(path),
+                    e.Message);
+            }
+            catch
+            {
+                // Stopped while the overviews were being built: nothing is published, so nothing is kept.
+                File.Delete(path);
+                File.Delete(Graticula.Raster.Tiff.TiffCoverageReader.PyramidPath(path));
+                throw;
+            }
+        }
+
         RequestPrincipal principal = context.Features.Get<RequestPrincipal>()!;
         PublishedCoverage published;
 
@@ -339,6 +377,7 @@ internal static class CoverageAdminEndpoints
         catch
         {
             File.Delete(path);
+            File.Delete(Graticula.Raster.Tiff.TiffCoverageReader.PyramidPath(path));
             throw;
         }
 

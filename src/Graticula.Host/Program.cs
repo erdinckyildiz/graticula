@@ -624,6 +624,7 @@ public static class Program
         // the only place the host names a raster format, which is what makes the
         // adapter's project boundary a boundary rather than a suggestion.
         builder.Services.AddSingleton<ICoverageReaderFactory, TiffCoverageReaderFactory>();
+        builder.Services.AddSingleton<ICoveragePyramidBuilder, TiffPyramidBuilder>();
 
         builder.Services.AddSingleton<ICoverageCatalog>(services =>
             new PostgresCoverageCatalog(services.GetRequiredService<NpgsqlDataSource>()));

@@ -741,14 +741,21 @@ internal static class HostedDataEndpoints
             System.IO.FileMode.CreateNew, System.IO.FileAccess.ReadWrite, System.IO.FileShare.Read, 81920,
             System.IO.FileOptions.DeleteOnClose | System.IO.FileOptions.Asynchronous);
 
-        using (System.IO.Compression.ZipArchive zip = new(zipped, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        try
         {
+            using System.IO.Compression.ZipArchive zip = new(zipped, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true);
             System.IO.Compression.ZipArchiveEntry entry = zip.CreateEntry(
                 System.IO.Path.GetFileName(file.FileName), System.IO.Compression.CompressionLevel.NoCompression);
 
             await using System.IO.Stream into = entry.Open();
             await using System.IO.Stream from = file.OpenReadStream();
             await from.CopyToAsync(into, cancellation).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Closed now, so it is deleted now rather than when the finaliser gets to it.
+            await zipped.DisposeAsync().ConfigureAwait(false);
+            throw;
         }
 
         zipped.Position = 0;

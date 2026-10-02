@@ -107,11 +107,19 @@ internal sealed class ImportScratch
 
         string path = PathFor(id);
 
-        await using (FileStream keeping = new(
-            path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true))
-        await using (Stream arriving = file.OpenReadStream())
+        try
         {
+            await using FileStream keeping = new(
+                path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+            await using Stream arriving = file.OpenReadStream();
             await arriving.CopyToAsync(keeping, cancellation).ConfigureAwait(false);
+        }
+        catch
+        {
+            // ADR-139's review: an upload stopped part way left its bytes here, counted against the budget above and
+            // belonging to no job that would delete them.
+            File.Delete(path);
+            throw;
         }
 
         // Computed into a local, because CA1873 flags an argument the logger may never format. It is

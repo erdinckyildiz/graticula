@@ -23265,7 +23265,7 @@ async function handleClick(event) {
   // rather than becoming a link there, because the slot is one line of markup for both and a
   // link that looks like Studio's button is worse than a button that navigates.
   if (t.id === "publishService") { location.hash = "#/publish"; return; }
-  if (t.id === "addItemClose") { $("addItem").close(); return; }
+  if (t.id === "addItemClose") { if (imageryUpload) { imageryUpload.abort(); return; } $("addItem").close(); return; }
 
   // <b>Making a folder is on the rail</b>, which is the only place a folder is the subject
   // rather than a field on something else (ADR-034 §5h).
@@ -27855,32 +27855,75 @@ async function uploadImagery(event) {
   const box = $("imgResult");
   const go = $("itemSubmit");
   const cancel = $("itemCancel");
-  go.disabled = true;
-  box.style.display = "";
-  box.setAttribute("role", "status");
+  const dialog = $("addItem");
+  const fields = [$("imgName"), $("imgFile")];
   const total = file.size / 1048576;
   const mb = n => n >= 10 ? Math.round(n).toLocaleString() : n.toFixed(1);
-  box.innerHTML = `<p id="imgProgressSays">Uploading ${h(file.name)}…</p>
-    <progress id="imgProgress" max="${file.size}" value="0" aria-labelledby="imgProgressSays"></progress>`;
+
+  // The number that changes ten times a second is not in a live region; what is said aloud is said in #imgSaid, at the
+  // start, each quarter, when the bytes are all sent, and at the end (ADR-139's review: a four-gigabyte upload queued
+  // hundreds of announcements and the phase change came last).
+  box.setAttribute("aria-live", "off");
+  box.removeAttribute("role");
+  box.style.display = "";
+  box.innerHTML = `<p id="imgProgressSays" class="val">Uploading ${h(file.name)}…</p>
+    <progress id="imgProgress" max="${file.size}" value="0" aria-labelledby="imgProgressSays"></progress>
+    <p class="hint" id="imgProgressHint" hidden>Pyramids are built if the file has none, so it draws quickly zoomed out.
+      A large image takes a few minutes. Keep this window open.</p>
+    <p id="imgSaid" class="sr-only" role="status" aria-live="polite"></p>`;
+  const say = text => { const said = $("imgSaid"); if (said) said.textContent = text; };
+  setTimeout(() => say(`Uploading ${file.name}, ${mb(total)} MB.`), 50);
 
   // <b>XMLHttpRequest, because fetch cannot say how much of a body has gone</b>, and a four-gigabyte orthophoto with
-  // one sentence beside it does not say whether anything is happening. Cancel becomes *Stop upload* and stops it.
+  // one sentence beside it does not say whether anything is happening. While it runs, every way out of the dialog —
+  // Stop, the ✕, Escape — stops it; Back is hidden and the fields are locked, because changing them would change nothing.
   const request = new XMLHttpRequest();
+  imageryUpload = request;
+  let phase = "upload";
+  let quarter = 0;
+  let ticking = null;
+  const back = $("itemBack");
+  if (back) back.hidden = true;
+  fields.forEach(f => { if (f) f.disabled = true; });
   cancel.textContent = "Stop upload";
+  cancel.focus();
+  go.disabled = true;
+  go.textContent = "Publishing…";
+
   const stop = event => {
     event.stopImmediatePropagation();
+    event.preventDefault();
     request.abort();
   };
-  cancel.addEventListener("click", stop, { once: true, capture: true });
+  cancel.addEventListener("click", stop, { capture: true });
+  dialog.addEventListener("cancel", stop);
+
+  const building = () => {
+    phase = "build";
+    const bar = $("imgProgress");
+    if (bar) bar.removeAttribute("value");
+    $("imgProgressHint").hidden = false;
+    cancel.textContent = "Stop";
+    const began = Date.now();
+    const show = () => {
+      const seconds = Math.floor((Date.now() - began) / 1000);
+      const says = $("imgProgressSays");
+      if (says) says.textContent = `Uploaded. Preparing the image… ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+    };
+    show();
+    ticking = setInterval(show, 1000);
+    say("Uploaded. Preparing the image; a large one takes a few minutes.");
+  };
 
   const finished = new Promise(resolve => {
     request.upload.onprogress = event => {
+      if (phase !== "upload" || !event.lengthComputable) return;
+      if (event.loaded >= event.total) { building(); return; }
       const bar = $("imgProgress");
-      if (!bar || !event.lengthComputable) return;
-      bar.value = event.loaded;
-      $("imgProgressSays").textContent = event.loaded >= event.total
-        ? "Reading the image…"
-        : `Uploading ${mb(event.loaded / 1048576)} of ${mb(total)} MB`;
+      if (bar) bar.value = event.loaded;
+      $("imgProgressSays").textContent = `Uploading ${mb(event.loaded / 1048576)} of ${mb(total)} MB`;
+      const now = Math.floor(event.loaded / event.total * 4);
+      if (now > quarter) { quarter = now; say(`${now * 25} percent uploaded.`); }
     };
     request.onload = () => resolve({ status: request.status, text: request.responseText });
     request.onerror = () => resolve({ status: 0, text: "" });
@@ -27892,11 +27935,37 @@ async function uploadImagery(event) {
   request.send(body);
 
   const answer = await finished;
+  clearInterval(ticking);
   cancel.removeEventListener("click", stop, { capture: true });
-  if (answer.aborted) {
+  dialog.removeEventListener("cancel", stop);
+  imageryUpload = null;
+
+  // Put the dialog back as it was, for another try.
+  const restore = () => {
     cancel.textContent = "Cancel";
-    box.innerHTML = `<p>Upload stopped. Nothing was published.</p>`;
+    go.textContent = "Upload and publish";
     go.disabled = false;
+    if (back) back.hidden = false;
+    fields.forEach(f => { if (f) f.disabled = false; });
+  };
+
+  if (answer.aborted) {
+    restore();
+    let published = false;
+    if (phase === "build") {
+      // Stopped after the last byte: the server may already have published it, a moment before the stop arrived.
+      try {
+        const asked = await fetch(`/rest/services/hosted/${encodeURIComponent(name)}/ImageServer?f=json`,
+          { headers: token ? { Authorization: "Bearer " + token } : {} });
+        published = asked.ok && !(await asked.json()).error;
+      } catch { /* not known; said as not published */ }
+    }
+    box.innerHTML = published
+      ? `<p>Stopped too late: ${h(name)} was already published. It is in your content, private.</p>`
+      : `<p>${phase === "build" ? "Stopped" : "Upload stopped"}. Nothing was published.</p>`;
+    box.setAttribute("role", "status");
+    box.setAttribute("aria-live", "polite");
+    cancel.focus();
     return;
   }
 
@@ -27904,21 +27973,28 @@ async function uploadImagery(event) {
   try { said = answer.text ? JSON.parse(answer.text) : null; } catch { /* not json */ }
 
   if (answer.status >= 200 && answer.status < 300) {
-    $("addItem").close();
     const qualified = said?.name || `hosted/${name}`;
-    toast(`${qualified.split("/").pop()} is published. Only you can see it until you share it.`, true);
-    location.hash = `#/service/${qualified.split("/").map(encodeURIComponent).join("/")}`;
+    const levels = Number(said?.overviews) || 0;
+    toast(`${qualified.split("/").pop()} is published${levels ? ` with ${levels} pyramid levels` : ""}. Only you can see it until you share it.`, true);
+    // Only when this dialog is still the one that asked: nothing else is taken away from the user.
+    if (dialog.open && $("imgResult") === box) {
+      dialog.close();
+      location.hash = `#/service/${qualified.split("/").map(encodeURIComponent).join("/")}`;
+    }
     return;
   }
 
+  restore();
   const why = (said && said.error && said.error.message)
     || (answer.status ? `The server answered ${answer.status}.` : "The connection was lost before the server answered.");
-  cancel.textContent = "Cancel";
   box.setAttribute("role", "alert");
+  box.setAttribute("aria-live", "assertive");
   box.innerHTML = `<h3 id="imgRefused" tabindex="-1">Not published</h3><p>${h(why)}</p>`;
   $("imgRefused").focus();
-  go.disabled = false;
 }
+
+/** The imagery upload in flight, so the dialog's ✕ stops it rather than hiding it (ADR-139's review). */
+let imageryUpload = null;
 
 
 // ---------------------------------------------------------------- imagery display (ADR-123)

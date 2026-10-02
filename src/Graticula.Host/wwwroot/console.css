@@ -4595,3 +4595,8 @@ h4.spaced { margin-top: 24px; }
 .coveragedisplay .rampticks:empty { display: none; }
 .coveragedisplay label.stacked { display: block; }
 .coveragedisplay #covFunction { width: 100%; margin-bottom: 4px; }
+
+/* ADR-139's review: the upload's bar was the browser's 150 px, which a four-gigabyte file barely moves; and the waiting
+   line's clock keeps its width as it counts. */
+#imgProgress { width: 100%; height: 8px; }
+#imgProgressSays { font-variant-numeric: tabular-nums; }

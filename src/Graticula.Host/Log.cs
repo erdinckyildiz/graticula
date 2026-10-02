@@ -740,4 +740,11 @@ internal static partial class Log
                 + "copies past their lifetime are standing in, marked X-Tile-Cache: STALE. {Count} so far. Said at "
                 + "most once a minute per service; the count is on the service's cache read-back, GET /admin/services/.../cache. ADR-010 §5.1a.")]
     public static partial void TilesServedStale(ILogger logger, string service, string why, long count);
+
+    [LoggerMessage(
+        EventId = 1090,
+        Level = LogLevel.Warning,
+        Message = "The overviews of the uploaded image {Path} could not be built, so it is served without them and a "
+                + "zoomed-out picture of it reads every pixel: {Why}. ADR-139.")]
+    public static partial void PyramidNotBuilt(ILogger logger, string path, string why);
 }

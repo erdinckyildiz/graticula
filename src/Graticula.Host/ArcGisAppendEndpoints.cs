@@ -139,9 +139,16 @@ internal static class ArcGisAppendEndpoints
         System.IO.Directory.CreateDirectory(directory);
         string path = System.IO.Path.Combine(directory, id);
 
-        await using (FileStream written = File.Create(path))
+        try
         {
+            await using FileStream written = File.Create(path);
             await file.CopyToAsync(written, cancellation).ConfigureAwait(false);
+        }
+        catch
+        {
+            // ADR-139's review: an upload stopped part way left its bytes here, kept by nothing that would remove them.
+            File.Delete(path);
+            throw;
         }
 
         string owner = context.Features.Get<RequestPrincipal>()?.Principal.Id.ToString() ?? string.Empty;
