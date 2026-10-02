@@ -595,7 +595,10 @@
         <option value="modified">Newest first</option>
         <option value="title">Name A&ndash;Z</option>
         <option value="type">Type</option>
+        <option value="leastUsed">Least used (30 days)</option>
       </select>
+      <!-- ADR-135: idle is not a type, so it is its own choice and goes with any type. -->
+      <label class="check"><input type="checkbox" id="contentIdle"> Only items not used in 30 days</label>
       <span class="val" id="contentCount"></span>
     </div>
 

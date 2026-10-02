@@ -3863,10 +3863,19 @@ function drawMyContent() {
     modified: (x, y) => String(y.updated || "").localeCompare(String(x.updated || "")) || byName(x, y),
     title: byName,
     type: (x, y) => String(x.kind || "").localeCompare(String(y.kind || "")) || byName(x, y),
+    // ADR-135: what nobody has asked for in thirty days first — the services a clean-up starts from. A map counts no
+    // requests of its own, so maps go last.
+    leastUsed: (x, y) => {
+      const used = i => (i.map ? Number.MAX_SAFE_INTEGER : ((i.usage || {}).requests30 || 0));
+      // Ties broken by when last used: never first, then the longest ago.
+      const last = i => (i.usage || {}).lastUsed || "";
+      return used(x) - used(y) || last(x).localeCompare(last(y)) || byName(x, y);
+    },
   }[contentSort] || byName;
 
   const visible = inScope
     .filter(i => !contentType || i.kind === contentType)
+    .filter(i => !contentIdle || idleItem(i))
     .filter(i => !needle || [i.name, bareOf(i), i.kind, i.description, i.owner, i.folder,
       i.scope === "mine" ? myFolders.find(f => f.id === i.contentFolder)?.title : "", ...(i.tags || [])]
       .some(v => (v || "").toLowerCase().includes(needle)))
@@ -3907,8 +3916,16 @@ function drawMyContent() {
        sections are how it reached somebody else.`,
   };
 
-  $("contentNote").innerHTML = SCOPE_NOTES[contentScope]
-    ?? (contentScope === "all" && total === 0 ? h(answer.note || "Nothing to see yet.") : "");
+  usageSince = answer.usageSince || usageSince;
+  $("contentNote").innerHTML = (SCOPE_NOTES[contentScope]
+    ?? (contentScope === "all" && total === 0 ? h(answer.note || "Nothing to see yet.") : ""))
+    // ADR-135: what the order and the filter mean, said once when chosen.
+    + (contentSort === "leastUsed" ? ` <span class="hint">Least used first. Maps count no requests and are listed last.</span>` : "")
+    + (contentIdle ? ` <span class="hint">${usageCountsAMonth()
+      ? `Services with no request in 30 days that were published before then, counted since ${h(day(usageSince))}.`
+      : usageSince
+        ? `Counting began ${h(day(usageSince))}. Idle services show here from ${h(day(new Date(new Date(usageSince).getTime() + 30 * 86400000).toISOString()))}.`
+        : "Counting begins with the first request; idle services show here thirty days after."}</span>` : "");
 
   // <b>*New item*, which is what the button says.</b> It said *New layer* until 2026-08-19, when
   // ADR-034 §5j renamed the page action — so the one instruction this screen gave named a control that
@@ -3926,9 +3943,15 @@ function drawMyContent() {
            ${contentScope === "mine"
              ? `<b>New item</b> publishes something of your own.`
              : `<b>Everything</b> shows all ${num(total)} you can see.`}</td></tr>`
+      : visible.length === 0 && contentIdle && !contentFilter
+        ? `<tr><td colspan="6" class="empty">${usageCountsAMonth()
+             ? `No idle services${contentType ? ` among ${h(itemTypeName(contentType))} items` : ""}. Everything published over
+               30 days ago has had a request since ${h(day(new Date(Date.now() - 30 * 86400000).toISOString()))}.`
+             : `Nothing can be called idle yet: counting began ${usageSince ? h(day(usageSince)) : "with the first request"}, and
+               thirty days of it are needed.`}</td></tr>`
       : visible.length === 0
         ? `<tr><td colspan="6" class="empty">Nothing matches${contentFilter
-             ? ` <b>${h(contentFilter)}</b>` : ""}${contentType ? ` among ${h(contentType)} items` : ""}.
+             ? ` <b>${h(contentFilter)}</b>` : ""}${contentType ? ` among ${h(itemTypeName(contentType))} items` : ""}.
              The search reads a name, its type, description, owner and folder.</td></tr>`
         : pageOf("contentRows", visible).map(i => {
           if (i.map) return mapRow(i);
@@ -3975,7 +3998,10 @@ function drawMyContent() {
               : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
             <td class="name"><a href="#/service/${
               i.name.split("/").map(encodeURIComponent).join("/")}" title="${h(i.name)}">${h(bareOf(i))}</a>
-              <div class="rowmeta">${stopped ? `${pill("stopped")} ` : ""}${h(itemTypeName(i.kind))} · ${
+              <div class="rowmeta">${stopped ? `${pill("stopped")} ` : ""}${contentSort === "leastUsed" || contentIdle
+                ? `<span class="count">${Number((i.usage || {}).requests30 || 0).toLocaleString()}</span> request${
+                  ((i.usage || {}).requests30 || 0) === 1 ? "" : "s"} ${usageCountsAMonth() || !usageSince
+                    ? "in 30 days" : `since ${h(day(usageSince))}`} · ` : ""}${h(itemTypeName(i.kind))} · ${
                 i.kind === "ImageServer" ? "" : `${num(i.layers)} layer${i.layers === 1 ? "" : "s"} · `}${i.folder ? `service folder ${h(i.folder)}` : "service root"}${i.description
                   ? ` · ${h(i.description)}` : ""}${i.owner && i.scope !== "mine"
                   ? ` · ${h(i.owner)}` : ""}${(i.throughGroups || []).length > 0
@@ -4769,7 +4795,7 @@ function mapRow(i) {
       >${m.thumbnail ? `<img class="thumb" alt="" loading="lazy" data-thumb="${h(m.thumbnail)}">`
         : `<div class="thumb empty mapthumb" aria-hidden="true"></div>`}</a></td>
     <td class="name"><a href="#/map/${encodeURIComponent(m.id)}">${h(i.name)}</a>
-      <div class="rowmeta">Web map${folderNote(i)}${i.description ? ` · ${h(i.description)}` : ""}${
+      <div class="rowmeta">${contentSort === "leastUsed" ? "Not counted (map) · " : ""}Web map${folderNote(i)}${i.description ? ` · ${h(i.description)}` : ""}${
         i.scope !== "mine" && i.owner ? ` · ${h(i.owner)}` : ""}</div></td>
     <td>${pill(i.sharing)}</td>
     <td class="val">${day(i.updated)}</td>
@@ -5835,6 +5861,7 @@ function drawServiceLayers(layers, qualified) {
 async function contentItem(qualified) {
   try {
     const answer = await api("/content/items");
+    usageSince = answer.usageSince || usageSince;
     return (answer.items || []).find(i => i.name === qualified) || null;
   } catch {
     return null;
@@ -6042,6 +6069,8 @@ async function drawServiceDetails(qualified, knownKind) {
       // ADR-113: a view names its source, and a source its views — filled in below.
       ...(item.isView ? [["View of", `<span id="svcViewOf" class="val">…</span>`]] : []),
       ...(item.hasViews ? [["Views", `<span id="svcViews" class="val">…</span>`]] : []),
+      // ADR-135: what it has been asked, so its owner sees whether anybody uses it.
+      ["Usage", usageSaid(item.usage)],
       ["Published", item.created ? h(day(item.created)) : `<span class="val">—</span>`],
       ["Updated", item.updated ? h(day(item.updated)) : `<span class="val">—</span>`],
     ];
@@ -7006,6 +7035,44 @@ function drawServiceHead(item) {
  * written only when a service was published from the composer. `PUT /admin/services/{name}/description`
  * is the owner's act or an administrator's, as sharing is, so the control is drawn only for them.
  */
+/** The day this server began counting requests, from the content listing (ADR-135), or null before it has. */
+let usageSince = null;
+
+/** Whether My content shows only what nobody has used in thirty days (ADR-135). */
+let contentIdle = false;
+
+/** Whether counting began long enough ago for thirty days of nothing to mean idle. */
+function usageCountsAMonth() {
+  return !!usageSince && (Date.now() - new Date(usageSince).getTime()) > 30 * 86400000;
+}
+
+/**
+ * A service's use in words — ADR-135: when it was last asked first, as the fact an owner acts on, then the last thirty
+ * days and all of it. Nothing counted reads as unused once counting has begun, not as unmeasured (design review).
+ */
+function usageSaid(usage) {
+  const n = v => Number(v || 0).toLocaleString();
+  const plural = (v, word) => `${n(v)} ${word}${Number(v) === 1 ? "" : "s"}`;
+  const tip = `title="Counted from the day this server began counting. Every request counts, and one map view asks for many tiles."`;
+  if (!usage || !usage.requests) {
+    return usageSince
+      ? `<span ${tip}>No requests since counting began on ${h(day(usageSince))}</span>`
+      : `<span ${tip}>Not counted yet — counting begins with the first request</span>`;
+  }
+  return `<span ${tip}>${usage.lastUsed ? `Last used ${h(day(usage.lastUsed))} · ` : ""}${plural(usage.requests30, "request")} in 30 days
+    <span class="hint">· ${n(usage.requests)} in all</span></span>`;
+}
+
+/**
+ * Whether an item has gone unused for thirty days — ADR-135's filter: a service with no request in that time that
+ * was published before it, so one published yesterday is not counted as idle.
+ */
+function idleItem(i) {
+  if (i.map || !usageCountsAMonth()) return false;
+  const old = !i.created || (Date.now() - new Date(i.created).getTime()) > 30 * 86400000;
+  return old && !((i.usage || {}).requests30);
+}
+
 function describedAs(item) {
   const edit = item.manages === false ? "" : `<button type="button" class="tiny ghost"
     data-describe="${h(item.name)}">${item.description ? "Edit" : "Add a description"}</button>`;
@@ -25881,8 +25948,9 @@ document.addEventListener("change", async event => {
   // moment it is chosen, like sharing and for the same reason (ADR-031 §2b): an administrator
   // revoking somebody's ability to publish has to be able to trust that it happened, rather than
   // press Save afterwards.
-  if (event.target?.id === "contentType" || event.target?.id === "contentSort") {
+  if (event.target?.id === "contentType" || event.target?.id === "contentSort" || event.target?.id === "contentIdle") {
     if (event.target.id === "contentType") contentType = event.target.value;
+    else if (event.target.id === "contentIdle") contentIdle = event.target.checked;
     else contentSort = event.target.value;
     resetPage("contentRows");
     drawMyContent();

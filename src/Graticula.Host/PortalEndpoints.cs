@@ -1634,12 +1634,16 @@ internal static class PortalEndpoints
             access = Access(coverage.Sharing),
             spatialReference = (string?)null,
             extent = extent ?? [],
-            numViews = 0,
+            numViews = Views(context, coverage.ServiceId),
             size = -1,
             created = coverage.Created?.ToUnixTimeMilliseconds(),
             modified = coverage.Modified?.ToUnixTimeMilliseconds(),
         };
     }
+
+    /// <summary>The requests a service has answered — ADR-135 — or zero before any were counted.</summary>
+    private static long Views(HttpContext context, Guid serviceId) =>
+        (context.RequestServices.GetService(typeof(ServiceUsageCounter)) as ServiceUsageCounter)?.Of(serviceId)?.Total ?? 0;
 
     /// <summary>An image service's extent in WGS 84, as an item document carries it, or empty.</summary>
     private static async Task<double[][]> CoverageExtentAsync(
@@ -1996,7 +2000,7 @@ internal static class PortalEndpoints
 
             // [[xmin, ymin], [xmax, ymax]] in WGS 84 on the item document, [] on a listing (ExtentAsync).
             extent = extent ?? [],
-            numViews = 0,
+            numViews = Views(context, service.Id),  // ADR-135: the requests its service has answered.
             size = -1,
 
             // <b>Epoch milliseconds, as every portal date is.</b> Absent until 2026-09-15 although the

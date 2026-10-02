@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(74);
+    public static SchemaVersion ComponentSchemaVersion => new(75);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -109,6 +109,7 @@ public static class PlatformMigrations
         AMembersContentHasFoldersV72,
         AnEditorMayChangeOnlyTheirOwnV73,
         AWebMapHasADescriptionAndAPictureV74,
+        AServiceCountsItsUseV75,
     ]);
 
     /// <summary>
@@ -146,6 +147,27 @@ public static class PlatformMigrations
     /// A web map may be protected from deletion, as a service may be (ADR-102 condition 2) — the ArcGIS review's second
     /// pass found maps the one item kind without it.
     /// </summary>
+    /// <summary>
+    /// A service counts the requests it answers, a row a day — ADR-135, Portal's item usage, so an administrator can
+    /// find what nobody uses.
+    /// </summary>
+    /// <remarks><b>Expand.</b> A new table; a build before this one never reads it.</remarks>
+    private static Migration AServiceCountsItsUseV75 => Migration.Expand(
+        new SchemaVersion(75),
+        "A service counts the requests it answers, a row a day (ADR-135).",
+
+        // <b>A row a service a day, summed rather than a row a request</b>: a thousand services over a year is a few
+        // hundred thousand rows, where a log of requests would be the server's whole traffic. Written by the host in
+        // batches, not on the request path.
+        """
+        create table if not exists service_usage (
+            service_id uuid not null references service(id) on delete cascade,
+            day date not null,
+            requests bigint not null default 0,
+            primary key (service_id, day)
+        )
+        """);
+
     /// <summary>
     /// A web map has a description and a picture — ADR-119: Portal's item description beside its summary, and the
     /// thumbnail the Map Viewer draws of the map when it is saved, kept as the PNG it sent.

@@ -1228,6 +1228,17 @@ internal static partial class AdminEndpoints
 
                 // ADR-114: the owner's content folder it is in, or null for the root.
                 contentFolder = service.ContentFolder,
+
+                // ADR-135: the requests it has answered, so its owner sees what is used and what is not.
+                usage = (context.RequestServices.GetService(typeof(ServiceUsageCounter)) as ServiceUsageCounter)?.Of(service.Id) is { } used
+                    ? new
+                    {
+                        requests30 = used.Last30,
+                        requests7 = used.Last7,
+                        requests = used.Total,
+                        lastUsed = used.LastDay?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    }
+                    : null,
                 owner = admin.OwnerName,
                 sharing = PostgresSharing(service.Sharing),
                 status = Wire(service.Status),
@@ -1344,6 +1355,10 @@ internal static partial class AdminEndpoints
             folders,
 
             groups = groupTitles,
+
+            // ADR-135: the day counting began, so a service with no requests reads as unused rather than unmeasured.
+            usageSince = (context.RequestServices.GetService(typeof(ServiceUsageCounter)) as ServiceUsageCounter)?.Since?
+                .ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
 
             note = counts["mine"] == 0
                 ? "You have published nothing yet. Everything here belongs to somebody else and is "

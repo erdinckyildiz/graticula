@@ -67,6 +67,8 @@ public sealed class EveryLongLivedCacheIsBoundedTests
     {
         ["LayerExportEndpoints.Formats"] = "fixed: the three export formats (ADR-107)",
         ["ArcGisAppendEndpoints.Uploads"] = "at most MaximumUploads waiting, each for an hour (ADR-105)",
+        // ADR-135, 2026-10-02: a minute's request counts, emptied every minute and capped, because a path's name is the client's.
+        ["ServiceUsageCounter._counts"] = "emptied every minute when written, and at most MaximumServicesAMinute names a minute",
         ["ConnectionBudget._sources"] = "one semaphore per data source",
         ["ConnectionBudget._waiting"] = "one counter per data source",
         ["FileSystemTileCache._index"] = "byte budget with least-recently-used eviction",

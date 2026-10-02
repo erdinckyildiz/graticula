@@ -5,6 +5,9 @@
 browses and adds a layer (§6 condition 1)
 **Date:** 2026-08-20
 
+
+> **Amended 2026-10-02 by [ADR-135](ADR-135-a-service-counts-its-use.md).** An item's `numViews` is the requests its service has answered. The write half of the portal API stays out — asked and answered *not now*, [Q-159](../open-questions.md).
+
 ---
 
 ## 1. Context

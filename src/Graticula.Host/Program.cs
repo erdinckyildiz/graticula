@@ -512,6 +512,12 @@ public static class Program
         builder.Services.AddSingleton<Graticula.Platform.Catalog.IWebMapStore>(services =>
             new PostgresWebMapStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // ADR-135: what each service answers, counted in memory and written once a minute.
+        builder.Services.AddSingleton<Graticula.Platform.Catalog.IServiceUsageStore>(services =>
+            new PostgresServiceUsageStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton<ServiceUsageCounter>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<ServiceUsageCounter>());
+
         // ADR-114: a member's content folders.
         builder.Services.AddSingleton<Graticula.Platform.Catalog.IContentFolderStore>(services =>
             new PostgresContentFolderStore(services.GetRequiredService<NpgsqlDataSource>()));
@@ -893,6 +899,14 @@ public static class Program
           GET: the rewrite offers the request to the route table as a GET and a route that has no
           GET still answers 405, which is the correct answer.
         */
+        // ADR-135: a request a service answered counts as its use — after it is answered, and only when it succeeded.
+        ServiceUsageCounter usage = app.Services.GetRequiredService<ServiceUsageCounter>();
+        app.Use(async (context, next) =>
+        {
+            await next(context).ConfigureAwait(false);
+            if (context.Response.StatusCode < 400) usage.CountPath(context.Request.Path.Value);
+        });
+
         app.Use(async (context, next) =>
         {
             if (!HttpMethods.IsHead(context.Request.Method))
@@ -2116,6 +2130,7 @@ public static class Program
         ImageServerEndpoints.Map(app);
         LogEndpoints.Map(app);
         CoverageAdminEndpoints.Map(app);
+        ServiceUsageEndpoints.Map(app);
         OgcFeaturesEndpoints.Map(app);
 
         // <b>The standard tile faces — ADR-097.</b> OGC API Tiles beside OGC API Features, WMTS beside WFS
