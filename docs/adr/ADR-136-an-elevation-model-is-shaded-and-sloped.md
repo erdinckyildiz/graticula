@@ -9,6 +9,9 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-123](ADR-123-imagery-comes-into-studio.md) (§5.1: `renderingRule` is applied for three functions), [ADR-043](ADR-043-imageserver-and-the-raster-face.md) (`allowRasterFunction`) |
 
+
+> **Amended 2026-10-02 by [ADR-137](ADR-137-an-image-service-answers-lerc.md).** `rasterFunctionInfos` is served as an operation too: the JS SDK reads it there whenever `allowRasterFunction` is true, and did not load while it was refused.
+
 ---
 
 ## 1. Context

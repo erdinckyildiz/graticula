@@ -9,6 +9,9 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-043](ADR-043-imageserver-and-the-raster-face.md) (the formats `exportImage` writes) |
 
+
+> **Amended 2026-10-02 by [ADR-137](ADR-137-an-image-service-answers-lerc.md).** `format=lerc` answers the same values as Lerc2; the revisit trigger below was measured and is recorded there.
+
 ---
 
 ## 1. Context

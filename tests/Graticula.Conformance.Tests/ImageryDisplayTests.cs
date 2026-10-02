@@ -284,11 +284,45 @@ public sealed class ImageryDisplayTests : ArcGisClient
                 Assert.All(measured, v => Assert.InRange(v, 800f, 2500f));
             }
 
+            // ADR-137: the same values as LERC, which the JS SDK asks for to render on the client. The blob's header says
+            // its size, its type and the range of what it holds, so the values are checked without a decoder here.
+            static (int Width, int Height, int Type, int Valid, double Low, double High) Lerc(byte[] blob)
+            {
+                Assert.True(blob.Length > 62 && Encoding.ASCII.GetString(blob, 0, 6) == "Lerc2 ",
+                    $"Not a LERC blob: {Encoding.UTF8.GetString(blob, 0, Math.Min(blob.Length, 300))}");
+                Assert.Equal(blob.Length, BitConverter.ToInt32(blob, 30));
+                return (BitConverter.ToInt32(blob, 18), BitConverter.ToInt32(blob, 14), BitConverter.ToInt32(blob, 34),
+                    BitConverter.ToInt32(blob, 22), BitConverter.ToDouble(blob, 46), BitConverter.ToDouble(blob, 54));
+            }
+
+            string lercBox = "bbox=30.1,40.5,30.5,40.9&bboxSR=4326&size=32,32";
+            var heights = Lerc((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?{lercBox}&format=lerc&lercVersion=2&compressionTolerance=0.01&f=image")).Body);
+            Assert.Equal((32, 32, 6, 32 * 32), (heights.Width, heights.Height, heights.Type, heights.Valid));
+            Assert.InRange(heights.Low, 800, 2500);
+            Assert.InRange(heights.High, heights.Low + 1, 2500);
+            var lercSlope = Lerc((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?{lercBox}&format=lerc&renderingRule={Rule("Slope")}&f=image")).Body);
+            Assert.InRange(lercSlope.Low, 0.7, 1.6);
+            Assert.InRange(lercSlope.High, 0.7, 1.6);
+            Assert.Contains("lercVersion", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?{lercBox}&format=lerc&lercVersion=1&f=image")).Body), StringComparison.Ordinal);
+            Assert.Contains("compressionTolerance", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?{lercBox}&format=lerc&compressionTolerance=-1&f=image")).Body), StringComparison.Ordinal);
+
             // ADR-136: raster functions. The model rises 1700/126 m a cell east and south over cells of 0.01° at about
             // 40.7° N, so its slope is a little over one degree and it faces north-west.
             JsonElement root2 = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}?f=json")).Body).RootElement;
             Assert.True(root2.GetProperty("allowRasterFunction").GetBoolean());
             Assert.Contains("Hillshade", root2.GetProperty("rasterFunctionInfos").EnumerateArray().Select(f => f.GetProperty("name").GetString()));
+            Assert.Contains("LERC", root2.GetProperty("supportedImageFormatTypes").GetString(), StringComparison.Ordinal);
+            // The JS SDK's ImageryLayer reads them from their own operation whenever the service allows them, and did not
+            // load at all while it was refused.
+            JsonElement functions = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/rasterFunctionInfos?f=json")).Body).RootElement;
+            Assert.Equal(
+                root2.GetProperty("rasterFunctionInfos").EnumerateArray().Select(f => f.GetProperty("name").GetString()),
+                functions.GetProperty("rasterFunctionInfos").EnumerateArray().Select(f => f.GetProperty("name").GetString()));
 
             string Rule(string function) => Uri.EscapeDataString($"{{\"rasterFunction\":\"{function}\"}}");
             string inside = "bbox=30.1,40.5,30.5,40.9&bboxSR=4326&size=32,32";

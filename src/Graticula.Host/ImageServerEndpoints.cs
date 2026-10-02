@@ -109,6 +109,11 @@ internal static class ImageServerEndpoints
             app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/keyProperties", Read, KeyPropertiesAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // ADR-136: the JS SDK's ImageryLayer reads the functions from here when the service allows them, and does
+            // not load when this is refused.
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/rasterFunctionInfos", Read, RasterFunctionInfosAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
             app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/statistics", Read, StatisticsOperationAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
@@ -250,7 +255,7 @@ internal static class ImageServerEndpoints
                 + "Nothing follows the operation name.",
 
         _ => $"`{operation}` is not an operation this image service serves. It serves "
-            + "exportImage, identify, legend, keyProperties, statistics, histograms, tile and tilemap.",
+            + "exportImage, identify, legend, keyProperties, rasterFunctionInfos, statistics, histograms, tile and tilemap.",
     };
 
     private static async Task ServiceAsync(
@@ -296,7 +301,7 @@ internal static class ImageServerEndpoints
             // first for the same reason it is the SDK's default, and it is answered as
             // PNG — which is what the format means when the picture has transparency.
             // ADR-127: TIFF is the values themselves, which Pro's Export Raster and a client's own renderer read.
-            supportedImageFormatTypes = "JPGPNG,PNG,PNG8,PNG24,PNG32,JPG,JPEG,TIFF",
+            supportedImageFormatTypes = "JPGPNG,PNG,PNG8,PNG24,PNG32,JPG,JPEG,TIFF,LERC",
 
             // <b>Absent rather than zero when the file declares none.</b> Zero is a
             // legitimate measurement, so reporting it as the no-data value would tell a
@@ -314,8 +319,7 @@ internal static class ImageServerEndpoints
             // Studio's Map Viewer to name what "the service's own drawing" is; absent when it draws its values.
             defaultRasterFunction = RasterFunction.FromStyleText(coverage.Style).Kind is var shown && shown != RasterFunctionKind.None
                 ? shown.ToString() : null,
-            rasterFunctionInfos = FunctionNames
-                .Select(name => new { name, description = string.Empty, help = string.Empty }).ToArray(),
+            rasterFunctionInfos = FunctionInfos,
             // ADR-125: `statistics` answers, from a sample of the image's coarsest resolution.
             supportsStatistics = true,
             supportsAdvancedQueries = false,
@@ -637,7 +641,8 @@ internal static class ImageServerEndpoints
                 return;
             }
 
-            await AnswerAsync(context, asked, file!, "image/tiff", cancellation).ConfigureAwait(false);
+            await AnswerAsync(context, asked, file!, asked.Lerc ? "application/octet-stream" : "image/tiff", cancellation)
+                .ConfigureAwait(false);
             return;
         }
 
@@ -719,7 +724,7 @@ internal static class ImageServerEndpoints
     }
 
     /// <summary>
-    /// The coverage's values over the asked extent and size, as a GeoTIFF in their own type — ADR-127. Nearest
+    /// The coverage's values over the asked extent and size, as a GeoTIFF in their own type — ADR-127 — or as LERC — ADR-137. Nearest
     /// neighbour, as the picture is resampled, so a value in the file is one the coverage holds. Ground the coverage
     /// does not cover is its no-data value, or zero when it declares none.
     /// </summary>
@@ -830,12 +835,29 @@ internal static class ImageServerEndpoints
             }
         }
 
+        SampleKind kind = derived ? SampleKind.Real32 : info.Bands.Count > 0 ? info.Bands[0].Kind : SampleKind.Unsigned8;
+
+        // ADR-137: as LERC, a pixel with nothing in it is left out by the mask rather than given a value that could be
+        // mistaken for one — ground outside the image, and the image's own no-data.
+        if (asked.Lerc)
+        {
+            bool[] valid = new bool[width * height];
+
+            for (int i = 0; taken is not null && i < valid.Length; i++)
+            {
+                valid[i] = taken[i] >= 0
+                    && (derived || noData is not { } none || samples[i * bands] != none);
+            }
+
+            return (LercWriter.Write(samples, valid, width, height, bands, kind, asked.Tolerance), null);
+        }
+
         byte[] file = GeoTiffWriter.Write(
             samples,
             width,
             height,
             bands,
-            derived ? SampleKind.Real32 : info.Bands.Count > 0 ? info.Bands[0].Kind : SampleKind.Unsigned8,
+            kind,
             asked.Extent.MinX,
             asked.Extent.MaxY,
             asked.Extent.Width / width,
@@ -1866,6 +1888,9 @@ internal static class ImageServerEndpoints
     /// <summary>The raster functions a service names, None first as ArcGIS lists them — ADR-136.</summary>
     private static readonly string[] FunctionNames = ["None", .. RasterFunction.Names];
 
+    private static readonly object[] FunctionInfos = [.. FunctionNames
+        .Select(name => new { name, description = string.Empty, help = string.Empty })];
+
     /// <summary>The range a pixel type's full stretch runs over.</summary>
     /// <remarks>From zero, as <see cref="CoverageStyle"/> stretches it: a float band has no range and is given one.</remarks>
     private static (double Low, double High) FullRange(SampleKind kind) => kind switch
@@ -1891,6 +1916,21 @@ internal static class ImageServerEndpoints
         }
 
         await Results.Ok(new { }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The functions the service applies — ADR-136 — as the root names them. The JS SDK's <c>ImageryLayer</c> asks for
+    /// them here whenever <c>allowRasterFunction</c> is true, and a refusal stopped it loading at all.
+    /// </summary>
+    private static async Task RasterFunctionInfosAsync(
+        HttpContext context, string serviceName, ICoverageCatalog coverages, CancellationToken cancellation)
+    {
+        if (await FindAsync(context, serviceName, coverages, cancellation).ConfigureAwait(false) is null)
+        {
+            return;
+        }
+
+        await Results.Ok(new { rasterFunctionInfos = FunctionInfos }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>

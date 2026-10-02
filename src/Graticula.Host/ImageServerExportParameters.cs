@@ -82,6 +82,18 @@ internal sealed class ImageServerExportParameters
     public bool Raw { get; }
 
     /// <summary>
+    /// Whether the values are asked for as LERC rather than as a GeoTIFF — <c>format=lerc</c>, ADR-137, which the JS
+    /// SDK asks for when it renders on the client.
+    /// </summary>
+    public bool Lerc { get; private init; }
+
+    /// <summary>
+    /// The largest error a client allows in a floating-point value it asked for as LERC — <c>compressionTolerance</c>;
+    /// zero, exact, when it names none.
+    /// </summary>
+    public double Tolerance { get; private init; }
+
+    /// <summary>
     /// The reference the extent is written in, and the image is drawn in.
     /// </summary>
     /// <remarks>
@@ -152,8 +164,10 @@ internal sealed class ImageServerExportParameters
             return false;
         }
 
-        // ADR-127: `tiff` asks for the values themselves.
-        bool raw = parameter("format") is { } named && named.Trim().Equals("tiff", StringComparison.OrdinalIgnoreCase);
+        // ADR-127: `tiff` asks for the values themselves; ADR-137: so does `lerc`, compressed.
+        string named = parameter("format")?.Trim() ?? string.Empty;
+        bool lerc = named.Equals("lerc", StringComparison.OrdinalIgnoreCase);
+        bool raw = lerc || named.Equals("tiff", StringComparison.OrdinalIgnoreCase);
 
         MapImageFormat format = MapImageFormat.Png;
 
@@ -162,7 +176,50 @@ internal sealed class ImageServerExportParameters
             return false;
         }
 
-        asked = new ImageServerExportParameters(extent, width, height, format, srid, raw) { Function = function };
+        double tolerance = 0;
+
+        if (lerc && !TryLerc(parameter, out tolerance, out error))
+        {
+            return false;
+        }
+
+        asked = new ImageServerExportParameters(extent, width, height, format, srid, raw)
+        {
+            Function = function,
+            Lerc = lerc,
+            Tolerance = tolerance,
+        };
+        return true;
+    }
+
+    /// <summary>
+    /// Reads what a LERC request adds — ADR-137: the version, of which this server writes the second (every decoder
+    /// since 2016 tells the two apart by the file's own key, so an absent version is answered with it), and the
+    /// tolerance.
+    /// </summary>
+    private static bool TryLerc(Func<string, string?> parameter, out double tolerance, out string? error)
+    {
+        tolerance = 0;
+        error = null;
+
+        if (parameter("lercVersion") is { Length: > 0 } version && version.Trim() != "2")
+        {
+            error = $"`lercVersion={version}` is not one this server writes. It writes LERC version 2, which every "
+                + "LERC decoder reads.";
+            return false;
+        }
+
+        if (parameter("compressionTolerance") is { Length: > 0 } text)
+        {
+            if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out tolerance)
+                || !double.IsFinite(tolerance) || tolerance < 0)
+            {
+                error = $"`compressionTolerance={text}` is not a number of zero or more: it is the largest error "
+                    + "allowed in a value.";
+                return false;
+            }
+        }
+
         return true;
     }
 
@@ -746,7 +803,7 @@ internal sealed class ImageServerExportParameters
                 // message used to say *png, jpg and jpgpng* while `png8`, `png24`, `png32`
                 // and `jpeg` all worked — a refusal that undersells the server is as
                 // misleading as one that oversells it.
-                error = $"`format={text}` is not one this server writes. It writes tiff — the values themselves — "
+                error = $"`format={text}` is not one this server writes. It writes tiff and lerc — the values themselves — "
                     + "and png, png8, png24, png32, jpg, jpeg, and jpgpng, which it answers as png. An "
                     + "absent format, an empty one, or `None` all mean this server chooses.";
 
