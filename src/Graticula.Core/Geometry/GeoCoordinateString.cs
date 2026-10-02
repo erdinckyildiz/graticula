@@ -27,6 +27,12 @@ public enum GeoCoordinateNotation
     /// The United States National Grid, which is MGRS on a WGS84-family datum.
     /// </summary>
     Usng,
+
+    /// <summary>The Global Area Reference System: 30′ cells, 15′ quadrants, 5′ keypads — ADR-146.</summary>
+    Gars,
+
+    /// <summary>The World Geographic Reference System: 15° quadrangles, 1° cells, then minutes — ADR-146.</summary>
+    Georef,
 }
 
 /// <summary>
@@ -63,7 +69,7 @@ public enum GeoCoordinateNotation
 /// of error that is only discovered by someone standing in the wrong place.
 /// </para>
 /// </remarks>
-public static class GeoCoordinateString
+public static partial class GeoCoordinateString
 {
     // WGS84.
     /// <summary>A position on the UTM grid, which is what the grid notations name.</summary>
@@ -254,6 +260,14 @@ public static class GeoCoordinateString
                      + Angle(longitude, "EW", digits, 3, true);
                 return true;
 
+            case GeoCoordinateNotation.Gars:
+                text = Gars(longitude, latitude);
+                return true;
+
+            case GeoCoordinateNotation.Georef:
+                text = Georef(longitude, latitude, digits);
+                return true;
+
             case GeoCoordinateNotation.Utm:
             case GeoCoordinateNotation.Mgrs:
             case GeoCoordinateNotation.Usng:
@@ -381,6 +395,8 @@ public static class GeoCoordinateString
                 TryReadMgrs(text.Trim(), out grid, out error),
             GeoCoordinateNotation.Utm =>
                 TryReadUtm(text.Trim(), out grid, out error),
+            GeoCoordinateNotation.Gars => TryReadGars(text.Trim(), out longitude, out latitude, out error),
+            GeoCoordinateNotation.Georef => TryReadGeoref(text.Trim(), out longitude, out latitude, out error),
             _ => TryReadAngles(text.Trim(), out longitude, out latitude, out error),
         };
     }

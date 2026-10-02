@@ -12,6 +12,8 @@
 
 > **Amended 2026-10-03 by [ADR-145](ADR-145-a-geometry-request-is-answered-in-its-units.md).** Units named in a request are converted in a projected reference; geodesic and what cannot be converted are refused by name.
 
+> **Amended 2026-10-03 by [ADR-146](ADR-146-project-relation-and-the-cell-notations.md).** `project` takes envelopes and WKT and refuses a named transformation; `relation` reads RELATE(G1, G2, …); GARS and GEOREF are converted.
+
 ---
 
 > **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are

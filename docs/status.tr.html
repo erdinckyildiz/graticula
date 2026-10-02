@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>4e68bd6</code> · 2026-10-02 18:20</p>
+<p class="stamp">Şu commit’ten üretildi: <code>0f145e5</code> · 2026-10-03 00:48</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">144</div><div class="kpi-l">ADR</div><div class="kpi-n">54 koşulsuz kabul</div></div>
+<div class="kpi "><div class="kpi-v">145</div><div class="kpi-l">ADR</div><div class="kpi-n">55 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">286/380</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">91 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4521</div><div class="kpi-l">test</div><div class="kpi-n">435 kaynak dosya, 193,702 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4535</div><div class="kpi-l">test</div><div class="kpi-n">436 kaynak dosya, 194,116 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -350,6 +350,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">143</td><td>An uploaded image is given back to its owner</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — the file given back is byte-identical to the one sent</td><td class="num"></td></tr>
 <tr><td class="id">144</td><td>The geometry service answers the JS SDK as it asks</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH — every request is the SDK 4.30&#x27;s own shape, read from its published source</td><td class="num">1/1</td></tr>
 <tr><td class="id">145</td><td>A geometry request is answered in the units it names, or refused</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — each conversion is checked on a shape whose answer is known, and each refusal…</td><td class="num"></td></tr>
+<tr><td class="id">146</td><td>project takes extents and WKT, relation reads RELATE, and GARS and GEOREF are converted</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — each is checked on an answer known in advance</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -473,8 +474,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1232</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.6%"></div></div><div class="bar-n">808</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.1%"></div></div><div class="bar-n">666</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:66.4%"></div></div><div class="bar-n">818</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.4%"></div></div><div class="bar-n">670</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.9%"></div></div><div class="bar-n">270</div></div>
@@ -487,6 +488,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>0f145e5</code><time>2026-10-03</time><span>Imagery answers areas, resamples as asked and gives uploads back; the geometry service answers the JS SDK</span></li>
 <li><code>4e68bd6</code><time>2026-10-02</time><span>Several images are one mosaic</span></li>
 <li><code>d96c609</code><time>2026-10-02</time><span>An uploaded image is given its overviews</span></li>
 <li><code>702ca78</code><time>2026-10-02</time><span>A renderer sent as a rendering rule is drawn</span></li>
@@ -500,7 +502,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>570cb9a</code><time>2026-10-01</time><span>The Map Viewer has a time slider</span></li>
 <li><code>9a82159</code><time>2026-10-01</time><span>Labels have a visible range</span></li>
 <li><code>bb59b9e</code><time>2026-10-01</time><span>The Map Viewer has an attribute table and bookmarks</span></li>
-<li><code>3a98300</code><time>2026-10-01</time><span>Several items at once in My content, and a map says which of its layers its readers will not see</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

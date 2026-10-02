@@ -320,7 +320,7 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
             "toGeoCoordinateString",
             ("sr", "4326"),
             ("coordinates", "[[0, 10]]"),
-            ("conversionType", "GARS"),
+            ("conversionType", "Maidenhead"),
             ("f", "json"));
 
         string message = result.GetProperty("error").GetProperty("message").GetString()!;
@@ -328,9 +328,9 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
         Assert.Contains("MGRS", message, StringComparison.Ordinal);
         Assert.Contains("DMS", message, StringComparison.Ordinal);
 
-        // GARS is a real ArcGIS type we have not written, and the message says
-        // so rather than implying it does not exist.
-        Assert.Contains("gap", message, StringComparison.OrdinalIgnoreCase);
+        // GARS and GEOREF were the gap this test named until ADR-146 filled it; the list now has all eight.
+        Assert.Contains("GARS", message, StringComparison.Ordinal);
+        Assert.Contains("GeoRef", message, StringComparison.Ordinal);
     }
 
     // ---------- the refusals ----------

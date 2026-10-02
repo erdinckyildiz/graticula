@@ -564,7 +564,7 @@ internal static partial class GeometryServerEndpoints
                 "text/html; charset=utf-8");
         }
 
-        return Results.Ok(document);
+        return Pretty(context) ? Results.Json(document, Indented) : Results.Ok(document);
     }
 
     /// <summary>Refuses an operation that needs overlay, and says why.</summary>
@@ -609,9 +609,8 @@ internal static partial class GeometryServerEndpoints
     /// The notations this server writes, by their ArcGIS names.
     /// </summary>
     /// <remarks>
-    /// <b>GARS and GEOREF are absent and that is a gap, not a decision.</b> Both
-    /// are simple cell schemes and neither is written here yet. They are named
-    /// in the refusal so a caller learns which of the eight they can have.
+    /// <b>GARS and GEOREF since ADR-146</b>, the last two of ArcGIS's eight: both are angular cell schemes and need no
+    /// projection.
     /// </remarks>
     private static readonly Dictionary<string, GeoCoordinateNotation> Notations =
         new(StringComparer.OrdinalIgnoreCase)
@@ -622,6 +621,8 @@ internal static partial class GeometryServerEndpoints
             ["UTM"] = GeoCoordinateNotation.Utm,
             ["MGRS"] = GeoCoordinateNotation.Mgrs,
             ["USNG"] = GeoCoordinateNotation.Usng,
+            ["GARS"] = GeoCoordinateNotation.Gars,
+            ["GeoRef"] = GeoCoordinateNotation.Georef,
         };
 
     /// <summary>Writes coordinates as grid or sexagesimal strings.</summary>
@@ -1023,9 +1024,7 @@ internal static partial class GeometryServerEndpoints
 
         error =
             $"'{requested}' is not a notation this server writes. Available: "
-            + string.Join(", ", Notations.Keys) + ". GARS and GEOREF are ArcGIS types that are "
-            + "not implemented here \u2014 both are simple cell schemes and this is a gap "
-            + "rather than a decision.";
+            + string.Join(", ", Notations.Keys) + ": every notation ArcGIS's geometry service converts.";
 
         return false;
     }
@@ -1497,7 +1496,23 @@ internal static partial class GeometryServerEndpoints
                 return false;
             }
 
-            pattern = parameter;
+            // E8 (ADR-146): Esri documents the parameter as its shape comparison language — RELATE(G1, G2, 'T*F**F***')
+            // — and a bare pattern is read too. Anything else is refused here, in words, rather than reaching the topology
+            // library and coming back as its complaint about a string it was never meant to see.
+            System.Text.RegularExpressions.Match relate = System.Text.RegularExpressions.Regex.Match(
+                parameter, @"^\s*RELATE\s*\(\s*G1\s*,\s*G2\s*,\s*['""]([012TFtf*]{9})['""]\s*\)\s*$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            pattern = relate.Success ? relate.Groups[1].Value.ToUpperInvariant() : parameter.Trim();
+
+            if (!IsDe9im(pattern))
+            {
+                error = $"'relationParam={parameter}' is neither a DE-9IM pattern — nine characters of 0, 1, 2, T, F or * — "
+                    + "nor RELATE(G1, G2, '<pattern>'), the shape comparison language's one form this server reads.";
+                pattern = null;
+                return false;
+            }
+
             return true;
         }
 
@@ -1696,31 +1711,113 @@ internal static partial class GeometryServerEndpoints
             return;
         }
 
+        // E6 (ADR-146): a transformation asked for by name is one this server does not pin — PROJ chooses — so it is
+        // refused rather than answered with whichever PROJ chose, metres from the one asked for.
+        if (Field(form, "transformation") is { } transformation)
+        {
+            await Fail(context,
+                $"`transformation={transformation}` names a datum transformation, and this server does not pin one: PROJ "
+                + "chooses the most accurate it has grids for, and the answer's `transformation` says which engine did. "
+                + "Omit `transformation` to accept that, or transform where the one you need is pinned.").ConfigureAwait(false);
+            return;
+        }
+
+        // E5 (ADR-146): an outSR given as WKT — a custom projection, a local grid — is projected to by its definition.
+        string? outWkt = WktOf(Field(form, "outSR"));
+
         if (!TrySrid(form, "inSR", out int inSr, out string? sridError)
-            || !TrySrid(form, "outSR", out int outSr, out sridError))
+            || (outWkt is null && !TrySrid(form, "outSR", out _, out sridError)))
         {
             await Fail(context, sridError!).ConfigureAwait(false);
             return;
         }
 
-        if (!TryGeometries(form, inSr, out List<Geometry> geometries, out GeometryKind kind,
-                out string? error))
+        int outSr = 0;
+
+        if (outWkt is null)
+        {
+            TrySrid(form, "outSR", out outSr, out _);
+        }
+
+        // E5: envelopes — a map's extent, the commonest thing projected — are read, and a point's z kept.
+        (List<Envelope>? envelopes, List<double?> zs) = Unenveloped(form);
+        List<Geometry> geometries;
+        string? error;
+
+        if (envelopes is not null)
+        {
+            geometries = [.. envelopes.Select(Densified)];
+        }
+        else if (!TryGeometries(form, inSr, out geometries, out _, out error))
         {
             await Fail(context, error!).ConfigureAwait(false);
             return;
         }
 
-        (IReadOnlyList<Geometry> projected, ProjectionProvenance provenance) =
-            await projector.ProjectAsync(geometries, inSr, outSr, cancellation).ConfigureAwait(false);
+        IReadOnlyList<Geometry> projected;
+        ProjectionProvenance provenance;
+
+        if (outWkt is not null)
+        {
+            if (await projector.ProjectToDefinitionAsync(geometries, inSr, outWkt, cancellation).ConfigureAwait(false) is not { } moved)
+            {
+                await Fail(context, "The `outSR` WKT is not a definition this server's projection engine can read.").ConfigureAwait(false);
+                return;
+            }
+
+            projected = moved;
+            provenance = await projector.DescribeAsync(inSr, inSr, cancellation).ConfigureAwait(false);
+        }
+        else
+        {
+            (projected, provenance) = await projector.ProjectAsync(geometries, inSr, outSr, cancellation).ConfigureAwait(false);
+        }
+
+        JsonElement Answer(Geometry g, int index)
+        {
+            if (envelopes is not null)
+            {
+                Envelope box = g.Envelope;
+                return JsonSerializer.SerializeToElement(new
+                {
+                    xmin = box.MinX,
+                    ymin = box.MinY,
+                    xmax = box.MaxX,
+                    ymax = box.MaxY,
+                    spatialReference = outWkt is null ? (object)new { wkid = outSr } : new { wkt = outWkt },
+                });
+            }
+
+            JsonElement written = ToJson(g, outSr);
+
+            if ((index < zs.Count && zs[index] is { }) || outWkt is not null)
+            {
+                System.Text.Json.Nodes.JsonObject node = System.Text.Json.Nodes.JsonNode.Parse(written.GetRawText())!.AsObject();
+
+                if (index < zs.Count && zs[index] is { } z && g is Point)
+                {
+                    node["z"] = z;
+                }
+
+                if (outWkt is not null)
+                {
+                    node["spatialReference"] = new System.Text.Json.Nodes.JsonObject { ["wkt"] = outWkt };
+                }
+
+                return JsonSerializer.SerializeToElement(node);
+            }
+
+            return written;
+        }
 
         await Respond(context, "project", new
         {
-            geometries = projected.Select(g => ToJson(g, outSr)).ToArray(),
+            geometries = projected.Select(Answer).ToArray(),
             transformation = new
             {
                 engine = provenance.Engine,
                 fromSR = inSr,
-                toSR = outSr,
+                toSR = outWkt is null ? (object)outSr : "wkt",
 
                 // Null rather than a number, because ST_Transform does not report
                 // which pipeline it chose. Pinning a pipeline is what
@@ -1740,8 +1837,117 @@ internal static partial class GeometryServerEndpoints
                      + "authoritative.",
             },
         }).ConfigureAwait(false);
+    }
 
-        _ = kind;
+    /// <summary>The WKT an <c>outSR</c> gives — <c>{"wkt":"PROJCS[…]"}</c> — or null when it names a code.</summary>
+    private static string? WktOf(string? field)
+    {
+        if (field is null || !field.TrimStart().StartsWith('{'))
+        {
+            return null;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(field);
+            return document.RootElement.TryGetProperty("wkid", out _) || document.RootElement.TryGetProperty("latestWkid", out _)
+                ? null
+                : document.RootElement.TryGetProperty("wkt", out JsonElement wkt) && wkt.ValueKind == JsonValueKind.String
+                    ? wkt.GetString()
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The envelopes a project request carries — <c>geometryType: esriGeometryEnvelope</c>, as the JS SDK sends an
+    /// extent — or null; and each point's z, which the reader does not carry and a projection does not change.
+    /// </summary>
+    private static (List<Envelope>? Envelopes, List<double?> Zs) Unenveloped(IFormCollection form)
+    {
+        List<double?> zs = [];
+
+        if (Field(form, "geometries") is not { } raw)
+        {
+            return (null, zs);
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(raw);
+            JsonElement root = document.RootElement;
+            JsonElement list = root.ValueKind == JsonValueKind.Array ? root
+                : root.TryGetProperty("geometries", out JsonElement inner) ? inner : default;
+
+            if (list.ValueKind != JsonValueKind.Array)
+            {
+                return (null, zs);
+            }
+
+            bool envelope = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("geometryType", out JsonElement type)
+                && type.GetString() == "esriGeometryEnvelope";
+
+            if (!envelope && list.GetArrayLength() > 0 && list[0].TryGetProperty("xmin", out _))
+            {
+                envelope = true;
+            }
+
+            if (envelope)
+            {
+                List<Envelope> boxes = [];
+
+                foreach (JsonElement e in list.EnumerateArray())
+                {
+                    boxes.Add(new Envelope(e.GetProperty("xmin").GetDouble(), e.GetProperty("ymin").GetDouble(),
+                        e.GetProperty("xmax").GetDouble(), e.GetProperty("ymax").GetDouble()));
+                }
+
+                return (boxes, zs);
+            }
+
+            foreach (JsonElement e in list.EnumerateArray())
+            {
+                zs.Add(e.ValueKind == JsonValueKind.Object && e.TryGetProperty("z", out JsonElement z) && z.TryGetDouble(out double value)
+                    ? value : null);
+            }
+        }
+        catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return (null, zs);
+        }
+
+        return (null, zs);
+    }
+
+    /// <summary>
+    /// An envelope as a polygon whose edges carry 24 points each, so its projection bounds what the rectangle covers —
+    /// a projected rectangle's edges curve, and its four corners alone undercount it.
+    /// </summary>
+    private static Polygon Densified(Envelope box)
+    {
+        const int Steps = 24;
+        List<double> xy = [];
+
+        void Edge(double x0, double y0, double x1, double y1)
+        {
+            for (int i = 0; i < Steps; i++)
+            {
+                xy.Add(x0 + ((x1 - x0) * i / Steps));
+                xy.Add(y0 + ((y1 - y0) * i / Steps));
+            }
+        }
+
+        Edge(box.MinX, box.MinY, box.MinX, box.MaxY);
+        Edge(box.MinX, box.MaxY, box.MaxX, box.MaxY);
+        Edge(box.MaxX, box.MaxY, box.MaxX, box.MinY);
+        Edge(box.MaxX, box.MinY, box.MinX, box.MinY);
+        xy.Add(box.MinX);
+        xy.Add(box.MinY);
+
+        return new Polygon(new LinearRing(XySequence.Wrap([.. xy])));
     }
 
     // ---------- measures ----------
@@ -2375,6 +2581,14 @@ internal static partial class GeometryServerEndpoints
     private static string SridField(IFormCollection form) =>
         Field(form, "sr") is null && Field(form, "inSR") is not null ? "inSR" : "sr";
 
+    /// <summary>JSON as ArcGIS writes it for <c>f=pjson</c>: indented (E10).</summary>
+    private static readonly JsonSerializerOptions Indented = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+
+    /// <summary>Whether the request asks for <c>f=pjson</c>, in its query or its form.</summary>
+    private static bool Pretty(HttpContext context) =>
+        string.Equals(context.Request.Query["f"], "pjson", StringComparison.OrdinalIgnoreCase)
+        || (context.Request.HasFormContentType && string.Equals(context.Request.Form["f"], "pjson", StringComparison.OrdinalIgnoreCase));
+
     private static string? Field(IFormCollection form, string name) =>
         form.TryGetValue(name, out Microsoft.Extensions.Primitives.StringValues value)
             && !string.IsNullOrWhiteSpace(value)
@@ -2405,7 +2619,7 @@ internal static partial class GeometryServerEndpoints
     {
         if (!RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
-            return Results.Json(document).ExecuteAsync(context);
+            return Pretty(context) ? Results.Json(document, Indented).ExecuteAsync(context) : Results.Json(document).ExecuteAsync(context);
         }
 
         // A way back to the form. Without it the only route to a second attempt

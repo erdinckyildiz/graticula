@@ -146,6 +146,73 @@ public sealed class GeometryServerClientRequestsTests : ArcGisClient
     }
 
     [Fact]
+    public async Task Project_takes_an_extent_a_wkt_reference_and_keeps_a_points_z_and_refuses_a_named_transformation()
+    {
+        // ADR-146. An extent, as the SDK sends a map's: the box around what the rectangle covers in Web Mercator.
+        (_, JsonElement extent) = await PostAsync("project", ("inSR", "4326"), ("outSR", "3857"),
+            ("geometries", "{\"geometryType\":\"esriGeometryEnvelope\",\"geometries\":[{\"xmin\":26,\"ymin\":36,\"xmax\":45,\"ymax\":42}]}"));
+        JsonElement box = extent.GetProperty("geometries")[0];
+        Assert.InRange(box.GetProperty("xmin").GetDouble(), 2894000, 2895000);
+        Assert.InRange(box.GetProperty("ymax").GetDouble(), 5160000, 5161000);
+
+        // A point's z survives; the reader would have dropped it.
+        (_, JsonElement high) = await PostAsync("project", ("inSR", "4326"), ("outSR", "3857"),
+            ("geometries", "{\"geometryType\":\"esriGeometryPoint\",\"geometries\":[{\"x\":29,\"y\":41,\"z\":120}]}"));
+        Assert.Equal(120, high.GetProperty("geometries")[0].GetProperty("z").GetDouble());
+
+        // An outSR as WKT — here Web Mercator's own — projects as its code does.
+        string wkt = "PROJCS[\\\"WGS 84 / Pseudo-Mercator\\\",GEOGCS[\\\"WGS 84\\\",DATUM[\\\"WGS_1984\\\",SPHEROID[\\\"WGS 84\\\",6378137,298.257223563]],PRIMEM[\\\"Greenwich\\\",0],UNIT[\\\"degree\\\",0.0174532925199433]],PROJECTION[\\\"Mercator_1SP\\\"],PARAMETER[\\\"central_meridian\\\",0],PARAMETER[\\\"scale_factor\\\",1],PARAMETER[\\\"false_easting\\\",0],PARAMETER[\\\"false_northing\\\",0],UNIT[\\\"metre\\\",1],EXTENSION[\\\"PROJ4\\\",\\\"+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs\\\"]]";
+        (_, JsonElement custom) = await PostAsync("project", ("inSR", "4326"), ("outSR", $"{{\"wkt\":\"{wkt}\"}}"),
+            ("geometries", "{\"geometryType\":\"esriGeometryPoint\",\"geometries\":[{\"x\":29,\"y\":41}]}"));
+        Assert.True(custom.TryGetProperty("geometries", out JsonElement moved), custom.ToString());
+        Assert.InRange(moved[0].GetProperty("x").GetDouble(), 3228000, 3229000);
+
+        (_, JsonElement pinned) = await PostAsync("project", ("inSR", "4326"), ("outSR", "4230"), ("transformation", "1133"),
+            ("geometries", "{\"geometryType\":\"esriGeometryPoint\",\"geometries\":[{\"x\":29,\"y\":41}]}"));
+        Assert.Contains("transformation", pinned.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Relation_reads_esris_relate_form_and_refuses_what_it_cannot_read_in_words()
+    {
+        (_, JsonElement within) = await PostAsync("relation", ("sr", "3857"),
+            ("geometries1", $"[{Inner}]"), ("geometries2", $"[{Square}]"),
+            ("relation", "esriGeometryRelationRelation"), ("relationParam", "RELATE(G1, G2, 'T*F**F***')"));
+        Assert.Single(within.GetProperty("relations").EnumerateArray());
+
+        (_, JsonElement nonsense) = await PostAsync("relation", ("sr", "3857"),
+            ("geometries1", $"[{Inner}]"), ("geometries2", $"[{Square}]"),
+            ("relation", "esriGeometryRelationRelation"), ("relationParam", "G1 TOUCH G2"));
+        string message = nonsense.GetProperty("error").GetProperty("message").GetString()!;
+        Assert.Contains("RELATE(G1, G2", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Should be length", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Gars_and_georef_are_written_and_read()
+    {
+        (_, JsonElement written) = await PostAsync("toGeoCoordinateString", ("sr", "4326"),
+            ("coordinates", "[[29,41]]"), ("conversionType", "GeoRef"), ("numOfDigits", "2"));
+        Assert.Equal("PJQM0000", written.GetProperty("strings")[0].GetString());
+
+        (_, JsonElement read) = await PostAsync("fromGeoCoordinateString", ("sr", "4326"),
+            ("strings", "[\"419LY37\"]"), ("conversionType", "GARS"));
+        JsonElement point = read.GetProperty("coordinates")[0];
+        Assert.InRange(point[0].GetDouble(), 29.0, 29.0834);
+        Assert.InRange(point[1].GetDouble(), 41.0, 41.0834);
+    }
+
+    [Fact]
+    public async Task Pjson_is_indented()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        using HttpClient http = Client();
+        string text = await http.GetStringAsync(new Uri($"{root}{Service}?f=pjson&token={token}"));
+        Assert.Contains("\n", text.Trim(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Cut_takes_a_list_of_targets_and_says_which_each_piece_came_from()
     {
         (_, JsonElement body) = await PostAsync("cut", ("sr", "3857"),
