@@ -11,6 +11,9 @@
 
 > **Amended 2026-10-01 by [ADR-124](ADR-124-an-image-service-is-shared-to-a-group.md).** §5.1's refusal now covers `identify` too, and an image service is shared to a group.
 
+
+> **Amended 2026-10-02 by [ADR-136](ADR-136-an-elevation-model-is-shaded-and-sloped.md).** Hillshade, Slope and Aspect are applied by `renderingRule`; any other function is still refused by name.
+
 ---
 
 ## 1. Context

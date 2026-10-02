@@ -136,6 +136,11 @@ public sealed class CoverageStyle
             ["viridis"] = Stops((0, 0x44, 0x01, 0x54), (0.25, 0x3b, 0x52, 0x8b), (0.5, 0x21, 0x91, 0x8c), (0.75, 0x5e, 0xc9, 0x62), (1, 0xfd, 0xe7, 0x25)),
             ["blues"] = Stops((0, 0xf7, 0xfb, 0xff), (0.5, 0x6b, 0xae, 0xd6), (1, 0x08, 0x30, 0x6b)),
             ["reds"] = Stops((0, 0xff, 0xf5, 0xf0), (0.5, 0xfb, 0x6a, 0x4a), (1, 0x67, 0x00, 0x0d)),
+
+            // ADR-136: a slope's ramp, flat green to steep red, and an aspect's colour wheel, north red all round to red.
+            ["slope"] = Stops((0, 0x38, 0xa8, 0x00), (0.25, 0xa8, 0xd4, 0x00), (0.5, 0xff, 0xff, 0x00), (0.75, 0xff, 0x80, 0x00), (1, 0xff, 0x00, 0x00)),
+            ["aspect"] = Stops((0, 0xff, 0x00, 0x00), (0.125, 0xff, 0xa6, 0x00), (0.25, 0xff, 0xff, 0x00), (0.375, 0x00, 0xff, 0x00),
+                (0.5, 0x00, 0xff, 0xff), (0.625, 0x00, 0xa6, 0xff), (0.75, 0x00, 0x00, 0xff), (0.875, 0xff, 0x00, 0xff), (1, 0xff, 0x00, 0x00)),
         };
 
     private static RampStop[] Stops(params (double At, byte R, byte G, byte B)[] stops) =>
@@ -409,13 +414,19 @@ public sealed class CoverageStyle
 
         if (semicolon >= 0)
         {
-            string tail = value[(semicolon + 1)..].Trim();
+            string[] tails = value[(semicolon + 1)..].Split(';');
             value = value[..semicolon].Trim();
 
-            if (tail.StartsWith("ramp:", StringComparison.OrdinalIgnoreCase)
-                && NamedRamps.ContainsKey(tail["ramp:".Length..].Trim()))
+            // Each segment for itself — a ramp and a raster function (ADR-136) may both follow the stretch.
+            foreach (string part in tails)
             {
-                rampName = tail["ramp:".Length..].Trim().ToLowerInvariant();
+                string tail = part.Trim();
+
+                if (tail.StartsWith("ramp:", StringComparison.OrdinalIgnoreCase)
+                    && NamedRamps.ContainsKey(tail["ramp:".Length..].Trim()))
+                {
+                    rampName = tail["ramp:".Length..].Trim().ToLowerInvariant();
+                }
             }
         }
 

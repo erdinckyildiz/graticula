@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>2e46683</code> · 2026-10-02 00:12</p>
+<p class="stamp">Şu commit’ten üretildi: <code>34afa0f</code> · 2026-10-02 11:23</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">134</div><div class="kpi-l">ADR</div><div class="kpi-n">46 koşulsuz kabul</div></div>
+<div class="kpi "><div class="kpi-v">135</div><div class="kpi-l">ADR</div><div class="kpi-n">47 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">285/378</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">90 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4436</div><div class="kpi-l">test</div><div class="kpi-n">427 kaynak dosya, 189,139 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4452</div><div class="kpi-l">test</div><div class="kpi-n">428 kaynak dosya, 189,577 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -339,6 +339,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">133</td><td>The Map Viewer prints the view as a page</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — composed in the browser from what the map already drew; no print service</td><td class="num"></td></tr>
 <tr><td class="id">134</td><td>Features are edited in the browser</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every write goes through the layer&#x27;s own applyEdits, which ArcGIS clients…</td><td class="num">3/3</td></tr>
 <tr><td class="id">135</td><td>A service counts its use</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — what is counted is measured; that a count is what an administrator needs is…</td><td class="num"></td></tr>
+<tr><td class="id">136</td><td>An elevation model is shaded, sloped and given its aspect</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — the arithmetic is checked on planes whose answers are known in closed form, and…</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -460,7 +461,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1232</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:61.0%"></div></div><div class="bar-n">751</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:62.3%"></div></div><div class="bar-n">767</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:53.2%"></div></div><div class="bar-n">655</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
@@ -474,6 +475,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>34afa0f</code><time>2026-10-02</time><span>A service counts its use, and the owner sees what nobody uses</span></li>
 <li><code>2e46683</code><time>2026-10-02</time><span>Attributes are edited in the attribute table and saved together</span></li>
 <li><code>bb5346b</code><time>2026-10-01</time><span>A feature is drawn and added in the Map Viewer, and deleted from its card</span></li>
 <li><code>6692d3e</code><time>2026-10-01</time><span>A feature&#x27;s attributes are edited in its card, and imagery&#x27;s scope is the owner&#x27;s decision</span></li>
@@ -487,7 +489,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>d155dcf</code><time>2026-10-01</time><span>An imagery item describes itself, has a picture, and sits in its owner&#x27;s folder</span></li>
 <li><code>276e56d</code><time>2026-10-01</time><span>An image service is shared to a group, has a legend and statistics, and identify refuses what it does not apply</span></li>
 <li><code>7fbea3a</code><time>2026-10-01</time><span>Imagery is uploaded, styled and drawn from Studio, and the Map Viewer adds it</span></li>
-<li><code>9a145b5</code><time>2026-10-01</time><span>An image export refuses what it does not apply, and imagery comes into Studio</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

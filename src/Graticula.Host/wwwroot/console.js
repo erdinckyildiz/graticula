@@ -6977,7 +6977,7 @@ function drawServiceHead(item) {
     <div class="itemhead">
       ${imagery
         ? `<div class="thumbcol"><img class="thumb" id="layerThumb" alt=""
-             data-thumb="${h(thumbnailFor(`/rest/services/${item.name}/ImageServer`))}"></div>`
+             data-thumb="${h(thumbnailFor(`/rest/services/${item.name}/ImageServer`))}&v=${Date.now()}"></div>`
         : item.cover
         ? `<div class="thumbcol"><img class="thumb" id="layerThumb" alt="" loading="lazy"
              data-thumb="${h(thumbnailFor(item.cover.url))}">${item.manages !== false && coverLayer ? `
@@ -27927,6 +27927,17 @@ async function uploadImagery(event) {
 const FULL_RANGES = { Unsigned8: "0 to 255", Unsigned16: "0 to 65,535", Signed16: "0 to 32,767",
   Signed32: "0 to 2,147,483,647" };
 
+/** The raster functions an elevation model may be shown through, as ArcGIS names them (ADR-136). */
+const COVERAGE_FUNCTIONS = [["hillshade", "Hillshade"], ["slope", "Slope (degrees)"], ["aspect", "Aspect (direction)"]];
+
+/** What each function shows, under the choice. */
+const COVERAGE_FUNCTION_SAID = {
+  none: "",
+  hillshade: "Relief lit by a sun in the north-west, 45° up.",
+  slope: "How steep the ground is, in degrees.",
+  aspect: "Which way the ground faces. Flat ground has no direction and is left transparent.",
+};
+
 /** The ramps' names as a person reads them. */
 const COVERAGE_RAMPS = { terrain: "Terrain", spectral: "Spectral", viridis: "Viridis", blues: "Blues", reds: "Reds" };
 
@@ -27966,19 +27977,28 @@ async function drawCoverageDisplay(service, folder, doc) {
   box.innerHTML = `
     <div class="coveragedisplay">
       <div>
+        ${ramps ? `<label class="field stacked" for="covFunction">Shown as</label>
+          <select id="covFunction" aria-describedby="covFunctionSays">
+            <option value="none"${said.function === "none" ? " selected" : ""}>Its values</option>
+            ${COVERAGE_FUNCTIONS.map(([key, label]) => `<option value="${key}"${said.function === key ? " selected" : ""}>${label}</option>`).join("")}
+          </select>
+          <p class="hint" id="covFunctionSays">${/^Unsigned8$/.test(said.kind || "")
+            ? "This looks like an image rather than heights. Hillshade, slope and aspect only mean something for an elevation model."
+            : "Hillshade, slope and aspect are for an elevation model, whose values are heights."}</p>` : ""}
+        <div id="covValueControls">
         ${ramps ? `<label class="field">Colours
           <span class="rampchoice"><select id="covRamp">
             <option value="">Greyscale</option>
             ${Object.entries(COVERAGE_RAMPS).map(([key, label]) => `<option value="${key}"${said.ramp === key ? " selected" : ""}>${label}</option>`).join("")}
           </select><span class="rampswatch" id="covRampSwatch" aria-hidden="true"></span></span></label>`
           : `<p class="hint">Three or more bands are drawn as red, green and blue. Colours apply to single-band images.</p>`}
-        <label class="field">Stretch
+        <label class="field stacked" for="covStretch">Stretch</label>
           <select id="covStretch">
             <option value="auto"${said.stretch === "auto" ? " selected" : ""}>From the image's values (default)</option>
             ${/^Float/i.test(said.kind || "") ? "" : `<option value="full"${said.stretch === "full" ? " selected" : ""}>The pixel type's full range${
               FULL_RANGES[said.kind] ? ` (${FULL_RANGES[said.kind]})` : ""}</option>`}
             <option value="fixed"${said.stretch === "fixed" ? " selected" : ""}>A range I choose</option>
-          </select></label>
+          </select>
         <div class="row" id="covRange"${said.stretch === "fixed" ? "" : " hidden"}>
           <label class="field">From<input type="number" step="any" id="covMin" value="${said.minimum ?? (stats ? stats.minimum : "")}"></label>
           <label class="field">To<input type="number" step="any" id="covMax" value="${said.maximum ?? (stats ? stats.maximum : "")}"
@@ -27986,6 +28006,7 @@ async function drawCoverageDisplay(service, folder, doc) {
         </div>
         <p class="hint error" id="covRangeSays" role="alert"></p>
         ${range ? `<p class="hint">The image's values run ${h(range)}${said.bands > 1 ? " in its first band" : ""}.</p>` : ""}
+        </div>
         <div class="row covsave"><button type="button" class="primary" id="covSave">Save</button></div>
         <p class="hint" id="covSays" role="status" aria-live="polite"></p>
       </div>
@@ -27993,6 +28014,7 @@ async function drawCoverageDisplay(service, folder, doc) {
         <img class="coveragepreview" id="covPreview" alt="${h(service)} as these settings draw it"
           width="${size.width}" height="${size.height}" style="aspect-ratio: ${size.width} / ${size.height}">
         <div class="ramplegend" id="covLegend" aria-hidden="true"></div>
+        <div class="rampticks" id="covLegendTicks" aria-hidden="true"></div>
         <figcaption class="hint" id="covLegendSays"></figcaption>
       </figure>
     </div>`;
@@ -28000,7 +28022,9 @@ async function drawCoverageDisplay(service, folder, doc) {
   // <b>What the controls say, and whether it can be sent.</b> An empty box is not zero.
   const chosen = () => {
     const stretch = $("covStretch").value;
-    const body = { stretch, ramp: $("covRamp") ? $("covRamp").value || null : null };
+    const body = { stretch, ramp: $("covRamp") ? $("covRamp").value || null : null,
+      function: $("covFunction") ? $("covFunction").value : "none" };
+    // A raster function draws in its own colours; the value settings rest and are kept for when it is set back.
     if (stretch === "fixed") {
       const low = $("covMin").value.trim();
       const top = $("covMax").value.trim();
@@ -28037,9 +28061,27 @@ async function drawCoverageDisplay(service, folder, doc) {
       says.textContent = "Each band is stretched over the image's values, shown as red, green and blue.";
     }
 
+    // ADR-136: a raster function shows its own result in its own colours, and says what they mean.
+    const fn = body.function || "none";
+    if ($("covValueControls")) $("covValueControls").hidden = fn !== "none";
+    if ($("covFunctionSays") && fn !== "none") $("covFunctionSays").textContent = COVERAGE_FUNCTION_SAID[fn];
+    if (fn !== "none") {
+      $("covLegend").hidden = false;
+      $("covLegend").style.background = fn === "hillshade" ? coverageRampCss(null) : coverageRampCss(fn);
+      says.textContent = { hillshade: "Shade runs from black, facing away from the sun, to white, facing it.",
+        slope: "Colours run from flat (0°) to 45° and steeper.",
+        aspect: "Colours run round the compass: north, east, south, west and north again." }[fn];
+    }
+    // The legend's ends, so the bar is read without the sentence (design review 2026-10-02).
+    if ($("covLegendTicks")) {
+      $("covLegendTicks").innerHTML = (fn === "slope" ? ["0°", "15°", "30°", "45°+"]
+        : fn === "aspect" ? ["N", "E", "S", "W", "N"]
+        : fn === "hillshade" ? ["Shadow", "Lit"] : []).map(t => `<span>${t}</span>`).join("");
+    }
+
     const low = body.stretch === "fixed" ? body.minimum : said.stretch === "fixed" && body.stretch === said.stretch ? said.minimum : stats?.minimum;
     const top = body.stretch === "fixed" ? body.maximum : said.stretch === "fixed" && body.stretch === said.stretch ? said.maximum : stats?.maximum;
-    if (ramps) $("covLegend").style.background = coverageRampCss(body.ramp);
+    if (ramps && fn === "none") $("covLegend").style.background = coverageRampCss(body.ramp);
     const shown = body.stretch === "full" ? "the pixel type's full range"
       : Number.isFinite(low) && Number.isFinite(top) ? `${Number(low.toPrecision(6))} to ${Number(top.toPrecision(6))}` : "";
     let warning = "";
@@ -28047,10 +28089,11 @@ async function drawCoverageDisplay(service, folder, doc) {
       if (stats.minimum >= body.maximum) warning = ` Every value is above ${Number(body.maximum.toPrecision(6))}, so the whole image is one colour.`;
       else if (stats.maximum <= body.minimum) warning = ` Every value is below ${Number(body.minimum.toPrecision(6))}, so the whole image is one colour.`;
     }
-    if (ramps) says.textContent = (shown ? `Colours run left to right over ${shown}.` : "") + warning;
+    if (ramps && fn === "none") says.textContent = (shown ? `Colours run left to right over ${shown}.` : "") + warning;
 
     const query2 = new URLSearchParams({ folder: folder || "", stretch: body.stretch, width: size.width, height: size.height });
     if (body.ramp) query2.set("ramp", body.ramp);
+    if (fn !== "none") query2.set("function", fn);
     if (body.stretch === "fixed") { query2.set("minimum", body.minimum); query2.set("maximum", body.maximum); }
     try {
       const response = await fetch(`/admin/coverages/${encodeURIComponent(service)}/preview?${query2}`,
@@ -28068,6 +28111,7 @@ async function drawCoverageDisplay(service, folder, doc) {
   const soon = () => { clearTimeout(pending); pending = setTimeout(redraw, 250); };
   $("covStretch").addEventListener("change", () => { $("covRange").hidden = $("covStretch").value !== "fixed"; redraw(); });
   $("covRamp")?.addEventListener("change", redraw);
+  $("covFunction")?.addEventListener("change", redraw);
   $("covMin").addEventListener("input", soon);
   $("covMax").addEventListener("input", soon);
   redraw();
@@ -28102,6 +28146,8 @@ function coverageRampCss(ramp) {
     viridis: ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"],
     blues: ["#f7fbff", "#6baed6", "#08306b"],
     reds: ["#fff5f0", "#fb6a4a", "#67000d"],
+    slope: ["#38a800", "#a8d400", "#ffff00", "#ff8000", "#ff0000"],
+    aspect: ["#ff0000", "#ffa600", "#ffff00", "#00ff00", "#00ffff", "#00a6ff", "#0000ff", "#ff00ff", "#ff0000"],
   }[ramp] || ["#000", "#fff"];
   return `linear-gradient(to right, ${stops.join(", ")})`;
 }

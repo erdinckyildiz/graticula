@@ -70,6 +70,12 @@ internal sealed class ImageServerExportParameters
     public MapImageFormat Format { get; }
 
     /// <summary>
+    /// The raster function asked for by <c>renderingRule</c> — ADR-136: null when none was asked for (the service's own
+    /// drawing), <see cref="RasterFunction.None"/> when the values themselves were.
+    /// </summary>
+    public RasterFunction? Function { get; private init; }
+
+    /// <summary>
     /// Whether the values are asked for rather than a picture — <c>format=tiff</c>, ADR-127: a GeoTIFF of the pixels
     /// in their own type, unstyled.
     /// </summary>
@@ -107,7 +113,7 @@ internal sealed class ImageServerExportParameters
         asked = null;
 
         // <b>What this server does not do is refused, not drawn as if it were — ADR-123, D-125.</b>
-        if (!TryUnoffered(parameter, info, out error))
+        if (!TryUnoffered(parameter, info, out RasterFunction? function, out error))
         {
             return false;
         }
@@ -156,7 +162,7 @@ internal sealed class ImageServerExportParameters
             return false;
         }
 
-        asked = new ImageServerExportParameters(extent, width, height, format, srid, raw);
+        asked = new ImageServerExportParameters(extent, width, height, format, srid, raw) { Function = function };
         return true;
     }
 
@@ -177,17 +183,25 @@ internal sealed class ImageServerExportParameters
     /// not a different picture, and ADR-123 records the exception.
     /// </para>
     /// </remarks>
-    internal static bool TryUnoffered(Func<string, string?> parameter, CoverageInfo info, out string? error)
-    {
-        error = null;
+    internal static bool TryUnoffered(Func<string, string?> parameter, CoverageInfo info, out string? error) =>
+        TryUnoffered(parameter, info, out _, out error);
 
-        if (parameter("renderingRule") is { Length: > 0 } rule
-            && !rule.Replace(" ", string.Empty, StringComparison.Ordinal).Trim().Equals("{}", StringComparison.Ordinal)
-            && !rule.Contains("\"None\"", StringComparison.OrdinalIgnoreCase))
+    /// <summary>As <see cref="TryUnoffered(Func{string, string?}, CoverageInfo, out string?)"/>, with the raster function
+    /// asked for — ADR-136: Hillshade, Slope and Aspect are applied, any other function is refused by name.</summary>
+    internal static bool TryUnoffered(
+        Func<string, string?> parameter, CoverageInfo info, out RasterFunction? function, out string? error)
+    {
+        if (!RasterFunction.TryParseRule(parameter("renderingRule"), out function, out error))
         {
-            error = "`renderingRule` asks for a raster function, and this image service applies none "
-                + "(`allowRasterFunction` is false). It draws the image in its own style; refused rather than drawn as if "
-                + "the function had been applied.";
+            return false;
+        }
+
+        // A slope or a shade is of one band of measurements; a colour image's first band is not a surface.
+        if (function is { Kind: not RasterFunctionKind.None } && info.Bands.Count >= 3)
+        {
+            error = $"`renderingRule` asks for {function.Kind}, which works on one band of measurements such as an "
+                + "elevation model; this image service is a colour image.";
+            function = null;
             return false;
         }
 

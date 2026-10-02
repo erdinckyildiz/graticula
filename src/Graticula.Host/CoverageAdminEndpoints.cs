@@ -366,7 +366,8 @@ internal static class CoverageAdminEndpoints
     /// <param name="Minimum">The low end of a fixed stretch.</param>
     /// <param name="Maximum">The high end of a fixed stretch.</param>
     /// <param name="Ramp">A colour ramp for a single band, or null for greyscale.</param>
-    internal sealed record CoverageStyleRequest(string? Stretch, double? Minimum, double? Maximum, string? Ramp);
+    /// <param name="Function">The raster function it is shown through — ADR-136 — or null or none.</param>
+    internal sealed record CoverageStyleRequest(string? Stretch, double? Minimum, double? Maximum, string? Ramp, string? Function = null);
 
     /// <summary>The coverage, when the caller owns it or administers content; otherwise the refusal is written.</summary>
     private static async Task<PublishedCoverage?> ManagedAsync(
@@ -409,6 +410,11 @@ internal static class CoverageAdminEndpoints
             maximum = drawn.Maximum,
             ramp = drawn.RampName,
             ramps = CoverageStyle.NamedRamps.Keys,
+            // ADR-136: the raster function it is shown through, and the ones it may be.
+            function = RasterFunction.FromStyleText(coverage.Style).Kind is var shownAs && shownAs != RasterFunctionKind.None
+                ? shownAs.ToString().ToLowerInvariant()
+                : "none",
+            functions = RasterFunction.Names,
             bands = coverage.Info.Bands.Count,
             kind = coverage.Info.Bands.Count > 0 ? coverage.Info.Bands[0].Kind.ToString() : null,
             // Whether deleting the service deletes the file — an upload — or leaves it, being registered in place.
@@ -477,7 +483,28 @@ internal static class CoverageAdminEndpoints
             return null;
         }
 
-        return ramp is null ? stretch : $"{stretch};ramp:{ramp}";
+        // ADR-136: the raster function the service is shown through, by default — of one band of measurements.
+        string? function = string.IsNullOrWhiteSpace(request.Function) || request.Function.Trim().Equals("none", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : request.Function.Trim().ToLowerInvariant();
+
+        if (function is not null)
+        {
+            if (!Enum.TryParse(function, ignoreCase: true, out RasterFunctionKind kind) || kind == RasterFunctionKind.None)
+            {
+                error = $"'{function}' is not a raster function this server applies; {string.Join(", ", RasterFunction.Names)} are.";
+                return null;
+            }
+
+            if (coverage.Info.Bands.Count >= 3)
+            {
+                error = "A raster function works on one band of measurements, an elevation model; this image is a colour image.";
+                return null;
+            }
+        }
+
+        string text = ramp is null ? stretch : $"{stretch};ramp:{ramp}";
+        return function is null ? text : $"{text};function:{function}";
     }
 
     /// <summary>
@@ -486,7 +513,7 @@ internal static class CoverageAdminEndpoints
     /// </summary>
     private static async Task PreviewAsync(
         HttpContext context, string name, string? folder, string? stretch, double? minimum, double? maximum, string? ramp,
-        int? width, int? height, ICoverageCatalog coverages, ICoverageReaderFactory readers, IMapCanvasFactory canvases,
+        string? function, int? width, int? height, ICoverageCatalog coverages, ICoverageReaderFactory readers, IMapCanvasFactory canvases,
         IProjector projector, ConnectionBudget budget, HostSettings settings, CancellationToken cancellation)
     {
         string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
@@ -496,7 +523,7 @@ internal static class CoverageAdminEndpoints
             return;
         }
 
-        if (StyleText(new CoverageStyleRequest(stretch, minimum, maximum, ramp), coverage, out string? error) is not { } text)
+        if (StyleText(new CoverageStyleRequest(stretch, minimum, maximum, ramp, function), coverage, out string? error) is not { } text)
         {
             await Refuse(context, 400, error!).ConfigureAwait(false);
             return;

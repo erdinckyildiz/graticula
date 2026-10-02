@@ -284,6 +284,60 @@ public sealed class ImageryDisplayTests : ArcGisClient
                 Assert.All(measured, v => Assert.InRange(v, 800f, 2500f));
             }
 
+            // ADR-136: raster functions. The model rises 1700/126 m a cell east and south over cells of 0.01° at about
+            // 40.7° N, so its slope is a little over one degree and it faces north-west.
+            JsonElement root2 = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}?f=json")).Body).RootElement;
+            Assert.True(root2.GetProperty("allowRasterFunction").GetBoolean());
+            Assert.Contains("Hillshade", root2.GetProperty("rasterFunctionInfos").EnumerateArray().Select(f => f.GetProperty("name").GetString()));
+
+            string Rule(string function) => Uri.EscapeDataString($"{{\"rasterFunction\":\"{function}\"}}");
+            string inside = "bbox=30.1,40.5,30.5,40.9&bboxSR=4326&size=32,32";
+
+            float[] slope = Floats((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?{inside}&format=tiff&renderingRule={Rule("Slope")}&f=image")).Body);
+            float[] slopes = [.. slope.Where(v => !float.IsNaN(v))];
+            Assert.NotEmpty(slopes);
+            Assert.All(slopes, v => Assert.InRange(v, 0.7f, 1.6f));
+
+            float[] aspect = Floats((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?{inside}&format=tiff&renderingRule={Rule("Aspect")}&f=image")).Body);
+            Assert.All(aspect.Where(v => !float.IsNaN(v)), v => Assert.InRange(v, 285f, 345f));
+
+            // A hillshade is drawn grey; identify through Slope answers the slope there.
+            List<(byte Red, byte Green)> shade = Pixels((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?{inside}&format=png&renderingRule={Rule("Hillshade")}&f=image")).Body);
+            Assert.All(shade, p => Assert.Equal(p.Red, p.Green));
+            string slopeHere = Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/identify?geometry=30.3,40.7&geometryType=esriGeometryPoint&renderingRule={Rule("Slope")}&f=json")).Body);
+            double slopeValue = double.Parse(JsonDocument.Parse(slopeHere).RootElement.GetProperty("value").GetString()!,
+                System.Globalization.CultureInfo.InvariantCulture);
+            Assert.InRange(slopeValue, 0.7, 1.6);
+
+            // A function this server does not apply is refused by name.
+            string ndvi = Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?{inside}&renderingRule={Rule("NDVI")}&f=image")).Body);
+            Assert.Contains("NDVI", ndvi, StringComparison.Ordinal);
+
+            // The owner shows the service as its slope by default: a plain draw is then the slope's colours.
+            (HttpStatusCode shownAs, byte[] shownBody) = await SendAsync(root, token!, HttpMethod.Put, $"/admin/coverages/{name}/style?folder=hosted",
+                new StringContent("{\"function\":\"slope\"}", Encoding.UTF8, "application/json"));
+            Assert.True(shownAs == HttpStatusCode.OK, Encoding.UTF8.GetString(shownBody));
+            // Barely a degree everywhere, so the slope ramp's flat end: green, not the grey of the values.
+            Assert.All(Pixels((await SendAsync(root, token!, HttpMethod.Get, draw)).Body), p => Assert.True(p.Green - p.Red > 60, $"{p.Red},{p.Green}"));
+            Assert.Equal("slope", JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"/admin/coverages/{name}/style?folder=hosted")).Body)
+                .RootElement.GetProperty("function").GetString());
+
+            // The service says its default, identify answers through it and says which, and None asks for the height.
+            Assert.Equal("Slope", JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}?f=json")).Body)
+                .RootElement.GetProperty("defaultRasterFunction").GetString());
+            JsonElement byDefault = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/identify?geometry=30.3,40.7&geometryType=esriGeometryPoint&f=json")).Body).RootElement;
+            Assert.Equal("Slope", byDefault.GetProperty("rasterFunction").GetString());
+            JsonElement asHeight = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/identify?geometry=30.3,40.7&geometryType=esriGeometryPoint&renderingRule={Rule("None")}&f=json")).Body).RootElement;
+            Assert.False(asHeight.TryGetProperty("rasterFunction", out _));
+            Assert.InRange(double.Parse(asHeight.GetProperty("value").GetString()!, System.Globalization.CultureInfo.InvariantCulture), 800, 2500);
+
             // A fixed range that runs backwards, and a ramp that does not exist, are refused.
             (HttpStatusCode backwards, _) = await SendAsync(root, token!, HttpMethod.Put, $"/admin/coverages/{name}/style?folder=hosted",
                 new StringContent("{\"stretch\":\"fixed\",\"minimum\":2000,\"maximum\":1000}", Encoding.UTF8, "application/json"));

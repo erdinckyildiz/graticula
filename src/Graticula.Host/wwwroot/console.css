@@ -4588,3 +4588,10 @@ h4.spaced { margin-top: 24px; }
   #view-content .widetable th:last-child, #contentRows td:last-child { display: none; }
   #contentRows td.name { min-width: 0; width: auto; }
 }
+
+/* ADR-136: the legend's ends under a raster function's bar. */
+.coveragedisplay .rampticks { display: flex; justify-content: space-between; max-width: 360px; font-size: 11px;
+  color: var(--muted, #576a66); margin-top: 2px; }
+.coveragedisplay .rampticks:empty { display: none; }
+.coveragedisplay label.stacked { display: block; }
+.coveragedisplay #covFunction { width: 100%; margin-bottom: 4px; }

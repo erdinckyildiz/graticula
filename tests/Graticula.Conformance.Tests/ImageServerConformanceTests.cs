@@ -586,7 +586,8 @@ public sealed class ImageServerConformanceTests : ArcGisClient
 
         foreach (string extra in new[]
         {
-            "renderingRule=" + Uri.EscapeDataString("{\"rasterFunction\":\"Hillshade\"}"),
+            // ADR-136: a function this server does not apply (Hillshade, Slope and Aspect it does).
+            "renderingRule=" + Uri.EscapeDataString("{\"rasterFunction\":\"NDVI\"}"),
             "bandIds=2,1,0",
             "mosaicRule=" + Uri.EscapeDataString("{\"mosaicMethod\":\"esriMosaicLockRaster\"}"),
             "time=1700000000000",
@@ -941,7 +942,8 @@ public sealed class ImageServerConformanceTests : ArcGisClient
 
         foreach (string extra in new[]
         {
-            "renderingRule=" + Uri.EscapeDataString("{\"rasterFunction\":\"Slope\"}"),
+            // ADR-136 applies Slope, Hillshade and Aspect; a function it does not is refused.
+            "renderingRule=" + Uri.EscapeDataString("{\"rasterFunction\":\"NDVI\"}"),
             "mosaicRule=" + Uri.EscapeDataString("{\"mosaicMethod\":\"esriMosaicLockRaster\",\"lockRasterIds\":[1]}"),
         })
         {

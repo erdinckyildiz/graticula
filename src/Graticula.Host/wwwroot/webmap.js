@@ -826,7 +826,9 @@ function wmBuildLayer(layer, run, index) {
     const source = new ol.source.ImageArcGISRest({
       url: layer.url,
       ratio: 1,
-      params: kind === "imagery" ? { FORMAT: "png" } : { TRANSPARENT: true },
+      params: kind === "imagery"
+        ? { FORMAT: "png", ...(layer.renderingRule ? { RENDERINGRULE: JSON.stringify(layer.renderingRule) } : {}) }
+        : { TRANSPARENT: true },
     });
 
     source.on("imageloaderror", () => {
@@ -1113,6 +1115,14 @@ function wmDrawLayerList() {
           <button class="tiny" data-act="table" data-layer="${wmEscape(key)}" data-focus="table:${wmEscape(key)}"
           aria-pressed="${wmTable.layer === layer ? "true" : "false"}"
           aria-label="Attribute table of ${wmEscape(title)}">Table</button>` : ""}
+        ${readable && kind === "imagery" && wmFunctionsOffered(run.info) ? `<div class="lrule">
+          <label class="lkind" for="rule-${wmEscape(key)}">Shown as</label>
+          <select id="rule-${wmEscape(key)}" data-act="renderingRule" data-layer="${wmEscape(key)}" data-focus="rule:${wmEscape(key)}">
+            ${[["", `As the service draws it${run.info.defaultRasterFunction ? ` (${wmFunctionLabel(run.info.defaultRasterFunction)})` : ""}`],
+              ["None", "Its values"], ["Hillshade", "Hillshade"], ["Slope", "Slope (degrees)"], ["Aspect", "Aspect (direction)"]].map(([v, n]) =>
+              `<option value="${v}"${((layer.renderingRule || {}).rasterFunction || "") === v ? " selected" : ""}>${wmEscape(n)}</option>`).join("")}
+          </select>
+          ${wmFunctionKey(wmShownFunction(layer, run.info))}</div>` : ""}
         ${readable && kind === "imagery" ? `<button class="tiny" data-act="pixels" data-layer="${wmEscape(key)}"
           data-focus="pixels:${wmEscape(key)}" aria-pressed="${layer.popupEnabled === false ? "false" : "true"}"
           title="Show pixel values when the map is clicked">Pixel values</button>` : ""}
@@ -1661,6 +1671,23 @@ async function wmSetFilter(layer, expression) {
 wm$("layerList").addEventListener("change", event => {
   const t = event.target;
 
+  // ADR-136: an imagery layer shown through a raster function — the Web Map's own `renderingRule`.
+  if (t.dataset && t.dataset.act === "renderingRule") {
+    const layer = wmLayerById(t.dataset.layer);
+    const run = layer && wmRuntime.get(layer);
+    if (!layer) return;
+    if (t.value) layer.renderingRule = { rasterFunction: t.value };
+    else delete layer.renderingRule;
+    const source = run && run.ol && run.ol.getSource && run.ol.getSource();
+    if (source && source.updateParams) source.updateParams({ RENDERINGRULE: layer.renderingRule ? JSON.stringify(layer.renderingRule) : undefined });
+    wmMarkDirty();
+    wmDrawLayerList();
+    wmSayIn("layersStatus", t.value === "None" ? `${layer.title} is shown as its values.`
+      : t.value ? `${layer.title} is shown as its ${wmFunctionLabel(t.value).toLowerCase()}.`
+      : `${layer.title} is back to the service's own drawing.`);
+    return;
+  }
+
   if (t.dataset && t.dataset.styleHow) {
     const layer = wmLayerById(t.dataset.styleHow);
     const run = layer && wmRuntime.get(layer);
@@ -2208,9 +2235,10 @@ async function wmIdentify(coordinate) {
       const said = await wmFetch(`${layer.url}/identify?` + wmParams({
         geometry: JSON.stringify({ x: coordinate[0], y: coordinate[1], spatialReference: { wkid: 102100, latestWkid: 3857 } }),
         geometryType: "esriGeometryPoint",
+        ...(layer.renderingRule ? { renderingRule: JSON.stringify(layer.renderingRule) } : {}),
         f: "json",
       }));
-      return { layer, value: said && said.value };
+      return { layer, value: said && said.value, fn: said && said.rasterFunction };
     } catch (e) {
       return { layer, error: e.message || String(e) };
     }
@@ -2243,14 +2271,14 @@ async function wmIdentify(coordinate) {
   let count = 0;
   let valued = 0;
   let failed = 0;
-  const pixelSections = pixelFound.map(({ layer, value, error }) => {
+  const pixelSections = pixelFound.map(({ layer, value, error, fn }) => {
     if (error) {
       failed++;
       return { layer, html: `<h3>${wmEscape(layer.title)}</h3><p>Could not be asked: ${wmEscape(error)}</p>` };
     }
     if (value === null || value === undefined || value === "" || value === "NoData") return { layer, html: "" };
     valued++;
-    return { layer, html: `<h3>${wmEscape(layer.title)}</h3>${wmPixelMarkup(layer, value)}` };
+    return { layer, html: `<h3>${wmEscape(layer.title)}</h3>${wmPixelMarkup(layer, value, fn)}` };
   });
   const featureSections = answers.map(({ layer, payload, error }) => {
     const info = (wmRuntime.get(layer) || {}).info;
@@ -2310,7 +2338,7 @@ async function wmIdentify(coordinate) {
  * A pixel's value as a reader reads it — ADR-123: one row a band, named red, green and blue for a colour image,
  * and each a number to the precision its type holds rather than the seventeen digits a double prints.
  */
-function wmPixelMarkup(layer, value) {
+function wmPixelMarkup(layer, value, fn = null) {
   const parts = String(value).trim().split(/\s+/);
   const info = (wmRuntime.get(layer) || {}).info || {};
   const colour = parts.length >= 3;
@@ -2321,7 +2349,8 @@ function wmPixelMarkup(layer, value) {
     return Number.isFinite(number) ? number.toLocaleString(undefined, { maximumSignificantDigits: 7 }) : text;
   };
   return `<table class="feature pixel">${parts.map((part, i) => `<tr><th scope="row">${
-    wmEscape(parts.length === 1 ? "Pixel value" : names[i])}</th><td>${wmEscape(shown(part))}</td></tr>`).join("")}</table>`;
+    wmEscape(parts.length === 1 ? (fn ? wmFunctionLabel(fn) : "Pixel value") : names[i])}</th><td>${
+    wmEscape(fn ? wmFunctionValue(fn, part) : shown(part))}</td></tr>`).join("")}</table>`;
 }
 
 wm$("identify").addEventListener("click", event => {
@@ -3959,6 +3988,51 @@ wm$("identify").addEventListener("submit", event => {
 });
 
 
+// ---------------------------------------------------------------- raster functions on an imagery layer (ADR-136)
+
+/** Whether an image service may be shown through a raster function: one it declares, on one band of measurements. */
+function wmFunctionsOffered(info) {
+  return !!(info && info.allowRasterFunction && (info.bandCount || 1) < 3 && info.pixelType !== "U8"
+    && (info.rasterFunctionInfos || []).some(f => f.name === "Slope"));
+}
+
+/** A function's name as the viewer says it. */
+function wmFunctionLabel(name) {
+  return ({ Hillshade: "Hillshade", Slope: "Slope", Aspect: "Aspect", None: "Value" })[name] || name;
+}
+
+/** What a layer is drawn through now: its own rule, else the service's default, else none. */
+function wmShownFunction(layer, info) {
+  const asked = (layer.renderingRule || {}).rasterFunction;
+  return asked ? (asked === "None" ? null : asked) : (info && info.defaultRasterFunction) || null;
+}
+
+/** A function's key under the layer's row: its colours and their ends. */
+function wmFunctionKey(fn) {
+  if (!fn) return "";
+  const key = {
+    Hillshade: ["linear-gradient(to right, #000, #fff)", ["Shadow", "Lit"]],
+    Slope: ["linear-gradient(to right, #38a800, #a8d400, #ffff00, #ff8000, #ff0000)", ["0°", "15°", "30°", "45°+"]],
+    Aspect: ["linear-gradient(to right, #ff0000, #ffa600, #ffff00, #00ff00, #00ffff, #00a6ff, #0000ff, #ff00ff, #ff0000)", ["N", "E", "S", "W", "N"]],
+  }[fn];
+  return key ? `<div class="rulekey" aria-hidden="true"><div class="rulebar" style="background:${key[0]}"></div>
+    <div class="ruleticks">${key[1].map(t => `<span>${t}</span>`).join("")}</div></div>` : "";
+}
+
+/** A function's value as a reader reads it: degrees for slope, a compass word beside an aspect. */
+function wmFunctionValue(fn, text) {
+  const n = Number(text);
+  if (!Number.isFinite(n)) return text === "NoData" ? "none here" : text;
+  if (fn === "Slope") return `${n.toLocaleString(undefined, { maximumFractionDigits: 1 })}°`;
+  if (fn === "Aspect") {
+    const words = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"];
+    return `${Math.round(n)}° (${words[Math.round(n / 45) % 8]})`;
+  }
+  if (fn === "Hillshade") return `${Math.round(n)} of 255`;
+  return n.toLocaleString(undefined, { maximumSignificantDigits: 7 });
+}
+
+
 // ---------------------------------------------------------------- the attribute table (ADR-130)
 
 /** The table under the map: which layer, which page, and whether it follows the map's extent. */
@@ -4607,6 +4681,14 @@ function wmLegendRows(layer) {
   const run = wmRuntime.get(layer) || {};
   const renderer = ((layer.layerDefinition || {}).drawingInfo || {}).renderer
     || (((run.info || {}).drawingInfo || {}).renderer);
+  // An image is listed by what it is drawn through (ADR-136), its function's ends as its classes.
+  if (wmKind(layer) === "imagery") {
+    const fn = wmShownFunction(layer, run.info);
+    return fn === "Slope" ? [{ label: "Slope, 0° to 45° and steeper", colour: null, shape: "ramp:slope" }]
+      : fn === "Aspect" ? [{ label: "Aspect: N, E, S, W, N left to right", colour: null, shape: "ramp:aspect" }]
+      : fn === "Hillshade" ? [{ label: "Hillshade, shadow to lit", colour: null, shape: "ramp:hillshade" }]
+      : [{ label: "", colour: "#9aa5a0", shape: "area" }];
+  }
   const geometry = String((run.info || {}).geometryType || "");
   const shape = /Point/.test(geometry) ? "point" : /Polyline/.test(geometry) ? "line" : "area";
   if (!renderer || renderer.type === "simple") {
@@ -4629,6 +4711,14 @@ function wmDrawSwatch(c, shape, colour, x, y) {
   } else if (shape === "line") {
     c.strokeStyle = colour || "#576a66"; c.lineWidth = 4;
     c.beginPath(); c.moveTo(x, y + 11); c.lineTo(x + 22, y + 11); c.stroke();
+  } else if (String(shape).startsWith("ramp:")) {
+    // A raster function's continuous colours, as its key on screen draws them (ADR-136).
+    const stops = { slope: ["#38a800", "#a8d400", "#ffff00", "#ff8000", "#ff0000"],
+      aspect: ["#ff0000", "#ffa600", "#ffff00", "#00ff00", "#00ffff", "#00a6ff", "#0000ff", "#ff00ff", "#ff0000"],
+      hillshade: ["#000000", "#ffffff"] }[shape.slice(5)] || ["#000", "#fff"];
+    const g = c.createLinearGradient(x, 0, x + 22, 0);
+    stops.forEach((colour, i) => g.addColorStop(i / (stops.length - 1), colour));
+    c.fillStyle = g; c.fillRect(x, y, 22, 22); c.strokeRect(x, y, 22, 22);
   } else if (shape === "heat") {
     const g = c.createLinearGradient(x, 0, x + 22, 0);
     g.addColorStop(0, "rgb(144,161,190)"); g.addColorStop(0.5, "rgb(250,197,113)"); g.addColorStop(1, "rgb(255,84,35)");

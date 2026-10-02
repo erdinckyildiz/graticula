@@ -17,6 +17,9 @@
 > publishing, styling and Map Viewer are brought into Studio — inferred from the owner's *"Başlayalım"*, confirmed
 > 2026-10-01, [Q-158](../open-questions.md).
 
+
+> **Amended 2026-10-02 by [ADR-136](ADR-136-an-elevation-model-is-shaded-and-sloped.md).** `allowRasterFunction` is true, for Hillshade, Slope and Aspect.
+
 ---
 
 ## 1. What was asked, and what the register already held

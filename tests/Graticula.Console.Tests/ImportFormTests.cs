@@ -380,6 +380,14 @@ public sealed class ImportFormTests : ConsoleTest
                 $"window.__writes.some(w => w.startsWith('PUT') && w.includes('/admin/coverages/{name}/style'))",
                 "Save sent nothing.");
 
+            // ADR-136: shown through a raster function, the value controls rest and the function says what it shows.
+            await Browser.EvaluateAsync<bool>(
+                "(() => { const f = document.getElementById('covFunction'); f.value = 'slope'; f.dispatchEvent(new Event('change')); return true; })()");
+            await WaitForAsync("document.getElementById('covValueControls').hidden"
+                + " && document.getElementById('covFunctionSays').textContent.includes('steep')"
+                + " && document.getElementById('covLegendSays').textContent.includes('flat')",
+                "Choosing Slope did not set the value controls aside and say what it shows.");
+
             // Its Overview has no Layers section, and General says the uploaded file goes with it.
             await OpenAsync($"/studio/#/service/hosted/{name}", token);
             await WaitForAsync("serviceOpenKind === 'ImageServer' && document.getElementById('serviceLayersHead').hidden",

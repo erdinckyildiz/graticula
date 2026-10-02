@@ -308,7 +308,14 @@ internal static class ImageServerEndpoints
             defaultResamplingMethod = "Bilinear",
             maxImageHeight = 4096,
             maxImageWidth = 4096,
-            allowRasterFunction = false,
+            // ADR-136: the functions served, by the names ArcGIS gives them; None first, as ArcGIS lists it.
+            allowRasterFunction = true,
+            // The function the service is drawn through by default, its owner's choice — not ArcGIS's field, read by
+            // Studio's Map Viewer to name what "the service's own drawing" is; absent when it draws its values.
+            defaultRasterFunction = RasterFunction.FromStyleText(coverage.Style).Kind is var shown && shown != RasterFunctionKind.None
+                ? shown.ToString() : null,
+            rasterFunctionInfos = FunctionNames
+                .Select(name => new { name, description = string.Empty, help = string.Empty }).ToArray(),
             // ADR-125: `statistics` answers, from a sample of the image's coarsest resolution.
             supportsStatistics = true,
             supportsAdvancedQueries = false,
@@ -411,9 +418,9 @@ internal static class ImageServerEndpoints
               true is the honest answer and false was a cautious guess about somebody
               else's vocabulary.
 
-              <b>`allowRasterFunction` stays false and is the real limit.</b> That is the
-              flag that would claim server-side function chains, which ADR-043 §3.2
-              leaves out of the first cut.
+              <b>`allowRasterFunction` is true since ADR-136</b>: Hillshade, Slope and Aspect
+              are applied server-side and named in `rasterFunctionInfos`; any other
+              function is refused by name, never drawn as if applied.
             */
             allowAnalysis = true,
 
@@ -615,10 +622,13 @@ internal static class ImageServerEndpoints
             await budget.EnterAsync($"coverage:{coverage.Path}", cancellation)
                 .ConfigureAwait(false);
 
+        // ADR-136: the raster function asked for by `renderingRule`, or the one the service is shown with.
+        RasterFunction function = asked.Function ?? RasterFunction.FromStyleText(style ?? coverage.Style);
+
         // ADR-127: the values themselves, as a GeoTIFF in their own type — read through the same plan the picture is.
         if (asked.Raw)
         {
-            (byte[]? file, string? refusal) = await RawAsync(coverage, asked, readers, projector, cancellation)
+            (byte[]? file, string? refusal) = await RawAsync(coverage, asked, function, readers, projector, cancellation)
                 .ConfigureAwait(false);
 
             if (refusal is not null)
@@ -637,13 +647,13 @@ internal static class ImageServerEndpoints
 
         if (asked.Srid == coverage.Info.Srid)
         {
-            await DrawAlignedAsync(canvas, coverage, asked, readers, style, cancellation)
+            await DrawAlignedAsync(canvas, coverage, asked, readers, style, function, cancellation)
                 .ConfigureAwait(false);
         }
         else
         {
             string? refused = await DrawWarpedAsync(
-                    canvas, coverage, asked, readers, projector, style, cancellation)
+                    canvas, coverage, asked, readers, projector, style, function, cancellation)
                 .ConfigureAwait(false);
 
             if (refused is not null)
@@ -716,6 +726,7 @@ internal static class ImageServerEndpoints
     private static async Task<(byte[]? File, string? Refused)> RawAsync(
         PublishedCoverage coverage,
         ImageServerExportParameters asked,
+        RasterFunction function,
         ICoverageReaderFactory readers,
         IProjector projector,
         CancellationToken cancellation)
@@ -723,8 +734,10 @@ internal static class ImageServerEndpoints
         CoverageInfo info = coverage.Info;
         int width = asked.Width;
         int height = asked.Height;
-        int bands = Math.Max(1, info.Bands.Count);
-        double? noData = info.Bands.Count > 0 ? info.Bands[0].NoData : null;
+        // ADR-136: a function's values are one 32-bit band, NaN where there is none.
+        bool derived = function.Kind != RasterFunctionKind.None;
+        int bands = derived ? 1 : Math.Max(1, info.Bands.Count);
+        double? noData = derived ? double.NaN : info.Bands.Count > 0 ? info.Bands[0].NoData : null;
 
         double[] samples = new double[width * height * bands];
         Array.Fill(samples, noData ?? 0);
@@ -737,7 +750,7 @@ internal static class ImageServerEndpoints
             if (CoveragePlanner.Plan(info, asked.Extent, width, height) is { } read)
             {
                 using ICoverageReader reader = await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
-                window = await reader.ReadAsync(read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
+                (window, _) = await ReadThroughAsync(reader, coverage, function, read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
                     .ConfigureAwait(false);
 
                 PixelBox to = read.Destination;
@@ -785,7 +798,7 @@ internal static class ImageServerEndpoints
             if (planned is { } read)
             {
                 using ICoverageReader reader = await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
-                window = await reader.ReadAsync(read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
+                (window, _) = await ReadThroughAsync(reader, coverage, function, read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
                     .ConfigureAwait(false);
 
                 (double perPixelX, double perPixelY) = CoveragePlanner.PixelSize(info, read.Overview);
@@ -822,7 +835,7 @@ internal static class ImageServerEndpoints
             width,
             height,
             bands,
-            info.Bands.Count > 0 ? info.Bands[0].Kind : SampleKind.Unsigned8,
+            derived ? SampleKind.Real32 : info.Bands.Count > 0 ? info.Bands[0].Kind : SampleKind.Unsigned8,
             asked.Extent.MinX,
             asked.Extent.MaxY,
             asked.Extent.Width / width,
@@ -849,6 +862,7 @@ internal static class ImageServerEndpoints
         ImageServerExportParameters asked,
         ICoverageReaderFactory readers,
         string? style,
+        RasterFunction function,
         CancellationToken cancellation)
     {
         CoveragePlan? plan =
@@ -865,11 +879,14 @@ internal static class ImageServerEndpoints
         using ICoverageReader reader =
             await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
 
-        CoverageWindow window = await reader.ReadAsync(
-            read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
+        (CoverageWindow window, IReadOnlyList<BandInfo> bands) = await ReadThroughAsync(
+            reader, coverage, function, read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
             .ConfigureAwait(false);
 
-        Rgba[] pixels = (await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false)).Paint(window, coverage.Info.Bands);
+        CoverageStyle paint = function.Kind != RasterFunctionKind.None
+            ? function.Style
+            : await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false);
+        Rgba[] pixels = paint.Paint(window, bands);
 
         canvas.DrawImage(pixels, window.Width, window.Height, read.Destination);
     }
@@ -899,6 +916,7 @@ internal static class ImageServerEndpoints
     /// <param name="readers">Opens the file.</param>
     /// <param name="projector">Moves the control-point grid between references.</param>
     /// <param name="style">A style in place of the stored one, or null.</param>
+    /// <param name="function">The raster function to draw through — ADR-136.</param>
     /// <param name="cancellation">Cancellation.</param>
     /// <returns>Null when it drew; otherwise why it could not.</returns>
     /// <remarks>
@@ -925,6 +943,7 @@ internal static class ImageServerEndpoints
         ICoverageReaderFactory readers,
         IProjector projector,
         string? style,
+        RasterFunction function,
         CancellationToken cancellation)
     {
         (CoverageWarp? warp, CoveragePlan? planned, string? refused) =
@@ -945,11 +964,14 @@ internal static class ImageServerEndpoints
         using ICoverageReader reader =
             await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
 
-        CoverageWindow window = await reader.ReadAsync(
-            read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
+        (CoverageWindow window, IReadOnlyList<BandInfo> bands) = await ReadThroughAsync(
+            reader, coverage, function, read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
             .ConfigureAwait(false);
 
-        Rgba[] painted = (await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false)).Paint(window, coverage.Info.Bands);
+        CoverageStyle paint = function.Kind != RasterFunctionKind.None
+            ? function.Style
+            : await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false);
+        Rgba[] painted = paint.Paint(window, bands);
 
         // <b>Asked of the planner rather than worked out again.</b> This was the same
         // division with the level lookup written out longhand beside it — one calculation in
@@ -970,6 +992,54 @@ internal static class ImageServerEndpoints
             pixels, asked.Width, asked.Height, new PixelBox(0, 0, asked.Width, asked.Height));
 
         return null;
+    }
+
+    /// <summary>
+    /// Reads a window, through a raster function when one is asked for — ADR-136. The function needs each cell's eight
+    /// neighbours, so the window is read a cell wider on every side the file allows and cut back after, which keeps a
+    /// tile's edge from being shaded as if the ground stopped there.
+    /// </summary>
+    private static async Task<(CoverageWindow Window, IReadOnlyList<BandInfo> Bands)> ReadThroughAsync(
+        ICoverageReader reader,
+        PublishedCoverage coverage,
+        RasterFunction function,
+        int overview,
+        int x,
+        int y,
+        int width,
+        int height,
+        CancellationToken cancellation)
+    {
+        CoverageInfo info = coverage.Info;
+
+        if (function.Kind == RasterFunctionKind.None)
+        {
+            return (await reader.ReadAsync(overview, x, y, width, height, cancellation).ConfigureAwait(false), info.Bands);
+        }
+
+        (int levelWidth, int levelHeight) = overview == 0
+            ? (info.Width, info.Height)
+            : (info.Overviews[overview - 1].Width, info.Overviews[overview - 1].Height);
+        int left = x > 0 ? 1 : 0;
+        int top = y > 0 ? 1 : 0;
+        int right = x + width < levelWidth ? 1 : 0;
+        int bottom = y + height < levelHeight ? 1 : 0;
+
+        CoverageWindow wide = await reader.ReadAsync(
+            overview, x - left, y - top, width + left + right, height + top + bottom, cancellation).ConfigureAwait(false);
+
+        (double perX, double perY) = CoveragePlanner.PixelSize(info, overview);
+        double latitude = info.Extent.MaxY - ((y + (height / 2.0)) * perY);
+        (double metresX, double metresY) = RasterFunction.Metres(perX, perY, AxisOrder.IsGeographic(info.Srid), latitude);
+        CoverageWindow derived = function.Apply(wide, metresX, metresY, info.Bands.Count > 0 ? info.Bands[0].NoData : null);
+
+        double[] cut = new double[width * height];
+        for (int row = 0; row < height; row++)
+        {
+            Array.Copy(derived.Samples, ((row + top) * wide.Width) + left, cut, row * width, width);
+        }
+
+        return (new CoverageWindow(width, height, 1, cut), RasterFunction.ResultBands);
     }
 
     /// <summary>
@@ -1358,7 +1428,7 @@ internal static class ImageServerEndpoints
 
         // <b>What export refuses, identify refuses too</b> — a slope asked for and the elevation answered is the same
         // accepted-and-not-applied shape (D-125), found by the reviewer's second pass on this operation.
-        if (!ImageServerExportParameters.TryUnoffered(parameter, coverage.Info, out string? unoffered))
+        if (!ImageServerExportParameters.TryUnoffered(parameter, coverage.Info, out RasterFunction? asked, out string? unoffered))
         {
             await RefuseAsync(context, 400, unoffered!).ConfigureAwait(false);
             return;
@@ -1438,6 +1508,24 @@ internal static class ImageServerEndpoints
 
         using ICoverageReader reader =
             await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
+
+        // ADR-136: through a raster function — the one asked for, or the service's default — the pixel's answer is the
+        // function's: its slope, its aspect, its shade. Which one is said beside it, so a client can label it.
+        RasterFunction function = asked ?? RasterFunction.FromStyleText(coverage.Style);
+        if (function.Kind != RasterFunctionKind.None)
+        {
+            (CoverageWindow derived, _) = await ReadThroughAsync(reader, coverage, function, 0, column, row, 1, 1, cancellation)
+                .ConfigureAwait(false);
+            await Results.Ok(new
+            {
+                objectId = 0,
+                name = "Pixel",
+                value = RasterFunction.Say(derived.Samples[0]),
+                rasterFunction = function.Kind.ToString(),
+                location,
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
 
         CoverageWindow window =
             await reader.ReadAsync(0, column, row, 1, 1, cancellation).ConfigureAwait(false);
@@ -1774,6 +1862,9 @@ internal static class ImageServerEndpoints
             },
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>The raster functions a service names, None first as ArcGIS lists them — ADR-136.</summary>
+    private static readonly string[] FunctionNames = ["None", .. RasterFunction.Names];
 
     /// <summary>The range a pixel type's full stretch runs over.</summary>
     /// <remarks>From zero, as <see cref="CoverageStyle"/> stretches it: a float band has no range and is given one.</remarks>

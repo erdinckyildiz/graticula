@@ -50,6 +50,16 @@ public sealed class WebMapImageryTests : ConsoleTest
             Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#layerList [data-act=pixels][aria-pressed=true]')"),
                 "An imagery layer offers no way to stop answering clicks.");
 
+            // ADR-136: a one-band image is shown through a raster function, kept as the layer's renderingRule.
+            await WaitForAsync("!!document.querySelector('#layerList select[data-act=renderingRule]')",
+                "A one-band image layer offers no raster function.");
+            await Browser.EvaluateAsync<bool>(
+                "(() => { const s = document.querySelector('#layerList select[data-act=renderingRule]'); s.value = 'Slope'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            await WaitForAsync(
+                "wmLayers().some(l => (l.renderingRule || {}).rasterFunction === 'Slope') && wmState.dirty"
+                + " && performance.getEntriesByType('resource').some(e => e.name.includes('/ImageServer/exportImage') && e.name.includes('RENDERINGRULE'))",
+                "Choosing Slope did not ask the image service for its slope, or was not kept in the map.");
+
             // Drawn from exportImage, as a PNG so its no-data shows the map beneath.
             await WaitForAsync(
                 "performance.getEntriesByType('resource').some(e => e.name.includes('/ImageServer/exportImage') && e.name.includes('FORMAT=png'))",
@@ -63,8 +73,8 @@ public sealed class WebMapImageryTests : ConsoleTest
                 })()
                 """);
             await WaitForAsync("!document.getElementById('identify').hidden", "A click on the image answered nothing.");
-            Assert.Contains("Pixel value", await Browser.EvaluateAsync<string>("document.getElementById('identify').innerText") ?? "",
-                StringComparison.Ordinal);
+            // Shown through Slope above, the card names what the value is and gives it in degrees (ADR-136).
+            Assert.Matches(@"Slope\s+[0-9.,]+°", await Browser.EvaluateAsync<string>("document.getElementById('identify').innerText") ?? "");
 
             NothingWentWrong(await PageErrorsAsync());
 
