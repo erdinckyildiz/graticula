@@ -44,6 +44,12 @@ public static class ColourSpace
 
         /// <summary>Through CIELCh, which keeps the hue path circular.</summary>
         Hcl = 2,
+
+        /// <summary>
+        /// Through hue, saturation and value, the hue straight from one to the other — ArcGIS's
+        /// <c>esriHSVAlgorithm</c>, which a colour ramp sent with an image service's <c>renderingRule</c> names (ADR-138).
+        /// </summary>
+        Hsv = 3,
     }
 
     /// <summary>Mixes two colours.</summary>
@@ -65,6 +71,13 @@ public static class ColourSpace
                 Channel(from.G + ((to.G - from.G) * position)),
                 Channel(from.B + ((to.B - from.B) * position)),
                 alpha);
+        }
+
+        if (space == Interpolation.Hsv)
+        {
+            (double hue1, double s1, double v1) = ToHsv(from);
+            (double hue2, double s2, double v2) = ToHsv(to);
+            return FromHsv(hue1 + ((hue2 - hue1) * position), s1 + ((s2 - s1) * position), v1 + ((v2 - v1) * position), alpha);
         }
 
         (double l1, double a1, double b1) = ToLab(from);
@@ -105,6 +118,38 @@ public static class ColourSpace
         double h = h1 + (delta * position);
 
         return FromLab(l, c * Math.Cos(h), c * Math.Sin(h), alpha);
+    }
+
+    /// <summary>sRGB to hue (0–360), saturation and value (0–1).</summary>
+    private static (double H, double S, double V) ToHsv(Rgba colour)
+    {
+        double r = colour.R / 255.0, g = colour.G / 255.0, b = colour.B / 255.0;
+        double max = Math.Max(r, Math.Max(g, b));
+        double min = Math.Min(r, Math.Min(g, b));
+        double delta = max - min;
+        double h = delta == 0 ? 0
+            : max == r ? 60 * (((g - b) / delta % 6 + 6) % 6)
+            : max == g ? 60 * (((b - r) / delta) + 2)
+            : 60 * (((r - g) / delta) + 4);
+        return (h, max == 0 ? 0 : delta / max, max);
+    }
+
+    /// <summary>Hue, saturation and value back to sRGB.</summary>
+    private static Rgba FromHsv(double h, double s, double v, byte alpha)
+    {
+        double c = v * s;
+        double x = c * (1 - Math.Abs((h / 60 % 2) - 1));
+        double m = v - c;
+        (double r, double g, double b) = (h % 360) switch
+        {
+            < 60 => (c, x, 0d),
+            < 120 => (x, c, 0d),
+            < 180 => (0d, c, x),
+            < 240 => (0d, x, c),
+            < 300 => (x, 0d, c),
+            _ => (c, 0d, x),
+        };
+        return new Rgba(Channel((r + m) * 255), Channel((g + m) * 255), Channel((b + m) * 255), alpha);
     }
 
     private static byte Channel(double value) =>

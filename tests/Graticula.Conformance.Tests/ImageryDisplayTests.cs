@@ -310,6 +310,23 @@ public sealed class ImageryDisplayTests : ArcGisClient
             Assert.Contains("compressionTolerance", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
                 $"{service}/exportImage?{lercBox}&format=lerc&compressionTolerance=-1&f=image")).Body), StringComparison.Ordinal);
 
+            // ADR-138: a renderer set on the JS SDK's ImageryLayer arrives as a Stretch and Colormap chain, and is drawn —
+            // a ramp from blue to red over the stretched heights, and two classes coloured by their ranges.
+            string ramp = Uri.EscapeDataString("""{"rasterFunction":"Colormap","rasterFunctionArguments":{"colorRamp":{"type":"algorithmic","algorithm":"esriCIELabAlgorithm","fromColor":[0,0,255,255],"toColor":[255,0,0,255]},"Raster":{"rasterFunction":"Stretch","rasterFunctionArguments":{"StretchType":5,"DRA":false}}}}""");
+            List<(byte Red, byte Green)> ramped = Pixels((await SendAsync(root, token!, HttpMethod.Get, $"{draw}&format=png&renderingRule={ramp}")).Body);
+            Assert.NotEmpty(ramped);
+            Assert.All(ramped, p => Assert.True(p.Green < 60, $"{p.Red},{p.Green} is not between blue and red."));
+            Assert.True(ramped.Max(p => p.Red) - ramped.Min(p => p.Red) > 100, "The ramp was not spread over the heights.");
+
+            string classes = Uri.EscapeDataString("""{"rasterFunction":"Colormap","rasterFunctionArguments":{"Colormap":[[0,255,0,0],[1,0,255,0]],"Raster":{"rasterFunction":"Remap","rasterFunctionArguments":{"InputRanges":[0,1500,1500,3000],"OutputValues":[0,1],"NoDataRanges":[]}}}}""");
+            List<(byte Red, byte Green)> classed = Pixels((await SendAsync(root, token!, HttpMethod.Get, $"{draw}&format=png&renderingRule={classes}")).Body);
+            Assert.All(classed, p => Assert.True(p is (255, 0) or (0, 255), $"{p.Red},{p.Green} is neither class."));
+            Assert.Contains((byte)255, classed.Select(p => p.Red));
+            Assert.Contains((byte)255, classed.Select(p => p.Green));
+
+            Assert.Contains("png", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
+                $"{draw}&format=tiff&renderingRule={ramp}")).Body), StringComparison.Ordinal);
+
             // ADR-136: raster functions. The model rises 1700/126 m a cell east and south over cells of 0.01° at about
             // 40.7° N, so its slope is a little over one degree and it faces north-west.
             JsonElement root2 = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}?f=json")).Body).RootElement;

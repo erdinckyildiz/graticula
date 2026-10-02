@@ -82,6 +82,12 @@ internal sealed class ImageServerExportParameters
     public bool Raw { get; }
 
     /// <summary>
+    /// The display rule asked for by <c>renderingRule</c> — ADR-138, a renderer the JS SDK sends as a chain of
+    /// <c>Stretch</c>, <c>Colormap</c> and <c>Remap</c> — or null.
+    /// </summary>
+    public DisplayRule? Display { get; private init; }
+
+    /// <summary>
     /// Whether the values are asked for as LERC rather than as a GeoTIFF — <c>format=lerc</c>, ADR-137, which the JS
     /// SDK asks for when it renders on the client.
     /// </summary>
@@ -124,8 +130,20 @@ internal sealed class ImageServerExportParameters
 
         asked = null;
 
+        // ADR-138: a renderer the JS SDK sends as a `Stretch`, `Colormap` or `Remap` chain is a display rule, read here;
+        // anything else in `renderingRule` is a raster function's.
+        if (DisplayRule.TryParse(parameter("renderingRule"), info.Bands.Count, out DisplayRule? display, out error)
+            && display is null)
+        {
+            return false;
+        }
+
+        Func<string, string?> rest = display is null
+            ? parameter
+            : name => name.Equals("renderingRule", StringComparison.OrdinalIgnoreCase) ? null : parameter(name);
+
         // <b>What this server does not do is refused, not drawn as if it were — ADR-123, D-125.</b>
-        if (!TryUnoffered(parameter, info, out RasterFunction? function, out error))
+        if (!TryUnoffered(rest, info, out RasterFunction? function, out error))
         {
             return false;
         }
@@ -176,6 +194,13 @@ internal sealed class ImageServerExportParameters
             return false;
         }
 
+        if (raw && display is not null)
+        {
+            error = "`renderingRule` asks for a Stretch or a Colormap, which chooses a picture's colours; "
+                + $"`format={named}` asks for the values themselves. Ask for png or jpgpng to draw it.";
+            return false;
+        }
+
         double tolerance = 0;
 
         if (lerc && !TryLerc(parameter, out tolerance, out error))
@@ -186,6 +211,7 @@ internal sealed class ImageServerExportParameters
         asked = new ImageServerExportParameters(extent, width, height, format, srid, raw)
         {
             Function = function,
+            Display = display,
             Lerc = lerc,
             Tolerance = tolerance,
         };

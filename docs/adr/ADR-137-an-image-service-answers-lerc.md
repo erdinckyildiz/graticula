@@ -9,6 +9,8 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-127](ADR-127-an-image-service-exports-its-values.md) (LERC is no longer refused), [ADR-136](ADR-136-an-elevation-model-is-shaded-and-sloped.md) (`rasterFunctionInfos` is an operation as well as a field) |
 
+> **Amended 2026-10-02 by [ADR-138](ADR-138-a-renderer-sent-as-a-rule-is-drawn.md).** The renderer sent as a `renderingRule` chain, this ADR's negative consequence, is drawn.
+
 ---
 
 ## 1. Context

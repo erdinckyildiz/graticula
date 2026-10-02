@@ -626,8 +626,27 @@ internal static class ImageServerEndpoints
             await budget.EnterAsync($"coverage:{coverage.Path}", cancellation)
                 .ConfigureAwait(false);
 
-        // ADR-136: the raster function asked for by `renderingRule`, or the one the service is shown with.
-        RasterFunction function = asked.Function ?? RasterFunction.FromStyleText(style ?? coverage.Style);
+        // ADR-136: the raster function asked for by `renderingRule`, or the one the service is shown with — none when a
+        // display rule (ADR-138) chooses the colours, which draws the image's own values.
+        RasterFunction function = asked.Display is not null
+            ? RasterFunction.None
+            : asked.Function ?? RasterFunction.FromStyleText(style ?? coverage.Style);
+
+        // ADR-138: drawn through the rule, with the service's statistics when the rule stretches by them.
+        Func<CoverageWindow, IReadOnlyList<BandInfo>, Rgba[]>? painter = null;
+
+        if (asked.Display is { } display)
+        {
+            IReadOnlyList<BandSummary>? summaries = null;
+
+            if (display.NeedsStatistics && await SampleAsync(coverage, readers, cancellation).ConfigureAwait(false) is { } sample)
+            {
+                summaries = [.. Enumerable.Range(0, sample.Bands)
+                    .Select(b => BandSummary.Of(sample, b, b < coverage.Info.Bands.Count ? coverage.Info.Bands[b] : null))];
+            }
+
+            painter = (window, bands) => display.Paint(window, bands, summaries);
+        }
 
         // ADR-127: the values themselves, as a GeoTIFF in their own type — read through the same plan the picture is.
         if (asked.Raw)
@@ -652,13 +671,13 @@ internal static class ImageServerEndpoints
 
         if (asked.Srid == coverage.Info.Srid)
         {
-            await DrawAlignedAsync(canvas, coverage, asked, readers, style, function, cancellation)
+            await DrawAlignedAsync(canvas, coverage, asked, readers, style, function, painter, cancellation)
                 .ConfigureAwait(false);
         }
         else
         {
             string? refused = await DrawWarpedAsync(
-                    canvas, coverage, asked, readers, projector, style, function, cancellation)
+                    canvas, coverage, asked, readers, projector, style, function, painter, cancellation)
                 .ConfigureAwait(false);
 
             if (refused is not null)
@@ -885,6 +904,7 @@ internal static class ImageServerEndpoints
         ICoverageReaderFactory readers,
         string? style,
         RasterFunction function,
+        Func<CoverageWindow, IReadOnlyList<BandInfo>, Rgba[]>? painter,
         CancellationToken cancellation)
     {
         CoveragePlan? plan =
@@ -905,10 +925,11 @@ internal static class ImageServerEndpoints
             reader, coverage, function, read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
             .ConfigureAwait(false);
 
-        CoverageStyle paint = function.Kind != RasterFunctionKind.None
-            ? function.Style
-            : await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false);
-        Rgba[] pixels = paint.Paint(window, bands);
+        Rgba[] pixels = painter is not null
+            ? painter(window, bands)
+            : (function.Kind != RasterFunctionKind.None
+                ? function.Style
+                : await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false)).Paint(window, bands);
 
         canvas.DrawImage(pixels, window.Width, window.Height, read.Destination);
     }
@@ -939,6 +960,7 @@ internal static class ImageServerEndpoints
     /// <param name="projector">Moves the control-point grid between references.</param>
     /// <param name="style">A style in place of the stored one, or null.</param>
     /// <param name="function">The raster function to draw through — ADR-136.</param>
+    /// <param name="painter">Colours the values in place of the style, under a display rule — ADR-138 — or null.</param>
     /// <param name="cancellation">Cancellation.</param>
     /// <returns>Null when it drew; otherwise why it could not.</returns>
     /// <remarks>
@@ -966,6 +988,7 @@ internal static class ImageServerEndpoints
         IProjector projector,
         string? style,
         RasterFunction function,
+        Func<CoverageWindow, IReadOnlyList<BandInfo>, Rgba[]>? painter,
         CancellationToken cancellation)
     {
         (CoverageWarp? warp, CoveragePlan? planned, string? refused) =
@@ -990,10 +1013,11 @@ internal static class ImageServerEndpoints
             reader, coverage, function, read.Overview, read.X, read.Y, read.Width, read.Height, cancellation)
             .ConfigureAwait(false);
 
-        CoverageStyle paint = function.Kind != RasterFunctionKind.None
-            ? function.Style
-            : await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false);
-        Rgba[] painted = paint.Paint(window, bands);
+        Rgba[] painted = painter is not null
+            ? painter(window, bands)
+            : (function.Kind != RasterFunctionKind.None
+                ? function.Style
+                : await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false)).Paint(window, bands);
 
         // <b>Asked of the planner rather than worked out again.</b> This was the same
         // division with the level lookup written out longhand beside it — one calculation in

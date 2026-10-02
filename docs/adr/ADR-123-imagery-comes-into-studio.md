@@ -14,6 +14,8 @@
 
 > **Amended 2026-10-02 by [ADR-136](ADR-136-an-elevation-model-is-shaded-and-sloped.md).** Hillshade, Slope and Aspect are applied by `renderingRule`; any other function is still refused by name.
 
+> **Amended 2026-10-02 by [ADR-138](ADR-138-a-renderer-sent-as-a-rule-is-drawn.md).** A `renderingRule` of `Stretch`, `Colormap` over `Stretch` and `Colormap` over `Remap` — the chains the JS SDK sends for a renderer — is drawn; other chains are still refused by name.
+
 ---
 
 ## 1. Context

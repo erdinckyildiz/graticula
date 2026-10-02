@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>212c244</code> · 2026-10-02 13:07</p>
+<p class="stamp">Generated from commit <code>8e5440a</code> · 2026-10-02 14:47</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">136</div><div class="kpi-l">ADRs</div><div class="kpi-n">48 accepted outright</div></div>
+<div class="kpi "><div class="kpi-v">137</div><div class="kpi-l">ADRs</div><div class="kpi-n">49 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">285/378</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">90 live · 3 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">160 answered</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">open debts</div><div class="kpi-n">268 repaid · 6 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">4457</div><div class="kpi-l">tests</div><div class="kpi-n">429 source files, 190,126 lines</div></div>
+<div class="kpi good"><div class="kpi-v">4486</div><div class="kpi-l">tests</div><div class="kpi-n">430 source files, 190,886 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -341,6 +341,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">135</td><td>A service counts its use</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — what is counted is measured; that a count is what an administrator needs is…</td><td class="num"></td></tr>
 <tr><td class="id">136</td><td>An elevation model is shaded, sloped and given its aspect</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — the arithmetic is checked on planes whose answers are known in closed form, and…</td><td class="num"></td></tr>
 <tr><td class="id">137</td><td>An image service answers LERC</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — every blob type opens in Esri&#x27;s own decoder with the values it was given, and the…</td><td class="num"></td></tr>
+<tr><td class="id">138</td><td>A renderer sent as a rendering rule is drawn</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — every chain is the one the SDK was measured sending, and each is drawn where it…</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -462,7 +463,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1232</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:62.6%"></div></div><div class="bar-n">771</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.9%"></div></div><div class="bar-n">800</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:53.2%"></div></div><div class="bar-n">655</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
@@ -476,6 +477,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>8e5440a</code><time>2026-10-02</time><span>An image service answers LERC</span></li>
 <li><code>212c244</code><time>2026-10-02</time><span>An elevation model is shaded, sloped and given its aspect</span></li>
 <li><code>34afa0f</code><time>2026-10-02</time><span>A service counts its use, and the owner sees what nobody uses</span></li>
 <li><code>2e46683</code><time>2026-10-02</time><span>Attributes are edited in the attribute table and saved together</span></li>
@@ -489,7 +491,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>6a562e0</code><time>2026-10-01</time><span>An image service has histograms, and a NaN pixel is not a measurement</span></li>
 <li><code>1190f31</code><time>2026-10-01</time><span>An image service exports its values as a GeoTIFF</span></li>
 <li><code>d155dcf</code><time>2026-10-01</time><span>An imagery item describes itself, has a picture, and sits in its owner&#x27;s folder</span></li>
-<li><code>276e56d</code><time>2026-10-01</time><span>An image service is shared to a group, has a legend and statistics, and identify refuses what it does not apply</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
