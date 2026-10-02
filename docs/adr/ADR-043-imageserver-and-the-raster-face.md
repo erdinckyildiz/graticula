@@ -20,6 +20,8 @@
 
 > **Amended 2026-10-02 by [ADR-136](ADR-136-an-elevation-model-is-shaded-and-sloped.md).** `allowRasterFunction` is true, for Hillshade, Slope and Aspect.
 
+> **Amended 2026-10-03 by [ADR-141](ADR-141-an-image-service-answers-about-an-area.md).** `computeStatisticsHistograms` and `getSamples` are answered.
+
 ---
 
 ## 1. What was asked, and what the register already held

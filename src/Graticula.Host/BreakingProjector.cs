@@ -285,4 +285,31 @@ internal sealed class BreakingProjector(IProjector inner, SourceBreaker breaker)
             throw;
         }
     }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Passed through, guarded like the rest — ADR-145.</b> The interface answers null for an implementation that
+    /// does not know, and a decorator that left this to it answered null for every reference, so every unit was refused
+    /// as one this server could not tell — found by the first request that named one.
+    /// </remarks>
+    public async Task<ReferenceUnit?> UnitOfAsync(int srid, CancellationToken cancellationToken)
+    {
+        if (breaker.IsOpen(Source))
+        {
+            throw new SourceUnreachableException(
+                "The database that performs coordinate transformations is unreachable. This "
+                + "request was refused without waiting for it.");
+        }
+
+        try
+        {
+            ReferenceUnit? unit = await inner.UnitOfAsync(srid, cancellationToken).ConfigureAwait(false);
+            breaker.Succeeded(Source);
+            return unit;
+        }
+        catch (Exception failure) when (breaker.Failed(Source, failure))
+        {
+            throw;
+        }
+    }
 }

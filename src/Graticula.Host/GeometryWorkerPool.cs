@@ -616,6 +616,7 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
                 MaximumCandidatePairs = maximumCandidatePairs,
                 Distance = work.Distance,
                 Pattern = work.Pattern,
+                UnionResults = work.UnionResults,
             });
 
             using CancellationTokenSource timer =
@@ -780,6 +781,8 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
 
             public List<int[]>? Pairs { get; set; }
 
+            public List<int>? Indexes { get; set; }
+
             public bool Healthy => Refusal.Length == 0 || Refusal == "TooLarge";
 
             public EngineResult ToResult(long elapsed)
@@ -804,6 +807,7 @@ internal sealed class GeometryWorkerPool : IGeometryEngine, IAsyncDisposable
                     Scalar = Scalar,
                     Matrix = Matrix,
                     Pairs = Pairs,
+                    Indexes = Indexes,
                 };
             }
         }

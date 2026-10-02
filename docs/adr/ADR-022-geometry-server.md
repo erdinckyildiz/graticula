@@ -8,6 +8,10 @@
 | **Rests on** | [A-042's invalidation](../architecture-assumptions.md) · [benchmarks/geometry-overlay](../../benchmarks/geometry-overlay/RESULTS.md) |
 | **Defers** | the overlay half to [Q-97](../open-questions.md) |
 
+> **Amended 2026-10-03 by [ADR-144](ADR-144-the-geometry-service-answers-the-js-sdk.md).** The JS SDK's operand names and wrappers are read; intersect, difference, simplify, cut and buffer answer per input, with `unionResults` and `cutIndexes`.
+
+> **Amended 2026-10-03 by [ADR-145](ADR-145-a-geometry-request-is-answered-in-its-units.md).** Units named in a request are converted in a projected reference; geodesic and what cannot be converted are refused by name.
+
 ---
 
 > **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are

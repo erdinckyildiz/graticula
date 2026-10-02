@@ -233,7 +233,7 @@ public sealed class SkiaMapCanvas : IMapCanvas
     /// <para>
     /// <b>Linear sampling with mipmaps</b>, because a picture is nearly always drawn smaller than its
     /// pixels and a nearest-neighbour minification is a shimmer of dropped detail; the same reason
-    /// <see cref="DrawImage"/> gives for a coverage.
+    /// <see cref="DrawImage(ReadOnlySpan{Rgba}, int, int, PixelBox)"/> gives for a coverage.
     /// </para>
     /// </remarks>
     public void DrawPicture(double x, double y, MapSymbol.Picture symbol)
@@ -613,7 +613,11 @@ public sealed class SkiaMapCanvas : IMapCanvas
     /// than a slow one.
     /// </para>
     /// </remarks>
-    public void DrawImage(ReadOnlySpan<Rgba> pixels, int width, int height, PixelBox destination)
+    public void DrawImage(ReadOnlySpan<Rgba> pixels, int width, int height, PixelBox destination) =>
+        DrawImage(pixels, width, height, destination, Resampling.Bilinear);
+
+    /// <inheritdoc/>
+    public void DrawImage(ReadOnlySpan<Rgba> pixels, int width, int height, PixelBox destination, Resampling how)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -665,7 +669,13 @@ public sealed class SkiaMapCanvas : IMapCanvas
                     (float)destination.MinY,
                     (float)destination.MaxX,
                     (float)destination.MaxY),
-                new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear),
+                how switch
+                {
+                    // ADR-142: as the request asks; a class image stays its classes when it is scaled.
+                    Resampling.Nearest => new SKSamplingOptions(SKFilterMode.Nearest, SKMipmapMode.None),
+                    Resampling.Cubic => new SKSamplingOptions(SKCubicResampler.CatmullRom),
+                    _ => new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear),
+                },
                 paint);
         }
         finally

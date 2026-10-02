@@ -455,6 +455,16 @@ public sealed class ImportFormTests : ConsoleTest
 
         try
         {
+            // ADR-143: its Overview offers the uploaded file back, and fetches it.
+            await OpenAsync($"/studio/#/service/hosted/{name}", token);
+            await WaitForAsync(Shown("#imageDownload") + " && !document.getElementById('imageDownload').hasAttribute('aria-disabled')",
+                "An uploaded image's Overview offers no Download.");
+            Assert.Equal("Download", (await Browser.EvaluateAsync<string>("document.getElementById('imageDownload').textContent") ?? "").Trim());
+            await ClickAsync("#imageDownload");
+            await WaitForAsync("/\\.tif \\(.+\\) is downloading/.test(document.getElementById('imageDownloadSays').textContent)"
+                + " && document.activeElement && document.activeElement.id === 'imageDownload'",
+                "Download did not hand the uploaded file to the browser, or did not keep focus on its button.");
+
             await OpenAsync($"/studio/#/service/hosted/{name}?tab=settings&section=imagery", token);
             await WaitForAsync(Shown("#covStretch"), "An image service's page offers no Display settings.");
             Assert.Equal("auto", await Browser.EvaluateAsync<string>("document.getElementById('covStretch').value"));

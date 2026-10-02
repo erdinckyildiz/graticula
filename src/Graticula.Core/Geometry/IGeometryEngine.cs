@@ -210,6 +210,9 @@ public readonly record struct EngineRequest(
     /// return the matrix itself.
     /// </summary>
     public string? Pattern { get; init; }
+
+    /// <summary>Whether a buffer's results are merged into one — ArcGIS's <c>unionResults</c>; otherwise one a geometry.</summary>
+    public bool UnionResults { get; init; }
 }
 
 /// <summary>The result, or the reason there is none.</summary>
@@ -251,6 +254,12 @@ public readonly record struct EngineResult(
     /// nine hundred of them.
     /// </remarks>
     public IReadOnlyList<int[]>? Pairs { get; init; }
+
+    /// <summary>
+    /// For an operation answered per input, the input each geometry answers — one each, in order, except a cut, whose
+    /// pieces say which target they came from (ArcGIS's <c>cutIndexes</c>).
+    /// </summary>
+    public IReadOnlyList<int>? Indexes { get; init; }
 }
 
 /// <summary>

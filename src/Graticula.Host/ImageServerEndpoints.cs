@@ -44,7 +44,7 @@ namespace Graticula.Host;
 /// client is owed. ADR-043 §3.3's proxy exists so the bytes travel through here.
 /// </para>
 /// </remarks>
-internal static class ImageServerEndpoints
+internal static partial class ImageServerEndpoints
 {
     /// <summary>What every ImageServer document claims it can do.</summary>
     /// <remarks>
@@ -118,6 +118,13 @@ internal static class ImageServerEndpoints
                 .Governed(SharingGovernedExtensions.ByService);
 
             // ADR-128: what Pro's stretch dialog draws its curve from.
+            // ADR-141: the pixels inside an area, and the values at points, along a line or across an area.
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/computeStatisticsHistograms", Read, ComputeStatisticsHistogramsAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/getSamples", Read, GetSamplesAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
             app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/histograms", Read, HistogramsAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
@@ -250,12 +257,13 @@ internal static class ImageServerEndpoints
             + "`tilemap/{level}/{row}/{column}/{across}/{down}`, five whole numbers, and this "
             + "request did not have that shape.",
 
-        "exportImage" or "identify" =>
+        "exportImage" or "identify" or "getSamples" or "computeStatisticsHistograms" =>
             $"`{operation}` takes its arguments in the query string rather than in the path. "
                 + "Nothing follows the operation name.",
 
         _ => $"`{operation}` is not an operation this image service serves. It serves "
-            + "exportImage, identify, legend, keyProperties, rasterFunctionInfos, statistics, histograms, tile and tilemap.",
+            + "exportImage, identify, getSamples, computeStatisticsHistograms, legend, keyProperties, rasterFunctionInfos, "
+            + "statistics, histograms, tile and tilemap.",
     };
 
     private static async Task ServiceAsync(
@@ -310,7 +318,8 @@ internal static class ImageServerEndpoints
 
             spatialReference = new { wkid = info.Srid, latestWkid = info.Srid },
             capabilities = Capabilities,
-            defaultResamplingMethod = "Bilinear",
+            // ADR-142: the default it draws with, which a class image's is not.
+            defaultResamplingMethod = Resampler.Name(DefaultResampling(info, RasterFunction.FromStyleText(coverage.Style), null)),
             maxImageHeight = 4096,
             maxImageWidth = 4096,
             // ADR-136: the functions served, by the names ArcGIS gives them; None first, as ArcGIS lists it.
@@ -648,10 +657,15 @@ internal static class ImageServerEndpoints
             painter = (window, bands) => display.Paint(window, bands, summaries);
         }
 
+        // ADR-142: between cells as the request asks; else the service's default — nearest for a picture that may be
+        // classes, bilinear for the rest — and nearest for values, which are then ones the image holds.
+        Resampling how = asked.Interpolation ?? DefaultResampling(coverage.Info, function, asked.Display);
+
         // ADR-127: the values themselves, as a GeoTIFF in their own type — read through the same plan the picture is.
         if (asked.Raw)
         {
-            (byte[]? file, string? refusal) = await RawAsync(coverage, asked, function, readers, projector, cancellation)
+            (byte[]? file, string? refusal) = await RawAsync(coverage, asked, function, readers, projector,
+                    asked.Interpolation ?? Resampling.Nearest, cancellation)
                 .ConfigureAwait(false);
 
             if (refusal is not null)
@@ -671,13 +685,13 @@ internal static class ImageServerEndpoints
 
         if (asked.Srid == coverage.Info.Srid)
         {
-            await DrawAlignedAsync(canvas, coverage, asked, readers, style, function, painter, cancellation)
+            await DrawAlignedAsync(canvas, coverage, asked, readers, style, function, painter, how, cancellation)
                 .ConfigureAwait(false);
         }
         else
         {
             string? refused = await DrawWarpedAsync(
-                    canvas, coverage, asked, readers, projector, style, function, painter, cancellation)
+                    canvas, coverage, asked, readers, projector, style, function, painter, how, cancellation)
                 .ConfigureAwait(false);
 
             if (refused is not null)
@@ -753,6 +767,7 @@ internal static class ImageServerEndpoints
         RasterFunction function,
         ICoverageReaderFactory readers,
         IProjector projector,
+        Resampling how,
         CancellationToken cancellation)
     {
         CoverageInfo info = coverage.Info;
@@ -768,6 +783,9 @@ internal static class ImageServerEndpoints
 
         int[]? taken = null;
         CoverageWindow? window = null;
+
+        // ADR-142: where each output pixel falls in the window, for values read between cells; null for nearest.
+        double[]? positions = how == Resampling.Nearest ? null : new double[width * height * 2];
 
         if (asked.Srid == info.Srid)
         {
@@ -805,6 +823,12 @@ internal static class ImageServerEndpoints
 
                         int column = Math.Clamp((int)((px - to.MinX) / across * window.Width), 0, window.Width - 1);
                         taken[(y * width) + x] = (row * window.Width) + column;
+
+                        if (positions is not null)
+                        {
+                            positions[((y * width) + x) * 2] = (px - to.MinX) / across * window.Width;
+                            positions[(((y * width) + x) * 2) + 1] = (py - to.MinY) / down * window.Height;
+                        }
                     }
                 }
             }
@@ -833,6 +857,12 @@ internal static class ImageServerEndpoints
                     info.Extent.MaxY - (read.Y * perPixelY),
                     perPixelX,
                     perPixelY);
+
+                if (positions is not null)
+                {
+                    positions = warp.Positions(
+                        info.Extent.MinX + (read.X * perPixelX), info.Extent.MaxY - (read.Y * perPixelY), perPixelX, perPixelY);
+                }
             }
         }
 
@@ -850,6 +880,19 @@ internal static class ImageServerEndpoints
                 for (int band = 0; band < carried; band++)
                 {
                     samples[(i * bands) + band] = window.Samples[(taken[i] * window.Bands) + band];
+
+                    // ADR-142: between cells, where every neighbour has a value; the nearest one otherwise.
+                    if (positions is not null)
+                    {
+                        double? empty = derived ? null : band < info.Bands.Count ? info.Bands[band].NoData : null;
+
+                        if (Resampler.TryValue(window.Samples, window.Width, window.Height, window.Bands, band,
+                                positions[i * 2], positions[(i * 2) + 1], how,
+                                v => double.IsNaN(v) || (empty is { } none && v == none), out double between))
+                        {
+                            samples[(i * bands) + band] = between;
+                        }
+                    }
                 }
             }
         }
@@ -905,6 +948,7 @@ internal static class ImageServerEndpoints
         string? style,
         RasterFunction function,
         Func<CoverageWindow, IReadOnlyList<BandInfo>, Rgba[]>? painter,
+        Resampling how,
         CancellationToken cancellation)
     {
         CoveragePlan? plan =
@@ -931,7 +975,7 @@ internal static class ImageServerEndpoints
                 ? function.Style
                 : await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false)).Paint(window, bands);
 
-        canvas.DrawImage(pixels, window.Width, window.Height, read.Destination);
+        canvas.DrawImage(pixels, window.Width, window.Height, read.Destination, how);
     }
 
     /// <summary>
@@ -961,6 +1005,7 @@ internal static class ImageServerEndpoints
     /// <param name="style">A style in place of the stored one, or null.</param>
     /// <param name="function">The raster function to draw through — ADR-136.</param>
     /// <param name="painter">Colours the values in place of the style, under a display rule — ADR-138 — or null.</param>
+    /// <param name="how">How the window is read between its pixels — ADR-142.</param>
     /// <param name="cancellation">Cancellation.</param>
     /// <returns>Null when it drew; otherwise why it could not.</returns>
     /// <remarks>
@@ -989,6 +1034,7 @@ internal static class ImageServerEndpoints
         string? style,
         RasterFunction function,
         Func<CoverageWindow, IReadOnlyList<BandInfo>, Rgba[]>? painter,
+        Resampling how,
         CancellationToken cancellation)
     {
         (CoverageWarp? warp, CoveragePlan? planned, string? refused) =
@@ -1032,13 +1078,25 @@ internal static class ImageServerEndpoints
             coverage.Info.Extent.MinX + (read.X * perPixelX),
             coverage.Info.Extent.MaxY - (read.Y * perPixelY),
             perPixelX,
-            perPixelY);
+            perPixelY,
+            how);
 
         canvas.DrawImage(
             pixels, asked.Width, asked.Height, new PixelBox(0, 0, asked.Width, asked.Height));
 
         return null;
     }
+
+    /// <summary>
+    /// How a picture is read between cells when the request does not say — ADR-142: nearest for one band of bytes, which
+    /// may be classes, and for a display rule's colours of values, which are classes; bilinear for the rest — heights,
+    /// photographs, and anything a raster function made.
+    /// </summary>
+    internal static Resampling DefaultResampling(CoverageInfo info, RasterFunction function, DisplayRule? display) =>
+        display is { Stretched: false } ? Resampling.Nearest
+        : function.Kind != RasterFunctionKind.None ? Resampling.Bilinear
+        : info.Bands.Count == 1 && info.Bands[0].Kind == SampleKind.Unsigned8 && display is null ? Resampling.Nearest
+        : Resampling.Bilinear;
 
     /// <summary>
     /// Reads a window, through a raster function when one is asked for — ADR-136. The function needs each cell's eight

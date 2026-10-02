@@ -88,6 +88,11 @@ internal sealed class ImageServerExportParameters
     public DisplayRule? Display { get; private init; }
 
     /// <summary>
+    /// How the image is read between its cells — <c>interpolation</c>, ADR-142 — or null when the request does not say.
+    /// </summary>
+    public Resampling? Interpolation { get; private init; }
+
+    /// <summary>
     /// Whether the values are asked for as LERC rather than as a GeoTIFF — <c>format=lerc</c>, ADR-137, which the JS
     /// SDK asks for when it renders on the client.
     /// </summary>
@@ -201,6 +206,12 @@ internal sealed class ImageServerExportParameters
             return false;
         }
 
+        // ADR-142: how the image is read between its cells, when the request says.
+        if (!Resampler.TryParse(parameter("interpolation"), out Resampling? resampling, out error))
+        {
+            return false;
+        }
+
         double tolerance = 0;
 
         if (lerc && !TryLerc(parameter, out tolerance, out error))
@@ -212,6 +223,7 @@ internal sealed class ImageServerExportParameters
         {
             Function = function,
             Display = display,
+            Interpolation = resampling,
             Lerc = lerc,
             Tolerance = tolerance,
         };
@@ -260,10 +272,10 @@ internal sealed class ImageServerExportParameters
     /// each change what is drawn, so each is refused with what this server does instead.
     /// </para>
     /// <para>
-    /// <b>Three are read and not applied, on purpose.</b> ArcGIS Pro sends <c>noData=0,0,0</c>,
-    /// <c>interpolation=RSP_NearestNeighbor</c> and <c>pixelType=U8</c> on every draw (the replayed request in
-    /// <c>ImageServerConformanceTests</c>), so refusing them refuses Pro. They are hints about edges and resampling,
-    /// not a different picture, and ADR-123 records the exception.
+    /// <b>Two are read and not applied, on purpose.</b> ArcGIS Pro sends <c>noData=0,0,0</c> and <c>pixelType=U8</c> on
+    /// every draw (the replayed request in <c>ImageServerConformanceTests</c>), so refusing them refuses Pro. They are
+    /// hints about edges, not a different picture, and ADR-123 records the exception. <c>interpolation</c>, the third Pro
+    /// sends, is applied since ADR-142.
     /// </para>
     /// </remarks>
     internal static bool TryUnoffered(Func<string, string?> parameter, CoverageInfo info, out string? error) =>

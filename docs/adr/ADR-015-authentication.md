@@ -7,6 +7,8 @@
 | **Decided** | 2026-08-13 |
 | **Answers** | §41 · blocker **B4** · part of security.md §6's *not yet written* |
 
+> **Amended 2026-10-03 by [ADR-144](ADR-144-the-geometry-service-answers-the-js-sdk.md).** A `token` in a form-encoded POST body is read, as the JS SDK sends it past 2,000 characters.
+
 ---
 
 > **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are

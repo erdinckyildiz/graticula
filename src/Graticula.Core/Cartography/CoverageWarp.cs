@@ -178,6 +178,7 @@ public sealed class CoverageWarp
     /// <param name="originY">The ground northing of the window's top edge.</param>
     /// <param name="perPixelX">Ground units per window pixel, west to east.</param>
     /// <param name="perPixelY">Ground units per window pixel, north to south.</param>
+    /// <param name="how">How the window is read between its pixels — ADR-142; nearest by default.</param>
     /// <returns>A canvas-sized buffer, transparent where nothing was sampled.</returns>
     /// <remarks>
     /// <para>
@@ -203,7 +204,8 @@ public sealed class CoverageWarp
         double originX,
         double originY,
         double perPixelX,
-        double perPixelY)
+        double perPixelY,
+        Resampling how = Resampling.Nearest)
     {
         Rgba[] canvas = new Rgba[_width * _height];
 
@@ -222,8 +224,18 @@ public sealed class CoverageWarp
                 // drawn over each other.
                 (double groundX, double groundY) = Ground(x + 0.5, y + 0.5);
 
-                int column = (int)Math.Floor((groundX - originX) / perPixelX);
-                int row = (int)Math.Floor((originY - groundY) / perPixelY);
+                double u = (groundX - originX) / perPixelX;
+                double v = (originY - groundY) / perPixelY;
+
+                // ADR-142: between cells as the request asks; nearest unless it asks otherwise.
+                if (how != Resampling.Nearest)
+                {
+                    canvas[(y * _width) + x] = Resampler.Colour(source, sourceWidth, sourceHeight, u, v, how);
+                    continue;
+                }
+
+                int column = (int)Math.Floor(u);
+                int row = (int)Math.Floor(v);
 
                 if (column < 0 || column >= sourceWidth || row < 0 || row >= sourceHeight)
                 {
@@ -281,6 +293,33 @@ public sealed class CoverageWarp
         }
 
         return taken;
+    }
+
+    /// <summary>
+    /// Where each canvas pixel's centre falls in the source, in source pixels, interleaved u then v — ADR-142, for
+    /// values read between cells rather than taken from one.
+    /// </summary>
+    /// <param name="originX">The ground X of the source's left edge.</param>
+    /// <param name="originY">The ground Y of the source's top edge.</param>
+    /// <param name="perPixelX">The source's pixel width in ground units.</param>
+    /// <param name="perPixelY">The source's pixel height in ground units.</param>
+    /// <returns>Two numbers a canvas pixel.</returns>
+    public double[] Positions(double originX, double originY, double perPixelX, double perPixelY)
+    {
+        double[] positions = new double[_width * _height * 2];
+
+        for (int y = 0; y < _height; y++)
+        {
+            for (int x = 0; x < _width; x++)
+            {
+                (double groundX, double groundY) = Ground(x + 0.5, y + 0.5);
+                int at = ((y * _width) + x) * 2;
+                positions[at] = (groundX - originX) / perPixelX;
+                positions[at + 1] = (originY - groundY) / perPixelY;
+            }
+        }
+
+        return positions;
     }
 
     private static double Bilinear(double[] values, int at, int stride, double fx, double fy)

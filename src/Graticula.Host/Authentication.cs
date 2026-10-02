@@ -160,6 +160,8 @@ internal sealed class Authentication
 
         try
         {
+            await ReadBodyTokenAsync(context, cancellationToken).ConfigureAwait(false);
+
             AuthenticatedSession? session =
                 await FindSessionAsync(context, cancellationToken).ConfigureAwait(false);
 
@@ -364,12 +366,74 @@ internal sealed class Authentication
         // disabled* tells somebody who guessed a token that they guessed a real one.
         if (!context.RequestServices.GetRequiredService<HostSettings>().AcceptTokenInQueryString)
         {
-            return null;
+            return context.Items[BodyTokenKey] as string;
         }
 
         string query = context.Request.Query["token"].ToString();
 
-        return query.Length == 0 ? null : query;
+        return query.Length == 0 ? context.Items[BodyTokenKey] as string : query;
+    }
+
+    /// <summary>The largest form body searched for a token: past this it is not a request moved to POST for its length.</summary>
+    private const long MaximumBodyTokenSearch = 8L * 1024 * 1024;
+
+    /// <summary>Where <see cref="ReadBodyTokenAsync"/> leaves a token sent in a form body.</summary>
+    private const string BodyTokenKey = "graticula.body-token";
+
+    /// <summary>
+    /// A token sent in a form-encoded POST body, as ArcGIS clients send it once a request is too long for a URL.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The JS SDK moves a request to POST past 2,000 characters, and its token with it</b> — so a real polygon sent
+    /// to the geometry service, a large query or applyEdits arrived anonymous and was answered as a service that is not
+    /// there (the ArcGIS reviewer's GeometryServer pass, 2026-10-03).
+    /// </para>
+    /// <para>
+    /// <b>Read regardless of the query-string setting.</b> A body is not written to request logs, which is the whole of
+    /// D-120's cost; and like the query parameter it is put there deliberately by the caller, never attached by the
+    /// browser, so it carries none of the cookie's forgery risk.
+    /// </para>
+    /// <para>
+    /// <b>Form-encoded bodies only, buffered and rewound.</b> A multipart upload may be gigabytes and is not read here;
+    /// an endpoint that reads its body itself still finds all of it.
+    /// </para>
+    /// </remarks>
+    private static async Task ReadBodyTokenAsync(HttpContext context, CancellationToken cancellationToken)
+    {
+        HttpRequest request = context.Request;
+
+        if (!HttpMethods.IsPost(request.Method)
+            || request.ContentType?.StartsWith("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase) != true
+            || request.Headers.ContainsKey("X-Esri-Authorization")
+            || request.Headers.ContainsKey("Authorization")
+            || request.Query.ContainsKey("token")
+            // A body past this is not a form a client moved to POST for its length; it is the endpoint's to read, and
+            // to refuse in its own words when it is past the ceiling (OversizedBodyTests).
+            || request.ContentLength is not { } length || length > MaximumBodyTokenSearch)
+        {
+            return;
+        }
+
+        request.EnableBuffering();
+
+        try
+        {
+            IFormCollection form = await request.ReadFormAsync(cancellationToken).ConfigureAwait(false);
+
+            if (form["token"].ToString() is { Length: > 0 } token)
+            {
+                context.Items[BodyTokenKey] = token;
+            }
+        }
+        catch (Exception e) when (e is System.IO.InvalidDataException or BadHttpRequestException or System.IO.IOException)
+        {
+            // A form too large or malformed is the endpoint's to refuse, in its own words.
+        }
+        finally
+        {
+            request.Body.Position = 0;
+        }
     }
 
     private static string? BearerToken(HttpContext context)

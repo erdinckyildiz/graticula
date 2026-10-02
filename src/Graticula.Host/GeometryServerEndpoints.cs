@@ -43,7 +43,7 @@ namespace Graticula.Host;
 /// somebody what happened and where the reasoning is.
 /// </para>
 /// </remarks>
-internal static class GeometryServerEndpoints
+internal static partial class GeometryServerEndpoints
 {
     /// <summary>
     /// The most vertices a single request may carry.
@@ -1144,7 +1144,7 @@ internal static class GeometryServerEndpoints
             return;
         }
 
-        if (!TrySrid(form, "sr", out int srid, out string? sridError))
+        if (!TrySrid(form, SridField(form), out int srid, out string? sridError))
         {
             await Fail(context, sridError!).ConfigureAwait(false);
             return;
@@ -1154,6 +1154,45 @@ internal static class GeometryServerEndpoints
         {
             await Fail(context, error!).ConfigureAwait(false);
             return;
+        }
+
+        // ADR-145: units the request names are applied, and what cannot be is refused by name.
+        if (GeodesicAsked(form) is { } geodesic)
+        {
+            await Fail(context, geodesic).ConfigureAwait(false);
+            return;
+        }
+
+        if (operation == "buffer" && (SameReference(form, "bufferSR", srid) ?? SameReference(form, "outSR", srid)) is { } elsewhere)
+        {
+            await Fail(context, elsewhere).ConfigureAwait(false);
+            return;
+        }
+
+        if (operation switch { "buffer" => "unit", "offset" => "offsetUnit", "generalize" => "deviationUnit", _ => null } is { } unitField)
+        {
+            (double scale, string? unitError) = await InputScaleAsync(context, form, unitField, srid, cancellation).ConfigureAwait(false);
+
+            if (unitError is not null)
+            {
+                await Fail(context, unitError).ConfigureAwait(false);
+                return;
+            }
+
+            request = request with { Distance = request.Distance * scale };
+        }
+
+        double answerScale = 1;
+
+        if (operation == "distance")
+        {
+            (answerScale, string? unitError) = await OutputScaleAsync(context, form, "distanceUnit", srid, cancellation).ConfigureAwait(false);
+
+            if (unitError is not null)
+            {
+                await Fail(context, unitError).ConfigureAwait(false);
+                return;
+            }
         }
 
         // <b>This service's deadline, if an administrator set one.</b> Null leaves the engine's
@@ -1214,7 +1253,7 @@ internal static class GeometryServerEndpoints
 
         if (result.Scalar is double scalar)
         {
-            await Respond(context, operation, new { distance = scalar, cost, note = PlanarNote })
+            await Respond(context, operation, new { distance = scalar * answerScale, cost, note = PlanarNote })
                 .ConfigureAwait(false);
             return;
         }
@@ -1247,6 +1286,18 @@ internal static class GeometryServerEndpoints
                      + "tolerances. The same algorithm a query's maxAllowableOffset uses, so the "
                      + "two agree. Every surviving vertex is an original one. This is not "
                      + "ArcGIS 'simplify', which repairs a geometry that is already invalid.",
+            }).ConfigureAwait(false);
+            return;
+        }
+
+        if (operation == "cut")
+        {
+            // ArcGIS's shape: which target each piece came from, beside the pieces — the JS SDK reads both.
+            await Respond(context, operation, new
+            {
+                cutIndexes = result.Indexes ?? [],
+                geometries = result.Geometries.Select(g => ToJson(g, srid)).ToArray(),
+                cost,
             }).ConfigureAwait(false);
             return;
         }
@@ -1291,11 +1342,15 @@ internal static class GeometryServerEndpoints
         List<Geometry> right = [];
         double distance = 0;
         string? pattern = null;
+        bool unionResults = false;
 
         switch (operation)
         {
             case "cut":
-                if (!TryNamedGeometry(form, "target", srid, out left, out error)
+                // ArcGIS documents `target` as a list ({geometryType, geometries}); one bare geometry is read too.
+                if (!(IsList(form, "target")
+                        ? TryGeometries(form, srid, out left, out _, out error, "target")
+                        : TryNamedGeometry(form, "target", srid, out left, out error))
                     || !TryNamedGeometry(form, "cutter", srid, out right, out error))
                 {
                     return false;
@@ -1351,6 +1406,10 @@ internal static class GeometryServerEndpoints
                     return false;
                 }
 
+                // E3: a buffer is one answer per input unless the caller asks for them merged.
+                unionResults = operation == "buffer"
+                    && string.Equals(Field(form, "unionResults"), "true", StringComparison.OrdinalIgnoreCase);
+
                 if (operation is "buffer" or "offset")
                 {
                     string field = operation == "buffer" ? "distances" : "offsetDistance";
@@ -1393,6 +1452,7 @@ internal static class GeometryServerEndpoints
         {
             Distance = distance,
             Pattern = pattern,
+            UnionResults = unionResults,
         };
 
         return true;
@@ -1562,7 +1622,7 @@ internal static class GeometryServerEndpoints
             using JsonDocument document = JsonDocument.Parse(raw);
 
             if (!ArcGisGeometryReader.TryRead(
-                    document.RootElement, srid, out Geometry? geometry, out error))
+                    Unwrapped(document.RootElement), srid, out Geometry? geometry, out error))
             {
                 return false;
             }
@@ -1598,7 +1658,7 @@ internal static class GeometryServerEndpoints
         {
             using JsonDocument document = JsonDocument.Parse(raw);
 
-            if (!ArcGisGeometryReader.TryRead(document.RootElement, srid, out Geometry? geometry,
+            if (!ArcGisGeometryReader.TryRead(Unwrapped(document.RootElement), srid, out Geometry? geometry,
                     out error))
             {
                 return false;
@@ -1687,24 +1747,71 @@ internal static class GeometryServerEndpoints
     // ---------- measures ----------
 
     /// <summary>Planar area and perimeter of each polygon.</summary>
-    private static async Task AreasAndLengths(HttpContext context)
+    private static async Task AreasAndLengths(HttpContext context, CancellationToken cancellation)
     {
         if (!TryMeasurable(context, out List<Geometry> geometries, out string? error))
         {
             await Fail(context, error!).ConfigureAwait(false);
+            return;
+        }
+
+        (double lengthScale, double areaScale, string? unitError) = await MeasureScalesAsync(context, true, cancellation)
+            .ConfigureAwait(false);
+
+        if (unitError is not null)
+        {
+            await Fail(context, unitError).ConfigureAwait(false);
             return;
         }
 
         await Respond(context, "areasAndLengths", new
         {
-            areas = geometries.Select(GeometryMeasures.Area).ToArray(),
-            lengths = geometries.Select(GeometryMeasures.Length).ToArray(),
+            areas = geometries.Select(g => GeometryMeasures.Area(g) * areaScale).ToArray(),
+            lengths = geometries.Select(g => GeometryMeasures.Length(g) * lengthScale).ToArray(),
             note = PlanarNote,
         }).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// ADR-145: the factors a measure in the reference's units is multiplied by to be in the units asked —
+    /// <c>lengthUnit</c>, and for areas <c>areaUnit</c> — with a geodesic measure refused by name.
+    /// </summary>
+    private static async Task<(double Length, double Area, string? Error)> MeasureScalesAsync(
+        HttpContext context, bool areas, CancellationToken cancellation)
+    {
+        if (!TryForm(context, out IFormCollection form, out string? formError))
+        {
+            return (0, 0, formError);
+        }
+
+        if (GeodesicAsked(form) is { } geodesic)
+        {
+            return (0, 0, geodesic);
+        }
+
+        if (!TrySrid(form, SridField(form), out int srid, out string? sridError))
+        {
+            return (0, 0, sridError);
+        }
+
+        (double length, string? lengthError) = await OutputScaleAsync(context, form, "lengthUnit", srid, cancellation).ConfigureAwait(false);
+
+        if (lengthError is not null)
+        {
+            return (0, 0, lengthError);
+        }
+
+        if (!areas)
+        {
+            return (length, 1, null);
+        }
+
+        (double area, string? areaError) = await AreaScaleAsync(context, form, srid, cancellation).ConfigureAwait(false);
+        return areaError is null ? (length, area, null) : (0, 0, areaError);
+    }
+
     /// <summary>Planar length of each geometry.</summary>
-    private static async Task Lengths(HttpContext context)
+    private static async Task Lengths(HttpContext context, CancellationToken cancellation)
     {
         if (!TryMeasurable(context, out List<Geometry> geometries, out string? error))
         {
@@ -1712,9 +1819,17 @@ internal static class GeometryServerEndpoints
             return;
         }
 
+        (double lengthScale, _, string? unitError) = await MeasureScalesAsync(context, false, cancellation).ConfigureAwait(false);
+
+        if (unitError is not null)
+        {
+            await Fail(context, unitError).ConfigureAwait(false);
+            return;
+        }
+
         await Respond(context, "lengths", new
         {
-            lengths = geometries.Select(GeometryMeasures.Length).ToArray(),
+            lengths = geometries.Select(g => GeometryMeasures.Length(g) * lengthScale).ToArray(),
             note = PlanarNote,
         }).ConfigureAwait(false);
     }
@@ -1734,7 +1849,9 @@ internal static class GeometryServerEndpoints
             return;
         }
 
-        if (!TryGeometries(form, srid, out List<Geometry> geometries, out _, out string? error))
+        // E1: the JS SDK sends labelPoints' polygons as `polygons`.
+        if (!TryGeometries(form, srid, out List<Geometry> geometries, out _, out string? error,
+                Field(form, "geometries") is null && Field(form, "polygons") is not null ? "polygons" : "geometries"))
         {
             await Fail(context, error!).ConfigureAwait(false);
             return;
@@ -1784,7 +1901,7 @@ internal static class GeometryServerEndpoints
     }
 
     /// <summary>Adds vertices so no segment exceeds a length.</summary>
-    private static async Task Densify(HttpContext context)
+    private static async Task Densify(HttpContext context, CancellationToken cancellation)
     {
         if (!TryMeasurable(context, out List<Geometry> geometries, out string? error))
         {
@@ -1802,6 +1919,26 @@ internal static class GeometryServerEndpoints
         {
             await Fail(context, stepError!).ConfigureAwait(false);
             return;
+        }
+
+        // ADR-145: a segment length in the unit asked, and a geodesic densify refused by name.
+        if (TryForm(context, out IFormCollection form, out _))
+        {
+            if (GeodesicAsked(form) is { } geodesic)
+            {
+                await Fail(context, geodesic).ConfigureAwait(false);
+                return;
+            }
+
+            (double scale, string? unitError) = await InputScaleAsync(context, form, "lengthUnit", srid, cancellation).ConfigureAwait(false);
+
+            if (unitError is not null)
+            {
+                await Fail(context, unitError).ConfigureAwait(false);
+                return;
+            }
+
+            step *= scale;
         }
 
         // <b>The cap on the way out, not only on the way in — [Q-115](../../docs/open-questions.md).</b>
@@ -1914,12 +2051,18 @@ internal static class GeometryServerEndpoints
             return false;
         }
 
-        if (!TrySrid(form, "sr", out int srid, out error))
+        if (!TrySrid(form, SridField(form), out int srid, out error))
         {
             return false;
         }
 
-        return TryGeometries(form, srid, out geometries, out _, out error);
+        // E1: the JS SDK names the list for what it holds — polygons for areasAndLengths and labelPoints, polylines for
+        // lengths — where this server's own forms send geometries.
+        string field = Field(form, "geometries") is not null ? "geometries"
+            : Field(form, "polygons") is not null ? "polygons"
+            : Field(form, "polylines") is not null ? "polylines"
+            : "geometries";
+        return TryGeometries(form, srid, out geometries, out _, out error, field);
     }
 
     /// <summary>Marks a refusal as being about size rather than about correctness.</summary>
@@ -2191,6 +2334,46 @@ internal static class GeometryServerEndpoints
 
         return true;
     }
+
+    /// <summary>
+    /// A geometry sent as the JS SDK sends a second operand — <c>{"geometryType":…,"geometry":{…}}</c> — or bare.
+    /// </summary>
+    private static JsonElement Unwrapped(JsonElement element) =>
+        element.ValueKind == JsonValueKind.Object
+            && !element.TryGetProperty("rings", out _) && !element.TryGetProperty("paths", out _)
+            && !element.TryGetProperty("points", out _) && !element.TryGetProperty("x", out _)
+            && element.TryGetProperty("geometry", out JsonElement inner) && inner.ValueKind == JsonValueKind.Object
+            ? inner
+            : element;
+
+    /// <summary>Whether a field holds a list of geometries — an array, or an object with a <c>geometries</c> array.</summary>
+    private static bool IsList(IFormCollection form, string name)
+    {
+        string? raw = Field(form, name);
+
+        if (raw is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(raw);
+            return document.RootElement.ValueKind == JsonValueKind.Array
+                || (document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty("geometries", out _));
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The field a request names its reference in: <c>sr</c>, or <c>inSR</c> where the JS SDK's buffer parameters put it
+    /// (E1, the ArcGIS reviewer's GeometryServer pass).
+    /// </summary>
+    private static string SridField(IFormCollection form) =>
+        Field(form, "sr") is null && Field(form, "inSR") is not null ? "inSR" : "sr";
 
     private static string? Field(IFormCollection form, string name) =>
         form.TryGetValue(name, out Microsoft.Extensions.Primitives.StringValues value)

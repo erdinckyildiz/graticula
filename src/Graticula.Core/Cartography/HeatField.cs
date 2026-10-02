@@ -12,7 +12,7 @@ namespace Graticula.Cartography;
 /// A heat map is the one renderer whose answer does not depend on a feature alone — every point
 /// contributes to its neighbours' pixels, so it cannot be drawn in the per-feature pass every
 /// other renderer uses. It accumulates while the features go past and is composited once at the
-/// end, through <see cref="IMapCanvas.DrawImage"/>.
+/// end, through <see cref="IMapCanvas.DrawImage(System.ReadOnlySpan{Rgba}, int, int, PixelBox)"/>.
 /// </para>
 /// <para>
 /// <b>It needed no new drawing primitive, and saying so corrected a claim.</b> `DrawImage` has

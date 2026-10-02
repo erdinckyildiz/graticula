@@ -58,6 +58,9 @@ internal static class CoverageAdminEndpoints
         app.MapGet("/admin/coverages/{name}/style", GetStyleAsync);
         app.MapPut("/admin/coverages/{name}/style", SetStyleAsync);
         app.MapGet("/admin/coverages/{name}/preview", PreviewAsync);
+
+        // ADR-143: the file uploaded for an image service, given back to its owner.
+        app.MapGet("/admin/coverages/{name}/file", DownloadAsync);
         app.MapGet("/admin/coverages", ListAsync);
 
         // <b>Here rather than on `/admin/services`, and sharing deliberately stays
@@ -486,6 +489,95 @@ internal static class CoverageAdminEndpoints
                 sharing = "private",
                 note = "Published private, as every service starts. Share it from its page.",
             }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The file uploaded for an image service, given back to whoever may manage it — ADR-143: the GeoTIFF as it was sent,
+    /// or a mosaic's tiles and a virtual raster that places them, as one zip. A file registered in place is not this
+    /// server's to hand out, and is refused with where it is kept.
+    /// </summary>
+    private static async Task DownloadAsync(
+        HttpContext context, string name, string? folder, string? check, ICoverageCatalog coverages, CancellationToken cancellation)
+    {
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (await ManagedAsync(context, coverages, name, at, cancellation).ConfigureAwait(false) is not { } coverage)
+        {
+            return;
+        }
+
+        HostSettings settings = context.RequestServices.GetRequiredService<HostSettings>();
+
+        if (!Uploaded(settings, coverage.Path) || !File.Exists(coverage.Path))
+        {
+            await Refuse(context, 400,
+                $"'{Qualify(name, at)}' was registered from a file on this server, not uploaded; that file is the server "
+                + "administrator's, and is not handed out here.").ConfigureAwait(false);
+            return;
+        }
+
+        string safe = string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' ? c : '_'));
+
+        // `check=1` asks whether there is a file to give, its name and its size, without sending it — so Studio can say a
+        // refusal in place and then hand the transfer itself to the browser, which shows its progress and writes it to
+        // disk as it comes (ADR-143's review).
+        if (check is { Length: > 0 })
+        {
+            bool mosaic = Graticula.Raster.Tiff.VrtMosaicReader.IsMosaic(coverage.Path);
+            IReadOnlyList<string> parts = mosaic ? Graticula.Raster.Tiff.VrtMosaicReader.FilesOf(coverage.Path) : [coverage.Path];
+            await Results.Ok(new
+            {
+                fileName = mosaic ? $"{safe}.zip" : $"{safe}.tif",
+                bytes = parts.Where(File.Exists).Sum(f => new FileInfo(f).Length),
+                images = parts.Count,
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        if (!Graticula.Raster.Tiff.VrtMosaicReader.IsMosaic(coverage.Path))
+        {
+            await Results.File(coverage.Path, "image/tiff", $"{safe}.tif", enableRangeProcessing: true)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        // A mosaic: its tiles under names of their own, and the virtual raster rewritten to place them by those names.
+        IReadOnlyList<string> tiles = Graticula.Raster.Tiff.VrtMosaicReader.FilesOf(coverage.Path);
+        Dictionary<string, string> named = tiles
+            .Select((tile, i) => (tile, entry: $"{safe}_{(i + 1).ToString("D3", System.Globalization.CultureInfo.InvariantCulture)}.tif"))
+            .ToDictionary(p => Path.GetFileName(p.tile), p => p.entry, StringComparer.OrdinalIgnoreCase);
+        System.Xml.Linq.XElement vrt = System.Xml.Linq.XElement.Load(coverage.Path);
+
+        foreach (System.Xml.Linq.XElement source in vrt.Descendants("SourceFilename"))
+        {
+            source.Value = named.TryGetValue(Path.GetFileName(source.Value.Trim()), out string? entry) ? entry : source.Value;
+            source.SetAttributeValue("relativeToVRT", 1);
+        }
+
+        context.Response.ContentType = "application/zip";
+        context.Response.Headers.ContentDisposition = $"attachment; filename=\"{safe}.zip\"";
+
+        // A zip writes its directory synchronously when it is closed, and Kestrel refuses synchronous writes unless the
+        // request says otherwise; this one does, for this response alone.
+        if (context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpBodyControlFeature>() is { } control)
+        {
+            control.AllowSynchronousIO = true;
+        }
+
+        using System.IO.Compression.ZipArchive zip = new(context.Response.Body, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true);
+
+        await using (Stream into = zip.CreateEntry($"{safe}.vrt", System.IO.Compression.CompressionLevel.Optimal).Open())
+        {
+            vrt.Save(into);
+        }
+
+        foreach (string tile in tiles)
+        {
+            // Already compressed or not, a GeoTIFF gains little from deflate and costs a CPU on the way out.
+            await using Stream into = zip.CreateEntry(named[Path.GetFileName(tile)], System.IO.Compression.CompressionLevel.NoCompression).Open();
+            await using FileStream from = File.OpenRead(tile);
+            await from.CopyToAsync(into, cancellation).ConfigureAwait(false);
+        }
     }
 
     /// <summary>What <c>PUT …/style</c> reads.</summary>

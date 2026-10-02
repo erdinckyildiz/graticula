@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
@@ -337,6 +338,62 @@ internal static class Program
             };
         }
 
+        // <b>One answer per input, in order — the ArcGIS reviewer's GeometryServer pass, 2026-10-03.</b> intersect,
+        // difference, simplify, cut, and buffer unless unionResults asks otherwise, were computed on the inputs combined
+        // into one: two polygons simplified came back as one multipolygon, a polygon inside another vanished, and a
+        // client mapping results to its features by index mapped them to the wrong ones. Each input is now answered
+        // alone, against the other operand combined, and keeps its place — empty where nothing is left of it.
+        if (request.Operation is "Intersect" or "Difference" or "Simplify" or "Cut"
+            || (request.Operation == "Buffer" && !request.UnionResults))
+        {
+            if (request.Operation is "Intersect" or "Difference" or "Cut" && second is null)
+            {
+                return Refuse($"{request.Operation} needs a second geometry.");
+            }
+
+            WKBWriter each = new();
+            List<string> answers = [];
+            List<int> indexes = [];
+
+            for (int i = 0; i < left.Count; i++)
+            {
+                NetTopologySuite.Geometries.Geometry input = left[i];
+
+                if (request.Operation == "Cut")
+                {
+                    // Every piece of each target, with the target it came from; a target the cutter misses is one piece.
+                    foreach (NetTopologySuite.Geometries.Geometry piece in Flatten(Cut(input, second!, factory)))
+                    {
+                        answers.Add(Convert.ToBase64String(each.Write(piece)));
+                        indexes.Add(i);
+                    }
+
+                    continue;
+                }
+
+                NetTopologySuite.Geometries.Geometry answer = request.Operation switch
+                {
+                    "Intersect" => OverlayNGRobust.Overlay(input, second, SpatialFunction.Intersection),
+                    "Difference" => OverlayNGRobust.Overlay(input, second, SpatialFunction.Difference),
+                    "Buffer" => input.Buffer(request.Distance),
+                    _ => GeometryFixer.Fix(input),
+                };
+
+                // A buffer is an area whatever went in; the rest keep the input's dimension, as ArcGIS answers.
+                Dimension dimension = request.Operation == "Buffer" ? Dimension.Surface : input.Dimension;
+                answers.Add(Convert.ToBase64String(each.Write(OfDimension(answer, dimension, factory))));
+                indexes.Add(i);
+            }
+
+            return new OverlayResponse
+            {
+                Geometries = answers,
+                Indexes = indexes,
+                CandidatePairs = candidates,
+                Milliseconds = clock.ElapsedMilliseconds,
+            };
+        }
+
         NetTopologySuite.Geometries.Geometry result;
 
         switch (request.Operation)
@@ -418,6 +475,26 @@ internal static class Program
             Geometries = geometries,
             CandidatePairs = candidates,
             Milliseconds = clock.ElapsedMilliseconds,
+        };
+    }
+
+    /// <summary>
+    /// The parts of a result of one dimension, as one geometry — a multipolygon of the polygons where two polygons met,
+    /// leaving out the lines where they only touched — and an empty one of that dimension when nothing is left.
+    /// </summary>
+    private static NetTopologySuite.Geometries.Geometry OfDimension(
+        NetTopologySuite.Geometries.Geometry result, Dimension dimension, GeometryFactory factory)
+    {
+        List<NetTopologySuite.Geometries.Geometry> parts = [.. Flatten(result).Where(p => p.Dimension == dimension && !p.IsEmpty)];
+
+        return dimension switch
+        {
+            Dimension.Surface => parts.Count == 1 ? parts[0]
+                : factory.CreateMultiPolygon([.. parts.SelectMany(p => p is MultiPolygon m ? m.Geometries.Cast<Polygon>() : [(Polygon)p])]),
+            Dimension.Curve => parts.Count == 1 ? parts[0]
+                : factory.CreateMultiLineString([.. parts.SelectMany(p => p is MultiLineString m ? m.Geometries.Cast<LineString>() : [(LineString)p])]),
+            _ => parts.Count == 1 ? parts[0]
+                : factory.CreateMultiPoint([.. parts.SelectMany(p => p is MultiPoint m ? m.Geometries.Cast<Point>() : [(Point)p])]),
         };
     }
 
@@ -713,6 +790,9 @@ internal sealed class OverlayRequest
 
     /// <summary>A DE-9IM pattern for Relate, or null for the matrix.</summary>
     public string? Pattern { get; set; }
+
+    /// <summary>Whether a buffer's results are merged into one — ArcGIS's <c>unionResults</c>.</summary>
+    public bool UnionResults { get; set; }
 }
 
 /// <summary>One response, as the server reads it.</summary>
@@ -743,4 +823,7 @@ internal sealed class OverlayResponse
     /// Index pairs into Left and Right that satisfied the pattern.
     /// </summary>
     public List<int[]>? Pairs { get; set; }
+
+    /// <summary>For each geometry answered per input, the input it answers — ArcGIS's <c>cutIndexes</c> for a cut.</summary>
+    public List<int>? Indexes { get; set; }
 }

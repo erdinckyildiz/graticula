@@ -160,12 +160,49 @@ public sealed class PostGisProjector : IProjector
 
         object? version = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
 
-        string engine = version as string ?? "PROJ, version unknown";
+        // The version alone: PostGIS 3.4 appends PROJ's search paths to it — this server's directories, the account
+        // name among them — and the answer goes to anyone who may use the geometry service.
+        string engine = version is string text && text.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var number, ..]
+            ? "PROJ " + number
+            : "PROJ, version unknown";
 
         (bool? shift, string? caution) =
             await DatumAsync(fromSrid, toSrid, cancellationToken).ConfigureAwait(false);
 
         return new ProjectionProvenance(engine, null, shift, caution);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>From the reference's own definition</b> — the last <c>UNIT</c> of a projected one is its axes' unit, and a
+    /// geographic one is in degrees — so a reference in US survey feet is measured in them, not assumed to be metres.
+    /// </remarks>
+    public async Task<ReferenceUnit?> UnitOfAsync(int srid, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand("select srtext from spatial_ref_sys where srid = @srid");
+        command.Parameters.AddWithValue("srid", srid);
+
+        if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not string text || text.Length == 0)
+        {
+            return null;
+        }
+
+        string kind = text.TrimStart();
+
+        if (kind.StartsWith("GEOGCS", StringComparison.OrdinalIgnoreCase) || kind.StartsWith("GEOGCRS", StringComparison.OrdinalIgnoreCase)
+            || kind.StartsWith("GEODCRS", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ReferenceUnit("degree", Math.PI / 180, true);
+        }
+
+        System.Text.RegularExpressions.MatchCollection units = System.Text.RegularExpressions.Regex.Matches(
+            text, @"(?:LENGTH)?UNIT\[\s*""([^""]+)""\s*,\s*([0-9.eE+-]+)");
+
+        return units.Count > 0
+            && double.TryParse(units[^1].Groups[2].Value, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double metres) && metres > 0
+            ? new ReferenceUnit(units[^1].Groups[1].Value, metres, false)
+            : null;
     }
 
     /// <summary>

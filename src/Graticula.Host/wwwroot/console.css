@@ -4603,3 +4603,7 @@ h4.spaced { margin-top: 24px; }
 
 /* ADR-140's review: a size beside body text in body type, its figures aligned rather than the monospace of .val. */
 #imgChosen .num { font-variant-numeric: tabular-nums; }
+
+/* ADR-143: the download's line takes no room until it has something to say; it is rendered from the start so a screen
+   reader has the live region before its first message. */
+#imageDownloadSays:empty { display: none; }

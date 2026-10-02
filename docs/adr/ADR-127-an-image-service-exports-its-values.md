@@ -12,6 +12,8 @@
 
 > **Amended 2026-10-02 by [ADR-137](ADR-137-an-image-service-answers-lerc.md).** `format=lerc` answers the same values as Lerc2; the revisit trigger below was measured and is recorded there.
 
+> **Amended 2026-10-03 by [ADR-142](ADR-142-an-image-is-read-between-its-cells-as-asked.md).** Values stay nearest unless `interpolation` asks for bilinear or cubic.
+
 ---
 
 ## 1. Context

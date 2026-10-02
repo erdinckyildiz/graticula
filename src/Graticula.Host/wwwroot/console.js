@@ -5978,6 +5978,10 @@ async function drawServiceDetails(qualified, knownKind) {
         // take their own data away, as in Portal; anybody else only when the service offers Extract.
         || !(manages || String(serviceDoc?.capabilities || "").split(",").map(one => one.trim()).includes("Extract"))
         ? "" : `<button type="button" id="exportDataOpen">Export data</button>`}
+      ${manages && serviceOpenKind === "ImageServer"
+        // ADR-143: the uploaded file back. In place from the start, so nothing below it moves when the server answers;
+        // enabled when it says there is a file to give, removed when there is none.
+        ? `<button type="button" id="imageDownload" aria-disabled="true">Download</button>` : ""}
       ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
         ? `<button type="button" id="updateDataOpen">Update data</button>` : ""}
       ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
@@ -5987,8 +5991,25 @@ async function drawServiceDetails(qualified, knownKind) {
       ${manages && tileLayerOf() ? `<button type="button" data-manage-tiles="1"
         title="What is cached, clear it, pre-build an area, offline packages">Manage tiles</button>` : ""}
     </div>
+    ${manages && serviceOpenKind === "ImageServer"
+      ? `<p class="hint" id="imageDownloadSays" role="status" aria-live="polite"></p>` : ""}
     <h4>Details</h4>
     <dl class="facts2" id="svcFacts"></dl>`;
+
+  if ($("imageDownload") && serviceOpen) {
+    const at = serviceOpen;
+    api(`/admin/coverages/${encodeURIComponent(at.name)}/style?folder=${encodeURIComponent(at.folder || "")}`)
+      .then(style => {
+        const button = $("imageDownload");
+        if (serviceOpen !== at || !button) return;
+        if (!style?.uploaded) { button.remove(); return; }
+        button.removeAttribute("aria-disabled");
+        button.title = style.images > 1
+          ? `The ${style.images} GeoTIFFs you uploaded and a .vrt that places them, as one zip`
+          : "The GeoTIFF you uploaded, as it was sent";
+      })
+      .catch(() => { $("imageDownload")?.remove(); });
+  }
 
 
 
@@ -25293,6 +25314,11 @@ async function handleClick(event) {
     return;
   }
 
+  if (t.id === "imageDownload" && serviceOpen) {
+    downloadImage(t);
+    return;
+  }
+
   if (t.id === "exportDataOpen" && serviceOpen) {
     const drawable = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group"));
     // The layer's own reference, named — "the layer's own coordinate system" said nothing a reader could check.
@@ -28047,6 +28073,52 @@ async function uploadImagery(event) {
   box.innerHTML = `<h3 id="imgRefused" tabindex="-1">Not published</h3><p>${h(why)}</p>`;
   $("imgRefused").scrollIntoView({ block: "start" });
   $("imgRefused").focus({ preventScroll: true });
+}
+
+/**
+ * Asks whether an image service's uploaded file can be given, then lets the browser download it (ADR-143): its own
+ * progress, its own Cancel, written to disk as it comes — the page holding a mosaic of several gigabytes in memory and
+ * saving it half a minute later, wherever the user then was, is what the review found the first version did.
+ */
+async function downloadImage(button) {
+  if (button.getAttribute("aria-disabled") === "true") return;
+  const at = serviceOpen;
+  const says = $("imageDownloadSays");
+  const say = text => { if (says) says.textContent = text; };
+  const label = button.textContent;
+  // aria-disabled rather than disabled, so the button keeps keyboard focus while it works.
+  button.setAttribute("aria-disabled", "true");
+  button.textContent = "Downloading…";
+  const address = `/admin/coverages/${encodeURIComponent(at.name)}/file?folder=${encodeURIComponent(at.folder || "")}`;
+  try {
+    const answer = await fetch(`${address}&check=1`, { headers: token ? { Authorization: "Bearer " + token } : {} });
+    const said = await answer.json().catch(() => null);
+    if (!answer.ok || said?.error) {
+      say(said?.error?.message
+        ? `Not downloaded: ${said.error.message}`
+        : `Not downloaded: the server could not send the file (error ${answer.status}). Try again, or ask an administrator.`);
+      return;
+    }
+    // A same-origin link the session cookie goes with; the browser takes it from here.
+    const link = Object.assign(document.createElement("a"), { href: address, download: said.fileName || "" });
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    say(`${said.fileName} (${fileSize(said.bytes)}) is downloading — your browser shows its progress.`);
+  } catch {
+    say("Not downloaded: the connection to the server was lost. Try again.");
+  } finally {
+    button.textContent = label;
+    button.removeAttribute("aria-disabled");
+    button.focus();
+  }
+}
+
+/** A size in bytes, as a person reads it. */
+function fileSize(bytes) {
+  const n = Number(bytes) || 0;
+  return n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(n / 1024))} KB`;
 }
 
 /** The files chosen for an imagery layer, by name — the order tiles are drawn in, later over earlier (ADR-140). */

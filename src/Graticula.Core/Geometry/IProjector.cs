@@ -306,4 +306,20 @@ public interface IProjector
     /// </returns>
     Task<ProjectionProvenance> DescribeAsync(
         int fromSrid, int toSrid, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The unit a reference's coordinates are in — ADR-145: metres per unit for a projected reference, and whether it is
+    /// angular (a geographic reference's degrees) — or null when it cannot be told.
+    /// </summary>
+    /// <param name="srid">The reference.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The unit, or null.</returns>
+    Task<ReferenceUnit?> UnitOfAsync(int srid, CancellationToken cancellationToken) =>
+        Task.FromResult<ReferenceUnit?>(null);
 }
+
+/// <summary>A reference's coordinate unit — ADR-145.</summary>
+/// <param name="Name">Its name, as the reference's definition gives it: <c>metre</c>, <c>US survey foot</c>, <c>degree</c>.</param>
+/// <param name="Metres">Metres in one unit, for a linear unit; radians in one, for an angular one.</param>
+/// <param name="Angular">Whether the unit is an angle — a geographic reference.</param>
+public sealed record ReferenceUnit(string Name, double Metres, bool Angular);

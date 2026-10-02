@@ -214,6 +214,11 @@ public sealed class ImageryDisplayTests : ArcGisClient
             Assert.True(made == HttpStatusCode.Created, $"Uploading answered {(int)made}: {Encoding.UTF8.GetString(madeBody)}");
             Assert.Equal(2, JsonDocument.Parse(madeBody).RootElement.GetProperty("overviews").GetInt32());
 
+            // ADR-143: the file uploaded is given back as it was sent — the overviews beside it are this server's.
+            (HttpStatusCode fetched, byte[] original) = await SendAsync(root, token!, HttpMethod.Get, $"/admin/coverages/{name}/file?folder=hosted");
+            Assert.Equal(HttpStatusCode.OK, fetched);
+            Assert.Equal(Elevation(600), original);
+
             // Zoomed out, it draws from an overview; close up, a value is the file's own, not an average.
             List<(byte Red, byte Green)> whole = Pixels((await SendAsync(root, token!, HttpMethod.Get,
                 $"{service}/exportImage?bbox=30,40.36,30.64,41&bboxSR=4326&size=100,100&format=png&f=image")).Body);
@@ -232,6 +237,88 @@ public sealed class ImageryDisplayTests : ArcGisClient
         {
             (HttpStatusCode removed, _) = await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
             Assert.Equal(HttpStatusCode.OK, removed);
+        }
+    }
+
+    [Fact]
+    public async Task An_area_is_described_and_values_are_sampled_at_points_along_lines_and_across_areas()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        // ADR-141: the 64-pixel model, 0.01° a cell from 30° E, 41° N, whose height is 800 + (column + row) × 1700 / 126.
+        string name = $"zz_area_{Guid.NewGuid():N}"[..16];
+        string service = $"/rest/services/hosted/{name}/ImageServer";
+        static string Q(string json) => Uri.EscapeDataString(json);
+        static double Height(int column, int row) => 800 + ((column + row) * 1700.0 / 126);
+
+        try
+        {
+            using MultipartFormDataContent form = new();
+            form.Add(new ByteArrayContent(Elevation()), "file", "dem.tif");
+            form.Add(new StringContent(name), "name");
+            (HttpStatusCode made, byte[] madeBody) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", form);
+            Assert.True(made == HttpStatusCode.Created, Encoding.UTF8.GetString(madeBody));
+
+            // Columns 10–19 and rows 20–29: a hundred pixels, their mean at the square's middle.
+            string square = Q("{\"rings\":[[[30.1,40.8],[30.2,40.8],[30.2,40.7],[30.1,40.7],[30.1,40.8]]],\"spatialReference\":{\"wkid\":4326}}");
+            JsonElement stats = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/computeStatisticsHistograms?geometry={square}&geometryType=esriGeometryPolygon&f=json")).Body).RootElement;
+            JsonElement first = stats.GetProperty("statistics")[0];
+            Assert.Equal(100, first.GetProperty("count").GetInt32());
+            Assert.Equal(Height(10, 20), first.GetProperty("min").GetDouble(), 2);
+            Assert.Equal(Height(19, 29), first.GetProperty("max").GetDouble(), 2);
+            Assert.Equal((Height(10, 20) + Height(19, 29)) / 2, first.GetProperty("mean").GetDouble(), 2);
+            Assert.Equal(100, stats.GetProperty("histograms")[0].GetProperty("counts").EnumerateArray().Sum(c => c.GetInt64()));
+
+            // ADR-142: a float model is drawn bilinear by default and says so; its values are read between cells when the
+            // request asks — a TIFF of 4 × 4 over 2 × 2 cells holds values between them — and Majority is refused by name.
+            Assert.Equal("Bilinear", JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}?f=json")).Body)
+                .RootElement.GetProperty("defaultResamplingMethod").GetString());
+            string cells = "bbox=30.1,40.78,30.12,40.8&bboxSR=4326&size=4,4&format=tiff&f=image";
+            float[] nearest = Floats((await SendAsync(root, token!, HttpMethod.Get, $"{service}/exportImage?{cells}")).Body);
+            float[] smooth = Floats((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?{cells}&interpolation=RSP_BilinearInterpolation")).Body);
+            Assert.Equal(2, nearest.Distinct().Count(v => v < Height(11, 20) + 0.01 && v > Height(10, 20) - 0.01));
+            Assert.Contains(smooth, v => v > Height(10, 20) + 1 && v < Height(11, 20) - 1);
+            Assert.Contains("RSP_Majority", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?{cells}&interpolation=RSP_Majority")).Body), StringComparison.Ordinal);
+
+            // An envelope is an area too; a point is not.
+            string box = Q("{\"xmin\":30.1,\"ymin\":40.7,\"xmax\":30.2,\"ymax\":40.8,\"spatialReference\":{\"wkid\":4326}}");
+            Assert.Equal(100, JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/computeStatisticsHistograms?geometry={box}&geometryType=esriGeometryEnvelope&f=json")).Body)
+                .RootElement.GetProperty("statistics")[0].GetProperty("count").GetInt32());
+            Assert.Contains("polygon or an envelope", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/computeStatisticsHistograms?geometry=30.15,40.75&f=json")).Body), StringComparison.Ordinal);
+
+            // Samples: a point is its pixel's value; a line is sampled evenly, its ends included.
+            JsonElement point = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/getSamples?geometry={Q("{\"x\":30.105,\"y\":40.795}")}&geometryType=esriGeometryPoint&f=json")).Body)
+                .RootElement.GetProperty("samples")[0];
+            Assert.Equal(Height(10, 20), double.Parse(point.GetProperty("value").GetString()!, System.Globalization.CultureInfo.InvariantCulture), 2);
+            Assert.Equal(0.01, point.GetProperty("resolution").GetDouble(), 9);
+
+            string line = Q("{\"paths\":[[[30.005,40.995],[30.635,40.995]]],\"spatialReference\":{\"wkid\":4326}}");
+            JsonElement[] along = [.. JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/getSamples?geometry={line}&geometryType=esriGeometryPolyline&sampleCount=4&f=json")).Body)
+                .RootElement.GetProperty("samples").EnumerateArray()];
+            Assert.Equal(4, along.Length);
+            Assert.Equal(Height(0, 0), double.Parse(along[0].GetProperty("value").GetString()!, System.Globalization.CultureInfo.InvariantCulture), 2);
+            Assert.Equal(Height(63, 0), double.Parse(along[3].GetProperty("value").GetString()!, System.Globalization.CultureInfo.InvariantCulture), 2);
+
+            // Across an area, at most the count asked for, every one inside it.
+            JsonElement[] across = [.. JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/getSamples?geometry={square}&geometryType=esriGeometryPolygon&sampleCount=25&f=json")).Body)
+                .RootElement.GetProperty("samples").EnumerateArray()];
+            Assert.InRange(across.Length, 1, 25);
+            Assert.All(across, s => Assert.InRange(s.GetProperty("location").GetProperty("x").GetDouble(), 30.1, 30.2));
+        }
+        finally
+        {
+            await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
         }
     }
 
@@ -278,6 +365,18 @@ public sealed class ImageryDisplayTests : ArcGisClient
 
             Assert.Equal(800f + (30 * 1700f / 598), float.Parse(values[0], System.Globalization.CultureInfo.InvariantCulture), 2);
             Assert.Equal(values[0], values[1]);
+
+            // ADR-143: a mosaic is given back as its tiles and a virtual raster that places them by their new names.
+            (HttpStatusCode zipped, byte[] zip) = await SendAsync(root, token!, HttpMethod.Get, $"/admin/coverages/{name}/file?folder=hosted");
+            Assert.Equal(HttpStatusCode.OK, zipped);
+            using (System.IO.Compression.ZipArchive archive = new(new MemoryStream(zip)))
+            {
+                Assert.Equal([$"{name}.vrt", $"{name}_001.tif", $"{name}_002.tif"], archive.Entries.Select(e => e.FullName));
+                using StreamReader vrt = new(archive.Entries[0].Open());
+                string placed = vrt.ReadToEnd();
+                Assert.Contains($"{name}_001.tif", placed, StringComparison.Ordinal);
+                Assert.Contains($"{name}_002.tif", placed, StringComparison.Ordinal);
+            }
 
             // Drawn whole, both halves are there.
             List<(byte Red, byte Green)> whole = Pixels((await SendAsync(root, token!, HttpMethod.Get,

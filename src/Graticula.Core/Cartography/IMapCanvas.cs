@@ -66,7 +66,7 @@ public interface IMapCanvas : IDisposable
     /// <summary>Draws a picture centred on a point, moved by its offset and turned by its rotation.</summary>
     /// <remarks>
     /// <para>
-    /// <b>ADR-099, and the one method here that takes encoded bytes.</b> <see cref="DrawImage"/> takes
+    /// <b>ADR-099, and the one method here that takes encoded bytes.</b> <see cref="DrawImage(ReadOnlySpan{Rgba}, int, int, PixelBox)"/> takes
     /// colours because a coverage's colours are cartography — the stretch and the ramp are decided
     /// in Tier 1. A picture marker's colours are the picture's own and nobody decides them, so
     /// decoding it is mechanical, and it is the rasteriser that holds a decoder. The picture has been
@@ -144,6 +144,16 @@ public interface IMapCanvas : IDisposable
     /// <param name="height">The source height in pixels.</param>
     /// <param name="destination">Where it goes on this canvas.</param>
     void DrawImage(ReadOnlySpan<Rgba> pixels, int width, int height, PixelBox destination);
+
+    /// <summary>Draws an image scaled into a box, read between its pixels as asked — ADR-142.</summary>
+    /// <param name="pixels">The image, row by row.</param>
+    /// <param name="width">Its width.</param>
+    /// <param name="height">Its height.</param>
+    /// <param name="destination">Where on the canvas.</param>
+    /// <param name="how">How the image is read between its pixels when it is scaled.</param>
+    /// <remarks>A canvas that cannot choose draws it as the four-argument overload does.</remarks>
+    void DrawImage(ReadOnlySpan<Rgba> pixels, int width, int height, PixelBox destination, Resampling how) =>
+        DrawImage(pixels, width, height, destination);
 
     /// <summary>Encodes the image.</summary>
     /// <param name="format">Which format.</param>
