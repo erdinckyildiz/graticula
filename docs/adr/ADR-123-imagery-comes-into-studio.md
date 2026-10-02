@@ -18,6 +18,8 @@
 
 > **Amended 2026-10-02 by [ADR-139](ADR-139-an-uploaded-image-is-given-its-overviews.md).** An image uploaded without overviews is given them beside it (`.ovr`), during the upload.
 
+> **Amended 2026-10-02 by [ADR-140](ADR-140-several-images-are-one-mosaic.md).** Several GeoTIFFs uploaded together, on one grid, are published as one mosaic.
+
 ---
 
 ## 1. Context

@@ -29,7 +29,7 @@ public sealed class ImageryDisplayTests : ArcGisClient
     /// <summary>A float elevation model as the smallest GeoTIFF this server opens.</summary>
     private static byte[] Elevation() => Elevation(Side);
 
-    private static byte[] Elevation(int side)
+    private static byte[] Elevation(int side, double west = 30.0, double pixel = 0)
     {
         using MemoryStream file = new();
         using BinaryWriter w = new(file);
@@ -47,8 +47,9 @@ public sealed class ImageryDisplayTests : ArcGisClient
         w.Write((ushort)42);
         w.Write(ifdAt);
         w.Write(image);
-        foreach (double d in new[] { 0.64 / side, 0.64 / side, 0.0 }) w.Write(d);
-        foreach (double d in new[] { 0.0, 0.0, 0.0, 30.0, 41.0, 0.0 }) w.Write(d);
+        double cell = pixel > 0 ? pixel : 0.64 / side;
+        foreach (double d in new[] { cell, cell, 0.0 }) w.Write(d);
+        foreach (double d in new[] { 0.0, 0.0, 0.0, west, 41.0, 0.0 }) w.Write(d);
         foreach (ushort k in new ushort[] { 1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, 1, 2048, 0, 1, 4326 }) w.Write(k);
 
         (ushort Tag, ushort Type, int Count, int Value)[] tags =
@@ -232,6 +233,75 @@ public sealed class ImageryDisplayTests : ArcGisClient
             (HttpStatusCode removed, _) = await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
             Assert.Equal(HttpStatusCode.OK, removed);
         }
+    }
+
+    [Fact]
+    public async Task Several_images_uploaded_together_are_one_mosaic_and_ones_that_do_not_fit_are_refused_by_name()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        // ADR-140: two 300-pixel models side by side, 0.64° each, one grid: one image 600 × 300 from 30° to 31.28° east.
+        string name = $"zz_mos_{Guid.NewGuid():N}"[..16];
+        string service = $"/rest/services/hosted/{name}/ImageServer";
+
+        try
+        {
+            using MultipartFormDataContent form = new();
+            form.Add(new ByteArrayContent(Elevation(300)), "file", "west.tif");
+            form.Add(new ByteArrayContent(Elevation(300, west: 30.64)), "file", "east.tif");
+            form.Add(new StringContent(name), "name");
+            (HttpStatusCode made, byte[] madeBody) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", form);
+            Assert.True(made == HttpStatusCode.Created, $"Uploading two images answered {(int)made}: {Encoding.UTF8.GetString(madeBody)}");
+            JsonElement said = JsonDocument.Parse(madeBody).RootElement;
+            Assert.Equal((2, 600, 300), (said.GetProperty("images").GetInt32(), said.GetProperty("width").GetInt32(), said.GetProperty("height").GetInt32()));
+
+            JsonElement extent = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}?f=json")).Body)
+                .RootElement.GetProperty("extent");
+            Assert.Equal(30, extent.GetProperty("xmin").GetDouble(), 6);
+            Assert.Equal(31.28, extent.GetProperty("xmax").GetDouble(), 6);
+
+            // A point in each half answers that image's own height: the same pixel of each, so the same value.
+            double cell = 0.64 / 300;
+            string None = Uri.EscapeDataString("{\"rasterFunction\":\"None\"}");
+            string[] values = new string[2];
+
+            foreach ((int i, double west) in new[] { (0, 30.0), (1, 30.64) })
+            {
+                string at = FormattableString.Invariant($"{west + (10.5 * cell)},{41 - (20.5 * cell)}");
+                values[i] = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                    $"{service}/identify?geometry={at}&geometryType=esriGeometryPoint&renderingRule={None}&f=json")).Body)
+                    .RootElement.GetProperty("value").GetString()!;
+            }
+
+            Assert.Equal(800f + (30 * 1700f / 598), float.Parse(values[0], System.Globalization.CultureInfo.InvariantCulture), 2);
+            Assert.Equal(values[0], values[1]);
+
+            // Drawn whole, both halves are there.
+            List<(byte Red, byte Green)> whole = Pixels((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?bbox=30,40.36,31.28,41&bboxSR=4326&size=200,100&format=png&f=image")).Body);
+            Assert.True(whole.Count > 19000, $"The mosaic drawn whole has {whole.Count} of 20000 pixels.");
+        }
+        finally
+        {
+            (HttpStatusCode removed, _) = await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
+            Assert.Equal(HttpStatusCode.OK, removed);
+        }
+
+        // Images with another pixel size are not one grid: refused, naming the file as it was sent, and nothing published.
+        string refusedName = $"zz_mosx_{Guid.NewGuid():N}"[..16];
+        using MultipartFormDataContent mixed = new();
+        mixed.Add(new ByteArrayContent(Elevation(300)), "file", "fine.tif");
+        mixed.Add(new ByteArrayContent(Elevation(300, west: 30.64, pixel: 0.004)), "file", "coarse.tif");
+        mixed.Add(new StringContent(refusedName), "name");
+        (HttpStatusCode refused, byte[] refusedBody) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", mixed);
+        string why = Encoding.UTF8.GetString(refusedBody);
+        Assert.True(refused == HttpStatusCode.BadRequest && why.Contains("coarse.tif", StringComparison.Ordinal)
+            && why.Contains("pixel size", StringComparison.Ordinal), $"A mosaic of two pixel sizes answered {(int)refused}: {why}");
+        Assert.Contains("\"error\"", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
+            $"/rest/services/hosted/{refusedName}/ImageServer?f=json")).Body), StringComparison.Ordinal);
     }
 
     [Fact]

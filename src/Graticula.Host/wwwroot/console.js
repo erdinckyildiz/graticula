@@ -7548,7 +7548,9 @@ function drawServiceDelete() {
       .then(style => {
         if (serviceOpen !== at) return;
         note.textContent = style && style.uploaded
-          ? "Deleting this service also deletes the image you uploaded. It cannot be recovered."
+          ? (style.images > 1
+            ? `Deleting this service also deletes the ${style.images} images you uploaded and the mosaic made from them. They cannot be recovered.`
+            : "Deleting this service also deletes the image you uploaded. It cannot be recovered.")
           : "Deleting this service removes only the service. The image file on the server is not touched.";
       })
       .catch(() => { note.textContent = "Deleting this service removes it; an image uploaded for it goes with it."; });
@@ -21585,6 +21587,9 @@ let itemRoute = "design";
  */
 let handedFile = null;
 
+/** The GeoTIFFs handed to the imagery form together — more than one is a mosaic (ADR-140). */
+let handedImages = null;
+
 /** Opens the New item dialog on its first screen. */
 function openAddItem() {
   itemStep = "item";
@@ -21660,11 +21665,12 @@ function drawItemKinds() {
   $("addItemBody").innerHTML = `
     <div class="dropzone" id="dropzone">
       ${icon("upload")}
-      <p>Drag and drop a file here</p>
+      <p>Drag and drop files here</p>
       <button type="button" class="ghost" id="fromDevice" autofocus>${icon("device")} Your device</button>
       <span class="val">A zipped shapefile, a zipped File Geodatabase, a GeoPackage, KML or KMZ, a GeoJSON
-        FeatureCollection, a CSV or Excel table with coordinates, or a GeoTIFF</span>
-      <input type="file" id="deviceFile" hidden
+        FeatureCollection, a CSV or Excel table with coordinates, or a GeoTIFF — or all the tiles of one image</span>
+      <p class="bad-inline" id="dropSays" role="alert" hidden></p>
+      <input type="file" id="deviceFile" hidden multiple
              accept=".zip,.json,.geojson,.csv,.txt,.xlsx,.gpkg,.kml,.kmz,.tif,.tiff,application/zip,application/geo+json,text/csv,image/tiff">
     </div>
 
@@ -21692,6 +21698,8 @@ function drawItemKinds() {
   zone.addEventListener("dragover", event => {
     event.preventDefault();
     zone.classList.add("over");
+    const says = $("dropSays");
+    if (says && !says.hidden) { says.hidden = true; says.textContent = ""; }
   });
   zone.addEventListener("dragleave", event => {
     if (!zone.contains(event.relatedTarget)) zone.classList.remove("over");
@@ -21724,9 +21732,30 @@ function drawItemKinds() {
 function takeFile(files) {
   if (!files || files.length === 0) return;
 
+  // ADR-140: GeoTIFFs dropped together are one image; anything else is one file at a time. A drop that mixes the two,
+  // or brings several other files, is said — the first version opened a form with one of them and dropped the rest.
+  const all = [...files];
+  const tiffs = all.filter(f => /\.tiff?$/i.test(f.name || ""));
+  const others = all.filter(f => !/\.tiff?$/i.test(f.name || ""));
+  const refuse = text => {
+    const says = $("dropSays");
+    if (says) { says.textContent = text; says.hidden = false; }
+    else toast(text);
+  };
+  if (tiffs.length && others.length) {
+    refuse(`${others[0].name}${others.length > 1 ? ` and ${others.length - 1} more` : ""} ${others.length > 1 ? "are not GeoTIFFs" : "is not a GeoTIFF"}. `
+      + "Drop GeoTIFFs together to make one imagery layer, or drop one other file on its own.");
+    return;
+  }
+  if (others.length > 1) {
+    refuse("A feature layer is made from one file at a time. Drop one of them.");
+    return;
+  }
+
   handedFile = files[0];
-  // ADR-123: a GeoTIFF is imagery, and goes to its own form.
-  const imagery = /\.tiff?$/i.test(handedFile.name || "");
+  // ADR-123: a GeoTIFF is imagery, and goes to its own form; several are one mosaic (ADR-140).
+  const imagery = tiffs.length > 0;
+  handedImages = imagery ? tiffs : null;
   itemRoute = imagery ? "imagery" : "import";
   itemStep = imagery ? "imagery" : "import";
   drawAddItem();
@@ -27806,7 +27835,11 @@ function drawImageryForm() {
           pattern="[A-Za-z0-9][A-Za-z0-9_\\-]{0,39}" title="Letters, digits, _ and -, starting with a letter or digit"></label>
       </div>
       <div class="row">
-        <label class="field">File<input id="imgFile" type="file" accept=".tif,.tiff,image/tiff" required></label>
+        <label class="field">Image file or tiles<input id="imgFile" type="file" accept=".tif,.tiff,image/tiff" multiple required
+          aria-describedby="imgTilesSay"></label>
+        <p class="hint" id="imgTilesSay">For an image delivered in tiles, choose all its tiles at once. They are joined into
+          one image (a mosaic) if they share a coordinate system, bands and pixel size and sit on one grid; where tiles
+          overlap, the later name is drawn on top. Up to 500 files, 4 GB in all.</p>
       </div>
       <p class="hint" id="imgChosen" role="status" aria-live="polite" hidden></p>
     </form>
@@ -27820,37 +27853,59 @@ function drawImageryForm() {
 
   if (handedFile) {
     const carrier = new DataTransfer();
-    carrier.items.add(handedFile);
+    for (const image of handedImages?.length ? handedImages : [handedFile]) carrier.items.add(image);
     $("imgFile").files = carrier.files;
-    $("imgName").value = handedFile.name.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^[^A-Za-z0-9]+/, "").slice(0, 40);
+    $("imgName").value = imageryName(imageryFiles());
     handedFile = null;
+    handedImages = null;
     drawImageryChosen();
   }
 }
 
 function drawImageryChosen() {
-  const file = $("imgFile")?.files?.[0];
+  const files = imageryFiles();
+  const file = files[0];
   const chosen = $("imgChosen");
   if (!chosen) return;
+  // A refusal of the files that were chosen before is not about these.
+  const result = $("imgResult");
+  if (result && !imageryUpload) { result.style.display = "none"; result.innerHTML = ""; }
   chosen.hidden = !file;
+  let over = "";
   if (file) {
-    const mb = file.size / 1048576;
-    chosen.innerHTML = `<b>${h(file.name)}</b> <span class="val">· ${mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`}</span>`;
+    const bytes = files.reduce((sum, f) => sum + f.size, 0);
+    const mb = bytes / 1048576;
+    const size = mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    // ADR-140: the server's limits, said before anything is sent rather than after.
+    if (files.length > 500) over = `These ${files.length} files are more than one upload takes. Choose at most 500; an image in more tiles than that has to be merged into fewer files first.`;
+    else if (bytes > 4 * 1024 ** 3) over = files.length > 1
+      ? `These ${files.length} tiles come to ${size}; one upload takes at most 4 GB.`
+      : `This file is ${size}; one upload takes at most 4 GB.`;
+    const names = files.length <= 3
+      ? files.map(f => h(f.name)).join(", ")
+      : `${h(files[0].name)} … ${h(files[files.length - 1].name)}
+         <details><summary>Show all ${files.length}</summary><ul>${files.map(f => `<li>${h(f.name)}</li>`).join("")}</ul></details>`;
+    chosen.innerHTML = files.length > 1
+      ? `<b>${files.length} tiles</b> · <span class="num">${size}</span> — ${names}
+         ${over ? `<span class="bad-inline">${h(over)}</span>` : ""}`
+      : `<b>${h(file.name)}</b> · <span class="num">${size}</span>${over ? ` <span class="bad-inline">${h(over)}</span>` : ""}`;
   }
-  if (file && !$("imgName").value) {
-    $("imgName").value = file.name.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^[^A-Za-z0-9]+/, "").slice(0, 40);
-  }
+  const go = $("itemSubmit");
+  if (go) go.disabled = !!over;
+  if (file && !$("imgName").value) $("imgName").value = imageryName(files);
 }
 
 async function uploadImagery(event) {
   event.preventDefault();
-  const file = $("imgFile").files[0];
+  const files = imageryFiles();
   const name = $("imgName").value.trim();
-  if (!file || !name) return;
+  if (!files.length || !name) return;
 
   const body = new FormData();
   body.append("name", name);
-  body.append("file", file);
+  for (const each of files) body.append("file", each);
+  // What the progress says it is uploading: the file, or the images of a mosaic.
+  const file = { name: files.length > 1 ? `${files.length} tiles` : files[0].name, size: files.reduce((sum, f) => sum + f.size, 0) };
 
   const box = $("imgResult");
   const go = $("itemSubmit");
@@ -27868,8 +27923,8 @@ async function uploadImagery(event) {
   box.style.display = "";
   box.innerHTML = `<p id="imgProgressSays" class="val">Uploading ${h(file.name)}…</p>
     <progress id="imgProgress" max="${file.size}" value="0" aria-labelledby="imgProgressSays"></progress>
-    <p class="hint" id="imgProgressHint" hidden>Pyramids are built if the file has none, so it draws quickly zoomed out.
-      A large image takes a few minutes. Keep this window open.</p>
+    <p class="hint" id="imgProgressHint" hidden>Pyramids are built for any image that has none, so it draws quickly zoomed
+      out. A large image, or many tiles, takes a few minutes. Keep this window open.</p>
     <p id="imgSaid" class="sr-only" role="status" aria-live="polite"></p>`;
   const say = text => { const said = $("imgSaid"); if (said) said.textContent = text; };
   setTimeout(() => say(`Uploading ${file.name}, ${mb(total)} MB.`), 50);
@@ -27990,7 +28045,31 @@ async function uploadImagery(event) {
   box.setAttribute("role", "alert");
   box.setAttribute("aria-live", "assertive");
   box.innerHTML = `<h3 id="imgRefused" tabindex="-1">Not published</h3><p>${h(why)}</p>`;
-  $("imgRefused").focus();
+  $("imgRefused").scrollIntoView({ block: "start" });
+  $("imgRefused").focus({ preventScroll: true });
+}
+
+/** The files chosen for an imagery layer, by name — the order tiles are drawn in, later over earlier (ADR-140). */
+function imageryFiles() {
+  return [...($("imgFile")?.files || [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
+/** A service name from the files: one file's own, or what the names of a mosaic's tiles share (ADR-140's review). */
+function imageryName(files) {
+  const plain = text => text.replace(/İ/g, "I").replace(/ı/g, "i").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const clean = text => plain(text).replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^[^A-Za-z0-9]+/, "").slice(0, 40);
+  if (files.length < 2) return files[0] ? clean(files[0].name) : "";
+  const names = files.map(f => clean(f.name));
+  let shared = names[0];
+  for (const each of names) while (shared && !each.startsWith(shared)) shared = shared.slice(0, -1);
+  // Cut back to a word's edge: N41E028 and N41E029 share "N41E02", which names neither.
+  const word = /[A-Za-z0-9]/;
+  if (shared && word.test(shared.at(-1)) && names.some(n => n.length > shared.length && word.test(n[shared.length]))) {
+    const edge = Math.max(shared.lastIndexOf("_"), shared.lastIndexOf("-"));
+    shared = edge > 0 ? shared.slice(0, edge) : "";
+  }
+  shared = shared.replace(/[_\-.]+$/, "");
+  return shared.length >= 3 ? shared : "";
 }
 
 /** The imagery upload in flight, so the dialog's ✕ stops it rather than hiding it (ADR-139's review). */

@@ -9,6 +9,8 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-123](ADR-123-imagery-comes-into-studio.md) (condition 2: what an upload does with the file) |
 
+> **Amended 2026-10-02 by [ADR-140](ADR-140-several-images-are-one-mosaic.md).** Each image of a mosaic is given its overviews; the mosaic reads them level for level.
+
 ---
 
 ## 1. Context

@@ -22,6 +22,9 @@ public sealed class TiffCoverageReaderFactory : ICoverageReaderFactory
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        return Task.FromResult<ICoverageReader>(TiffCoverageReader.Open(path));
+        // ADR-140: a mosaic of GeoTIFFs is a GDAL virtual raster.
+        return Task.FromResult<ICoverageReader>(VrtMosaicReader.IsMosaic(path)
+            ? VrtMosaicReader.Open(path)
+            : TiffCoverageReader.Open(path));
     }
 }

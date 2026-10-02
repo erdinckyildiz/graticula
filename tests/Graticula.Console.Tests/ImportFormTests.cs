@@ -315,6 +315,58 @@ public sealed class ImportFormTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
+    /// <summary>ADR-140: several GeoTIFFs dropped together go to the imagery form as one mosaic, sent in one upload.</summary>
+    [Fact]
+    public async Task Several_GeoTIFFs_are_offered_as_one_mosaic_and_sent_together()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/studio/#/content", token);
+        await WaitForAsync("document.querySelectorAll('#contentScopes a').length > 0", "The content screen never rendered.");
+        await ClickAsync("#newLayer");
+        await WaitForAsync(Shown("#kindImagery"), "New item offers no imagery layer.");
+
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              takeFile([
+                new File([new Uint8Array(2048)], 'tile_west.tif', { type: 'image/tiff' }),
+                new File([new Uint8Array(2048)], 'tile_east.tif', { type: 'image/tiff' }),
+              ]);
+              return true;
+            })()
+            """);
+        await WaitForAsync(Shown("#imgFile"), "Two GeoTIFFs did not open the imagery form.");
+        Assert.Equal(2, await Browser.EvaluateAsync<int>("document.getElementById('imgFile').files.length"));
+        Assert.Contains("2 tiles", await Browser.EvaluateAsync<string>("document.getElementById('imgChosen').textContent") ?? "",
+            StringComparison.Ordinal);
+        // Named for what the tiles share, not after one of them.
+        Assert.Equal("tile", await Browser.EvaluateAsync<string>("document.getElementById('imgName').value"));
+
+        await Browser.EvaluateAsync<bool>("(window.__writes = [], true)");
+        await ClickAsync("#itemSubmit");
+        await WaitForAsync(
+            "window.__writes.some(w => w.startsWith('POST') && w.includes('/admin/coverages/upload') && w.includes('[file,file,name]'))",
+            "Upload and publish did not send both images in one upload.");
+
+        NothingWentWrong(await PageErrorsAsync());
+
+        // A drop that mixes a GeoTIFF with another file is said, and nothing is opened with only part of it.
+        await OpenAsync("/studio/#/content", token);
+        await WaitForAsync("document.querySelectorAll('#contentScopes a').length > 0", "The content screen never rendered.");
+        await ClickAsync("#newLayer");
+        await WaitForAsync(Shown("#kindImagery"), "New item offers no imagery layer.");
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              takeFile([new File([new Uint8Array(8)], 'roads.zip'), new File([new Uint8Array(8)], 'tile.tif', { type: 'image/tiff' })]);
+              return true;
+            })()
+            """);
+        await WaitForAsync("!document.getElementById('dropSays').hidden && /roads\\.zip is not a GeoTIFF/.test(document.getElementById('dropSays').textContent)",
+            "A drop of a GeoTIFF and a zip did not say why it was not taken.");
+        Assert.False(await Browser.EvaluateAsync<bool>("!!document.getElementById('imgFile')"), "A mixed drop opened a form with part of it.");
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
     /// <summary>
     /// ADR-139's review: while an image uploads and its pyramids are built, every way out of the dialog stops it — the ✕
     /// and Escape stopped nothing, and the page jumped to the new service minutes later — and the wait says what it is.

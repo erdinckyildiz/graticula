@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -148,20 +149,9 @@ internal static class CoverageAdminEndpoints
 
         if (ours)
         {
-            try
-            {
-                File.Delete(before!.Path);
-                // ADR-139: and the overviews built for it beside it.
-                File.Delete(Graticula.Raster.Tiff.TiffCoverageReader.PyramidPath(before.Path));
-                fileRemoved = true;
-            }
-            catch (IOException)
-            {
-                // Removed from the catalogue either way; a file that will not delete is found by an operator later.
-            }
-            catch (UnauthorizedAccessException)
-            {
-            }
+            // With the overviews built beside it (ADR-139), and a mosaic's images (ADR-140). Removed from the catalogue
+            // either way; a file that will not delete is found by an operator later.
+            fileRemoved = Forget([before!.Path]);
         }
 
         await RecordAsync(
@@ -205,6 +195,40 @@ internal static class CoverageAdminEndpoints
     {
         string root = Path.GetFullPath(ImageryDirectory(settings)) + Path.DirectorySeparatorChar;
         return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The most images one upload makes a mosaic of — ADR-140.</summary>
+    private const int MaximumMosaicImages = 500;
+
+    /// <summary>
+    /// Deletes files this server wrote for imagery, with the overviews beside each; a mosaic's virtual raster takes the
+    /// images it places with it, where they are this server's.
+    /// </summary>
+    private static bool Forget(IEnumerable<string> paths)
+    {
+        bool all = true;
+
+        foreach (string path in paths)
+        {
+            try
+            {
+                if (Graticula.Raster.Tiff.VrtMosaicReader.IsMosaic(path) && File.Exists(path))
+                {
+                    string root = Path.GetDirectoryName(Path.GetFullPath(path))!;
+                    all &= Forget(Graticula.Raster.Tiff.VrtMosaicReader.FilesOf(path)
+                        .Where(f => string.Equals(Path.GetDirectoryName(f), root, StringComparison.OrdinalIgnoreCase)));
+                }
+
+                File.Delete(path);
+                File.Delete(Graticula.Raster.Tiff.TiffCoverageReader.PyramidPath(path));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+            {
+                all = false;
+            }
+        }
+
+        return all;
     }
 
     /// <summary>The largest image an upload may carry.</summary>
@@ -255,27 +279,42 @@ internal static class CoverageAdminEndpoints
         }
         catch (InvalidDataException tooLarge)
         {
-            await Refuse(context, 413, $"An image of at most {MaximumUploadBytes / (1024 * 1024 * 1024)} GB is accepted. ({tooLarge.Message})")
+            _ = tooLarge;
+            await Refuse(context, 413, $"An upload of at most {MaximumUploadBytes / (1024 * 1024 * 1024)} GB in all is accepted.")
+                .ConfigureAwait(false);
+            return;
+        }
+        catch (Microsoft.AspNetCore.Http.BadHttpRequestException tooLarge) when (tooLarge.StatusCode == 413)
+        {
+            // Kestrel's own ceiling, met before the form's: the same sentence, not the generic one.
+            await Refuse(context, 413, $"An upload of at most {MaximumUploadBytes / (1024 * 1024 * 1024)} GB in all is accepted.")
                 .ConfigureAwait(false);
             return;
         }
 
         string name = form["name"].ToString().Trim();
-        IFormFile? file = form.Files.GetFile("file");
+        IReadOnlyList<IFormFile> sent = form.Files.GetFiles("file");
 
-        if (name.Length == 0 || file is null)
+        if (name.Length == 0 || sent.Count == 0)
         {
             await Refuse(context, 400, "A `name` for the service and a `file` — a GeoTIFF or COG — are both needed.")
                 .ConfigureAwait(false);
             return;
         }
 
-        string extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        // ADR-140: more than one file is a mosaic, served as one image.
+        if (sent.Count > MaximumMosaicImages)
+        {
+            await Refuse(context, 400, $"A mosaic is made of at most {MaximumMosaicImages} images in one upload.")
+                .ConfigureAwait(false);
+            return;
+        }
 
-        if (extension is not (".tif" or ".tiff"))
+        if (sent.FirstOrDefault(f => Path.GetExtension(f.FileName).ToLowerInvariant() is not (".tif" or ".tiff")) is { } other)
         {
             await Refuse(context, 400,
-                "An imagery layer is published from a GeoTIFF or a Cloud Optimized GeoTIFF (.tif or .tiff).")
+                $"{Path.GetFileName(other.FileName)}: an imagery layer is published from GeoTIFFs or Cloud Optimized GeoTIFFs "
+                + "(.tif or .tiff).")
                 .ConfigureAwait(false);
             return;
         }
@@ -291,98 +330,146 @@ internal static class CoverageAdminEndpoints
 
         string directory = ImageryDirectory(settings);
         Directory.CreateDirectory(directory);
-        string path = Path.Combine(directory, $"{Guid.NewGuid():N}.tif");
 
-        try
-        {
-            await using FileStream into = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true);
-            await using Stream from = file.OpenReadStream();
-            await from.CopyToAsync(into, cancellation).ConfigureAwait(false);
-        }
-        catch
-        {
-            // An upload stopped part way left its bytes here, in no catalogue entry that would ever remove them.
-            File.Delete(path);
-            throw;
-        }
-
+        // Everything written for this upload, removed unless it is published — a refusal, a stop or a failure alike.
+        List<string> kept = [];
+        bool registered = false;
+        PublishedCoverage published;
         CoverageInfo info;
 
         try
         {
-            using ICoverageReader reader = await readers.OpenAsync(path, cancellation).ConfigureAwait(false);
-            info = reader.Info;
-        }
-        catch (InvalidDataException refused)
-        {
-            File.Delete(path);
+            List<CoverageInfo> infos = [];
 
-            // The file is named as its uploader named it: where this server keeps it is not theirs to read.
-            string sent = Path.GetFileName(file.FileName);
-            string why = refused.Message.Replace(path, sent, StringComparison.Ordinal);
-            await Refuse(context, 400, why.Contains("is not a TIFF", StringComparison.Ordinal)
-                    ? $"{sent} is not a GeoTIFF this server can read. Check that it opens in a GIS, then try again."
-                    : $"{sent} could not be read as imagery: {why}")
-                .ConfigureAwait(false);
-            return;
-        }
-
-        if (info.Srid == 0)
-        {
-            File.Delete(path);
-            await Refuse(context, 400,
-                "This file carries no EPSG code in its GeoKey directory, so this server cannot say what its coordinates "
-                + "mean. Save it with its coordinate system and upload it again.").ConfigureAwait(false);
-            return;
-        }
-
-        // ADR-139: an image uploaded without overviews is given them, so a zoomed-out picture of it reads a small level
-        // instead of every pixel. The image is servable without them, so a failure here is logged and not a refusal.
-        if (info.Overviews.Count == 0)
-        {
-            try
+            foreach (IFormFile file in sent)
             {
-                if (await context.RequestServices.GetRequiredService<ICoveragePyramidBuilder>()
-                        .BuildAsync(path, cancellation).ConfigureAwait(false) > 0)
+                string path = Path.Combine(directory, $"{Guid.NewGuid():N}.tif");
+                kept.Add(path);
+
+                await using (FileStream into = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true))
+                await using (Stream from = file.OpenReadStream())
+                {
+                    await from.CopyToAsync(into, cancellation).ConfigureAwait(false);
+                }
+
+                CoverageInfo read;
+
+                try
                 {
                     using ICoverageReader reader = await readers.OpenAsync(path, cancellation).ConfigureAwait(false);
-                    info = reader.Info;
+                    read = reader.Info;
                 }
-            }
-            catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
-            {
-                Log.PyramidNotBuilt(
-                    context.RequestServices.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Graticula.Coverages"),
-                    Path.GetFileName(path),
-                    e.Message);
-            }
-            catch
-            {
-                // Stopped while the overviews were being built: nothing is published, so nothing is kept.
-                File.Delete(path);
-                File.Delete(Graticula.Raster.Tiff.TiffCoverageReader.PyramidPath(path));
-                throw;
-            }
-        }
+                catch (InvalidDataException refused)
+                {
+                    // The file is named as its uploader named it: where this server keeps it is not theirs to read.
+                    string named = Path.GetFileName(file.FileName);
+                    string why = refused.Message.Replace(path, named, StringComparison.Ordinal);
+                    await Refuse(context, 400, why.Contains("is not a TIFF", StringComparison.Ordinal)
+                            ? $"{named} is not a GeoTIFF this server can read. Check that it opens in a GIS, then try again."
+                            : $"{named} could not be read as imagery: {why}")
+                        .ConfigureAwait(false);
+                    return;
+                }
 
-        RequestPrincipal principal = context.Features.Get<RequestPrincipal>()!;
-        PublishedCoverage published;
+                if (read.Srid == 0)
+                {
+                    await Refuse(context, 400,
+                        $"{Path.GetFileName(file.FileName)} carries no EPSG code in its GeoKey directory, so this server cannot "
+                        + "say what its coordinates mean. Save it with its coordinate system and upload it again.").ConfigureAwait(false);
+                    return;
+                }
 
-        try
-        {
+                infos.Add(read);
+            }
+
+            // ADR-140: tiles that do not make one grid are refused from their headers, before any pyramid is built, and
+            // every one of them is named — not the first, after an hour's work on the rest.
+            if (sent.Count > 1 && Graticula.Raster.Tiff.VrtMosaicReader.Misfits(infos) is { Count: > 0 } misfits)
+            {
+                string Name(int i) => Path.GetFileName(sent[i].FileName);
+                string reasons = Graticula.Raster.Tiff.VrtMosaicReader.Say(misfits, sent.Count, Name);
+                await Refuse(context, 400, misfits.Count == 1
+                        ? $"{Name(misfits[0].Image)} does not fit with the other images, so nothing was published: {reasons}. "
+                            + "Tiles of one image share a coordinate system, bands and pixel size and line up pixel for pixel. "
+                            + $"Remove or correct {Name(misfits[0].Image)} and upload again."
+                        : $"{misfits.Count} of {sent.Count} images do not fit with the rest, so nothing was published: {reasons}. "
+                            + "Tiles of one image share a coordinate system, bands and pixel size and line up pixel for pixel. "
+                            + "Remove or correct these and upload again.")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            for (int index = 0; index < kept.Count; index++)
+            {
+                string path = kept[index];
+                CoverageInfo read = infos[index];
+
+                // ADR-139: an image uploaded without overviews is given them, so a zoomed-out picture of it reads a small
+                // level instead of every pixel. It is servable without them, so a failure here is logged, not refused.
+                if (read.Overviews.Count == 0)
+                {
+                    try
+                    {
+                        if (await context.RequestServices.GetRequiredService<ICoveragePyramidBuilder>()
+                                .BuildAsync(path, cancellation).ConfigureAwait(false) > 0)
+                        {
+                            using ICoverageReader reader = await readers.OpenAsync(path, cancellation).ConfigureAwait(false);
+                            read = reader.Info;
+                        }
+                    }
+                    catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
+                    {
+                        Log.PyramidNotBuilt(
+                            context.RequestServices.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Graticula.Coverages"),
+                            Path.GetFileName(path),
+                            e.Message);
+                    }
+                }
+
+                infos[index] = read;
+            }
+
+            string served = kept[0];
+            info = infos[0];
+
+            if (kept.Count > 1)
+            {
+                served = Path.Combine(directory, $"{Guid.NewGuid():N}.vrt");
+                string[] images = [.. kept];
+                kept.Add(served);
+
+                try
+                {
+                    Graticula.Raster.Tiff.VrtMosaicReader.Write(served, images);
+                }
+                catch (InvalidDataException refused)
+                {
+                    // Checked above from the same headers; reached only if a file changed underneath.
+                    await Refuse(context, 400, $"These images could not be joined into one: {refused.Message}").ConfigureAwait(false);
+                    return;
+                }
+
+                using ICoverageReader mosaic = await readers.OpenAsync(served, cancellation).ConfigureAwait(false);
+                info = mosaic.Info;
+            }
+
+            RequestPrincipal principal = context.Features.Get<RequestPrincipal>()!;
             published = await coverages.RegisterAsync(
-                folder, name, path, info, principal.Principal.IsAnonymous ? null : principal.Principal.Id, cancellation)
+                folder, name, served, info, principal.Principal.IsAnonymous ? null : principal.Principal.Id, cancellation)
                 .ConfigureAwait(false);
+            registered = true;
         }
-        catch
+        finally
         {
-            File.Delete(path);
-            File.Delete(Graticula.Raster.Tiff.TiffCoverageReader.PyramidPath(path));
-            throw;
+            if (!registered)
+            {
+                // An upload stopped, refused or failed part way leaves nothing, in no catalogue entry that would remove it.
+                Forget(kept);
+            }
         }
 
         await RecordAsync(context, audit, "coverage.upload", published.QualifiedName,
-            new { width = info.Width, height = info.Height, bands = info.Bands.Count, srid = info.Srid, bytes = file.Length },
+            new { width = info.Width, height = info.Height, bands = info.Bands.Count, srid = info.Srid, bytes = sent.Sum(f => f.Length), images = sent.Count },
             cancellation).ConfigureAwait(false);
 
         await Results.Created(
@@ -395,6 +482,7 @@ internal static class CoverageAdminEndpoints
                 height = info.Height,
                 bands = info.Bands.Count,
                 overviews = info.Overviews.Count,
+                images = sent.Count,
                 sharing = "private",
                 note = "Published private, as every service starts. Share it from its page.",
             }).ExecuteAsync(context).ConfigureAwait(false);
@@ -458,6 +546,10 @@ internal static class CoverageAdminEndpoints
             kind = coverage.Info.Bands.Count > 0 ? coverage.Info.Bands[0].Kind.ToString() : null,
             // Whether deleting the service deletes the file — an upload — or leaves it, being registered in place.
             uploaded = Uploaded(settings, coverage.Path),
+            // ADR-140: how many images it was made of — a mosaic's delete takes them all.
+            images = Graticula.Raster.Tiff.VrtMosaicReader.IsMosaic(coverage.Path) && File.Exists(coverage.Path)
+                ? Graticula.Raster.Tiff.VrtMosaicReader.FilesOf(coverage.Path).Count
+                : 1,
             statistics = statistics.Select(b => new { minimum = b.Minimum, maximum = b.Maximum, mean = b.Mean, standardDeviation = b.StandardDeviation }),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
