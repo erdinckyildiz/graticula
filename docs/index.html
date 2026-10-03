@@ -443,9 +443,12 @@ pre .k{color:var(--accent)}
             <i class="sw half"><span class="vh">Partial.</span></i>
             <div>
               <h3>Image services</h3>
-              <p>Imagery is registered where it lies and never copied into the server.
-              <b>Raster function chains and mosaic datasets are not in it.</b></p>
-              <p class="ops"><code>exportImage</code><code>identify</code><code>tile</code></p>
+              <p>GeoTIFFs uploaded from Studio or registered where they lie. Several images are one
+              mosaic, which grows, and an image on another grid is resampled onto it. Hillshade,
+              slope and aspect, the stretch, colormap and remap chains ArcGIS clients send, values
+              as TIFF and LERC, a Download capability, and pyramids for every image.
+              <b>Choosing among a mosaic's images, time, and other raster functions are not in it.</b></p>
+              <p class="ops"><code>exportImage</code><code>identify</code><code>tile</code><code>getSamples</code><code>computeStatisticsHistograms</code></p>
             </div>
           </div>
 
@@ -453,11 +456,12 @@ pre .k{color:var(--accent)}
             <i class="sw half"><span class="vh">Partial.</span></i>
             <div>
               <h3>Geometry service</h3>
-              <p>18 of 22 operations, including <code>buffer</code>, <code>intersect</code>,
-              <code>union</code>, <code>difference</code> and <code>cut</code>. Cost is bounded by
-              a worker with a deadline rather than by a cap on your input.
-              <b>The four that are missing each refuse in their own words</b>, with the reason
-              that applies to them and not a shared excuse.</p>
+              <p>21 of 22 operations, including <code>buffer</code>, <code>intersect</code>,
+              <code>union</code>, <code>difference</code>, <code>cut</code>, <code>project</code>,
+              <code>autoComplete</code>, <code>reshape</code> and <code>trimExtend</code>. Cost is
+              bounded by a worker with a deadline rather than by a cap on your input.
+              <b>The one that is missing, <code>findTransformations</code>, refuses in its own
+              words</b>, with the reason that applies to it.</p>
             </div>
           </div>
         </div>
