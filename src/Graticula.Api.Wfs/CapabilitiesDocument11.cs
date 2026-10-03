@@ -24,6 +24,7 @@ public static class CapabilitiesDocument11
     /// <param name="types">The feature types this caller may see.</param>
     /// <param name="cancellation">Cancellation.</param>
     /// <param name="metadata">At a service's own address, what it says of itself (ADR-167), or null.</param>
+    /// <param name="transactions">Whether this caller may edit any type listed (ADR-169).</param>
     /// <returns>A task.</returns>
     public static async Task WriteAsync(
         Stream stream,
@@ -31,7 +32,8 @@ public static class CapabilitiesDocument11
         string title,
         IReadOnlyList<WfsFeatureType> types,
         CancellationToken cancellation,
-        Graticula.Catalog.OgcServiceMetadata? metadata = null)
+        Graticula.Catalog.OgcServiceMetadata? metadata = null,
+        bool transactions = true)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(types);
@@ -86,7 +88,9 @@ public static class CapabilitiesDocument11
             // ows:OperationsMetadata: the read operations, GET and POST at this address.
             await xml.WriteStartElementAsync("ows", "OperationsMetadata", d.Ows).ConfigureAwait(false);
 
-            foreach (string operation in (string[])["GetCapabilities", "DescribeFeatureType", "GetFeature", "Transaction"])
+            foreach (string operation in transactions
+                ? (string[])["GetCapabilities", "DescribeFeatureType", "GetFeature", "Transaction"]
+                : ["GetCapabilities", "DescribeFeatureType", "GetFeature"])
             {
                 await xml.WriteStartElementAsync("ows", "Operation", d.Ows).ConfigureAwait(false);
                 await xml.WriteAttributeStringAsync(null, "name", null, operation).ConfigureAwait(false);
@@ -127,7 +131,7 @@ public static class CapabilitiesDocument11
             {
                 await xml.WriteStartElementAsync("wfs", "FeatureTypeList", d.Wfs).ConfigureAwait(false);
                 await xml.WriteStartElementAsync("wfs", "Operations", d.Wfs).ConfigureAwait(false);
-                foreach (string verb in (string[])["Query", "Insert", "Update", "Delete"])
+                foreach (string verb in transactions ? (string[])["Query", "Insert", "Update", "Delete"] : ["Query"])
                 {
                     await xml.WriteElementStringAsync("wfs", "Operation", d.Wfs, verb).ConfigureAwait(false);
                 }

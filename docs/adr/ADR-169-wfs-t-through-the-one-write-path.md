@@ -36,8 +36,12 @@ through one writer.
   must allow `Create`, `Update` or `Delete` (D-179); a refusal is an OWS exception in the request's version.
 - **The answer** is `wfs:TransactionResponse` with the totals and, for inserts, each new feature's `ResourceId` (2.0)
   or `FeatureId` (1.1), with its `handle`.
-- **Capabilities** list `Transaction`; 2.0's `ImplementsTransactionalWFS` is TRUE; 1.1's feature types list
-  `Insert`, `Update` and `Delete`. `LockFeature` stays unimplemented and FALSE.
+- **Capabilities offer `Transaction` to a caller who may edit a layer listed**, and only then: 2.0's
+  `ImplementsTransactionalWFS` is TRUE for that caller and FALSE for one who may not, and 1.1's feature types list
+  `Insert`, `Update` and `Delete` likewise. The document is already the caller's — it lists what they may see — and
+  the first version declared TRUE to everyone: OGC's suite, which calls anonymously, read it, ran its Transactional
+  class and met 403 on every insert, 34 failures (CITE run of 2026-10-03, v1.0.297). An anonymous client told it may
+  edit and then refused is the defect, not the suite. `LockFeature` stays unimplemented and FALSE.
 - An audit row a layer, `wfs.transaction`.
 
 ### Alternative B — Keep WFS read-only
@@ -63,7 +67,8 @@ As §2, Alternative A.
 
 ## Conditions
 
-1. OGC's WFS 2.0 Transactional test class is run against the server, or the claim is narrowed to what it passes.
+1. OGC's WFS 2.0 Transactional test class is run against the server as a caller who may edit, or the claim is
+   narrowed to what it passes. The CI suite calls anonymously and so, rightly, no longer reaches the class.
 2. QGIS edits a layer through WFS-T and the edit is seen through the ArcGIS face.
 
 ## 6. Consequences

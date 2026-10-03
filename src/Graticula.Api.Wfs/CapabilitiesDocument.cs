@@ -84,6 +84,8 @@ public static class CapabilitiesDocument
     /// <param name="types">The feature types this caller may see.</param>
     /// <param name="cancellation">Cancellation.</param>
     /// <param name="metadata">At a service's own address, what the service says of itself (ADR-167), or null.</param>
+    /// <param name="transactions">Whether this caller may edit any type listed — ADR-169: Transaction is offered, and
+    /// <c>ImplementsTransactionalWFS</c> is TRUE, only then.</param>
     /// <returns>A task.</returns>
     public static async Task WriteAsync(
         Stream stream,
@@ -91,7 +93,8 @@ public static class CapabilitiesDocument
         string title,
         IReadOnlyList<WfsFeatureType> types,
         CancellationToken cancellation,
-        Graticula.Catalog.OgcServiceMetadata? metadata = null)
+        Graticula.Catalog.OgcServiceMetadata? metadata = null,
+        bool transactions = true)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(types);
@@ -111,7 +114,7 @@ public static class CapabilitiesDocument
 
             await IdentificationAsync(xml, title, metadata).ConfigureAwait(false);
             await ProviderAsync(xml).ConfigureAwait(false);
-            await OperationsAsync(xml, endpoint).ConfigureAwait(false);
+            await OperationsAsync(xml, endpoint, transactions).ConfigureAwait(false);
             await TypesAsync(xml, types).ConfigureAwait(false);
             await FilterCapabilitiesAsync(xml).ConfigureAwait(false);
 
@@ -222,7 +225,7 @@ public static class CapabilitiesDocument
         await xml.WriteEndElementAsync().ConfigureAwait(false);
     }
 
-    private static async Task OperationsAsync(XmlWriter xml, string endpoint)
+    private static async Task OperationsAsync(XmlWriter xml, string endpoint, bool transactions)
     {
         await xml.WriteStartElementAsync("ows", "OperationsMetadata", WfsNames.Ows)
             .ConfigureAwait(false);
@@ -236,10 +239,15 @@ public static class CapabilitiesDocument
             "ListStoredQueries",
             "DescribeStoredQueries",
 
-            // ADR-169: Insert, Update, Replace and Delete, as an XML POST.
+            // ADR-169: Insert, Update, Replace and Delete, as an XML POST — offered to a caller who may edit.
             "Transaction",
         ])
         {
+            if (operation == "Transaction" && !transactions)
+            {
+                continue;
+            }
+
             await xml.WriteStartElementAsync("ows", "Operation", WfsNames.Ows).ConfigureAwait(false);
 
             await xml.WriteAttributeStringAsync(null, "name", null, operation).ConfigureAwait(false);
@@ -293,7 +301,7 @@ public static class CapabilitiesDocument
         foreach ((string name, string value) in ((string, string)[])
         [
             ("ImplementsBasicWFS", "TRUE"),
-            ("ImplementsTransactionalWFS", "TRUE"),
+            ("ImplementsTransactionalWFS", transactions ? "TRUE" : "FALSE"),
             ("ImplementsLockingWFS", "FALSE"),
             ("KVPEncoding", "TRUE"),
             ("XMLEncoding", "TRUE"),

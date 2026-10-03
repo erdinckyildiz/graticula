@@ -549,7 +549,8 @@ internal static partial class WfsEndpoints
                         : "Graticula",
                     Ordered(types),
                     cancellation,
-                    await ScopeMetadataAsync(context, cancellation).ConfigureAwait(false))
+                    await ScopeMetadataAsync(context, cancellation).ConfigureAwait(false),
+                    MayEditAny(context, visible))
                 .ConfigureAwait(false);
             return;
         }
@@ -564,9 +565,21 @@ internal static partial class WfsEndpoints
                     : "Graticula",
                 Ordered(types),
                 cancellation,
-                await ScopeMetadataAsync(context, cancellation).ConfigureAwait(false))
+                await ScopeMetadataAsync(context, cancellation).ConfigureAwait(false),
+                MayEditAny(context, visible))
             .ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Whether the caller may change any layer listed — ADR-169: Transaction is offered only then, so an anonymous
+    /// client is not told it may edit and then refused.
+    /// </summary>
+    private static bool MayEditAny(HttpContext context, IReadOnlyList<PublishedLayer> visible) =>
+        context.Features.Get<RequestPrincipal>() is { } current
+        && visible.Any(layer => Authorize.EditRightOf(current, layer) != LayerAccess.EditRight.None
+            && layer.Definition.HasIntegerIdentity
+            && !(CapabilityCeilings.Refuses(layer, "Create") && CapabilityCeilings.Refuses(layer, "Update")
+                && CapabilityCeilings.Refuses(layer, "Delete")));
 
     private static async Task StoredQueriesAsync(
         HttpContext context,

@@ -122,6 +122,25 @@ public sealed class WfsTransactionConformanceTests : ArcGisClient
         Assert.Equal(0, JsonDocument.Parse(gone).RootElement.GetProperty("numberReturned").GetInt32());
     }
 
+    /// <summary>
+    /// Transaction is offered to a caller who may edit and not to one who may not — an anonymous client is not told it
+    /// may edit and then refused, which is how OGC's suite, calling anonymously, found it.
+    /// </summary>
+    [Fact]
+    public async Task Transaction_is_offered_to_a_caller_who_may_edit_and_not_to_one_who_may_not()
+    {
+        static string? Transactional(string body) => XDocument.Parse(body).Descendants()
+            .Where(e => e.Name.LocalName == "Constraint" && (string?)e.Attribute("name") == "ImplementsTransactionalWFS")
+            .Select(e => e.Elements().First(c => c.Name.LocalName == "DefaultValue").Value).FirstOrDefault();
+
+        (_, string signedIn) = await SendAsync(HttpMethod.Get, "/wfs?service=WFS&request=GetCapabilities&version=2.0.0");
+        (_, string anonymous) = await SendAsync(HttpMethod.Get, "/wfs?service=WFS&request=GetCapabilities&version=2.0.0", signedIn: false);
+
+        Assert.Equal("TRUE", Transactional(signedIn));
+        Assert.Equal("FALSE", Transactional(anonymous));
+        Assert.DoesNotContain("name=\"Transaction\"", anonymous, StringComparison.Ordinal);
+    }
+
     private async Task<string> InsertAsync(string layer, string text, string geometry, string probe)
     {
         (HttpStatusCode status, string body) = await SendAsync(HttpMethod.Post, "/wfs",
