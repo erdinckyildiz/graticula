@@ -9,11 +9,13 @@ using Graticula.Api.ArcGis;
 using Graticula.Cartography;
 using Graticula.Coverages;
 using Graticula.Geometries;
+using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Graticula.Host;
 
@@ -62,7 +64,7 @@ internal static partial class ImageServerEndpoints
     /// </remarks>
     private static readonly string[] Read = ["GET", "POST"];
 
-    private const string Capabilities = "Image,Tilemap";
+    private const string Capabilities = "Image,Tilemap,Catalog,Mensuration";
 
     /// <summary>The most tiles one <c>tilemap</c> call answers about.</summary>
     /// <remarks>
@@ -139,6 +141,58 @@ internal static partial class ImageServerEndpoints
 
             app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/histograms", Read, HistogramsAsync)
                 .Governed(SharingGovernedExtensions.ByService);
+
+            // ADR-155: mensuration, and moving between an image's columns and rows and the map.
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/measure", Read, MeasureOperationAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/computePixelLocation", Read, PixelLocationAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/imageToMap", Read, (HttpContext context, string serviceName,
+                    ICoverageCatalog coverages, ICoverageReaderFactory readers, CancellationToken cancellation) =>
+                    ImageMapAsync(context, serviceName, true, coverages, readers, cancellation))
+                .Governed(SharingGovernedExtensions.ByService);
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/mapToImage", Read, (HttpContext context, string serviceName,
+                    ICoverageCatalog coverages, ICoverageReaderFactory readers, CancellationToken cancellation) =>
+                    ImageMapAsync(context, serviceName, false, coverages, readers, cancellation))
+                .Governed(SharingGovernedExtensions.ByService);
+
+            // ADR-154: a classified image's classes, as ArcGIS lists them.
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/rasterAttributeTable", Read, RasterAttributeTableAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
+            // ADR-152: the catalog — a mosaic's images as rows, with their footprints.
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/query", Read, CatalogQueryAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
+            // ADR-152: ArcGIS's own editing of an image service's images — by whoever may manage it, and by POST, as each
+            // changes what the service is.
+            app.MapPost($"{prefix}/{{serviceName}}/ImageServer/uploads/upload", (HttpContext context, string serviceName,
+                    ICoverageCatalog coverages, CancellationToken cancellation) =>
+                {
+                    (string? folder, string name) = Split(context, serviceName);
+                    return CoverageAdminEndpoints.RestUploadAsync(context, folder, name, coverages, cancellation);
+                })
+                .DisableAntiforgery()
+                .Governed(SharingGovernedExtensions.ByService);
+
+            foreach ((string operation, Func<HttpContext, string?, string, Func<string, string?>, ICoverageCatalog, ICoverageReaderFactory, IAuditLog, CancellationToken, Task> edit) in
+                new (string, Func<HttpContext, string?, string, Func<string, string?>, ICoverageCatalog, ICoverageReaderFactory, IAuditLog, CancellationToken, Task>)[]
+                {
+                    ("add", CoverageAdminEndpoints.RestAddAsync),
+                    ("delete", CoverageAdminEndpoints.RestDeleteAsync),
+                    ("update", CoverageAdminEndpoints.RestUpdateAsync),
+                })
+            {
+                app.MapPost($"{prefix}/{{serviceName}}/ImageServer/{operation}", async (HttpContext context, string serviceName,
+                        ICoverageCatalog coverages, ICoverageReaderFactory readers, IAuditLog audit, CancellationToken cancellation) =>
+                    {
+                        (string? folder, string name) = Split(context, serviceName);
+                        Func<string, string?> parameter = await ArcGisParameters.LookupAsync(context, cancellation).ConfigureAwait(false);
+                        await edit(context, folder, name, parameter, coverages, readers, audit, cancellation).ConfigureAwait(false);
+                    })
+                    .DisableAntiforgery()
+                    .Governed(SharingGovernedExtensions.ByService);
+            }
 
             app.MapMethods(
                     $"{prefix}/{{serviceName}}/ImageServer/tile/{{level:int}}/{{row:int}}"
@@ -330,7 +384,9 @@ internal static partial class ImageServerEndpoints
 
             spatialReference = new { wkid = info.Srid, latestWkid = info.Srid },
             // ADR-148: Download when its owner offers the file to everyone it is shared with.
-            capabilities = coverage.Download ? Capabilities + ",Download" : Capabilities,
+            // ADR-152: Edit when its images can be added and removed — an upload's, not files registered in place.
+            capabilities = Capabilities + (coverage.Download ? ",Download" : "")
+                + (CoverageAdminEndpoints.Uploaded(context.RequestServices.GetRequiredService<HostSettings>(), coverage.Path) ? ",Edit" : ""),
             // ADR-142: the default it draws with, which a class image's is not.
             defaultResamplingMethod = Resampler.Name(DefaultResampling(info, RasterFunction.FromStyleText(coverage.Style), null)),
             maxImageHeight = 4096,
@@ -339,8 +395,8 @@ internal static partial class ImageServerEndpoints
             allowRasterFunction = true,
             // The function the service is drawn through by default, its owner's choice — not ArcGIS's field, read by
             // Studio's Map Viewer to name what "the service's own drawing" is; absent when it draws its values.
-            defaultRasterFunction = RasterFunction.FromStyleText(coverage.Style).Kind is var shown && shown != RasterFunctionKind.None
-                ? shown.ToString() : null,
+            defaultRasterFunction = RasterFunction.FromStyleText(coverage.Style) is { Kind: not RasterFunctionKind.None } shown
+                ? shown.Name : null,
             rasterFunctionInfos = FunctionInfos,
             // ADR-125: `statistics` answers, from a sample of the image's coarsest resolution.
             supportsStatistics = true,
@@ -385,13 +441,18 @@ internal static partial class ImageServerEndpoints
             // nearest neighbour.
             resampling = true,
 
-            // One raster, not a mosaic — ADR-043 §3.2 scopes the first cut that way,
-            // so there is no method to choose between and no operator to apply.
-            serviceSourceType = "esriImageServiceSourceTypeRasterDataset",
+            // ADR-152: a mosaic is a catalog of images, ordered by object id with the last on top, and a mosaic rule may
+            // choose others; a service over one file is a catalog of one.
+            serviceSourceType = Graticula.Raster.Tiff.VrtMosaicReader.IsMosaic(coverage.Path)
+                ? "esriImageServiceSourceTypeMosaicDataset" : "esriImageServiceSourceTypeRasterDataset",
             defaultMosaicMethod = "None",
-            allowedMosaicMethods = string.Empty,
-            mosaicOperator = "First",
-            maxMosaicImageCount = 0,
+            allowedMosaicMethods = "None,LockRaster,NorthWest,Center,Nadir,Viewpoint,ByAttribute",
+            mosaicOperator = "Last",
+            sortField = string.Empty,
+            sortValue = (string?)null,
+            maxMosaicImageCount = 500,
+            // ADR-153: when its images say when they were taken, the service has time — theirs.
+            timeInfo = TimeInfoOf(coverage),
 
             /*
               <b>A scheme, and still no cache, and those are two different facts.</b>
@@ -411,12 +472,15 @@ internal static partial class ImageServerEndpoints
 
             // ADR-128: `histograms` answers, from the same sample as the statistics.
             hasHistograms = true,
-            hasRasterAttributeTable = false,
+            // ADR-155: measured on the ground; in 3D over an elevation model's heights.
+            mensurationCapabilities = info.Bands.Count == 1 ? "Basic,3D" : "Basic",
 
-            // A raster dataset has no attribute rows, so the field list is empty and
-            // says so rather than being omitted.
+            // ADR-154: its owner's classes, or the table GDAL or ArcGIS wrote beside its file.
+            hasRasterAttributeTable = AttributeTableOf(coverage) is not null,
+
+            // ADR-152: the catalog's fields, which `query` answers.
             objectIdField = "OBJECTID",
-            fields = Array.Empty<object>(),
+            fields = CatalogFields,
             maxRecordCount = 1000,
 
             minScale = 0,
@@ -541,15 +605,27 @@ internal static partial class ImageServerEndpoints
             return;
         }
 
+        Func<string, string?> parameter = await ArcGisParameters.LookupAsync(context, cancellation).ConfigureAwait(false);
+
         if (!ImageServerExportParameters.TryParse(
-                await ArcGisParameters.LookupAsync(context, cancellation)
-                    .ConfigureAwait(false),
+                parameter,
                 coverage.Info,
                 new WidthHeight(settings.MaximumImageWidth, settings.MaximumImageHeight),
                 out ImageServerExportParameters? asked,
                 out string? error))
         {
             await RefuseAsync(context, 400, error!).ConfigureAwait(false);
+            return;
+        }
+
+        // ADR-152, ADR-153: the images a mosaic rule or a time chooses, in their order.
+        (readers, error) = await MosaicReadersAsync(context, parameter, coverage, readers,
+                asked!.Srid == coverage.Info.Srid ? asked.Extent : coverage.Info.Extent, cancellation)
+            .ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            await RefuseAsync(context, 400, error).ConfigureAwait(false);
             return;
         }
 
@@ -650,9 +726,9 @@ internal static partial class ImageServerEndpoints
 
         // ADR-136: the raster function asked for by `renderingRule`, or the one the service is shown with — none when a
         // display rule (ADR-138) chooses the colours, which draws the image's own values.
-        RasterFunction function = asked.Display is not null
-            ? RasterFunction.None
-            : asked.Function ?? RasterFunction.FromStyleText(style ?? coverage.Style);
+        // ADR-151: a display rule draws the function under it, or bandIds' bands, when the request names one.
+        RasterFunction function = asked.Function
+            ?? (asked.Display is not null ? RasterFunction.None : RasterFunction.FromStyleText(style ?? coverage.Style));
 
         // ADR-138: drawn through the rule, with the service's statistics when the rule stretches by them.
         Func<CoverageWindow, IReadOnlyList<BandInfo>, Rgba[]>? painter = null;
@@ -661,18 +737,29 @@ internal static partial class ImageServerEndpoints
         {
             IReadOnlyList<BandSummary>? summaries = null;
 
-            if (display.NeedsStatistics && await SampleAsync(coverage, readers, cancellation).ConfigureAwait(false) is { } sample)
+            if (display.NeedsStatistics && await SampleAsync(coverage, readers, cancellation).ConfigureAwait(false) is { } read)
             {
+                // ADR-151: stretched by the statistics of what is drawn — the function's values, not the image's.
+                CoverageWindow sample = function.Kind == RasterFunctionKind.None ? read : ThroughSample(coverage.Info, function, read);
+                IReadOnlyList<BandInfo> sampled = function.ResultBandsFor(coverage.Info.Bands);
                 summaries = [.. Enumerable.Range(0, sample.Bands)
-                    .Select(b => BandSummary.Of(sample, b, b < coverage.Info.Bands.Count ? coverage.Info.Bands[b] : null))];
+                    .Select(b => BandSummary.Of(sample, b, b < sampled.Count ? sampled[b] : null))];
             }
 
             painter = (window, bands) => display.Paint(window, bands, summaries);
         }
+        // Also under a style being tried in Display: with classes, the classes are what it draws (ux review 8).
+        else if (function.Kind == RasterFunctionKind.None && AttributeTableOf(coverage) is { Colours: true } table)
+        {
+            // ADR-154: a classified image is drawn in its classes' colours, as ArcGIS draws one with a table.
+            painter = table.Paint;
+        }
 
         // ADR-142: between cells as the request asks; else the service's default — nearest for a picture that may be
         // classes, bilinear for the rest — and nearest for values, which are then ones the image holds.
-        Resampling how = asked.Interpolation ?? DefaultResampling(coverage.Info, function, asked.Display);
+        // ADR-154: classes are read at the nearest cell, never between two classes.
+        Resampling how = asked.Interpolation
+            ?? (painter is not null && asked.Display is null ? Resampling.Nearest : DefaultResampling(coverage.Info, function, asked.Display));
 
         // ADR-127: the values themselves, as a GeoTIFF in their own type — read through the same plan the picture is.
         if (asked.Raw)
@@ -799,7 +886,7 @@ internal static partial class ImageServerEndpoints
         if (asked.Lerc)
         {
             bool[] valid = new bool[width * height];
-            bool derived = function.Kind != RasterFunctionKind.None;
+            bool derived = function.Derives;
 
             for (int i = 0; values.Taken is not null && i < valid.Length; i++)
             {
@@ -847,10 +934,11 @@ internal static partial class ImageServerEndpoints
         CoverageInfo info = coverage.Info;
         int width = asked.Width;
         int height = asked.Height;
-        // ADR-136: a function's values are one 32-bit band, NaN where there is none.
-        bool derived = function.Kind != RasterFunctionKind.None;
-        int bands = derived ? 1 : Math.Max(1, info.Bands.Count);
-        double? noData = derived ? double.NaN : info.Bands.Count > 0 ? info.Bands[0].NoData : null;
+        // ADR-136: a function's values are one 32-bit band, NaN where there is none; ADR-151: bands chosen keep theirs.
+        bool derived = function.Derives;
+        IReadOnlyList<BandInfo> resultBands = function.ResultBandsFor(info.Bands);
+        int bands = Math.Max(1, resultBands.Count);
+        double? noData = derived ? double.NaN : resultBands.Count > 0 ? resultBands[0].NoData : null;
 
         double[] samples = new double[width * height * bands];
         Array.Fill(samples, noData ?? 0);
@@ -958,7 +1046,7 @@ internal static partial class ImageServerEndpoints
                     // ADR-142: between cells, where every neighbour has a value; the nearest one otherwise.
                     if (positions is not null)
                     {
-                        double? empty = derived ? null : band < info.Bands.Count ? info.Bands[band].NoData : null;
+                        double? empty = derived ? null : band < resultBands.Count ? resultBands[band].NoData : null;
 
                         if (Resampler.TryValue(window.Samples, window.Width, window.Height, window.Bands, band,
                                 positions[i * 2], positions[(i * 2) + 1], how,
@@ -971,7 +1059,7 @@ internal static partial class ImageServerEndpoints
             }
         }
 
-        SampleKind kind = derived ? SampleKind.Real32 : info.Bands.Count > 0 ? info.Bands[0].Kind : SampleKind.Unsigned8;
+        SampleKind kind = derived ? SampleKind.Real32 : resultBands.Count > 0 ? resultBands[0].Kind : SampleKind.Unsigned8;
 
         return (new RawValues(samples, bands, kind, noData, taken), null);
     }
@@ -1016,7 +1104,7 @@ internal static partial class ImageServerEndpoints
 
         Rgba[] pixels = painter is not null
             ? painter(window, bands)
-            : (function.Kind != RasterFunctionKind.None
+            : (function.Kind != RasterFunctionKind.None && !function.KeepsImageStyle
                 ? function.Style
                 : await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false)).Paint(window, bands);
 
@@ -1106,7 +1194,7 @@ internal static partial class ImageServerEndpoints
 
         Rgba[] painted = painter is not null
             ? painter(window, bands)
-            : (function.Kind != RasterFunctionKind.None
+            : (function.Kind != RasterFunctionKind.None && !function.KeepsImageStyle
                 ? function.Style
                 : await StyleOfAsync(coverage, style ?? coverage.Style, readers, cancellation).ConfigureAwait(false)).Paint(window, bands);
 
@@ -1166,21 +1254,33 @@ internal static partial class ImageServerEndpoints
             return (await reader.ReadAsync(overview, x, y, width, height, cancellation).ConfigureAwait(false), info.Bands);
         }
 
+        // ADR-151: NDVI, an expression and a choice of bands are pixel by pixel, and need no neighbours.
+        (double perX, double perY) = CoveragePlanner.PixelSize(info, overview);
+
+        // ADR-151, ADR-156: pixel by pixel, the window as read; a clip is told where it lies.
+        if (function.Margin == 0)
+        {
+            CoverageWindow read = await reader.ReadAsync(overview, x, y, width, height, cancellation).ConfigureAwait(false);
+            return (function.Apply(read, 0, 0, info.Bands, (info.Extent.MinX + (x * perX), info.Extent.MaxY - (y * perY), perX, perY)),
+                function.ResultBandsFor(info.Bands));
+        }
+
         (int levelWidth, int levelHeight) = overview == 0
             ? (info.Width, info.Height)
             : (info.Overviews[overview - 1].Width, info.Overviews[overview - 1].Height);
-        int left = x > 0 ? 1 : 0;
-        int top = y > 0 ? 1 : 0;
-        int right = x + width < levelWidth ? 1 : 0;
-        int bottom = y + height < levelHeight ? 1 : 0;
+        // A surface needs one cell beyond the window, a neighbourhood half its kernel (ADR-156), where the file has them.
+        int margin = function.Margin;
+        int left = Math.Min(margin, x);
+        int top = Math.Min(margin, y);
+        int right = Math.Min(margin, levelWidth - (x + width));
+        int bottom = Math.Min(margin, levelHeight - (y + height));
 
         CoverageWindow wide = await reader.ReadAsync(
             overview, x - left, y - top, width + left + right, height + top + bottom, cancellation).ConfigureAwait(false);
 
-        (double perX, double perY) = CoveragePlanner.PixelSize(info, overview);
         double latitude = info.Extent.MaxY - ((y + (height / 2.0)) * perY);
         (double metresX, double metresY) = RasterFunction.Metres(perX, perY, AxisOrder.IsGeographic(info.Srid), latitude);
-        CoverageWindow derived = function.Apply(wide, metresX, metresY, info.Bands.Count > 0 ? info.Bands[0].NoData : null);
+        CoverageWindow derived = function.Apply(wide, metresX, metresY, info.Bands);
 
         double[] cut = new double[width * height];
         for (int row = 0; row < height; row++)
@@ -1583,6 +1683,12 @@ internal static partial class ImageServerEndpoints
             return;
         }
 
+        if (MosaicParametersError(parameter) is { } unread)
+        {
+            await RefuseAsync(context, 400, unread).ConfigureAwait(false);
+            return;
+        }
+
         if (!ImageServerExportParameters.TryPoint(
                 parameter, coverage.Info, out double x, out double y, out int pointSrid, out string? error))
         {
@@ -1655,6 +1761,16 @@ internal static partial class ImageServerEndpoints
             0,
             info.Height - 1);
 
+        // ADR-152, ADR-153: the pixel of the image a mosaic rule or a time puts on top here.
+        (readers, string? chosen) = await MosaicReadersAsync(context, parameter, coverage, readers, new Envelope(x, y, x, y), cancellation)
+            .ConfigureAwait(false);
+
+        if (chosen is not null)
+        {
+            await RefuseAsync(context, 400, chosen).ConfigureAwait(false);
+            return;
+        }
+
         using ICoverageReader reader =
             await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
 
@@ -1669,8 +1785,9 @@ internal static partial class ImageServerEndpoints
             {
                 objectId = 0,
                 name = "Pixel",
-                value = RasterFunction.Say(derived.Samples[0]),
-                rasterFunction = function.Kind.ToString(),
+                // ADR-151: bands chosen are several values, space-separated as ArcGIS writes a pixel of several bands.
+                value = string.Join(" ", derived.Samples.Take(derived.Bands).Select(RasterFunction.Say)),
+                rasterFunction = function.Name,
                 location,
             }).ExecuteAsync(context).ConfigureAwait(false);
             return;
@@ -1690,15 +1807,20 @@ internal static partial class ImageServerEndpoints
         {
             double sample = window.At(0, 0, band);
             values[band] = sample.ToString(CultureInfo.InvariantCulture);
-            measured |= !(band < info.Bands.Count && info.Bands[band].NoData is { } empty
-                && (sample.Equals(empty) || (double.IsNaN(sample) && double.IsNaN(empty))));
+            // NaN is no value whether or not the image declares a no-data: a float's hole, or ground no image covers.
+            measured |= !(double.IsNaN(sample) || (band < info.Bands.Count && info.Bands[band].NoData is { } empty && sample.Equals(empty)));
         }
+
+        // ADR-154: a classified pixel says its class, as ArcGIS's identify reads the table.
+        AttributeClass? named = measured && window.Bands == 1 && AttributeTableOf(coverage) is { } classes
+            ? classes.Find(window.At(0, 0, 0)) : null;
 
         await Results.Ok(new
         {
             objectId = 0,
             name = "Pixel",
             value = measured ? string.Join(' ', values) : "NoData",
+            attributes = named is null ? null : new Dictionary<string, object?> { ["Value"] = named.Value, ["ClassName"] = named.Name },
             // <b>`latestWkid` beside `wkid`, because every other reference object on this
             // face carries both</b> and a client that reads one field on the service
             // document and a different one here has to special-case this response.
@@ -1971,7 +2093,13 @@ internal static partial class ImageServerEndpoints
         object[] entries;
         string kind;
 
-        if (bands.Count >= 3)
+        if (AttributeTableOf(coverage) is { Colours: true } classes && classes.Classes.Count <= 256)
+        {
+            // ADR-154: a classified image's legend is its classes.
+            kind = "Unique Values";
+            entries = [.. classes.Classes.Where(c => c.Colour is not null).Select(c => Entry(c.Name, c.Colour!.Value))];
+        }
+        else if (bands.Count >= 3)
         {
             kind = "RGB Composite";
             entries =
@@ -2262,6 +2390,23 @@ internal static partial class ImageServerEndpoints
     }
 
     /// <summary>The sample, or null when the file cannot be read now.</summary>
+    /// <summary>
+    /// A whole-image sample through a function, for the statistics a stretch over it needs — ADR-151. A surface function
+    /// takes the sample's own cell size, which is coarse, as the statistics are.
+    /// </summary>
+    internal static CoverageWindow ThroughSample(CoverageInfo info, RasterFunction function, CoverageWindow sample)
+    {
+        double perX = info.Extent.Width / Math.Max(1, sample.Width);
+        double perY = info.Extent.Height / Math.Max(1, sample.Height);
+        (double metresX, double metresY) = RasterFunction.Metres(perX, perY, AxisOrder.IsGeographic(info.Srid),
+            (info.Extent.MinY + info.Extent.MaxY) / 2);
+        return function.Apply(sample, metresX, metresY, info.Bands, (info.Extent.MinX, info.Extent.MaxY, perX, perY));
+    }
+
+    /// <summary>A coverage's coarsest sample, or null where it cannot be read — for ADR-154's list of values.</summary>
+    internal static Task<CoverageWindow?> SampleOfAsync(PublishedCoverage coverage, ICoverageReaderFactory readers, CancellationToken cancellation) =>
+        SampleAsync(coverage, readers, cancellation);
+
     private static async Task<CoverageWindow?> SampleAsync(
         PublishedCoverage coverage, ICoverageReaderFactory readers, CancellationToken cancellation)
     {

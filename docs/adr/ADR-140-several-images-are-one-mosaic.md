@@ -11,6 +11,9 @@
 
 > **Amended 2026-10-03 by [ADR-147](ADR-147-a-mosaic-grows-and-resamples.md).** Images that do not fit the grid are resampled onto it, and a mosaic is added to after it is made.
 
+
+> **Amended 2026-10-03 by [ADR-152](ADR-152-a-mosaic-is-a-catalog.md).** A mosaic is a catalog: `query` lists its images, `mosaicRule` orders them, and ArcGIS's `add`, `update` and `delete` change them.
+
 ---
 
 ## 1. Context

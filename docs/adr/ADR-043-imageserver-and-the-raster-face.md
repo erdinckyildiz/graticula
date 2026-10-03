@@ -22,6 +22,9 @@
 
 > **Amended 2026-10-03 by [ADR-141](ADR-141-an-image-service-answers-about-an-area.md).** `computeStatisticsHistograms` and `getSamples` are answered.
 
+
+> **Amended 2026-10-03 by [ADR-155](ADR-155-an-image-service-measures-on-the-ground.md).** `measure`, `computePixelLocation`, `imageToMap` and `mapToImage` are answered, on the ground.
+
 ---
 
 ## 1. What was asked, and what the register already held

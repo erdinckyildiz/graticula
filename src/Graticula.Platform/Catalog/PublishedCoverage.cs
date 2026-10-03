@@ -108,6 +108,21 @@ public sealed class PublishedCoverage
     /// </summary>
     public bool Download { get; init; }
 
+    /// <summary>
+    /// Its images as a catalog lists them — ADR-152 — or null when none was recorded: its files in order, numbered from
+    /// one, named by their files.
+    /// </summary>
+    public IReadOnlyList<CoverageImageEntry>? Images { get; init; }
+
+    /// <summary>
+    /// The object id the next image added is given — ADR-152: never one an image removed had, as ArcGIS never reuses
+    /// one; null when no catalog was recorded.
+    /// </summary>
+    public int? NextImageId { get; init; }
+
+    /// <summary>The classes its owner named — ADR-154 — or null when none were: value, name and colour (#rrggbb).</summary>
+    public IReadOnlyList<CoverageClassEntry>? Classes { get; init; }
+
     /// <summary>Its own identifier.</summary>
     public Guid Id { get; }
 
@@ -216,6 +231,27 @@ public interface ICoverageCatalog
     System.Threading.Tasks.Task<bool> RemoveAsync(
         string? folder, string serviceName, System.Threading.CancellationToken cancellationToken);
 
+    /// <summary>Records a coverage's catalog — ADR-152: each image's object id, file, name and when it was taken.</summary>
+    /// <param name="folder">The folder, or null for the root.</param>
+    /// <param name="serviceName">The service name.</param>
+    /// <param name="images">The images, in the mosaic's order.</param>
+    /// <param name="nextId">The object id the next image added is given, at least; null for one past the highest.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the coverage exists.</returns>
+    /// <remarks>The next object id kept is the higher of <paramref name="nextId"/> and one past the highest given.</remarks>
+    System.Threading.Tasks.Task<bool> SetImagesAsync(
+        string? folder, string serviceName, IReadOnlyList<CoverageImageEntry> images, int? nextId,
+        System.Threading.CancellationToken cancellationToken);
+
+    /// <summary>Names a classified image's classes — ADR-154 — or clears them with null.</summary>
+    /// <param name="folder">The folder, or null for the root.</param>
+    /// <param name="serviceName">The service name.</param>
+    /// <param name="classes">The classes, or null.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the coverage exists.</returns>
+    System.Threading.Tasks.Task<bool> SetClassesAsync(
+        string? folder, string serviceName, IReadOnlyList<CoverageClassEntry>? classes, System.Threading.CancellationToken cancellationToken);
+
     /// <summary>Turns the <c>Download</c> capability on or off — ADR-148.</summary>
     /// <param name="folder">The folder, or null for the root.</param>
     /// <param name="serviceName">The service name.</param>
@@ -261,3 +297,16 @@ public interface ICoverageCatalog
         ServiceStatus status,
         System.Threading.CancellationToken cancellationToken);
 }
+
+/// <summary>One image of a coverage's catalog as stored — ADR-152.</summary>
+/// <param name="Id">Its object id, kept when others are added and removed.</param>
+/// <param name="File">Its file's name, beside the others.</param>
+/// <param name="Name">What it is called: the file it was uploaded as, or what its owner renamed it.</param>
+/// <param name="Acquired">When it was taken, if anyone said — ADR-153.</param>
+public sealed record CoverageImageEntry(int Id, string File, string Name, System.DateTimeOffset? Acquired);
+
+/// <summary>One class of a classified image, as stored — ADR-154.</summary>
+/// <param name="Value">The pixel value.</param>
+/// <param name="Name">The class's name.</param>
+/// <param name="Colour">Its colour as #rrggbb, or null.</param>
+public sealed record CoverageClassEntry(double Value, string Name, string? Colour);

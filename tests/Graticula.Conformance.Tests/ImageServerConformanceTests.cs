@@ -30,6 +30,9 @@ namespace Graticula.Conformance.Tests;
 [Collection("catalogue walk")]
 public sealed class ImageServerConformanceTests : ArcGisClient
 {
+    /// <summary>The capabilities a service has of its own: ADR-148's Download, ADR-152's Edit.</summary>
+    private static readonly string[] OwnCapabilities = ["Download", "Edit"];
+
     private async Task<(HttpStatusCode Status, string Body, string? Type)> FetchAsync(
         string path, bool anonymous = false)
     {
@@ -124,7 +127,10 @@ public sealed class ImageServerConformanceTests : ArcGisClient
         // moment somebody has to say which route answers the new claim. `Tilemap` was
         // added the same day the two routes below were, and the test below asks them to
         // answer rather than taking the document's word for it.
-        Assert.Equal("Image,Tilemap", claimed);
+        // ADR-152 added Catalog, ADR-155 Mensuration; ADR-148's Download and ADR-152's Edit are the service's own.
+        Assert.StartsWith("Image,Tilemap,Catalog,Mensuration", claimed, StringComparison.Ordinal);
+        Assert.All(claimed["Image,Tilemap,Catalog,Mensuration".Length..].Split(',', StringSplitOptions.RemoveEmptyEntries),
+            extra => Assert.Contains(extra, OwnCapabilities));
     }
 
     [Fact]
@@ -191,6 +197,44 @@ public sealed class ImageServerConformanceTests : ArcGisClient
                     Assert.True(answer.GetProperty("valid").GetBoolean());
                     break;
                 }
+
+                case "Catalog":
+                {
+                    // ADR-152: the catalog answers its rows.
+                    (HttpStatusCode status, string rows, _) = await FetchAsync(
+                        $"/rest/services/{service}/ImageServer/query?where=1%3D1&returnCountOnly=true&f=json");
+                    Assert.Equal(HttpStatusCode.OK, status);
+                    Assert.True(JsonDocument.Parse(rows).RootElement.GetProperty("count").GetInt32() >= 1, rows);
+                    break;
+                }
+
+                case "Mensuration":
+                {
+                    // ADR-155: a point measured is the point.
+                    JsonElement extent = document.GetProperty("extent");
+                    double x = (extent.GetProperty("xmin").GetDouble() + extent.GetProperty("xmax").GetDouble()) / 2;
+                    double y = (extent.GetProperty("ymin").GetDouble() + extent.GetProperty("ymax").GetDouble()) / 2;
+                    string point = Uri.EscapeDataString(FormattableString.Invariant($"{{\"x\":{x},\"y\":{y}}}"));
+                    (HttpStatusCode status, string measured, _) = await FetchAsync(
+                        $"/rest/services/{service}/ImageServer/measure?fromGeometry={point}&geometryType=esriGeometryPoint"
+                        + "&measureOperation=esriMensurationPoint&f=json");
+                    Assert.Equal(HttpStatusCode.OK, status);
+                    Assert.True(JsonDocument.Parse(measured).RootElement.TryGetProperty("point", out _), measured);
+                    break;
+                }
+
+                case "Download":
+                {
+                    (HttpStatusCode status, string files, _) = await FetchAsync($"/rest/services/{service}/ImageServer/download?f=json");
+                    Assert.Equal(HttpStatusCode.OK, status);
+                    Assert.True(JsonDocument.Parse(files).RootElement.TryGetProperty("rasterFiles", out _), files);
+                    break;
+                }
+
+                case "Edit":
+                    // ADR-152: add, update and delete are POSTed by whoever manages the service; this suite reads,
+                    // and MosaicCatalogConformanceTests edits.
+                    break;
 
                 default:
                     Assert.Fail(
@@ -587,8 +631,10 @@ public sealed class ImageServerConformanceTests : ArcGisClient
         foreach (string extra in new[]
         {
             // ADR-136: a function this server does not apply (Hillshade, Slope and Aspect it does).
+            // NDVI without its bands; a band the image does not have (ADR-151); a lock naming nothing (ADR-152); a time
+            // asked of a service none of whose images is dated (ADR-153).
             "renderingRule=" + Uri.EscapeDataString("{\"rasterFunction\":\"NDVI\"}"),
-            "bandIds=2,1,0",
+            "bandIds=9",
             "mosaicRule=" + Uri.EscapeDataString("{\"mosaicMethod\":\"esriMosaicLockRaster\"}"),
             "time=1700000000000",
         })
@@ -942,9 +988,10 @@ public sealed class ImageServerConformanceTests : ArcGisClient
 
         foreach (string extra in new[]
         {
-            // ADR-136 applies Slope, Hillshade and Aspect; a function it does not is refused.
-            "renderingRule=" + Uri.EscapeDataString("{\"rasterFunction\":\"NDVI\"}"),
-            "mosaicRule=" + Uri.EscapeDataString("{\"mosaicMethod\":\"esriMosaicLockRaster\",\"lockRasterIds\":[1]}"),
+            // A function this server does not apply, or applies without what it needs, is refused; ADR-152 orders by a
+            // mosaic rule and refuses one that blends.
+            "renderingRule=" + Uri.EscapeDataString("{\"rasterFunction\":\"Curvature\"}"),
+            "mosaicRule=" + Uri.EscapeDataString("{\"mosaicOperation\":\"MT_BLEND\"}"),
         })
         {
             (_, string refused, _) = await FetchAsync($"/rest/services/{service}/ImageServer/identify?geometry=0,0&{extra}&f=json");

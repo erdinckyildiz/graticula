@@ -9,6 +9,9 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-140](ADR-140-several-images-are-one-mosaic.md) (§2's narrowings: aligned tiles only, made in one upload) |
 
+
+> **Amended 2026-10-03 by [ADR-152](ADR-152-a-mosaic-is-a-catalog.md).** Images are also removed, renamed and dated, and keep their object ids.
+
 ---
 
 ## 1. Context

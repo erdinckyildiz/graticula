@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.Json;
@@ -142,9 +143,24 @@ internal sealed class ImageServerExportParameters
 
         asked = null;
 
+        // ADR-151: a display rule may be laid over a raster function — Stretch over NDVI — and then it draws the
+        // function's bands, not the image's; the function is read, and refused if it must be, first.
+        RasterFunction? under = null;
+
+        if (DisplayRule.UnderOf(parameter("renderingRule")) is { } underneath)
+        {
+            if (!RasterFunction.TryParseRule(underneath, out under, out error)
+                || (under is not null && !under.FitsBands(info.Bands.Count, out error)))
+            {
+                return false;
+            }
+        }
+
+        int drawnBands = under is null ? info.Bands.Count : under.ResultBandsFor(info.Bands).Count;
+
         // ADR-138: a renderer the JS SDK sends as a `Stretch`, `Colormap` or `Remap` chain is a display rule, read here;
         // anything else in `renderingRule` is a raster function's.
-        if (DisplayRule.TryParse(parameter("renderingRule"), info.Bands.Count, out DisplayRule? display, out error)
+        if (DisplayRule.TryParse(parameter("renderingRule"), drawnBands, out DisplayRule? display, out error)
             && display is null)
         {
             return false;
@@ -158,6 +174,17 @@ internal sealed class ImageServerExportParameters
         if (!TryUnoffered(rest, info, out RasterFunction? function, out error))
         {
             return false;
+        }
+
+        if (under is not null)
+        {
+            if (function is { Kind: RasterFunctionKind.ExtractBand })
+            {
+                error = "`bandIds` and a raster function under the `renderingRule` both choose what is drawn; give one of them.";
+                return false;
+            }
+
+            function = under;
         }
 
         // <b>`bboxSR` says what the box is written in; `imageSR` says what to draw
@@ -298,40 +325,56 @@ internal sealed class ImageServerExportParameters
             return false;
         }
 
-        // A slope or a shade is of one band of measurements; a colour image's first band is not a surface.
-        if (function is { Kind: not RasterFunctionKind.None } && info.Bands.Count >= 3)
+        // A slope or a shade is of one band of measurements, an NDVI of two named bands: each says what it needs.
+        if (function is not null && !function.FitsBands(info.Bands.Count, out error))
         {
-            error = $"`renderingRule` asks for {function.Kind}, which works on one band of measurements such as an "
-                + "elevation model; this image service is a colour image.";
             function = null;
             return false;
         }
 
+        // ADR-151: `bandIds` chooses bands and their order, as ExtractBand does — the bands as they are is no choice.
         if (parameter("bandIds") is { Length: > 0 } bands)
         {
             string identity = string.Join(",", Enumerable.Range(0, info.Bands.Count));
+            string given = bands.Replace(" ", string.Empty, StringComparison.Ordinal).Trim('[', ']');
 
-            if (!string.Equals(bands.Replace(" ", string.Empty, StringComparison.Ordinal), identity, StringComparison.Ordinal))
+            if (!string.Equals(given, identity, StringComparison.Ordinal))
             {
-                error = $"`bandIds={bands}` asks for another band order, and this image service draws its bands as they "
-                    + $"are ({identity}). Refused rather than drawn in the order you did not ask for.";
-                return false;
+                List<int> ids = [];
+
+                foreach (string id in given.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (!int.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out int band))
+                    {
+                        error = $"`bandIds={bands}` is band numbers from zero, separated by commas.";
+                        return false;
+                    }
+
+                    ids.Add(band);
+                }
+
+                if (function is { Kind: not RasterFunctionKind.None })
+                {
+                    error = $"`bandIds` and `renderingRule`'s {function.Name} both choose what is drawn; give one of them.";
+                    function = null;
+                    return false;
+                }
+
+                RasterFunction extract = new(RasterFunctionKind.ExtractBand) { BandIds = ids };
+
+                if (ids.Count == 0 || !extract.FitsBands(info.Bands.Count, out error))
+                {
+                    error ??= $"`bandIds={bands}` names no band.";
+                    function = null;
+                    return false;
+                }
+
+                function = extract;
             }
         }
 
-        if (parameter("mosaicRule") is { Length: > 0 } mosaic
-            && !mosaic.Replace(" ", string.Empty, StringComparison.Ordinal).Equals("{}", StringComparison.Ordinal))
-        {
-            error = "`mosaicRule` chooses among the images of a mosaic, and this image service is one image.";
-            return false;
-        }
-
-        if (parameter("time") is { Length: > 0 } time && !time.Equals("null", StringComparison.OrdinalIgnoreCase))
-        {
-            error = "`time` asks for one moment, and this image service has no time (`timeInfo` is absent).";
-            return false;
-        }
-
+        // ADR-152, ADR-153: `mosaicRule` and `time` choose among the catalog's images, and are read where the images are
+        // opened — ImageServerEndpoints.MosaicReadersAsync — rather than refused here.
         return true;
     }
 

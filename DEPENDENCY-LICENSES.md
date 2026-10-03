@@ -219,6 +219,20 @@ would be right until the next upgrade.
 | `ogr/ogrsf_frmts/flatgeobuf` | BSD-2-Clause | **yes** — FlatGeobuf is present |
 | `flatgeobuf/flatbuffers` | **Apache-2.0** | **yes**, with FlatGeobuf |
 
+**ADR-157 (2026-10-03) puts four of these drivers to work for imagery**, and each carries a
+library of its own beside GDAL's `LICENSE.TXT`, in the same native payload — all permissive:
+
+| Driver used by ADR-157 | Library | Licence |
+|---|---|---|
+| JP2OpenJPEG | OpenJPEG | BSD-2-Clause |
+| netCDF | netCDF-C (UCAR/Unidata) | BSD-3-Clause-style |
+| HDF5, HDF5Image | HDF5 (The HDF Group) | BSD-3-Clause-style |
+| HDF4, HDF4Image | HDF4 (The HDF Group) | BSD-style |
+| HFA (ERDAS Imagine), AAIGrid | GDAL itself | MIT-style |
+
+MrSID and ECW are **not** in this build — their SDKs' licences forbid it — and ADR-157 refuses
+them by name.
+
 **So the honest sentence is not *GDAL is MIT*.** It is: an MIT-style core, with BSD-2 and
 BSD-3 components, a public-domain one, Info-ZIP, Qhull, and **two Apache-2.0 components, one
 of them Esri's** — all of them permissive, none of them copyleft, and all compatible with

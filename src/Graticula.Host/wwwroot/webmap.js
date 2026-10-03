@@ -928,6 +928,13 @@ async function wmLoadLayer(layer) {
     run.status = "ok";
     // A layer with time, added to a map that had none, brings the time slider (ADR-132).
     if (run.info && run.info.timeInfo) wmDrawTime();
+    // ADR-154: a classified image's legend is its classes, read once from the service (ux review 9).
+    if (kind === "imagery" && run.info && run.info.hasRasterAttributeTable) {
+      wmFetch(`${layer.url}/legend?f=json`).then(said => {
+        run.classLegend = ((said.layers || [])[0] || {}).legend || [];
+        wmDrawLayerList();
+      }).catch(() => {});
+    }
   } else {
     run.status = "unsupported";
   }
@@ -1123,6 +1130,9 @@ function wmDrawLayerList() {
               `<option value="${v}"${((layer.renderingRule || {}).rasterFunction || "") === v ? " selected" : ""}>${wmEscape(n)}</option>`).join("")}
           </select>
           ${wmFunctionKey(wmShownFunction(layer, run.info))}</div>` : ""}
+        ${readable && kind === "imagery" && run.classLegend && run.classLegend.length && !layer.renderingRule ? `<ul class="lslegend">${
+          run.classLegend.slice(0, 8).map(row => `<li><img class="swatch" alt="" src="data:${wmEscape(row.contentType || "image/png")};base64,${wmEscape(row.imageData || "")}">${wmEscape(row.label || "")}</li>`).join("")}
+          ${run.classLegend.length > 8 ? `<li class="lkind">and ${run.classLegend.length - 8} more</li>` : ""}</ul>` : ""}
         ${readable && kind === "imagery" ? `<button class="tiny" data-act="pixels" data-layer="${wmEscape(key)}"
           data-focus="pixels:${wmEscape(key)}" aria-pressed="${layer.popupEnabled === false ? "false" : "true"}"
           title="Show pixel values when the map is clicked">Pixel values</button>` : ""}
@@ -2238,7 +2248,8 @@ async function wmIdentify(coordinate) {
         ...(layer.renderingRule ? { renderingRule: JSON.stringify(layer.renderingRule) } : {}),
         f: "json",
       }));
-      return { layer, value: said && said.value, fn: said && said.rasterFunction };
+      // ADR-154: a classified pixel's class name comes beside its value.
+      return { layer, value: said && said.value, fn: said && said.rasterFunction, className: said?.attributes?.ClassName };
     } catch (e) {
       return { layer, error: e.message || String(e) };
     }
@@ -2271,14 +2282,14 @@ async function wmIdentify(coordinate) {
   let count = 0;
   let valued = 0;
   let failed = 0;
-  const pixelSections = pixelFound.map(({ layer, value, error, fn }) => {
+  const pixelSections = pixelFound.map(({ layer, value, error, fn, className }) => {
     if (error) {
       failed++;
       return { layer, html: `<h3>${wmEscape(layer.title)}</h3><p>Could not be asked: ${wmEscape(error)}</p>` };
     }
     if (value === null || value === undefined || value === "" || value === "NoData") return { layer, html: "" };
     valued++;
-    return { layer, html: `<h3>${wmEscape(layer.title)}</h3>${wmPixelMarkup(layer, value, fn)}` };
+    return { layer, html: `<h3>${wmEscape(layer.title)}</h3>${wmPixelMarkup(layer, value, fn, className)}` };
   });
   const featureSections = answers.map(({ layer, payload, error }) => {
     const info = (wmRuntime.get(layer) || {}).info;
@@ -2338,7 +2349,7 @@ async function wmIdentify(coordinate) {
  * A pixel's value as a reader reads it — ADR-123: one row a band, named red, green and blue for a colour image,
  * and each a number to the precision its type holds rather than the seventeen digits a double prints.
  */
-function wmPixelMarkup(layer, value, fn = null) {
+function wmPixelMarkup(layer, value, fn = null, className = null) {
   const parts = String(value).trim().split(/\s+/);
   const info = (wmRuntime.get(layer) || {}).info || {};
   const colour = parts.length >= 3;
@@ -2348,6 +2359,9 @@ function wmPixelMarkup(layer, value, fn = null) {
     const number = Number(text);
     return Number.isFinite(number) ? number.toLocaleString(undefined, { maximumSignificantDigits: 7 }) : text;
   };
+  if (className && parts.length === 1 && !fn) {
+    return `<table class="feature pixel"><tr><th scope="row">Class</th><td>${wmEscape(className)} (value ${wmEscape(shown(parts[0]))})</td></tr></table>`;
+  }
   return `<table class="feature pixel">${parts.map((part, i) => `<tr><th scope="row">${
     wmEscape(parts.length === 1 ? (fn ? wmFunctionLabel(fn) : "Pixel value") : names[i])}</th><td>${
     wmEscape(fn ? wmFunctionValue(fn, part) : shown(part))}</td></tr>`).join("")}</table>`;
@@ -4014,6 +4028,8 @@ function wmFunctionKey(fn) {
     Hillshade: ["linear-gradient(to right, #000, #fff)", ["Shadow", "Lit"]],
     Slope: ["linear-gradient(to right, #38a800, #a8d400, #ffff00, #ff8000, #ff0000)", ["0°", "15°", "30°", "45°+"]],
     Aspect: ["linear-gradient(to right, #ff0000, #ffa600, #ffff00, #00ff00, #00ffff, #00a6ff, #0000ff, #ff00ff, #ff0000)", ["N", "E", "S", "W", "N"]],
+    // ADR-151: a service shown through NDVI by its owner, as Studio stores it, −1 to 1.
+    NDVI: ["linear-gradient(to right, #8c510a 0%, #d8b365 45%, #f6e8c3 55%, #a6d96a 70%, #1a9641 85%, #00441b 100%)", ["−1", "0", "1"]],
   }[fn];
   return key ? `<div class="rulekey" aria-hidden="true"><div class="rulebar" style="background:${key[0]}"></div>
     <div class="ruleticks">${key[1].map(t => `<span>${t}</span>`).join("")}</div></div>` : "";
@@ -4029,6 +4045,7 @@ function wmFunctionValue(fn, text) {
     return `${Math.round(n)}° (${words[Math.round(n / 45) % 8]})`;
   }
   if (fn === "Hillshade") return `${Math.round(n)} of 255`;
+  if (fn === "NDVI") return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return n.toLocaleString(undefined, { maximumSignificantDigits: 7 });
 }
 

@@ -48,6 +48,8 @@ public sealed class DisplayRuleTests
 
     [Theory]
     [InlineData("""{"rasterFunction":"Slope"}""")]
+    // ADR-156: Remap by itself is a raster function now.
+    [InlineData("""{"rasterFunction":"Remap","rasterFunctionArguments":{}}""")]
     [InlineData("""{"rasterFunction":"None"}""")]
     [InlineData("")]
     [InlineData("not json")]
@@ -57,10 +59,10 @@ public sealed class DisplayRuleTests
     [Theory]
     [InlineData("""{"rasterFunction":"Stretch","rasterFunctionArguments":{"StretchType":7}}""", "StretchType 7")]
     [InlineData("""{"rasterFunction":"Stretch","rasterFunctionArguments":{"StretchType":5,"ComputeGamma":true}}""", "ComputeGamma")]
-    [InlineData("""{"rasterFunction":"Stretch","rasterFunctionArguments":{"StretchType":5,"Raster":{"rasterFunction":"ExtractBand"}}}""", "ExtractBand")]
+    // A raster function under the rule is the function's to refuse (ADR-151); a display function under it is this rule's.
+    [InlineData("""{"rasterFunction":"Stretch","rasterFunctionArguments":{"StretchType":5,"Raster":{"rasterFunction":"Colormap"}}}""", "Colormap")]
     [InlineData("""{"rasterFunction":"Colormap","rasterFunctionArguments":{"colorRamp":{"type":"algorithmic","fromColor":[0,0,0],"toColor":[9,9,9]}}}""", "raw values")]
     [InlineData("""{"rasterFunction":"Colormap","rasterFunctionArguments":{"colorRamp":{"type":"random"},"Raster":{"rasterFunction":"Stretch"}}}""", "random")]
-    [InlineData("""{"rasterFunction":"Remap","rasterFunctionArguments":{}}""", "Remap")]
     public void What_it_does_not_apply_is_refused_by_name(string json, string named)
     {
         Assert.True(DisplayRule.TryParse(json, 1, out DisplayRule? rule, out string? error));

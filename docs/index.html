@@ -443,12 +443,13 @@ pre .k{color:var(--accent)}
             <i class="sw half"><span class="vh">Partial.</span></i>
             <div>
               <h3>Image services</h3>
-              <p>GeoTIFFs uploaded from Studio or registered where they lie. Several images are one
-              mosaic, which grows, and an image on another grid is resampled onto it. Hillshade,
-              slope and aspect, the stretch, colormap and remap chains ArcGIS clients send, values
-              as TIFF and LERC, a Download capability, and pyramids for every image.
-              <b>Choosing among a mosaic's images, time, and other raster functions are not in it.</b></p>
-              <p class="ops"><code>exportImage</code><code>identify</code><code>tile</code><code>getSamples</code><code>computeStatisticsHistograms</code></p>
+              <p>GeoTIFF, JPEG 2000, NetCDF, HDF, ERDAS Imagine and ASCII grids uploaded from Studio, or
+              GeoTIFFs registered where they lie; a NetCDF of time steps becomes dated images on a time
+              slider. Each service is a mosaic dataset's catalog, queried, ordered by a mosaic rule and
+              edited as ArcGIS edits one. Eleven raster functions from Hillshade and NDVI to Clip and
+              Statistics, measurement on the ground, a raster attribute table, Download and pyramids.
+              <b>Compositing mosaic operators, multidimensional variables, MrSID and ECW are not in it.</b></p>
+              <p class="ops"><code>exportImage</code><code>identify</code><code>query</code><code>measure</code><code>getSamples</code></p>
             </div>
           </div>
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Coverages;
@@ -37,7 +38,7 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
         s.created_at, s.updated_at,
         (select coalesce(array_agg(gi.group_id), '{}')
            from sharing_group_item gi where gi.service_id = s.id) as shared_with_groups,
-        s.description, s.tags, s.content_folder_id, c.download
+        s.description, s.tags, s.content_folder_id, c.download, c.images, c.classes
         """;
 
     private readonly NpgsqlDataSource _dataSource;
@@ -216,6 +217,98 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
         command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetImagesAsync(
+        string? folder, string serviceName, IReadOnlyList<CoverageImageEntry> images, int? nextId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+        ArgumentNullException.ThrowIfNull(images);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            update coverage c
+               set images = @images::jsonb
+              from service s
+             where c.service_id = s.id
+               and lower(s.name) = lower(@name)
+               and coalesce(s.folder, '') = coalesce(@folder, '')
+            """);
+
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        int next = Math.Max(nextId ?? 1, images.Count == 0 ? 1 : images.Max(i => i.Id) + 1);
+        command.Parameters.AddWithValue("images", System.Text.Json.JsonSerializer.Serialize(new
+        {
+            next,
+            images = images.Select(i => new { id = i.Id, file = i.File, name = i.Name, acquired = i.Acquired }),
+        }));
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetClassesAsync(
+        string? folder, string serviceName, IReadOnlyList<CoverageClassEntry>? classes, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            update coverage c
+               set classes = @classes::jsonb
+              from service s
+             where c.service_id = s.id
+               and lower(s.name) = lower(@name)
+               and coalesce(s.folder, '') = coalesce(@folder, '')
+            """);
+
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("classes", classes is null
+            ? DBNull.Value
+            : System.Text.Json.JsonSerializer.Serialize(classes.Select(c => new { value = c.Value, name = c.Name, colour = c.Colour })));
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    private static List<CoverageClassEntry> ClassesFrom(string json)
+    {
+        using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(json);
+        return [.. document.RootElement.EnumerateArray().Select(c => new CoverageClassEntry(
+            c.GetProperty("value").GetDouble(),
+            c.GetProperty("name").GetString() ?? string.Empty,
+            c.TryGetProperty("colour", out System.Text.Json.JsonElement colour) && colour.ValueKind == System.Text.Json.JsonValueKind.String
+                ? colour.GetString() : null))];
+    }
+
+    private static int? NextFrom(string json)
+    {
+        using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(json);
+        return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+            && document.RootElement.TryGetProperty("next", out System.Text.Json.JsonElement next) ? next.GetInt32() : null;
+    }
+
+    private static List<CoverageImageEntry> ImagesFrom(string json, out int? next)
+    {
+        List<CoverageImageEntry> images = [];
+        using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(json);
+        System.Text.Json.JsonElement list = document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+            ? document.RootElement.GetProperty("images") : document.RootElement;
+        next = NextFrom(json);
+
+        foreach (System.Text.Json.JsonElement image in list.EnumerateArray())
+        {
+            images.Add(new CoverageImageEntry(
+                image.GetProperty("id").GetInt32(),
+                image.GetProperty("file").GetString() ?? string.Empty,
+                image.GetProperty("name").GetString() ?? string.Empty,
+                image.TryGetProperty("acquired", out System.Text.Json.JsonElement when) && when.ValueKind == System.Text.Json.JsonValueKind.String
+                    ? when.GetDateTimeOffset() : null));
+        }
+
+        return images;
     }
 
     /// <inheritdoc/>
@@ -401,6 +494,9 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
             Tags = reader.IsDBNull(27) ? [] : reader.GetFieldValue<string[]>(27),
             ContentFolder = reader.IsDBNull(28) ? null : reader.GetGuid(28),
             Download = !reader.IsDBNull(29) && reader.GetBoolean(29),
+            Images = reader.IsDBNull(30) ? null : ImagesFrom(reader.GetString(30), out _),
+            NextImageId = reader.IsDBNull(30) ? null : NextFrom(reader.GetString(30)),
+            Classes = reader.IsDBNull(31) ? null : ClassesFrom(reader.GetString(31)),
         };
     }
 

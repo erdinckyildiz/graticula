@@ -22,6 +22,9 @@
 
 > **Amended 2026-10-03 by [ADR-142](ADR-142-an-image-is-read-between-its-cells-as-asked.md)** (`interpolation` is applied) **and [ADR-143](ADR-143-an-uploaded-image-is-given-back.md)** (an uploaded file can be downloaded by its owner).
 
+
+> **Amended 2026-10-03 by [ADR-157](ADR-157-imagery-in-other-formats-is-written-as-geotiff.md).** JPEG 2000, NetCDF, HDF, ERDAS Imagine and ASCII grids are uploaded too, written as GeoTIFF on the way in.
+
 ---
 
 ## 1. Context

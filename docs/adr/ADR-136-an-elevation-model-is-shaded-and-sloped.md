@@ -12,6 +12,9 @@
 
 > **Amended 2026-10-02 by [ADR-137](ADR-137-an-image-service-answers-lerc.md).** `rasterFunctionInfos` is served as an operation too: the JS SDK reads it there whenever `allowRasterFunction` is true, and did not load while it was refused.
 
+
+> **Amended 2026-10-03 by [ADR-151](ADR-151-ndvi-band-arithmetic-and-a-choice-of-bands.md).** NDVI, BandArithmetic and ExtractBand are served beside these, pixel by pixel, for images of several bands.
+
 ---
 
 ## 1. Context

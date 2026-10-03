@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(76);
+    public static SchemaVersion ComponentSchemaVersion => new(78);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -111,6 +111,8 @@ public static class PlatformMigrations
         AWebMapHasADescriptionAndAPictureV74,
         AServiceCountsItsUseV75,
         AnImageMayBeDownloadedV76,
+        AMosaicHasACatalogV77,
+        AClassifiedImageNamesItsClassesV78,
     ]);
 
     /// <summary>
@@ -148,6 +150,27 @@ public static class PlatformMigrations
     /// A web map may be protected from deletion, as a service may be (ADR-102 condition 2) — the ArcGIS review's second
     /// pass found maps the one item kind without it.
     /// </summary>
+    /// <summary>
+    /// A classified image names its classes — ADR-154, ArcGIS's raster attribute table: each value's class name and
+    /// colour, set by its owner in Studio.
+    /// </summary>
+    /// <remarks><b>Expand.</b> A nullable column; a build before this one never reads it.</remarks>
+    private static Migration AClassifiedImageNamesItsClassesV78 => Migration.Expand(
+        new SchemaVersion(78),
+        "A classified image names its classes: a value's class name and colour (ADR-154).",
+        "alter table coverage add column if not exists classes jsonb");
+
+    /// <summary>
+    /// A mosaic's images are a catalog — ADR-152, ArcGIS's: each keeps an object id of its own when others are added and
+    /// removed, its name, and when it was taken (ADR-153).
+    /// </summary>
+    /// <remarks><b>Expand.</b> A nullable column; a build before this one never reads it, and a coverage without it lists
+    /// its files in order, numbered from one.</remarks>
+    private static Migration AMosaicHasACatalogV77 => Migration.Expand(
+        new SchemaVersion(77),
+        "A mosaic's images are a catalog: an object id, a name and when each was taken (ADR-152, ADR-153).",
+        "alter table coverage add column if not exists images jsonb");
+
     /// <summary>
     /// An image service may offer its file to everyone it is shared with — ADR-148, ArcGIS's <c>Download</c> capability;
     /// off by default, when only whoever manages it may take the file.

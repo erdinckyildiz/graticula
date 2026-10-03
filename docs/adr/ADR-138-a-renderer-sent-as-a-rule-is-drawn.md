@@ -9,6 +9,9 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-123](ADR-123-imagery-comes-into-studio.md) (§5.1: `Stretch`, `Colormap` and `Remap` are no longer refused), [ADR-137](ADR-137-an-image-service-answers-lerc.md) (its negative consequence) |
 
+
+> **Amended 2026-10-03 by [ADR-151](ADR-151-ndvi-band-arithmetic-and-a-choice-of-bands.md).** A rule may be laid over a raster function — Stretch over NDVI — and draws the function, stretched by its statistics.
+
 ---
 
 ## 1. Context

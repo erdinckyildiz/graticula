@@ -49,6 +49,30 @@ public sealed class VrtMosaicReader : ICoverageReader
     /// <summary>The files a mosaic is made of, in the order they are drawn.</summary>
     public IReadOnlyList<string> Files => [.. _sources.Select(s => s.Path)];
 
+    /// <summary>Each file and where it lies, in the mosaic's reference, in the order they are drawn — ADR-152's catalog.</summary>
+    public IReadOnlyList<(string Path, Envelope Extent)> Placed
+    {
+        get
+        {
+            double perX = Info.Extent.Width / Info.Width, perY = Info.Extent.Height / Info.Height;
+            return [.. _sources.Select(s => (s.Path, new Envelope(
+                Info.Extent.MinX + (s.X * perX), Info.Extent.MaxY - ((s.Y + s.Height) * perY),
+                Info.Extent.MinX + ((s.X + s.Width) * perX), Info.Extent.MaxY - (s.Y * perY))))];
+        }
+    }
+
+    /// <summary>
+    /// The same mosaic drawing only some of its files, in another order — ADR-152's mosaic rule. The last is drawn over
+    /// the others, as in the mosaic itself.
+    /// </summary>
+    /// <param name="order">Positions in <see cref="Files"/>, in drawing order.</param>
+    /// <returns>A reader of its own, to be disposed.</returns>
+    public VrtMosaicReader Arranged(IReadOnlyList<int> order)
+    {
+        ArgumentNullException.ThrowIfNull(order);
+        return new VrtMosaicReader(Info, [.. order.Where(i => i >= 0 && i < _sources.Count).Select(i => _sources[i])]);
+    }
+
     /// <summary>
     /// The files a virtual raster names, read without opening them — for deleting a mosaic whose files may already be
     /// gone.
@@ -463,6 +487,12 @@ public sealed class VrtMosaicReader : ICoverageReader
         if (noData is { } fill && fill != 0)
         {
             Array.Fill(samples, fill);
+        }
+        else if (noData is null && Info.Bands[0].Kind is SampleKind.Real32 or SampleKind.Real64)
+        {
+            // Ground no image covers is no value: a float mosaic declaring no no-data has NaN there, not a zero that
+            // reads as a measurement — ADR-152, where a rule may leave a view with no image at all.
+            Array.Fill(samples, double.NaN);
         }
 
         int factor = 1 << overview;

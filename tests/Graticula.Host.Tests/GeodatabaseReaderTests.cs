@@ -169,6 +169,9 @@ public sealed class GeodatabaseReaderTests
 
                 // `tabular` joined on 2026-10-01: a CSV or Excel table with coordinates as GeoJSON (ADR-112).
                 "tabular",
+
+                // `raster` joined on 2026-10-03: imagery in other formats written as GeoTIFF (ADR-157).
+                "raster",
             },
             named);
 

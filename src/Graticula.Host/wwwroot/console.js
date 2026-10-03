@@ -5122,7 +5122,31 @@ async function showService(qualified) {
     kind = null;
   }
 
+  // <b>A reader who does not manage it is refused the settings, and learns its kind from its public face</b> (ux review
+  // 9): an image service opened by somebody it is shared with took the feature path, showed empty cards, and never
+  // offered the Download its owner had turned on (ADR-148).
+  let publicImageDoc = null;
+  if (!kind) {
+    try {
+      const doc = await api(`/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}/ImageServer?f=json`);
+      if (doc && !doc.error && doc.bandCount != null) { kind = "ImageServer"; publicImageDoc = doc; }
+    } catch { /* not an image service, or not one this reader may see */ }
+  }
+
   serviceOpenKind = kind;
+
+  // <b>The image service's own document, which this branch never read (ux review 8).</b> Settings choose their pages
+  // by its bands and pixel type, and the Overview offers Download by its capabilities (ADR-148): both read
+  // `serviceDoc`, which only the feature branch set, so Classes never showed and a reader the service was shared
+  // with never saw Download.
+  if (kind === "ImageServer") {
+    const at = serviceOpen;
+    try {
+      const imageDoc = publicImageDoc
+        || await api(`/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}/ImageServer?f=json`);
+      if (serviceOpen === at) serviceDoc = imageDoc;
+    } catch { /* the pages that need it stay hidden */ }
+  }
 
   // Settings drawn before the kind was known listed a feature service's pages; drawn again with the right ones.
   if (kind === "ImageServer" && $("serviceEdit") && !$("serviceEdit").hidden && serviceOpen) {
@@ -5313,9 +5337,10 @@ function drawServiceTabs() {
       return serviceLayers.some(l => !(l.type || "").toLowerCase().includes("group"));
     }
 
+    // A reader who does not manage it has nothing to set: no tab, and no refusals from pages it may not read (ux 10).
     return key !== "settings"
-      || servicePagesOf(surfaceOfPath()).length > 0
-      || $("serviceLimits").hidden === false;
+      || (serviceItem?.manages !== false
+        && (servicePagesOf(surfaceOfPath()).length > 0 || $("serviceLimits").hidden === false));
   });
 
   // The address's request wins the moment its tab becomes available, which is the second draw.
@@ -5989,7 +6014,7 @@ async function drawServiceDetails(qualified, knownKind) {
         ? `<button type="button" id="imageAdd" hidden aria-describedby="imageAddHint"
              title="GeoTIFFs with the same bands as this image. Another coordinate system or cell size is resampled to fit.">Add images</button>
            <button type="button" id="imageAddStop" hidden>Stop</button>
-           <input type="file" id="imageAddFile" accept=".tif,.tiff,image/tiff" multiple hidden>` : ""}
+           <input type="file" id="imageAddFile" accept=".tif,.tiff,.jp2,.j2k,.nc,.nc4,.h5,.hdf5,.he5,.hdf,.img,.asc,image/tiff" multiple hidden>` : ""}
       ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
         ? `<button type="button" id="updateDataOpen">Update data</button>` : ""}
       ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
@@ -7133,7 +7158,9 @@ function describedAs(item) {
 
   return item.description
     ? `<p class="lede">${h(item.description)}</p>${tags}${edit}`
-    : `<p class="hint">No description yet. A few words on what this is and where it came from make it
+    : item.manages === false
+      ? `<p class="hint">No description.</p>${tags}`
+      : `<p class="hint">No description yet. A few words on what this is and where it came from make it
          easier to find and to trust.</p>${tags}${edit}`;
 }
 
@@ -7848,6 +7875,10 @@ async function drawFeatureFacts(name, folder) {
 function drawServiceSettings(name, folder) {
   const box = $("serviceEdit");
   if (!box) return;
+  if (serviceItem?.manages === false) {
+    box.hidden = true;
+    return;
+  }
 
   parkServiceDanger();
 
@@ -7881,7 +7912,9 @@ function drawServiceSettings(name, folder) {
   // An image service has a Display page and no Feature layer page; a feature service the other way round (ADR-123).
   const imagery = serviceOpenKind === "ImageServer";
   const shownPages = mine.filter(p => (p !== "tiles" || tiled)
-    && (p !== "imagery" || imagery) && (p !== "feature" || !imagery));
+    && (p !== "imagery" || imagery) && (p !== "images" || imagery) && (p !== "feature" || !imagery)
+    // ADR-154: classes name the values of one band of whole numbers — a land cover, not a height or a photograph.
+    && (p !== "classes" || (imagery && (serviceDoc?.bandCount || 1) === 1 && /^[US](8|16|32)$/.test(serviceDoc?.pixelType || ""))));
   const open = shownPages.includes(page) ? page : shownPages[0];
 
   $("serviceNav").innerHTML = shownPages.map(p =>
@@ -7897,7 +7930,7 @@ function drawServiceSettings(name, folder) {
   $("servicePagesBody").innerHTML = serviceSettingsMarkup(name, folder)
     + (tiled ? `<section class="page" id="page-tiles">${tileLayerMarkup(tiled, tiled.name)}</section>` : "")
     + (mine.includes("layers") ? `<section class="page" id="page-layers">${serverLayersMarkup()}</section>` : "")
-    + (open === "general" || open === "feature" || open === "tiles" || open === "layers"
+    + (open === "general" || open === "feature" || open === "tiles" || open === "layers" || open === "images" || open === "classes"
       ? ""
       : `<div class="row" style="margin-top:22px">
            <button class="primary" data-service-save="${h(name)}"
@@ -7911,6 +7944,8 @@ function drawServiceSettings(name, folder) {
   box.hidden = false;
   section("capabilities", () => loadServiceCapabilities(name, folder));
   if (open === "imagery") drawCoverageDisplay(name, folder, null);
+  if (open === "images") drawCoverageImages(name, folder);
+  if (open === "classes") drawCoverageClasses(name, folder);
 
   // <b>Deleting is General's, in Studio.</b> The panel is one node, moved in and out rather than drawn twice,
   // because its lock and its button keep state; it is parked outside the pages before they are redrawn.
@@ -7936,7 +7971,7 @@ function drawServiceSettings(name, folder) {
 }
 
 /** The labels the Settings list shows, where a page's key is not already its name. */
-const SERVICE_PAGE_LABELS = { general: "General", feature: "Feature layer", tiles: "Tile layer", layers: "Layers", imagery: "Display" };
+const SERVICE_PAGE_LABELS = { general: "General", feature: "Feature layer", tiles: "Tile layer", layers: "Layers", imagery: "Display", images: "Images", classes: "Classes" };
 
 /**
  * The open service's first layer that has tiles, as the layer listing describes it, or null when it has none.
@@ -8779,6 +8814,12 @@ function serviceSettingsMarkup(name, folder) {
   return `
     <section class="page" id="page-imagery">
       <div id="coverageDisplay"><p class="hint">Reading how it is drawn…</p></div>
+    </section>
+    <section class="page" id="page-classes">
+      <div id="coverageClasses"><p class="hint" role="status" aria-live="polite">Reading its classes…</p></div>
+    </section>
+    <section class="page" id="page-images">
+      <div id="coverageImages"><p class="hint" role="status" aria-live="polite">Reading its images…</p></div>
     </section>
     <section class="page" id="page-capabilities">
       <div id="coverageSettings" hidden>
@@ -13541,6 +13582,12 @@ const SERVICE_PAGES = {
 
   // <b>Display — ADR-123: how an image service is drawn, in Studio where its owner works.</b>
   imagery: "studio",
+
+  // <b>Images — ADR-152: a mosaic's images, its catalog, one row each: named, dated (ADR-153), removed.</b>
+  images: "studio",
+
+  // <b>Classes — ADR-154: a classified image's raster attribute table, each value's name and colour.</b>
+  classes: "studio",
 
   // <b>General and Feature layer — ADR-102 step 5.</b> General holds what is the item's own — who can reach
   // it, said once with the one control that changes it (the Share dialog), and its deletion; Feature layer says
@@ -21788,7 +21835,7 @@ function drawItemKinds() {
         FeatureCollection, a CSV or Excel table with coordinates, or a GeoTIFF — or all the tiles of one image</span>
       <p class="bad-inline" id="dropSays" role="alert" hidden></p>
       <input type="file" id="deviceFile" hidden multiple
-             accept=".zip,.json,.geojson,.csv,.txt,.xlsx,.gpkg,.kml,.kmz,.tif,.tiff,application/zip,application/geo+json,text/csv,image/tiff">
+             accept=".zip,.json,.geojson,.csv,.txt,.xlsx,.gpkg,.kml,.kmz,.tif,.tiff,.jp2,.j2k,.nc,.nc4,.h5,.hdf5,.he5,.hdf,.img,.asc,application/zip,application/geo+json,text/csv,image/tiff">
     </div>
 
     <p class="orbar"><span>or start from a type</span></p>
@@ -21797,7 +21844,7 @@ function drawItemKinds() {
       <button type="button" class="newtile" id="kindImagery">
         <span class="glyph">${icon("imagery")}</span>
         <span><b>Imagery layer</b>
-          <span>Publish an orthophoto, a satellite image or an elevation model from a GeoTIFF or COG.</span></span>
+          <span>Publish an orthophoto, a satellite image or an elevation model from a GeoTIFF, JPEG 2000, NetCDF or HDF.</span></span>
       </button>
       <button type="button" class="newtile" id="kindFeatureLayer">
         <span class="glyph">${icon("featurelayer")}</span>
@@ -21852,8 +21899,10 @@ function takeFile(files) {
   // ADR-140: GeoTIFFs dropped together are one image; anything else is one file at a time. A drop that mixes the two,
   // or brings several other files, is said — the first version opened a form with one of them and dropped the rest.
   const all = [...files];
-  const tiffs = all.filter(f => /\.tiff?$/i.test(f.name || ""));
-  const others = all.filter(f => !/\.tiff?$/i.test(f.name || ""));
+  // ADR-157: imagery in the formats the server writes as GeoTIFFs on the way in goes the imagery way too.
+  const imageryFile = f => /\.(tiff?|jp2|j2k|nc4?|h5|hdf5?|he5|img|asc|sid|ecw)$/i.test(f.name || "");
+  const tiffs = all.filter(imageryFile);
+  const others = all.filter(f => !imageryFile(f));
   const refuse = text => {
     const says = $("dropSays");
     if (says) { says.textContent = text; says.hidden = false; }
@@ -27973,11 +28022,13 @@ function drawImageryForm() {
           pattern="[A-Za-z0-9][A-Za-z0-9_\\-]{0,39}" title="Letters, digits, _ and -, starting with a letter or digit"></label>
       </div>
       <div class="row">
-        <label class="field">Image file or tiles<input id="imgFile" type="file" accept=".tif,.tiff,image/tiff" multiple required
+        <label class="field">Image file or tiles<input id="imgFile" type="file" accept=".tif,.tiff,.jp2,.j2k,.nc,.nc4,.h5,.hdf5,.he5,.hdf,.img,.asc,image/tiff" multiple required
           aria-describedby="imgTilesSay"></label>
-        <p class="hint" id="imgTilesSay">For an image delivered in tiles, choose all its tiles at once. They are joined into
-          one image (a mosaic) if they share a coordinate system, bands and pixel size and sit on one grid; where tiles
-          overlap, the later name is drawn on top. Up to 500 files, 4 GB in all.</p>
+        <p class="hint" id="imgTilesSay">GeoTIFF, JPEG 2000, NetCDF, HDF, ERDAS Imagine (.img) or an ASCII grid; the others
+          are converted to GeoTIFF as they arrive, and a NetCDF of time steps becomes a dated image a step. For an image
+          delivered in tiles, choose all its tiles at once: they become one image (a mosaic) if they share bands, and a
+          tile in another coordinate system or cell size is resampled to fit; the later name is drawn on top. Up to 500
+          files, 4 GB in all.</p>
       </div>
       <p class="hint" id="imgChosen" role="status" aria-live="polite" hidden></p>
     </form>
@@ -28284,6 +28335,359 @@ function drawImageFacts() {
     `<dt data-image-fact>${h(label)}</dt><dd data-image-fact>${h(value)}</dd>`).join(""));
 }
 
+/**
+ * Settings › Images — ADR-152: an image service's catalog, a row an image, in the order they are drawn, the last on
+ * top where they overlap. Each is renamed and dated (ADR-153: the date is what a time slider chooses by) and, in an
+ * upload, removed; the last one is not, deleting the service being how that is done. Edits are kept across a removal
+ * and saved together (ux review 7).
+ */
+async function drawCoverageImages(name, folder, focusAt = null) {
+  const box = $("coverageImages");
+  if (!box) return;
+  const at = serviceOpen;
+  const query = `?folder=${encodeURIComponent(folder || "")}`;
+  // What has been typed and not saved, by image id, so a redraw puts it back.
+  const unsaved = {};
+  box.querySelectorAll("tr[data-image]").forEach(tr => {
+    const n = tr.querySelector(".imageName"), d = tr.querySelector(".imageTaken");
+    if (n && d && (n.value !== n.defaultValue || d.value !== d.defaultValue)) unsaved[tr.dataset.image] = { name: n.value, taken: d.value };
+  });
+  let said;
+  try { said = await api(`/admin/coverages/${encodeURIComponent(name)}/images${query}`); }
+  catch (e) { box.innerHTML = `<p class="hint bad-inline">${h(e.message || String(e))}</p>`; return; }
+  if (serviceOpen !== at || !$("coverageImages")) return;
+
+  const images = said.images || [];
+  const day = ms => ms == null ? "" : new Date(ms).toISOString().slice(0, 10);
+  const removable = said.editable && images.length > 1;
+  const one = images.length === 1;
+  const dated = images.filter(i => i.acquired != null).length;
+  box.innerHTML = `
+    <h4>Images</h4>
+    <p class="hint">${one
+      ? "One image."
+      : `${images.length} images, in the order they are drawn: the last is on top where they overlap. ArcGIS clients see them as the catalog of a mosaic dataset, and may choose which is on top with a mosaic rule. To change the order here, remove an image and add it again.`}
+      The acquisition date is when an image was taken; dated images give the service time, so a time slider chooses among them.</p>
+    ${dated > 0 && dated < images.length ? `<p class="hint bad-inline" id="imagesPartlyDated">${dated} of ${images.length} images have a date. With a time slider on, only dated images are drawn; the other ${images.length - dated} are hidden.</p>` : ""}
+    <div class="tablewrap"><table id="imagesTable">
+      <thead><tr><th scope="col" class="num" title="The object id ArcGIS clients use">ID</th><th scope="col" class="num drawn" title="1 is drawn first, at the bottom">Drawn</th><th scope="col">Name</th><th scope="col">Acquired</th>${removable ? `<th scope="col"><span class="sr-only">Actions</span></th>` : ""}</tr></thead>
+      <tbody>${images.map(i => {
+        const kept = unsaved[i.id];
+        return `<tr data-image="${i.id}">
+        <td class="num">${i.id}</td>
+        <td class="num drawn">${i.position + 1}</td>
+        <td><input type="text" class="imageName" value="${h(i.name)}" maxlength="200" title="${h(i.name)}" aria-label="Name of image ${i.id}" aria-describedby="imagesSays">
+          ${i.file ? `<span class="hint imageFile">${h(i.file)}</span>` : ""}<span class="hint imageChanged" id="imageChanged${i.id}" hidden>Changed, not saved</span></td>
+        <td><input type="date" class="imageTaken" value="${day(i.acquired)}" aria-label="When image ${i.id} was taken"></td>
+        ${removable ? `<td class="acts"><button type="button" class="tiny danger" data-image-remove="${i.id}" aria-label="Remove image ${i.id}, ${h(i.name)}">Remove</button></td>` : ""}
+        ${kept ? `<td hidden data-kept-name="${h(kept.name)}" data-kept-taken="${h(kept.taken)}"></td>` : ""}</tr>`; }).join("")}</tbody>
+    </table></div>
+    <div class="row covsave">
+      <button type="button" class="primary" id="imagesSave">Save changes</button>
+      ${one ? "" : `<label class="field inline">Date every undated image <input type="date" id="imagesBulkDate"></label>
+        <button type="button" id="imagesBulkApply">Apply</button>`}
+    </div>
+    ${said.editable ? "" : `<p class="hint">${one ? "This file was" : "These files were"} registered from the server's own disk, so images are not removed here; names and dates are this server's and can be changed.</p>`}
+    <p class="hint" id="imagesSays" role="status" aria-live="polite"></p>`;
+
+  // What was typed before the redraw, put back and marked as not yet saved.
+  box.querySelectorAll("td[data-kept-name]").forEach(td => {
+    const tr = td.closest("tr");
+    tr.querySelector(".imageName").value = td.dataset.keptName;
+    tr.querySelector(".imageTaken").value = td.dataset.keptTaken;
+    tr.dataset.dirty = "true";
+    const marker = tr.querySelector(".imageChanged");
+    if (marker) marker.hidden = false;
+    td.remove();
+  });
+
+  const say = (text, refusal = false) => {
+    const line = $("imagesSays");
+    if (!line) return;
+    line.textContent = "";
+    setTimeout(() => { line.textContent = text; line.classList.toggle("bad-inline", refusal); }, 30);
+  };
+  const markDirty = tr => {
+    const n = tr.querySelector(".imageName"), d = tr.querySelector(".imageTaken");
+    tr.dataset.dirty = String(n.value !== n.defaultValue || d.value !== d.defaultValue);
+    // Said, not only shown by a bar: a screen reader hears that the row is changed (ux review 8).
+    const marker = tr.querySelector(".imageChanged");
+    if (marker) marker.hidden = tr.dataset.dirty !== "true";
+    n.setAttribute("aria-describedby", tr.dataset.dirty === "true" ? `imagesSays imageChanged${tr.dataset.image}` : "imagesSays");
+    n.removeAttribute("aria-invalid");
+  };
+  box.querySelectorAll("tr[data-image] input").forEach(input => {
+    input.addEventListener("input", () => markDirty(input.closest("tr")));
+    input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("imagesSave").click(); } });
+  });
+
+  $("imagesBulkApply")?.addEventListener("click", () => {
+    const value = $("imagesBulkDate").value;
+    if (!value) { say("Choose the date to give every undated image.", true); $("imagesBulkDate").focus(); return; }
+    let given = 0;
+    box.querySelectorAll("tr[data-image]").forEach(tr => {
+      const d = tr.querySelector(".imageTaken");
+      if (!d.value) { d.value = value; markDirty(tr); given++; }
+    });
+    const shown = new Date(`${value}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC", year: "numeric", month: "long", day: "numeric" });
+    say(given ? `Dated ${given} image${given === 1 ? "" : "s"} ${shown}. Save changes to keep them.` : "Every image already has a date.");
+  });
+
+  $("imagesSave").addEventListener("click", async () => {
+    const button = $("imagesSave");
+    if (button.getAttribute("aria-disabled") === "true") return;
+    const changed = [...box.querySelectorAll("tr[data-image]")].filter(tr => tr.dataset.dirty === "true");
+    if (!changed.length) { say("Nothing has changed."); return; }
+    const empty = changed.find(tr => !tr.querySelector(".imageName").value.trim());
+    if (empty) {
+      const input = empty.querySelector(".imageName");
+      input.setAttribute("aria-invalid", "true");
+      say(`Image ${empty.dataset.image} needs a name.`, true);
+      input.focus();
+      return;
+    }
+    button.setAttribute("aria-disabled", "true");
+    let saved = 0;
+    try {
+      for (const tr of changed) {
+        const taken = tr.querySelector(".imageTaken").value;
+        const body = { name: tr.querySelector(".imageName").value.trim() };
+        if (taken) body.acquired = Date.parse(`${taken}T00:00:00Z`); else body.clearAcquired = true;
+        await api(`/admin/coverages/${encodeURIComponent(name)}/images/${tr.dataset.image}${query}`,
+          { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        saved++;
+      }
+      await drawCoverageImages(name, folder);
+      say(`Saved ${saved} image${saved === 1 ? "" : "s"}.`);
+      $("imagesSave")?.focus();
+    } catch (e) {
+      say(`Saved ${saved} of ${changed.length}; then: ${e.message || e}`, true);
+    } finally {
+      $("imagesSave")?.removeAttribute("aria-disabled");
+    }
+  });
+
+  box.querySelectorAll("[data-image-remove]").forEach(button => button.addEventListener("click", async () => {
+    const id = Number(button.dataset.imageRemove);
+    const row = button.closest("tr");
+    const named = row.querySelector(".imageName").value;
+    const position = [...box.querySelectorAll("tr[data-image]")].indexOf(row);
+    if (!confirm(`Remove image ${id}, ${named}, from this image service? Its file is deleted; the other images stay.`)) return;
+    try {
+      await api(`/admin/coverages/${encodeURIComponent(name)}/images/${id}${query}`, { method: "DELETE" });
+      const keptEdits = [...box.querySelectorAll('tr[data-dirty="true"]')].some(tr => tr !== row);
+      await drawCoverageImages(name, folder);
+      say(`Removed image ${id}, ${named}.${keptEdits ? " Your unsaved changes are kept." : ""}`);
+      // Focus where the removed row was: the row now there, else the one before, else the first name.
+      const buttons = [...box.querySelectorAll("[data-image-remove]")];
+      (buttons[Math.min(position, buttons.length - 1)] || box.querySelector(".imageName"))?.focus();
+    } catch (e) {
+      say(`Not removed: ${e.message || e}`, true);
+    }
+  }));
+}
+
+/** Colours for classes filled in from the image's values: distinct, and readable on a map. */
+const CLASS_COLOURS = ["#1f78b4", "#33a02c", "#e31a1c", "#ff7f00", "#6a3d9a", "#b15928", "#a6cee3", "#b2df8a",
+  "#fb9a99", "#fdbf6f", "#cab2d6", "#ffff99", "#8dd3c7", "#bebada", "#fb8072", "#80b1d3"];
+
+/**
+ * Settings › Classes — ADR-154: a classified image's raster attribute table. Each value is named and coloured; the
+ * picture is drawn in these colours, ArcGIS clients' identify returns the name as ClassName, and the legend lists them.
+ * One listener, on a state the redraw replaces (ux review 8: listeners piled up and a removed class came back).
+ */
+const classesState = { name: null, folder: null, said: null, rows: [] };
+
+async function drawCoverageClasses(name, folder, focusAt = null) {
+  const box = $("coverageClasses");
+  if (!box) return;
+  const at = serviceOpen;
+  const query = `?folder=${encodeURIComponent(folder || "")}`;
+  let said;
+  try { said = await api(`/admin/coverages/${encodeURIComponent(name)}/classes${query}`); }
+  catch (e) { box.innerHTML = `<p class="hint bad-inline">${h(e.message || String(e))}</p>`; return; }
+  if (serviceOpen !== at || !$("coverageClasses")) return;
+
+  if (!said.classifiable) {
+    box.innerHTML = `<h4>Classes</h4><p class="hint">Classes name the values of one band of whole numbers, such as a land
+      cover. This image's values are measurements, so it has none.</p>`;
+    return;
+  }
+
+  Object.assign(classesState, { name, folder, said, rows: (said.classes || []).map(c => ({ ...c })) });
+  renderClasses(focusAt);
+  if (!box.dataset.wired) {
+    box.dataset.wired = "true";
+    box.addEventListener("click", classesClick);
+    box.addEventListener("keydown", event => {
+      if (event.key === "Enter" && event.target.matches("input[type=text], input[type=number]")) {
+        event.preventDefault();
+        $("classesSave")?.click();
+      }
+    });
+  }
+}
+
+function renderClasses(focusAt = null) {
+  const box = $("coverageClasses");
+  const { said, rows } = classesState;
+  const range = said.minimum != null ? ` min="${said.minimum}" max="${said.maximum}"` : "";
+  box.innerHTML = `
+    <h4>Classes</h4>
+    <p class="hint">Name each value and give it a colour. The image is drawn in these colours, ArcGIS clients' identify
+      returns the name as ClassName, and the legend lists them — ArcGIS's raster attribute table. Values without a class,
+      and classes without a colour, are not drawn.${said.source === "file" ? " These came from the .aux.xml file beside the image; saving makes them this server's." : ""}</p>
+    <div class="row classactions">
+      <button type="button" id="classesFill"${(said.values || []).length ? "" : " disabled"}>Add the values found in the image</button>
+      <button type="button" id="classesAdd">Add a class</button>
+    </div>
+    <p class="hint" id="classesSays" role="status" aria-live="polite"></p>
+    ${said.tooMany ? `<p class="hint">The image holds more than 256 values, which reads as measurements rather than classes; add classes one by one.</p>` : ""}
+    ${rows.length ? `<div class="tablewrap"><table id="classesTable">
+      <thead><tr><th scope="col">Value</th><th scope="col">Name</th><th scope="col">Colour</th><th scope="col"><span class="sr-only">Remove</span></th></tr></thead>
+      <tbody>${rows.map((c, i) => `<tr data-row="${i}">
+        <td><input type="number" step="1"${range} class="classValue" value="${c.value ?? ""}" placeholder="Value" aria-label="Value of class ${i + 1}" aria-describedby="classesSays"></td>
+        <td><input type="text" class="className" value="${h(c.name || "")}" maxlength="100" placeholder="Name" aria-label="Name of class ${i + 1}" aria-describedby="classesSays"></td>
+        <td><div class="colourpair">
+          <input type="color" class="classColour" value="${c.colour || "#ffffff"}" aria-label="Colour of class ${i + 1}"${c.colour ? "" : " data-none=\"true\""}>
+          <input type="text" class="classHex mono" value="${c.colour || ""}" placeholder="none" maxlength="7" aria-label="Colour of class ${i + 1}, as #rrggbb">
+        </div></td>
+        <td class="acts"><button type="button" class="tiny ghost" data-class-drop="${i}" aria-label="Remove class ${i + 1}, ${h(c.name || String(c.value))}">Remove</button></td>
+      </tr>`).join("")}</tbody></table></div>` : `<p class="hint">No classes yet.</p>`}
+    <div class="row covsave">
+      <button type="button" class="primary" id="classesSave">Save classes</button>
+      ${rows.length || said.source === "owner" ? `<button type="button" class="ghost" id="classesClear">Clear classes</button>` : ""}
+    </div>`;
+
+  // A colour picked is shown as text, and text typed as a colour is picked.
+  box.querySelectorAll("tr[data-row]").forEach(tr => {
+    const picker = tr.querySelector(".classColour"), hex = tr.querySelector(".classHex");
+    picker.addEventListener("input", () => { hex.value = picker.value; delete picker.dataset.none; });
+    hex.addEventListener("input", () => { if (/^#[0-9a-f]{6}$/i.test(hex.value)) { picker.value = hex.value.toLowerCase(); delete picker.dataset.none; } });
+    tr.querySelectorAll("input").forEach(input => input.addEventListener("input", () => input.removeAttribute("aria-invalid")));
+  });
+
+  if (focusAt?.id) $(focusAt.id)?.focus();
+  else if (focusAt) box.querySelectorAll(focusAt.selector)[focusAt.index]?.focus();
+}
+
+function readClasses() {
+  // Rebuilt from the table, never patched by index, so a removed row stays removed.
+  const box = $("coverageClasses");
+  classesState.rows = [...box.querySelectorAll("tr[data-row]")].map(tr => {
+    const hex = tr.querySelector(".classHex").value.trim();
+    return {
+      value: tr.querySelector(".classValue").value.trim(),
+      name: tr.querySelector(".className").value.trim(),
+      colour: /^#[0-9a-f]{6}$/i.test(hex) ? hex.toLowerCase() : null,
+      typedColour: hex,
+    };
+  });
+}
+
+function classesSay(text, refusal = false) {
+  const line = $("classesSays");
+  if (!line) return;
+  line.textContent = "";
+  setTimeout(() => { line.textContent = text; line.classList.toggle("bad-inline", refusal); }, 30);
+}
+
+async function classesClick(event) {
+  const t = event.target.closest("button");
+  const box = $("coverageClasses");
+  if (!t || !box.contains(t) || t.getAttribute("aria-disabled") === "true") return;
+  const { name, folder, said } = classesState;
+  const query = `?folder=${encodeURIComponent(folder || "")}`;
+
+  if (t.id === "classesAdd") {
+    readClasses();
+    const numbers = classesState.rows.map(c => Number(c.value)).filter(Number.isFinite);
+    classesState.rows.push({ value: String(numbers.length ? Math.max(...numbers) + 1 : 1), name: "", colour: CLASS_COLOURS[classesState.rows.length % CLASS_COLOURS.length] });
+    renderClasses({ selector: ".className", index: classesState.rows.length - 1 });
+  } else if (t.id === "classesFill") {
+    readClasses();
+    const known = new Set(classesState.rows.map(c => Number(c.value)));
+    const added = (said.values || []).filter(v => !known.has(v));
+    if (added.length > 30 && !confirm(`This image holds ${added.length} values without a class, which usually means measurements rather than classes. Add them anyway?`)) return;
+    added.forEach(v => classesState.rows.push({ value: String(v), name: "", colour: null }));
+    classesState.rows.sort((a, b) => Number(a.value) - Number(b.value));
+    // Colours given after sorting, so the first value takes the palette's first colour (ux review 9).
+    let slot = 0;
+    classesState.rows.forEach(c => { if (!c.colour) c.colour = CLASS_COLOURS[slot++ % CLASS_COLOURS.length]; });
+    renderClasses({ selector: ".className", index: 0 });
+    classesSay(added.length
+      ? `Added ${added.length} value${added.length === 1 ? "" : "s"} found in a sample of the image. Name them, then save — or remove the ones without a name.`
+      : "Every value found in the image has a class.");
+  } else if (t.id === "classesDropUnnamed") {
+    readClasses();
+    const before = classesState.rows.length;
+    classesState.rows = classesState.rows.filter(c => c.name);
+    renderClasses({ id: "classesSave" });
+    const gone = before - classesState.rows.length;
+    classesSay(`Removed ${gone} class${gone === 1 ? "" : "es"} without a name. Save to keep the change.`);
+  } else if (t.dataset.classDrop !== undefined) {
+    readClasses();
+    const index = Number(t.dataset.classDrop);
+    const removed = classesState.rows.splice(index, 1)[0];
+    const left = classesState.rows.length;
+    renderClasses(left ? { selector: "[data-class-drop]", index: Math.min(index, left - 1) } : { id: "classesAdd" });
+    classesSay(`Removed the class of value ${removed.value}. Save to keep the change.`);
+  } else if (t.id === "classesSave" || t.id === "classesClear") {
+    readClasses();
+    const clearing = t.id === "classesClear";
+    const rows = classesState.rows;
+    const mark = (index, selector, text) => {
+      box.querySelectorAll("[aria-invalid]").forEach(e => e.removeAttribute("aria-invalid"));
+      const input = box.querySelectorAll(selector)[index];
+      input?.setAttribute("aria-invalid", "true");
+      classesSay(text, true);
+      input?.focus();
+    };
+    if (!clearing) {
+      const bad = rows.findIndex(c => c.value === "" || !Number.isInteger(Number(c.value))
+        || (said.minimum != null && (Number(c.value) < said.minimum || Number(c.value) > said.maximum)));
+      if (bad >= 0) {
+        const named = rows[bad].name ? `${rows[bad].name}'s value` : rows[bad].value === "" ? "A value left empty" : `Value ${rows[bad].value}`;
+        return mark(bad, ".classValue", `${named} must be a whole number${said.minimum != null ? ` from ${said.minimum} to ${said.maximum}` : ""}.`);
+      }
+      const twice = rows.findIndex((c, i) => rows.findIndex(o => Number(o.value) === Number(c.value)) !== i);
+      if (twice >= 0) {
+        const first = rows.findIndex(o => Number(o.value) === Number(rows[twice].value));
+        const who = [rows[first].name, rows[twice].name].every(Boolean) ? `${rows[first].name} and ${rows[twice].name} both use` : "Two classes use";
+        return mark(twice, ".classValue", `${who} value ${rows[twice].value}; each value is one class.`);
+      }
+      const misColoured = rows.findIndex(c => c.typedColour && !c.colour);
+      if (misColoured >= 0) return mark(misColoured, ".classHex", `The colour of value ${rows[misColoured].value} is #rrggbb, such as #1f78b4 — or leave it empty for none.`);
+      const unnamed = rows.findIndex(c => !c.name);
+      if (unnamed >= 0) {
+        mark(unnamed, ".className", `The class of value ${rows[unnamed].value} needs a name.`);
+        if (!$("classesDropUnnamed")) {
+          $("classesSays")?.insertAdjacentHTML("afterend", `<div class="row"><button type="button" class="tiny" id="classesDropUnnamed">Remove the classes without a name</button></div>`);
+        }
+        return;
+      }
+    } else if (!confirm(`Clear all ${rows.length} classes? ${said.fileTable
+      ? "The classes in the .aux.xml file beside the image are used again."
+      : "The image is drawn by its values again."}`)) {
+      return;
+    }
+    t.setAttribute("aria-disabled", "true");
+    try {
+      await api(`/admin/coverages/${encodeURIComponent(name)}/classes${query}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ classes: clearing ? null : rows.map(c => ({ value: Number(c.value), name: c.name, colour: c.colour })) }) });
+      await drawCoverageClasses(name, folder, { id: "classesSave" });
+      classesSay(clearing
+        ? (said.fileTable ? "Cleared. The classes in the file beside the image are used again." : "Cleared. The image is drawn by its values again.")
+        : `Saved ${rows.length} class${rows.length === 1 ? "" : "es"}. Maps, identify and the legend use them now.`);
+    } catch (e) {
+      classesSay(`Not saved: ${e.message || e}`, true);
+    } finally {
+      $(t.id)?.removeAttribute("aria-disabled");
+    }
+  }
+}
+
 /** A pixel type in ArcGIS's words rather than this server's enum names. */
 function pixelKindSaid(kind) {
   return ({ Unsigned8: "8-bit unsigned", Signed16: "16-bit signed", Unsigned16: "16-bit unsigned",
@@ -28450,7 +28854,22 @@ const COVERAGE_FUNCTION_SAID = {
   hillshade: "Relief lit by a sun in the north-west, 45° up.",
   slope: "How steep the ground is, in degrees.",
   aspect: "Which way the ground faces. Flat ground has no direction and is left transparent.",
+  // ADR-151: the band functions, for images of several bands.
+  extractband: "Choose which band is drawn as red, green and blue. Near infrared, red and green gives false colour, with vegetation in red: bands 4, 3, 2 on a four-band image, 5, 4, 3 on Landsat 8, 8, 4, 3 on Sentinel-2.",
+  ndvi: "NDVI = (NIR − Red) / (NIR + Red), from −1 to 1. Water is below 0, bare ground near 0, and dense vegetation approaches 1.",
+  bandarithmetic: "Your expression, worked out at every pixel and stretched from the lowest value in view to the highest.",
 };
+
+/** The band functions offered for an image of this many bands — ADR-151. */
+function coverageBandFunctions(bands) {
+  if (bands < 2) return [];
+  return [
+    ...(bands >= 3 ? [["extractband", "Band combination"]] : []),
+    // An ordinary colour photo has three bands and no near infrared (ux review 6).
+    ...(bands >= 4 ? [["ndvi", "NDVI (vegetation)"]] : []),
+    ["bandarithmetic", "Band arithmetic"],
+  ];
+}
 
 /** The ramps' names as a person reads them. */
 const COVERAGE_RAMPS = { terrain: "Terrain", spectral: "Spectral", viridis: "Viridis", blues: "Blues", reds: "Reds" };
@@ -28488,17 +28907,47 @@ async function drawCoverageDisplay(service, folder, doc) {
   const size = { width: Math.max(16, Math.round(wide * scale)), height: Math.max(16, Math.round(high * scale)) };
 
   const ramps = said.bands < 3;
+  // ADR-151: what it is shown as, with its arguments as stored — ndvi:2:3:s, extractband:3,2,1, bandarithmetic:….
+  const bandCount = said.bands || 1;
+  const shownParts = String(said.function || "none").split(":");
+  const shownKind = shownParts[0];
+  const shownArgs = shownParts.slice(1);
+  const offered = [...(bandCount === 1 ? COVERAGE_FUNCTIONS : []), ...coverageBandFunctions(bandCount)];
+  const bandSelect = (id, label, selected) => `<label class="field">${label}<select id="${id}">${
+    Array.from({ length: bandCount }, (_, i) => `<option value="${i}"${i === selected ? " selected" : ""}>Band ${i + 1}</option>`).join("")
+  }</select></label>`;
+  const combination = shownKind === "extractband" ? (shownArgs[0] || "").split(",").map(Number) : bandCount >= 4 ? [3, 2, 1] : [0, 1, 2];
+  const ndviBands = shownKind === "ndvi" ? [Number(shownArgs[0]), Number(shownArgs[1])] : bandCount >= 4 ? [2, 3] : [0, 1];
+  const shownAsSaid = bandCount > 1
+    ? `This image has ${bandCount} bands. Bands are numbered from 1, as ArcGIS shows them.`
+    : /^Unsigned8$/.test(said.kind || "")
+      ? "This looks like an image rather than heights. Hillshade, slope and aspect only mean something for an elevation model."
+      : "Hillshade, slope and aspect are for an elevation model, whose values are heights.";
   box.innerHTML = `
     <div class="coveragedisplay">
       <div>
-        ${ramps ? `<label class="field stacked" for="covFunction">Shown as</label>
+        ${offered.length ? `<label class="field stacked" for="covFunction">Shown as</label>
           <select id="covFunction" aria-describedby="covFunctionSays">
-            <option value="none"${said.function === "none" ? " selected" : ""}>Its values</option>
-            ${COVERAGE_FUNCTIONS.map(([key, label]) => `<option value="${key}"${said.function === key ? " selected" : ""}>${label}</option>`).join("")}
+            <option value="none"${shownKind === "none" ? " selected" : ""}>${bandCount >= 3 ? "Its first three bands" : "Its values"}</option>
+            ${offered.map(([key, label]) => `<option value="${key}"${shownKind === key ? " selected" : ""}>${label}</option>`).join("")}
           </select>
-          <p class="hint" id="covFunctionSays">${/^Unsigned8$/.test(said.kind || "")
-            ? "This looks like an image rather than heights. Hillshade, slope and aspect only mean something for an elevation model."
-            : "Hillshade, slope and aspect are for an elevation model, whose values are heights."}</p>` : ""}
+          <p class="hint" id="covFunctionSays">${h(shownKind === "none" ? shownAsSaid : COVERAGE_FUNCTION_SAID[shownKind] || shownAsSaid)}</p>
+          <div id="covFunctionArgs">
+            ${bandCount >= 3 ? `<fieldset class="row" id="covArgsCombination" hidden><legend class="sr-only">Band combination</legend>
+              ${bandSelect("covBandR", "Red", combination[0] ?? 0)}${bandSelect("covBandG", "Green", combination[1] ?? 1)}${bandSelect("covBandB", "Blue", combination[2] ?? 2)}
+            </fieldset>` : ""}
+            ${bandCount >= 2 ? `<fieldset class="row" id="covArgsNdvi" hidden><legend class="sr-only">NDVI bands</legend>
+              ${bandSelect("covNdviRed", "Red band", ndviBands[0])}${bandSelect("covNdviNir", "Near-infrared band", ndviBands[1])}
+            </fieldset>
+            <div id="covArgsExpression" hidden>
+              <label class="field stacked" for="covExpr">Expression</label>
+              <input type="text" id="covExpr" class="mono" spellcheck="false" autocomplete="off" style="width:100%"
+                value="${shownKind === "bandarithmetic" ? h(shownArgs.join(":")) : ""}"
+                aria-describedby="covExprHint covFunctionError">
+              <p class="hint" id="covExprHint">Use B1 to B${bandCount}, numbers, + - * / and parentheses.</p>
+            </div>` : ""}
+            <p class="hint bad-inline" id="covFunctionError" aria-live="polite"></p>
+          </div>` : ""}
         <div id="covValueControls">
         ${ramps ? `<label class="field">Colours
           <span class="rampchoice"><select id="covRamp">
@@ -28518,7 +28967,7 @@ async function drawCoverageDisplay(service, folder, doc) {
           <label class="field">To<input type="number" step="any" id="covMax" value="${said.maximum ?? (stats ? stats.maximum : "")}"
             aria-describedby="covRangeSays"></label>
         </div>
-        <p class="hint error" id="covRangeSays" role="alert"></p>
+        <p class="hint bad-inline" id="covRangeSays" role="alert"></p>
         ${range ? `<p class="hint">The image's values run ${h(range)}${said.bands > 1 ? " in its first band" : ""}.</p>` : ""}
         </div>
         <div class="row covsave"><button type="button" class="primary" id="covSave">Save</button></div>
@@ -28533,11 +28982,41 @@ async function drawCoverageDisplay(service, folder, doc) {
       </figure>
     </div>`;
 
+  // ADR-154: a classified image is drawn in its classes' colours, which Classes sets; the ramp and stretch here do
+  // nothing to it, so they rest and say where the colours are (ux review 8).
+  if (said.bands === 1 && /^(Unsigned8|Signed16|Unsigned16|Signed32|Unsigned32)$/.test(said.kind || "")) {
+    api(`/admin/coverages/${encodeURIComponent(service)}/classes${query}`).then(classes => {
+      if (!classes || classes.source === "none" || !$("covValueControls")) return;
+      $("covValueControls").hidden = true;
+      $("covValueControls").insertAdjacentHTML("beforebegin", `<p class="hint" id="covClassesSay">Drawn in its classes'
+        colours. Change them under <a href="#" data-service-page="classes">Classes</a>.</p>`);
+      // The legend is the classes, not a ramp (ux review 9).
+      $("covLegend").hidden = true;
+      if ($("covLegendTicks")) $("covLegendTicks").innerHTML = "";
+      const named = (classes.classes || []).filter(c => c.colour);
+      $("covLegendSays").innerHTML = named.slice(0, 12).map(c =>
+        `<span class="classkey"><i style="background:${h(c.colour)}"></i>${h(c.name)}</span>`).join(" ")
+        + (named.length > 12 ? ` and ${named.length - 12} more` : "");
+    }).catch(() => {});
+  }
+
   // <b>What the controls say, and whether it can be sent.</b> An empty box is not zero.
   const chosen = () => {
     const stretch = $("covStretch").value;
-    const body = { stretch, ramp: $("covRamp") ? $("covRamp").value || null : null,
-      function: $("covFunction") ? $("covFunction").value : "none" };
+    const kind = $("covFunction") ? $("covFunction").value : "none";
+    // ADR-151: a band function carries its bands, as the server stores it.
+    let fn = kind;
+    if (kind === "extractband") fn = `extractband:${$("covBandR").value},${$("covBandG").value},${$("covBandB").value}`;
+    if (kind === "ndvi") {
+      if ($("covNdviRed").value === $("covNdviNir").value) return { error: "Choose two different bands for red and near infrared.", field: "covNdviNir" };
+      fn = `ndvi:${$("covNdviRed").value}:${$("covNdviNir").value}:s`;
+    }
+    if (kind === "bandarithmetic") {
+      const expression = $("covExpr").value.trim().replace(/\u2212/g, "-").replace(/\u00d7/g, "*").replace(/\u00f7/g, "/");
+      if (!expression) return { error: "Enter an expression, such as (B4 - B3) / (B4 + B3).", field: "covExpr" };
+      fn = `bandarithmetic:${expression}`;
+    }
+    const body = { stretch, ramp: $("covRamp") ? $("covRamp").value || null : null, function: fn };
     // A raster function draws in its own colours; the value settings rest and are kept for when it is set back.
     if (stretch === "fixed") {
       const low = $("covMin").value.trim();
@@ -28555,17 +29034,29 @@ async function drawCoverageDisplay(service, folder, doc) {
   let previewUrl = null;
   const redraw = async () => {
     const turn = ++previewTurn;
-    const { body, error } = chosen();
+    const { body, error, field } = chosen();
     const says = $("covLegendSays");
     const swatch = $("covRampSwatch");
     if (swatch) swatch.style.background = coverageRampCss($("covRamp")?.value || null);
     const fromBox = $("covMin"), toBox = $("covMax");
-    [fromBox, toBox].forEach(box => box.removeAttribute("aria-invalid"));
+    [fromBox, toBox, $("covExpr"), $("covNdviNir")].forEach(box => box?.removeAttribute("aria-invalid"));
     $("covRangeSays").textContent = "";
     $("covPreview").classList.toggle("stale", !!error);
+    // ADR-151: the chosen function's own controls, and only those, and the sentence that says what it is.
+    const picked = $("covFunction")?.value || "none";
+    if ($("covFunctionSays")) $("covFunctionSays").textContent = picked === "none" ? shownAsSaid : COVERAGE_FUNCTION_SAID[picked];
+    const functionError = text => {
+      const line = $("covFunctionError");
+      if (line && line.textContent !== text) line.textContent = text;
+    };
+    if (!(error && field)) functionError("");
+    if ($("covArgsCombination")) $("covArgsCombination").hidden = picked !== "extractband";
+    if ($("covArgsNdvi")) $("covArgsNdvi").hidden = picked !== "ndvi";
+    if ($("covArgsExpression")) $("covArgsExpression").hidden = picked !== "bandarithmetic";
     if (error) {
-      (fromBox.value.trim() === "" ? fromBox : toBox).setAttribute("aria-invalid", "true");
-      $("covRangeSays").textContent = error;
+      (field ? $(field) : fromBox.value.trim() === "" ? fromBox : toBox)?.setAttribute("aria-invalid", "true");
+      // A function's error beside its controls; the range's under the range, which a function hides.
+      if (field) functionError(error); else $("covRangeSays").textContent = error;
       says.textContent = "";
       return;
     }
@@ -28576,21 +29067,26 @@ async function drawCoverageDisplay(service, folder, doc) {
     }
 
     // ADR-136: a raster function shows its own result in its own colours, and says what they mean.
-    const fn = body.function || "none";
-    if ($("covValueControls")) $("covValueControls").hidden = fn !== "none";
-    if ($("covFunctionSays") && fn !== "none") $("covFunctionSays").textContent = COVERAGE_FUNCTION_SAID[fn];
+    const fn = String(body.function || "none").split(":")[0];
+    if ($("covValueControls")) $("covValueControls").hidden = fn !== "none" || !!$("covClassesSay");
     if (fn !== "none") {
-      $("covLegend").hidden = false;
-      $("covLegend").style.background = fn === "hillshade" ? coverageRampCss(null) : coverageRampCss(fn);
+      // A combination is drawn in its bands' own colours and an expression's range is its own: neither has a ramp.
+      const legend = fn !== "extractband" && fn !== "bandarithmetic";
+      $("covLegend").hidden = !legend;
+      if (legend) $("covLegend").style.background = fn === "hillshade" ? coverageRampCss(null) : coverageRampCss(fn);
       says.textContent = { hillshade: "Shade runs from black, facing away from the sun, to white, facing it.",
         slope: "Colours run from flat (0°) to 45° and steeper.",
-        aspect: "Colours run round the compass: north, east, south, west and north again." }[fn];
+        aspect: "Colours run round the compass: north, east, south, west and north again.",
+        ndvi: "Colours run from brown, water and bare ground, through yellow to green, dense vegetation.",
+        extractband: "Each band is stretched over what is in view.",
+        bandarithmetic: "Grey from the lowest value in view to the highest." }[fn];
     }
     // The legend's ends, so the bar is read without the sentence (design review 2026-10-02).
     if ($("covLegendTicks")) {
       $("covLegendTicks").innerHTML = (fn === "slope" ? ["0°", "15°", "30°", "45°+"]
         : fn === "aspect" ? ["N", "E", "S", "W", "N"]
-        : fn === "hillshade" ? ["Shadow", "Lit"] : []).map(t => `<span>${t}</span>`).join("");
+        : fn === "hillshade" ? ["Shadow", "Lit"]
+        : fn === "ndvi" ? ["−1", "0", "1"] : []).map(t => `<span>${t}</span>`).join("");
     }
 
     const low = body.stretch === "fixed" ? body.minimum : said.stretch === "fixed" && body.stretch === said.stretch ? said.minimum : stats?.minimum;
@@ -28603,16 +29099,31 @@ async function drawCoverageDisplay(service, folder, doc) {
       if (stats.minimum >= body.maximum) warning = ` Every value is above ${Number(body.maximum.toPrecision(6))}, so the whole image is one colour.`;
       else if (stats.maximum <= body.minimum) warning = ` Every value is below ${Number(body.minimum.toPrecision(6))}, so the whole image is one colour.`;
     }
-    if (ramps && fn === "none") says.textContent = (shown ? `Colours run left to right over ${shown}.` : "") + warning;
+    if (ramps && fn === "none" && !$("covClassesSay")) says.textContent = (shown ? `Colours run left to right over ${shown}.` : "") + warning;
 
     const query2 = new URLSearchParams({ folder: folder || "", stretch: body.stretch, width: size.width, height: size.height });
     if (body.ramp) query2.set("ramp", body.ramp);
-    if (fn !== "none") query2.set("function", fn);
+    // ADR-151: with its arguments — the bare name of a band function is not one the server can apply (ux review 6).
+    if (fn !== "none") query2.set("function", body.function);
     if (body.stretch === "fixed") { query2.set("minimum", body.minimum); query2.set("maximum", body.maximum); }
     try {
       const response = await fetch(`/admin/coverages/${encodeURIComponent(service)}/preview?${query2}`,
         { headers: token ? { Authorization: "Bearer " + token } : {} });
-      if (!response.ok || turn !== previewTurn) return;
+      if (turn !== previewTurn) return;
+      if (!response.ok) {
+        // ADR-151: the server's own sentence — an expression naming a band the image lacks is only known there.
+        const said = await response.json().catch(() => null);
+        if (said?.error?.message) {
+          if (fn !== "none") {
+            functionError(said.error.message);
+            $(fn === "bandarithmetic" ? "covExpr" : fn === "ndvi" ? "covNdviNir" : "covBandR")?.setAttribute("aria-invalid", "true");
+          } else {
+            $("covRangeSays").textContent = said.error.message;
+          }
+          $("covPreview").classList.add("stale");
+        }
+        return;
+      }
       const picture = URL.createObjectURL(await response.blob());
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       previewUrl = picture;
@@ -28626,17 +29137,32 @@ async function drawCoverageDisplay(service, folder, doc) {
   $("covStretch").addEventListener("change", () => { $("covRange").hidden = $("covStretch").value !== "fixed"; redraw(); });
   $("covRamp")?.addEventListener("change", redraw);
   $("covFunction")?.addEventListener("change", redraw);
+  // ADR-151: a band function's arguments redraw it; an expression as it is typed, after a pause.
+  ["covBandR", "covBandG", "covBandB", "covNdviRed", "covNdviNir"].forEach(id => $(id)?.addEventListener("change", redraw));
+  $("covExpr")?.addEventListener("input", soon);
+  $("covExpr")?.addEventListener("input", () => { delete $("covExpr").dataset.prefilled; });
+  $("covFunction")?.addEventListener("change", () => {
+    const box = $("covExpr");
+    // Filled while it is ours; once typed in, it is the owner's (ux review 8).
+    if ($("covFunction").value === "bandarithmetic" && box && (!box.value.trim() || box.dataset.prefilled === "true")) {
+      const nir = $("covNdviNir") ? Number($("covNdviNir").value) + 1 : bandCount;
+      const red = $("covNdviRed") ? Number($("covNdviRed").value) + 1 : bandCount - 1;
+      box.value = bandCount >= 2 ? `(B${nir} - B${red}) / (B${nir} + B${red})` : "B1";
+      box.dataset.prefilled = "true";
+      redraw();
+    }
+  });
   $("covMin").addEventListener("input", soon);
   $("covMax").addEventListener("input", soon);
   redraw();
 
   $("covSave").addEventListener("click", async () => {
     const says = $("covSays");
-    const { body, error } = chosen();
+    const { body, error, field } = chosen();
     if (error) {
       says.textContent = "";
-      $("covRangeSays").textContent = error;
-      $(($("covMin").value.trim() === "") ? "covMin" : "covMax").focus();
+      $(field ? "covFunctionError" : "covRangeSays").textContent = error;
+      $(field || (($("covMin").value.trim() === "") ? "covMin" : "covMax")).focus();
       return;
     }
     says.textContent = "Saving…";
@@ -28646,8 +29172,29 @@ async function drawCoverageDisplay(service, folder, doc) {
       await drawCoverageDisplay(service, folder, doc);
       $("covSays").textContent = "Saved. Every map and client draws it this way now.";
       $("covSave")?.focus();
+      // The Overview's picture is the service drawn, which has just changed (ux review 6).
+      const thumb = $("layerThumb");
+      if (thumb && thumb.tagName === "IMG") {
+        const fresh = thumb.cloneNode(false);
+        fresh.removeAttribute("src");
+        delete fresh.dataset.drawn;
+        fresh.dataset.thumb = `${thumbnailFor(`/rest/services/${folder ? `${folder}/` : ""}${service}/ImageServer`)}&v=${Date.now()}`;
+        thumb.replaceWith(fresh);
+        paintPreviews();
+      }
     } catch (err) {
-      says.textContent = err.message || String(err);
+      const message = err.message || String(err);
+      const kind = String(body.function || "none").split(":")[0];
+      if (kind !== "none" && $("covFunctionError")) {
+        // Beside the controls it is about, the field marked and given focus, as the page's own refusals are.
+        says.textContent = "";
+        $("covFunctionError").textContent = message;
+        const at = $(kind === "bandarithmetic" ? "covExpr" : kind === "ndvi" ? "covNdviNir" : "covBandR");
+        at?.setAttribute("aria-invalid", "true");
+        at?.focus();
+      } else {
+        says.textContent = message;
+      }
     }
   });
 }
@@ -28662,6 +29209,8 @@ function coverageRampCss(ramp) {
     reds: ["#fff5f0", "#fb6a4a", "#67000d"],
     slope: ["#38a800", "#a8d400", "#ffff00", "#ff8000", "#ff0000"],
     aspect: ["#ff0000", "#ffa600", "#ffff00", "#00ff00", "#00ffff", "#00a6ff", "#0000ff", "#ff00ff", "#ff0000"],
+    // ADR-151, at the server's stops.
+    ndvi: ["#8c510a 0%", "#d8b365 45%", "#f6e8c3 55%", "#a6d96a 70%", "#1a9641 85%", "#00441b 100%"],
   }[ramp] || ["#000", "#fff"];
   return `linear-gradient(to right, ${stops.join(", ")})`;
 }

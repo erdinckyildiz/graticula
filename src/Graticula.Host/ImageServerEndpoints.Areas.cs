@@ -76,6 +76,15 @@ internal static partial class ImageServerEndpoints
             return;
         }
 
+        // ADR-152, ADR-153: the images a mosaic rule or a time chooses.
+        (readers, error) = await MosaicReadersAsync(context, parameter, coverage, readers, area.Envelope, cancellation).ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            await RefuseAsync(context, 400, error).ConfigureAwait(false);
+            return;
+        }
+
         RasterFunction function = asked ?? RasterFunction.FromStyleText(coverage.Style);
         AreaRead? read = await ReadAreaAsync(coverage, function, area.Envelope, PixelSizeAsked(parameter), readers, cancellation)
             .ConfigureAwait(false);
@@ -108,8 +117,8 @@ internal static partial class ImageServerEndpoints
             }
         }
 
-        bool bytes = function.Kind == RasterFunctionKind.None && coverage.Info.Bands.Count > 0
-            && coverage.Info.Bands[0].Kind == SampleKind.Unsigned8;
+        bool bytes = !function.Derives && function.ResultBandsFor(coverage.Info.Bands) is { Count: > 0 } kept
+            && kept[0].Kind == SampleKind.Unsigned8;
         const int Size = 256;
 
         await Results.Ok(new
@@ -145,7 +154,7 @@ internal static partial class ImageServerEndpoints
             // Not ArcGIS's field: the cell size the answer was read at, which is coarser than the image's own for an area
             // too large to read whole (ADR-141).
             pixelSize = read is null ? null : new { x = read.PixelWidth, y = read.PixelHeight },
-            rasterFunction = function.Kind == RasterFunctionKind.None ? null : function.Kind.ToString(),
+            rasterFunction = function.Kind == RasterFunctionKind.None ? null : function.Name,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -203,6 +212,16 @@ internal static partial class ImageServerEndpoints
         }
 
         CoverageInfo info = coverage.Info;
+
+        // ADR-152, ADR-153: the images a mosaic rule or a time chooses.
+        (readers, error) = await MosaicReadersAsync(context, parameter, coverage, readers, geometry.Envelope, cancellation).ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            await RefuseAsync(context, 400, error).ConfigureAwait(false);
+            return;
+        }
+
         RasterFunction function = asked ?? RasterFunction.FromStyleText(coverage.Style);
         AreaRead? read = await ReadAreaAsync(coverage, function, geometry.Envelope, PixelSizeAsked(parameter), readers, cancellation)
             .ConfigureAwait(false);
@@ -220,7 +239,7 @@ internal static partial class ImageServerEndpoints
                 resolution = read?.PixelWidth ?? info.PixelWidth,
                 attributes = new { },
             }).ToArray(),
-            rasterFunction = function.Kind == RasterFunctionKind.None ? null : function.Kind.ToString(),
+            rasterFunction = function.Kind == RasterFunctionKind.None ? null : function.Name,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -379,7 +398,7 @@ internal static partial class ImageServerEndpoints
                 .ConfigureAwait(false);
 
             return new AreaRead(window, info.Extent.MinX + (left * pixelX), info.Extent.MaxY - (top * pixelY), pixelX, pixelY,
-                function.Kind == RasterFunctionKind.None ? info.Bands : []);
+                function.Derives ? [] : function.ResultBandsFor(info.Bands));
         }
 
         return null;
@@ -556,7 +575,7 @@ internal static partial class ImageServerEndpoints
                 return "NoData";
             }
 
-            if (function.Kind != RasterFunctionKind.None)
+            if (function.Derives)
             {
                 double derived = Window.At(column, row, 0);
                 return double.IsNaN(derived) ? "NoData" : RasterFunction.Say(derived);

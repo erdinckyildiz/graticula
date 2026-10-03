@@ -26,7 +26,7 @@ public sealed class RasterFunctionTests
     }
 
     private static double Centre(RasterFunction function, CoverageWindow window, double cell = 10) =>
-        function.Apply(window, cell, cell, null).Samples[12];
+        function.Apply(window, cell, cell, (double?)null).Samples[12];
 
     [Fact]
     public void A_plane_rising_one_cell_size_a_cell_is_forty_five_degrees_steep()
@@ -98,8 +98,9 @@ public sealed class RasterFunctionTests
     [Fact]
     public void A_function_this_server_does_not_apply_is_refused_by_name()
     {
-        Assert.False(RasterFunction.TryParseRule("{\"rasterFunction\":\"NDVI\"}", out _, out string? error));
-        Assert.Contains("NDVI", error, StringComparison.Ordinal);
+        // NDVI was this example until ADR-151 served it, and Clip until ADR-156; Curvature is not served.
+        Assert.False(RasterFunction.TryParseRule("{\"rasterFunction\":\"Curvature\"}", out _, out string? error));
+        Assert.Contains("Curvature", error, StringComparison.Ordinal);
         Assert.Contains("Hillshade", error, StringComparison.Ordinal);
     }
 
@@ -109,6 +110,6 @@ public sealed class RasterFunctionTests
         Assert.Equal(RasterFunctionKind.Slope, RasterFunction.FromStyleText("stretch:auto;ramp:terrain;function:slope").Kind);
         Assert.Equal("terrain", Graticula.Cartography.CoverageStyle.Parse("stretch:auto;function:slope;ramp:terrain").RampName);
         Assert.Equal(RasterFunctionKind.None, RasterFunction.FromStyleText("stretch:full").Kind);
-        Assert.Equal("Hillshade,Slope,Aspect", string.Join(",", RasterFunction.Names));
+        Assert.Equal("Hillshade,Slope,Aspect,NDVI,BandArithmetic,ExtractBand,Clip,Remap,Mask,Statistics,Arithmetic", string.Join(",", RasterFunction.Names));
     }
 }

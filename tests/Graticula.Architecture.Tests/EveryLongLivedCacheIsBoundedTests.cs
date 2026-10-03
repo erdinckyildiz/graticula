@@ -68,6 +68,10 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["LayerExportEndpoints.Formats"] = "fixed: the three export formats (ADR-107)",
         ["GeometryServerEndpoints.Units.LinearUnits"] = "fixed: Esri's linear units, by code and name (ADR-145)",
         ["GeometryServerEndpoints.Units.AreaUnits"] = "fixed: Esri's area units, by name (ADR-145)",
+        ["CoverageAdminEndpoints.Formats.Translated"] = "fixed: the file extensions GDAL writes as GeoTIFF on the way in (ADR-157)",
+        ["ImageServerEndpoints.Catalog.CatalogTypes"] = "fixed: a mosaic catalog's fields and their types (ADR-152)",
+        ["ImageServerEndpoints.Mensuration.LinearUnits"] = "fixed: Esri's linear units for measure (ADR-155)",
+        ["ImageServerEndpoints.Mensuration.AreaUnits"] = "fixed: Esri's area units for measure (ADR-155)",
         ["ArcGisAppendEndpoints.Uploads"] = "at most MaximumUploads waiting, each for an hour (ADR-105)",
         // ADR-135, 2026-10-02: a minute's request counts, emptied every minute and capped, because a path's name is the client's.
         ["ServiceUsageCounter._counts"] = "emptied every minute when written, and at most MaximumServicesAMinute names a minute",

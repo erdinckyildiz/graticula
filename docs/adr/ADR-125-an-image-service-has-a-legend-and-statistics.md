@@ -11,6 +11,9 @@
 
 > **Amended 2026-10-01 by [ADR-128](ADR-128-an-image-service-has-histograms.md).** `histograms` is served too, and NaN pixels are left out of the statistics.
 
+
+> **Amended 2026-10-03 by [ADR-154](ADR-154-a-classified-image-names-its-classes.md).** A classified image's legend is its classes, and its raster attribute table is answered.
+
 ---
 
 ## 1. Context

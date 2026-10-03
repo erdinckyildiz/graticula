@@ -136,6 +136,13 @@ public sealed class DisplayRule
     /// <summary>Whether the chain stretches the values to 0–255.</summary>
     public bool Stretched { get; }
 
+    /// <summary>
+    /// The raster function at the bottom of the chain, as its JSON — ADR-151: a renderer the JS SDK lays over a layer's
+    /// NDVI arrives as Stretch over NDVI, and the rule draws what the function makes. Null when the chain ends at the
+    /// image's own values.
+    /// </summary>
+    public string? Under { get; private set; }
+
     /// <summary>Which stretch.</summary>
     public RuleStretch Stretch { get; private init; }
 
@@ -193,9 +200,9 @@ public sealed class DisplayRule
 
         string name = Name(root);
 
+        // ADR-156: Remap by itself gives values new values — a raster function's; under a Colormap it is this rule's.
         if (!name.Equals("Stretch", StringComparison.OrdinalIgnoreCase)
-            && !name.Equals("Colormap", StringComparison.OrdinalIgnoreCase)
-            && !name.Equals("Remap", StringComparison.OrdinalIgnoreCase))
+            && !name.Equals("Colormap", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -203,6 +210,7 @@ public sealed class DisplayRule
         try
         {
             rule = Read(root, bands);
+            rule.Under = Innermost(root);
         }
         catch (FormatException refused)
         {
@@ -216,11 +224,6 @@ public sealed class DisplayRule
     {
         string name = Name(root);
         JsonElement arguments = Arguments(root);
-
-        if (name.Equals("Remap", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new FormatException($"Remap gives classes numbers, and has no colours without a Colormap over it; {Shapes}.");
-        }
 
         if (name.Equals("Stretch", StringComparison.OrdinalIgnoreCase))
         {
@@ -266,7 +269,8 @@ public sealed class DisplayRule
                 colours[(long)Math.Round(parts[0])] = new Rgba(Byte(parts[1]), Byte(parts[2]), Byte(parts[3]), parts.Length > 4 ? Byte(parts[4]) : (byte)255);
             }
 
-            if (under.Length == 0 || under.Equals("Raster", StringComparison.OrdinalIgnoreCase))
+            // Over the values, or over a raster function's values (ADR-151).
+            if (under.Length == 0 || under.Equals("Raster", StringComparison.OrdinalIgnoreCase) || !IsDisplay(under))
             {
                 return new DisplayRule(false, null, colours, null);
             }
@@ -436,12 +440,67 @@ public sealed class DisplayRule
     /// <summary>A stretch or a remap reads the image's own values: its Raster is the image, not a further function.</summary>
     private static void Inner(JsonElement arguments, string outer)
     {
+        // A raster function under the rule is the rule's to draw (ADR-151) and is read, and refused if it must be, as one;
+        // another display function under it is a chain this does not make.
         if (arguments.ValueKind == JsonValueKind.Object && arguments.TryGetProperty("Raster", out JsonElement raster)
             && raster.ValueKind == JsonValueKind.Object && Name(raster) is { Length: > 0 } nested
-            && !nested.Equals("Raster", StringComparison.OrdinalIgnoreCase))
+            && IsDisplay(nested))
         {
             throw new FormatException($"{outer} over {nested} is a chain this server does not apply; {Shapes}.");
         }
+    }
+
+    private static bool IsDisplay(string name) =>
+        name.Equals("Stretch", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("Colormap", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("Remap", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The raster function at the bottom of a rule's chain, as JSON, or null — before the rule is read.</summary>
+    /// <param name="json">The rule.</param>
+    /// <returns>The function's JSON.</returns>
+    public static string? UnderOf(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
+            return IsDisplay(Name(document.RootElement)) ? Innermost(document.RootElement) : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The first function down the chain's <c>Raster</c> arguments that is not a display function, as JSON.</summary>
+    private static string? Innermost(JsonElement function)
+    {
+        JsonElement at = function;
+
+        for (int depth = 0; depth < 8 && at.ValueKind == JsonValueKind.Object; depth++)
+        {
+            string name = Name(at);
+
+            if (name.Length > 0 && !IsDisplay(name) && !name.Equals("Raster", StringComparison.OrdinalIgnoreCase))
+            {
+                return at.GetRawText();
+            }
+
+            JsonElement arguments = Arguments(at);
+
+            if (arguments.ValueKind != JsonValueKind.Object || !arguments.TryGetProperty("Raster", out JsonElement next))
+            {
+                return null;
+            }
+
+            at = next;
+        }
+
+        return null;
     }
 
     private static string Name(JsonElement function) =>

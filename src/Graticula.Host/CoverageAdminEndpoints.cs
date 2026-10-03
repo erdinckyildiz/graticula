@@ -41,7 +41,7 @@ public sealed record RegisterCoverageRequest(string? Name, string? Folder, strin
 /// later, who cannot.
 /// </para>
 /// </remarks>
-internal static class CoverageAdminEndpoints
+internal static partial class CoverageAdminEndpoints
 {
     /// <summary>Registers the routes.</summary>
     /// <param name="app">The application.</param>
@@ -85,6 +85,12 @@ internal static class CoverageAdminEndpoints
             CancellationToken t) => StatusAsync(c, name, folder, ServiceStatus.Stopped, k, l, t));
 
         app.MapDelete("/admin/coverages/{name}", RemoveAsync);
+
+        // ADR-152: a mosaic's images one by one — listed, renamed and dated, removed.
+        MapCatalog(app);
+
+        // ADR-154: a classified image's classes, named by its owner.
+        MapClasses(app);
     }
 
     private static async Task StatusAsync(
@@ -326,7 +332,53 @@ internal static class CoverageAdminEndpoints
             return;
         }
 
-        IReadOnlyList<IFormFile> sent = form.Files.GetFiles("file");
+        IReadOnlyList<Incoming> fromForm = [.. form.Files.GetFiles("file").Select(f => new Incoming(f.FileName, async (path, token) =>
+        {
+            await using FileStream into = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true);
+            await using Stream from = f.OpenReadStream();
+            await from.CopyToAsync(into, token).ConfigureAwait(false);
+        }))];
+
+        if (await AddIncomingAsync(context, coverage, at, name, fromForm, coverages, readers, audit, cancellation).ConfigureAwait(false) is { } done)
+        {
+            await Results.Ok(new
+            {
+                name = Qualify(name, at),
+                images = done.Images,
+                added = done.NewIds.Count,
+                resampled = done.Resampled.Count,
+                resampledFiles = done.Resampled,
+                width = done.Info.Width,
+                height = done.Info.Height,
+                overviews = done.Info.Overviews.Count,
+            }).ExecuteAsync(context).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>An image on its way in: the name it was sent as, and how to write it to a path.</summary>
+    internal sealed record Incoming(string Name, Func<string, CancellationToken, Task> WriteTo);
+
+    /// <summary>What adding images made: how many the service now has, the new ones' object ids, which were resampled.</summary>
+    internal sealed record AddedImages(int Images, IReadOnlyList<int> NewIds, IReadOnlyList<string> Resampled, CoverageInfo Info);
+
+    /// <summary>
+    /// Adds images to an uploaded image service — ADR-147's core, shared since ADR-152 by Studio's Add images and
+    /// ArcGIS's <c>add</c>. Refuses in its own answer and returns null when it does not add them.
+    /// </summary>
+    internal static async Task<AddedImages?> AddIncomingAsync(
+        HttpContext context, PublishedCoverage coverage, string? at, string name, IReadOnlyList<Incoming> sent,
+        ICoverageCatalog coverages, ICoverageReaderFactory readers, IAuditLog audit, CancellationToken cancellation)
+    {
+        HostSettings settings = context.RequestServices.GetRequiredService<HostSettings>();
+
+        if (!Uploaded(settings, coverage.Path) || !File.Exists(coverage.Path))
+        {
+            await Refuse(context, 400,
+                $"'{Qualify(name, at)}' was registered from a file on this server; images are added only to one uploaded here.")
+                .ConfigureAwait(false);
+            return null;
+        }
+
         bool mosaic = Graticula.Raster.Tiff.VrtMosaicReader.IsMosaic(coverage.Path);
         List<string> existing = mosaic ? [.. Graticula.Raster.Tiff.VrtMosaicReader.FilesOf(coverage.Path)] : [coverage.Path];
 
@@ -336,17 +388,18 @@ internal static class CoverageAdminEndpoints
                     ? "Send at least one image as `file`."
                     : $"A mosaic holds at most {MaximumMosaicImages} images; this one has {existing.Count}.")
                 .ConfigureAwait(false);
-            return;
+            return null;
         }
 
-        if (sent.FirstOrDefault(f => Path.GetExtension(f.FileName).ToLowerInvariant() is not (".tif" or ".tiff")) is { } other)
+        if (sent.FirstOrDefault(f => !Receivable(f.Name) && Path.GetExtension(f.Name).ToLowerInvariant() is not (".sid" or ".ecw")) is { } other)
         {
-            await Refuse(context, 400, $"{Path.GetFileName(other.FileName)}: images are GeoTIFFs (.tif or .tiff).").ConfigureAwait(false);
-            return;
+            await Refuse(context, 400, $"{Path.GetFileName(other.Name)}: images are {AcceptedFormats}.").ConfigureAwait(false);
+            return null;
         }
 
         string directory = ImageryDirectory(settings);
         List<string> added = [];
+        List<string> received = [];
         string? written = null;
         bool replaced = false;
 
@@ -361,16 +414,23 @@ internal static class CoverageAdminEndpoints
                 infos.Add(reader.Info);
             }
 
-            foreach (IFormFile file in sent)
+            // ADR-157: each file written as the GeoTIFFs it is, or becomes.
+            if (await ReceiveAsync(context, sent, directory, received, cancellation).ConfigureAwait(false) is not { } arrived)
             {
-                string path = Path.Combine(directory, $"{Guid.NewGuid():N}.tif");
-                added.Add(path);
+                return null;
+            }
 
-                await using (FileStream into = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true))
-                await using (Stream from = file.OpenReadStream())
-                {
-                    await from.CopyToAsync(into, cancellation).ConfigureAwait(false);
-                }
+            if (existing.Count + arrived.Count > MaximumMosaicImages)
+            {
+                await Refuse(context, 400, $"A mosaic holds at most {MaximumMosaicImages} images; this one has {existing.Count} "
+                    + $"and these make {arrived.Count}.").ConfigureAwait(false);
+                return null;
+            }
+
+            foreach (Arrived file in arrived)
+            {
+                string path = file.Path;
+                added.Add(path);
 
                 try
                 {
@@ -378,25 +438,25 @@ internal static class CoverageAdminEndpoints
 
                     if (reader.Info.Srid == 0)
                     {
-                        await Refuse(context, 400, $"{Path.GetFileName(file.FileName)} carries no EPSG code, so this server cannot "
+                        await Refuse(context, 400, $"{Path.GetFileName(file.Name)} carries no EPSG code, so this server cannot "
                             + "say where it is. Save it with its coordinate system and add it again.").ConfigureAwait(false);
-                        return;
+                        return null;
                     }
 
                     infos.Add(reader.Info);
                 }
                 catch (InvalidDataException)
                 {
-                    await Refuse(context, 400, $"{Path.GetFileName(file.FileName)} is not a GeoTIFF this server can read.")
+                    await Refuse(context, 400, $"{Path.GetFileName(file.Name)} is not a GeoTIFF this server can read.")
                         .ConfigureAwait(false);
-                    return;
+                    return null;
                 }
 
                 files.Add(path);
             }
 
             int firstNew = existing.Count;
-            string Name(int i) => i < firstNew ? $"image {i + 1} of the mosaic" : Path.GetFileName(sent[i - firstNew].FileName);
+            string Name(int i) => i < firstNew ? $"image {i + 1} of the mosaic" : arrived[i - firstNew].Name;
             List<string> working = [.. files];
             (string? refusal, IReadOnlyList<int> conformedImages) = await ConformAsync(
                     context, working, infos, 0, Name, directory, readers, cancellation, firstNew)
@@ -412,7 +472,7 @@ internal static class CoverageAdminEndpoints
             if (refusal is not null)
             {
                 await Refuse(context, 400, refusal).ConfigureAwait(false);
-                return;
+                return null;
             }
 
             foreach (string path in working.Skip(firstNew))
@@ -441,12 +501,23 @@ internal static class CoverageAdminEndpoints
                 // A backstop: whatever the measuring above missed is refused in words, not a 500.
                 await Refuse(context, 400, $"The images cannot be one mosaic, so none were added: {why.Message.TrimEnd('.')}.")
                     .ConfigureAwait(false);
-                return;
+                return null;
             }
+
+            // ADR-152: the images it had keep their object ids, names and dates; the new ones follow, named as they were sent.
+            List<CatalogImage> before = await ImageServerEndpoints.CatalogAsync(coverage, readers, cancellation).ConfigureAwait(false);
+            // Never an id an image removed had (ADR-152).
+            int next = Math.Max(coverage.NextImageId ?? 1, before.Count == 0 ? 1 : before.Max(i => i.Id) + 1);
+            List<CoverageImageEntry> catalog =
+            [
+                .. before.Select(i => new CoverageImageEntry(i.Id, Path.GetFileName(existing[i.Position]), i.Name, i.Acquired)),
+                .. working.Skip(firstNew).Select((file, k) => new CoverageImageEntry(next + k, Path.GetFileName(file), arrived[k].Name, arrived[k].Acquired)),
+            ];
 
             using ICoverageReader grown = await readers.OpenAsync(written, cancellation).ConfigureAwait(false);
             await coverages.ReplaceImageAsync(at, name, written, grown.Info, cancellation).ConfigureAwait(false);
             replaced = true;
+            await coverages.SetImagesAsync(at, name, catalog, next + arrived.Count, cancellation).ConfigureAwait(false);
 
             // The virtual raster it had is replaced; the images it placed are the new one's.
             if (mosaic)
@@ -455,25 +526,15 @@ internal static class CoverageAdminEndpoints
             }
 
             await RecordAsync(context, audit, "coverage.images", Qualify(name, at),
-                new { added = sent.Count, images = working.Count, resampled }, cancellation).ConfigureAwait(false);
+                new { added = arrived.Count, images = working.Count, resampled }, cancellation).ConfigureAwait(false);
 
-            await Results.Ok(new
-            {
-                name = Qualify(name, at),
-                images = working.Count,
-                added = sent.Count,
-                resampled,
-                resampledFiles = conformedImages.Select(Name).ToArray(),
-                width = grown.Info.Width,
-                height = grown.Info.Height,
-                overviews = grown.Info.Overviews.Count,
-            }).ExecuteAsync(context).ConfigureAwait(false);
+            return new AddedImages(working.Count, [.. Enumerable.Range(next, arrived.Count)], [.. conformedImages.Select(Name)], grown.Info);
         }
         finally
         {
             if (!replaced)
             {
-                Forget(added);
+                Forget([.. added, .. received]);
 
                 if (written is not null)
                 {
@@ -596,11 +657,11 @@ internal static class CoverageAdminEndpoints
             return;
         }
 
-        if (sent.FirstOrDefault(f => Path.GetExtension(f.FileName).ToLowerInvariant() is not (".tif" or ".tiff")) is { } other)
+        // ADR-157: GeoTIFFs, and the formats GDAL writes as GeoTIFFs on the way in; MrSID and ECW are refused by name there.
+        if (sent.FirstOrDefault(f => !Receivable(f.FileName) && Path.GetExtension(f.FileName).ToLowerInvariant() is not (".sid" or ".ecw")) is { } other)
         {
             await Refuse(context, 400,
-                $"{Path.GetFileName(other.FileName)}: an imagery layer is published from GeoTIFFs or Cloud Optimized GeoTIFFs "
-                + "(.tif or .tiff).")
+                $"{Path.GetFileName(other.FileName)}: an imagery layer is published from {AcceptedFormats}.")
                 .ConfigureAwait(false);
             return;
         }
@@ -619,6 +680,9 @@ internal static class CoverageAdminEndpoints
 
         // Everything written for this upload, removed unless it is published — a refusal, a stop or a failure alike.
         List<string> kept = [];
+        List<string> written = [];
+        List<Arrived> arrived = [];
+        List<CoverageImageEntry> catalog = [];
         bool registered = false;
         int resampled = 0;
         PublishedCoverage published;
@@ -628,16 +692,32 @@ internal static class CoverageAdminEndpoints
         {
             List<CoverageInfo> infos = [];
 
-            foreach (IFormFile file in sent)
+            // ADR-157: each file written as the GeoTIFFs it is, or becomes — a NetCDF of time steps becomes several.
+            List<Arrived>? received = await ReceiveAsync(context, [.. sent.Select(f => new Incoming(f.FileName, async (path, token) =>
             {
-                string path = Path.Combine(directory, $"{Guid.NewGuid():N}.tif");
-                kept.Add(path);
+                await using FileStream into = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true);
+                await using Stream from = f.OpenReadStream();
+                await from.CopyToAsync(into, token).ConfigureAwait(false);
+            }))], directory, written, cancellation).ConfigureAwait(false);
 
-                await using (FileStream into = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true))
-                await using (Stream from = file.OpenReadStream())
-                {
-                    await from.CopyToAsync(into, cancellation).ConfigureAwait(false);
-                }
+            if (received is null)
+            {
+                return;
+            }
+
+            arrived = received;
+
+            if (arrived.Count > MaximumMosaicImages)
+            {
+                await Refuse(context, 400, $"A mosaic is made of at most {MaximumMosaicImages} images in one upload; these make {arrived.Count}.")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            foreach (Arrived file in arrived)
+            {
+                string path = file.Path;
+                kept.Add(path);
 
                 CoverageInfo read;
 
@@ -649,7 +729,7 @@ internal static class CoverageAdminEndpoints
                 catch (InvalidDataException refused)
                 {
                     // The file is named as its uploader named it: where this server keeps it is not theirs to read.
-                    string named = Path.GetFileName(file.FileName);
+                    string named = Path.GetFileName(file.Name);
                     string why = refused.Message.Replace(path, named, StringComparison.Ordinal);
                     await Refuse(context, 400, why.Contains("is not a TIFF", StringComparison.Ordinal)
                             ? $"{named} is not a GeoTIFF this server can read. Check that it opens in a GIS, then try again."
@@ -661,7 +741,7 @@ internal static class CoverageAdminEndpoints
                 if (read.Srid == 0)
                 {
                     await Refuse(context, 400,
-                        $"{Path.GetFileName(file.FileName)} carries no EPSG code in its GeoKey directory, so this server cannot "
+                        $"{Path.GetFileName(file.Name)} carries no EPSG code in its GeoKey directory, so this server cannot "
                         + "say what its coordinates mean. Save it with its coordinate system and upload it again.").ConfigureAwait(false);
                     return;
                 }
@@ -672,10 +752,10 @@ internal static class CoverageAdminEndpoints
             // ADR-140, ADR-147: images are measured against the mosaic's grid from their headers, before any pyramid is built.
             // Other bands or another sample type cannot be made to fit and are refused, every one named; another reference,
             // pixel size or grid is resampled onto the grid.
-            if (sent.Count > 1)
+            if (arrived.Count > 1)
             {
                 (string? refusal, IReadOnlyList<int> conformed) = await ConformAsync(
-                    context, kept, infos, Graticula.Raster.Tiff.VrtMosaicReader.ReferenceOf(infos), i => Path.GetFileName(sent[i].FileName),
+                    context, kept, infos, Graticula.Raster.Tiff.VrtMosaicReader.ReferenceOf(infos), i => arrived[i].Name,
                     directory, readers, cancellation).ConfigureAwait(false);
 
                 if (refusal is not null)
@@ -720,6 +800,9 @@ internal static class CoverageAdminEndpoints
             string served = kept[0];
             info = infos[0];
 
+            // ADR-152: the catalog names each image by the file it was sent as.
+            catalog = [.. kept.Select((file, i) => new CoverageImageEntry(i + 1, Path.GetFileName(file), arrived[i].Name, arrived[i].Acquired))];
+
             if (kept.Count > 1)
             {
                 served = Path.Combine(directory, $"{Guid.NewGuid():N}.vrt");
@@ -746,18 +829,19 @@ internal static class CoverageAdminEndpoints
                 folder, name, served, info, principal.Principal.IsAnonymous ? null : principal.Principal.Id, cancellation)
                 .ConfigureAwait(false);
             registered = true;
+            await coverages.SetImagesAsync(published.Folder, published.ServiceName, catalog, null, cancellation).ConfigureAwait(false);
         }
         finally
         {
             if (!registered)
             {
                 // An upload stopped, refused or failed part way leaves nothing, in no catalogue entry that would remove it.
-                Forget(kept);
+                Forget([.. kept, .. written]);
             }
         }
 
         await RecordAsync(context, audit, "coverage.upload", published.QualifiedName,
-            new { width = info.Width, height = info.Height, bands = info.Bands.Count, srid = info.Srid, bytes = sent.Sum(f => f.Length), images = sent.Count },
+            new { width = info.Width, height = info.Height, bands = info.Bands.Count, srid = info.Srid, bytes = sent.Sum(f => f.Length), images = arrived.Count },
             cancellation).ConfigureAwait(false);
 
         await Results.Created(
@@ -770,7 +854,7 @@ internal static class CoverageAdminEndpoints
                 height = info.Height,
                 bands = info.Bands.Count,
                 overviews = info.Overviews.Count,
-                images = sent.Count,
+                images = arrived.Count,
                 // ADR-147: how many were put on the mosaic's grid from another reference, pixel size or grid.
                 resampled,
                 sharing = "private",
@@ -965,8 +1049,9 @@ internal static class CoverageAdminEndpoints
             ramp = drawn.RampName,
             ramps = CoverageStyle.NamedRamps.Keys,
             // ADR-136: the raster function it is shown through, and the ones it may be.
-            function = RasterFunction.FromStyleText(coverage.Style).Kind is var shownAs && shownAs != RasterFunctionKind.None
-                ? shownAs.ToString().ToLowerInvariant()
+            // ADR-151: with its arguments, as stored — ndvi:2:3, extractband:3,2,1, bandarithmetic:(B4-B3)/(B4+B3).
+            function = RasterFunction.FromStyleText(coverage.Style).ToStyleText() is { } shownAs
+                ? shownAs["function:".Length..]
                 : "none",
             functions = RasterFunction.Names,
             bands = coverage.Info.Bands.Count,
@@ -1048,23 +1133,38 @@ internal static class CoverageAdminEndpoints
             ? null
             : request.Function.Trim().ToLowerInvariant();
 
+        string? stored = null;
+
         if (function is not null)
         {
-            if (!Enum.TryParse(function, ignoreCase: true, out RasterFunctionKind kind) || kind == RasterFunctionKind.None)
+            // ADR-151: a function and its arguments, as the style stores them; each says what it needs of the bands.
+            string asked = request.Function!.Trim();
+
+            // An expression that does not read says what in it did not, in the analyst's words (ux review 6).
+            if (asked.StartsWith("bandarithmetic:", StringComparison.OrdinalIgnoreCase)
+                && !BandExpression.TryParse(asked["bandarithmetic:".Length..], out _, out string? unread))
             {
-                error = $"'{function}' is not a raster function this server applies; {string.Join(", ", RasterFunction.Names)} are.";
+                error = unread;
                 return null;
             }
 
-            if (coverage.Info.Bands.Count >= 3)
+            if (RasterFunction.FromStyleSegment(asked) is not { } chosen)
             {
-                error = "A raster function works on one band of measurements, an elevation model; this image is a colour image.";
+                error = $"'{request.Function!.Trim()}' is not a raster function this server applies with what it needs: "
+                    + "hillshade, slope, aspect, ndvi:red:infrared (bands from zero), extractband:3,2,1 or bandarithmetic:(B4-B3)/(B4+B3).";
                 return null;
             }
+
+            if (!chosen.FitsBands(coverage.Info.Bands.Count, out error))
+            {
+                return null;
+            }
+
+            stored = chosen.ToStyleText();
         }
 
         string text = ramp is null ? stretch : $"{stretch};ramp:{ramp}";
-        return function is null ? text : $"{text};function:{function}";
+        return stored is null ? text : $"{text};{stored}";
     }
 
     /// <summary>

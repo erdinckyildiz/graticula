@@ -212,10 +212,157 @@ internal static class Program
                 Text(request, "in"), Text(request, "out"), Text(request, "format"), Text(request, "layer"),
                 request.TryGetProperty("append", out JsonElement append) && append.ValueKind == JsonValueKind.True),
 
+            // ADR-157: imagery in a format the server does not read itself, written as the GeoTIFFs it does.
+            "raster" => Raster(Text(request, "in"), Text(request, "out"),
+                request.TryGetProperty("variable", out JsonElement variable) ? variable.GetString() : null,
+                request.TryGetProperty("name", out JsonElement named) ? named.GetString() : null),
+
             _ => throw new ArgumentException(
                 $"'{operation}' is not an operation. This reader answers 'ping', 'layers', "
-                + "'convert', 'features', 'fixture', 'export' and 'tabular'."),
+                + "'convert', 'features', 'fixture', 'export', 'tabular' and 'raster'."),
         };
+    }
+
+    /// <summary>
+    /// A raster in any format this build reads — JPEG 2000, NetCDF, HDF, ERDAS Imagine, ASCII grids — written as tiled,
+    /// deflated GeoTIFFs in a directory: ADR-157. A file of subdatasets, as NetCDF and HDF are, gives its first variable
+    /// with two dimensions of space, or the one named. A NetCDF whose bands are steps of time gives a GeoTIFF a step,
+    /// each with the time it is — a mosaic the server dates, so a time slider plays it (ADR-153).
+    /// </summary>
+    private static object Raster(string source, string directory, string? variable, string? name)
+    {
+        using Dataset? opened = Gdal.Open(source, OSGeo.GDAL.Access.GA_ReadOnly);
+
+        if (opened is null)
+        {
+            return new { ok = false, error = "GDAL cannot read it as a raster." };
+        }
+
+        Dataset dataset = opened;
+        Dataset? sub = null;
+        string? chosen = null;
+
+        try
+        {
+            // NetCDF and HDF: subdatasets, a variable each.
+            string[] subdatasets = opened.GetMetadata("SUBDATASETS") ?? [];
+            List<string> variables = [.. subdatasets
+                .Where(m => m.Contains("_NAME=", StringComparison.Ordinal))
+                .Select(m => m[(m.IndexOf('=', StringComparison.Ordinal) + 1)..])];
+
+            if (opened.RasterCount == 0 && variables.Count > 0)
+            {
+                string? pick = variable is { Length: > 0 }
+                    ? variables.FirstOrDefault(v => v.EndsWith(":" + variable, StringComparison.Ordinal))
+                    : variables[0];
+
+                if (pick is null)
+                {
+                    return new
+                    {
+                        ok = false,
+                        error = $"It has no variable '{variable}'. It has: {string.Join(", ", variables.Select(v => v.Split(':')[^1]))}.",
+                    };
+                }
+
+                sub = Gdal.Open(pick, OSGeo.GDAL.Access.GA_ReadOnly);
+                dataset = sub ?? throw new InvalidOperationException($"GDAL cannot open its variable {pick}.");
+                chosen = pick.Split(':')[^1].Trim('"');
+            }
+
+            if (dataset.RasterCount == 0)
+            {
+                return new { ok = false, error = "It holds no raster bands." };
+            }
+
+            string projection = dataset.GetProjectionRef() ?? string.Empty;
+            double[] transform = new double[6];
+            dataset.GetGeoTransform(transform);
+
+            if (projection.Length == 0 && transform[1] > 0 && Math.Abs(transform[0]) <= 360 && Math.Abs(transform[3]) <= 90)
+            {
+                // A grid of longitudes and latitudes that names no datum, as many NetCDF files are, is WGS 84.
+                projection = "EPSG:4326";
+            }
+
+            if (projection.Length == 0)
+            {
+                return new { ok = false, error = "It carries no coordinate system, so this server cannot say where it is." };
+            }
+
+            // Steps of time: NetCDF names its extra dimension's values on each band.
+            string[] bandTimes = [.. Enumerable.Range(1, dataset.RasterCount).Select(b =>
+                (dataset.GetRasterBand(b).GetMetadata("") ?? []).FirstOrDefault(m => m.StartsWith("NETCDF_DIM_time=", StringComparison.Ordinal))
+                    ?.Split('=', 2)[1] ?? string.Empty)];
+            string units = (dataset.GetMetadata("") ?? []).FirstOrDefault(m => m.StartsWith("time#units=", StringComparison.Ordinal))?.Split('=', 2)[1] ?? string.Empty;
+            bool timed = dataset.RasterCount > 1 && bandTimes.All(t => t.Length > 0) && TimeOrigin(units) is not null;
+
+            string stem = (name is { Length: > 0 } ? Path.GetFileNameWithoutExtension(name) : Path.GetFileNameWithoutExtension(source))
+                + (chosen is null ? string.Empty : " " + chosen);
+            List<object> images = [];
+            string[] common = ["-of", "GTiff", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=IF_SAFER", "-a_srs", projection];
+
+            if (timed)
+            {
+                (DateTimeOffset origin, double perUnit) = TimeOrigin(units)!.Value;
+
+                for (int band = 1; band <= dataset.RasterCount; band++)
+                {
+                    DateTimeOffset when = origin.AddSeconds(double.Parse(bandTimes[band - 1], CultureInfo.InvariantCulture) * perUnit);
+                    string target = Path.Combine(directory, $"{Guid.NewGuid():N}.tif");
+                    Translate(dataset, target, [.. common, "-b", band.ToString(CultureInfo.InvariantCulture)]);
+                    images.Add(new { path = target, name = $"{stem} {when:yyyy-MM-dd}", acquired = when.ToString("O", CultureInfo.InvariantCulture) });
+                }
+            }
+            else
+            {
+                string target = Path.Combine(directory, $"{Guid.NewGuid():N}.tif");
+                Translate(dataset, target, common);
+                images.Add(new { path = target, name = stem, acquired = (string?)null });
+            }
+
+            return new { ok = true, driver = opened.GetDriver().ShortName, variable = chosen, images };
+        }
+        finally
+        {
+            sub?.Dispose();
+        }
+    }
+
+    private static void Translate(Dataset dataset, string target, string[] options)
+    {
+        using OSGeo.GDAL.GDALTranslateOptions translate = new(options);
+        using Dataset? written = Gdal.wrapper_GDALTranslate(target, dataset, translate, null, null);
+
+        if (written is null)
+        {
+            throw new InvalidOperationException($"GDAL could not write {Path.GetFileName(target)}: {Gdal.GetLastErrorMsg()}");
+        }
+    }
+
+    /// <summary>A CF time's origin and seconds per unit, from <c>days since 1970-01-01</c> and the like.</summary>
+    private static (DateTimeOffset Origin, double SecondsPerUnit)? TimeOrigin(string units)
+    {
+        string[] parts = units.Split(" since ", 2, StringSplitOptions.TrimEntries);
+
+        if (parts.Length != 2)
+        {
+            return null;
+        }
+
+        double? per = parts[0].ToLowerInvariant() switch
+        {
+            "seconds" or "second" or "s" => 1,
+            "minutes" or "minute" => 60,
+            "hours" or "hour" or "h" => 3600,
+            "days" or "day" or "d" => 86_400,
+            _ => null,
+        };
+
+        return per is { } seconds && DateTimeOffset.TryParse(parts[1].Replace(' ', 'T').TrimEnd('Z') + (parts[1].Contains('+', StringComparison.Ordinal) ? string.Empty : "Z"),
+                CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTimeOffset origin)
+            ? (origin, seconds)
+            : null;
     }
 
 
