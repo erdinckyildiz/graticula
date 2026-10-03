@@ -63,7 +63,7 @@ could draw an image, which it can. And `GetFeatureInfo` answered `text/xml` with
 
 As §2, Alternative A.
 
-**Conditions.**
+## Conditions
 
 1. The owner confirms that a service's own OGC address is wanted beside the server-wide ones (`INFERRED`).
 2. A QGIS project saved against an ArcGIS Server `WMSServer` address is opened against this one.

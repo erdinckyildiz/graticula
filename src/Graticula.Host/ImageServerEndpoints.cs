@@ -156,6 +156,9 @@ internal static partial class ImageServerEndpoints
                     ImageMapAsync(context, serviceName, false, coverages, readers, cancellation))
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // ADR-163: WMTS over the service's own tiles, at ArcGIS's address.
+            MapWmts(app, prefix);
+
             // ADR-154: a classified image's classes, as ArcGIS lists them.
             app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/rasterAttributeTable", Read, RasterAttributeTableAsync)
                 .Governed(SharingGovernedExtensions.ByService);

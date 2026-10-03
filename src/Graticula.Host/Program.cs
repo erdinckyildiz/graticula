@@ -2133,6 +2133,7 @@ public static class Program
         MapServerEndpoints.Map(app);
         ThumbnailEndpoints.Map(app);
         ImageServerEndpoints.Map(app);
+        KmlEndpoints.Map(app);
         LogEndpoints.Map(app);
         CoverageAdminEndpoints.Map(app);
         ServiceUsageEndpoints.Map(app);

@@ -18,6 +18,9 @@
 (Two Dimensional Tile Matrix Set and Tile Set Metadata 2.0), OGC 07-057r7 (WMTS 1.0.0), OGC 06-121r9 (OWS
 Common 1.1) and the TileJSON 3.0.0 specification. Nothing here was read from another server's source.
 
+
+> **Amended 2026-10-03 by [ADR-163](ADR-163-an-image-service-is-a-wmts.md).** An image service answers WMTS with PNG tiles at `…/ImageServer/WMTS`, over its own grid.
+
 ---
 
 ## 1. Context

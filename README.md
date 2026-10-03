@@ -52,7 +52,9 @@ Geodatabase, or define an empty schema and fill it through `applyEdits`.
 
 OGC API Features, WFS 2.0 and WMS 1.3.0 are served as well — at `/wfs` and `/wms`, and at each service's own
 address as ArcGIS gives it (`…/MapServer/WMSServer`, `…/ImageServer/WMSServer`, `…/FeatureServer/WFSServer`), with
-image services as WMS layers ([ADR-162](docs/adr/ADR-162-ogc-at-a-service-s-own-address.md)) — and the vector tiles
+image services as WMS layers ([ADR-162](docs/adr/ADR-162-ogc-at-a-service-s-own-address.md)), an image service's tiles
+through WMTS at `…/ImageServer/WMTS` ([ADR-163](docs/adr/ADR-163-an-image-service-is-a-wmts.md)) and a map or image
+service in Google Earth through `generateKml` ([ADR-164](docs/adr/ADR-164-generatekml-links-to-the-map.md)) — and the vector tiles
 through OGC API Tiles, TileJSON and WMTS 1.0.0 ([ADR-097](docs/adr/ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md));
 [docs/](docs/) has the detail,
 and [docs/reviews/](docs/reviews/) has the OGC CITE runs behind them.

@@ -73,6 +73,36 @@ public sealed class OgcServiceAddressConformanceTests : ArcGisClient
             (_, string? legendType, _) = await GetAsync(root, token!,
                 $"{own}?service=WMS&request=GetLegendGraphic&version=1.3.0&layer=hosted/{name}&format=image/png");
             Assert.Equal("image/png", legendType);
+
+            // ADR-163: WMTS at ArcGIS's address, over the service's own grid — a tile is the ArcGIS tile, byte for byte.
+            string wmts = $"/rest/services/hosted/{name}/ImageServer/WMTS";
+            (_, _, byte[] wmtsCapabilities) = await GetAsync(root, token!, $"{wmts}?service=WMTS&request=GetCapabilities");
+            XDocument document = XDocument.Parse(System.Text.Encoding.UTF8.GetString(wmtsCapabilities));
+            Assert.Equal("urn:ogc:def:crs:EPSG::4326", document.Descendants().First(e => e.Name.LocalName == "SupportedCRS").Value);
+            Assert.Contains(document.Descendants(), e => e.Name.LocalName == "ResourceURL"
+                && e.Attribute("template")!.Value.EndsWith($"{wmts}/tile/1.0.0/{name}/{{Style}}/{{TileMatrixSet}}/{{TileMatrix}}/{{TileRow}}/{{TileCol}}", StringComparison.Ordinal));
+
+            // Level 8 on the WGS 84 grid: 0.703125° tiles, so 30.04° E, 40.96° N is column 298, row 69.
+            (_, string? tileType, byte[] tile) = await GetAsync(root, token!, $"{wmts}/tile/1.0.0/{name}/default/default028mm/8/69/298");
+            (_, _, byte[] kvp) = await GetAsync(root, token!,
+                $"{wmts}?service=WMTS&request=GetTile&version=1.0.0&layer={name}&style=default&tilematrixset=default028mm&tilematrix=8&tilerow=69&tilecol=298&format=image/png");
+            (_, _, byte[] arcgis) = await GetAsync(root, token!, $"/rest/services/hosted/{name}/ImageServer/tile/8/69/298");
+            Assert.Equal("image/png", tileType);
+            Assert.Equal(arcgis, tile);
+            Assert.Equal(arcgis, kvp);
+
+            // ADR-164: generateKml is a KMZ whose overlay Google Earth redraws from the service's own WMS address.
+            (_, string? kmzType, byte[] kmz) = await GetAsync(root, token!, $"/rest/services/hosted/{name}/ImageServer/generateKml");
+            Assert.Equal("application/vnd.google-earth.kmz", kmzType);
+            using System.IO.Compression.ZipArchive archive = new(new System.IO.MemoryStream(kmz));
+            using System.IO.StreamReader doc = new(archive.GetEntry("doc.kml")!.Open());
+            XDocument kml = XDocument.Parse(await doc.ReadToEndAsync());
+            string href = kml.Descendants().First(e => e.Name.LocalName == "href").Value;
+            Assert.Contains($"/rest/services/hosted/{name}/ImageServer/WMSServer?", href, StringComparison.Ordinal);
+            Assert.Equal("onStop", kml.Descendants().First(e => e.Name.LocalName == "viewRefreshMode").Value);
+            (_, string? earthType, _) = await GetAsync(root, token!, href[href.IndexOf("/rest/", StringComparison.Ordinal)..]
+                + "&BBOX=29.9,40.9,30.2,41.1&WIDTH=64&HEIGHT=64");
+            Assert.Equal("image/png", earthType);
         }
         finally
         {
