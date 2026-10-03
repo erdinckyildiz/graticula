@@ -290,7 +290,35 @@ public sealed class VrtMosaicReader : ICoverageReader
     /// </remarks>
     /// <param name="images">What each image is, in the order they were given.</param>
     /// <returns>The images that do not fit, each with how it differs and what the others are.</returns>
-    public static IReadOnlyList<MosaicMisfit> Misfits(IReadOnlyList<CoverageInfo> images)
+    public static IReadOnlyList<MosaicMisfit> Misfits(IReadOnlyList<CoverageInfo> images) =>
+        Misfits(images, images is { Count: > 0 } ? ReferenceOf(images) : 0);
+
+    /// <summary>
+    /// The image the others are measured against: the earliest of the largest group sharing a reference, bands, sample
+    /// type and pixel size.
+    /// </summary>
+    /// <param name="images">The images.</param>
+    /// <returns>Its index.</returns>
+    public static int ReferenceOf(IReadOnlyList<CoverageInfo> images)
+    {
+        ArgumentNullException.ThrowIfNull(images);
+        string Kind(CoverageInfo info) =>
+            $"{info.Srid}|{info.Bands.Count}|{info.Bands[0].Kind}|{(info.Extent.Width / info.Width).ToString("G6", CultureInfo.InvariantCulture)}";
+
+        return images
+            .Select((info, index) => (Key: Kind(info), Index: index))
+            .GroupBy(g => g.Key)
+            .OrderByDescending(g => g.Count())
+            .ThenBy(g => g.Min(m => m.Index))
+            .First()
+            .Min(m => m.Index);
+    }
+
+    /// <summary>Every image that does not fit the grid of the one given — ADR-147, an image added to a mosaic.</summary>
+    /// <param name="images">What each image is.</param>
+    /// <param name="reference">The image whose grid the rest must fit.</param>
+    /// <returns>The images that do not fit.</returns>
+    public static IReadOnlyList<MosaicMisfit> Misfits(IReadOnlyList<CoverageInfo> images, int reference)
     {
         ArgumentNullException.ThrowIfNull(images);
 
@@ -300,15 +328,6 @@ public sealed class VrtMosaicReader : ICoverageReader
         }
 
         static double Pixel(CoverageInfo info) => info.Extent.Width / info.Width;
-        string Kind(CoverageInfo info) => $"{info.Srid}|{info.Bands.Count}|{info.Bands[0].Kind}|{Pixel(info).ToString("G6", CultureInfo.InvariantCulture)}";
-
-        int reference = images
-            .Select((info, index) => (Key: Kind(info), Index: index))
-            .GroupBy(g => g.Key)
-            .OrderByDescending(g => g.Count())
-            .ThenBy(g => g.Min(m => m.Index))
-            .First()
-            .Min(m => m.Index);
 
         CoverageInfo first = images[reference];
         double pixelX = Pixel(first);
@@ -317,22 +336,34 @@ public sealed class VrtMosaicReader : ICoverageReader
         string Size(double value) => degrees
             ? value.ToString("G6", CultureInfo.InvariantCulture) + "° pixels"
             : value.ToString("G6", CultureInfo.InvariantCulture) + $"-unit pixels (EPSG:{first.Srid.ToString(CultureInfo.InvariantCulture)})";
-        string Bands(CoverageInfo info) => $"{info.Bands.Count} {info.Bands[0].Kind} band{(info.Bands.Count == 1 ? "" : "s")}";
+        // In the words ArcGIS uses for a pixel type, not this server's enum names (the ux review, 2026-10-03).
+        static string Kind(SampleKind kind) => kind switch
+        {
+            SampleKind.Unsigned8 => "8-bit unsigned",
+            SampleKind.Signed16 => "16-bit signed",
+            SampleKind.Unsigned16 => "16-bit unsigned",
+            SampleKind.Signed32 => "32-bit signed",
+            SampleKind.Real32 => "32-bit float",
+            _ => "64-bit float",
+        };
+        string Bands(CoverageInfo info) => $"{info.Bands.Count} {Kind(info.Bands[0].Kind)} band{(info.Bands.Count == 1 ? "" : "s")}";
         List<MosaicMisfit> misfits = [];
 
         for (int i = 0; i < images.Count; i++)
         {
             CoverageInfo info = images[i];
 
-            if (info.Srid != first.Srid)
-            {
-                misfits.Add(new MosaicMisfit(i, $"are in EPSG:{info.Srid}", $"are in EPSG:{first.Srid}"));
-                continue;
-            }
-
+            // Bands first: an image in another reference with other bands is resampled and then cannot join anyway, so
+            // what cannot be fixed is said before what can (the ux review, 2026-10-03: it was a 500).
             if (info.Bands.Count != first.Bands.Count || info.Bands[0].Kind != first.Bands[0].Kind)
             {
                 misfits.Add(new MosaicMisfit(i, $"have {Bands(info)}", $"have {Bands(first)}"));
+                continue;
+            }
+
+            if (info.Srid != first.Srid)
+            {
+                misfits.Add(new MosaicMisfit(i, $"are in EPSG:{info.Srid}", $"are in EPSG:{first.Srid}") { Conformable = true });
                 continue;
             }
 
@@ -340,7 +371,7 @@ public sealed class VrtMosaicReader : ICoverageReader
 
             if (Math.Abs(x - pixelX) > pixelX * 1e-6 || Math.Abs(y - pixelY) > pixelY * 1e-6)
             {
-                misfits.Add(new MosaicMisfit(i, $"have {Size(x)}", $"have {Size(pixelX)}"));
+                misfits.Add(new MosaicMisfit(i, $"have {Size(x)}", $"have {Size(pixelX)}") { Conformable = true });
                 continue;
             }
 
@@ -350,7 +381,7 @@ public sealed class VrtMosaicReader : ICoverageReader
 
             if (across > 1e-3 || down > 1e-3)
             {
-                misfits.Add(new MosaicMisfit(i, $"are {Math.Max(across, down):0.###} of a pixel off the grid", string.Empty));
+                misfits.Add(new MosaicMisfit(i, $"are {Math.Max(across, down):0.###} of a pixel off the grid", string.Empty) { Conformable = true });
             }
         }
 
@@ -361,11 +392,23 @@ public sealed class VrtMosaicReader : ICoverageReader
     /// Says which images do not fit, grouped by how they differ — "a.tif, b.tif and c.tif have 0.002° pixels where the
     /// other 9 have 0.001° pixels" — naming at most ten of a group.
     /// </summary>
-    /// <param name="misfits">From <see cref="Misfits"/>.</param>
+    /// <param name="misfits">From <see cref="Misfits(IReadOnlyList{CoverageInfo})"/>.</param>
     /// <param name="total">How many images there were.</param>
     /// <param name="name">An image's name, by its index.</param>
     /// <returns>The sentence, without a final full stop.</returns>
-    public static string Say(IReadOnlyList<MosaicMisfit> misfits, int total, Func<int, string> name)
+    public static string Say(IReadOnlyList<MosaicMisfit> misfits, int total, Func<int, string> name) =>
+        Say(misfits, total, name, against: null);
+
+    /// <summary>
+    /// The misfits in words, measured against what is named — "this image service" when images are added to one, so the
+    /// count of the others is not a number the reader cannot see (the ux review, 2026-10-03).
+    /// </summary>
+    /// <param name="misfits">The misfits.</param>
+    /// <param name="total">How many images there are.</param>
+    /// <param name="name">Each image's name.</param>
+    /// <param name="against">What they are measured against, said as one; null for "the other N".</param>
+    /// <returns>The sentence.</returns>
+    public static string Say(IReadOnlyList<MosaicMisfit> misfits, int total, Func<int, string> name, string? against)
     {
         ArgumentNullException.ThrowIfNull(misfits);
         ArgumentNullException.ThrowIfNull(name);
@@ -378,10 +421,11 @@ public sealed class VrtMosaicReader : ICoverageReader
             string listed = names.Count <= 10
                 ? names.Count == 1 ? names[0] : string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1]
                 : string.Join(", ", names.Take(10)) + $" and {names.Count - 10} more";
-            string others = fitting == 1 ? "the other one" : $"the other {fitting.ToString(CultureInfo.InvariantCulture)}";
+            string others = against ?? (fitting == 1 ? "the other one" : $"the other {fitting.ToString(CultureInfo.InvariantCulture)}");
+            int agreeing = against is null ? fitting : 1;
             return group.Key.Expected.Length == 0
                 ? $"{listed} {Agree(group.Key.Difference, names.Count)}"
-                : $"{listed} {Agree(group.Key.Difference, names.Count)} where {others} {Agree(group.Key.Expected, fitting)}";
+                : $"{listed} {Agree(group.Key.Difference, names.Count)} where {others} {Agree(group.Key.Expected, agreeing)}";
         }));
     }
 
@@ -562,4 +606,11 @@ public sealed class VrtMosaicReader : ICoverageReader
 /// <param name="Image">Its index among the images given.</param>
 /// <param name="Difference">What it is, as a predicate: "have 0.002° pixels", "are in EPSG:3857".</param>
 /// <param name="Expected">What the mosaic's images are: "0.001° pixels", "EPSG:4326".</param>
-public sealed record MosaicMisfit(int Image, string Difference, string Expected);
+public sealed record MosaicMisfit(int Image, string Difference, string Expected)
+{
+    /// <summary>
+    /// Whether resampling can make it fit — ADR-147: another reference, pixel size or grid can be; other bands or another
+    /// sample type cannot.
+    /// </summary>
+    public bool Conformable { get; init; }
+}

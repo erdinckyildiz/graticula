@@ -14,6 +14,10 @@
 
 > **Amended 2026-10-03 by [ADR-146](ADR-146-project-relation-and-the-cell-notations.md).** `project` takes envelopes and WKT and refuses a named transformation; `relation` reads RELATE(G1, G2, …); GARS and GEOREF are converted.
 
+> **Amended 2026-10-03 by [ADR-149](ADR-149-the-portal-may-name-another-geometry-service.md).** The portal may name another server's geometry service.
+
+> **Amended 2026-10-03 by [ADR-150](ADR-150-the-three-editing-calculations-are-written.md).** `autoComplete`, `reshape` and `trimExtend` are computed in the overlay worker; `findTransformations` is the one refusal left.
+
 ---
 
 > **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are

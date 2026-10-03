@@ -381,7 +381,7 @@ public sealed class BrowsingConformanceTests : ArcGisClient
         }
 
         using HttpRequestMessage request =
-            new(HttpMethod.Get, new Uri(root + Geometry + "/reshape"));
+            new(HttpMethod.Get, new Uri(root + Geometry + "/findTransformations"));
         request.Headers.Add("Accept", "text/html");
 
         using HttpResponseMessage response = await http.SendAsync(request);
@@ -405,8 +405,11 @@ public sealed class BrowsingConformanceTests : ArcGisClient
           reason of `reshape`'s own rather than a pasted one, which is what `reshaper` — a
           word appearing in no other refusal — checks.
         */
+        //
+        // <b>2026-10-03: reshape is written (ADR-150)</b>, so the page is asked of the one refusal left, and
+        // its own reason is the one naming PROJ and Q-100.
         Assert.DoesNotContain("editing", html, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("reshaper", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Q-100", html, StringComparison.Ordinal);
     }
 
     /// <summary>

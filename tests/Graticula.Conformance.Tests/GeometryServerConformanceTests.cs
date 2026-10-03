@@ -335,96 +335,156 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
 
     // ---------- the refusals ----------
 
-    [Theory]
-    [InlineData("autoComplete")]
-    [InlineData("reshape")]
-    [InlineData("trimExtend")]
-    [InlineData("findTransformations")]
-    public async Task An_unimplemented_operation_answers_501_rather_than_404(string operation)
+    [Fact]
+    public async Task An_unimplemented_operation_answers_501_rather_than_404()
     {
         // 501 says the server made a decision. 404 says it has no
         // GeometryServer, which is a different and wrong thing to conclude.
         //
-        // <b>This list went from twelve to three on 2026-08-15.</b> intersect,
-        // difference and union left when Q-97 was answered; convexHull, densify
-        // and generalize left the same day, computed in process; and cut,
-        // buffer, offset, simplify, relation and distance left when the owner
-        // ruled that the server bounds cost and does not decide usefulness —
-        // the deadline and heap limit that made overlay offerable were never
-        // specific to overlay.
-        //
-        // <b>What is left is not refused on cost.</b> All three are editing
-        // operations over existing features, and whether they belong on this
-        // service or on FeatureServer is an open design question.
-        Assert.Equal(501, await StatusOfPostAsync(operation));
+        // <b>This list went from twelve to three on 2026-08-15, and from three to one on
+        // 2026-10-03</b>, when autoComplete, reshape and trimExtend were written (Q-99,
+        // ADR-150). findTransformations is what is left, and it waits on PROJ (Q-100).
+        Assert.Equal(501, await StatusOfPostAsync("findTransformations"));
     }
 
     /// <summary>
-    /// A refusal gives the reason for <em>that</em> operation.
+    /// The one refusal left gives its own reason, and not cost.
     /// </summary>
     /// <remarks>
     /// <b>Every refusal used to give the same reason, and it was false for most
     /// of them.</b> All twelve said "it needs general polygon overlay" —
-    /// true of <c>cut</c>, and nonsense for <c>distance</c>, which is a minimum
-    /// over segment pairs and does no overlay at all. The owner found it by
-    /// putting a real ArcGIS GeometryServer beside this one. Telling a caller
-    /// something untrue about why they cannot have a thing is worse than the
-    /// missing thing, so each refusal carries its own reason and this test
-    /// asserts they differ.
+    /// true of <c>cut</c>, and nonsense for <c>distance</c>. The three editing
+    /// calculations that held the distinct-reasons assertion are written now
+    /// (ADR-150); what is asserted of the one left is that it names its cause.
     /// </remarks>
     [Fact]
-    public async Task Each_refusal_gives_its_own_reason()
+    public async Task The_refusal_left_gives_its_own_reason()
     {
-        string autoComplete = await ReasonAsync("autoComplete");
-        string reshape = await ReasonAsync("reshape");
-        string trimExtend = await ReasonAsync("trimExtend");
-
-        // Distinct sentences, not one sentence with the name swapped in. This
-        // is the assertion that would have caught the original defect.
-        Assert.Equal(3, new HashSet<string>([autoComplete, reshape, trimExtend]).Count);
-
-        // Each names what it actually does.
-        Assert.Contains("closes", autoComplete, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("boundary", reshape, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("lines", trimExtend, StringComparison.OrdinalIgnoreCase);
-
-        // <b>None of them may blame cost.</b> ~~The three that are left are open
-        // design questions~~ — corrected 2026-09-09 with Q-99: they are unwritten
-        // code, not design questions and not expensive operations, and saying
-        // "too expensive" would be the same lie in a new place.
-        // findTransformations is the fourth refusal and is not an editing
-        // operation: it needs PROJ's operation database, which this server does
-        // not have. Its reason must not claim to be one of the other three.
         string transformations = await ReasonAsync("findTransformations");
 
         Assert.DoesNotContain("editing", transformations, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("PROJ", transformations, StringComparison.Ordinal);
         Assert.Contains("Q-100", transformations, StringComparison.Ordinal);
+    }
 
-        foreach (string message in (string[])[autoComplete, reshape, trimExtend])
+    // ---------- the editing calculations (Q-99, ADR-150) ----------
+
+    private const string PolygonType = "esriGeometryPolygon";
+    private const string PolylineType = "esriGeometryPolyline";
+
+    private static string GeometryList(string type, params string[] geometries) =>
+        "{\"geometryType\":\"" + type + "\",\"geometries\":[" + string.Join(",", geometries) + "]}";
+
+    private static string Path(params (double X, double Y)[] points) =>
+        "{\"paths\":[[" + string.Join(",", points.Select(p => FormattableString.Invariant($"[{p.X},{p.Y}]"))) + "]]}";
+
+    private static string Ring(params (double X, double Y)[] points) =>
+        "{\"rings\":[[" + string.Join(",", points.Select(p => FormattableString.Invariant($"[{p.X},{p.Y}]"))) + "]]}";
+
+    private static double RingArea(JsonElement polygon)
+    {
+        JsonElement ring = polygon.GetProperty("rings")[0];
+        double twice = 0;
+
+        for (int i = 1; i < ring.GetArrayLength(); i++)
         {
-            /*
-              <b>Inverted 2026-09-09 — this assertion held a false sentence in place for
-              twenty-five days ([Q-99](../../docs/open-questions.md)).</b> It required all
-              three refusals to call themselves *editing operations over existing features*,
-              and the ArcGIS specification says they are nothing of the kind: `autoComplete`
-              takes `polygons` + `polylines`, `reshape` takes `target` + `reshaper`, and
-              `trimExtend` takes `polylines` + `trimExtendTo` — every geometry in the
-              request, no layer named, geometry returned. They are calculators like the
-              eighteen that work.
-
-              <b>So correcting the sentence failed a green test, which is why nobody
-              did.</b> A test that asserts the wording of a claim is only as true as the
-              claim; this one now refuses the word instead of demanding it, so the refusal
-              cannot drift back to blaming an edit nobody makes.
-            */
-            Assert.DoesNotContain("editing", message, StringComparison.OrdinalIgnoreCase);
-
-            // And every one says what is available instead.
-            Assert.Contains("project", message, StringComparison.Ordinal);
-            Assert.Contains("convexHull", message, StringComparison.Ordinal);
-            Assert.Contains("buffer", message, StringComparison.Ordinal);
+            twice += (ring[i - 1][0].GetDouble() * ring[i][1].GetDouble()) - (ring[i][0].GetDouble() * ring[i - 1][1].GetDouble());
         }
+
+        return Math.Abs(twice) / 2;
+    }
+
+    /// <summary>
+    /// autoComplete fills the gap a line closes against two polygons, and nothing the polygons already cover.
+    /// </summary>
+    [Fact]
+    public async Task AutoComplete_fills_the_gap_a_line_closes_between_two_polygons()
+    {
+        // Two 10 × 10 squares with a 10-wide gap between them along the bottom; a line across their tops closes it.
+        JsonElement result = await PostAsync(
+            "autoComplete",
+            ("sr", "3857"),
+            ("polygons", GeometryList(PolygonType,
+                Ring((0, 0), (0, 10), (10, 10), (10, 0), (0, 0)),
+                Ring((20, 0), (20, 10), (30, 10), (30, 0), (20, 0)))),
+            ("polylines", GeometryList(PolylineType,
+                Path((10, 10), (20, 10)),
+                Path((10, 0), (20, 0)))),
+            ("f", "json"));
+
+        JsonElement geometries = result.GetProperty("geometries");
+
+        Assert.Equal(1, geometries.GetArrayLength());
+        Assert.Equal(100, RingArea(geometries[0]), 6);
+    }
+
+    /// <summary>
+    /// reshape replaces the part of a polygon's boundary between the reshaper's crossings, keeping the larger side.
+    /// </summary>
+    [Fact]
+    public async Task Reshape_pushes_a_polygons_edge_out_along_the_reshaper()
+    {
+        // A 10 × 10 square; the reshaper leaves it through the top edge, runs 5 above it, and comes back in.
+        JsonElement result = await PostAsync(
+            "reshape",
+            ("sr", "3857"),
+            ("target", "{\"rings\":[[[0,0],[0,10],[10,10],[10,0],[0,0]]]}"),
+            ("reshaper", "{\"paths\":[[[2,8],[2,15],[8,15],[8,8]]]}"),
+            ("f", "json"));
+
+        // 100 + a 6 × 5 bump.
+        Assert.Equal(130, RingArea(result.GetProperty("geometry")), 6);
+    }
+
+    /// <summary>
+    /// reshape of a line replaces its middle and keeps its direction.
+    /// </summary>
+    [Fact]
+    public async Task Reshape_of_a_line_replaces_its_middle_and_keeps_its_ends()
+    {
+        JsonElement result = await PostAsync(
+            "reshape",
+            ("sr", "3857"),
+            ("target", Path((0, 0), (10, 0))),
+            ("reshaper", Path((3, -1), (3, 4), (7, 4), (7, -1))),
+            ("f", "json"));
+
+        JsonElement path = result.GetProperty("geometry").GetProperty("paths")[0];
+
+        Assert.Equal(0, path[0][0].GetDouble());
+        Assert.Equal(10, path[path.GetArrayLength() - 1][0].GetDouble());
+        Assert.Contains(path.EnumerateArray(), point => point[1].GetDouble() == 4);
+    }
+
+    /// <summary>
+    /// trimExtend trims a crossing line to the left of the guide, extends a short one to it, and answers an empty
+    /// line for one it can do neither to.
+    /// </summary>
+    [Fact]
+    public async Task TrimExtend_trims_extends_and_leaves_empty_what_it_cannot_reach()
+    {
+        // The guide runs north along x = 5; its left is the west.
+        JsonElement result = await PostAsync(
+            "trimExtend",
+            ("sr", "3857"),
+            ("polylines", GeometryList(PolylineType,
+                Path((0, 0), (10, 0)),
+                Path((0, 2), (3, 2)),
+                Path((0, 4), (0, 6)))),
+            ("trimExtendTo", Path((5, -10), (5, 10))),
+            ("f", "json"));
+
+        JsonElement geometries = result.GetProperty("geometries");
+        Assert.Equal(3, geometries.GetArrayLength());
+
+        JsonElement trimmed = geometries[0].GetProperty("paths")[0];
+        Assert.Equal(0, trimmed[0][0].GetDouble());
+        Assert.Equal(5, trimmed[trimmed.GetArrayLength() - 1][0].GetDouble(), 6);
+
+        JsonElement extended = geometries[1].GetProperty("paths")[0];
+        Assert.Equal(5, extended[extended.GetArrayLength() - 1][0].GetDouble(), 6);
+
+        Assert.Equal(0, geometries[2].GetProperty("paths").GetArrayLength());
     }
 
     private async Task<string> ReasonAsync(string operation) =>

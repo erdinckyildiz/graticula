@@ -460,6 +460,20 @@ internal static class PortalEndpoints
         bool geometryOffered = geometry is { Status: not ServiceStatus.Stopped } found
             && LayerAccess.Evaluate(found.Sharing, null, current.Principal, current.Authorization).IsAllowed();
 
+        // ADR-149: another server's geometry service an administrator chose is named to everybody — that server
+        // answers under its own sharing, as ArcGIS's Utility Services setting has it.
+        string? elsewhere = null;
+
+        try
+        {
+            elsewhere = (await context.RequestServices.GetRequiredService<Graticula.Platform.Admin.IServerSettingStore>()
+                .ReadAsync(AdminEndpoints.GeometryServiceSetting, cancellation).ConfigureAwait(false))?.Value;
+        }
+        catch (System.Data.Common.DbException)
+        {
+            // The store unreachable: this server's own, as before the setting existed.
+        }
+
         return Results.Ok(new
         {
             // <b>Sixteen characters, because that is what a portal's id is.</b>
@@ -505,8 +519,10 @@ internal static class PortalEndpoints
             // pages, so one Save changes the ground everywhere a map is drawn from this portal.
             defaultBasemap = await DefaultBasemapAsync(context, current, cancellation).ConfigureAwait(false),
 
-            helperServices = geometryOffered
-                ? (object)new
+            helperServices = elsewhere is { Length: > 0 }
+                ? (object)new { geometry = new { url = elsewhere } }
+                : geometryOffered
+                ? new
                 {
                     geometry = new
                     {

@@ -11,6 +11,8 @@
 
 > **Amended 2026-10-02 by [ADR-140](ADR-140-several-images-are-one-mosaic.md).** Each image of a mosaic is given its overviews; the mosaic reads them level for level.
 
+> **Amended 2026-10-03 by [ADR-148](ADR-148-download-capability-and-pyramids-for-every-image.md).** Images uploaded before this and images registered in place are given overviews too, in the background.
+
 ---
 
 ## 1. Context

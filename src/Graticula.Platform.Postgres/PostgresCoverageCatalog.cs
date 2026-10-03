@@ -37,7 +37,7 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
         s.created_at, s.updated_at,
         (select coalesce(array_agg(gi.group_id), '{}')
            from sharing_group_item gi where gi.service_id = s.id) as shared_with_groups,
-        s.description, s.tags, s.content_folder_id
+        s.description, s.tags, s.content_folder_id, c.download
         """;
 
     private readonly NpgsqlDataSource _dataSource;
@@ -219,6 +219,69 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> SetDownloadAsync(
+        string? folder, string serviceName, bool download, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            update coverage c
+               set download = @download
+              from service s
+             where c.service_id = s.id
+               and lower(s.name) = lower(@name)
+               and coalesce(s.folder, '') = coalesce(@folder, '')
+            """);
+
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("download", download);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> ReplaceImageAsync(
+        string? folder, string serviceName, string path, CoverageInfo info, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(info);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            update coverage c
+               set path = @path, srid = @srid, width = @width, height = @height, band_count = @bands,
+                   sample_kind = @kind, no_data = @noData, min_x = @minX, min_y = @minY, max_x = @maxX, max_y = @maxY,
+                   tile_width = @tileWidth, tile_height = @tileHeight, overview_count = @overviews
+              from service s
+             where c.service_id = s.id
+               and lower(s.name) = lower(@name)
+               and coalesce(s.folder, '') = coalesce(@folder, '')
+            """);
+
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("path", path);
+        command.Parameters.AddWithValue("srid", info.Srid);
+        command.Parameters.AddWithValue("width", info.Width);
+        command.Parameters.AddWithValue("height", info.Height);
+        command.Parameters.AddWithValue("bands", info.Bands.Count);
+        command.Parameters.AddWithValue("kind", (int)info.Bands[0].Kind);
+        command.Parameters.AddWithValue("noData", (object?)info.Bands[0].NoData ?? DBNull.Value);
+        command.Parameters.AddWithValue("minX", info.Extent.MinX);
+        command.Parameters.AddWithValue("minY", info.Extent.MinY);
+        command.Parameters.AddWithValue("maxX", info.Extent.MaxX);
+        command.Parameters.AddWithValue("maxY", info.Extent.MaxY);
+        command.Parameters.AddWithValue("tileWidth", info.TileWidth);
+        command.Parameters.AddWithValue("tileHeight", info.TileHeight);
+        command.Parameters.AddWithValue("overviews", info.Overviews.Count);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> SetStyleAsync(
         string? folder, string serviceName, string? style, CancellationToken cancellationToken)
     {
@@ -337,6 +400,7 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
             Description = reader.IsDBNull(26) ? null : reader.GetString(26),
             Tags = reader.IsDBNull(27) ? [] : reader.GetFieldValue<string[]>(27),
             ContentFolder = reader.IsDBNull(28) ? null : reader.GetGuid(28),
+            Download = !reader.IsDBNull(29) && reader.GetBoolean(29),
         };
     }
 

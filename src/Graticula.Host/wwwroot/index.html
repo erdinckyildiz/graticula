@@ -872,6 +872,31 @@
 
       <p class="hint" id="styleOriginsSays" aria-live="polite"></p>
     </div>
+
+    <!--
+      <b>ADR-149, the owner's decision of 2026-10-03:</b> the geometry service the portal names to ArcGIS clients —
+      this server's own, or another an administrator chooses, as ArcGIS Enterprise's Utility Services setting has it.
+    -->
+    <div class="panel pad settingcard">
+      <h4>Geometry service</h4>
+      <p class="hint">The geometry service ArcGIS clients signed in to this portal use for measuring, buffering and
+        projecting — what Portal's clients read from it. Leave it empty to use this server's own. Name another, such as
+        an ArcGIS Server's, and clients use that one instead; it answers them under its own sharing. ArcGIS Enterprise
+        has this under Organization › Settings › Utility services › Geometry.</p>
+
+      <label for="geometryService" style="display:block">Another geometry service's address:</label>
+      <input type="url" id="geometryService" disabled spellcheck="false" autocomplete="off" style="width:100%"
+        aria-describedby="geometryServiceSource geometryServiceSays"
+        placeholder="https://gis.example.com/arcgis/rest/services/Utilities/Geometry/GeometryServer">
+      <p class="hint" id="geometryServiceSource"></p>
+
+      <div class="row">
+        <button class="primary" id="geometryServiceSave" disabled>Save geometry service</button>
+        <button class="tiny" id="geometryServiceReset" hidden style="align-self:center">Use this server's own</button>
+      </div>
+
+      <p class="hint" id="geometryServiceSays" role="status" aria-live="polite"></p>
+    </div>
   </section>
 
   <section class="view" id="view-operations">

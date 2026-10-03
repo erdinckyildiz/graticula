@@ -17,6 +17,8 @@ using NetTopologySuite.Operation.Buffer;
 using NetTopologySuite.Operation.Distance;
 using NetTopologySuite.Operation.Polygonize;
 using NetTopologySuite.Geometries.Utilities;
+using NetTopologySuite.LinearReferencing;
+using NetTopologySuite.Operation.Linemerge;
 
 namespace Graticula.Overlay.Worker;
 
@@ -338,6 +340,35 @@ internal static class Program
             };
         }
 
+        // <b>The three editing calculations — ADR-150, Q-99's answer: each takes every geometry in the request and returns
+        // geometry, naming no layer.</b> Answered before the per-input block, since each reads its operands its own way.
+        if (request.Operation is "AutoComplete" or "Reshape" or "TrimExtend")
+        {
+            WKBWriter each = new();
+            List<NetTopologySuite.Geometries.Geometry> answers;
+
+            try
+            {
+                answers = request.Operation switch
+                {
+                    "AutoComplete" => AutoComplete(left, right, factory),
+                    "Reshape" => [Reshape(left[0], right.Count > 0 ? right[0] : null, factory)],
+                    _ => [.. left.Select(line => TrimExtend(line, right.Count > 0 ? right[0] : null, factory))],
+                };
+            }
+            catch (ArgumentException refused)
+            {
+                return Refuse(refused.Message);
+            }
+
+            return new OverlayResponse
+            {
+                Geometries = [.. answers.Select(a => Convert.ToBase64String(each.Write(a)))],
+                CandidatePairs = candidates,
+                Milliseconds = clock.ElapsedMilliseconds,
+            };
+        }
+
         // <b>One answer per input, in order — the ArcGIS reviewer's GeometryServer pass, 2026-10-03.</b> intersect,
         // difference, simplify, cut, and buffer unless unionResults asks otherwise, were computed on the inputs combined
         // into one: two polygons simplified came back as one multipolygon, a polygon inside another vanished, and a
@@ -496,6 +527,244 @@ internal static class Program
             _ => parts.Count == 1 ? parts[0]
                 : factory.CreateMultiPoint([.. parts.SelectMany(p => p is MultiPoint m ? m.Geometries.Cast<Point>() : [(Point)p])]),
         };
+    }
+
+    /// <summary>
+    /// The polygons that fill the gaps the lines close against the polygons — ArcGIS's <c>autoComplete</c>: the polygons'
+    /// boundaries and the lines noded together and polygonized, keeping only the faces that are not already a polygon.
+    /// </summary>
+    private static List<NetTopologySuite.Geometries.Geometry> AutoComplete(
+        List<NetTopologySuite.Geometries.Geometry> polygons, List<NetTopologySuite.Geometries.Geometry> lines, GeometryFactory factory)
+    {
+        if (polygons.Count == 0 || lines.Count == 0)
+        {
+            throw new ArgumentException("autoComplete takes polygons and the polylines that close gaps against them.");
+        }
+
+        List<NetTopologySuite.Geometries.Geometry> edges = [.. polygons.Select(p => p.Boundary), .. lines];
+        NetTopologySuite.Geometries.Geometry noded = OverlayNGRobust.Union(factory.BuildGeometry(edges));
+        Polygonizer polygonizer = new();
+        polygonizer.Add(noded);
+        NetTopologySuite.Geometries.Geometry existing = OverlayNGRobust.Union(factory.BuildGeometry(polygons));
+
+        return [.. polygonizer.GetPolygons().Where(face => !existing.Covers(face.InteriorPoint))];
+    }
+
+    /// <summary>
+    /// A line or a polygon with part of it replaced by a reshaping line — ArcGIS's <c>reshape</c>. The reshaper must cross
+    /// the target twice; what lies between its first and last crossing replaces the target's part between them. Of a
+    /// polygon's two possible results, the larger is kept, as ArcGIS keeps it.
+    /// </summary>
+    private static NetTopologySuite.Geometries.Geometry Reshape(
+        NetTopologySuite.Geometries.Geometry target, NetTopologySuite.Geometries.Geometry? reshaper, GeometryFactory factory)
+    {
+        if (reshaper is not LineString line)
+        {
+            throw new ArgumentException("reshape takes one polyline as the reshaper.");
+        }
+
+        LineString boundary = target switch
+        {
+            LineString path => path,
+            Polygon polygon => polygon.Shell,
+            _ => throw new ArgumentException("reshape takes a polyline or a polygon as the target."),
+        };
+
+        // The crossings, ordered along the reshaper.
+        LengthIndexedLine alongReshaper = new(line);
+        List<Coordinate> crossings = [.. boundary.Intersection(line).Coordinates
+            .Distinct()
+            .OrderBy(c => alongReshaper.IndexOf(c))];
+
+        if (crossings.Count < 2)
+        {
+            throw new ArgumentException("The reshaper crosses the target fewer than twice, so there is no part of it to replace.");
+        }
+
+        Coordinate first = crossings[0], last = crossings[^1];
+        LineString replacement = (LineString)alongReshaper.ExtractLine(alongReshaper.IndexOf(first), alongReshaper.IndexOf(last));
+        LengthIndexedLine alongTarget = new(boundary);
+        double a = alongTarget.IndexOf(first), b = alongTarget.IndexOf(last);
+
+        if (target is LineString)
+        {
+            // In the target's direction: its start to the earlier crossing, the reshaper between them, then on to its end.
+            bool reversed = a > b;
+            LineString middle = reversed ? (LineString)replacement.Reverse() : replacement;
+            Coordinate[] head = alongTarget.ExtractLine(0, Math.Min(a, b)).Coordinates;
+            Coordinate[] tail = alongTarget.ExtractLine(Math.Max(a, b), boundary.Length).Coordinates;
+            return factory.CreateLineString(Join(head, middle.Coordinates, tail));
+        }
+
+        // A polygon: the shell's two arcs between the crossings, each closed by the replacement.
+        double length = boundary.Length;
+        Coordinate[] forward = a <= b
+            ? alongTarget.ExtractLine(a, b).Coordinates
+            : Join(alongTarget.ExtractLine(a, length).Coordinates, alongTarget.ExtractLine(0, b).Coordinates);
+        Coordinate[] backward = a <= b
+            ? Join(alongTarget.ExtractLine(b, length).Coordinates, alongTarget.ExtractLine(0, a).Coordinates)
+            : alongTarget.ExtractLine(b, a).Coordinates;
+
+        // forward runs first → last along the shell; the replacement runs first → last too, so it is reversed to close it.
+        Polygon one = Closed(Join(forward, replacement.Reverse().Coordinates), factory);
+        Polygon two = Closed(Join(backward, replacement.Coordinates), factory);
+        Polygon kept = (one.IsValid ? one.Area : 0) >= (two.IsValid ? two.Area : 0) ? one : two;
+
+        // Holes the reshaped shell still holds are kept.
+        LinearRing[] holes = [.. ((Polygon)target).Holes.Where(h => kept.Contains(factory.CreatePolygon(h)))];
+        return factory.CreatePolygon(kept.Shell, holes);
+    }
+
+    private static Polygon Closed(Coordinate[] ring, GeometryFactory factory)
+    {
+        List<Coordinate> points = [.. ring];
+
+        if (!points[0].Equals2D(points[^1]))
+        {
+            points.Add(points[0].Copy());
+        }
+
+        return points.Count < 4 ? factory.CreatePolygon() : factory.CreatePolygon([.. points]);
+    }
+
+    private static Coordinate[] Join(params Coordinate[][] parts)
+    {
+        List<Coordinate> joined = [];
+
+        foreach (Coordinate[] part in parts)
+        {
+            foreach (Coordinate c in part)
+            {
+                if (joined.Count == 0 || !joined[^1].Equals2D(c))
+                {
+                    joined.Add(c);
+                }
+            }
+        }
+
+        return [.. joined];
+    }
+
+    /// <summary>
+    /// A line trimmed or extended against a guide line — ArcGIS's <c>trimExtend</c>: crossed by it, the part to the left of
+    /// the guide's direction is kept; not crossed, each end is extended along its last segment to the guide, where that
+    /// reaches it; neither, an empty line, as the specification answers.
+    /// </summary>
+    private static NetTopologySuite.Geometries.Geometry TrimExtend(
+        NetTopologySuite.Geometries.Geometry polyline, NetTopologySuite.Geometries.Geometry? guide, GeometryFactory factory)
+    {
+        if (guide is not LineString to)
+        {
+            throw new ArgumentException("trimExtend takes one polyline to trim or extend to, as trimExtendTo.");
+        }
+
+        if (polyline is not LineString line)
+        {
+            throw new ArgumentException("trimExtend trims and extends polylines.");
+        }
+
+        if (line.Crosses(to) || line.Intersects(to) && !line.Touches(to))
+        {
+            List<LineString> kept = [];
+
+            // Split where the guide meets it: a line's difference with a line is the line unsplit, so the pieces are
+            // cut at the crossings' positions along it.
+            LengthIndexedLine along = new(line);
+            List<double> cuts = [0, .. line.Intersection(to).Coordinates.Select(along.IndexOf), line.Length];
+            cuts = [.. cuts.Distinct().Order()];
+            List<NetTopologySuite.Geometries.Geometry> parts = [];
+
+            for (int i = 1; i < cuts.Count; i++)
+            {
+                if (cuts[i] > cuts[i - 1])
+                {
+                    parts.Add(along.ExtractLine(cuts[i - 1], cuts[i]));
+                }
+            }
+
+            foreach (NetTopologySuite.Geometries.Geometry part in parts)
+            {
+                // A piece is on one side of the guide throughout, so its middle by length says which.
+                if (part is LineString piece && !piece.IsEmpty
+                    && LeftOf(to, new LengthIndexedLine(piece).ExtractPoint(piece.Length / 2)))
+                {
+                    kept.Add(piece);
+                }
+            }
+
+            if (kept.Count == 0)
+            {
+                return factory.CreateLineString();
+            }
+
+            LineMerger merger = new();
+            merger.Add(kept);
+            List<LineString> merged = [.. merger.GetMergedLineStrings().Cast<LineString>()];
+            return merged.Count == 1 ? merged[0] : factory.CreateMultiLineString([.. merged]);
+        }
+
+        Coordinate[] points = line.Coordinates;
+        double reach = (line.EnvelopeInternal.Diameter + to.EnvelopeInternal.Diameter
+            + line.EnvelopeInternal.Centre.Distance(to.EnvelopeInternal.Centre)) * 2;
+
+        Coordinate? Extend(Coordinate end, Coordinate before)
+        {
+            double dx = end.X - before.X, dy = end.Y - before.Y, size = Math.Sqrt((dx * dx) + (dy * dy));
+
+            if (size == 0)
+            {
+                return null;
+            }
+
+            LineString ray = factory.CreateLineString([end, new Coordinate(end.X + (dx / size * reach), end.Y + (dy / size * reach))]);
+            return ray.Intersection(to).Coordinates
+                .Where(c => !c.Equals2D(end))
+                .OrderBy(c => c.Distance(end))
+                .FirstOrDefault();
+        }
+
+        Coordinate? atStart = Extend(points[0], points[1]);
+        Coordinate? atEnd = Extend(points[^1], points[^2]);
+
+        if (atStart is null && atEnd is null)
+        {
+            return factory.CreateLineString();
+        }
+
+        List<Coordinate> extended = [.. points];
+
+        if (atStart is not null)
+        {
+            extended.Insert(0, atStart);
+        }
+
+        if (atEnd is not null)
+        {
+            extended.Add(atEnd);
+        }
+
+        return factory.CreateLineString([.. extended]);
+    }
+
+    /// <summary>Whether a point is to the left of a line's direction, at the line's nearest segment.</summary>
+    private static bool LeftOf(LineString line, Coordinate point)
+    {
+        Coordinate[] c = line.Coordinates;
+        double best = double.MaxValue, side = 0;
+
+        for (int i = 1; i < c.Length; i++)
+        {
+            NetTopologySuite.Geometries.LineSegment segment = new(c[i - 1], c[i]);
+            double distance = segment.Distance(point);
+
+            if (distance < best)
+            {
+                best = distance;
+                side = ((c[i].X - c[i - 1].X) * (point.Y - c[i - 1].Y)) - ((c[i].Y - c[i - 1].Y) * (point.X - c[i - 1].X));
+            }
+        }
+
+        return side > 0;
     }
 
     private static OverlayResponse Refuse(string message) =>

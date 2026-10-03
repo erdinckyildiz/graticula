@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(75);
+    public static SchemaVersion ComponentSchemaVersion => new(76);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -110,6 +110,7 @@ public static class PlatformMigrations
         AnEditorMayChangeOnlyTheirOwnV73,
         AWebMapHasADescriptionAndAPictureV74,
         AServiceCountsItsUseV75,
+        AnImageMayBeDownloadedV76,
     ]);
 
     /// <summary>
@@ -147,6 +148,16 @@ public static class PlatformMigrations
     /// A web map may be protected from deletion, as a service may be (ADR-102 condition 2) — the ArcGIS review's second
     /// pass found maps the one item kind without it.
     /// </summary>
+    /// <summary>
+    /// An image service may offer its file to everyone it is shared with — ADR-148, ArcGIS's <c>Download</c> capability;
+    /// off by default, when only whoever manages it may take the file.
+    /// </summary>
+    /// <remarks><b>Expand.</b> A column with a default; a build before this one never reads it.</remarks>
+    private static Migration AnImageMayBeDownloadedV76 => Migration.Expand(
+        new SchemaVersion(76),
+        "An image service may offer its file to everyone it is shared with (ADR-148).",
+        "alter table coverage add column if not exists download boolean not null default false");
+
     /// <summary>
     /// A service counts the requests it answers, a row a day — ADR-135, Portal's item usage, so an administrator can
     /// find what nobody uses.

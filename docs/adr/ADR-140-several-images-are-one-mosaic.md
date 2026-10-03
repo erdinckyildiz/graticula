@@ -9,6 +9,8 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-123](ADR-123-imagery-comes-into-studio.md) (condition 2: an upload may carry several images), [ADR-139](ADR-139-an-uploaded-image-is-given-its-overviews.md) (each image of a mosaic is given its overviews) |
 
+> **Amended 2026-10-03 by [ADR-147](ADR-147-a-mosaic-grows-and-resamples.md).** Images that do not fit the grid are resampled onto it, and a mosaic is added to after it is made.
+
 ---
 
 ## 1. Context
@@ -99,4 +101,4 @@ places them, the later over the earlier; the reader reads such a `.vrt` wherever
 
 ## 10. Conditions
 
-1. **The owner confirms or corrects the three INFERRED choices of §2** ([Q-160](../open-questions.md)).
+1. **The owner confirms or corrects the three INFERRED choices of §2** ([Q-160](../open-questions.md)). **DISCHARGED 2026-10-03**: the owner chose both extensions — [ADR-147](ADR-147-a-mosaic-grows-and-resamples.md); later over earlier stands.

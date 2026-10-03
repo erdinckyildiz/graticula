@@ -61,6 +61,12 @@ internal static class CoverageAdminEndpoints
 
         // ADR-143: the file uploaded for an image service, given back to its owner.
         app.MapGet("/admin/coverages/{name}/file", DownloadAsync);
+
+        // ADR-147: more images for an uploaded image service, which becomes or grows a mosaic.
+        app.MapPost("/admin/coverages/{name}/images", AddImagesAsync).DisableAntiforgery();
+
+        // ADR-148: ArcGIS's Download capability, on or off.
+        app.MapPut("/admin/coverages/{name}/download", SetDownloadAsync);
         app.MapGet("/admin/coverages", ListAsync);
 
         // <b>Here rather than on `/admin/services`, and sharing deliberately stays
@@ -200,6 +206,283 @@ internal static class CoverageAdminEndpoints
         return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Fits a mosaic's images to one grid — ADR-147: refuses, naming each, those with other bands or another sample type,
+    /// and resamples the rest onto the grid of the image at <paramref name="reference"/>, replacing each file in
+    /// <paramref name="kept"/> and its description in <paramref name="infos"/>.
+    /// </summary>
+    /// <returns>Why they cannot be one mosaic, or null; and how many were resampled.</returns>
+    private static async Task<(string? Refusal, IReadOnlyList<int> Conformed)> ConformAsync(
+        HttpContext context, List<string> kept, List<CoverageInfo> infos, int reference, Func<int, string> name,
+        string directory, ICoverageReaderFactory readers, CancellationToken cancellation, int firstNew = 0)
+    {
+        // Adding to an image service, the words are about this service and these images, not a publish.
+        bool adding = firstNew > 0;
+        // Images already in a mosaic are on its grid; only the new ones are measured, and only theirs are ever replaced.
+        IReadOnlyList<Graticula.Raster.Tiff.MosaicMisfit> misfits = [.. Graticula.Raster.Tiff.VrtMosaicReader.Misfits(infos, reference)
+            .Where(m => m.Image >= firstNew)];
+        List<Graticula.Raster.Tiff.MosaicMisfit> refused = [.. misfits.Where(m => !m.Conformable)];
+
+        if (refused.Count > 0 && adding)
+        {
+            string reasons = Graticula.Raster.Tiff.VrtMosaicReader.Say(refused, infos.Count, name, "this image service");
+            string listed = string.Join(", ", refused.Select(m => name(m.Image)));
+
+            // The reason once — the page says "Not added" itself — and the others offered only when there are others.
+            return ($"{reasons}. Bands and pixel type cannot be resampled; another coordinate system or cell size can."
+                + (refused.Count < infos.Count - firstNew ? $" Add the others without {listed}." : ""), []);
+        }
+
+        if (refused.Count > 0)
+        {
+            string reasons = Graticula.Raster.Tiff.VrtMosaicReader.Say(refused, infos.Count, name);
+            return (refused.Count == 1
+                ? $"{name(refused[0].Image)} cannot join the other images, so nothing was published: {reasons}. The images of a "
+                    + "mosaic have the same bands and sample type; another coordinate system or pixel size is resampled onto "
+                    + $"the mosaic's grid, but bands cannot be. Remove {name(refused[0].Image)} and upload again."
+                : $"{refused.Count} of {infos.Count} images cannot join the rest, so nothing was published: {reasons}. The images "
+                    + "of a mosaic have the same bands and sample type; another coordinate system or pixel size is resampled "
+                    + "onto the mosaic's grid, but bands cannot be. Remove these and upload again.", []);
+        }
+
+        IProjector projector = context.RequestServices.GetRequiredService<IProjector>();
+        List<int> conformed = [];
+
+        foreach (Graticula.Raster.Tiff.MosaicMisfit misfit in misfits)
+        {
+            string target = Path.Combine(directory, $"{Guid.NewGuid():N}.tif");
+
+            try
+            {
+                infos[misfit.Image] = await MosaicConforming.ConformAsync(
+                    kept[misfit.Image], infos[misfit.Image], infos[reference], target, readers, projector, cancellation)
+                    .ConfigureAwait(false);
+            }
+            catch (InvalidDataException why)
+            {
+                File.Delete(target);
+                return ($"{name(misfit.Image)} could not be put on the mosaic's grid, so {(adding ? "none were added" : "nothing was published")}: "
+                    + $"{why.Message.TrimEnd('.')}.", conformed);
+            }
+
+            File.Delete(kept[misfit.Image]);
+            kept[misfit.Image] = target;
+            conformed.Add(misfit.Image);
+        }
+
+        return (null, conformed);
+    }
+
+    /// <summary>
+    /// Adds images to an uploaded image service — ADR-147, by owner decision: one image becomes a mosaic, a mosaic grows.
+    /// New images are drawn over the ones it had, each measured against its grid and resampled onto it when it is not
+    /// on it; other bands or another sample type are refused, naming each. The service keeps its name, sharing and style.
+    /// </summary>
+    private static async Task AddImagesAsync(
+        HttpContext context, string name, string? folder, ICoverageCatalog coverages, ICoverageReaderFactory readers,
+        IAuditLog audit, CancellationToken cancellation)
+    {
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (await ManagedAsync(context, coverages, name, at, cancellation).ConfigureAwait(false) is not { } coverage)
+        {
+            return;
+        }
+
+        HostSettings settings = context.RequestServices.GetRequiredService<HostSettings>();
+
+        if (!Uploaded(settings, coverage.Path) || !File.Exists(coverage.Path))
+        {
+            await Refuse(context, 400,
+                $"'{Qualify(name, at)}' was registered from a file on this server; images are added only to one uploaded here.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+        {
+            limit.MaxRequestBodySize = MaximumUploadBytes;
+        }
+
+        if (!context.Request.HasFormContentType)
+        {
+            await Refuse(context, 400, "Send the images as multipart/form-data, each as `file`.").ConfigureAwait(false);
+            return;
+        }
+
+        context.Features.Set<Microsoft.AspNetCore.Http.Features.IFormFeature>(new Microsoft.AspNetCore.Http.Features.FormFeature(
+            context.Request, new Microsoft.AspNetCore.Http.Features.FormOptions { MultipartBodyLengthLimit = MaximumUploadBytes }));
+
+        IFormCollection form;
+
+        try
+        {
+            form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is InvalidDataException or Microsoft.AspNetCore.Http.BadHttpRequestException)
+        {
+            await Refuse(context, 413, $"An upload of at most {MaximumUploadBytes / (1024 * 1024 * 1024)} GB in all is accepted.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        IReadOnlyList<IFormFile> sent = form.Files.GetFiles("file");
+        bool mosaic = Graticula.Raster.Tiff.VrtMosaicReader.IsMosaic(coverage.Path);
+        List<string> existing = mosaic ? [.. Graticula.Raster.Tiff.VrtMosaicReader.FilesOf(coverage.Path)] : [coverage.Path];
+
+        if (sent.Count == 0 || existing.Count + sent.Count > MaximumMosaicImages)
+        {
+            await Refuse(context, 400, sent.Count == 0
+                    ? "Send at least one image as `file`."
+                    : $"A mosaic holds at most {MaximumMosaicImages} images; this one has {existing.Count}.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (sent.FirstOrDefault(f => Path.GetExtension(f.FileName).ToLowerInvariant() is not (".tif" or ".tiff")) is { } other)
+        {
+            await Refuse(context, 400, $"{Path.GetFileName(other.FileName)}: images are GeoTIFFs (.tif or .tiff).").ConfigureAwait(false);
+            return;
+        }
+
+        string directory = ImageryDirectory(settings);
+        List<string> added = [];
+        string? written = null;
+        bool replaced = false;
+
+        try
+        {
+            List<string> files = [.. existing];
+            List<CoverageInfo> infos = [];
+
+            foreach (string file in existing)
+            {
+                using ICoverageReader reader = await readers.OpenAsync(file, cancellation).ConfigureAwait(false);
+                infos.Add(reader.Info);
+            }
+
+            foreach (IFormFile file in sent)
+            {
+                string path = Path.Combine(directory, $"{Guid.NewGuid():N}.tif");
+                added.Add(path);
+
+                await using (FileStream into = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true))
+                await using (Stream from = file.OpenReadStream())
+                {
+                    await from.CopyToAsync(into, cancellation).ConfigureAwait(false);
+                }
+
+                try
+                {
+                    using ICoverageReader reader = await readers.OpenAsync(path, cancellation).ConfigureAwait(false);
+
+                    if (reader.Info.Srid == 0)
+                    {
+                        await Refuse(context, 400, $"{Path.GetFileName(file.FileName)} carries no EPSG code, so this server cannot "
+                            + "say where it is. Save it with its coordinate system and add it again.").ConfigureAwait(false);
+                        return;
+                    }
+
+                    infos.Add(reader.Info);
+                }
+                catch (InvalidDataException)
+                {
+                    await Refuse(context, 400, $"{Path.GetFileName(file.FileName)} is not a GeoTIFF this server can read.")
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                files.Add(path);
+            }
+
+            int firstNew = existing.Count;
+            string Name(int i) => i < firstNew ? $"image {i + 1} of the mosaic" : Path.GetFileName(sent[i - firstNew].FileName);
+            List<string> working = [.. files];
+            (string? refusal, IReadOnlyList<int> conformedImages) = await ConformAsync(
+                    context, working, infos, 0, Name, directory, readers, cancellation, firstNew)
+                .ConfigureAwait(false);
+            int resampled = conformedImages.Count;
+
+            // A conformed image replaced the one sent; the one sent is gone, the conformed one is this upload's to clean up.
+            for (int i = firstNew; i < working.Count; i++)
+            {
+                added[i - firstNew] = working[i];
+            }
+
+            if (refusal is not null)
+            {
+                await Refuse(context, 400, refusal).ConfigureAwait(false);
+                return;
+            }
+
+            foreach (string path in working.Skip(firstNew))
+            {
+                try
+                {
+                    await context.RequestServices.GetRequiredService<ICoveragePyramidBuilder>().BuildAsync(path, cancellation)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
+                {
+                    Log.PyramidNotBuilt(
+                        context.RequestServices.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Graticula.Coverages"),
+                        Path.GetFileName(path), e.Message);
+                }
+            }
+
+            written = Path.Combine(directory, $"{Guid.NewGuid():N}.vrt");
+
+            try
+            {
+                Graticula.Raster.Tiff.VrtMosaicReader.Write(written, working);
+            }
+            catch (InvalidDataException why)
+            {
+                // A backstop: whatever the measuring above missed is refused in words, not a 500.
+                await Refuse(context, 400, $"The images cannot be one mosaic, so none were added: {why.Message.TrimEnd('.')}.")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            using ICoverageReader grown = await readers.OpenAsync(written, cancellation).ConfigureAwait(false);
+            await coverages.ReplaceImageAsync(at, name, written, grown.Info, cancellation).ConfigureAwait(false);
+            replaced = true;
+
+            // The virtual raster it had is replaced; the images it placed are the new one's.
+            if (mosaic)
+            {
+                File.Delete(coverage.Path);
+            }
+
+            await RecordAsync(context, audit, "coverage.images", Qualify(name, at),
+                new { added = sent.Count, images = working.Count, resampled }, cancellation).ConfigureAwait(false);
+
+            await Results.Ok(new
+            {
+                name = Qualify(name, at),
+                images = working.Count,
+                added = sent.Count,
+                resampled,
+                resampledFiles = conformedImages.Select(Name).ToArray(),
+                width = grown.Info.Width,
+                height = grown.Info.Height,
+                overviews = grown.Info.Overviews.Count,
+            }).ExecuteAsync(context).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (!replaced)
+            {
+                Forget(added);
+
+                if (written is not null)
+                {
+                    File.Delete(written);
+                }
+            }
+        }
+    }
+
     /// <summary>The most images one upload makes a mosaic of — ADR-140.</summary>
     private const int MaximumMosaicImages = 500;
 
@@ -337,6 +620,7 @@ internal static class CoverageAdminEndpoints
         // Everything written for this upload, removed unless it is published — a refusal, a stop or a failure alike.
         List<string> kept = [];
         bool registered = false;
+        int resampled = 0;
         PublishedCoverage published;
         CoverageInfo info;
 
@@ -385,21 +669,22 @@ internal static class CoverageAdminEndpoints
                 infos.Add(read);
             }
 
-            // ADR-140: tiles that do not make one grid are refused from their headers, before any pyramid is built, and
-            // every one of them is named — not the first, after an hour's work on the rest.
-            if (sent.Count > 1 && Graticula.Raster.Tiff.VrtMosaicReader.Misfits(infos) is { Count: > 0 } misfits)
+            // ADR-140, ADR-147: images are measured against the mosaic's grid from their headers, before any pyramid is built.
+            // Other bands or another sample type cannot be made to fit and are refused, every one named; another reference,
+            // pixel size or grid is resampled onto the grid.
+            if (sent.Count > 1)
             {
-                string Name(int i) => Path.GetFileName(sent[i].FileName);
-                string reasons = Graticula.Raster.Tiff.VrtMosaicReader.Say(misfits, sent.Count, Name);
-                await Refuse(context, 400, misfits.Count == 1
-                        ? $"{Name(misfits[0].Image)} does not fit with the other images, so nothing was published: {reasons}. "
-                            + "Tiles of one image share a coordinate system, bands and pixel size and line up pixel for pixel. "
-                            + $"Remove or correct {Name(misfits[0].Image)} and upload again."
-                        : $"{misfits.Count} of {sent.Count} images do not fit with the rest, so nothing was published: {reasons}. "
-                            + "Tiles of one image share a coordinate system, bands and pixel size and line up pixel for pixel. "
-                            + "Remove or correct these and upload again.")
-                    .ConfigureAwait(false);
-                return;
+                (string? refusal, IReadOnlyList<int> conformed) = await ConformAsync(
+                    context, kept, infos, Graticula.Raster.Tiff.VrtMosaicReader.ReferenceOf(infos), i => Path.GetFileName(sent[i].FileName),
+                    directory, readers, cancellation).ConfigureAwait(false);
+
+                if (refusal is not null)
+                {
+                    await Refuse(context, 400, refusal).ConfigureAwait(false);
+                    return;
+                }
+
+                resampled = conformed.Count;
             }
 
             for (int index = 0; index < kept.Count; index++)
@@ -486,6 +771,8 @@ internal static class CoverageAdminEndpoints
                 bands = info.Bands.Count,
                 overviews = info.Overviews.Count,
                 images = sent.Count,
+                // ADR-147: how many were put on the mosaic's grid from another reference, pixel size or grid.
+                resampled,
                 sharing = "private",
                 note = "Published private, as every service starts. Share it from its page.",
             }).ExecuteAsync(context).ConfigureAwait(false);
@@ -496,13 +783,22 @@ internal static class CoverageAdminEndpoints
     /// or a mosaic's tiles and a virtual raster that places them, as one zip. A file registered in place is not this
     /// server's to hand out, and is refused with where it is kept.
     /// </summary>
-    private static async Task DownloadAsync(
+    internal static async Task DownloadAsync(
         HttpContext context, string name, string? folder, string? check, ICoverageCatalog coverages, CancellationToken cancellation)
     {
         string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
 
-        if (await ManagedAsync(context, coverages, name, at, cancellation).ConfigureAwait(false) is not { } coverage)
+        // ADR-148: whoever manages it; anyone it is shared with when its Download capability is on. The same refusal
+        // for not seeing it and not being let, so nothing tells a caller whether a service it may not see exists.
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        PublishedCoverage? coverage = await coverages.FindAsync(at, name, cancellation).ConfigureAwait(false);
+
+        if (coverage is null
+            || !(LayerAccess.MayManage(coverage.Owner, current.Principal, current.Authorization)
+                || (coverage.Download && LayerAccess.Evaluate(
+                    coverage.Sharing, coverage.Owner, current.Principal, current.Authorization, coverage.SharedWith).IsAllowed())))
         {
+            await Refuse(context, 404, $"No image service '{Qualify(name, at)}' whose file you may download.").ConfigureAwait(false);
             return;
         }
 
@@ -580,6 +876,45 @@ internal static class CoverageAdminEndpoints
         }
     }
 
+    /// <summary>What <c>PUT …/download</c> reads — ADR-148.</summary>
+    /// <param name="Download">Whether everyone it is shared with may download its file.</param>
+    internal sealed record DownloadRequest(bool Download);
+
+    /// <summary>Turns an image service's Download capability on or off — ADR-148; whoever manages it may.</summary>
+    private static async Task SetDownloadAsync(
+        HttpContext context, string name, string? folder, DownloadRequest body, ICoverageCatalog coverages,
+        IAuditLog audit, CancellationToken cancellation)
+    {
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (await ManagedAsync(context, coverages, name, at, cancellation).ConfigureAwait(false) is not { } coverage)
+        {
+            return;
+        }
+
+        HostSettings settings = context.RequestServices.GetRequiredService<HostSettings>();
+
+        if (body.Download && !Uploaded(settings, coverage.Path))
+        {
+            await Refuse(context, 400,
+                $"'{Qualify(name, at)}' was registered from a file on this server; that file is the administrator's and is "
+                + "not offered for download.").ConfigureAwait(false);
+            return;
+        }
+
+        await coverages.SetDownloadAsync(at, name, body.Download, cancellation).ConfigureAwait(false);
+        await RecordAsync(context, audit, "coverage.download", Qualify(name, at), new { download = body.Download }, cancellation)
+            .ConfigureAwait(false);
+        await Results.Ok(new
+        {
+            name = Qualify(name, at),
+            download = body.Download,
+            note = body.Download
+                ? "Everyone this image service is shared with may download its file."
+                : "Only whoever manages this image service may download its file.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
     /// <summary>What <c>PUT …/style</c> reads.</summary>
     /// <param name="Stretch">auto (from the data), full (the format's range) or fixed.</param>
     /// <param name="Minimum">The low end of a fixed stretch.</param>
@@ -638,6 +973,8 @@ internal static class CoverageAdminEndpoints
             kind = coverage.Info.Bands.Count > 0 ? coverage.Info.Bands[0].Kind.ToString() : null,
             // Whether deleting the service deletes the file — an upload — or leaves it, being registered in place.
             uploaded = Uploaded(settings, coverage.Path),
+            // ADR-148: whether everyone it is shared with may download its file.
+            download = coverage.Download,
             // ADR-140: how many images it was made of — a mosaic's delete takes them all.
             images = Graticula.Raster.Tiff.VrtMosaicReader.IsMosaic(coverage.Path) && File.Exists(coverage.Path)
                 ? Graticula.Raster.Tiff.VrtMosaicReader.FilesOf(coverage.Path).Count
@@ -903,6 +1240,9 @@ internal static class CoverageAdminEndpoints
             info,
             principal.Principal.IsAnonymous ? null : principal.Principal.Id,
             cancellation).ConfigureAwait(false);
+
+        // ADR-148: a registered image without overviews is given them beside its file, in the background.
+        context.RequestServices.GetService<CoveragePyramids>()?.Ask();
 
         await audit.RecordAsync(
             new AuditEvent(

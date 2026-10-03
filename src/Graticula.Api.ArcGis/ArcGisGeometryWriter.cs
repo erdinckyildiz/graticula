@@ -121,7 +121,13 @@ public static class ArcGisGeometryWriter
 
             case LineString line:
                 writer.WriteStartArray("paths");
-                WriteSequence(writer, line.Coordinates, reversed: false);
+
+                // An empty line is no paths, as ArcGIS writes it, not one path of no points.
+                if (!line.IsEmpty)
+                {
+                    WriteSequence(writer, line.Coordinates, reversed: false);
+                }
+
                 writer.WriteEndArray();
                 break;
 

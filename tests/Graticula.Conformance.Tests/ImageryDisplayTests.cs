@@ -29,12 +29,13 @@ public sealed class ImageryDisplayTests : ArcGisClient
     /// <summary>A float elevation model as the smallest GeoTIFF this server opens.</summary>
     private static byte[] Elevation() => Elevation(Side);
 
-    private static byte[] Elevation(int side, double west = 30.0, double pixel = 0)
+    private static byte[] Elevation(int side, double west = 30.0, double pixel = 0, int srid = 4326, double north = 41.0, int bands = 1)
     {
         using MemoryStream file = new();
         using BinaryWriter w = new(file);
 
-        float[] heights = [.. Enumerable.Range(0, side * side).Select(i => 800f + ((i % side) + (i / side)) * 1700f / ((2 * side) - 2))];
+        float[] heights = [.. Enumerable.Range(0, side * side * bands)
+            .Select(j => j / bands).Select(i => 800f + ((i % side) + (i / side)) * 1700f / ((2 * side) - 2))];
 
         // One hole, as a float model marks one: NaN, which no declared no-data value catches (ADR-128).
         heights[^1] = float.NaN;
@@ -49,13 +50,14 @@ public sealed class ImageryDisplayTests : ArcGisClient
         w.Write(image);
         double cell = pixel > 0 ? pixel : 0.64 / side;
         foreach (double d in new[] { cell, cell, 0.0 }) w.Write(d);
-        foreach (double d in new[] { 0.0, 0.0, 0.0, west, 41.0, 0.0 }) w.Write(d);
-        foreach (ushort k in new ushort[] { 1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, 1, 2048, 0, 1, 4326 }) w.Write(k);
+        foreach (double d in new[] { 0.0, 0.0, 0.0, west, north, 0.0 }) w.Write(d);
+        bool geographic = srid == 4326;
+        foreach (ushort k in new ushort[] { 1, 1, 0, 3, 1024, 0, 1, (ushort)(geographic ? 2 : 1), 1025, 0, 1, 1, (ushort)(geographic ? 2048 : 3072), 0, 1, (ushort)srid }) w.Write(k);
 
         (ushort Tag, ushort Type, int Count, int Value)[] tags =
         [
             (256, 3, 1, side), (257, 3, 1, side), (258, 3, 1, 32), (259, 3, 1, 1), (262, 3, 1, 1), (273, 4, 1, imageAt),
-            (277, 3, 1, 1), (278, 3, 1, side), (279, 4, 1, image.Length), (284, 3, 1, 1), (339, 3, 1, 3),
+            (277, 3, 1, bands), (278, 3, 1, side), (279, 4, 1, image.Length), (284, 3, 1, 1), (339, 3, 1, 3),
             (33550, 12, 3, scaleAt), (33922, 12, 6, tieAt), (34735, 3, 16, geoAt),
         ];
 
@@ -323,6 +325,51 @@ public sealed class ImageryDisplayTests : ArcGisClient
     }
 
     [Fact]
+    public async Task An_image_registered_without_overviews_is_given_them_beside_its_file()
+    {
+        // ADR-148: written beside the registered file, in the background, and the catalogue told. The server reads the
+        // path this test writes, which is true of every run of this suite: the server is on the same machine.
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        string name = $"zz_regp_{Guid.NewGuid():N}"[..16];
+        string directory = Path.Combine(Path.GetTempPath(), $"graticula-registered-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "model.tif");
+        await File.WriteAllBytesAsync(path, Elevation(600));
+
+        try
+        {
+            (HttpStatusCode made, byte[] madeBody) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages",
+                new StringContent(JsonSerializer.Serialize(new { name, folder = "hosted", path = path.Replace('\\', '/') }),
+                    Encoding.UTF8, "application/json"));
+            Assert.True(made is HttpStatusCode.OK or HttpStatusCode.Created, Encoding.UTF8.GetString(madeBody));
+            Assert.Equal(0, JsonDocument.Parse(madeBody).RootElement.GetProperty("overviews").GetInt32());
+
+            int levels = 0;
+
+            for (int i = 0; i < 60 && levels == 0; i++)
+            {
+                await Task.Delay(1000);
+                JsonElement listed = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, "/admin/coverages")).Body).RootElement;
+                JsonElement[] all = listed.ValueKind == JsonValueKind.Array ? [.. listed.EnumerateArray()]
+                    : [.. listed.GetProperty("coverages").EnumerateArray()];
+                levels = all.Where(c => (c.GetProperty("name").GetString() ?? "").EndsWith(name, StringComparison.Ordinal))
+                    .Select(c => c.GetProperty("overviews").GetInt32()).FirstOrDefault();
+            }
+
+            Assert.Equal(2, levels);
+            Assert.True(File.Exists(path + ".ovr"), "No overview file was written beside the registered image.");
+        }
+        finally
+        {
+            await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Several_images_uploaded_together_are_one_mosaic_and_ones_that_do_not_fit_are_refused_by_name()
     {
         string root = await RequireServerAsync();
@@ -389,18 +436,109 @@ public sealed class ImageryDisplayTests : ArcGisClient
             Assert.Equal(HttpStatusCode.OK, removed);
         }
 
-        // Images with another pixel size are not one grid: refused, naming the file as it was sent, and nothing published.
+        // ADR-147: an image at another pixel size is resampled onto the mosaic's grid rather than refused.
+        string coarseName = $"zz_mosc_{Guid.NewGuid():N}"[..16];
+
+        try
+        {
+            using MultipartFormDataContent mixed = new();
+            mixed.Add(new ByteArrayContent(Elevation(300)), "file", "fine.tif");
+            mixed.Add(new ByteArrayContent(Elevation(300)), "file", "fine2.tif");
+            mixed.Add(new ByteArrayContent(Elevation(100, west: 30.64, pixel: 0.004)), "file", "coarse.tif");
+            mixed.Add(new StringContent(coarseName), "name");
+            (HttpStatusCode joined, byte[] joinedBody) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", mixed);
+            Assert.True(joined == HttpStatusCode.Created, Encoding.UTF8.GetString(joinedBody));
+            Assert.Equal(1, JsonDocument.Parse(joinedBody).RootElement.GetProperty("resampled").GetInt32());
+
+            // The coarse image, 0.4° wide at 0.004°, is 0.4° of the fine grid's cells east of the fine ones: a value there.
+            string east = Uri.EscapeDataString("{\"rasterFunction\":\"None\"}");
+            string value = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"/rest/services/hosted/{coarseName}/ImageServer/identify?geometry=30.84,40.8&geometryType=esriGeometryPoint&renderingRule={east}&f=json")).Body)
+                .RootElement.GetProperty("value").GetString()!;
+            Assert.NotEqual("NoData", value);
+        }
+        finally
+        {
+            await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{coarseName}?folder=hosted");
+        }
+
+        // Other bands cannot be resampled: refused, naming the file as it was sent, and nothing published.
         string refusedName = $"zz_mosx_{Guid.NewGuid():N}"[..16];
-        using MultipartFormDataContent mixed = new();
-        mixed.Add(new ByteArrayContent(Elevation(300)), "file", "fine.tif");
-        mixed.Add(new ByteArrayContent(Elevation(300, west: 30.64, pixel: 0.004)), "file", "coarse.tif");
-        mixed.Add(new StringContent(refusedName), "name");
-        (HttpStatusCode refused, byte[] refusedBody) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", mixed);
+        using MultipartFormDataContent banded = new();
+        banded.Add(new ByteArrayContent(Elevation(300)), "file", "fine.tif");
+        banded.Add(new ByteArrayContent(Elevation(300, west: 30.64, bands: 2)), "file", "two.tif");
+        banded.Add(new StringContent(refusedName), "name");
+        (HttpStatusCode refused, byte[] refusedBody) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", banded);
         string why = Encoding.UTF8.GetString(refusedBody);
-        Assert.True(refused == HttpStatusCode.BadRequest && why.Contains("coarse.tif", StringComparison.Ordinal)
-            && why.Contains("pixel size", StringComparison.Ordinal), $"A mosaic of two pixel sizes answered {(int)refused}: {why}");
+        Assert.True(refused == HttpStatusCode.BadRequest && why.Contains("two.tif", StringComparison.Ordinal)
+            && why.Contains("bands", StringComparison.Ordinal), $"A mosaic of other bands answered {(int)refused}: {why}");
         Assert.Contains("\"error\"", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
             $"/rest/services/hosted/{refusedName}/ImageServer?f=json")).Body), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Images_are_added_to_an_image_service_later_and_one_in_another_reference_is_put_on_its_grid()
+    {
+        // ADR-147: one image becomes a mosaic when more are added; a tile in Web Mercator is projected onto its grid.
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        string name = $"zz_grow_{Guid.NewGuid():N}"[..16];
+        string service = $"/rest/services/hosted/{name}/ImageServer";
+
+        try
+        {
+            using (MultipartFormDataContent form = new())
+            {
+                form.Add(new ByteArrayContent(Elevation(300)), "file", "first.tif");
+                form.Add(new StringContent(name), "name");
+                (HttpStatusCode made, byte[] madeBody) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", form);
+                Assert.True(made == HttpStatusCode.Created, Encoding.UTF8.GetString(madeBody));
+            }
+
+            // East of it, in Web Mercator: 30.64° E is 3,410,800 m; 41° N is 5,012,341 m; cells of 200 m.
+            using (MultipartFormDataContent more = new())
+            {
+                more.Add(new ByteArrayContent(Elevation(300, west: 3410800, pixel: 200, srid: 3857, north: 5012341)), "file", "mercator.tif");
+                (HttpStatusCode grew, byte[] grewBody) = await SendAsync(root, token!, HttpMethod.Post,
+                    $"/admin/coverages/{name}/images?folder=hosted", more);
+                Assert.True(grew == HttpStatusCode.OK, Encoding.UTF8.GetString(grewBody));
+                JsonElement said = JsonDocument.Parse(grewBody).RootElement;
+                Assert.Equal((2, 1, 1), (said.GetProperty("images").GetInt32(), said.GetProperty("added").GetInt32(), said.GetProperty("resampled").GetInt32()));
+                Assert.Equal("mercator.tif", said.GetProperty("resampledFiles")[0].GetString());
+            }
+
+            // Other bands and another reference: refused by name, not a 500 — the ux review, 2026-10-03, found the
+            // reference resampled first and the bands met only when the mosaic was written.
+            using (MultipartFormDataContent wrong = new())
+            {
+                wrong.Add(new ByteArrayContent(Elevation(300, west: 3410800, pixel: 200, srid: 3857, north: 5012341, bands: 2)), "file", "two-bands.tif");
+                (HttpStatusCode refused, byte[] refusedBody) = await SendAsync(root, token!, HttpMethod.Post,
+                    $"/admin/coverages/{name}/images?folder=hosted", wrong);
+                string why = Encoding.UTF8.GetString(refusedBody);
+                Assert.True(refused == HttpStatusCode.BadRequest, $"{(int)refused}: {why}");
+                Assert.Contains("two-bands.tif", why, StringComparison.Ordinal);
+                Assert.Contains("this image service", why, StringComparison.Ordinal);
+            }
+
+            JsonElement extent = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}?f=json")).Body)
+                .RootElement.GetProperty("extent");
+            Assert.Equal(4326, extent.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+            Assert.InRange(extent.GetProperty("xmax").GetDouble(), 31.1, 31.3);
+
+            // The added tile answers its own values, now on the first image's grid.
+            string None = Uri.EscapeDataString("{\"rasterFunction\":\"None\"}");
+            string value = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/identify?geometry=30.9,40.8&geometryType=esriGeometryPoint&renderingRule={None}&f=json")).Body)
+                .RootElement.GetProperty("value").GetString()!;
+            Assert.NotEqual("NoData", value);
+        }
+        finally
+        {
+            (HttpStatusCode removed, _) = await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
+            Assert.Equal(HttpStatusCode.OK, removed);
+        }
     }
 
     [Fact]

@@ -4606,4 +4606,19 @@ h4.spaced { margin-top: 24px; }
 
 /* ADR-143: the download's line takes no room until it has something to say; it is rendered from the start so a screen
    reader has the live region before its first message. */
-#imageDownloadSays:empty { display: none; }
+#imageDownloadSays:empty { margin: 0; }
+
+/* Settings › General › Download (ADR-148): the box in its own column, the text hanging beside it, a row tall enough to
+   touch; and room before the danger panel below (the ux review, 2026-10-03). */
+#generalDownload { margin-block: 20px 24px; }
+#generalDownload .check-row { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; min-height: 32px; }
+#generalDownload #imageDownloadHint { padding-left: 28px; }
+/* A long address wraps rather than being cut at the card's edge at 390 px. */
+#geometryServiceSource, #geometryServiceSays { overflow-wrap: anywhere; }
+/* Add images while it works: still focusable, plainly busy. */
+#imageAdd[aria-disabled="true"] { color: var(--muted); border-style: dashed; cursor: progress; }
+#imageAddProgress { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0 var(--gap-3); }
+#imageAddBar { flex: 1 1 8rem; }
+#imageAddShown { font-variant-numeric: tabular-nums; }
+#generalDownload #imageDownloadSaid { padding-left: 28px; }
+#imageAddProgress[hidden] { display: none; }

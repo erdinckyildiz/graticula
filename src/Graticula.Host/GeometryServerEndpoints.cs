@@ -127,7 +127,8 @@ internal static partial class GeometryServerEndpoints
     /// </remarks>
     private static readonly string[] Engine =
         ["intersect", "difference", "union",
-         "cut", "buffer", "offset", "simplify", "relation", "distance", "generalize"];
+         "cut", "buffer", "offset", "simplify", "relation", "distance", "generalize",
+         "autoComplete", "reshape", "trimExtend"];
 
     /// <summary>
     /// Operations not implemented, each with the reason it is not.
@@ -175,6 +176,10 @@ internal static partial class GeometryServerEndpoints
     /// saying otherwise told a caller something untrue about why they could not
     /// have it — the exact failure ADR-022 §2b was written to end.
     /// </para>
+    /// <para>
+    /// <b>Written 2026-10-03 — ADR-150.</b> The three moved to <see cref="Engine"/>, computed in the
+    /// overlay worker; <c>findTransformations</c> is the one left.
+    /// </para>
     /// </remarks>
     private static readonly Dictionary<string, string> Blocked = new(StringComparer.Ordinal)
     {
@@ -189,24 +194,6 @@ internal static partial class GeometryServerEndpoints
             + "\u2014 see Q-100. Returning the single path PROJ happened to pick, dressed as "
             + "a ranked list of one, would answer the question a caller asked with something "
             + "that is not an answer to it.",
-
-        ["autoComplete"] =
-            "It closes polygons against the lines you send with them — a calculation on the "
-            + "geometries in this request, not a change to anything stored: the specification "
-            + "takes `polygons` and `polylines` and returns geometries, naming no layer. So it "
-            + "belongs here, and it is simply not written yet. The pieces are present, since "
-            + "closing a boundary is union-then-polygonize and `cut` already does that.",
-
-        ["reshape"] =
-            "It replaces part of a line or a boundary with a supplied line. Like `autoComplete` "
-            + "this is a calculation on the geometries in the request — the specification "
-            + "takes `target` and `reshaper` and returns the reshaped geometry, naming no layer "
-            + "— so it belongs here and is not written yet rather than declined.",
-
-        ["trimExtend"] =
-            "It trims or extends lines against a trimming geometry, from the `polylines` and "
-            + "`trimExtendTo` you send. Not written yet rather than declined, for the same "
-            + "reason as `reshape`: everything it needs is in the request.",
     };
 
     /// <summary>Maps the surface.</summary>
@@ -1289,6 +1276,17 @@ internal static partial class GeometryServerEndpoints
             return;
         }
 
+        if (operation == "reshape")
+        {
+            // ArcGIS answers reshape with the one geometry, not a list.
+            await Respond(context, operation, new
+            {
+                geometry = result.Geometries.Count > 0 ? ToJson(result.Geometries[0], srid) : (JsonElement?)null,
+                cost,
+            }).ConfigureAwait(false);
+            return;
+        }
+
         if (operation == "cut")
         {
             // ArcGIS's shape: which target each piece came from, beside the pieces — the JS SDK reads both.
@@ -1351,6 +1349,34 @@ internal static partial class GeometryServerEndpoints
                         ? TryGeometries(form, srid, out left, out _, out error, "target")
                         : TryNamedGeometry(form, "target", srid, out left, out error))
                     || !TryNamedGeometry(form, "cutter", srid, out right, out error))
+                {
+                    return false;
+                }
+
+                break;
+
+            // Q-99, ADR-150: the three editing calculations, each under the names the specification gives its operands.
+            case "autoComplete":
+                if (!TryGeometries(form, srid, out left, out _, out error, "polygons")
+                    || !TryGeometries(form, srid, out right, out _, out error, "polylines"))
+                {
+                    return false;
+                }
+
+                break;
+
+            case "reshape":
+                if (!TryNamedGeometry(form, "target", srid, out left, out error)
+                    || !TryNamedGeometry(form, "reshaper", srid, out right, out error))
+                {
+                    return false;
+                }
+
+                break;
+
+            case "trimExtend":
+                if (!TryGeometries(form, srid, out left, out _, out error, "polylines")
+                    || !TryNamedGeometry(form, "trimExtendTo", srid, out right, out error))
                 {
                     return false;
                 }
@@ -1444,6 +1470,9 @@ internal static partial class GeometryServerEndpoints
             "relation" => EngineOperation.Relate,
             "distance" => EngineOperation.Distance,
             "generalize" => EngineOperation.Generalize,
+            "autoComplete" => EngineOperation.AutoComplete,
+            "reshape" => EngineOperation.Reshape,
+            "trimExtend" => EngineOperation.TrimExtend,
             _ => EngineOperation.Union,
         };
 

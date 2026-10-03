@@ -66,6 +66,78 @@ public sealed class ImageryGroupSharingTests : ArcGisClient
     }
 
     [Fact]
+    public async Task An_images_file_is_given_to_others_only_while_its_download_capability_is_on()
+    {
+        // ADR-148: ArcGIS's Download capability. Off, someone the service is shared with may see it and not take its file;
+        // on, they may, from Studio's address and from the service's own download and file.
+        string root = await RequireServerAsync();
+        string? admin = await TokenAsync(root);
+        Assert.False(admin is null, "No administrator credential; set the suite's user and password.");
+
+        string tag = Guid.NewGuid().ToString("N")[..8];
+        string name = $"zz_imgdl_{tag}";
+        string reader = $"zz_imgdlr_{tag}";
+        DirectoryInfo? at = new(AppContext.BaseDirectory);
+        while (at is not null && at.GetFiles("*.sln").Length == 0) at = at.Parent;
+        byte[] tiff = File.ReadAllBytes(Path.Combine(at!.FullName, "tests", "Graticula.Raster.Tiff.Tests", "corpus", "rgb-byte-deflate.tif"));
+
+        async Task<(HttpStatusCode Status, byte[] Body)> BytesAsync(string? token, string path)
+        {
+            using HttpRequestMessage request = new(HttpMethod.Get, $"{root}{path}");
+            if (token is not null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage response = await Http.SendAsync(request);
+            return (response.StatusCode, await response.Content.ReadAsByteArrayAsync());
+        }
+
+        try
+        {
+            using (MultipartFormDataContent form = new())
+            {
+                form.Add(new ByteArrayContent(tiff), "file", "d.tif");
+                form.Add(new StringContent(name), "name");
+                (HttpStatusCode made, string madeBody) = await SendAsync(root, admin, HttpMethod.Post, "/admin/coverages/upload", form);
+                Assert.True(made == HttpStatusCode.Created, $"Uploading answered {(int)made}: {madeBody}");
+            }
+
+            (HttpStatusCode scoped, string scopeBody) = await SendAsync(root, admin, HttpMethod.Put,
+                $"/admin/services/{name}/sharing?folder=hosted", Json(new { sharing = "organization" }));
+            Assert.True(scoped == HttpStatusCode.OK, scopeBody);
+            string readerToken = await MemberTokenAsync(root, admin!, reader);
+
+            string file = $"/admin/coverages/{name}/file?folder=hosted";
+            string service = $"/rest/services/hosted/{name}/ImageServer";
+
+            // Off: the reader sees the service and not its file.
+            (_, string document) = await SendAsync(root, readerToken, HttpMethod.Get, $"{service}?f=json");
+            Assert.DoesNotContain("Download", JsonDocument.Parse(document).RootElement.GetProperty("capabilities").GetString(), StringComparison.Ordinal);
+            Assert.Contains("\"error\"", Encoding.UTF8.GetString((await BytesAsync(readerToken, file)).Body), StringComparison.Ordinal);
+            Assert.Contains("\"error\"", (await SendAsync(root, readerToken, HttpMethod.Get, $"{service}/download?f=json")).Body, StringComparison.Ordinal);
+
+            (HttpStatusCode on, string onBody) = await SendAsync(root, admin, HttpMethod.Put, $"/admin/coverages/{name}/download?folder=hosted",
+                Json(new { download = true }));
+            Assert.True(on == HttpStatusCode.OK, onBody);
+
+            // On: the capability is said, and the file is the reader's to take, as it was sent.
+            (_, document) = await SendAsync(root, readerToken, HttpMethod.Get, $"{service}?f=json");
+            Assert.Contains("Download", JsonDocument.Parse(document).RootElement.GetProperty("capabilities").GetString(), StringComparison.Ordinal);
+            Assert.Equal(tiff, (await BytesAsync(readerToken, file)).Body);
+            JsonElement listed = JsonDocument.Parse((await SendAsync(root, readerToken, HttpMethod.Get, $"{service}/download?f=json")).Body)
+                .RootElement.GetProperty("rasterFiles")[0];
+            Assert.Equal(tiff.Length, listed.GetProperty("size").GetInt64());
+            Assert.Equal(tiff, (await BytesAsync(readerToken, $"{service}/file?id={listed.GetProperty("id").GetString()}")).Body);
+
+            // Off again: taken back.
+            await SendAsync(root, admin, HttpMethod.Put, $"/admin/coverages/{name}/download?folder=hosted", Json(new { download = false }));
+            Assert.Contains("\"error\"", Encoding.UTF8.GetString((await BytesAsync(readerToken, file)).Body), StringComparison.Ordinal);
+        }
+        finally
+        {
+            await SendAsync(root, admin, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
+            await SendAsync(root, admin, HttpMethod.Delete, $"/admin/members/{reader}");
+        }
+    }
+
+    [Fact]
     public async Task A_group_shared_image_service_answers_its_members_and_not_a_stranger()
     {
         string root = await RequireServerAsync();

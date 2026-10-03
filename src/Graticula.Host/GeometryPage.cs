@@ -170,6 +170,30 @@ internal static class GeometryPage
              new("cutter", "Cutter",
                  "A single ArcGIS geometry, usually a polyline, to cut it along.", Rows: 5)]),
 
+        // ADR-150: the three editing calculations, each under the operand names the specification gives.
+        new("autoComplete",
+            "The polygons that fill the gaps the polylines close against the polygons — each "
+            + "face their boundaries and the lines enclose that is not already a polygon.",
+            [Sr,
+             new("polygons", "Polygons", GeometriesHint, Rows: 6),
+             new("polylines", "Polylines", GeometriesHint, Rows: 5)]),
+
+        new("reshape",
+            "The target with the part between the reshaper's first and last crossing replaced "
+            + "by the reshaper. A polygon keeps the larger of its two possible sides.",
+            [Sr,
+             new("target", "Target", "One polyline or polygon, as ArcGIS JSON.", Rows: 5),
+             new("reshaper", "Reshaper",
+                 "One polyline that crosses the target at least twice.", Rows: 5)]),
+
+        new("trimExtend",
+            "Each polyline trimmed to the left of the trimExtendTo line where it crosses it, "
+            + "or extended along its end segments to meet it; an empty polyline when neither "
+            + "can be done. extendHow is not read.",
+            [Sr,
+             new("polylines", "Polylines", GeometriesHint, Rows: 6),
+             new("trimExtendTo", "Trim or extend to", "One polyline, as ArcGIS JSON.", Rows: 4)]),
+
         new("buffer",
             "Everything within a distance of each geometry. A negative distance shrinks a "
             + "polygon and may empty it. Planar, in the units of the spatial reference — this "

@@ -102,6 +102,12 @@ public sealed class PublishedCoverage
     /// <summary>The owner's content folder it sits in — ADR-114 — or null for the root.</summary>
     public Guid? ContentFolder { get; init; }
 
+    /// <summary>
+    /// Whether everyone it is shared with may download its file — ADR-148, ArcGIS's <c>Download</c> capability; when
+    /// false, only whoever manages it may.
+    /// </summary>
+    public bool Download { get; init; }
+
     /// <summary>Its own identifier.</summary>
     public Guid Id { get; }
 
@@ -209,6 +215,28 @@ public interface ICoverageCatalog
     /// </remarks>
     System.Threading.Tasks.Task<bool> RemoveAsync(
         string? folder, string serviceName, System.Threading.CancellationToken cancellationToken);
+
+    /// <summary>Turns the <c>Download</c> capability on or off — ADR-148.</summary>
+    /// <param name="folder">The folder, or null for the root.</param>
+    /// <param name="serviceName">The service name.</param>
+    /// <param name="download">Whether everyone it is shared with may download its file.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the coverage exists.</returns>
+    System.Threading.Tasks.Task<bool> SetDownloadAsync(
+        string? folder, string serviceName, bool download, System.Threading.CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Points a coverage at another file and what it is — ADR-147, a mosaic grown by more images, and ADR-148, an image
+    /// given overviews after it was published.
+    /// </summary>
+    /// <param name="folder">The folder, or null for the root.</param>
+    /// <param name="serviceName">The service name.</param>
+    /// <param name="path">Where the image now is.</param>
+    /// <param name="info">What it now is.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the coverage exists.</returns>
+    System.Threading.Tasks.Task<bool> ReplaceImageAsync(
+        string? folder, string serviceName, string path, CoverageInfo info, System.Threading.CancellationToken cancellationToken);
 
     /// <summary>Replaces how a coverage is drawn — ADR-123 — or clears it back to the default with null.</summary>
     /// <param name="folder">The folder, or null for the root.</param>

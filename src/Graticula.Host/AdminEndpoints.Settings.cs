@@ -26,6 +26,10 @@ internal sealed record ServerGroundRequest(IReadOnlyList<string>? Services);
 /// <param name="Origins">Each as <c>https://host</c>, <c>https://host:port</c> or <c>https://*.host</c>; empty or null for none.</param>
 internal sealed record StyleOriginsRequest(IReadOnlyList<string>? Origins);
 
+/// <summary>Another server's geometry service for the portal to name — ADR-149; null or empty for this server's own.</summary>
+/// <param name="Url">Its address, ending in <c>/GeometryServer</c>.</param>
+internal sealed record GeometryServiceRequest(string? Url);
+
 /// <summary>
 /// The server's own settings — V-70, ADR-084: set for the whole server from the console, not per service.
 /// </summary>
@@ -41,6 +45,109 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/settings/ground", SetServerGroundAsync);
         app.MapGet("/admin/settings/style-origins", StyleOriginsAsync);
         app.MapPut("/admin/settings/style-origins", SetStyleOriginsAsync);
+        app.MapGet("/admin/settings/geometry-service", GeometryServiceAsync);
+        app.MapPut("/admin/settings/geometry-service", SetGeometryServiceAsync);
+    }
+
+    /// <summary>The setting's name in the store — ADR-149.</summary>
+    internal const string GeometryServiceSetting = "geometry_service";
+
+    /// <summary>
+    /// The geometry service the portal names to its clients — ADR-149: this server's own, or another an administrator
+    /// chose, such as an ArcGIS Server's.
+    /// </summary>
+    private static async Task GeometryServiceAsync(
+        HttpContext context, IServerSettingStore store, CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        StoredSetting? stored = await store.ReadAsync(GeometryServiceSetting, cancellation).ConfigureAwait(false);
+        await Results.Json(new
+        {
+            url = stored?.Value,
+            changedAt = stored?.ChangedAt,
+            own = OwnGeometryService,
+            ownUrl = OwnGeometryServiceUrl(context),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    private const string OwnGeometryService = "/rest/services/Utilities/Geometry/GeometryServer";
+
+    private static string OwnGeometryServiceUrl(HttpContext context) =>
+        $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}{OwnGeometryService}";
+
+    /// <summary>
+    /// Names another server's geometry service to the portal's clients, or clears it so this server's own is named —
+    /// ADR-149. The address is checked for its shape and not fetched: this server does not reach out to it, the
+    /// clients do, and the other server answers them under its own sharing.
+    /// </summary>
+    private static async Task SetGeometryServiceAsync(
+        HttpContext context, GeometryServiceRequest request, IServerSettingStore store, IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string? url = string.IsNullOrWhiteSpace(request.Url) ? null : request.Url.Trim().TrimEnd('/');
+
+        if (url is not null
+            && (!Uri.TryCreate(url, UriKind.Absolute, out Uri? parsed)
+                || parsed.Scheme is not ("https" or "http")
+                || parsed.Query.Length > 0 || parsed.Fragment.Length > 0
+                || !parsed.AbsolutePath.EndsWith("/GeometryServer", StringComparison.OrdinalIgnoreCase)))
+        {
+            await Refuse(context, 400,
+                $"'{request.Url}' is not a geometry service's address. It is a full https address ending in "
+                + "/GeometryServer, such as https://gis.example.com/arcgis/rest/services/Utilities/Geometry/GeometryServer, "
+                + "with no query.").ConfigureAwait(false);
+            return;
+        }
+
+        if (url is not null)
+        {
+            // The ux review, 2026-10-03: an http service named to the clients of an https portal is blocked by every
+            // browser as mixed content, and measuring would fail for every signed-in user without a word.
+            if (url.StartsWith("http:", StringComparison.OrdinalIgnoreCase) && context.Request.IsHttps)
+            {
+                await Refuse(context, 400,
+                    $"'{request.Url}' is an http address, and browsers block an http geometry service from a portal "
+                    + "served over https. Use the service's https address.").ConfigureAwait(false);
+                return;
+            }
+
+            // One spelling stored, as ArcGIS spells it.
+            url = url[..^"/GeometryServer".Length] + "/GeometryServer";
+
+            // This server's own, typed in, is the default rather than "another".
+            if (string.Equals(url, OwnGeometryServiceUrl(context), StringComparison.OrdinalIgnoreCase))
+            {
+                url = null;
+            }
+        }
+
+        RequestPrincipal? current = context.Features.Get<RequestPrincipal>();
+        StoredSetting? before = await store.WriteAsync(GeometryServiceSetting, url, current?.Principal.Id, cancellation)
+            .ConfigureAwait(false);
+        await AuditAsync(context, audit, "server.settings", GeometryServiceSetting,
+            Detail(new { from = before?.Value, to = url }), succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            url,
+            changedAt = DateTimeOffset.UtcNow,
+            own = OwnGeometryService,
+            ownUrl = OwnGeometryServiceUrl(context),
+            note = url is null
+                ? "The portal names this server's own geometry service."
+                : "The portal names this geometry service to its clients; that server answers them under its own sharing.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>The origins styles may fetch from, and what that means.</summary>

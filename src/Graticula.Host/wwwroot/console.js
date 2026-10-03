@@ -5978,10 +5978,18 @@ async function drawServiceDetails(qualified, knownKind) {
         // take their own data away, as in Portal; anybody else only when the service offers Extract.
         || !(manages || String(serviceDoc?.capabilities || "").split(",").map(one => one.trim()).includes("Extract"))
         ? "" : `<button type="button" id="exportDataOpen">Export data</button>`}
-      ${manages && serviceOpenKind === "ImageServer"
+      ${serviceOpenKind === "ImageServer" && (manages || imageOffersDownload())
         // ADR-143: the uploaded file back. In place from the start, so nothing below it moves when the server answers;
-        // enabled when it says there is a file to give, removed when there is none.
+        // enabled when it says there is a file to give, removed when there is none. ADR-148: offered to everyone it is
+        // shared with when its Download capability is on.
         ? `<button type="button" id="imageDownload" aria-disabled="true">Download</button>` : ""}
+      ${serviceOpenKind === "ImageServer" && manages
+        // ADR-147: more images for an uploaded image service — it becomes, or grows, a mosaic. Shown once the server
+        // says the image was uploaded here, with the Download button.
+        ? `<button type="button" id="imageAdd" hidden aria-describedby="imageAddHint"
+             title="GeoTIFFs with the same bands as this image. Another coordinate system or cell size is resampled to fit.">Add images</button>
+           <button type="button" id="imageAddStop" hidden>Stop</button>
+           <input type="file" id="imageAddFile" accept=".tif,.tiff,image/tiff" multiple hidden>` : ""}
       ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
         ? `<button type="button" id="updateDataOpen">Update data</button>` : ""}
       ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
@@ -5991,22 +5999,41 @@ async function drawServiceDetails(qualified, knownKind) {
       ${manages && tileLayerOf() ? `<button type="button" data-manage-tiles="1"
         title="What is cached, clear it, pre-build an area, offline packages">Manage tiles</button>` : ""}
     </div>
-    ${manages && serviceOpenKind === "ImageServer"
-      ? `<p class="hint" id="imageDownloadSays" role="status" aria-live="polite"></p>` : ""}
+    ${serviceOpenKind === "ImageServer" && (manages || imageOffersDownload())
+      ? `<p class="hint" id="imageDownloadSays" role="status" aria-live="polite"></p>
+         <div id="imageAddProgress" hidden><progress id="imageAddBar" value="0" max="1" aria-labelledby="imageAddShown"></progress>
+           <span class="hint" id="imageAddShown" aria-live="off"></span></div>
+         <p class="sr-only" id="imageAddQuarter" role="status" aria-live="polite"></p>
+         <p class="sr-only" id="imageAddHint">GeoTIFFs with the same bands as this image. Another coordinate system or cell
+           size is resampled to fit.</p>` : ""}
     <h4>Details</h4>
     <dl class="facts2" id="svcFacts"></dl>`;
+  imageFactRows = [];
 
-  if ($("imageDownload") && serviceOpen) {
+  if ($("imageDownload") && serviceOpen && !manages) {
+    // Not theirs to manage: offered because the capability is on, and the server decides when it is asked.
+    $("imageDownload").removeAttribute("aria-disabled");
+    $("imageDownload").title = "The file this image service was published from";
+  } else if ($("imageDownload") && serviceOpen) {
     const at = serviceOpen;
     api(`/admin/coverages/${encodeURIComponent(at.name)}/style?folder=${encodeURIComponent(at.folder || "")}`)
       .then(style => {
         const button = $("imageDownload");
         if (serviceOpen !== at || !button) return;
-        if (!style?.uploaded) { button.remove(); return; }
+        if (!style?.uploaded) { button.remove(); $("imageAdd")?.remove(); return; }
         button.removeAttribute("aria-disabled");
+        if ($("imageAdd")) {
+          $("imageAdd").hidden = false;
+          // Its own listener, not the shared change listener, whose early returns other screens' branches died behind.
+          $("imageAddFile").onchange = event => { addImages(event.target.files); event.target.value = ""; };
+        }
         button.title = style.images > 1
           ? `The ${style.images} GeoTIFFs you uploaded and a .vrt that places them, as one zip`
           : "The GeoTIFF you uploaded, as it was sent";
+        // What decides what Add images takes, where an ArcGIS administrator looks for it (the ux review, 2026-10-03).
+        imageFactRows = [["Images", style.images > 1 ? `${num(style.images)} (mosaic)` : "1"]];
+        if (style.bands) imageFactRows.push(["Bands", `${num(style.bands)} × ${pixelKindSaid(style.kind)}`]);
+        drawImageFacts();
       })
       .catch(() => { $("imageDownload")?.remove(); });
   }
@@ -6031,6 +6058,7 @@ async function drawServiceDetails(qualified, knownKind) {
           : `<span class="val">the site root</span>`}</dd>
         <dt>Sharing</dt><dd><span class="val">set on the Settings tab — this kind is not in
           your content listing, so the owner and the dates are not read here</span></dd>${address}`;
+      drawImageFacts();
 
       return;
     }
@@ -6098,6 +6126,7 @@ async function drawServiceDetails(qualified, knownKind) {
 
     $("svcFacts").innerHTML = rows.map(([label, value]) =>
       `<dt>${label}</dt><dd>${value}</dd>`).join("") + address;
+    drawImageFacts();
 
     // <b>Sharing, state, owner — the handoff's three, and the strip's whole job.</b> It held a
     // mono dump of the service document's numbers, which are two panels of their own now.
@@ -7893,6 +7922,7 @@ function drawServiceSettings(name, folder) {
   }
 
   if (open === "general") section("sharing", () => drawGeneralSharing(name, folder));
+  if (open === "general" && serviceOpenKind === "ImageServer") drawImageDownloadSetting(name, folder);
 
   // An old layer address lands here with `layer=`; that layer's block is the one brought into view.
   if (open === "layers") showAskedLayer();
@@ -8805,6 +8835,7 @@ function serviceSettingsMarkup(name, folder) {
       <!-- Stated here and changed in one place, the Share dialog (ADR-102 §5.4). -->
       <p class="lede" id="generalSharing">Reading who can reach this…</p>
       <div class="row"><button type="button" data-share="${h(folder ? folder + "/" + name : name)}">Change sharing…</button></div>
+      <div id="generalDownload"></div>
       <div id="generalDangerSlot"></div>
     </section>
 
@@ -21047,6 +21078,71 @@ async function loadSettings() {
   // and awaited above these two lines it left the box without Enter or its input handler for as long as
   // that answer took (SettingsScreenTests caught it over a slow link, 2026-09-29).
   await loadStyleOrigins();
+  await loadGeometryService();
+}
+
+/** Settings' Geometry service — ADR-149: this server's own, or another the portal names to its clients. */
+async function loadGeometryService() {
+  geometryServiceSay("");
+  // Enter saves, as the page-size box on this screen does; typing clears a refusal (the ux review, 2026-10-03).
+  $("geometryService").onkeydown = e => {
+    if (e.key === "Enter") { e.preventDefault(); $("geometryServiceSave").click(); }
+  };
+  $("geometryService").oninput = () => geometryServiceSay("");
+  $("geometryService").disabled = true;
+  $("geometryServiceSave").disabled = true;
+  try {
+    drawGeometryService(await api("/admin/settings/geometry-service") || {});
+  } catch (e) {
+    geometryServiceSay(e.message, true);
+  }
+}
+
+function drawGeometryService(r) {
+  if (r.ownUrl) $("geometryService").dataset.own = r.ownUrl;
+  $("geometryService").value = r.url || "";
+  $("geometryService").dataset.saved = r.url || "";
+  $("geometryService").disabled = false;
+  $("geometryServiceSave").disabled = false;
+  $("geometryServiceReset").hidden = !r.url;
+  $("geometryServiceSource").textContent = r.url
+    ? `Clients use ${r.url}${r.changedAt ? `, set on ${day(r.changedAt)}` : ""}.`
+    : `Clients use this server's own: ${r.ownUrl || $("geometryService").dataset.own || r.own || ""}.`;
+}
+
+function geometryServiceSay(text, refusal = false) {
+  const says = $("geometryServiceSays");
+  // Emptied first, so saving the same thing twice is announced twice.
+  says.textContent = "";
+  if (text) setTimeout(() => { says.textContent = text; }, 30);
+  says.classList.toggle("bad-inline", refusal);
+  if (refusal) $("geometryService").setAttribute("aria-invalid", "true");
+  else $("geometryService").removeAttribute("aria-invalid");
+}
+
+/** Saves the address, or clears it; true when it was saved. */
+async function saveGeometryService(url) {
+  const was = $("geometryService").dataset.saved || "";
+  try {
+    const r = await api("/admin/settings/geometry-service", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    }) || {};
+    drawGeometryService(r);
+    geometryServiceSay(r.url
+      ? `Saved. Clients signed in to this portal use ${r.url} for measuring, buffering and projecting, the next time they sign in. If it is secured, they need access to it there.`
+      : was
+        ? `Saved. Clients use this server's own geometry service again, the next time they sign in. The address was ${was}.`
+        : url
+          ? "That is this server's own address, so nothing needs saving: clients already use it."
+          : "Nothing to save: clients already use this server's own geometry service.");
+    return true;
+  } catch (e) {
+    geometryServiceSay(e.message, true);
+    $("geometryService").focus();
+    return false;
+  }
 }
 
 /** Says something under Save, marked as a refusal when it is one. */
@@ -24808,6 +24904,16 @@ async function handleClick(event) {
     return;
   }
 
+  if (t.id === "geometryServiceSave") {
+    await saveGeometryService($("geometryService").value.trim() || null);
+    return;
+  }
+
+  if (t.id === "geometryServiceReset") {
+    if (await saveGeometryService(null)) $("geometryServiceSave").focus();
+    return;
+  }
+
   // ---- Sign-in providers (ADR-088) ----
   // ---- from Members: "change on Sign-in" opens that provider's Groups ----
   if (t.dataset && t.dataset.openGroups !== undefined) {
@@ -25311,6 +25417,12 @@ async function handleClick(event) {
       t.disabled = false;
       t.focus();
     }
+    return;
+  }
+
+  if (t.id === "imageAdd" && serviceOpen) {
+    if (t.getAttribute("aria-disabled") === "true") return;
+    $("imageAddFile")?.click();
     return;
   }
 
@@ -28076,6 +28188,177 @@ async function uploadImagery(event) {
 }
 
 /**
+ * Adds images to the open image service — ADR-147: sent together with the progress said, then the page read again, since
+ * its extent and its kind of image have changed. An image in another reference or at another pixel size is put on the
+ * service's grid; other bands are refused, naming the file.
+ */
+async function addImages(files) {
+  const at = serviceOpen;
+  const button = $("imageAdd");
+  const says = $("imageDownloadSays");
+  const say = (text, refusal = false) => {
+    if (!says) return;
+    says.textContent = text;
+    says.classList.toggle("bad-inline", refusal);
+  };
+  if (!files.length || !at || button?.getAttribute("aria-disabled") === "true") return;
+  const body = new FormData();
+  for (const file of [...files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))) body.append("file", file);
+  const total = [...files].reduce((sum, f) => sum + f.size, 0);
+  const count = `${files.length} image${files.length === 1 ? "" : "s"}`;
+  const stop = $("imageAddStop");
+  const box = $("imageAddProgress");
+  const bar = $("imageAddBar");
+  const shown = $("imageAddShown");
+
+  // Busy, but still focusable; the bar and its text are seen, and only every quarter is said (the ux review, 2026-10-03:
+  // every progress event was announced).
+  if (button) { button.setAttribute("aria-disabled", "true"); button.textContent = "Adding…"; }
+  if (box) box.hidden = false;
+  if (bar) { bar.max = total || 1; bar.value = 0; }
+  say(`Adding ${count} (${fileSize(total)})…`);
+  let quarter = 0;
+
+  const request = new XMLHttpRequest();
+  if (stop) { stop.hidden = false; stop.onclick = () => request.abort(); }
+  const answer = await new Promise(resolve => {
+    request.upload.onprogress = event => {
+      if (!event.lengthComputable) return;
+      if (bar) { bar.max = event.total; bar.value = event.loaded; }
+      if (shown) shown.textContent = `${fileSize(event.loaded)} of ${fileSize(event.total)} sent`;
+      const reached = Math.floor((event.loaded / event.total) * 4);
+      if (reached > quarter && reached < 4 && $("imageAddQuarter")) {
+        quarter = reached;
+        $("imageAddQuarter").textContent = `${reached * 25}% sent.`;
+      }
+    };
+    request.upload.onload = () => {
+      if (stop) stop.hidden = true;
+      say("Uploaded. Building their pyramids, and resampling any that are not on this image's grid…");
+    };
+    request.onload = () => resolve({ status: request.status, text: request.responseText });
+    request.onerror = () => resolve({ status: 0, text: "" });
+    request.onabort = () => resolve({ status: -1, text: "" });
+    request.open("POST", `/admin/coverages/${encodeURIComponent(at.name)}/images?folder=${encodeURIComponent(at.folder || "")}`);
+    if (token) request.setRequestHeader("Authorization", "Bearer " + token);
+    request.send(body);
+  });
+
+  if (stop) stop.hidden = true;
+  if (box) box.hidden = true;
+  if (button) { button.removeAttribute("aria-disabled"); button.textContent = "Add images"; }
+  let said = null;
+  try { said = answer.text ? JSON.parse(answer.text) : null; } catch { /* not json */ }
+  if (answer.status >= 200 && answer.status < 300 && !said?.error) {
+    const resampled = said.resampledFiles || [];
+    const outcome = `Added ${said.added} image${said.added === 1 ? "" : "s"}. This image service is now a mosaic of ${said.images}.`
+      + (resampled.length ? ` Resampled to its grid: ${resampled.join(", ")}.` : "");
+    if (serviceOpen === at) {
+      // Said after the redraw, which empties the line, and focus put back where it was.
+      await showService(at.folder ? `${at.folder}/${at.name}` : at.name);
+      if (serviceOpen?.name === at.name) {
+        $("imageDownloadSays") && ($("imageDownloadSays").textContent = outcome);
+        $("imageAdd")?.focus({ preventScroll: true });
+      }
+    } else {
+      toast(outcome, true);
+    }
+    return;
+  }
+  if (answer.status === -1) {
+    say("Stopped. Nothing was added.");
+  } else {
+    const why = said?.error?.message || (answer.status ? `the server answered ${answer.status}` : "the connection was lost");
+    say(`Not added: ${why.charAt(0).toLowerCase()}${why.slice(1)}`.replace(/\.*$/, "") + ".", true);
+  }
+  button?.focus();
+}
+
+/** An image service's own rows of Details — Images and Bands — once both they and the list are there. */
+let imageFactRows = [];
+function drawImageFacts() {
+  const list = $("svcFacts");
+  if (!list) return;
+  list.querySelectorAll("[data-image-fact]").forEach(one => one.remove());
+  list.insertAdjacentHTML("beforeend", imageFactRows.map(([label, value]) =>
+    `<dt data-image-fact>${h(label)}</dt><dd data-image-fact>${h(value)}</dd>`).join(""));
+}
+
+/** A pixel type in ArcGIS's words rather than this server's enum names. */
+function pixelKindSaid(kind) {
+  return ({ Unsigned8: "8-bit unsigned", Signed16: "16-bit signed", Unsigned16: "16-bit unsigned",
+    Signed32: "32-bit signed", Real32: "32-bit float", Real64: "64-bit float" })[kind] || kind || "";
+}
+
+/** Whether the open image service offers its file to everyone it is shared with — ArcGIS's Download (ADR-148). */
+function imageOffersDownload() {
+  return String(serviceDoc?.capabilities || "").split(",").map(one => one.trim()).includes("Download");
+}
+
+/**
+ * Settings › General's Download, for an image service — ADR-148, ArcGIS's Download capability: off, only whoever manages
+ * it may take the file; on, everyone it is shared with may. A file registered from the server's disk is not offered.
+ */
+async function drawImageDownloadSetting(name, folder) {
+  const box = $("generalDownload");
+  if (!box) return;
+  const at = serviceOpen;
+  let style;
+  try { style = await api(`/admin/coverages/${encodeURIComponent(name)}/style?folder=${encodeURIComponent(folder || "")}`); }
+  catch { box.innerHTML = ""; return; }
+  if (serviceOpen !== at || !$("generalDownload")) return;
+  if (!style?.uploaded) {
+    box.innerHTML = `<h4>Download</h4>
+      <p class="hint">This image was registered from a file on the server, which is the administrator's; it is not offered
+        for download.</p>`;
+    return;
+  }
+  box.innerHTML = `<h4>Download</h4>
+    <label class="check-row"><input type="checkbox" id="imageDownloadOn"${style.download ? " checked" : ""} aria-describedby="imageDownloadHint">
+      <span>Everyone this is shared with may download the file</span></label>
+    <p class="hint" id="imageDownloadHint">When off, only the owner and administrators can download it, from Overview.
+      ArcGIS calls this the Download capability.</p>
+    <p class="hint" id="imageDownloadSaid" role="status" aria-live="polite"></p>`;
+  let saving = false;
+  $("imageDownloadOn").addEventListener("change", async event => {
+    // Held while it saves, so quick toggles cannot arrive out of order — by a flag rather than disabling it, which drops
+    // keyboard focus (the ux reviews, 2026-10-03).
+    if (saving) { event.target.checked = !event.target.checked; return; }
+    saving = true;
+    const on = event.target.checked;
+    const said = $("imageDownloadSaid");
+    event.target.setAttribute("aria-busy", "true");
+    if (said) { said.classList.remove("bad-inline"); said.textContent = "Saving…"; }
+    try {
+      await api(`/admin/coverages/${encodeURIComponent(name)}/download?folder=${encodeURIComponent(folder || "")}`,
+        { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ download: on }) });
+      const unshared = on && ($("generalSharing")?.dataset.sharing || "private") === "private";
+      if (said) {
+        said.classList.remove("bad-inline");
+        said.textContent = on
+          ? `Saved: everyone this is shared with can now download the file from Overview.${
+            unshared ? " It is not shared with anyone yet, so this takes effect when you share it." : ""}`
+          : "Saved: only the owner and administrators can download it.";
+      }
+      if (serviceDoc) {
+        const caps = String(serviceDoc.capabilities || "").split(",").map(one => one.trim()).filter(c => c && c !== "Download");
+        serviceDoc.capabilities = (on ? [...caps, "Download"] : caps).join(",");
+      }
+    } catch (e) {
+      event.target.checked = !on;
+      if (said) {
+        said.classList.add("bad-inline");
+        const why = String(e.message || e);
+        said.textContent = `Not changed: ${why.charAt(0).toLowerCase()}${why.slice(1)}`;
+      }
+    } finally {
+      saving = false;
+      event.target.removeAttribute("aria-busy");
+    }
+  });
+}
+
+/**
  * Asks whether an image service's uploaded file can be given, then lets the browser download it (ADR-143): its own
  * progress, its own Cancel, written to disk as it comes — the page holding a mosaic of several gigabytes in memory and
  * saving it half a minute later, wherever the user then was, is what the review found the first version did.
@@ -28084,7 +28367,11 @@ async function downloadImage(button) {
   if (button.getAttribute("aria-disabled") === "true") return;
   const at = serviceOpen;
   const says = $("imageDownloadSays");
-  const say = text => { if (says) says.textContent = text; };
+  const say = (text, refusal = false) => {
+    if (!says) return;
+    says.textContent = text;
+    says.classList.toggle("bad-inline", refusal);
+  };
   const label = button.textContent;
   // aria-disabled rather than disabled, so the button keeps keyboard focus while it works.
   button.setAttribute("aria-disabled", "true");
@@ -28096,7 +28383,7 @@ async function downloadImage(button) {
     if (!answer.ok || said?.error) {
       say(said?.error?.message
         ? `Not downloaded: ${said.error.message}`
-        : `Not downloaded: the server could not send the file (error ${answer.status}). Try again, or ask an administrator.`);
+        : `Not downloaded: the server could not send the file (error ${answer.status}). Try again, or ask an administrator.`, true);
       return;
     }
     // A same-origin link the session cookie goes with; the browser takes it from here.
@@ -28106,7 +28393,7 @@ async function downloadImage(button) {
     link.remove();
     say(`${said.fileName} (${fileSize(said.bytes)}) is downloading — your browser shows its progress.`);
   } catch {
-    say("Not downloaded: the connection to the server was lost. Try again.");
+    say("Not downloaded: the connection to the server was lost. Try again.", true);
   } finally {
     button.textContent = label;
     button.removeAttribute("aria-disabled");

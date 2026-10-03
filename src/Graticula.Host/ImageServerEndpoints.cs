@@ -125,6 +125,18 @@ internal static partial class ImageServerEndpoints
             app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/getSamples", Read, GetSamplesAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // ADR-148: ArcGIS's Download capability, as its clients ask it — the files, then each file.
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/download", Read, DownloadListAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/file", Read, (HttpContext context, string serviceName,
+                    ICoverageCatalog coverages, CancellationToken cancellation) =>
+                {
+                    (string? folder, string name) = Split(context, serviceName);
+                    return CoverageAdminEndpoints.DownloadAsync(context, name, folder, null, coverages, cancellation);
+                })
+                .Governed(SharingGovernedExtensions.ByService);
+
             app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/histograms", Read, HistogramsAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
@@ -263,7 +275,7 @@ internal static partial class ImageServerEndpoints
 
         _ => $"`{operation}` is not an operation this image service serves. It serves "
             + "exportImage, identify, getSamples, computeStatisticsHistograms, legend, keyProperties, rasterFunctionInfos, "
-            + "statistics, histograms, tile and tilemap.",
+            + "statistics, histograms, download, file, tile and tilemap.",
     };
 
     private static async Task ServiceAsync(
@@ -317,7 +329,8 @@ internal static partial class ImageServerEndpoints
             noDataValue = info.Bands[0].NoData,
 
             spatialReference = new { wkid = info.Srid, latestWkid = info.Srid },
-            capabilities = Capabilities,
+            // ADR-148: Download when its owner offers the file to everyone it is shared with.
+            capabilities = coverage.Download ? Capabilities + ",Download" : Capabilities,
             // ADR-142: the default it draws with, which a class image's is not.
             defaultResamplingMethod = Resampler.Name(DefaultResampling(info, RasterFunction.FromStyleText(coverage.Style), null)),
             maxImageHeight = 4096,
@@ -770,6 +783,67 @@ internal static partial class ImageServerEndpoints
         Resampling how,
         CancellationToken cancellation)
     {
+        (RawValues? read, string? refused) = await RawValuesAsync(coverage, asked, function, readers, projector, how, cancellation)
+            .ConfigureAwait(false);
+
+        if (read is not { } values)
+        {
+            return (null, refused);
+        }
+
+        int width = asked.Width;
+        int height = asked.Height;
+
+        // ADR-137: as LERC, a pixel with nothing in it is left out by the mask rather than given a value that could be
+        // mistaken for one — ground outside the image, and the image's own no-data.
+        if (asked.Lerc)
+        {
+            bool[] valid = new bool[width * height];
+            bool derived = function.Kind != RasterFunctionKind.None;
+
+            for (int i = 0; values.Taken is not null && i < valid.Length; i++)
+            {
+                valid[i] = values.Taken[i] >= 0
+                    && (derived || values.NoData is not { } none || values.Samples[i * values.Bands] != none);
+            }
+
+            return (LercWriter.Write(values.Samples, valid, width, height, values.Bands, values.Kind, asked.Tolerance), null);
+        }
+
+        byte[] file = GeoTiffWriter.Write(
+            values.Samples,
+            width,
+            height,
+            values.Bands,
+            values.Kind,
+            asked.Extent.MinX,
+            asked.Extent.MaxY,
+            asked.Extent.Width / width,
+            asked.Extent.Height / height,
+            asked.Srid,
+            AxisOrder.IsGeographic(asked.Srid),
+            values.NoData);
+
+        return (file, null);
+    }
+
+    /// <summary>
+    /// What a raw read answers: the values, pixel-interleaved; how many a pixel; their type and no-data; and which
+    /// source cell each output pixel took, or -1 where none — ADR-127, shared since ADR-147 with conforming a mosaic's
+    /// image to its grid.
+    /// </summary>
+    internal sealed record RawValues(double[] Samples, int Bands, SampleKind Kind, double? NoData, int[]? Taken);
+
+    /// <summary>The coverage's values over an extent and size, in their own type — the half of a raw export before the file.</summary>
+    internal static async Task<(RawValues? Values, string? Refused)> RawValuesAsync(
+        PublishedCoverage coverage,
+        ImageServerExportParameters asked,
+        RasterFunction function,
+        ICoverageReaderFactory readers,
+        IProjector projector,
+        Resampling how,
+        CancellationToken cancellation)
+    {
         CoverageInfo info = coverage.Info;
         int width = asked.Width;
         int height = asked.Height;
@@ -899,36 +973,7 @@ internal static partial class ImageServerEndpoints
 
         SampleKind kind = derived ? SampleKind.Real32 : info.Bands.Count > 0 ? info.Bands[0].Kind : SampleKind.Unsigned8;
 
-        // ADR-137: as LERC, a pixel with nothing in it is left out by the mask rather than given a value that could be
-        // mistaken for one — ground outside the image, and the image's own no-data.
-        if (asked.Lerc)
-        {
-            bool[] valid = new bool[width * height];
-
-            for (int i = 0; taken is not null && i < valid.Length; i++)
-            {
-                valid[i] = taken[i] >= 0
-                    && (derived || noData is not { } none || samples[i * bands] != none);
-            }
-
-            return (LercWriter.Write(samples, valid, width, height, bands, kind, asked.Tolerance), null);
-        }
-
-        byte[] file = GeoTiffWriter.Write(
-            samples,
-            width,
-            height,
-            bands,
-            kind,
-            asked.Extent.MinX,
-            asked.Extent.MaxY,
-            asked.Extent.Width / width,
-            asked.Extent.Height / height,
-            asked.Srid,
-            AxisOrder.IsGeographic(asked.Srid),
-            noData);
-
-        return (file, null);
+        return (new RawValues(samples, bands, kind, noData, taken), null);
     }
 
     /// <summary>
@@ -1998,6 +2043,46 @@ internal static partial class ImageServerEndpoints
         }
 
         await Results.Ok(new { }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The files an image service offers — ADR-148, ArcGIS's <c>download</c> — when its Download capability is on: one
+    /// raster, its file or its mosaic's zip, fetched from <c>file</c>. Refused, as an operation it does not offer, when
+    /// the capability is off.
+    /// </summary>
+    private static readonly int[] OneRaster = [1];
+
+    private static async Task DownloadListAsync(
+        HttpContext context, string serviceName, ICoverageCatalog coverages, CancellationToken cancellation)
+    {
+        if (await FindAsync(context, serviceName, coverages, cancellation).ConfigureAwait(false) is not { } coverage)
+        {
+            return;
+        }
+
+        if (!coverage.Download)
+        {
+            await RefuseAsync(context, 400, "This image service does not offer its file: its Download capability is off.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        bool mosaic = Graticula.Raster.Tiff.VrtMosaicReader.IsMosaic(coverage.Path);
+        IReadOnlyList<string> parts = mosaic ? Graticula.Raster.Tiff.VrtMosaicReader.FilesOf(coverage.Path) : [coverage.Path];
+        string safe = string.Concat(coverage.ServiceName.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' ? c : '_'));
+
+        await Results.Ok(new
+        {
+            rasterFiles = new[]
+            {
+                new
+                {
+                    id = mosaic ? $"{safe}.zip" : $"{safe}.tif",
+                    size = parts.Where(File.Exists).Sum(f => new FileInfo(f).Length),
+                    rasterIds = OneRaster,
+                },
+            },
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>

@@ -626,6 +626,10 @@ public static class Program
         builder.Services.AddSingleton<ICoverageReaderFactory, TiffCoverageReaderFactory>();
         builder.Services.AddSingleton<ICoveragePyramidBuilder, TiffPyramidBuilder>();
 
+        // ADR-148: images published without overviews — before ADR-139, or registered in place — are given them.
+        builder.Services.AddSingleton<CoveragePyramids>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<CoveragePyramids>());
+
         builder.Services.AddSingleton<ICoverageCatalog>(services =>
             new PostgresCoverageCatalog(services.GetRequiredService<NpgsqlDataSource>()));
 

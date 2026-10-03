@@ -9,6 +9,8 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-123](ADR-123-imagery-comes-into-studio.md) (condition 2: an uploaded file can be taken back) |
 
+> **Amended 2026-10-03 by [ADR-148](ADR-148-download-capability-and-pyramids-for-every-image.md).** Everyone an image service is shared with may download its file when its Download capability is on.
+
 ---
 
 ## 1. Context

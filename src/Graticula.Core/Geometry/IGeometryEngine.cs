@@ -75,6 +75,15 @@ public enum EngineOperation
     /// as index pairs — the exact half of a distance filter (D-263).
     /// </summary>
     WithinDistance,
+
+    /// <summary>The polygons that fill the gaps the second set's lines close against the first set's polygons (ADR-150).</summary>
+    AutoComplete,
+
+    /// <summary>The first geometry with part of it replaced by the second, a line crossing it twice (ADR-150).</summary>
+    Reshape,
+
+    /// <summary>Each line of the first set trimmed or extended against the second, one line (ADR-150).</summary>
+    TrimExtend,
 }
 
 /// <summary>Why a computation did not happen.</summary>

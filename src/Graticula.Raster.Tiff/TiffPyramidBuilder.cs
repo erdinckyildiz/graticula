@@ -268,7 +268,7 @@ public sealed class TiffPyramidBuilder : ICoveragePyramidBuilder
         return sums;
     }
 
-    private static void Encode(double[] values, int width, int height, int bands, SampleKind kind, double fill, byte[] into)
+    internal static void Encode(double[] values, int width, int height, int bands, SampleKind kind, double fill, byte[] into)
     {
         int size = Size(kind);
 
