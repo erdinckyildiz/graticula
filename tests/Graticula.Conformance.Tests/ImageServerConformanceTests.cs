@@ -772,7 +772,7 @@ public sealed class ImageServerConformanceTests : ArcGisClient
         }
 
         (HttpStatusCode status, string body, string? type) = await FetchAsync(
-            $"/rest/services/{service}/ImageServer/multidimensionalInfo?f=json");
+            $"/rest/services/{service}/ImageServer/computeTiePoints?f=json");
 
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Equal("application/json", type);
@@ -785,7 +785,8 @@ public sealed class ImageServerConformanceTests : ArcGisClient
 
         // It names what was asked for and what this face does serve, because a refusal
         // that says neither sends the reader to somebody else's documentation.
-        Assert.Contains("multidimensionalInfo", message, StringComparison.Ordinal);
+        // multidimensionalInfo was the example until ADR-159 served it.
+        Assert.Contains("computeTiePoints", message, StringComparison.Ordinal);
         Assert.Contains("exportImage", message, StringComparison.Ordinal);
     }
 
@@ -991,7 +992,7 @@ public sealed class ImageServerConformanceTests : ArcGisClient
             // A function this server does not apply, or applies without what it needs, is refused; ADR-152 orders by a
             // mosaic rule and refuses one that blends.
             "renderingRule=" + Uri.EscapeDataString("{\"rasterFunction\":\"Curvature\"}"),
-            "mosaicRule=" + Uri.EscapeDataString("{\"mosaicOperation\":\"MT_BLEND\"}"),
+            "mosaicRule=" + Uri.EscapeDataString("{\"mosaicOperation\":\"MT_AVERAGE\"}"),
         })
         {
             (_, string refused, _) = await FetchAsync($"/rest/services/{service}/ImageServer/identify?geometry=0,0&{extra}&f=json");

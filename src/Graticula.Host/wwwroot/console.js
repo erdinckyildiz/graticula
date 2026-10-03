@@ -28362,24 +28362,41 @@ async function drawCoverageImages(name, folder, focusAt = null) {
   const removable = said.editable && images.length > 1;
   const one = images.length === 1;
   const dated = images.filter(i => i.acquired != null).length;
+  // ADR-159: a multidimensional file's images are slices — a variable at a depth or level, and a time.
+  const sliced = images.some(i => i.variable);
+  const variables = [...new Set(images.map(i => i.variable).filter(Boolean))];
+  // One column a dimension besides time, named as multidimensionalInfo names it (ux review 11).
+  const dimensionNames = [...new Set(images.flatMap(i => Object.keys(i.dimensions || {})))];
+  const firstOf = d => images.map(i => (i.dimensions || {})[d]).find(v => v != null);
+  // Listed from the top of the stack down, so Raise moves a row up (ux review 11).
+  const listed = [...images].sort((a, b) => b.position - a.position);
   box.innerHTML = `
     <h4>Images</h4>
+    ${sliced ? `<p class="hint" id="imagesSliced">Multidimensional: ${variables.length === 1 ? "1 variable" : `${variables.length} variables`} (${h(variables.join(", "))})
+      over StdTime${dimensionNames.length ? ` and ${h(dimensionNames.join(", "))}` : ""}. Each image is one slice. A client that chooses no slice sees
+      ${h(variables[0])}${dimensionNames.length ? ` at ${h(dimensionNames.map(d => `${d} ${firstOf(d)}`).join(", "))}` : ""}, with its latest time on top; ArcGIS clients choose others with a multidimensional definition.</p>` : ""}
     <p class="hint">${one
       ? "One image."
-      : `${images.length} images, in the order they are drawn: the last is on top where they overlap. ArcGIS clients see them as the catalog of a mosaic dataset, and may choose which is on top with a mosaic rule. To change the order here, remove an image and add it again.`}
+      : `${images.length} images, listed from the top down: where they overlap, the first listed is drawn over the others. ArcGIS clients see them as the catalog of a mosaic dataset, and may choose which is on top with a mosaic rule. Raise and Lower save at once.`}
       The acquisition date is when an image was taken; dated images give the service time, so a time slider chooses among them.</p>
     ${dated > 0 && dated < images.length ? `<p class="hint bad-inline" id="imagesPartlyDated">${dated} of ${images.length} images have a date. With a time slider on, only dated images are drawn; the other ${images.length - dated} are hidden.</p>` : ""}
-    <div class="tablewrap"><table id="imagesTable">
-      <thead><tr><th scope="col" class="num" title="The object id ArcGIS clients use">ID</th><th scope="col" class="num drawn" title="1 is drawn first, at the bottom">Drawn</th><th scope="col">Name</th><th scope="col">Acquired</th>${removable ? `<th scope="col"><span class="sr-only">Actions</span></th>` : ""}</tr></thead>
-      <tbody>${images.map(i => {
+    <div class="tablewrap"><table id="imagesTable"${sliced ? ` class="sliced"` : ""}>
+      <thead><tr><th scope="col" class="num" title="The object id ArcGIS clients use">ID</th><th scope="col" class="num drawn" title="1 is on top">Stack</th><th scope="col">Name</th>${sliced ? `<th scope="col">${h(["Variable", ...dimensionNames].join(" · "))}</th>` : ""}<th scope="col">${sliced ? "Acquired (StdTime)" : "Acquired"}</th>${removable ? `<th scope="col"><span class="sr-only">Actions</span></th>` : ""}</tr></thead>
+      <tbody>${listed.map(i => {
         const kept = unsaved[i.id];
         return `<tr data-image="${i.id}">
-        <td class="num">${i.id}</td>
-        <td class="num drawn">${i.position + 1}</td>
+        <td class="num" data-label="ID">${i.id}</td>
+        <td class="num drawn" data-label="Stack">${images.length - i.position}</td>
         <td><input type="text" class="imageName" value="${h(i.name)}" maxlength="200" title="${h(i.name)}" aria-label="Name of image ${i.id}" aria-describedby="imagesSays">
           ${i.file ? `<span class="hint imageFile">${h(i.file)}</span>` : ""}<span class="hint imageChanged" id="imageChanged${i.id}" hidden>Changed, not saved</span></td>
-        <td><input type="date" class="imageTaken" value="${day(i.acquired)}" aria-label="When image ${i.id} was taken"></td>
-        ${removable ? `<td class="acts"><button type="button" class="tiny danger" data-image-remove="${i.id}" aria-label="Remove image ${i.id}, ${h(i.name)}">Remove</button></td>` : ""}
+        ${sliced ? `<td class="imageSlice" data-label="${h(["Variable", ...dimensionNames].join(" · "))}">${h([i.variable || "", ...dimensionNames.map(d => (i.dimensions || {})[d] ?? "")].join(" · "))}</td>` : ""}
+        <td data-label="${sliced ? "Acquired (StdTime)" : "Acquired"}"><input type="date" class="imageTaken" value="${day(i.acquired)}" aria-label="When image ${i.id} was taken"></td>
+        ${removable ? `<td class="acts">
+          <button type="button" class="tiny" data-image-move="up" data-image="${i.id}"${i.position === images.length - 1 ? " disabled" : ""}
+            aria-label="Raise image ${i.id}, ${h(i.name)}: draw it over the one above">Raise</button>
+          <button type="button" class="tiny" data-image-move="down" data-image="${i.id}"${i.position === 0 ? " disabled" : ""}
+            aria-label="Lower image ${i.id}, ${h(i.name)}: draw it under the one below">Lower</button>
+          <button type="button" class="tiny danger" data-image-remove="${i.id}" aria-label="Remove image ${i.id}, ${h(i.name)}">Remove</button></td>` : ""}
         ${kept ? `<td hidden data-kept-name="${h(kept.name)}" data-kept-taken="${h(kept.taken)}"></td>` : ""}</tr>`; }).join("")}</tbody>
     </table></div>
     <div class="row covsave">
@@ -28466,6 +28483,31 @@ async function drawCoverageImages(name, folder, focusAt = null) {
       $("imagesSave")?.removeAttribute("aria-disabled");
     }
   });
+
+  // ADR-158: the drawing order, one place at a time; focus follows the image to its new row.
+  box.querySelectorAll("[data-image-move]").forEach(button => button.addEventListener("click", async () => {
+    if (button.getAttribute("aria-disabled") === "true") return;
+    const id = Number(button.dataset.image);
+    const direction = button.dataset.imageMove;
+    button.setAttribute("aria-disabled", "true");
+    try {
+      await api(`/admin/coverages/${encodeURIComponent(name)}/images/${id}/move${query}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ direction }) });
+      await drawCoverageImages(name, folder);
+      const row = box.querySelector(`tr[data-image="${id}"]`);
+      const stack = Number(row?.querySelector(".drawn")?.textContent);
+      const called = row?.querySelector(".imageName")?.value || `Image ${id}`;
+      const count = box.querySelectorAll("tr[data-image]").length;
+      say(`Saved: ${called} is now ${stack === 1 ? "on top" : stack === count ? "at the bottom" : `${stack} of ${count} from the top`}.`);
+      const next = row?.querySelector(`[data-image-move="${direction}"]:not([disabled])`) || row?.querySelector("[data-image-move]:not([disabled])");
+      next?.focus();
+      // Not under the sticky save bar on a narrow screen (ux review 11, WCAG 2.4.11).
+      next?.scrollIntoView({ block: "center" });
+    } catch (e) {
+      say(`Not moved: ${e.message || e}`, true);
+      button.removeAttribute("aria-disabled");
+    }
+  }));
 
   box.querySelectorAll("[data-image-remove]").forEach(button => button.addEventListener("click", async () => {
     const id = Number(button.dataset.imageRemove);

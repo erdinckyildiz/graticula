@@ -212,6 +212,7 @@ internal static class Program
                 Text(request, "in"), Text(request, "out"), Text(request, "format"), Text(request, "layer"),
                 request.TryGetProperty("append", out JsonElement append) && append.ValueKind == JsonValueKind.True),
 
+
             // ADR-157: imagery in a format the server does not read itself, written as the GeoTIFFs it does.
             "raster" => Raster(Text(request, "in"), Text(request, "out"),
                 request.TryGetProperty("variable", out JsonElement variable) ? variable.GetString() : null,
@@ -225,9 +226,10 @@ internal static class Program
 
     /// <summary>
     /// A raster in any format this build reads — JPEG 2000, NetCDF, HDF, ERDAS Imagine, ASCII grids — written as tiled,
-    /// deflated GeoTIFFs in a directory: ADR-157. A file of subdatasets, as NetCDF and HDF are, gives its first variable
-    /// with two dimensions of space, or the one named. A NetCDF whose bands are steps of time gives a GeoTIFF a step,
-    /// each with the time it is — a mosaic the server dates, so a time slider plays it (ADR-153).
+    /// deflated GeoTIFFs in a directory: ADR-157. A file of subdatasets, as NetCDF and HDF are, gives every variable with
+    /// two dimensions of space, or the one named (ADR-159). A NetCDF variable whose bands are steps along its other
+    /// dimensions — time, depth, a pressure level — gives a GeoTIFF a band, each with its variable and its dimensions'
+    /// values, and its time as a date (ADR-153): a multidimensional mosaic the server chooses among.
     /// </summary>
     private static object Raster(string source, string directory, string? variable, string? name)
     {
@@ -238,25 +240,21 @@ internal static class Program
             return new { ok = false, error = "GDAL cannot read it as a raster." };
         }
 
-        Dataset dataset = opened;
-        Dataset? sub = null;
-        string? chosen = null;
+        string stem = name is { Length: > 0 } ? Path.GetFileNameWithoutExtension(name) : Path.GetFileNameWithoutExtension(source);
+        List<string> variables = [.. (opened.GetMetadata("SUBDATASETS") ?? [])
+            .Where(m => m.Contains("_NAME=", StringComparison.Ordinal))
+            .Select(m => m[(m.IndexOf('=', StringComparison.Ordinal) + 1)..])];
+        List<(string? Variable, Dataset Data, bool Owned)> sets = [];
 
         try
         {
-            // NetCDF and HDF: subdatasets, a variable each.
-            string[] subdatasets = opened.GetMetadata("SUBDATASETS") ?? [];
-            List<string> variables = [.. subdatasets
-                .Where(m => m.Contains("_NAME=", StringComparison.Ordinal))
-                .Select(m => m[(m.IndexOf('=', StringComparison.Ordinal) + 1)..])];
-
             if (opened.RasterCount == 0 && variables.Count > 0)
             {
-                string? pick = variable is { Length: > 0 }
-                    ? variables.FirstOrDefault(v => v.EndsWith(":" + variable, StringComparison.Ordinal))
-                    : variables[0];
+                List<string> chosen = variable is { Length: > 0 }
+                    ? [.. variables.Where(v => v.EndsWith(":" + variable, StringComparison.Ordinal))]
+                    : variables;
 
-                if (pick is null)
+                if (chosen.Count == 0)
                 {
                     return new
                     {
@@ -265,67 +263,110 @@ internal static class Program
                     };
                 }
 
-                sub = Gdal.Open(pick, OSGeo.GDAL.Access.GA_ReadOnly);
-                dataset = sub ?? throw new InvalidOperationException($"GDAL cannot open its variable {pick}.");
-                chosen = pick.Split(':')[^1].Trim('"');
-            }
-
-            if (dataset.RasterCount == 0)
-            {
-                return new { ok = false, error = "It holds no raster bands." };
-            }
-
-            string projection = dataset.GetProjectionRef() ?? string.Empty;
-            double[] transform = new double[6];
-            dataset.GetGeoTransform(transform);
-
-            if (projection.Length == 0 && transform[1] > 0 && Math.Abs(transform[0]) <= 360 && Math.Abs(transform[3]) <= 90)
-            {
-                // A grid of longitudes and latitudes that names no datum, as many NetCDF files are, is WGS 84.
-                projection = "EPSG:4326";
-            }
-
-            if (projection.Length == 0)
-            {
-                return new { ok = false, error = "It carries no coordinate system, so this server cannot say where it is." };
-            }
-
-            // Steps of time: NetCDF names its extra dimension's values on each band.
-            string[] bandTimes = [.. Enumerable.Range(1, dataset.RasterCount).Select(b =>
-                (dataset.GetRasterBand(b).GetMetadata("") ?? []).FirstOrDefault(m => m.StartsWith("NETCDF_DIM_time=", StringComparison.Ordinal))
-                    ?.Split('=', 2)[1] ?? string.Empty)];
-            string units = (dataset.GetMetadata("") ?? []).FirstOrDefault(m => m.StartsWith("time#units=", StringComparison.Ordinal))?.Split('=', 2)[1] ?? string.Empty;
-            bool timed = dataset.RasterCount > 1 && bandTimes.All(t => t.Length > 0) && TimeOrigin(units) is not null;
-
-            string stem = (name is { Length: > 0 } ? Path.GetFileNameWithoutExtension(name) : Path.GetFileNameWithoutExtension(source))
-                + (chosen is null ? string.Empty : " " + chosen);
-            List<object> images = [];
-            string[] common = ["-of", "GTiff", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=IF_SAFER", "-a_srs", projection];
-
-            if (timed)
-            {
-                (DateTimeOffset origin, double perUnit) = TimeOrigin(units)!.Value;
-
-                for (int band = 1; band <= dataset.RasterCount; band++)
+                foreach (string one in chosen)
                 {
-                    DateTimeOffset when = origin.AddSeconds(double.Parse(bandTimes[band - 1], CultureInfo.InvariantCulture) * perUnit);
-                    string target = Path.Combine(directory, $"{Guid.NewGuid():N}.tif");
-                    Translate(dataset, target, [.. common, "-b", band.ToString(CultureInfo.InvariantCulture)]);
-                    images.Add(new { path = target, name = $"{stem} {when:yyyy-MM-dd}", acquired = when.ToString("O", CultureInfo.InvariantCulture) });
+                    // A variable that is not a grid — a list of times, a bounds array — has no two dimensions of space.
+                    if (Gdal.Open(one, OSGeo.GDAL.Access.GA_ReadOnly) is { RasterXSize: > 1, RasterYSize: > 1 } grid)
+                    {
+                        sets.Add((one.Split(':')[^1].Trim('"'), grid, true));
+                    }
                 }
             }
             else
             {
-                string target = Path.Combine(directory, $"{Guid.NewGuid():N}.tif");
-                Translate(dataset, target, common);
-                images.Add(new { path = target, name = stem, acquired = (string?)null });
+                // One variable read straight from the file: NetCDF names it on each band.
+                string? named = opened.RasterCount == 0 ? null : (opened.GetRasterBand(1).GetMetadata("") ?? [])
+                    .FirstOrDefault(m => m.StartsWith("NETCDF_VARNAME=", StringComparison.Ordinal))?.Split('=', 2)[1];
+                sets.Add((opened.GetDriver().ShortName == "netCDF" ? named : null, opened, false));
             }
 
-            return new { ok = true, driver = opened.GetDriver().ShortName, variable = chosen, images };
+            if (sets.Count == 0 || sets.All(s => s.Data.RasterCount == 0))
+            {
+                return new { ok = false, error = "It holds no raster bands." };
+            }
+
+            List<object> images = [];
+
+            foreach ((string? varName, Dataset dataset, _) in sets)
+            {
+                string projection = dataset.GetProjectionRef() ?? string.Empty;
+                double[] transform = new double[6];
+                dataset.GetGeoTransform(transform);
+
+                if (projection.Length == 0 && transform[1] > 0 && Math.Abs(transform[0]) <= 360 && Math.Abs(transform[3]) <= 90)
+                {
+                    // A grid of longitudes and latitudes that names no datum, as many NetCDF files are, is WGS 84.
+                    projection = "EPSG:4326";
+                }
+
+                if (projection.Length == 0)
+                {
+                    return new { ok = false, error = "It carries no coordinate system, so this server cannot say where it is." };
+                }
+
+                string[] metadata = dataset.GetMetadata("") ?? [];
+                string Meta(string key) => metadata.FirstOrDefault(m => m.StartsWith(key + "=", StringComparison.Ordinal))?.Split('=', 2)[1] ?? string.Empty;
+
+                // The dimensions beyond space: NETCDF_DIM_EXTRA={time,depth}.
+                string[] extra = [.. Meta("NETCDF_DIM_EXTRA").Trim('{', '}').Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+                string? timeDimension = extra.FirstOrDefault(d => d.Equals("time", StringComparison.OrdinalIgnoreCase)
+                    || Meta(d + "#units").Contains(" since ", StringComparison.Ordinal));
+                (DateTimeOffset Origin, double PerUnit)? origin = timeDimension is null ? null : TimeOrigin(Meta(timeDimension + "#units"));
+                string[] common = ["-of", "GTiff", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=IF_SAFER", "-a_srs", projection];
+                bool sliced = extra.Length > 0 && dataset.RasterCount > 1;
+
+                if (!sliced)
+                {
+                    string target = Path.Combine(directory, $"{Guid.NewGuid():N}.tif");
+                    Translate(dataset, target, common);
+                    images.Add(new { path = target, name = varName is null ? stem : $"{stem} {varName}", acquired = (string?)null, variable = varName, dimensions = (object?)null });
+                    continue;
+                }
+
+                for (int band = 1; band <= dataset.RasterCount; band++)
+                {
+                    string[] bandMeta = dataset.GetRasterBand(band).GetMetadata("") ?? [];
+                    Dictionary<string, double> dimensions = [];
+
+                    foreach (string dimension in extra)
+                    {
+                        string? raw = bandMeta.FirstOrDefault(m => m.StartsWith($"NETCDF_DIM_{dimension}=", StringComparison.Ordinal))?.Split('=', 2)[1];
+
+                        if (raw is not null && double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
+                        {
+                            dimensions[dimension] = v;
+                        }
+                    }
+
+                    DateTimeOffset? when = timeDimension is not null && origin is { } o && dimensions.TryGetValue(timeDimension, out double t)
+                        ? o.Origin.AddSeconds(t * o.PerUnit) : null;
+                    string target = Path.Combine(directory, $"{Guid.NewGuid():N}.tif");
+                    Translate(dataset, target, [.. common, "-b", band.ToString(CultureInfo.InvariantCulture)]);
+                    string others = string.Join(" ", dimensions.Where(d => d.Key != timeDimension)
+                        .Select(d => FormattableString.Invariant($"{d.Key}={d.Value:G6}")));
+                    images.Add(new
+                    {
+                        path = target,
+                        name = string.Join(" ", new[] { stem, varName, when?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), others }
+                            .Where(p => !string.IsNullOrEmpty(p))),
+                        acquired = when?.ToString("O", CultureInfo.InvariantCulture),
+                        variable = varName,
+                        dimensions = (object?)dimensions.Where(d => d.Key != timeDimension).ToDictionary(d => d.Key, d => d.Value),
+                    });
+                }
+            }
+
+            return new { ok = true, driver = opened.GetDriver().ShortName, images };
         }
         finally
         {
-            sub?.Dispose();
+            foreach ((_, Dataset data, bool owned) in sets)
+            {
+                if (owned)
+                {
+                    data.Dispose();
+                }
+            }
         }
     }
 

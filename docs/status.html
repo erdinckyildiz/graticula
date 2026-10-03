@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>ae68dde</code> · 2026-10-03 09:33</p>
+<p class="stamp">Generated from commit <code>76e6419</code> · 2026-10-03 12:25</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">156</div><div class="kpi-l">ADRs</div><div class="kpi-n">66 accepted outright</div></div>
+<div class="kpi "><div class="kpi-v">158</div><div class="kpi-l">ADRs</div><div class="kpi-n">68 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">287/380</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">90 live · 3 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">160 answered</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">open debts</div><div class="kpi-n">268 repaid · 6 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">4590</div><div class="kpi-l">tests</div><div class="kpi-n">448 source files, 199,699 lines</div></div>
+<div class="kpi good"><div class="kpi-v">4595</div><div class="kpi-l">tests</div><div class="kpi-n">448 source files, 200,223 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -361,6 +361,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">155</td><td>An image service measures on the ground, and moves between its cells and the map</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — distances, azimuths and areas are checked against closed-form values; ArcGIS&#x27;s…</td><td class="num"></td></tr>
 <tr><td class="id">156</td><td>Clip, Remap, Mask, Statistics and Arithmetic</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — each is checked against closed-form answers; ArcGIS&#x27;s enumerations for…</td><td class="num"></td></tr>
 <tr><td class="id">157</td><td>Imagery in other formats is written as GeoTIFF on its way in</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the formats are GDAL&#x27;s and the conversion is checked end to end on samples; real…</td><td class="num"></td></tr>
+<tr><td class="id">158</td><td>A mosaic combines its images, is reordered in Studio, and a map chooses its bands</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — each operator and each control is checked end to end on samples; blending is…</td><td class="num"></td></tr>
+<tr><td class="id">159</td><td>A multidimensional file is a service of slices</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — checked end to end on a NetCDF of two variables over time and depth; real files…</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -483,8 +485,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1232</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:69.8%"></div></div><div class="bar-n">860</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.3%"></div></div><div class="bar-n">681</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:70.1%"></div></div><div class="bar-n">864</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.4%"></div></div><div class="bar-n">682</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.9%"></div></div><div class="bar-n">270</div></div>
@@ -497,6 +499,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>76e6419</code><time>2026-10-03</time><span>Image services do what ArcGIS&#x27;s do: band functions, a mosaic catalog, time, value functions, mensuration, classes and other formats</span></li>
 <li><code>ae68dde</code><time>2026-10-03</time><span>The display test waits for Save before choosing Slope</span></li>
 <li><code>ff14542</code><time>2026-10-03</time><span>The front page and the README say what image and geometry services are now</span></li>
 <li><code>a26912b</code><time>2026-10-03</time><span>Images join a mosaic later and in other grids, may be downloaded by everyone they are shared with, and are all given pyramids; the portal may name another geometry service; autoComplete, reshape and trimExtend are computed</span></li>
@@ -510,7 +513,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>34afa0f</code><time>2026-10-02</time><span>A service counts its use, and the owner sees what nobody uses</span></li>
 <li><code>2e46683</code><time>2026-10-02</time><span>Attributes are edited in the attribute table and saved together</span></li>
 <li><code>bb5346b</code><time>2026-10-01</time><span>A feature is drawn and added in the Map Viewer, and deleted from its card</span></li>
-<li><code>6692d3e</code><time>2026-10-01</time><span>A feature&#x27;s attributes are edited in its card, and imagery&#x27;s scope is the owner&#x27;s decision</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

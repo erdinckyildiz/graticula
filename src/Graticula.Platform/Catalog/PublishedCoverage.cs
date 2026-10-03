@@ -303,7 +303,15 @@ public interface ICoverageCatalog
 /// <param name="File">Its file's name, beside the others.</param>
 /// <param name="Name">What it is called: the file it was uploaded as, or what its owner renamed it.</param>
 /// <param name="Acquired">When it was taken, if anyone said — ADR-153.</param>
-public sealed record CoverageImageEntry(int Id, string File, string Name, System.DateTimeOffset? Acquired);
+/// <param name="Variable">The variable it is a slice of, in a multidimensional service — ADR-159.</param>
+/// <param name="Dimensions">Its values along the dimensions other than time — ADR-159.</param>
+public sealed record CoverageImageEntry(
+    int Id,
+    string File,
+    string Name,
+    System.DateTimeOffset? Acquired,
+    string? Variable = null,
+    IReadOnlyDictionary<string, double>? Dimensions = null);
 
 /// <summary>One class of a classified image, as stored — ADR-154.</summary>
 /// <param name="Value">The pixel value.</param>

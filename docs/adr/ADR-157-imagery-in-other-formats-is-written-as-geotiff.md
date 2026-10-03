@@ -9,6 +9,9 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-123](ADR-123-imagery-comes-into-studio.md) (uploads are GeoTIFFs), [ADR-153](ADR-153-an-image-service-has-the-time-of-its-images.md) (multidimensional imagery) |
 
+
+> **Amended 2026-10-03 by [ADR-159](ADR-159-a-multidimensional-file-is-a-service-of-slices.md).** Every variable of a NetCDF or HDF is read, and a NetCDF's dimensions besides time are kept on each image.
+
 ---
 
 ## 1. Context

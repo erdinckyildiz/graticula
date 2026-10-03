@@ -160,6 +160,10 @@ internal static partial class ImageServerEndpoints
             app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/rasterAttributeTable", Read, RasterAttributeTableAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // ADR-159: a multidimensional service's variables, and the values of their dimensions.
+            app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/multidimensionalInfo", Read, MultidimensionalInfoAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
             // ADR-152: the catalog — a mosaic's images as rows, with their footprints.
             app.MapMethods($"{prefix}/{{serviceName}}/ImageServer/query", Read, CatalogQueryAsync)
                 .Governed(SharingGovernedExtensions.ByService);
@@ -329,7 +333,7 @@ internal static partial class ImageServerEndpoints
 
         _ => $"`{operation}` is not an operation this image service serves. It serves "
             + "exportImage, identify, getSamples, computeStatisticsHistograms, legend, keyProperties, rasterFunctionInfos, "
-            + "statistics, histograms, download, file, tile and tilemap.",
+            + "statistics, histograms, download, file, multidimensionalInfo, query, tile and tilemap.",
     };
 
     private static async Task ServiceAsync(
@@ -403,7 +407,8 @@ internal static partial class ImageServerEndpoints
             supportsAdvancedQueries = false,
             editFieldsInfo = (object?)null,
             hasColormap = false,
-            hasMultidimensions = false,
+            // ADR-159: its images are slices of variables over time, depth or a level.
+            hasMultidimensions = IsMultidimensional(coverage),
 
             /*
               <b>Everything below is here because ArcGIS Pro's own raster reader refused
@@ -1441,6 +1446,12 @@ internal static partial class ImageServerEndpoints
 
         ImageServerExportParameters asked = ImageServerExportParameters.ForTile(
             scheme.Tile(level, row, column), scheme.TileSize, scheme.Srid);
+
+        // ADR-159: a multidimensional service's tiles are its first slice, as its exported pictures are by default.
+        if (IsMultidimensional(coverage))
+        {
+            (readers, _) = await MosaicReadersAsync(context, _ => null, coverage, readers, asked.Extent, cancellation).ConfigureAwait(false);
+        }
 
         await ExportOnceAsync(
                 context, coverage, asked, readers, canvases, projector, budget, cancellation)

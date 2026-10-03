@@ -1124,11 +1124,13 @@ function wmDrawLayerList() {
           aria-label="Attribute table of ${wmEscape(title)}">Table</button>` : ""}
         ${readable && kind === "imagery" && wmFunctionsOffered(run.info) ? `<div class="lrule">
           <label class="lkind" for="rule-${wmEscape(key)}">Shown as</label>
-          <select id="rule-${wmEscape(key)}" data-act="renderingRule" data-layer="${wmEscape(key)}" data-focus="rule:${wmEscape(key)}">
-            ${[["", `As the service draws it${run.info.defaultRasterFunction ? ` (${wmFunctionLabel(run.info.defaultRasterFunction)})` : ""}`],
-              ["None", "Its values"], ["Hillshade", "Hillshade"], ["Slope", "Slope (degrees)"], ["Aspect", "Aspect (direction)"]].map(([v, n]) =>
+          <select id="rule-${wmEscape(key)}" data-act="renderingRule" data-layer="${wmEscape(key)}" data-focus="rule:${wmEscape(key)}"
+            aria-label="Shown as, ${wmEscape(title)}">
+            ${[["", `Service default${run.info.defaultRasterFunction ? ` (${wmFunctionLabel(run.info.defaultRasterFunction)})` : ""}`],
+              ["None", "Raw values (no function)"], ...wmFunctionOptions(run.info)].map(([v, n]) =>
               `<option value="${v}"${((layer.renderingRule || {}).rasterFunction || "") === v ? " selected" : ""}>${wmEscape(n)}</option>`).join("")}
           </select>
+          ${wmRuleArgsMarkup(layer, key, run.info)}
           ${wmFunctionKey(wmShownFunction(layer, run.info))}</div>` : ""}
         ${readable && kind === "imagery" && run.classLegend && run.classLegend.length && !layer.renderingRule ? `<ul class="lslegend">${
           run.classLegend.slice(0, 8).map(row => `<li><img class="swatch" alt="" src="data:${wmEscape(row.contentType || "image/png")};base64,${wmEscape(row.imageData || "")}">${wmEscape(row.label || "")}</li>`).join("")}
@@ -1682,19 +1684,46 @@ wm$("layerList").addEventListener("change", event => {
   const t = event.target;
 
   // ADR-136: an imagery layer shown through a raster function — the Web Map's own `renderingRule`.
+  // ADR-158: a band function's argument changed — the rule rebuilt and the layer drawn again.
+  if (t.dataset && t.dataset.act === "ruleArg") {
+    const layer = wmLayerById(t.dataset.layer);
+    if (!layer || !layer.renderingRule) return;
+    const args = { ...(layer.renderingRule.rasterFunctionArguments || {}) };
+    if (layer.renderingRule.rasterFunction === "ExtractBand") {
+      const ids = [...(args.BandIDs || [0, 1, 2])];
+      ids[{ R: 0, G: 1, B: 2 }[t.dataset.arg]] = Number(t.value);
+      args.BandIDs = ids;
+    } else if (t.dataset.arg === "BandIndexes") {
+      args.BandIndexes = t.value.trim();
+    } else {
+      args[t.dataset.arg] = Number(t.value);
+    }
+    if (args.VisibleBandID != null && args.VisibleBandID === args.InfraredBandID) {
+      // The select put back to the band still drawn, so what is shown is what the map uses.
+      t.value = String(layer.renderingRule.rasterFunctionArguments[t.dataset.arg]);
+      wmSayIn("layersStatus", "Not applied: choose two different bands for red and infrared.", true);
+      return;
+    }
+    wmApplyRuleArgs(layer, args);
+    return;
+  }
+
   if (t.dataset && t.dataset.act === "renderingRule") {
     const layer = wmLayerById(t.dataset.layer);
     const run = layer && wmRuntime.get(layer);
     if (!layer) return;
-    if (t.value) layer.renderingRule = { rasterFunction: t.value };
+    // ADR-158: a band function starts with its arguments — false colour, NDVI's red and near infrared, an expression.
+    const defaults = wmRuleDefaults(t.value, ((run && run.info) || {}).bandCount || 1);
+    if (t.value) layer.renderingRule = defaults ? { rasterFunction: t.value, rasterFunctionArguments: defaults } : { rasterFunction: t.value };
     else delete layer.renderingRule;
     const source = run && run.ol && run.ol.getSource && run.ol.getSource();
     if (source && source.updateParams) source.updateParams({ RENDERINGRULE: layer.renderingRule ? JSON.stringify(layer.renderingRule) : undefined });
     wmMarkDirty();
     wmDrawLayerList();
-    wmSayIn("layersStatus", t.value === "None" ? `${layer.title} is shown as its values.`
-      : t.value ? `${layer.title} is shown as its ${wmFunctionLabel(t.value).toLowerCase()}.`
-      : `${layer.title} is back to the service's own drawing.`);
+    if (run) { run.ruleError = null; run.ruleDraft = undefined; }
+    wmSayIn("layersStatus", t.value === "None" ? `${layer.title} is shown as its raw values.`
+      : t.value ? `${layer.title} is shown as ${t.value === "NDVI" ? "NDVI" : wmFunctionLabel(t.value).toLowerCase()}.`
+      : `${layer.title} is back to the service default.`);
     return;
   }
 
@@ -4006,13 +4035,98 @@ wm$("identify").addEventListener("submit", event => {
 
 /** Whether an image service may be shown through a raster function: one it declares, on one band of measurements. */
 function wmFunctionsOffered(info) {
-  return !!(info && info.allowRasterFunction && (info.bandCount || 1) < 3 && info.pixelType !== "U8"
-    && (info.rasterFunctionInfos || []).some(f => f.name === "Slope"));
+  return wmFunctionOptions(info).length > 0;
+}
+
+/**
+ * The functions a layer may be shown through: the surface three on one band of measurements (ADR-136), the band
+ * functions on an image of several (ADR-151, ADR-158) — band combination from three bands, NDVI from four.
+ */
+function wmFunctionOptions(info) {
+  if (!info || !info.allowRasterFunction) return [];
+  const names = new Set((info.rasterFunctionInfos || []).map(f => f.name));
+  const bands = info.bandCount || 1;
+  const options = [];
+  if (bands < 3 && info.pixelType !== "U8" && names.has("Slope")) {
+    options.push(["Hillshade", "Hillshade"], ["Slope", "Slope (degrees)"], ["Aspect", "Aspect (direction)"]);
+  }
+  if (bands >= 3 && names.has("ExtractBand")) options.push(["ExtractBand", "Band combination"]);
+  if (bands >= 4 && names.has("NDVI")) options.push(["NDVI", "NDVI"]);
+  if (bands >= 2 && names.has("BandArithmetic")) options.push(["BandArithmetic", "Band arithmetic"]);
+  return options;
+}
+
+/** A band function's arguments as first chosen: false colour, NDVI from red and near infrared, its expression. */
+function wmRuleDefaults(fn, bands) {
+  if (fn === "ExtractBand") return { BandIDs: bands >= 4 ? [3, 2, 1] : [0, 1, 2] };
+  if (fn === "NDVI") return { VisibleBandID: bands >= 4 ? 2 : 0, InfraredBandID: bands >= 4 ? 3 : 1, Scientific: true };
+  if (fn === "BandArithmetic") return { Method: 0, BandIndexes: bands >= 4 ? "(B4 - B3) / (B4 + B3)" : "(B2 - B1) / (B2 + B1)" };
+  return null;
+}
+
+/**
+ * A band function's arguments applied — after the service has read them, so an expression it cannot read is said
+ * beside the input, with the draft kept, rather than drawn as a broken picture (ux review, ADR-158).
+ */
+async function wmApplyRuleArgs(layer, args) {
+  const run = wmRuntime.get(layer);
+  const rule = { ...layer.renderingRule, rasterFunctionArguments: args };
+  try {
+    await wmFetch(`${layer.url}/exportImage?` + wmParams({ f: "json", size: "1,1", renderingRule: JSON.stringify(rule) }));
+  } catch (e) {
+    if (run) {
+      run.ruleError = `Not applied: ${e.message}`;
+      run.ruleDraft = args.BandIndexes;
+    }
+    wmDrawLayerList();
+    wmSayIn("layersStatus", `The expression on ${layer.title} was not applied.`, true);
+    return;
+  }
+  const hadError = run && run.ruleError;
+  if (run) { run.ruleError = null; run.ruleDraft = undefined; }
+  layer.renderingRule = rule;
+  const source = run && run.ol && run.ol.getSource && run.ol.getSource();
+  if (source && source.updateParams) source.updateParams({ RENDERINGRULE: JSON.stringify(rule) });
+  wmMarkDirty();
+  if (hadError) wmDrawLayerList();
+  wmSayIn("layersStatus", rule.rasterFunction === "BandArithmetic"
+    ? `${layer.title} is drawn as ${args.BandIndexes}.`
+    : `${layer.title} is drawn again with the bands chosen.`);
+}
+
+/** A band function's controls under the layer's Shown as, each sending its change as `ruleArg`. */
+function wmRuleArgsMarkup(layer, key, info) {
+  const rule = layer.renderingRule || {};
+  const args = rule.rasterFunctionArguments || {};
+  const bands = info.bandCount || 1;
+  const run = wmRuntime.get(layer) || {};
+  const title = wmEscape(layer.title || "");
+  const pick = (name, label, selected) => `<label class="lkind">${label}<select data-act="ruleArg" data-arg="${name}" data-layer="${wmEscape(key)}"
+      data-focus="ruleArg:${name}:${wmEscape(key)}" aria-label="${label} of ${title}">${Array.from({ length: bands }, (_, i) =>
+        `<option value="${i}"${i === selected ? " selected" : ""}>Band ${i + 1}</option>`).join("")}</select></label>`;
+  if (rule.rasterFunction === "ExtractBand") {
+    const ids = args.BandIDs || [0, 1, 2];
+    return `<div class="ruleargs">${pick("R", "Red", ids[0])}${pick("G", "Green", ids[1])}${pick("B", "Blue", ids[2])}</div>`;
+  }
+  if (rule.rasterFunction === "NDVI") {
+    return `<div class="ruleargs">${pick("VisibleBandID", "Red band", args.VisibleBandID ?? 0)}${pick("InfraredBandID", "Infrared band", args.InfraredBandID ?? 1)}</div>`;
+  }
+  if (rule.rasterFunction === "BandArithmetic") {
+    const error = run.ruleError;
+    return `<div class="ruleargs"><label class="lkind">Expression <input type="text" data-act="ruleArg" data-arg="BandIndexes"
+      data-layer="${wmEscape(key)}" data-focus="ruleArg:BandIndexes:${wmEscape(key)}" spellcheck="false" aria-label="Expression of ${title}"
+      value="${wmEscape(run.ruleDraft ?? args.BandIndexes ?? "")}"${error ? ` aria-invalid="true"` : ""}
+      aria-describedby="ruleArgHint-${wmEscape(key)}${error ? ` ruleArgError-${wmEscape(key)}` : ""}"></label>
+      <span class="lkind" id="ruleArgHint-${wmEscape(key)}">Use B1–B${bands} with + − * / and ( ). Example: (B${Math.min(4, bands)} − B${Math.min(3, bands - 1) || 1}) / (B${Math.min(4, bands)} + B${Math.min(3, bands - 1) || 1})</span>
+      ${error ? `<span class="lkind bad" id="ruleArgError-${wmEscape(key)}">${wmEscape(error)}</span>` : ""}</div>`;
+  }
+  return "";
 }
 
 /** A function's name as the viewer says it. */
 function wmFunctionLabel(name) {
-  return ({ Hillshade: "Hillshade", Slope: "Slope", Aspect: "Aspect", None: "Value" })[name] || name;
+  return ({ Hillshade: "Hillshade", Slope: "Slope", Aspect: "Aspect", None: "Value", ExtractBand: "Band combination",
+    BandArithmetic: "Band arithmetic", NDVI: "NDVI" })[name] || name;
 }
 
 /** What a layer is drawn through now: its own rule, else the service's default, else none. */

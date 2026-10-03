@@ -30,6 +30,8 @@ internal static partial class ImageServerEndpoints
         new { name = "Name", type = "esriFieldTypeString", alias = "Name", length = 200 },
         new { name = "AcquisitionDate", type = "esriFieldTypeDate", alias = "Acquisition Date", length = 8 },
         new { name = "ZOrder", type = "esriFieldTypeInteger", alias = "ZOrder" },
+        new { name = "Variable", type = "esriFieldTypeString", alias = "Variable", length = 100 },
+        new { name = "Dimensions", type = "esriFieldTypeString", alias = "Dimensions", length = 200 },
         new { name = "LowPS", type = "esriFieldTypeDouble", alias = "LowPS" },
         new { name = "CenterX", type = "esriFieldTypeDouble", alias = "CenterX" },
         new { name = "CenterY", type = "esriFieldTypeDouble", alias = "CenterY" },
@@ -42,6 +44,8 @@ internal static partial class ImageServerEndpoints
         ["Name"] = FieldType.Text,
         ["AcquisitionDate"] = FieldType.Date,
         ["ZOrder"] = FieldType.Integer,
+        ["Variable"] = FieldType.Text,
+        ["Dimensions"] = FieldType.Text,
         ["LowPS"] = FieldType.Double,
         ["CenterX"] = FieldType.Double,
         ["CenterY"] = FieldType.Double,
@@ -74,7 +78,7 @@ internal static partial class ImageServerEndpoints
         double pixel = info.Extent.Width / info.Width;
 
         return [.. placed.Select((p, position) => recorded.TryGetValue(Path.GetFileName(p.Path), out CoverageImageEntry? entry)
-            ? new CatalogImage(entry.Id, entry.Name, p.Extent, pixel, entry.Acquired, position)
+            ? new CatalogImage(entry.Id, entry.Name, p.Extent, pixel, entry.Acquired, position, entry.Variable, entry.Dimensions)
             : new CatalogImage(position + 1, UnrecordedName(p.Path, position + 1), p.Extent, pixel, null, position))];
     }
 
@@ -112,7 +116,77 @@ internal static partial class ImageServerEndpoints
 
     /// <summary>The catalog as it is stored, from the rows, for writing back after a change.</summary>
     internal static List<CoverageImageEntry> Entries(PublishedCoverage coverage, IReadOnlyList<CatalogImage> images, IReadOnlyList<string> files) =>
-        [.. images.Select(i => new CoverageImageEntry(i.Id, Path.GetFileName(files[i.Position]), i.Name, i.Acquired))];
+        [.. images.Select(i => new CoverageImageEntry(i.Id, Path.GetFileName(files[i.Position]), i.Name, i.Acquired, i.Variable, i.Dimensions))];
+
+    /// <summary>Whether a service's images are slices of variables — a multidimensional file's, ADR-159.</summary>
+    internal static bool IsMultidimensional(PublishedCoverage coverage) => (coverage.Images ?? []).Any(i => i.Variable is not null);
+
+    /// <summary>An image's dimensions as the catalog's text field shows them: <c>depth=100</c>, and so on.</summary>
+    private static string? DimensionsText(CatalogImage image) => image.Dimensions is { Count: > 0 } d
+        ? string.Join("; ", d.Select(p => string.Create(CultureInfo.InvariantCulture, $"{p.Key}={p.Value:G10}")))
+        : null;
+
+    /// <summary>
+    /// ArcGIS's <c>multidimensionalInfo</c>: each variable with its dimensions — <c>StdTime</c> in milliseconds since
+    /// 1970, the others as the file numbered them — and every value each takes. ADR-159.
+    /// </summary>
+    private static async Task MultidimensionalInfoAsync(
+        HttpContext context, string serviceName, ICoverageCatalog coverages, ICoverageReaderFactory readers, CancellationToken cancellation)
+    {
+        if (await FindAsync(context, serviceName, coverages, cancellation).ConfigureAwait(false) is not { } coverage)
+        {
+            return;
+        }
+
+        if (!IsMultidimensional(coverage))
+        {
+            await RefuseAsync(context, 400, "This image service is not multidimensional: its images are not slices of "
+                + "variables. A NetCDF with variables over time or depth, uploaded, becomes one.").ConfigureAwait(false);
+            return;
+        }
+
+        List<CatalogImage> images = await CatalogAsync(coverage, readers, cancellation).ConfigureAwait(false);
+        var variables = images.Where(i => i.Variable is not null).GroupBy(i => i.Variable!, StringComparer.Ordinal).Select(g =>
+        {
+            List<object> dimensions = [];
+            long[] times = [.. g.Where(i => i.Acquired is not null).Select(i => i.Acquired!.Value.ToUnixTimeMilliseconds()).Distinct().Order()];
+
+            if (times.Length > 0)
+            {
+                dimensions.Add(new
+                {
+                    name = DimensionSlice.Time,
+                    description = "time",
+                    unit = "ISO8601",
+                    hasRegularIntervals = false,
+                    hasRanges = false,
+                    extent = new[] { times[0], times[^1] },
+                    values = times,
+                });
+            }
+
+            foreach (string dimension in g.SelectMany(i => i.Dimensions?.Keys ?? Enumerable.Empty<string>()).Distinct(StringComparer.Ordinal))
+            {
+                double[] values = [.. g.Select(i => i.Dimensions is { } d && d.TryGetValue(dimension, out double v) ? v : double.NaN)
+                    .Where(v => !double.IsNaN(v)).Distinct().Order()];
+                dimensions.Add(new
+                {
+                    name = dimension,
+                    description = dimension,
+                    unit = string.Empty,
+                    hasRegularIntervals = false,
+                    hasRanges = false,
+                    extent = new[] { values[0], values[^1] },
+                    values,
+                });
+            }
+
+            return new { name = g.Key, description = g.Key, unit = string.Empty, dimensions };
+        });
+
+        await Microsoft.AspNetCore.Http.Results.Ok(new { multidimensionalInfo = new { variables } })
+            .ExecuteAsync(context).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// The object ids a <c>where</c> keeps — evaluated by the platform store over the rows given to it as JSON, through
@@ -139,6 +213,8 @@ internal static partial class ImageServerEndpoints
             ["Name"] = i.Name,
             ["AcquisitionDate"] = i.Acquired,
             ["ZOrder"] = i.Position,
+            ["Variable"] = i.Variable,
+            ["Dimensions"] = DimensionsText(i),
             ["LowPS"] = i.PixelSize,
             ["CenterX"] = (i.Extent.MinX + i.Extent.MaxX) / 2,
             ["CenterY"] = (i.Extent.MinY + i.Extent.MaxY) / 2,
@@ -150,6 +226,7 @@ internal static partial class ImageServerEndpoints
                 $"""
                 select "OBJECTID" from jsonb_to_recordset(@catalog_rows::jsonb)
                     as t("OBJECTID" integer, "Name" text, "AcquisitionDate" timestamptz, "ZOrder" integer,
+                         "Variable" text, "Dimensions" text,
                          "LowPS" double precision, "CenterX" double precision, "CenterY" double precision,
                          "Shape_Area" double precision)
                  where {parsed.Sql}
@@ -236,12 +313,31 @@ internal static partial class ImageServerEndpoints
             return (readers, error);
         }
 
-        if (rule is null && window is null)
+        bool multidimensional = IsMultidimensional(coverage);
+
+        if (rule?.Multidimensional is not null && !multidimensional)
+        {
+            return (readers, "`mosaicRule`'s multidimensionalDefinition chooses among variables and dimensions, and this "
+                + "image service's images have none.");
+        }
+
+        // ADR-159: a multidimensional service always draws one slice — the one asked for, or its first.
+        if (rule is null && window is null && !multidimensional)
         {
             return (readers, null);
         }
 
         List<CatalogImage> images = await CatalogAsync(coverage, readers, cancellation).ConfigureAwait(false);
+
+        if (multidimensional)
+        {
+            images = DimensionSlice.Slice(images, rule?.Multidimensional, out error);
+
+            if (error is not null)
+            {
+                return (readers, error);
+            }
+        }
 
         // A service whose images say no time has none: `time` is refused, as before ADR-153, saying how to give it one.
         if (window is not null && images.All(i => i.Acquired is null))
@@ -273,11 +369,11 @@ internal static partial class ImageServerEndpoints
             ? new MosaicRule { Method = MosaicMethod.Attribute, SortField = "AcquisitionDate", SortValue = at.To.ToString(CultureInfo.InvariantCulture) }
             : new MosaicRule { FirstOnTop = false };
 
-        return (new ArrangedReaders(readers, coverage.Path, rule.DrawingOrder(images, view)), null);
+        return (new ArrangedReaders(readers, coverage.Path, rule.DrawingOrder(images, view), rule.Operation), null);
     }
 
     /// <summary>A coverage's reader with its mosaic's images drawn in an order, or none of them — ADR-152.</summary>
-    private sealed class ArrangedReaders(ICoverageReaderFactory inner, string path, IReadOnlyList<int> order) : ICoverageReaderFactory
+    private sealed class ArrangedReaders(ICoverageReaderFactory inner, string path, IReadOnlyList<int> order, MosaicOperation operation) : ICoverageReaderFactory
     {
         public async Task<ICoverageReader> OpenAsync(string opened, CancellationToken cancellationToken)
         {
@@ -290,7 +386,7 @@ internal static partial class ImageServerEndpoints
 
             if (reader is Graticula.Raster.Tiff.VrtMosaicReader mosaic)
             {
-                Graticula.Raster.Tiff.VrtMosaicReader arranged = mosaic.Arranged(order);
+                Graticula.Raster.Tiff.VrtMosaicReader arranged = mosaic.Arranged(order, operation);
                 mosaic.Dispose();
                 return arranged;
             }
@@ -409,6 +505,8 @@ internal static partial class ImageServerEndpoints
                 ["Name"] = i.Name,
                 ["AcquisitionDate"] = i.Acquired?.ToUnixTimeMilliseconds(),
                 ["ZOrder"] = i.Position,
+                ["Variable"] = i.Variable,
+                ["Dimensions"] = DimensionsText(i),
                 ["LowPS"] = i.PixelSize,
                 ["CenterX"] = (i.Extent.MinX + i.Extent.MaxX) / 2,
                 ["CenterY"] = (i.Extent.MinY + i.Extent.MaxY) / 2,

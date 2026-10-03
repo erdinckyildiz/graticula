@@ -12,6 +12,9 @@
 
 > **Amended 2026-10-03 by [ADR-157](ADR-157-imagery-in-other-formats-is-written-as-geotiff.md).** A NetCDF of time steps is uploaded as a dated image a step, so its time comes from its file.
 
+
+> **Amended 2026-10-03 by [ADR-159](ADR-159-a-multidimensional-file-is-a-service-of-slices.md).** Multidimensional imagery is served: variables and dimensions besides time, chosen by `multidimensionalDefinition`.
+
 ---
 
 ## 1. Context

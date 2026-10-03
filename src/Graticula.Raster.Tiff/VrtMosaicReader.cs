@@ -36,11 +36,13 @@ public sealed class VrtMosaicReader : ICoverageReader
 {
     private readonly List<Source> _sources;
     private readonly Dictionary<int, TiffCoverageReader> _open = [];
+    private readonly MosaicOperation _operation;
 
-    private VrtMosaicReader(CoverageInfo info, List<Source> sources)
+    private VrtMosaicReader(CoverageInfo info, List<Source> sources, MosaicOperation operation = MosaicOperation.Top)
     {
         Info = info;
         _sources = sources;
+        _operation = operation;
     }
 
     /// <inheritdoc/>
@@ -67,10 +69,19 @@ public sealed class VrtMosaicReader : ICoverageReader
     /// </summary>
     /// <param name="order">Positions in <see cref="Files"/>, in drawing order.</param>
     /// <returns>A reader of its own, to be disposed.</returns>
-    public VrtMosaicReader Arranged(IReadOnlyList<int> order)
+    public VrtMosaicReader Arranged(IReadOnlyList<int> order) => Arranged(order, MosaicOperation.Top);
+
+    /// <summary>
+    /// As <see cref="Arranged(IReadOnlyList{int})"/>, the pixels several files cover combined — ADR-158, ArcGIS's
+    /// MT_MIN, MT_MAX, MT_MEAN, MT_BLEND and MT_SUM — rather than the last drawn over the others.
+    /// </summary>
+    /// <param name="order">Positions in <see cref="Files"/>, in drawing order.</param>
+    /// <param name="operation">What becomes of a pixel several files cover.</param>
+    /// <returns>A reader of its own, to be disposed.</returns>
+    public VrtMosaicReader Arranged(IReadOnlyList<int> order, MosaicOperation operation)
     {
         ArgumentNullException.ThrowIfNull(order);
-        return new VrtMosaicReader(Info, [.. order.Where(i => i >= 0 && i < _sources.Count).Select(i => _sources[i])]);
+        return new VrtMosaicReader(Info, [.. order.Where(i => i >= 0 && i < _sources.Count).Select(i => _sources[i])], operation);
     }
 
     /// <summary>
@@ -497,6 +508,13 @@ public sealed class VrtMosaicReader : ICoverageReader
 
         int factor = 1 << overview;
 
+        // ADR-158: combining keeps, per pixel and band, a running total, a weight, a least and a most.
+        bool combining = _operation != MosaicOperation.Top;
+        double[]? total = combining ? new double[samples.Length] : null;
+        double[]? weight = combining ? new double[width * height] : null;
+        double[]? least = combining ? Enumerable.Repeat(double.MaxValue, samples.Length).ToArray() : null;
+        double[]? most = combining ? Enumerable.Repeat(double.MinValue, samples.Length).ToArray() : null;
+
         for (int index = 0; index < _sources.Count; index++)
         {
             Source source = _sources[index];
@@ -530,7 +548,56 @@ public sealed class VrtMosaicReader : ICoverageReader
                         continue;
                     }
 
-                    Array.Copy(part.Samples, from, samples, ((((fromY - y) + row) * width) + (fromX - x) + column) * bands, bands);
+                    int pixel = (((fromY - y) + row) * width) + (fromX - x) + column;
+
+                    if (!combining)
+                    {
+                        Array.Copy(part.Samples, from, samples, pixel * bands, bands);
+                        continue;
+                    }
+
+                    // Blend weighs a pixel by how far inside its own image it is, so an edge counts for little.
+                    double w = 1;
+
+                    if (_operation == MosaicOperation.Blend)
+                    {
+                        int sx = (fromX - left) + column, sy = (fromY - top) + row;
+                        int inside = Math.Min(Math.Min(sx, sourceWidth - 1 - sx), Math.Min(sy, sourceHeight - 1 - sy));
+                        w = Math.Min(inside + 1, 64);
+                    }
+
+                    weight![pixel] += w;
+
+                    for (int b = 0; b < bands; b++)
+                    {
+                        double v = part.Samples[from + b];
+                        total![(pixel * bands) + b] += v * w;
+                        least![(pixel * bands) + b] = Math.Min(least[(pixel * bands) + b], v);
+                        most![(pixel * bands) + b] = Math.Max(most[(pixel * bands) + b], v);
+                    }
+                }
+            }
+        }
+
+        if (combining)
+        {
+            for (int pixel = 0; pixel < weight!.Length; pixel++)
+            {
+                if (weight[pixel] == 0)
+                {
+                    continue;
+                }
+
+                for (int b = 0; b < bands; b++)
+                {
+                    int at = (pixel * bands) + b;
+                    samples[at] = _operation switch
+                    {
+                        MosaicOperation.Minimum => least![at],
+                        MosaicOperation.Maximum => most![at],
+                        MosaicOperation.Sum => total![at],
+                        _ => total![at] / weight[pixel],
+                    };
                 }
             }
         }

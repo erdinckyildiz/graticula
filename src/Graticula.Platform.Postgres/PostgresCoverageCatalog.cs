@@ -242,7 +242,7 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
         command.Parameters.AddWithValue("images", System.Text.Json.JsonSerializer.Serialize(new
         {
             next,
-            images = images.Select(i => new { id = i.Id, file = i.File, name = i.Name, acquired = i.Acquired }),
+            images = images.Select(i => new { id = i.Id, file = i.File, name = i.Name, acquired = i.Acquired, variable = i.Variable, dimensions = i.Dimensions }),
         }));
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
@@ -305,7 +305,11 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
                 image.GetProperty("file").GetString() ?? string.Empty,
                 image.GetProperty("name").GetString() ?? string.Empty,
                 image.TryGetProperty("acquired", out System.Text.Json.JsonElement when) && when.ValueKind == System.Text.Json.JsonValueKind.String
-                    ? when.GetDateTimeOffset() : null));
+                    ? when.GetDateTimeOffset() : null,
+                image.TryGetProperty("variable", out System.Text.Json.JsonElement variable) && variable.ValueKind == System.Text.Json.JsonValueKind.String
+                    ? variable.GetString() : null,
+                image.TryGetProperty("dimensions", out System.Text.Json.JsonElement dimensions) && dimensions.ValueKind == System.Text.Json.JsonValueKind.Object
+                    ? dimensions.EnumerateObject().ToDictionary(d => d.Name, d => d.Value.GetDouble(), StringComparer.Ordinal) : null));
         }
 
         return images;

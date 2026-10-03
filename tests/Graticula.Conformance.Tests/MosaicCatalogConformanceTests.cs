@@ -129,15 +129,32 @@ public sealed class MosaicCatalogConformanceTests : ArcGisClient
 
             // The last added is on top by default; a rule chooses otherwise.
             Assert.Equal("200", await ValueAsync(root, token!, service));
+
+            // ADR-158: raised, the first is on top; lowered again, it is not — and both keep their ids.
+            (HttpStatusCode raised, JsonElement raisedBody) = await SendAsync(root, token!, HttpMethod.Post,
+                $"/admin/coverages/{name}/images/1/move?folder=hosted",
+                new StringContent("""{"direction":"up"}""", System.Text.Encoding.UTF8, "application/json"));
+            Assert.True(raised == HttpStatusCode.OK, raisedBody.ToString());
+            Assert.Equal("100", await ValueAsync(root, token!, service));
+            await SendAsync(root, token!, HttpMethod.Post, $"/admin/coverages/{name}/images/1/move?folder=hosted",
+                new StringContent("""{"direction":"down"}""", System.Text.Encoding.UTF8, "application/json"));
+            Assert.Equal("200", await ValueAsync(root, token!, service));
             Assert.Equal("100", await ValueAsync(root, token!, service, Rule("""{"mosaicMethod":"esriMosaicLockRaster","lockRasterIds":[1]}""")));
             Assert.Equal("100", await ValueAsync(root, token!, service, Rule("""{"mosaicMethod":"esriMosaicNone","mosaicOperation":"MT_FIRST"}""")));
             Assert.Equal("200", await ValueAsync(root, token!, service, Rule("""{"mosaicMethod":"esriMosaicNone","where":"OBJECTID = 2"}""")));
             Assert.Equal("NoData", await ValueAsync(root, token!, service, Rule("""{"mosaicMethod":"esriMosaicNone","fids":[9]}""")));
 
-            // Refused in ArcGIS's way, an error document, naming what is drawn instead.
+            // ADR-158: the two images' pixels combined — 100 and 200.
+            Assert.Equal("100", await ValueAsync(root, token!, service, Rule("""{"mosaicOperation":"MT_MIN"}""")));
+            Assert.Equal("200", await ValueAsync(root, token!, service, Rule("""{"mosaicOperation":"MT_MAX"}""")));
+            Assert.Equal("150", await ValueAsync(root, token!, service, Rule("""{"mosaicOperation":"MT_MEAN"}""")));
+            Assert.Equal("300", await ValueAsync(root, token!, service, Rule("""{"mosaicOperation":"MT_SUM"}""")));
+            Assert.Equal("150", await ValueAsync(root, token!, service, Rule("""{"mosaicOperation":"MT_BLEND"}""")));
+
+            // What it does not apply is refused in ArcGIS's way, an error document, naming what it does.
             (_, JsonElement refused) = await SendAsync(root, token!, HttpMethod.Get,
-                $"{service}/identify?geometry={Inside}&geometryType=esriGeometryPoint&f=json{Rule("""{"mosaicOperation":"MT_BLEND"}""")}");
-            Assert.Contains("MT_FIRST", refused.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
+                $"{service}/identify?geometry={Inside}&geometryType=esriGeometryPoint&f=json{Rule("""{"mosaicOperation":"MT_AVERAGE"}""")}");
+            Assert.Contains("MT_MEAN", refused.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
 
             // ADR-153: an image dated by ArcGIS's update gives the service time, and time chooses it.
             long june = new DateTimeOffset(2024, 6, 1, 0, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds();

@@ -16,8 +16,12 @@ namespace Graticula.Host;
 /// </summary>
 internal static partial class CoverageAdminEndpoints
 {
-    /// <summary>An image received: where it is now, as a GeoTIFF, what to call it, and when it was taken, if its file said.</summary>
-    internal sealed record Arrived(string Path, string Name, DateTimeOffset? Acquired);
+    /// <summary>
+    /// An image received: where it is now, as a GeoTIFF, what to call it, when it was taken, if its file said, and — from a
+    /// multidimensional file — its variable and its values along the other dimensions (ADR-159).
+    /// </summary>
+    internal sealed record Arrived(
+        string Path, string Name, DateTimeOffset? Acquired, string? Variable = null, IReadOnlyDictionary<string, double>? Dimensions = null);
 
     /// <summary>Formats GDAL writes as GeoTIFFs on the way in — the open drivers this build carries (ADR-157).</summary>
     private static readonly Dictionary<string, string> Translated = new(StringComparer.OrdinalIgnoreCase)
@@ -112,7 +116,11 @@ internal static partial class CoverageAdminEndpoints
                 written.Add(path);
                 DateTimeOffset? acquired = image.TryGetProperty("acquired", out JsonElement when) && when.ValueKind == JsonValueKind.String
                     ? when.GetDateTimeOffset() : null;
-                arrived.Add(new Arrived(path, image.GetProperty("name").GetString() ?? named, acquired));
+                string? variable = image.TryGetProperty("variable", out JsonElement v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+                Dictionary<string, double>? dimensions = image.TryGetProperty("dimensions", out JsonElement d) && d.ValueKind == JsonValueKind.Object
+                    && d.EnumerateObject().Any()
+                    ? d.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetDouble(), StringComparer.Ordinal) : null;
+                arrived.Add(new Arrived(path, image.GetProperty("name").GetString() ?? named, acquired, variable, dimensions));
             }
         }
 

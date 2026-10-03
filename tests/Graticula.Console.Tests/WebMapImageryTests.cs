@@ -60,6 +60,17 @@ public sealed class WebMapImageryTests : ConsoleTest
                 + " && performance.getEntriesByType('resource').some(e => e.name.includes('/ImageServer/exportImage') && e.name.includes('RENDERINGRULE'))",
                 "Choosing Slope did not ask the image service for its slope, or was not kept in the map.");
 
+            // ADR-158: an image of four bands is offered the band functions, each starting from its arguments.
+            Assert.Equal("ExtractBand,NDVI,BandArithmetic|3,2,1|2,3", await Browser.EvaluateAsync<string>("""
+                (() => {
+                  const info = { allowRasterFunction: true, bandCount: 4, pixelType: 'U16',
+                    rasterFunctionInfos: ['Slope', 'NDVI', 'ExtractBand', 'BandArithmetic'].map(name => ({ name })) };
+                  const ndvi = wmRuleDefaults('NDVI', 4);
+                  return wmFunctionOptions(info).map(o => o[0]).join() + '|' + wmRuleDefaults('ExtractBand', 4).BandIDs.join()
+                    + '|' + ndvi.VisibleBandID + ',' + ndvi.InfraredBandID;
+                })()
+                """));
+
             // Drawn from exportImage, as a PNG so its no-data shows the map beneath.
             await WaitForAsync(
                 "performance.getEntriesByType('resource').some(e => e.name.includes('/ImageServer/exportImage') && e.name.includes('FORMAT=png'))",

@@ -32,6 +32,31 @@ public enum MosaicMethod
     Attribute = 6,
 }
 
+/// <summary>
+/// What becomes of a pixel several images cover — ArcGIS's <c>mosaicOperation</c>, ADR-152 and ADR-158: the one on top,
+/// or the pixels combined.
+/// </summary>
+public enum MosaicOperation
+{
+    /// <summary>The image on top, which the order chooses — MT_FIRST and MT_LAST.</summary>
+    Top = 0,
+
+    /// <summary>The smallest value — MT_MIN.</summary>
+    Minimum = 1,
+
+    /// <summary>The largest value — MT_MAX.</summary>
+    Maximum = 2,
+
+    /// <summary>The mean of the values — MT_MEAN.</summary>
+    Mean = 3,
+
+    /// <summary>A mean weighted toward each image's interior, so seams fade — MT_BLEND.</summary>
+    Blend = 4,
+
+    /// <summary>The sum of the values — MT_SUM.</summary>
+    Sum = 5,
+}
+
 /// <summary>One image of a mosaic as its catalog lists it — ADR-152.</summary>
 /// <param name="Id">Its object id, which stays its own when others are added and removed.</param>
 /// <param name="Name">What it is called: the file it came from.</param>
@@ -39,16 +64,131 @@ public enum MosaicMethod
 /// <param name="PixelSize">Its cell size, in the mosaic's units.</param>
 /// <param name="Acquired">When it was taken, if anyone said (ADR-153).</param>
 /// <param name="Position">Where it is in the mosaic's own order, from zero: later is drawn over earlier.</param>
-public sealed record CatalogImage(int Id, string Name, Envelope Extent, double PixelSize, DateTimeOffset? Acquired, int Position);
+/// <param name="Variable">The variable it is a slice of, in a multidimensional service (ADR-159).</param>
+/// <param name="Dimensions">Its values along the dimensions other than time — a depth, a pressure level (ADR-159).</param>
+public sealed record CatalogImage(
+    int Id,
+    string Name,
+    Envelope Extent,
+    double PixelSize,
+    DateTimeOffset? Acquired,
+    int Position,
+    string? Variable = null,
+    IReadOnlyDictionary<string, double>? Dimensions = null);
+
+/// <summary>
+/// One entry of ArcGIS's <c>multidimensionalDefinition</c>: a variable, a dimension, and the values or ranges of it
+/// wanted — ADR-159. A missing variable applies to every variable; a missing dimension chooses only the variable.
+/// </summary>
+/// <param name="Variable">The variable's name, or null.</param>
+/// <param name="Dimension">The dimension's name — <c>StdTime</c> for time — or null.</param>
+/// <param name="Values">The values wanted, each a range; one value is a range from itself to itself.</param>
+public sealed record DimensionSlice(string? Variable, string? Dimension, IReadOnlyList<(double From, double To)> Values)
+{
+    /// <summary>The name time goes by in a definition, as ArcGIS names it.</summary>
+    public const string Time = "StdTime";
+
+    /// <summary>ArcGIS's name for a vertical dimension, read as a service's one dimension besides time.</summary>
+    public const string Height = "StdZ";
+
+    /// <summary>Whether a value is one of those wanted: within a range, or equal to a value up to rounding.</summary>
+    /// <param name="value">The image's value.</param>
+    /// <returns>Whether it is wanted.</returns>
+    public bool Wants(double value) =>
+        Values.Any(v => value >= v.From - Tolerance(v.From) && value <= v.To + Tolerance(v.To));
+
+    private static double Tolerance(double v) => Math.Max(1, Math.Abs(v)) * 1e-9;
+
+    /// <summary>
+    /// The images a multidimensional service draws for a definition — ADR-159. The variables named, or the first; for
+    /// every dimension other than time, the values named, or its first; for time, the instants named, or every one —
+    /// left to <c>time</c> and to the drawing order, which puts the latest on top, as ADR-153 drew a series before.
+    /// </summary>
+    /// <param name="images">The catalog, in its order.</param>
+    /// <param name="definition">The request's definition, or null.</param>
+    /// <param name="error">Why the definition was refused: a variable or dimension the service does not have.</param>
+    /// <returns>The images kept, in the catalog's order.</returns>
+    public static List<CatalogImage> Slice(
+        IReadOnlyList<CatalogImage> images, IReadOnlyList<DimensionSlice>? definition, out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(images);
+        error = null;
+        definition ??= [];
+
+        List<string> variables = [.. images.Where(i => i.Variable is not null).Select(i => i.Variable!).Distinct(StringComparer.Ordinal)];
+        HashSet<string> named = [.. definition.Where(d => d.Variable is not null).Select(d => d.Variable!)];
+
+        foreach (string wanted in named)
+        {
+            if (!variables.Contains(wanted, StringComparer.Ordinal))
+            {
+                error = $"`multidimensionalDefinition` names the variable '{wanted}', and this image service has "
+                    + $"{string.Join(", ", variables)}.";
+                return [];
+            }
+        }
+
+        HashSet<string> chosen = named.Count > 0 ? named : variables.Count > 0 ? [variables[0]] : [];
+        List<CatalogImage> kept = [.. images.Where(i => i.Variable is null || chosen.Contains(i.Variable))];
+        List<string> dimensionNames = [.. kept.SelectMany(i => i.Dimensions?.Keys ?? Enumerable.Empty<string>()).Distinct(StringComparer.Ordinal)];
+
+        // ArcGIS calls a vertical dimension StdZ; where there is one dimension besides time, StdZ is it.
+        if (dimensionNames.Count == 1 && !dimensionNames.Contains(Height, StringComparer.Ordinal))
+        {
+            definition = [.. definition.Select(d => d.Dimension == Height ? d with { Dimension = dimensionNames[0] } : d)];
+        }
+
+        foreach (DimensionSlice slice in definition.Where(d => d.Dimension is not null))
+        {
+            if (slice.Dimension != Time && !dimensionNames.Contains(slice.Dimension!, StringComparer.Ordinal))
+            {
+                error = $"`multidimensionalDefinition` names the dimension '{slice.Dimension}', and this image service's "
+                    + $"{string.Join(", ", chosen)} has {string.Join(", ", [Time, .. dimensionNames])}.";
+                return [];
+            }
+        }
+
+        foreach (string variable in chosen)
+        {
+            bool Mine(CatalogImage i) => i.Variable == variable;
+            List<DimensionSlice> own = [.. definition.Where(d => d.Dimension is not null && (d.Variable is null || d.Variable == variable))];
+
+            foreach (string dimension in dimensionNames)
+            {
+                DimensionSlice? given = own.FirstOrDefault(d => d.Dimension == dimension);
+
+                // A dimension the definition leaves out is held at its first value, so a pixel has one answer.
+                double? first = kept.Where(Mine)
+                    .Select(i => i.Dimensions is { } d && d.TryGetValue(dimension, out double v) ? v : (double?)null)
+                    .FirstOrDefault(v => v is not null);
+                kept = [.. kept.Where(i => !Mine(i) || i.Dimensions is not { } d || !d.TryGetValue(dimension, out double value)
+                    || (given is not null ? given.Wants(value) : value == first))];
+            }
+
+            DimensionSlice? time = own.FirstOrDefault(d => d.Dimension == Time);
+
+            if (time is not null)
+            {
+                kept = [.. kept.Where(i => !Mine(i) || (i.Acquired is { } at && time.Wants(at.ToUnixTimeMilliseconds())))];
+            }
+        }
+
+        return kept;
+    }
+}
 
 /// <summary>
 /// ArcGIS's <c>mosaicRule</c>: which of a mosaic's images are drawn and which is on top where they overlap — ADR-152.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Ordering, not blending.</b> <c>MT_FIRST</c> (the first in the order on top) and <c>MT_LAST</c> are drawn;
-/// <c>MT_MIN</c>, <c>MT_MAX</c>, <c>MT_MEAN</c>, <c>MT_BLEND</c> and <c>MT_SUM</c> combine overlapping pixels and are
-/// refused by name, as is the seamline method, which needs seamlines this server does not make.
+/// <b>Ordering, and since ADR-158 combining.</b> <c>MT_FIRST</c> (the first in the order on top) and <c>MT_LAST</c>
+/// take one image's pixel; <c>MT_MIN</c>, <c>MT_MAX</c>, <c>MT_MEAN</c>, <c>MT_BLEND</c> and <c>MT_SUM</c> combine
+/// overlapping pixels. The seamline method is refused by name: it needs seamlines this server does not make.
+/// </para>
+/// <para>
+/// <b><c>multidimensionalDefinition</c></b> chooses a multidimensional service's variables and slices — ADR-159,
+/// <see cref="DimensionSlice.Slice"/>.
 /// </para>
 /// <para>
 /// <b><c>where</c> is read here and evaluated by the caller</b>, against the catalog's fields, by the same parser every
@@ -84,8 +224,14 @@ public sealed record MosaicRule
     /// <summary>Whether the first in the order is on top (<c>MT_FIRST</c>) rather than the last.</summary>
     public bool FirstOnTop { get; init; } = true;
 
+    /// <summary>What becomes of a pixel several images cover — ADR-158.</summary>
+    public MosaicOperation Operation { get; init; }
+
     /// <summary>A viewpoint's position, for <see cref="MosaicMethod.Viewpoint"/>.</summary>
     public (double X, double Y)? Viewpoint { get; init; }
+
+    /// <summary>The variables and dimension values a multidimensional service draws — ADR-159 — or null.</summary>
+    public IReadOnlyList<DimensionSlice>? Multidimensional { get; init; }
 
     /// <summary>Reads a <c>mosaicRule</c>; empty and <c>{}</c> are no rule.</summary>
     /// <param name="json">The parameter.</param>
@@ -135,20 +281,33 @@ public sealed record MosaicRule
             }
 
             string operation = Text(root, "mosaicOperation") ?? "MT_FIRST";
-            bool first = operation.Equals("MT_FIRST", StringComparison.OrdinalIgnoreCase);
+            bool first = !operation.Equals("MT_LAST", StringComparison.OrdinalIgnoreCase);
 
-            if (!first && !operation.Equals("MT_LAST", StringComparison.OrdinalIgnoreCase))
+            // ADR-158: the pixels several images cover may be combined rather than one taken.
+            MosaicOperation? combined = operation.ToUpperInvariant() switch
             {
-                error = $"`mosaicRule`'s mosaicOperation '{operation}' combines overlapping pixels, and this server draws "
-                    + "one image over another: MT_FIRST puts the first in the order on top, MT_LAST the last.";
+                "MT_FIRST" or "MT_LAST" => MosaicOperation.Top,
+                "MT_MIN" => MosaicOperation.Minimum,
+                "MT_MAX" => MosaicOperation.Maximum,
+                "MT_MEAN" => MosaicOperation.Mean,
+                "MT_BLEND" => MosaicOperation.Blend,
+                "MT_SUM" => MosaicOperation.Sum,
+                _ => null,
+            };
+
+            if (combined is null)
+            {
+                error = $"`mosaicRule`'s mosaicOperation '{operation}' is not one this server applies: it applies MT_FIRST, "
+                    + "MT_LAST, MT_MIN, MT_MAX, MT_MEAN, MT_BLEND and MT_SUM.";
                 return false;
             }
 
+            List<DimensionSlice>? slices = null;
+
             if (root.TryGetProperty("multidimensionalDefinition", out JsonElement dimensions)
-                && dimensions.ValueKind == JsonValueKind.Array && dimensions.GetArrayLength() > 0)
+                && dimensions.ValueKind == JsonValueKind.Array && dimensions.GetArrayLength() > 0
+                && !TrySlices(dimensions, out slices, out error))
             {
-                error = "`mosaicRule`'s multidimensionalDefinition chooses among variables and dimensions, and this image "
-                    + "service's images have none.";
                 return false;
             }
 
@@ -187,7 +346,9 @@ public sealed record MosaicRule
                     ? value.ToString() : null,
                 Ascending = !root.TryGetProperty("ascending", out JsonElement ascending) || ascending.ValueKind != JsonValueKind.False,
                 FirstOnTop = first,
+                Operation = combined.Value,
                 Viewpoint = viewpoint,
+                Multidimensional = slices is { Count: > 0 } ? slices : null,
             };
 
             return true;
@@ -294,6 +455,61 @@ public sealed record MosaicRule
             : DateTimeOffset.TryParse(text.Replace('/', '-'), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTimeOffset when)
                 ? when.ToUnixTimeMilliseconds()
                 : 0;
+
+    /// <summary>
+    /// ArcGIS's <c>multidimensionalDefinition</c>: objects naming a <c>variableName</c>, a <c>dimensionName</c> and its
+    /// <c>values</c> — numbers, or two-number arrays for ranges; time in milliseconds since 1970 — ADR-159.
+    /// </summary>
+    private static bool TrySlices(JsonElement list, out List<DimensionSlice>? slices, out string? error)
+    {
+        slices = [];
+        error = null;
+
+        foreach (JsonElement item in list.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                error = "`multidimensionalDefinition` is a list of objects, each naming a variableName, a dimensionName and values.";
+                return false;
+            }
+
+            List<(double, double)> values = [];
+
+            if (item.TryGetProperty("values", out JsonElement given) && given.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement value in given.EnumerateArray())
+                {
+                    if (value.ValueKind == JsonValueKind.Number)
+                    {
+                        values.Add((value.GetDouble(), value.GetDouble()));
+                    }
+                    else if (value.ValueKind == JsonValueKind.Array && value.GetArrayLength() == 2
+                        && value[0].ValueKind == JsonValueKind.Number && value[1].ValueKind == JsonValueKind.Number)
+                    {
+                        double a = value[0].GetDouble(), b = value[1].GetDouble();
+                        values.Add((Math.Min(a, b), Math.Max(a, b)));
+                    }
+                    else
+                    {
+                        error = $"`multidimensionalDefinition`'s values are numbers, or [from, to] for a range; {value} is neither.";
+                        return false;
+                    }
+                }
+            }
+
+            string? dimension = Text(item, "dimensionName") is { Length: > 0 } d ? d : null;
+
+            if (dimension is not null && values.Count == 0)
+            {
+                error = $"`multidimensionalDefinition` names the dimension '{dimension}' and no values of it.";
+                return false;
+            }
+
+            slices.Add(new DimensionSlice(Text(item, "variableName") is { Length: > 0 } v ? v : null, dimension, values));
+        }
+
+        return true;
+    }
 
     private static string? Text(JsonElement root, string name) =>
         root.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

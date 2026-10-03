@@ -510,8 +510,9 @@ internal static partial class CoverageAdminEndpoints
             int next = Math.Max(coverage.NextImageId ?? 1, before.Count == 0 ? 1 : before.Max(i => i.Id) + 1);
             List<CoverageImageEntry> catalog =
             [
-                .. before.Select(i => new CoverageImageEntry(i.Id, Path.GetFileName(existing[i.Position]), i.Name, i.Acquired)),
-                .. working.Skip(firstNew).Select((file, k) => new CoverageImageEntry(next + k, Path.GetFileName(file), arrived[k].Name, arrived[k].Acquired)),
+                .. before.Select(i => new CoverageImageEntry(i.Id, Path.GetFileName(existing[i.Position]), i.Name, i.Acquired, i.Variable, i.Dimensions)),
+                .. working.Skip(firstNew).Select((file, k) => new CoverageImageEntry(
+                    next + k, Path.GetFileName(file), arrived[k].Name, arrived[k].Acquired, arrived[k].Variable, arrived[k].Dimensions)),
             ];
 
             using ICoverageReader grown = await readers.OpenAsync(written, cancellation).ConfigureAwait(false);
@@ -801,7 +802,8 @@ internal static partial class CoverageAdminEndpoints
             info = infos[0];
 
             // ADR-152: the catalog names each image by the file it was sent as.
-            catalog = [.. kept.Select((file, i) => new CoverageImageEntry(i + 1, Path.GetFileName(file), arrived[i].Name, arrived[i].Acquired))];
+            catalog = [.. kept.Select((file, i) => new CoverageImageEntry(
+                i + 1, Path.GetFileName(file), arrived[i].Name, arrived[i].Acquired, arrived[i].Variable, arrived[i].Dimensions))];
 
             if (kept.Count > 1)
             {

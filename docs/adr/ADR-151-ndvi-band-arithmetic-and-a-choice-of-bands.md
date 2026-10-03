@@ -12,6 +12,9 @@
 
 > **Amended 2026-10-03 by [ADR-156](ADR-156-clip-remap-mask-statistics-arithmetic.md).** Clip, Remap, Mask, Statistics and Arithmetic are served beside these.
 
+
+> **Amended 2026-10-03 by [ADR-158](ADR-158-a-mosaic-combines-and-is-reordered.md).** The band functions are offered in the Map Viewer too, as a layer's *Shown as*, with their bands chosen there.
+
 ---
 
 ## 1. Context

@@ -68,14 +68,66 @@ public sealed class MosaicRuleTests
 
     [Theory]
     [InlineData("""{"mosaicMethod":"esriMosaicSeamline"}""", "seamline")]
-    [InlineData("""{"mosaicOperation":"MT_MEAN"}""", "MT_FIRST")]
+    [InlineData("""{"mosaicOperation":"MT_AVERAGE"}""", "MT_MEAN")]
     [InlineData("""{"mosaicMethod":"esriMosaicLockRaster"}""", "lockRasterIds")]
     [InlineData("""{"mosaicMethod":"esriMosaicAttribute","sortField":"Cloud"}""", "AcquisitionDate")]
-    [InlineData("""{"multidimensionalDefinition":[{"variableName":"t"}]}""", "multidimensional")]
+    [InlineData("""{"multidimensionalDefinition":[{"variableName":"t","dimensionName":"depth"}]}""", "no values")]
+    [InlineData("""{"multidimensionalDefinition":[{"dimensionName":"depth","values":["deep"]}]}""", "[from, to]")]
     public void What_it_does_not_order_by_is_refused_saying_what_it_does(string json, string said)
     {
         Assert.False(MosaicRule.TryParse(json, out _, out string? error));
         Assert.Contains(said, error, StringComparison.Ordinal);
+    }
+}
+
+/// <summary>ADR-159: which slices of a multidimensional service a definition draws.</summary>
+public sealed class DimensionSliceTests
+{
+    private static readonly DateTimeOffset January = new(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset February = new(2024, 2, 1, 0, 0, 0, TimeSpan.Zero);
+
+    // Two variables, two months, two depths: ids 1 to 8, temp first.
+    private static readonly CatalogImage[] Slices =
+    [
+        .. new[] { "temp", "salt" }.SelectMany((v, vi) => new[] { January, February }.SelectMany((t, ti) => new[] { 0d, 100d }.Select((d, di) =>
+            new CatalogImage((vi * 4) + (ti * 2) + di + 1, $"{v} {t:yyyy-MM} {d}", new Envelope(0, 0, 1, 1), 1, t,
+                (vi * 4) + (ti * 2) + di, v, new System.Collections.Generic.Dictionary<string, double> { ["depth"] = d })))),
+    ];
+
+    private static int[] Kept(string definition)
+    {
+        Assert.True(MosaicRule.TryParse($$"""{"multidimensionalDefinition":{{definition}}}""", out MosaicRule? rule, out string? error), error);
+        System.Collections.Generic.List<CatalogImage> kept = DimensionSlice.Slice(Slices, rule?.Multidimensional, out error);
+        Assert.Null(error);
+        return [.. kept.Select(i => i.Id)];
+    }
+
+    [Fact]
+    public void Without_a_definition_the_first_variable_at_its_first_depth_every_month()
+    {
+        Assert.Equal([1, 3], DimensionSlice.Slice(Slices, null, out _).Select(i => i.Id));
+    }
+
+    [Fact]
+    public void A_definition_chooses_a_variable_a_depth_and_a_month_and_a_range_is_inclusive()
+    {
+        Assert.Equal([6, 8], Kept("""[{"variableName":"salt","dimensionName":"depth","values":[100]}]"""));
+        Assert.Equal([5], Kept($$"""[{"variableName":"salt","dimensionName":"StdTime","values":[{{January.ToUnixTimeMilliseconds()}}]}]"""));
+        Assert.Equal([2, 4], Kept("""[{"dimensionName":"depth","values":[[50,150]]}]"""));
+        Assert.Equal([2, 4], Kept("""[{"dimensionName":"StdZ","values":[100]}]"""));
+        Assert.Equal([1, 3, 5, 7], Kept("""[{"variableName":"temp"},{"variableName":"salt"}]"""));
+    }
+
+    [Fact]
+    public void A_variable_or_dimension_it_does_not_have_is_refused_naming_those_it_has()
+    {
+        Assert.True(MosaicRule.TryParse("""{"multidimensionalDefinition":[{"variableName":"wind"}]}""", out MosaicRule? rule, out _));
+        DimensionSlice.Slice(Slices, rule!.Multidimensional, out string? error);
+        Assert.Contains("temp, salt", error, StringComparison.Ordinal);
+
+        Assert.True(MosaicRule.TryParse("""{"multidimensionalDefinition":[{"dimensionName":"height","values":[2]}]}""", out rule, out _));
+        DimensionSlice.Slice(Slices, rule!.Multidimensional, out error);
+        Assert.Contains("StdTime, depth", error, StringComparison.Ordinal);
     }
 }
 

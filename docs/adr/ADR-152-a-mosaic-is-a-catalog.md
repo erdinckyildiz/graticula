@@ -9,6 +9,9 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-140](ADR-140-several-images-are-one-mosaic.md) (a mosaic was one picture), [ADR-147](ADR-147-a-mosaic-grows-and-resamples.md) (images could be added, not removed) |
 
+
+> **Amended 2026-10-03 by [ADR-158](ADR-158-a-mosaic-combines-and-is-reordered.md)** — `MT_MIN`, `MT_MAX`, `MT_MEAN`, `MT_BLEND` and `MT_SUM` are served, and Studio reorders a mosaic — **and by [ADR-159](ADR-159-a-multidimensional-file-is-a-service-of-slices.md)** — `multidimensionalDefinition` chooses a multidimensional service's slices.
+
 ---
 
 ## 1. Context
