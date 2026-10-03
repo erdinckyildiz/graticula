@@ -57,6 +57,8 @@ internal static partial class OgcFeaturesEndpoints
             .Governed(SharingGovernedExtensions.ByFiltering);
         app.MapGet($"{Root}/collections/{{collectionId}}", CollectionAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
+        app.MapGet($"{Root}/collections/{{collectionId}}/queryables", QueryablesAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
         app.MapGet($"{Root}/collections/{{collectionId}}/items", ItemsAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
         app.MapGet($"{Root}/collections/{{collectionId}}/items/{{featureId}}", ItemAsync)
@@ -276,6 +278,33 @@ internal static partial class OgcFeaturesEndpoints
         }
 
         await JsonAsync(context, document, OgcNames.Json).ConfigureAwait(false);
+    }
+
+    /// <summary>Part 3's queryables: the properties a filter may name, as JSON Schema — ADR-165.</summary>
+    private static async Task QueryablesAsync(
+        HttpContext context,
+        string collectionId,
+        CatalogFallback catalog,
+        ServiceContexts contexts,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
+        (PublishedLayer? layer, CollectionMetadata? collection, bool refused) =
+            await FindAsync(context, catalog, contexts, projector, collectionId, cancellation).ConfigureAwait(false);
+
+        if (refused)
+        {
+            return;
+        }
+
+        if (layer is null || collection is null)
+        {
+            await RefuseAsync(context, Missing(collectionId)).ConfigureAwait(false);
+            return;
+        }
+
+        string self = $"{Origin(context)}{OgcNames.Base}/collections/{Uri.EscapeDataString(collection.Id)}/queryables";
+        await JsonAsync(context, Cql2Text.Queryables(self, collection), "application/schema+json").ConfigureAwait(false);
     }
 
     // ---------- features ----------
@@ -870,6 +899,29 @@ internal static partial class OgcFeaturesEndpoints
 
             clauses.Add(new AttributePredicate.Comparison(
                 property.Key, ComparisonOperator.Equal, value));
+        }
+
+        // ADR-165: the filter, through the grammar every where clause on this server goes through.
+        if (request.Filter is { } filterText)
+        {
+            Dictionary<string, FieldType> types = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (FieldDescription field in described.Fields)
+            {
+                types[field.Name] = field.Type;
+            }
+
+            if (!WhereClause.TryParse(filterText, [.. described.Fields.Select(f => f.Name)], LayerDefinition.Quote,
+                    out ParsedWhere filtered, out string? filterError, types))
+            {
+                problem = OgcProblem.BadRequest($"`filter` could not be read as Basic CQL2: {filterError}");
+                return false;
+            }
+
+            if (filtered.Predicate is { } named)
+            {
+                clauses.Add(named);
+            }
         }
 
         ParsedWhere? where = null;

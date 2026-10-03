@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>7744c4a</code> · 2026-10-03 16:03</p>
+<p class="stamp">Şu commit’ten üretildi: <code>069f214</code> · 2026-10-03 16:14</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">163</div><div class="kpi-l">ADR</div><div class="kpi-n">70 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">287/384</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">94 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">164</div><div class="kpi-l">ADR</div><div class="kpi-n">70 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">287/385</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">95 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4603</div><div class="kpi-l">test</div><div class="kpi-n">454 kaynak dosya, 203,451 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4604</div><div class="kpi-l">test</div><div class="kpi-n">455 kaynak dosya, 203,739 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-161</b> — Is a service&#x27;s own OGC address wanted beside /wms and /wfs?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">108 madde</span></div><p><b>94 ADR conditions</b> outstanding across 59 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">109 madde</span></div><p><b>95 ADR conditions</b> outstanding across 60 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -190,6 +190,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-127 · An image service exports its value</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-163 · An image service answers WMTS over</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-164 · `generateKml` is a network link to</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-165 · OGC API Features filters in Basic </div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -371,6 +372,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">162</td><td>WMS and WFS at a service&#x27;s own address, and image services in WMS</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each address and each layer is checked end to end; no ArcGIS-migrated QGIS…</td><td class="num">0/2</td></tr>
 <tr><td class="id">163</td><td>An image service answers WMTS over its own tiles</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — a WMTS tile is checked byte for byte against the ArcGIS tile; no WMTS client has…</td><td class="num">0/1</td></tr>
 <tr><td class="id">164</td><td>`generateKml` is a network link to the service&#x27;s map</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the document and the request it makes are checked; Google Earth has not been…</td><td class="num">0/1</td></tr>
+<tr><td class="id">165</td><td>OGC API Features filters in Basic CQL2 text</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each claimed class has a case that observes it; no OGC test suite for Part 3 has…</td><td class="num">0/1</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -495,7 +497,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1232</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:70.5%"></div></div><div class="bar-n">869</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.5%"></div></div><div class="bar-n">684</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.6%"></div></div><div class="bar-n">685</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.9%"></div></div><div class="bar-n">270</div></div>
@@ -508,6 +510,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>069f214</code><time>2026-10-03</time><span>An image service answers WMTS over its own tiles, and a map or image service opens in Google Earth through generateKml</span></li>
 <li><code>7744c4a</code><time>2026-10-03</time><span>WMS and WFS answer at each service&#x27;s own address, image services are WMS layers, and text/xml feature info is XML</span></li>
 <li><code>c8218b7</code><time>2026-10-03</time><span>The geometry service answers findTransformations and project applies the transformation named; a mosaic draws seamlines</span></li>
 <li><code>f34010b</code><time>2026-10-03</time><span>A mosaic composites and is reordered, a map chooses its bands, and a NetCDF of variables is multidimensional</span></li>
@@ -521,7 +524,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>d96c609</code><time>2026-10-02</time><span>An uploaded image is given its overviews</span></li>
 <li><code>702ca78</code><time>2026-10-02</time><span>A renderer sent as a rendering rule is drawn</span></li>
 <li><code>8e5440a</code><time>2026-10-02</time><span>An image service answers LERC</span></li>
-<li><code>212c244</code><time>2026-10-02</time><span>An elevation model is shaded, sloped and given its aspect</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

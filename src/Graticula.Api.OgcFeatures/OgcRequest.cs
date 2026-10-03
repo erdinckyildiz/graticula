@@ -45,6 +45,9 @@ public sealed class OgcRequest
     private static readonly HashSet<string> Known = new(StringComparer.Ordinal)
     {
         "bbox", "bbox-crs", "crs", "datetime", "limit", "offset", "f",
+
+        // ADR-165: Part 3's filter, in CQL2 text.
+        "filter", "filter-lang", "filter-crs",
     };
 
     private OgcRequest()
@@ -53,6 +56,9 @@ public sealed class OgcRequest
 
     /// <summary>How many features to return.</summary>
     public int Limit { get; private init; }
+
+    /// <summary>Part 3's <c>filter</c>, written in the where-clause grammar — ADR-165 — or null.</summary>
+    public string? Filter { get; private init; }
 
     /// <summary>How many to skip.</summary>
     public int Offset { get; private init; }
@@ -141,6 +147,27 @@ public sealed class OgcRequest
 
         Dictionary<string, string> properties = new(StringComparer.Ordinal);
 
+        // ADR-165: a filter in CQL2 text, the one language this server reads; its filter-crs is CRS84 or absent, since
+        // Basic CQL2 has no geometry in it.
+        string? filterWhere = null;
+
+        if (parameter("filter") is { Length: > 0 } filter)
+        {
+            if (parameter("filter-lang") is { Length: > 0 } language && !language.Equals(Cql2Text.Language, StringComparison.OrdinalIgnoreCase))
+            {
+                problem = OgcProblem.BadRequest($"`filter-lang={language}` is not one this server reads: it reads {Cql2Text.Language}.");
+                return false;
+            }
+
+            if (!Cql2Text.TryTranslate(filter, out string translated, out string? refused))
+            {
+                problem = OgcProblem.BadRequest(refused!);
+                return false;
+            }
+
+            filterWhere = translated;
+        }
+
         foreach (string name in names)
         {
             if (Known.Contains(name))
@@ -227,6 +254,7 @@ public sealed class OgcRequest
             From = from,
             Until = until,
             Properties = properties,
+            Filter = filterWhere,
         };
 
         return true;

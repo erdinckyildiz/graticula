@@ -70,7 +70,57 @@ public sealed class EveryConformanceClaimIsProvenTests : ArcGisClient
         Part1 + "geojson",
         Part1 + "html",
         Part2 + "crs",
+        Part3 + "queryables",
+        Part3 + "queryables-query-parameters",
+        Part3 + "filter",
+        Part3 + "features-filter",
+        Cql2 + "cql2-text",
+        Cql2 + "basic-cql2",
     ];
+
+    private const string Part3 = "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/";
+    private const string Cql2 = "http://www.opengis.net/spec/cql2/1.0/conf/";
+
+    /// <summary>
+    /// ADR-165: queryables are linked and are a JSON Schema of the collection's properties; a property names a
+    /// filter as a parameter; <c>filter</c> in CQL2 text narrows what <c>items</c> answers and is refused in another
+    /// language or beyond Basic CQL2.
+    /// </summary>
+    [Fact]
+    public async Task Filter_and_queryables_narrow_items_in_basic_cql2_text()
+    {
+        List<string> claimed = await ClaimedAsync();
+        Assert.Contains(Part3 + "filter", claimed);
+        Assert.Contains(Cql2 + "basic-cql2", claimed);
+
+        string id = await FirstCollectionAsync();
+        JsonElement collection = await JsonAsync($"{Root}/collections/{id}");
+        string? queryables = Link(collection, "http://www.opengis.net/def/rel/ogc/1.0/queryables");
+        Assert.True(queryables is { Length: > 0 }, "No queryables link on the collection.");
+
+        (HttpStatusCode status, string media, string schema) = await FetchAsync(queryables!);
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Contains("schema+json", media, StringComparison.Ordinal);
+        JsonElement properties = JsonDocument.Parse(schema).RootElement.GetProperty("properties");
+        string? numeric = properties.EnumerateObject()
+            .Where(p => p.Value.TryGetProperty("type", out JsonElement t) && t.GetString() == "integer")
+            .Select(p => p.Name).FirstOrDefault();
+        Assert.False(numeric is null, $"`{id}` has no integer property to filter by.");
+
+        (_, _, string all) = await FetchAsync($"{Root}/collections/{id}/items?limit=1000");
+        int total = JsonDocument.Parse(all).RootElement.GetProperty("numberReturned").GetInt32();
+        (HttpStatusCode filtered, _, string some) = await FetchAsync(
+            $"{Root}/collections/{id}/items?limit=1000&filter-lang=cql2-text&filter={Uri.EscapeDataString($"{numeric} < 0 OR {numeric} IS NULL")}");
+        Assert.Equal(HttpStatusCode.OK, filtered);
+        Assert.True(JsonDocument.Parse(some).RootElement.GetProperty("numberReturned").GetInt32() < total || total == 0);
+
+        (HttpStatusCode json, _, _) = await FetchAsync($"{Root}/collections/{id}/items?filter-lang=cql2-json&filter=x");
+        Assert.Equal(HttpStatusCode.BadRequest, json);
+        (HttpStatusCode spatial, _, string said) = await FetchAsync(
+            $"{Root}/collections/{id}/items?filter={Uri.EscapeDataString("S_INTERSECTS(geom, POINT(1 2))")}");
+        Assert.Equal(HttpStatusCode.BadRequest, spatial);
+        Assert.Contains("Basic CQL2", said, StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// Nothing is claimed that nobody has written a proof for, and nothing proven is unclaimed.

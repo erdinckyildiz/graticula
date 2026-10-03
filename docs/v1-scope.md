@@ -282,7 +282,9 @@ core domain.** ~~v1 ships **ArcGIS only**, with OGC API Features in v2.~~
 ArcGIS **and OGC API Features, read and write** — §2 carries both, the second added by
 owner decision on 2026-08-25. What v1 does not ship is **Part 3**, the filtering half,
 which is [ADR-005](adr/ADR-005-api-architecture.md) condition 1's subject and still
-live. So the inversion is of *primacy* rather than of presence: ADR-005 made OGC API
+live. **Amended 2026-10-03: Part 3 ships at Basic CQL2 text** —
+[ADR-165](adr/ADR-165-ogc-api-features-filters-in-basic-cql2.md), following the owner's *"Sonra da OGC tarafına
+geç"* (`INFERRED` as to Part 3 specifically; [Q-161](open-questions.md) lists the OGC inferences for confirmation). So the inversion is of *primacy* rather than of presence: ADR-005 made OGC API
 Features the native surface and ArcGIS the compatibility layer, and v1 builds both with
 ArcGIS first. **ADR-005 stays `REOPENED`** — that has not changed and is not this
 correction's to change.

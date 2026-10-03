@@ -65,8 +65,8 @@ public static class OgcNames
     /// server rather than an untrue list.
     /// </para>
     /// <para>
-    /// <b>What is absent and why:</b> Part 3's <c>filter</c> and CQL2 classes, which
-    /// are a query language rather than a parameter, and Part 4's transaction
+    /// <b>What is absent and why:</b> ~~Part 3's <c>filter</c> and CQL2 classes, which
+    /// are a query language rather than a parameter~~ — claimed since ADR-165 at Basic CQL2 — and Part 4's transaction
     /// classes ~~, which this read-only surface has nothing to say about~~.
     /// [ADR-042](../../../docs/adr/ADR-042-ogc-api-features.md) §5.
     /// <b>The reason for the second was corrected 2026-09-09: the surface is not
@@ -84,6 +84,14 @@ public static class OgcNames
         "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson",
         "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/html",
         "http://www.opengis.net/spec/ogcapi-features-2/1.0/conf/crs",
+
+        // ADR-165: Part 3's filter and queryables, in Basic CQL2 written as text.
+        "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/queryables",
+        "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/queryables-query-parameters",
+        "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/filter",
+        "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/features-filter",
+        "http://www.opengis.net/spec/cql2/1.0/conf/cql2-text",
+        "http://www.opengis.net/spec/cql2/1.0/conf/basic-cql2",
     ];
 
     /// <summary>An EPSG code as the URI OGC API names it by.</summary>

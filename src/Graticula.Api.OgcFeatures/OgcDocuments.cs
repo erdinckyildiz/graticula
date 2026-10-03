@@ -150,6 +150,8 @@ public static class OgcDocuments
             new Link(self, "self", OgcNames.Json, collection.Title),
             new Link(self + "?f=html", "alternate", OgcNames.Html, "This document as HTML"),
             new Link(self + "/items", "items", OgcNames.GeoJson, collection.Title + " — features"),
+            new Link(self + "/queryables", "http://www.opengis.net/def/rel/ogc/1.0/queryables", "application/schema+json",
+                collection.Title + " — what a filter may name"),
             new Link(
                 self + "/items?f=html", "items", OgcNames.Html, collection.Title + " — as HTML"),
         ]);

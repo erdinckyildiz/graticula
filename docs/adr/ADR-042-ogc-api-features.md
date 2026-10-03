@@ -9,6 +9,9 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-005](ADR-005-api-architecture.md) — this is the surface it chose, arriving; [v1-scope](../v1-scope.md) §4's inversion is unwound rather than re-argued |
 
+
+> **Amended 2026-10-03 by [ADR-165](ADR-165-ogc-api-features-filters-in-basic-cql2.md).** Part 3 is claimed at Basic CQL2 text: `filter`, `queryables`.
+
 ---
 
 ## 0. This one resumes a plan rather than reversing one
