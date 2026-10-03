@@ -276,7 +276,8 @@ public static class CapabilitiesDocument
 
             if (string.Equals(operation, "GetCapabilities", StringComparison.Ordinal))
             {
-                await AllowedAsync(xml, "AcceptVersions", [WfsNames.Version]).ConfigureAwait(false);
+                // ADR-168: 1.1.0 is spoken too.
+                await AllowedAsync(xml, "AcceptVersions", WfsDialect.Versions).ConfigureAwait(false);
             }
 
             await xml.WriteEndElementAsync().ConfigureAwait(false);

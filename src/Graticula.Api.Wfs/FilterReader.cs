@@ -88,6 +88,9 @@ public static class FilterReader
             return false;
         }
 
+        // ADR-168: an OGC Filter 1.1 document, as WFS 1.1.0 clients send, read as the FES 2.0 it corresponds to.
+        root = WfsDialect.ToFes20(root);
+
         XNamespace fes = WfsNames.Fes;
 
         // A client may send the Filter element itself or its single child. Both

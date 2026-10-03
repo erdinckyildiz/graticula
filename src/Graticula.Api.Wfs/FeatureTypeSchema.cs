@@ -44,12 +44,15 @@ public static class FeatureTypeSchema
     /// <param name="stream">Where to write it.</param>
     /// <param name="types">The feature types to describe.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="dialect">The WFS version answered — ADR-168 — or null for 2.0.0.</param>
     /// <returns>A task.</returns>
     public static async Task WriteAsync(
         Stream stream,
         IReadOnlyList<WfsFeatureType> types,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        WfsDialect? dialect = null)
     {
+        WfsDialect d = dialect ?? WfsDialect.V200;
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(types);
 
@@ -59,7 +62,7 @@ public static class FeatureTypeSchema
         {
             await xml.WriteStartElementAsync("xsd", "schema", WfsNames.Xsd).ConfigureAwait(false);
 
-            await xml.WriteAttributeStringAsync("xmlns", "gml", null, WfsNames.Gml)
+            await xml.WriteAttributeStringAsync("xmlns", "gml", null, d.Gml)
                 .ConfigureAwait(false);
 
             await xml.WriteAttributeStringAsync(
@@ -75,21 +78,17 @@ public static class FeatureTypeSchema
 
             await xml.WriteStartElementAsync("xsd", "import", WfsNames.Xsd).ConfigureAwait(false);
 
-            await xml.WriteAttributeStringAsync(null, "namespace", null, WfsNames.Gml)
+            await xml.WriteAttributeStringAsync(null, "namespace", null, d.Gml)
                 .ConfigureAwait(false);
 
-            await xml.WriteAttributeStringAsync(
-                    null,
-                    "schemaLocation",
-                    null,
-                    "http://schemas.opengis.net/gml/3.2.1/gml.xsd")
+            await xml.WriteAttributeStringAsync(null, "schemaLocation", null, d.GmlSchema)
                 .ConfigureAwait(false);
 
             await xml.WriteEndElementAsync().ConfigureAwait(false);
 
             foreach (WfsFeatureType type in types)
             {
-                await TypeAsync(xml, type).ConfigureAwait(false);
+                await TypeAsync(xml, type, d).ConfigureAwait(false);
             }
 
             await xml.WriteEndElementAsync().ConfigureAwait(false);
@@ -99,7 +98,7 @@ public static class FeatureTypeSchema
         cancellation.ThrowIfCancellationRequested();
     }
 
-    private static async Task TypeAsync(XmlWriter xml, WfsFeatureType type)
+    private static async Task TypeAsync(XmlWriter xml, WfsFeatureType type, WfsDialect d)
     {
         string complex = $"{type.Name}Type";
 
@@ -110,7 +109,7 @@ public static class FeatureTypeSchema
             null, "type", null, $"{WfsNames.Prefix}:{complex}").ConfigureAwait(false);
 
         await xml.WriteAttributeStringAsync(
-            null, "substitutionGroup", null, "gml:AbstractFeature").ConfigureAwait(false);
+            null, "substitutionGroup", null, d.IsLegacy ? "gml:_Feature" : "gml:AbstractFeature").ConfigureAwait(false);
 
         await xml.WriteEndElementAsync().ConfigureAwait(false);
 

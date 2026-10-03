@@ -36,11 +36,15 @@ public sealed class GmlGeometryWriter
     private readonly StringBuilder _coordinates = new();
     private readonly bool _latitudeFirst;
     private readonly string _srsName;
+    private readonly string _gml;
 
     /// <summary>Creates a writer for one coordinate reference.</summary>
     /// <param name="srid">The EPSG code the geometries are in.</param>
-    public GmlGeometryWriter(int srid)
+    /// <param name="gml">The GML namespace — 3.1.1's for WFS 1.1.0 (ADR-168) — or null for 3.2.</param>
+    public GmlGeometryWriter(int srid, string? gml = null)
     {
+        // ADR-168: GML 3.1.1's namespace for WFS 1.1.0, whose geometry elements are the same.
+        _gml = gml ?? WfsNames.Gml;
         _srsName = WfsNames.CrsUrn(srid);
         _latitudeFirst = WfsNames.IsLatitudeFirst(srid);
     }
@@ -82,7 +86,7 @@ public sealed class GmlGeometryWriter
 
                 for (int i = 0; i < points.Parts.Count; i++)
                 {
-                    await xml.WriteStartElementAsync("gml", "pointMember", WfsNames.Gml)
+                    await xml.WriteStartElementAsync("gml", "pointMember", _gml)
                         .ConfigureAwait(false);
 
                     await PointAsync(xml, points.Parts[i], Part(gmlId, i), root: false)
@@ -99,7 +103,7 @@ public sealed class GmlGeometryWriter
 
                 for (int i = 0; i < lines.Parts.Count; i++)
                 {
-                    await xml.WriteStartElementAsync("gml", "curveMember", WfsNames.Gml)
+                    await xml.WriteStartElementAsync("gml", "curveMember", _gml)
                         .ConfigureAwait(false);
 
                     await LineAsync(xml, lines.Parts[i], Part(gmlId, i), root: false)
@@ -116,7 +120,7 @@ public sealed class GmlGeometryWriter
 
                 for (int i = 0; i < polygons.Parts.Count; i++)
                 {
-                    await xml.WriteStartElementAsync("gml", "surfaceMember", WfsNames.Gml)
+                    await xml.WriteStartElementAsync("gml", "surfaceMember", _gml)
                         .ConfigureAwait(false);
 
                     await PolygonAsync(xml, polygons.Parts[i], Part(gmlId, i), root: false)
@@ -148,9 +152,9 @@ public sealed class GmlGeometryWriter
     /// </remarks>
     private async Task StartAsync(XmlWriter xml, string element, string gmlId, bool root)
     {
-        await xml.WriteStartElementAsync("gml", element, WfsNames.Gml).ConfigureAwait(false);
+        await xml.WriteStartElementAsync("gml", element, _gml).ConfigureAwait(false);
 
-        await xml.WriteAttributeStringAsync("gml", "id", WfsNames.Gml, gmlId).ConfigureAwait(false);
+        await xml.WriteAttributeStringAsync("gml", "id", _gml, gmlId).ConfigureAwait(false);
 
         if (root)
         {
@@ -165,7 +169,7 @@ public sealed class GmlGeometryWriter
 
         if (!point.IsEmpty)
         {
-            await xml.WriteStartElementAsync("gml", "pos", WfsNames.Gml).ConfigureAwait(false);
+            await xml.WriteStartElementAsync("gml", "pos", _gml).ConfigureAwait(false);
 
             // ADR-077 §11: a point with an elevation says srsDimension 3, as a posList does.
             if (point.Z is not null)
@@ -212,8 +216,8 @@ public sealed class GmlGeometryWriter
             return;
         }
 
-        await xml.WriteStartElementAsync("gml", role, WfsNames.Gml).ConfigureAwait(false);
-        await xml.WriteStartElementAsync("gml", "LinearRing", WfsNames.Gml).ConfigureAwait(false);
+        await xml.WriteStartElementAsync("gml", role, _gml).ConfigureAwait(false);
+        await xml.WriteStartElementAsync("gml", "LinearRing", _gml).ConfigureAwait(false);
         await PosListAsync(xml, ring.Coordinates).ConfigureAwait(false);
         await xml.WriteEndElementAsync().ConfigureAwait(false);
         await xml.WriteEndElementAsync().ConfigureAwait(false);
@@ -226,7 +230,7 @@ public sealed class GmlGeometryWriter
             return;
         }
 
-        await xml.WriteStartElementAsync("gml", "posList", WfsNames.Gml).ConfigureAwait(false);
+        await xml.WriteStartElementAsync("gml", "posList", _gml).ConfigureAwait(false);
 
         // <b>3 where the geometry carries an elevation — ADR-077 §11.</b> GML has no measure, which is the format's
         // fact, so M is never written and never asked for by this surface.

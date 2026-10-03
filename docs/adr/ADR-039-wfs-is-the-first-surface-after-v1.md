@@ -7,6 +7,9 @@
 
 > **Amended 2026-10-03 by [ADR-162](ADR-162-ogc-at-a-service-s-own-address.md).** WFS is answered at each service's own address too — `…/MapServer/WFSServer`, `…/FeatureServer/WFSServer` — narrowed to that service; `/wfs` is unchanged.
 
+
+> **Amended 2026-10-03 by [ADR-168](ADR-168-wfs-1-1-0-is-spoken-too.md).** §5: WFS 1.1.0 is spoken beside 2.0.0, in its own terms; 1.0.0 is still refused.
+
 ---
 
 ## 1. Context

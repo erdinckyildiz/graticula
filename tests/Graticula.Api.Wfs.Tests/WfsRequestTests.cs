@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -56,17 +57,43 @@ public sealed class WfsRequestTests
     }
 
     [Fact]
-    public void A_client_asking_for_an_earlier_version_is_told_rather_than_answered()
+    public void A_client_asking_for_a_version_this_server_does_not_speak_is_told_rather_than_answered()
     {
-        // <b>ADR-039 §5.</b> A 2.0.0 document returned for a 1.1.0 request is
-        // indistinguishable from a server that is simply wrong, and the client has
-        // no way to find out which.
+        // <b>ADR-039 §5, and since ADR-168 1.1.0 is spoken.</b> A document in another version than the one asked
+        // for is indistinguishable from a server that is simply wrong; 1.0.0 is still refused, naming what is spoken.
+        Assert.Equal(WfsDialect.V110, Ok(("service", "WFS"), ("version", "1.1.0"), ("request", "GetFeature"),
+            ("typeName", "roads")).Dialect);
+
         WfsFault fault = Refused(
-            ("service", "WFS"), ("version", "1.1.0"), ("request", "GetFeature"),
+            ("service", "WFS"), ("version", "1.0.0"), ("request", "GetFeature"),
             ("typeNames", "roads"));
 
         Assert.Equal(WfsFaultCode.VersionNegotiationFailed, fault.Code);
-        Assert.Contains("2.0.0", fault.Text, StringComparison.Ordinal);
+        Assert.Contains("2.0.0 and 1.1.0", fault.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_ogc_filter_1_1_is_read_as_the_fes_2_0_it_corresponds_to()
+    {
+        System.Xml.Linq.XElement filter = System.Xml.Linq.XElement.Parse("""
+            <ogc:Filter xmlns:ogc="http://www.opengis.net/ogc" xmlns:gml="http://www.opengis.net/gml">
+              <ogc:And>
+                <ogc:PropertyIsLike wildCard="*" singleChar="?" escape="!"><ogc:PropertyName>name</ogc:PropertyName><ogc:Literal>A*</ogc:Literal></ogc:PropertyIsLike>
+                <ogc:BBOX><ogc:PropertyName>geom</ogc:PropertyName><gml:Envelope><gml:lowerCorner>0 0</gml:lowerCorner><gml:upperCorner>1 1</gml:upperCorner></gml:Envelope></ogc:BBOX>
+              </ogc:And>
+              <ogc:FeatureId fid="roads.3"/>
+            </ogc:Filter>
+            """);
+
+        System.Xml.Linq.XElement read = WfsDialect.ToFes20(filter);
+        System.Xml.Linq.XNamespace fes = WfsNames.Fes, gml = WfsNames.Gml;
+
+        Assert.Equal(fes + "Filter", read.Name);
+        Assert.Equal("name", read.Descendants(fes + "ValueReference").First().Value);
+        Assert.Equal("!", (string?)read.Descendants(fes + "PropertyIsLike").First().Attribute("escapeChar"));
+        Assert.Single(read.Descendants(gml + "Envelope"));
+        Assert.Equal("roads.3", (string?)read.Element(fes + "ResourceId")!.Attribute("rid"));
+        Assert.Same(read, WfsDialect.ToFes20(read));
     }
 
     [Fact]
@@ -78,14 +105,20 @@ public sealed class WfsRequestTests
             Ok(("service", "WFS"), ("request", "GetCapabilities")).Operation);
 
         Assert.Equal(
-            WfsOperation.GetCapabilities,
+            WfsDialect.V200,
             Ok(("service", "WFS"), ("request", "GetCapabilities"),
-                ("acceptversions", "2.0.0,1.1.0")).Operation);
+                ("acceptversions", "2.0.0,1.1.0")).Dialect);
+
+        // ADR-168: the first of the client's versions this server speaks.
+        Assert.Equal(
+            WfsDialect.V110,
+            Ok(("service", "WFS"), ("request", "GetCapabilities"),
+                ("acceptversions", "1.0.0,1.1.0")).Dialect);
 
         Assert.Equal(
             WfsFaultCode.VersionNegotiationFailed,
             Refused(("service", "WFS"), ("request", "GetCapabilities"),
-                ("acceptversions", "1.0.0,1.1.0")).Code);
+                ("acceptversions", "1.0.0")).Code);
 
         Assert.Equal(
             WfsFaultCode.MissingParameterValue,

@@ -66,22 +66,26 @@ public sealed record WfsFault(WfsFaultCode Code, string? Locator, string Text)
     /// <summary>Writes the report.</summary>
     /// <param name="stream">Where to write it.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="dialect">The WFS version the request was in — ADR-168 — or null for 2.0.0.</param>
     /// <returns>A task.</returns>
-    public async Task WriteAsync(Stream stream, CancellationToken cancellation)
+    public async Task WriteAsync(Stream stream, CancellationToken cancellation, WfsDialect? dialect = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
+
+        // ADR-168: WFS 1.1.0 reports in OWS 1.0.0, 2.0.0 in OWS 1.1.
+        WfsDialect d = dialect ?? WfsDialect.V200;
 
         XmlWriter xml = XmlWriter.Create(stream, SafeXml.WriterSettings);
 
         await using (xml.ConfigureAwait(false))
         {
-            await xml.WriteStartElementAsync("ows", "ExceptionReport", WfsNames.Ows)
+            await xml.WriteStartElementAsync("ows", "ExceptionReport", d.Ows)
                 .ConfigureAwait(false);
 
-            await xml.WriteAttributeStringAsync(null, "version", null, WfsNames.Version)
+            await xml.WriteAttributeStringAsync(null, "version", null, d.OwsVersion)
                 .ConfigureAwait(false);
 
-            await xml.WriteStartElementAsync("ows", "Exception", WfsNames.Ows)
+            await xml.WriteStartElementAsync("ows", "Exception", d.Ows)
                 .ConfigureAwait(false);
 
             await xml.WriteAttributeStringAsync(null, "exceptionCode", null, Code.ToString())
@@ -93,7 +97,7 @@ public sealed record WfsFault(WfsFaultCode Code, string? Locator, string Text)
                     .ConfigureAwait(false);
             }
 
-            await xml.WriteElementStringAsync("ows", "ExceptionText", WfsNames.Ows, Text)
+            await xml.WriteElementStringAsync("ows", "ExceptionText", d.Ows, Text)
                 .ConfigureAwait(false);
 
             await xml.WriteEndElementAsync().ConfigureAwait(false);

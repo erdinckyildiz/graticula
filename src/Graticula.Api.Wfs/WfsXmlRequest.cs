@@ -82,9 +82,11 @@ public static class WfsXmlRequest
         // independent reviewer looking for exactly that asymmetry.
         kvp["request"] = root.Name.LocalName;
 
-        XNamespace ows = WfsNames.Ows;
-        XNamespace wfs = WfsNames.Wfs;
-        XNamespace fes = WfsNames.Fes;
+        // ADR-168: a WFS 1.1.0 request is in its own namespaces, with OGC Filter 1.1 and OWS 1.0.
+        bool legacy = root.Name.Namespace == XNamespace.Get(WfsDialect.V110.Wfs);
+        XNamespace ows = legacy ? WfsDialect.V110.Ows : WfsNames.Ows;
+        XNamespace wfs = legacy ? WfsDialect.V110.Wfs : WfsNames.Wfs;
+        XNamespace fes = legacy ? WfsDialect.V110.Filter : WfsNames.Fes;
 
         if (root.Element(ows + "AcceptVersions") is { } accept)
         {

@@ -250,9 +250,25 @@ internal static class WfsEndpoints
         IReadOnlyDictionary<string, string> parameters,
         CancellationToken cancellation)
     {
+        // ADR-168: a refusal is written in the version the request named, where it named one.
+        context.Items[DialectKey] = WfsDialect.Of(parameters.TryGetValue("version", out string? named) ? named : null)
+            ?? WfsDialect.V200;
+
         if (!WfsRequest.TryParse(parameters, out WfsRequest? request, out WfsFault? fault))
         {
             await RefuseAsync(context, fault!, cancellation).ConfigureAwait(false);
+            return;
+        }
+
+        context.Items[DialectKey] = request!.Dialect;
+
+        // ADR-168: GetPropertyValue and stored queries are WFS 2.0.0's, and a 1.1.0 request for them is not answered
+        // as 2.0.0.
+        if (request.Dialect.IsLegacy && request.Operation is WfsOperation.GetPropertyValue
+                or WfsOperation.ListStoredQueries or WfsOperation.DescribeStoredQueries)
+        {
+            await RefuseAsync(context, new WfsFault(WfsFaultCode.OperationNotSupported, "request",
+                $"{request.Operation} is a WFS 2.0.0 operation. Ask for it with version=2.0.0."), cancellation).ConfigureAwait(false);
             return;
         }
 
@@ -274,7 +290,8 @@ internal static class WfsEndpoints
                         contexts,
                         context.RequestServices.GetRequiredService<IProjector>(),
                         visible,
-                        cancellation)
+                        cancellation,
+                        request.Dialect)
                     .ConfigureAwait(false);
                 return;
 
@@ -462,7 +479,8 @@ internal static class WfsEndpoints
         ServiceContexts contexts,
         IProjector projector,
         IReadOnlyList<PublishedLayer> visible,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        WfsDialect? dialect = null)
     {
         List<WfsFeatureType> types = [];
 
@@ -499,6 +517,23 @@ internal static class WfsEndpoints
         }
 
         context.Response.ContentType = "text/xml; charset=utf-8";
+
+        // ADR-168: WFS 1.1.0's document for a 1.1.0 request.
+        if (dialect?.IsLegacy == true)
+        {
+            await CapabilitiesDocument11
+                .WriteAsync(
+                    context.Response.Body,
+                    Endpoint(context),
+                    context.Items.TryGetValue(ScopeKey, out object? scoped) && scoped is ValueTuple<string?, string> own
+                        ? (own.Item1 is null ? own.Item2 : $"{own.Item1}/{own.Item2}")
+                        : "Graticula",
+                    Ordered(types),
+                    cancellation,
+                    await ScopeMetadataAsync(context, cancellation).ConfigureAwait(false))
+                .ConfigureAwait(false);
+            return;
+        }
 
         await CapabilitiesDocument
             .WriteAsync(
@@ -587,7 +622,7 @@ internal static class WfsEndpoints
         context.Response.ContentType = "text/xml; charset=utf-8";
 
         await FeatureTypeSchema
-            .WriteAsync(context.Response.Body, Ordered(types), cancellation)
+            .WriteAsync(context.Response.Body, Ordered(types), cancellation, request.Dialect)
             .ConfigureAwait(false);
     }
 
@@ -915,9 +950,9 @@ internal static class WfsEndpoints
             return;
         }
 
-        context.Response.ContentType = WfsNames.GmlMediaType + "; charset=utf-8";
+        context.Response.ContentType = request.Dialect.GmlMediaType + "; charset=utf-8";
 
-        GmlFeatureCollectionWriter writer = new(type, outputSrid, Endpoint(context));
+        GmlFeatureCollectionWriter writer = new(type, outputSrid, Endpoint(context), request.Dialect);
 
         if (byId)
         {
@@ -1745,6 +1780,10 @@ internal static class WfsEndpoints
         context.Response.StatusCode = status;
         context.Response.ContentType = "text/xml; charset=utf-8";
 
-        await fault.WriteAsync(context.Response.Body, cancellation).ConfigureAwait(false);
+        await fault.WriteAsync(context.Response.Body, cancellation,
+            context.Items.TryGetValue(DialectKey, out object? dialect) ? dialect as WfsDialect : null).ConfigureAwait(false);
     }
+
+    /// <summary>Where the request's WFS version is kept for its refusals — ADR-168.</summary>
+    private const string DialectKey = "wfs.dialect";
 }

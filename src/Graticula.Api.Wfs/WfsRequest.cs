@@ -72,6 +72,9 @@ public sealed record WfsRequest(
     string? StoredQueryId,
     string? PropertyValueReference)
 {
+    /// <summary>The WFS version the request is answered in — 2.0.0, or 1.1.0 (ADR-168).</summary>
+    public WfsDialect Dialect { get; private init; } = WfsDialect.V200;
+
     /// <summary>The stored query WFS 2.0 requires every server to offer.</summary>
     public const string GetFeatureByIdQuery = "urn:ogc:def:query:OGC-WFS::GetFeatureById";
 
@@ -145,7 +148,7 @@ public sealed record WfsRequest(
             return false;
         }
 
-        if (!TryVersion(operation, Value("version"), Value("acceptversions"), out fault))
+        if (!TryVersion(operation, Value("version"), Value("acceptversions"), out WfsDialect dialect, out fault))
         {
             return false;
         }
@@ -234,7 +237,10 @@ public sealed record WfsRequest(
             // *what you gave me is not usable* are different things to fix.
             kvp.TryGetValue("valuereference", out string? valueReference)
                 ? valueReference
-                : null);
+                : null)
+        {
+            Dialect = dialect,
+        };
 
         return true;
     }
@@ -249,31 +255,39 @@ public sealed record WfsRequest(
     /// asks for 1.1.0 is asking for a protocol this server does not speak, and
     /// answering in 2.0.0 anyway would be indistinguishable from a bug.
     /// </remarks>
+    /// <summary>
+    /// The version a request is answered in — ADR-168: 2.0.0, or 1.1.0, which older ArcGIS, FME and MapInfo clients
+    /// send. <c>GetCapabilities</c> takes the first of its <c>AcceptVersions</c> this server speaks, or its
+    /// <c>version</c>, or 2.0.0; every other operation names its version.
+    /// </summary>
     private static bool TryVersion(
-        WfsOperation operation, string? version, string? acceptVersions, out WfsFault? fault)
+        WfsOperation operation, string? version, string? acceptVersions, out WfsDialect dialect, out WfsFault? fault)
     {
         fault = null;
+        dialect = WfsDialect.V200;
+        string spoken = string.Join(" and ", WfsDialect.Versions);
 
         if (operation == WfsOperation.GetCapabilities)
         {
             if (acceptVersions is null)
             {
+                dialect = WfsDialect.Of(version) ?? WfsDialect.V200;
                 return true;
             }
 
-            string[] wanted = acceptVersions.Split(',', StringSplitOptions.RemoveEmptyEntries);
-
-            if (wanted.Any(v => string.Equals(
-                    v.Trim(), WfsNames.Version, StringComparison.Ordinal)))
+            foreach (string wanted in acceptVersions.Split(',', StringSplitOptions.RemoveEmptyEntries))
             {
-                return true;
+                if (WfsDialect.Of(wanted) is { } found)
+                {
+                    dialect = found;
+                    return true;
+                }
             }
 
             fault = new WfsFault(
                 WfsFaultCode.VersionNegotiationFailed,
                 "AcceptVersions",
-                $"This server speaks WFS {WfsNames.Version} and the request accepts only "
-                + $"'{acceptVersions}'.");
+                $"This server speaks WFS {spoken} and the request accepts only '{acceptVersions}'.");
 
             return false;
         }
@@ -284,16 +298,17 @@ public sealed record WfsRequest(
             return false;
         }
 
-        if (string.Equals(version, WfsNames.Version, StringComparison.Ordinal))
+        if (WfsDialect.Of(version) is { } named)
         {
+            dialect = named;
             return true;
         }
 
         fault = new WfsFault(
             WfsFaultCode.VersionNegotiationFailed,
             "version",
-            $"This server speaks WFS {WfsNames.Version} only, and the request asks for "
-            + $"'{version}'. It answers no earlier version rather than answering approximately.");
+            $"This server speaks WFS {spoken}, and the request asks for '{version}'. It answers no other version "
+            + "rather than answering approximately.");
 
         return false;
     }

@@ -36,19 +36,22 @@ public sealed class GmlFeatureCollectionWriter
     private readonly WfsFeatureType _type;
     private readonly GmlGeometryWriter _geometry;
     private readonly string _endpoint;
+    private readonly WfsDialect _d;
 
     /// <summary>Creates a writer for one feature type.</summary>
     /// <param name="type">The type being written.</param>
     /// <param name="outputSrid">The reference the geometries will be in.</param>
     /// <param name="endpoint">This server's own <c>/wfs</c> URL, for the schema hint.</param>
-    public GmlFeatureCollectionWriter(WfsFeatureType type, int outputSrid, string endpoint)
+    /// <param name="dialect">The WFS version answered — ADR-168 — or null for 2.0.0.</param>
+    public GmlFeatureCollectionWriter(WfsFeatureType type, int outputSrid, string endpoint, WfsDialect? dialect = null)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
 
         _type = type;
         _endpoint = endpoint;
-        _geometry = new GmlGeometryWriter(outputSrid);
+        _d = dialect ?? WfsDialect.V200;
+        _geometry = new GmlGeometryWriter(outputSrid, _d.Gml);
     }
 
     /// <summary>Writes the collection.</summary>
@@ -86,10 +89,10 @@ public sealed class GmlFeatureCollectionWriter
 
         await using (xml.ConfigureAwait(false))
         {
-            await xml.WriteStartElementAsync("wfs", "FeatureCollection", WfsNames.Wfs)
+            await xml.WriteStartElementAsync("wfs", "FeatureCollection", _d.Wfs)
                 .ConfigureAwait(false);
 
-            await xml.WriteAttributeStringAsync("xmlns", "gml", null, WfsNames.Gml)
+            await xml.WriteAttributeStringAsync("xmlns", "gml", null, _d.Gml)
                 .ConfigureAwait(false);
 
             await xml.WriteAttributeStringAsync("xmlns", "xsi", null, WfsNames.Xsi)
@@ -115,19 +118,30 @@ public sealed class GmlFeatureCollectionWriter
                     timestamp.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture))
                 .ConfigureAwait(false);
 
-            await xml.WriteAttributeStringAsync(
-                    null,
-                    "numberMatched",
-                    null,
-                    numberMatched?.ToString(CultureInfo.InvariantCulture) ?? "unknown")
-                .ConfigureAwait(false);
+            // ADR-168: WFS 1.1.0 counts the members in numberOfFeatures and has no paging links.
+            if (_d.IsLegacy)
+            {
+                await xml.WriteAttributeStringAsync(
+                        null, "numberOfFeatures", null, numberReturned.ToString(CultureInfo.InvariantCulture))
+                    .ConfigureAwait(false);
+                next = previous = null;
+            }
+            else
+            {
+                await xml.WriteAttributeStringAsync(
+                        null,
+                        "numberMatched",
+                        null,
+                        numberMatched?.ToString(CultureInfo.InvariantCulture) ?? "unknown")
+                    .ConfigureAwait(false);
 
-            await xml.WriteAttributeStringAsync(
-                    null,
-                    "numberReturned",
-                    null,
-                    numberReturned.ToString(CultureInfo.InvariantCulture))
-                .ConfigureAwait(false);
+                await xml.WriteAttributeStringAsync(
+                        null,
+                        "numberReturned",
+                        null,
+                        numberReturned.ToString(CultureInfo.InvariantCulture))
+                    .ConfigureAwait(false);
+            }
 
             if (next is { Length: > 0 })
             {
@@ -185,7 +199,7 @@ public sealed class GmlFeatureCollectionWriter
             await xml.WriteStartElementAsync(WfsNames.Prefix, _type.Name, WfsNames.Namespace)
                 .ConfigureAwait(false);
 
-            await xml.WriteAttributeStringAsync("xmlns", "gml", null, WfsNames.Gml)
+            await xml.WriteAttributeStringAsync("xmlns", "gml", null, _d.Gml)
                 .ConfigureAwait(false);
 
             await xml.WriteAttributeStringAsync("xmlns", "xsi", null, WfsNames.Xsi)
@@ -204,13 +218,21 @@ public sealed class GmlFeatureCollectionWriter
     }
 
     private string Hint() =>
-        $"{WfsNames.Wfs} http://schemas.opengis.net/wfs/2.0/wfs.xsd "
-        + $"{WfsNames.Namespace} {_endpoint}?service=WFS&version={WfsNames.Version}"
-        + $"&request=DescribeFeatureType&typeNames={_type.QualifiedName}";
+        $"{_d.Wfs} {_d.WfsSchema} "
+        + $"{WfsNames.Namespace} {_endpoint}?service=WFS&version={_d.Version}"
+        + $"&request=DescribeFeatureType&{(_d.IsLegacy ? "typeName" : "typeNames")}={_type.QualifiedName}";
 
     private async Task MemberAsync(XmlWriter xml, Feature feature)
     {
-        await xml.WriteStartElementAsync("wfs", "member", WfsNames.Wfs).ConfigureAwait(false);
+        // ADR-168: 1.1.0's features are gml:featureMember, 2.0.0's wfs:member.
+        if (_d.IsLegacy)
+        {
+            await xml.WriteStartElementAsync("gml", "featureMember", _d.Gml).ConfigureAwait(false);
+        }
+        else
+        {
+            await xml.WriteStartElementAsync("wfs", "member", _d.Wfs).ConfigureAwait(false);
+        }
 
         await xml.WriteStartElementAsync(WfsNames.Prefix, _type.Name, WfsNames.Namespace)
             .ConfigureAwait(false);
@@ -234,7 +256,7 @@ public sealed class GmlFeatureCollectionWriter
     {
         string gmlId = _type.GmlIdOf(feature.Id);
 
-        await xml.WriteAttributeStringAsync("gml", "id", WfsNames.Gml, gmlId).ConfigureAwait(false);
+        await xml.WriteAttributeStringAsync("gml", "id", _d.Gml, gmlId).ConfigureAwait(false);
 
         for (int i = 0; i < feature.Schema.Count; i++)
         {

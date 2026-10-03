@@ -358,7 +358,42 @@ public sealed class WfsConformanceTests : ArcGisClient
     // ---------- the surface refuses what it should ----------
 
     [Fact]
-    public async Task An_older_version_is_refused_rather_than_answered_approximately()
+    public async Task Version_1_1_0_is_answered_in_its_own_terms_and_1_0_0_is_refused()
+    {
+        // ADR-168: 1.1.0 is spoken — its capabilities in its namespace, a GetFeature in GML 3.1.1 with
+        // gml:featureMember, an OGC Filter 1.1 read, and its refusals in OWS 1.0.
+        XNamespace wfs11 = "http://www.opengis.net/wfs", gml311 = "http://www.opengis.net/gml";
+        XDocument eleven = await XmlAsync("/wfs?service=WFS&version=1.1.0&request=GetCapabilities");
+        Assert.Equal(wfs11 + "WFS_Capabilities", eleven.Root!.Name);
+        Assert.Equal("1.1.0", (string?)eleven.Root.Attribute("version"));
+        Assert.Equal(wfs11 + "WFS_Capabilities", (await XmlAsync("/wfs?service=WFS&acceptversions=1.1.0&request=GetCapabilities")).Root!.Name);
+
+        string type = eleven.Descendants(wfs11 + "FeatureType").First().Element(wfs11 + "Name")!.Value;
+        XDocument features = await XmlAsync($"/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName={type}&maxFeatures=2");
+        Assert.Equal(wfs11 + "FeatureCollection", features.Root!.Name);
+        Assert.Equal(features.Root.Elements(gml311 + "featureMember").Count(), (int)features.Root.Attribute("numberOfFeatures")!);
+        Assert.InRange(features.Root.Elements(gml311 + "featureMember").Count(), 1, 2);
+
+        string id = features.Root.Element(gml311 + "featureMember")!.Elements().First().Attribute(gml311 + "id")!.Value;
+        string filter = Uri.EscapeDataString($"<ogc:Filter xmlns:ogc=\"http://www.opengis.net/ogc\"><ogc:FeatureId fid=\"{id}\"/></ogc:Filter>");
+        XDocument one = await XmlAsync($"/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName={type}&filter={filter}");
+        Assert.Equal("1", (string?)one.Root!.Attribute("numberOfFeatures"));
+
+        string root = await RequireServerAsync();
+        using HttpRequestMessage asked = new(HttpMethod.Get,
+            new Uri(root + "/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=graticula:no_such_layer"));
+        await AuthenticateAsync(asked, root);
+        using HttpResponseMessage refused = await Http.SendAsync(asked);
+        XDocument refusal = XDocument.Parse(await refused.Content.ReadAsStringAsync());
+        Assert.Equal(XName.Get("ExceptionReport", "http://www.opengis.net/ows"), refusal.Root!.Name);
+        Assert.Equal("1.0.0", (string?)refusal.Root.Attribute("version"));
+
+        Assert.Equal("VersionNegotiationFailed", await RefusalOfAsync(
+            "/wfs?service=WFS&version=1.0.0&request=DescribeFeatureType&typeNames=graticula:no_such_layer"));
+    }
+
+    [Fact]
+    public async Task An_older_version_is_refused_rather_than_answered_approximately_before_ADR_168()
     {
         // <b>ADR-039 §5, and the two halves of it are not the same rule.</b> A
         // client that asks for 1.1.0 and receives a 2.0.0 document cannot tell it
@@ -371,20 +406,15 @@ public sealed class WfsConformanceTests : ArcGisClient
         // that refused it would be refusing to say what it speaks to a client
         // asking exactly that. This test asserted the opposite when it was written
         // and the server was right.
+        // ADR-168: 1.0.0 is the version this server does not speak now; 2.0.0's document is still 2.0.0's.
         XDocument capabilities = await XmlAsync(
-            "/wfs?service=WFS&version=1.1.0&request=GetCapabilities");
+            "/wfs?service=WFS&version=2.0.0&request=GetCapabilities");
 
         Assert.Equal(XName.Get("WFS_Capabilities", Wfs), capabilities.Root!.Name);
 
         Assert.Equal(
             "VersionNegotiationFailed",
-            await RefusalOfAsync("/wfs?service=WFS&acceptversions=1.1.0&request=GetCapabilities"));
-
-        Assert.Equal(
-            "VersionNegotiationFailed",
-            await RefusalOfAsync(
-                "/wfs?service=WFS&version=1.1.0&request=DescribeFeatureType"
-                + "&typeNames=graticula:no_such_layer"));
+            await RefusalOfAsync("/wfs?service=WFS&acceptversions=1.0.0&request=GetCapabilities"));
     }
 
     /// <summary>The exception code a request is refused with.</summary>
