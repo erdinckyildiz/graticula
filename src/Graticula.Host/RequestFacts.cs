@@ -45,6 +45,7 @@ internal static class RequestFacts
             _ when Starts(value, "/wms") => "WMS",
             _ when Starts(value, "/wmts") => "WMTS",
             _ when Starts(value, "/wfs") => "WFS",
+            _ when Starts(value, "/wcs") => "WCS",
             _ when Starts(value, "/ogc") => "OGC",
             _ when Starts(value, "/studio") => "studio",
             _ when Starts(value, "/server") || Starts(value, "/console") => "console",
@@ -140,6 +141,12 @@ internal static class RequestFacts
         if (Starts(value, "/wms") || Starts(value, "/wfs"))
         {
             return Named(query, Starts(value, "/wms") ? "layers" : "typeNames");
+        }
+
+        // <b>WCS — ADR-170: `coverageId`, the service's qualified name with `__` for its slash.</b>
+        if (Starts(value, "/wcs"))
+        {
+            return Named(query, "coverageId")?.Replace("__", "/", StringComparison.Ordinal);
         }
 
         // <b>WMTS — ADR-097: `layer` in KVP, and the segment after the version in the RESTful binding.</b>

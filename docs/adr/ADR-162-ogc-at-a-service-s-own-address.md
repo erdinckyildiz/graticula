@@ -12,6 +12,8 @@
 
 > **Amended 2026-10-03 by [ADR-167](ADR-167-a-service-s-ogc-documents-describe-it.md).** A service's own WMS and WFS documents carry its name, description, tags and the fees and access constraints its owner states.
 
+
+> **Amended 2026-10-03 by [ADR-170](ADR-170-image-services-are-wcs-coverages.md).** WCS is at an image service's own address too, `…/ImageServer/WCSServer`, as WMTS (ADR-163) and KML (ADR-164) already were.
 ---
 
 ## 1. Context

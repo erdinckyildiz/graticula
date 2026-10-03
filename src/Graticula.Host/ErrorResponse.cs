@@ -296,6 +296,24 @@ internal static class ErrorResponse
             return true;
         }
 
+        // <b>WCS 2.0 reports in OWS 2.0's words — ADR-170</b>, as its own refusals do.
+        if (path.StartsWithSegments("/wcs") || path.Value?.EndsWith("/ImageServer/WCSServer", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            context.Response.StatusCode = status;
+            context.Response.ContentType = "application/xml; charset=utf-8";
+
+            await context.Response
+                .WriteAsync(
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                    + "<ows:ExceptionReport xmlns:ows=\"http://www.opengis.net/ows/2.0\" version=\"2.0.0\">"
+                    + "<ows:Exception exceptionCode=\"NoApplicableCode\"><ows:ExceptionText>"
+                    + System.Security.SecurityElement.Escape(message)
+                    + "</ows:ExceptionText></ows:Exception></ows:ExceptionReport>")
+                .ConfigureAwait(false);
+
+            return true;
+        }
+
         if (path.StartsWithSegments("/ogc"))
         {
             context.Response.StatusCode = status;

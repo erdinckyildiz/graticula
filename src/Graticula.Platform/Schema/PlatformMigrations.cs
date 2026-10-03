@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(80);
+    public static SchemaVersion ComponentSchemaVersion => new(81);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -115,6 +115,7 @@ public static class PlatformMigrations
         AClassifiedImageNamesItsClassesV78,
         AServiceTurnsOgcOffV79,
         AServiceStatesItsOgcTermsV80,
+        AnImageServiceTurnsWcsOffV81,
     ]);
 
     /// <summary>
@@ -152,6 +153,19 @@ public static class PlatformMigrations
     /// A web map may be protected from deletion, as a service may be (ADR-102 condition 2) — the ArcGIS review's second
     /// pass found maps the one item kind without it.
     /// </summary>
+    /// <summary>
+    /// An image service's WCS face may be turned off as its others are — ADR-170, WCS joins the faces ADR-166 lists.
+    /// </summary>
+    /// <remarks><b>Expand.</b> The check widens; every value it allowed before it still allows.</remarks>
+    private static Migration AnImageServiceTurnsWcsOffV81 => Migration.Expand(
+        new SchemaVersion(81),
+        "An image service's WCS face may be turned off (ADR-170).",
+        "alter table service drop constraint if exists service_ogc_off_known",
+        """
+        alter table service add constraint service_ogc_off_known
+          check (ogc_off <@ array['WMS','WFS','OGCFeatures','WMTS','KML','WCS']::text[])
+        """);
+
     /// <summary>
     /// A service states its OGC fees and access constraints — ADR-167, ArcGIS Manager's per-service OGC properties.
     /// </summary>

@@ -28748,7 +28748,7 @@ function imageOffersDownload() {
  * it may take the file; on, everyone it is shared with may. A file registered from the server's disk is not offered.
  */
 /**
- * General › OGC: which OGC faces answer for this item — ADR-166, as ArcGIS Manager turns WMS, WFS and KML on and off
+ * General › OGC: which OGC faces answer for this item — ADR-166, as ArcGIS Manager turns WMS, WFS, WCS and KML on and off
  * per service. Each switch saves when changed, as Download beside it does; the ArcGIS face is the item and stays on.
  */
 async function drawOgcSetting(name, folder) {
@@ -28772,7 +28772,7 @@ async function drawOgcSetting(name, folder) {
   // What each face is and where a client finds it, in ArcGIS's names.
   const faces = image
     ? [["WMS", "WMS", `${base}/ImageServer/WMSServer`], ["WMTS", "WMTS", `${base}/ImageServer/WMTS`],
-       ["KML", "KML (Google Earth)", `${base}/ImageServer/generateKml`]]
+       ["WCS", "WCS", `${base}/ImageServer/WCSServer`], ["KML", "KML (Google Earth)", `${base}/ImageServer/generateKml`]]
     : [["WMS", "WMS", `${base}/MapServer/WMSServer`], ["WFS", "WFS", `${base}/FeatureServer/WFSServer`],
        ["OGCFeatures", "OGC API – Features", features],
        ["KML", "KML (Google Earth)", `${base}/MapServer/generateKml`]];
@@ -28794,8 +28794,8 @@ async function drawOgcSetting(name, folder) {
     </fieldset>
     <form class="ogcterms" id="ogcTerms" novalidate>
       <fieldset><legend><h4>Fees and access constraints</h4></legend>
-      <p class="hint" id="ogcTermsHint">Stated in this ${image ? "image service" : "layer"}'s WMS and WFS GetCapabilities responses,
-        as in ArcGIS Server Manager's WMS and WFS properties. Its description and tags are used as Abstract and Keywords.
+      <p class="hint" id="ogcTermsHint">Stated in this ${image ? "image service" : "layer"}'s ${image ? "WMS and WCS" : "WMS and WFS"} GetCapabilities responses,
+        as in ArcGIS Server Manager's ${image ? "WMS and WCS" : "WMS and WFS"} properties. Its description and tags are used as Abstract and Keywords.
         1,000 characters each.</p>
       <label class="field">Fees <input type="text" id="ogcFees" maxlength="1000" value="${h(st.ogcFees || "")}"
         placeholder="None stated" aria-describedby="ogcTermsHint"${manages ? "" : " readonly"}></label>
@@ -28825,7 +28825,7 @@ async function drawOgcSetting(name, folder) {
         { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fees, accessConstraints: access }) });
       const dirty = $("ogcTermsDirty"); if (dirty) dirty.hidden = true;
       if (said) said.textContent = fees.trim() || access.trim()
-        ? "Saved. WMS and WFS GetCapabilities now state these fees and access constraints."
+        ? `Saved. ${image ? "WMS and WCS" : "WMS and WFS"} GetCapabilities now state these fees and access constraints.`
         : "Saved. No fees or access constraints are stated.";
     } catch (e) {
       if (said) { said.classList.add("bad-inline"); said.textContent = `Not saved: ${e.message || e}`; }

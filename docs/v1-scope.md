@@ -130,6 +130,9 @@ narrowed to PostGIS estates, and it is the price of shipping.
 > **confirmed by the owner 2026-10-01** ([Q-158](open-questions.md)): imagery is in scope, its raw export with it
 > ([ADR-127](adr/ADR-127-an-image-service-exports-its-values.md)).
 
+> **WCS, 2026-10-03 — [ADR-170](adr/ADR-170-image-services-are-wcs-coverages.md).** Image services are WCS 2.0.1
+> coverages over their raw export, by owner decision (*"Yap"*).
+
 - **Q-85 dissolves.** ~~ADR-004 stays `DEFERRED`~~ and no longer contradicts an
   in-scope capability, which was review finding S2/A7.
 - **ADR-009 can re-close.** ImageServer was what reopened it; the near-free

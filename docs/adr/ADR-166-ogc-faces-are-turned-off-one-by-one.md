@@ -9,6 +9,8 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-057](ADR-057-composing-and-publishing-a-service.md) §5g (MapServer and the OGC faces follow the feature face) |
 
+
+> **Amended 2026-10-03 by [ADR-170](ADR-170-image-services-are-wcs-coverages.md).** WCS is a face now, an image service's, and turns off with the others (migration 81).
 ---
 
 ## 1. Context

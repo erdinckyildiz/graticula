@@ -79,6 +79,7 @@ internal static partial class ImageServerEndpoints
     public static void Map(WebApplication app)
     {
         ArgumentNullException.ThrowIfNull(app);
+        MapWcs(app);
 
         foreach (string prefix in (string[])["/rest/services", "/rest/services/{folder}"])
         {

@@ -513,6 +513,9 @@ internal static partial class AdminEndpoints
         // it covers rather than covering it by accident.
         "/ogc/tiles",
         "/wmts",
+
+        // ADR-170.
+        "/wcs",
     ];
 
     /// <summary>Maps the admin surface.</summary>
@@ -4768,7 +4771,7 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>The OGC faces there are to turn off, by the name the column keeps — ADR-166.</summary>
-    private static readonly string[] OgcFaces = ["WMS", "WFS", "OGCFeatures", "WMTS", "KML"];
+    private static readonly string[] OgcFaces = ["WMS", "WFS", "OGCFeatures", "WMTS", "KML", "WCS"];
 
     /// <summary>
     /// Turns a service's OGC faces off and on — its owner's act or an administrator's, as ArcGIS Manager's
