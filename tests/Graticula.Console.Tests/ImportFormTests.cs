@@ -508,6 +508,11 @@ public sealed class ImportFormTests : ConsoleTest
                 $"window.__writes.some(w => w.startsWith('PUT') && w.includes('/admin/coverages/{name}/style'))",
                 "Save sent nothing.");
 
+            // Saving redraws the section, so the next choice waits for it: chosen while the PUT was in flight, Slope
+            // was set on the select the redraw then replaced — CI's first red on this test, v1.0.284, a race since 7fbea3a.
+            await WaitForAsync("document.getElementById('covSays').textContent.startsWith('Saved.')",
+                "Save did not say it saved.");
+
             // ADR-136: shown through a raster function, the value controls rest and the function says what it shows.
             await Browser.EvaluateAsync<bool>(
                 "(() => { const f = document.getElementById('covFunction'); f.value = 'slope'; f.dispatchEvent(new Event('change')); return true; })()");
