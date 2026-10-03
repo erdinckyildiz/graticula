@@ -5300,7 +5300,7 @@ public static class Program
     };
 
     /// <summary>The key for the datastore's own connection pool.</summary>
-    private const string DatastorePool = "datastore";
+    internal const string DatastorePool = "datastore";
 
     /// <summary>The key for the pool the job pollers claim on.</summary>
     /// <remarks>

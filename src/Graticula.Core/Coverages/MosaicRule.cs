@@ -30,6 +30,11 @@ public enum MosaicMethod
 
     /// <summary>Nearest a value of a field first.</summary>
     Attribute = 6,
+
+    /// <summary>
+    /// Each image where it is nearer than any other: seams on the lines halfway between image centres — ADR-161.
+    /// </summary>
+    Seamline = 7,
 }
 
 /// <summary>
@@ -55,6 +60,12 @@ public enum MosaicOperation
 
     /// <summary>The sum of the values — MT_SUM.</summary>
     Sum = 5,
+
+    /// <summary>
+    /// The value of the image whose centre is nearest the pixel — what <see cref="MosaicMethod.Seamline"/> draws,
+    /// ADR-161: seamlines as the halfway lines between image centres, inside where images overlap.
+    /// </summary>
+    Nearest = 6,
 }
 
 /// <summary>One image of a mosaic as its catalog lists it — ADR-152.</summary>
@@ -184,7 +195,7 @@ public sealed record DimensionSlice(string? Variable, string? Dimension, IReadOn
 /// <para>
 /// <b>Ordering, and since ADR-158 combining.</b> <c>MT_FIRST</c> (the first in the order on top) and <c>MT_LAST</c>
 /// take one image's pixel; <c>MT_MIN</c>, <c>MT_MAX</c>, <c>MT_MEAN</c>, <c>MT_BLEND</c> and <c>MT_SUM</c> combine
-/// overlapping pixels. The seamline method is refused by name: it needs seamlines this server does not make.
+/// overlapping pixels. The seamline method (ADR-161) draws each image where its centre is nearest.
 /// </para>
 /// <para>
 /// <b><c>multidimensionalDefinition</c></b> chooses a multidimensional service's variables and slices — ADR-159,
@@ -269,6 +280,7 @@ public sealed record MosaicRule
                 "ESRIMOSAICNADIR" => MosaicMethod.Nadir,
                 "ESRIMOSAICVIEWPOINT" => MosaicMethod.Viewpoint,
                 "ESRIMOSAICATTRIBUTE" => MosaicMethod.Attribute,
+                "ESRIMOSAICSEAMLINE" => MosaicMethod.Seamline,
                 _ => null,
             };
 
@@ -276,7 +288,7 @@ public sealed record MosaicRule
             {
                 error = $"`mosaicRule`'s mosaicMethod '{method}' is not one this server orders by: it orders by "
                     + "esriMosaicNone, esriMosaicLockRaster, esriMosaicNorthwest, esriMosaicCenter, esriMosaicNadir, "
-                    + "esriMosaicViewpoint and esriMosaicAttribute. A seamline needs seamlines this server does not make.";
+                    + "esriMosaicViewpoint, esriMosaicAttribute and esriMosaicSeamline.";
                 return false;
             }
 
@@ -346,7 +358,8 @@ public sealed record MosaicRule
                     ? value.ToString() : null,
                 Ascending = !root.TryGetProperty("ascending", out JsonElement ascending) || ascending.ValueKind != JsonValueKind.False,
                 FirstOnTop = first,
-                Operation = combined.Value,
+                // ADR-161: a seamline cuts between images rather than stacking them, unless pixels are combined.
+                Operation = known == MosaicMethod.Seamline && combined == MosaicOperation.Top ? MosaicOperation.Nearest : combined.Value,
                 Viewpoint = viewpoint,
                 Multidimensional = slices is { Count: > 0 } ? slices : null,
             };

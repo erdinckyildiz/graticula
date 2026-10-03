@@ -140,6 +140,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["FeatureServerQueryParameters.AcceptedAtDefault"] = "fixed: the parameters accepted at their default, built once",
         ["GeometryServerEndpoints.Blocked"] = "fixed: the operations this surface refuses",
         ["GeometryServerEndpoints.Notations"] = "fixed: the coordinate notations",
+        ["GeometryServerEndpoints.Transformations.GridAvailable"] = "the grid transformations in the generated register (ADR-160), one entry each at most",
     };
 
     private static string Root

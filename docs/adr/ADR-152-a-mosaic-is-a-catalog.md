@@ -12,6 +12,9 @@
 
 > **Amended 2026-10-03 by [ADR-158](ADR-158-a-mosaic-combines-and-is-reordered.md)** — `MT_MIN`, `MT_MAX`, `MT_MEAN`, `MT_BLEND` and `MT_SUM` are served, and Studio reorders a mosaic — **and by [ADR-159](ADR-159-a-multidimensional-file-is-a-service-of-slices.md)** — `multidimensionalDefinition` chooses a multidimensional service's slices.
 
+
+> **Amended 2026-10-03 by [ADR-161](ADR-161-a-seamline-is-the-halfway-line.md).** `esriMosaicSeamline` is applied: each image is drawn where its centre is nearest.
+
 ---
 
 ## 1. Context

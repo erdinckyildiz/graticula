@@ -317,6 +317,15 @@ Recorded so the reason is not later misremembered as a licensing problem.
   distribution. This is the single most likely place for an unpleasant surprise.
 - **Data files, not just code.** PROJ transformation grids, EPSG database, font
   files and any bundled sample data each carry their own terms.
+- **EPSG and Esri data carried in the product.** `AxisOrderRegister.cs` (ADR-060) and
+  `TransformationRegister.cs` (ADR-160) are generated from PROJ's `proj.db` and carry
+  facts from the EPSG Geodetic Parameter Dataset (IOGP) — codes, names, accuracies, areas
+  of use — and, for ESRI codes, from Esri's projection engine data as PROJ packages it
+  (`ESRI.VERSION` ArcMap 10.8.1 in the register used). The EPSG dataset's terms of use
+  ask that the source be acknowledged and that data presented as EPSG's not be altered;
+  the registers carry EPSG names and values unchanged and name their source in their
+  header. **To verify** before wide distribution, with the Esri data's terms as PROJ
+  states them.
 
 ## Process
 

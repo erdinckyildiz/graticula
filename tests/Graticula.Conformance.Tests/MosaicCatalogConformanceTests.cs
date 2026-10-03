@@ -21,7 +21,7 @@ public sealed class MosaicCatalogConformanceTests : ArcGisClient
     private const int Side = 8;
     private const string Inside = "30.025,40.975";
 
-    private static byte[] Constant(float value)
+    private static byte[] Constant(float value, double west = 30.0)
     {
         using MemoryStream file = new();
         using BinaryWriter w = new(file);
@@ -35,7 +35,7 @@ public sealed class MosaicCatalogConformanceTests : ArcGisClient
         w.Write(ifdAt);
         w.Write(image);
         foreach (double d in new[] { 0.01, 0.01, 0.0 }) w.Write(d);
-        foreach (double d in new[] { 0.0, 0.0, 0.0, 30.0, 41.0, 0.0 }) w.Write(d);
+        foreach (double d in new[] { 0.0, 0.0, 0.0, west, 41.0, 0.0 }) w.Write(d);
         foreach (ushort k in new ushort[] { 1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, 1, 2048, 0, 1, 4326 }) w.Write(k);
 
         (ushort Tag, ushort Type, int Count, int Value)[] tags =
@@ -77,10 +77,10 @@ public sealed class MosaicCatalogConformanceTests : ArcGisClient
         return (response.StatusCode, JsonDocument.Parse(text.Length == 0 ? "{}" : text).RootElement.Clone());
     }
 
-    private async Task<string> ValueAsync(string root, string token, string service, string extra = "")
+    private async Task<string> ValueAsync(string root, string token, string service, string extra = "", string at = Inside)
     {
         (HttpStatusCode status, JsonElement body) = await SendAsync(root, token, HttpMethod.Get,
-            $"{service}/identify?geometry={Inside}&geometryType=esriGeometryPoint&f=json{extra}");
+            $"{service}/identify?geometry={at}&geometryType=esriGeometryPoint&f=json{extra}");
         Assert.True(status == HttpStatusCode.OK, body.ToString());
         return body.GetProperty("value").GetString()!;
     }
@@ -200,6 +200,52 @@ public sealed class MosaicCatalogConformanceTests : ArcGisClient
         {
             (HttpStatusCode removed, _) = await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
             Assert.Equal(HttpStatusCode.OK, removed);
+        }
+    }
+
+    /// <summary>
+    /// ADR-161: two images overlapping by half — 30.00° to 30.08° E and 30.04° to 30.12° E — under esriMosaicSeamline
+    /// each is drawn where its centre is nearer, so the seam is at 30.06° E, where the last added was on top of all
+    /// the overlap before.
+    /// </summary>
+    [Fact]
+    public async Task A_seamline_draws_each_image_on_its_own_side_of_the_halfway_line()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        string name = $"zz_seam_{Guid.NewGuid():N}"[..16];
+        string service = $"/rest/services/hosted/{name}/ImageServer";
+
+        using (MultipartFormDataContent form = new())
+        {
+            form.Add(new ByteArrayContent(Constant(100)), "file", "west.tif");
+            form.Add(new ByteArrayContent(Constant(200, 30.04)), "file", "east.tif");
+            form.Add(new StringContent(name), "name");
+            (HttpStatusCode made, JsonElement said) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", form);
+            Assert.True(made == HttpStatusCode.Created, said.ToString());
+        }
+
+        try
+        {
+            string seamline = Rule("""{"mosaicMethod":"esriMosaicSeamline"}""");
+
+            // In the overlap west of the seam: the east image is on top by default, the west one by the seamline.
+            Assert.Equal("200", await ValueAsync(root, token!, service, at: "30.045,40.975"));
+            Assert.Equal("100", await ValueAsync(root, token!, service, seamline, "30.045,40.975"));
+
+            // East of the seam, and outside the overlap on either side, it is the image that is there.
+            Assert.Equal("200", await ValueAsync(root, token!, service, seamline, "30.075,40.975"));
+            Assert.Equal("100", await ValueAsync(root, token!, service, seamline, "30.015,40.975"));
+            Assert.Equal("200", await ValueAsync(root, token!, service, seamline, "30.105,40.975"));
+
+            JsonElement info = (await SendAsync(root, token!, HttpMethod.Get, $"{service}?f=json")).Body;
+            Assert.Contains("Seamline", info.GetProperty("allowedMosaicMethods").GetString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
         }
     }
 }

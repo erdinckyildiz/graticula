@@ -366,10 +366,10 @@ public sealed class BrowsingConformanceTests : ArcGisClient
     }
 
     /// <summary>
-    /// A refused operation explains itself as a page.
+    /// The operation that was the last refusal answers as a page — ADR-160.
     /// </summary>
     [Fact]
-    public async Task An_unimplemented_operation_explains_itself()
+    public async Task The_last_refused_operation_answers_as_a_page()
     {
         string root = await RequireServerAsync();
 
@@ -381,14 +381,15 @@ public sealed class BrowsingConformanceTests : ArcGisClient
         }
 
         using HttpRequestMessage request =
-            new(HttpMethod.Get, new Uri(root + Geometry + "/findTransformations"));
+            new(HttpMethod.Get, new Uri(root + Geometry + "/findTransformations?inSR=4230&outSR=4326"));
         request.Headers.Add("Accept", "text/html");
 
         using HttpResponseMessage response = await http.SendAsync(request);
         string html = await response.Content.ReadAsStringAsync();
 
-        Assert.Equal(HttpStatusCode.NotImplemented, response.StatusCode);
-        Assert.Contains("not implemented", html, StringComparison.Ordinal);
+        // ADR-160: findTransformations was refused here as 501 until 2026-10-03; it answers now.
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("ED50 to WGS 84 (1)", html, StringComparison.Ordinal);
         /*
           <b>The reason is reshape's own.</b> It used to be the overlay sentence, pasted onto
           all twelve refusals; buffer used to be here and is now implemented.
@@ -406,10 +407,7 @@ public sealed class BrowsingConformanceTests : ArcGisClient
           word appearing in no other refusal — checks.
         */
         //
-        // <b>2026-10-03: reshape is written (ADR-150)</b>, so the page is asked of the one refusal left, and
-        // its own reason is the one naming PROJ and Q-100.
-        Assert.DoesNotContain("editing", html, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Q-100", html, StringComparison.Ordinal);
+        // <b>2026-10-03: reshape is written (ADR-150), and findTransformations (ADR-160)</b>; no refusal is left.
     }
 
     /// <summary>

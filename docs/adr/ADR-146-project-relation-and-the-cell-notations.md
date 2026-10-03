@@ -9,6 +9,9 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-022](ADR-022-geometry-server.md) (what `project`, `relation` and the coordinate notations accept) |
 
+
+> **Amended 2026-10-03 by [ADR-160](ADR-160-datum-transformations-come-from-the-register.md).** E6 is reversed: a `transformation` in `project` is applied, as `findTransformations` lists it.
+
 ---
 
 ## 1. Context

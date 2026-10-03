@@ -509,7 +509,10 @@ public sealed class VrtMosaicReader : ICoverageReader
         int factor = 1 << overview;
 
         // ADR-158: combining keeps, per pixel and band, a running total, a weight, a least and a most.
-        bool combining = _operation != MosaicOperation.Top;
+        bool combining = _operation is not (MosaicOperation.Top or MosaicOperation.Nearest);
+
+        // ADR-161: a seamline keeps, per pixel, how far the drawn image's centre is, and a nearer one replaces it.
+        double[]? nearest = _operation == MosaicOperation.Nearest ? Enumerable.Repeat(double.MaxValue, width * height).ToArray() : null;
         double[]? total = combining ? new double[samples.Length] : null;
         double[]? weight = combining ? new double[width * height] : null;
         double[]? least = combining ? Enumerable.Repeat(double.MaxValue, samples.Length).ToArray() : null;
@@ -549,6 +552,20 @@ public sealed class VrtMosaicReader : ICoverageReader
                     }
 
                     int pixel = (((fromY - y) + row) * width) + (fromX - x) + column;
+
+                    if (nearest is not null)
+                    {
+                        double dx = (fromX + column + 0.5) - (left + (sourceWidth / 2.0));
+                        double dy = (fromY + row + 0.5) - (top + (sourceHeight / 2.0));
+                        double distance = (dx * dx) + (dy * dy);
+
+                        if (distance > nearest[pixel])
+                        {
+                            continue;
+                        }
+
+                        nearest[pixel] = distance;
+                    }
 
                     if (!combining)
                     {

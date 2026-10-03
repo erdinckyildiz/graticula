@@ -9,6 +9,9 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-152](ADR-152-a-mosaic-is-a-catalog.md) (compositing operators refused; no reorder in Studio), [ADR-151](ADR-151-ndvi-band-arithmetic-and-a-choice-of-bands.md) (band functions chosen in Studio's display settings only) |
 
+
+> **Amended 2026-10-03 by [ADR-161](ADR-161-a-seamline-is-the-halfway-line.md).** The seamline method cuts between images rather than stacking them, unless pixels are combined.
+
 ---
 
 ## 1. Context

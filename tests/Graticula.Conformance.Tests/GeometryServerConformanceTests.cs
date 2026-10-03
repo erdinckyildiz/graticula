@@ -80,7 +80,9 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
         JsonElement service = await GetJsonAsync(Root);
 
         Assert.True(service.GetProperty("supportedOperations").GetArrayLength() > 0);
-        Assert.True(service.GetProperty("unsupportedOperations").GetArrayLength() > 0);
+        // ADR-160: findTransformations was the last refusal; none is left.
+        Assert.Equal(0, service.GetProperty("unsupportedOperations").GetArrayLength());
+        Assert.Contains("findTransformations", service.GetProperty("supportedOperations").EnumerateArray().Select(o => o.GetString()));
         Assert.True(service.GetProperty("maximumVertices").GetInt32() > 0);
     }
 
@@ -335,36 +337,41 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
 
     // ---------- the refusals ----------
 
-    [Fact]
-    public async Task An_unimplemented_operation_answers_501_rather_than_404()
-    {
-        // 501 says the server made a decision. 404 says it has no
-        // GeometryServer, which is a different and wrong thing to conclude.
-        //
-        // <b>This list went from twelve to three on 2026-08-15, and from three to one on
-        // 2026-10-03</b>, when autoComplete, reshape and trimExtend were written (Q-99,
-        // ADR-150). findTransformations is what is left, and it waits on PROJ (Q-100).
-        Assert.Equal(501, await StatusOfPostAsync("findTransformations"));
-    }
+    // ---------- datum transformations (ADR-160) ----------
 
     /// <summary>
-    /// The one refusal left gives its own reason, and not cost.
+    /// findTransformations lists the ways from ED50 to WGS 84 — the one for all of Europe first, those that apply in
+    /// Turkey given its extent — and project applies the one named, either way round, refusing one that leads
+    /// elsewhere.
     /// </summary>
     /// <remarks>
-    /// <b>Every refusal used to give the same reason, and it was false for most
-    /// of them.</b> All twelve said "it needs general polygon overlay" —
-    /// true of <c>cut</c>, and nonsense for <c>distance</c>. The three editing
-    /// calculations that held the distinct-reasons assertion are written now
-    /// (ADR-150); what is asserted of the one left is that it names its cause.
+    /// <b>Until 2026-10-03 this was the last 501</b>, refused for want of PROJ's operation database (Q-100). The
+    /// list is generated from it at build time now, and the datastore applies the one chosen.
     /// </remarks>
     [Fact]
-    public async Task The_refusal_left_gives_its_own_reason()
+    public async Task Transformations_are_listed_and_the_one_named_is_applied()
     {
-        string transformations = await ReasonAsync("findTransformations");
+        JsonElement first = await PostAsync("findTransformations", ("inSR", "4230"), ("outSR", "4326"));
+        Assert.Equal(1133, first.GetProperty("wkid").GetInt32());
+        Assert.True(first.GetProperty("transformForward").GetBoolean());
 
-        Assert.DoesNotContain("editing", transformations, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("PROJ", transformations, StringComparison.Ordinal);
-        Assert.Contains("Q-100", transformations, StringComparison.Ordinal);
+        JsonElement turkey = await PostAsync("findTransformations", ("inSR", "23035"), ("outSR", "3857"), ("numOfResults", "5"), ("extentOfInterest", """{"xmin":26,"ymin":36,"xmax":45,"ymax":42,"spatialReference":{"wkid":4326}}"""));
+        JsonElement[] listed = [.. turkey.GetProperty("transformations").EnumerateArray()];
+        Assert.NotEmpty(listed);
+        Assert.DoesNotContain(listed, t => t.ToString().Contains("Catalonia", StringComparison.Ordinal));
+
+        const string Point = """{"geometryType":"esriGeometryPoint","geometries":[{"x":29,"y":41}]}""";
+        JsonElement pinned = await PostAsync("project", ("inSR", "4230"), ("outSR", "4326"), ("geometries", Point), ("transformation", "1133"));
+        double x = pinned.GetProperty("geometries")[0].GetProperty("x").GetDouble();
+        Assert.InRange(x, 28.999, 28.9999);
+        Assert.Equal(1133, pinned.GetProperty("transformation").GetProperty("applied")[0].GetProperty("wkid").GetInt32());
+        Assert.Equal(10, pinned.GetProperty("transformation").GetProperty("accuracyMetres").GetDouble());
+
+        JsonElement back = await PostAsync("project", ("inSR", "4326"), ("outSR", "4230"), ("geometries", Point), ("transformation", """{"wkid":1133,"transformForward":false}"""));
+        Assert.InRange(back.GetProperty("geometries")[0].GetProperty("x").GetDouble(), 29.0001, 29.001);
+
+        JsonElement wrong = await PostAsync("project", ("inSR", "4326"), ("outSR", "4230"), ("geometries", Point), ("transformation", "1133"));
+        Assert.Contains("goes from 4230 to 4326", wrong.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
     }
 
     // ---------- the editing calculations (Q-99, ADR-150) ----------

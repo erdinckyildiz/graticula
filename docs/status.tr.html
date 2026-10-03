@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>76e6419</code> · 2026-10-03 12:25</p>
+<p class="stamp">Şu commit’ten üretildi: <code>f34010b</code> · 2026-10-03 14:06</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">158</div><div class="kpi-l">ADR</div><div class="kpi-n">68 koşulsuz kabul</div></div>
+<div class="kpi "><div class="kpi-v">160</div><div class="kpi-l">ADR</div><div class="kpi-n">70 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">287/380</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">90 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4595</div><div class="kpi-l">test</div><div class="kpi-n">448 kaynak dosya, 200,223 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4601</div><div class="kpi-l">test</div><div class="kpi-n">451 kaynak dosya, 202,730 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -363,6 +363,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">157</td><td>Imagery in other formats is written as GeoTIFF on its way in</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the formats are GDAL&#x27;s and the conversion is checked end to end on samples; real…</td><td class="num"></td></tr>
 <tr><td class="id">158</td><td>A mosaic combines its images, is reordered in Studio, and a map chooses its bands</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — each operator and each control is checked end to end on samples; blending is…</td><td class="num"></td></tr>
 <tr><td class="id">159</td><td>A multidimensional file is a service of slices</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — checked end to end on a NetCDF of two variables over time and depth; real files…</td><td class="num"></td></tr>
+<tr><td class="id">160</td><td>Datum transformations are listed from the register and applied as named</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — listing and applying are checked end to end; the ranking without an area of…</td><td class="num"></td></tr>
+<tr><td class="id">161</td><td>A mosaic&#x27;s seamline is the halfway line between its images</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — checked end to end on two overlapping images; ArcGIS&#x27;s generated seamlines…</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -485,7 +487,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1232</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:70.1%"></div></div><div class="bar-n">864</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:70.5%"></div></div><div class="bar-n">869</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.4%"></div></div><div class="bar-n">682</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
@@ -494,11 +496,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:10.1%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.3%"></div></div><div class="bar-n">115</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:4.1%"></div></div><div class="bar-n">50</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.7%"></div></div><div class="bar-n">46</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.8%"></div></div><div class="bar-n">47</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">41</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>f34010b</code><time>2026-10-03</time><span>A mosaic composites and is reordered, a map chooses its bands, and a NetCDF of variables is multidimensional</span></li>
 <li><code>76e6419</code><time>2026-10-03</time><span>Image services do what ArcGIS&#x27;s do: band functions, a mosaic catalog, time, value functions, mensuration, classes and other formats</span></li>
 <li><code>ae68dde</code><time>2026-10-03</time><span>The display test waits for Save before choosing Slope</span></li>
 <li><code>ff14542</code><time>2026-10-03</time><span>The front page and the README say what image and geometry services are now</span></li>
@@ -512,7 +515,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>212c244</code><time>2026-10-02</time><span>An elevation model is shaded, sloped and given its aspect</span></li>
 <li><code>34afa0f</code><time>2026-10-02</time><span>A service counts its use, and the owner sees what nobody uses</span></li>
 <li><code>2e46683</code><time>2026-10-02</time><span>Attributes are edited in the attribute table and saved together</span></li>
-<li><code>bb5346b</code><time>2026-10-01</time><span>A feature is drawn and added in the Map Viewer, and deleted from its card</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

@@ -146,7 +146,7 @@ public sealed class GeometryServerClientRequestsTests : ArcGisClient
     }
 
     [Fact]
-    public async Task Project_takes_an_extent_a_wkt_reference_and_keeps_a_points_z_and_refuses_a_named_transformation()
+    public async Task Project_takes_an_extent_a_wkt_reference_keeps_a_points_z_and_applies_a_named_transformation()
     {
         // ADR-146. An extent, as the SDK sends a map's: the box around what the rectangle covers in Web Mercator.
         (_, JsonElement extent) = await PostAsync("project", ("inSR", "4326"), ("outSR", "3857"),
@@ -167,9 +167,16 @@ public sealed class GeometryServerClientRequestsTests : ArcGisClient
         Assert.True(custom.TryGetProperty("geometries", out JsonElement moved), custom.ToString());
         Assert.InRange(moved[0].GetProperty("x").GetDouble(), 3228000, 3229000);
 
+        // ADR-160 reversed E6: a named transformation is applied — here backwards, as transformForward says — and
+        // one that leads the wrong way is refused saying where it goes.
         (_, JsonElement pinned) = await PostAsync("project", ("inSR", "4326"), ("outSR", "4230"), ("transformation", "1133"),
+            ("transformForward", "false"),
             ("geometries", "{\"geometryType\":\"esriGeometryPoint\",\"geometries\":[{\"x\":29,\"y\":41}]}"));
-        Assert.Contains("transformation", pinned.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.True(pinned.TryGetProperty("geometries", out JsonElement back), pinned.ToString());
+        Assert.InRange(back[0].GetProperty("x").GetDouble(), 29.0001, 29.001);
+        (_, JsonElement wrong) = await PostAsync("project", ("inSR", "4326"), ("outSR", "4230"), ("transformation", "1133"),
+            ("geometries", "{\"geometryType\":\"esriGeometryPoint\",\"geometries\":[{\"x\":29,\"y\":41}]}"));
+        Assert.Contains("goes from 4230 to 4326", wrong.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
     }
 
     [Fact]

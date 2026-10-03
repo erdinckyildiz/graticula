@@ -103,7 +103,7 @@ internal static partial class GeometryServerEndpoints
     private static readonly string[] Supported =
         ["project", "areasAndLengths", "lengths", "labelPoints",
          "convexHull", "densify",
-         "toGeoCoordinateString", "fromGeoCoordinateString"];
+         "toGeoCoordinateString", "fromGeoCoordinateString", "findTransformations"];
 
     /// <summary>
     /// What runs in a worker process that can be killed.
@@ -180,20 +180,14 @@ internal static partial class GeometryServerEndpoints
     /// <b>Written 2026-10-03 — ADR-150.</b> The three moved to <see cref="Engine"/>, computed in the
     /// overlay worker; <c>findTransformations</c> is the one left.
     /// </para>
+    /// <para>
+    /// <b>Answered 2026-10-03 — ADR-160.</b> <c>findTransformations</c> reads a register generated from PROJ's
+    /// at build time, and <c>project</c> applies the one named; the list is empty and kept for the next refusal.
+    /// </para>
     /// </remarks>
     private static readonly Dictionary<string, string> Blocked = new(StringComparer.Ordinal)
     {
-        ["findTransformations"] =
-            "It lists the datum transformation paths between two spatial references, ranked. "
-            + "The paths live in PROJ's own operation database, and this server does not have "
-            + "PROJ \u2014 projection is done by the datastore (ADR-022 \u00a74), and PostGIS "
-            + "exposes no SQL function that enumerates candidate operations. So this needs "
-            + "either PROJ's proj.db in this process, which is about 9 MB of metadata and a "
-            + "genuinely different cost from the datum grids ADR-022 \u00a74 declined to ship, "
-            + "or a new route to the datastore's copy of it. That choice has not been made "
-            + "\u2014 see Q-100. Returning the single path PROJ happened to pick, dressed as "
-            + "a ranked list of one, would answer the question a caller asked with something "
-            + "that is not an answer to it.",
+        // ADR-160: findTransformations is answered from the register generated from PROJ's; none is refused.
     };
 
     /// <summary>Maps the surface.</summary>
@@ -226,6 +220,7 @@ internal static partial class GeometryServerEndpoints
         // use. POST stays for clients with a bearer token and a body too large
         // for a URL, which is what ArcGIS clients send.
         geometry.MapMethods("/project", GetOrPost, ProjectAsync);
+        geometry.MapMethods("/findTransformations", GetOrPost, FindTransformationsAsync);
         geometry.MapMethods("/areasAndLengths", GetOrPost, AreasAndLengths);
         geometry.MapMethods("/lengths", GetOrPost, Lengths);
         geometry.MapMethods("/labelPoints", GetOrPost, LabelPoints);
@@ -1740,16 +1735,9 @@ internal static partial class GeometryServerEndpoints
             return;
         }
 
-        // E6 (ADR-146): a transformation asked for by name is one this server does not pin — PROJ chooses — so it is
-        // refused rather than answered with whichever PROJ chose, metres from the one asked for.
-        if (Field(form, "transformation") is { } transformation)
-        {
-            await Fail(context,
-                $"`transformation={transformation}` names a datum transformation, and this server does not pin one: PROJ "
-                + "chooses the most accurate it has grids for, and the answer's `transformation` says which engine did. "
-                + "Omit `transformation` to accept that, or transform where the one you need is pinned.").ConfigureAwait(false);
-            return;
-        }
+        // ADR-160: a transformation named — as findTransformations listed it — is the one applied; E6 (ADR-146) refused it
+        // while this server could not pin one.
+        string? pinned = Field(form, "transformation");
 
         // E5 (ADR-146): an outSR given as WKT — a custom projection, a local grid — is projected to by its definition.
         string? outWkt = WktOf(Field(form, "outSR"));
@@ -1785,8 +1773,47 @@ internal static partial class GeometryServerEndpoints
 
         IReadOnlyList<Geometry> projected;
         ProjectionProvenance provenance;
+        TransformationPath? path = null;
 
-        if (outWkt is not null)
+        if (pinned is not null)
+        {
+            if (outWkt is not null)
+            {
+                await Fail(context, "A `transformation` is applied between two references with codes; an `outSR` written as WKT "
+                    + "has none to lead to.").ConfigureAwait(false);
+                return;
+            }
+
+            Npgsql.NpgsqlDataSource db = context.RequestServices.GetRequiredKeyedService<Npgsql.NpgsqlDataSource>(Program.DatastorePool);
+            int? fromGeo = await GeographicOfAsync(db, inSr, cancellation).ConfigureAwait(false);
+            int? toGeo = await GeographicOfAsync(db, outSr, cancellation).ConfigureAwait(false);
+
+            if (fromGeo is null || toGeo is null)
+            {
+                await Fail(context, $"{(fromGeo is null ? inSr : outSr)} is not a reference this server knows.").ConfigureAwait(false);
+                return;
+            }
+
+            if (!TryPinnedPath(pinned, Field(form, "transformForward"), fromGeo.Value, toGeo.Value, out path, out string? pinError))
+            {
+                await Fail(context, pinError!).ConfigureAwait(false);
+                return;
+            }
+
+            (IReadOnlyList<Geometry>? moved, string? moveError) =
+                await ProjectThroughAsync(db, geometries, inSr, fromGeo.Value, path!, outSr, cancellation).ConfigureAwait(false);
+
+            if (moved is null)
+            {
+                await Fail(context, moveError!).ConfigureAwait(false);
+                return;
+            }
+
+            projected = moved;
+            ProjectionProvenance described = await projector.DescribeAsync(inSr, outSr, cancellation).ConfigureAwait(false);
+            provenance = described with { Accuracy = path!.Accuracy, Caution = null };
+        }
+        else if (outWkt is not null)
         {
             if (await projector.ProjectToDefinitionAsync(geometries, inSr, outWkt, cancellation).ConfigureAwait(false) is not { } moved)
             {
@@ -1860,9 +1887,13 @@ internal static partial class GeometryServerEndpoints
                 // be metres out with no error and no visual signature (D-32).
                 datumShift = provenance.DatumShift,
                 caution = provenance.Caution,
-                note = "The transformation path was chosen by PROJ. Where several exist they "
-                     + "differ by metres, and pinning one is not yet supported. When "
-                     + "datumShift is true, read 'caution' before treating this as "
+                // ADR-160: the transformation named, when one was.
+                applied = path?.Steps.Select(Step).ToArray(),
+                note = path is not null
+                    ? "The transformation applied is the one named; accuracyMetres is the register's for it."
+                    : "The transformation path was chosen by PROJ. Where several exist they "
+                     + "differ by metres; name one with `transformation`, as findTransformations "
+                     + "lists them. When datumShift is true, read 'caution' before treating this as "
                      + "authoritative.",
             },
         }).ConfigureAwait(false);

@@ -451,7 +451,7 @@ internal static partial class ImageServerEndpoints
             serviceSourceType = Graticula.Raster.Tiff.VrtMosaicReader.IsMosaic(coverage.Path)
                 ? "esriImageServiceSourceTypeMosaicDataset" : "esriImageServiceSourceTypeRasterDataset",
             defaultMosaicMethod = "None",
-            allowedMosaicMethods = "None,LockRaster,NorthWest,Center,Nadir,Viewpoint,ByAttribute",
+            allowedMosaicMethods = "None,LockRaster,NorthWest,Center,Nadir,Viewpoint,ByAttribute,Seamline",
             mosaicOperator = "Last",
             sortField = string.Empty,
             sortValue = (string?)null,

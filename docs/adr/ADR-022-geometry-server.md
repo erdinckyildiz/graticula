@@ -18,6 +18,9 @@
 
 > **Amended 2026-10-03 by [ADR-150](ADR-150-the-three-editing-calculations-are-written.md).** `autoComplete`, `reshape` and `trimExtend` are computed in the overlay worker; `findTransformations` is the one refusal left.
 
+
+> **Amended 2026-10-03 by [ADR-160](ADR-160-datum-transformations-come-from-the-register.md).** `findTransformations` is answered from a register generated from PROJ's at build time, and `project` applies the transformation named; no operation is refused.
+
 ---
 
 > **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are

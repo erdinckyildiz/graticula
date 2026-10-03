@@ -287,9 +287,9 @@ pre .k{color:var(--accent)}
         -->
         <p class="facts">
           <span><b>5</b> service types</span>
-          <span><b>18</b> of 22 geometry operations</span>
+          <span><b>22</b> of 22 geometry operations</span>
           <span><b>1</b> process, <b>1</b> database</span>
-          <span><b>98</b> decision records</span>
+          <span><b>160</b> decision records</span>
         </p>
       </div>
 
@@ -440,29 +440,29 @@ pre .k{color:var(--accent)}
           </div>
 
           <div class="cap">
-            <i class="sw half"><span class="vh">Partial.</span></i>
+            <i class="sw full"><span class="vh">Complete.</span></i>
             <div>
               <h3>Image services</h3>
               <p>GeoTIFF, JPEG 2000, NetCDF, HDF, ERDAS Imagine and ASCII grids uploaded from Studio, or
               GeoTIFFs registered where they lie; a NetCDF of variables over time and depth becomes a
               multidimensional service of slices. Each service is a mosaic dataset's catalog, queried, ordered
-              or composited by a mosaic rule, reordered in Studio and edited as ArcGIS edits one. Eleven raster functions from Hillshade and NDVI to Clip and
+              or composited by a mosaic rule — seamlines included — reordered in Studio and edited as ArcGIS edits one. Eleven raster functions from Hillshade and NDVI to Clip and
               Statistics, measurement on the ground, a raster attribute table, Download and pyramids.
-              <b>The seamline mosaic method, MrSID and ECW are not in it.</b></p>
+              MrSID and ECW are refused by name: only their makers' SDKs read them.</p>
               <p class="ops"><code>exportImage</code><code>identify</code><code>query</code><code>measure</code><code>getSamples</code></p>
             </div>
           </div>
 
           <div class="cap">
-            <i class="sw half"><span class="vh">Partial.</span></i>
+            <i class="sw full"><span class="vh">Complete.</span></i>
             <div>
               <h3>Geometry service</h3>
-              <p>21 of 22 operations, including <code>buffer</code>, <code>intersect</code>,
+              <p>All 22 operations, including <code>buffer</code>, <code>intersect</code>,
               <code>union</code>, <code>difference</code>, <code>cut</code>, <code>project</code>,
               <code>autoComplete</code>, <code>reshape</code> and <code>trimExtend</code>. Cost is
               bounded by a worker with a deadline rather than by a cap on your input.
-              <b>The one that is missing, <code>findTransformations</code>, refuses in its own
-              words</b>, with the reason that applies to it.</p>
+              <code>findTransformations</code> lists the datum transformations between two
+              references, and <code>project</code> applies the one you name.</p>
             </div>
           </div>
         </div>

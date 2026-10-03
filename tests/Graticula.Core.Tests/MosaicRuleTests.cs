@@ -44,6 +44,15 @@ public sealed class MosaicRuleTests
     }
 
     [Fact]
+    public void A_seamline_draws_each_image_where_it_is_nearest_unless_pixels_are_combined()
+    {
+        Assert.True(MosaicRule.TryParse("""{"mosaicMethod":"esriMosaicSeamline"}""", out MosaicRule? rule, out _));
+        Assert.Equal(MosaicOperation.Nearest, rule!.Operation);
+        Assert.True(MosaicRule.TryParse("""{"mosaicMethod":"esriMosaicSeamline","mosaicOperation":"MT_MEAN"}""", out rule, out _));
+        Assert.Equal(MosaicOperation.Mean, rule!.Operation);
+    }
+
+    [Fact]
     public void A_lock_draws_only_what_it_names_first_named_on_top()
     {
         Assert.Equal([0, 2], Order("""{"mosaicMethod":"esriMosaicLockRaster","lockRasterIds":[3,1]}"""));
@@ -67,7 +76,7 @@ public sealed class MosaicRuleTests
     }
 
     [Theory]
-    [InlineData("""{"mosaicMethod":"esriMosaicSeamline"}""", "seamline")]
+    [InlineData("""{"mosaicMethod":"esriMosaicStereo"}""", "esriMosaicSeamline")]
     [InlineData("""{"mosaicOperation":"MT_AVERAGE"}""", "MT_MEAN")]
     [InlineData("""{"mosaicMethod":"esriMosaicLockRaster"}""", "lockRasterIds")]
     [InlineData("""{"mosaicMethod":"esriMosaicAttribute","sortField":"Cloud"}""", "AcquisitionDate")]
