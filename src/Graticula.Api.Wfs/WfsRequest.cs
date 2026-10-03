@@ -121,8 +121,8 @@ public sealed record WfsRequest(
                 // contradiction sweep 3.
                 $"'{requested}' is not an operation this server offers. It offers "
                 + "GetCapabilities, DescribeFeatureType, GetFeature, GetPropertyValue, "
-                + "ListStoredQueries and DescribeStoredQueries. Transaction and LockFeature "
-                + "are not implemented.");
+                + "ListStoredQueries and DescribeStoredQueries, and Transaction as an XML POST. "
+                + "LockFeature is not implemented.");
 
             return false;
         }

@@ -10,6 +10,9 @@
 
 > **Amended 2026-10-03 by [ADR-168](ADR-168-wfs-1-1-0-is-spoken-too.md).** §5: WFS 1.1.0 is spoken beside 2.0.0, in its own terms; 1.0.0 is still refused.
 
+
+> **Amended 2026-10-03 by [ADR-169](ADR-169-wfs-t-through-the-one-write-path.md).** Alternative C is taken after all: WFS-T — Insert, Update, Replace, Delete — through the writer every other face uses.
+
 ---
 
 ## 1. Context

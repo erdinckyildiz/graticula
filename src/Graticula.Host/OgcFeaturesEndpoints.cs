@@ -1019,7 +1019,7 @@ internal static partial class OgcFeaturesEndpoints
     /// integer column is an error at the database rather than an empty result, and
     /// the message it produces names a type nobody asked about.
     /// </remarks>
-    private static bool TryValue(
+    internal static bool TryValue(
         LayerDescription described,
         string column,
         string text,

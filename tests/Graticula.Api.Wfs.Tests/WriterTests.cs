@@ -291,7 +291,7 @@ public sealed class WriterTests
     // ---------- capabilities ----------
 
     [Fact]
-    public async Task The_capabilities_declare_the_two_things_that_are_false()
+    public async Task The_capabilities_declare_transactions_true_and_locking_false()
     {
         XElement root = await WriteAsync(stream => CapabilitiesDocument.WriteAsync(
             stream, "https://example/wfs", "Graticula", [Type()], CancellationToken.None));
@@ -299,9 +299,9 @@ public sealed class WriterTests
         Assert.Equal(Wfs + "WFS_Capabilities", root.Name);
         Assert.Equal("2.0.0", (string?)root.Attribute("version"));
 
-        // A client reads these to decide what to offer its operator. Declaring
-        // transactions TRUE would put an edit button in front of somebody.
-        Assert.Equal("FALSE", Constraint(root, "ImplementsTransactionalWFS"));
+        // A client reads these to decide what to offer its operator. Transactions are TRUE since ADR-169, which put
+        // the edit button behind them; locking is still FALSE, so no client offers to lock.
+        Assert.Equal("TRUE", Constraint(root, "ImplementsTransactionalWFS"));
         Assert.Equal("FALSE", Constraint(root, "ImplementsLockingWFS"));
         Assert.Equal("TRUE", Constraint(root, "ImplementsBasicWFS"));
         Assert.Equal("TRUE", Constraint(root, "ImplementsResultPaging"));

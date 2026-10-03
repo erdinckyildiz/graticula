@@ -166,8 +166,8 @@ public static class CapabilitiesDocument
                 // ADR-167: at a service's own address, the service's own description.
                 metadata?.Abstract is { Length: > 0 } described
                     ? described
-                    : "Read-only WFS 2.0. Query, paging and property values are "
-                        + "supported; Transaction and LockFeature are not implemented.")
+                    : "WFS 2.0. Query, paging, property values and Transaction (Insert, Update, Replace, "
+                        + "Delete) are supported; LockFeature is not implemented.")
             .ConfigureAwait(false);
 
         if (metadata?.Keywords is { Count: > 0 } keywords)
@@ -235,6 +235,9 @@ public static class CapabilitiesDocument
             "GetPropertyValue",
             "ListStoredQueries",
             "DescribeStoredQueries",
+
+            // ADR-169: Insert, Update, Replace and Delete, as an XML POST.
+            "Transaction",
         ])
         {
             await xml.WriteStartElementAsync("ows", "Operation", WfsNames.Ows).ConfigureAwait(false);
@@ -290,7 +293,7 @@ public static class CapabilitiesDocument
         foreach ((string name, string value) in ((string, string)[])
         [
             ("ImplementsBasicWFS", "TRUE"),
-            ("ImplementsTransactionalWFS", "FALSE"),
+            ("ImplementsTransactionalWFS", "TRUE"),
             ("ImplementsLockingWFS", "FALSE"),
             ("KVPEncoding", "TRUE"),
             ("XMLEncoding", "TRUE"),

@@ -42,7 +42,7 @@ namespace Graticula.Host;
 /// is what a caller who cannot see it should observe.
 /// </para>
 /// </remarks>
-internal static class WfsEndpoints
+internal static partial class WfsEndpoints
 {
     /// <summary>Where the surface lives.</summary>
     public const string Path = "/wfs";
@@ -194,6 +194,25 @@ internal static class WfsEndpoints
                 .ConfigureAwait(false);
 
             return;
+        }
+
+        body.Position = 0;
+
+        // ADR-169: a Transaction is answered by its own handler; every other document is a query reduced to KVP.
+        try
+        {
+            using System.Xml.XmlReader peek = SafeXml.Read(body);
+            System.Xml.Linq.XElement document = System.Xml.Linq.XElement.Load(peek, System.Xml.Linq.LoadOptions.None);
+
+            if (document.Name.LocalName == "Transaction")
+            {
+                await TransactionAsync(context, catalog, contexts, settings, document, cancellation).ConfigureAwait(false);
+                return;
+            }
+        }
+        catch (System.Xml.XmlException)
+        {
+            // Not well formed: the query reader below says so in its own words.
         }
 
         body.Position = 0;

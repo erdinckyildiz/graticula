@@ -54,7 +54,7 @@ public static class CapabilitiesDocument11
             await xml.WriteElementStringAsync("ows", "Title", d.Ows, title).ConfigureAwait(false);
             await xml.WriteElementStringAsync("ows", "Abstract", d.Ows, metadata?.Abstract is { Length: > 0 } described
                 ? described
-                : "Read-only WFS 1.1.0, beside the server's WFS 2.0.0. Transaction and LockFeature are not implemented.")
+                : "WFS 1.1.0, beside the server's WFS 2.0.0, with Transaction; LockFeature is not implemented.")
                 .ConfigureAwait(false);
 
             if (metadata?.Keywords is { Count: > 0 } keywords)
@@ -86,7 +86,7 @@ public static class CapabilitiesDocument11
             // ows:OperationsMetadata: the read operations, GET and POST at this address.
             await xml.WriteStartElementAsync("ows", "OperationsMetadata", d.Ows).ConfigureAwait(false);
 
-            foreach (string operation in (string[])["GetCapabilities", "DescribeFeatureType", "GetFeature"])
+            foreach (string operation in (string[])["GetCapabilities", "DescribeFeatureType", "GetFeature", "Transaction"])
             {
                 await xml.WriteStartElementAsync("ows", "Operation", d.Ows).ConfigureAwait(false);
                 await xml.WriteAttributeStringAsync(null, "name", null, operation).ConfigureAwait(false);
@@ -127,7 +127,10 @@ public static class CapabilitiesDocument11
             {
                 await xml.WriteStartElementAsync("wfs", "FeatureTypeList", d.Wfs).ConfigureAwait(false);
                 await xml.WriteStartElementAsync("wfs", "Operations", d.Wfs).ConfigureAwait(false);
-                await xml.WriteElementStringAsync("wfs", "Operation", d.Wfs, "Query").ConfigureAwait(false);
+                foreach (string verb in (string[])["Query", "Insert", "Update", "Delete"])
+                {
+                    await xml.WriteElementStringAsync("wfs", "Operation", d.Wfs, verb).ConfigureAwait(false);
+                }
                 await xml.WriteEndElementAsync().ConfigureAwait(false);
 
                 foreach (WfsFeatureType type in types)

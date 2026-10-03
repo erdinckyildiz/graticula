@@ -50,7 +50,7 @@ Around them: members, roles with editable privileges, groups and item sharing, w
 mutation audited and the log queryable; import from GeoJSON, a zipped shapefile or a File
 Geodatabase, or define an empty schema and fill it through `applyEdits`.
 
-OGC API Features (with Part 3's `filter` in Basic CQL2 text, [ADR-165](docs/adr/ADR-165-ogc-api-features-filters-in-basic-cql2.md)), WFS 2.0 and 1.1 ([ADR-168](docs/adr/ADR-168-wfs-1-1-0-is-spoken-too.md)) and WMS 1.3.0 are served as well — at `/wfs` and `/wms`, and at each service's own
+OGC API Features (with Part 3's `filter` in Basic CQL2 text, [ADR-165](docs/adr/ADR-165-ogc-api-features-filters-in-basic-cql2.md)), WFS 2.0 and 1.1 ([ADR-168](docs/adr/ADR-168-wfs-1-1-0-is-spoken-too.md)), editable through WFS-T ([ADR-169](docs/adr/ADR-169-wfs-t-through-the-one-write-path.md)), and WMS 1.3.0 are served as well — at `/wfs` and `/wms`, and at each service's own
 address as ArcGIS gives it (`…/MapServer/WMSServer`, `…/ImageServer/WMSServer`, `…/FeatureServer/WFSServer`), with
 image services as WMS layers ([ADR-162](docs/adr/ADR-162-ogc-at-a-service-s-own-address.md)), an image service's tiles
 through WMTS at `…/ImageServer/WMTS` ([ADR-163](docs/adr/ADR-163-an-image-service-is-a-wmts.md)) and a map or image
