@@ -62,7 +62,7 @@ As §2, Alternative A.
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | An item's description and tags are what its owner would want an OGC catalogue to show | `INFERRED`; Q-161 |
+| — | An item's description and tags are what its owner would want an OGC catalogue to show | confirmed by the owner, Q-161 |
 
 ## 8. Dependencies
 

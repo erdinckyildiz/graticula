@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` — each operation is checked end to end in 1.1.0's own terms; no 1.1.0-only client has been watched using it, and OGC's 1.1.0 test suite has not been run |
-| **Decided** | 2026-10-03 — `INFERRED` from the owner's *"Devam et"* in answer to *should WFS 1.0/1.1 be done, given it is larger than estimated and 2.0 already serves QGIS and ArcGIS Pro?* |
+| **Decided** | 2026-10-03 — inferred from the owner's *"Devam et"* in answer to *should WFS 1.0/1.1 be done, given it is larger than estimated and 2.0 already serves QGIS and ArcGIS Pro?* |
 | **Supersedes** | — |
 | **Superseded by** | — |
 | **Amends** | [ADR-039](ADR-039-wfs-is-the-first-surface-after-v1.md) §5 (2.0.0 only; another version refused) |
@@ -67,7 +67,7 @@ As §2, Alternative A.
 
 ## Conditions
 
-1. The owner confirms 1.1.0 is wanted (`INFERRED`, Q-161).
+1. The owner confirms 1.1.0 is wanted (`INFERRED`, Q-161). **DISCHARGED 2026-10-03** — the owner: *"evet onayladım"*.
 2. A 1.1.0 client — FME or an older QGIS forced to 1.1.0 — reads a layer and its filter.
 
 ## 6. Consequences

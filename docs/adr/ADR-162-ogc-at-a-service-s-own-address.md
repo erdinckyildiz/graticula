@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` — each address and each layer is checked end to end; no ArcGIS-migrated QGIS project has been pointed at one |
-| **Decided** | 2026-10-03 — `INFERRED` from the owner's *"Sonra da OGC tarafına geç"*, after an ArcGIS administrator's review listed these as the first gaps an ArcGIS shop meets. **To be confirmed:** that a service's own address, beside `/wms` and `/wfs`, is wanted |
+| **Decided** | 2026-10-03 — inferred from the owner's *"Sonra da OGC tarafına geç"*, after an ArcGIS administrator's review listed these as the first gaps an ArcGIS shop meets. **To be confirmed:** that a service's own address, beside `/wms` and `/wfs`, is wanted |
 | **Supersedes** | — |
 | **Superseded by** | — |
 | **Amends** | [ADR-039](ADR-039-wfs-is-the-first-surface-after-v1.md) §5 (one WFS address for the server), [ADR-041](ADR-041-the-map-renderer.md) (WMS lists vector layers only), [ADR-043](ADR-043-imageserver-and-the-raster-face.md) §3 |
@@ -68,7 +68,7 @@ As §2, Alternative A.
 
 ## Conditions
 
-1. The owner confirms that a service's own OGC address is wanted beside the server-wide ones (`INFERRED`).
+1. The owner confirms that a service's own OGC address is wanted beside the server-wide ones (`INFERRED`). **DISCHARGED 2026-10-03** — the owner: *"evet onayladım"* (Q-161).
 2. A QGIS project saved against an ArcGIS Server `WMSServer` address is opened against this one.
 
 ## 6. Consequences
