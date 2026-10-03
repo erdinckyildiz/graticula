@@ -9,6 +9,9 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-039](ADR-039-wfs-is-the-first-surface-after-v1.md) §5 (one WFS address for the server), [ADR-041](ADR-041-the-map-renderer.md) (WMS lists vector layers only), [ADR-043](ADR-043-imageserver-and-the-raster-face.md) §3 |
 
+
+> **Amended 2026-10-03 by [ADR-167](ADR-167-a-service-s-ogc-documents-describe-it.md).** A service's own WMS and WFS documents carry its name, description, tags and the fees and access constraints its owner states.
+
 ---
 
 ## 1. Context

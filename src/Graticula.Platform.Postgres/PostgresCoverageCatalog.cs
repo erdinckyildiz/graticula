@@ -38,7 +38,7 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
         s.created_at, s.updated_at,
         (select coalesce(array_agg(gi.group_id), '{}')
            from sharing_group_item gi where gi.service_id = s.id) as shared_with_groups,
-        s.description, s.tags, s.content_folder_id, c.download, c.images, c.classes, s.ogc_off
+        s.description, s.tags, s.content_folder_id, c.download, c.images, c.classes, s.ogc_off, s.ogc_fees, s.ogc_access_constraints
         """;
 
     private readonly NpgsqlDataSource _dataSource;
@@ -502,6 +502,8 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
             NextImageId = reader.IsDBNull(30) ? null : NextFrom(reader.GetString(30)),
             Classes = reader.IsDBNull(31) ? null : ClassesFrom(reader.GetString(31)),
             OgcOff = reader.GetFieldValue<string[]>(32),
+            OgcFees = reader.IsDBNull(33) ? null : reader.GetString(33),
+            OgcAccessConstraints = reader.IsDBNull(34) ? null : reader.GetString(34),
         };
     }
 

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(79);
+    public static SchemaVersion ComponentSchemaVersion => new(80);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -114,6 +114,7 @@ public static class PlatformMigrations
         AMosaicHasACatalogV77,
         AClassifiedImageNamesItsClassesV78,
         AServiceTurnsOgcOffV79,
+        AServiceStatesItsOgcTermsV80,
     ]);
 
     /// <summary>
@@ -151,6 +152,16 @@ public static class PlatformMigrations
     /// A web map may be protected from deletion, as a service may be (ADR-102 condition 2) — the ArcGIS review's second
     /// pass found maps the one item kind without it.
     /// </summary>
+    /// <summary>
+    /// A service states its OGC fees and access constraints — ADR-167, ArcGIS Manager's per-service OGC properties.
+    /// </summary>
+    /// <remarks><b>Expand.</b> Two nullable columns; null is none stated, which is what every service said before.</remarks>
+    private static Migration AServiceStatesItsOgcTermsV80 => Migration.Expand(
+        new SchemaVersion(80),
+        "A service states its OGC fees and access constraints (ADR-167).",
+        "alter table service add column if not exists ogc_fees text",
+        "alter table service add column if not exists ogc_access_constraints text");
+
     /// <summary>
     /// A service's OGC faces may be turned off one by one — ADR-166, as ArcGIS Manager turns WMS, WFS and KML off per
     /// service: the faces its owner turned off.

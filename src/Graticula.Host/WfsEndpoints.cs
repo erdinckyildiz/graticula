@@ -120,6 +120,24 @@ internal static class WfsEndpoints
             ? text
             : null;
 
+    /// <summary>
+    /// At a service's own address, what the service says of itself — ADR-167 — or null at <c>/wfs</c>.
+    /// </summary>
+    private static async Task<Graticula.Catalog.OgcServiceMetadata?> ScopeMetadataAsync(HttpContext context, CancellationToken cancellation)
+    {
+        if (!context.Items.ContainsKey(ScopeKey)
+            || context.RequestServices.GetService(typeof(CatalogFallback)) is not CatalogFallback catalog)
+        {
+            return null;
+        }
+
+        PublishedService? service = (await catalog.ListServicesAsync(cancellation).ConfigureAwait(false)).Services?
+            .FirstOrDefault(s => InScope(context, s));
+        return service is null
+            ? null
+            : new Graticula.Catalog.OgcServiceMetadata(service.Description, service.Tags, service.OgcFees, service.OgcAccessConstraints);
+    }
+
     private static bool InScope(HttpContext context, PublishedService service) =>
         !context.Items.TryGetValue(ScopeKey, out object? held) || held is not ValueTuple<string?, string> scope
         || (string.Equals(service.Name, scope.Item2, StringComparison.OrdinalIgnoreCase)
@@ -486,9 +504,13 @@ internal static class WfsEndpoints
             .WriteAsync(
                 context.Response.Body,
                 Endpoint(context),
-                "Graticula",
+                // ADR-167: at a service's own address, the service's name, as WMS's document is titled.
+                context.Items.TryGetValue(ScopeKey, out object? held) && held is ValueTuple<string?, string> scope
+                    ? (scope.Item1 is null ? scope.Item2 : $"{scope.Item1}/{scope.Item2}")
+                    : "Graticula",
                 Ordered(types),
-                cancellation)
+                cancellation,
+                await ScopeMetadataAsync(context, cancellation).ConfigureAwait(false))
             .ConfigureAwait(false);
     }
 

@@ -152,7 +152,10 @@ public sealed class PostgresLayerCatalog
         l.edit_own_only,
 
         -- ADR-166, migration 79: the OGC faces its owner turned off. On the end, read by name.
-        s.ogc_off as service_ogc_off
+        s.ogc_off as service_ogc_off,
+
+        -- ADR-167, migration 80: the fees and access constraints its OGC documents state. On the end, by name.
+        s.ogc_fees as service_ogc_fees, s.ogc_access_constraints as service_ogc_access
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -882,6 +885,7 @@ public sealed class PostgresLayerCatalog
             int? TileCacheQuota, string[] Tags, Guid? ViewOf, bool HasViews, Guid? ContentFolder)> heads = [];
         List<Guid> order = [];
         Dictionary<Guid, string[]> ogcOff = [];
+        Dictionary<Guid, (string? Fees, string? Access)> ogcTerms = [];
 
         // <b>Its own scope, so the reader is closed before the group query
         // runs.</b> Disposing it by hand and letting `await using` dispose it
@@ -964,6 +968,7 @@ public sealed class PostgresLayerCatalog
 
                     // ADR-166: beside the head rather than in it, which is a tuple every reader would have to widen.
                     ogcOff[owning] = reader.GetFieldValue<string[]>(reader.GetOrdinal("service_ogc_off"));
+                    ogcTerms[owning] = (Nullable(reader, "service_ogc_fees"), Nullable(reader, "service_ogc_access"));
                 }
 
                 // A left join, so a service with no layers arrives as one row of
@@ -1040,6 +1045,8 @@ public sealed class PostgresLayerCatalog
                 HasViews = head.HasViews,
                 ContentFolder = head.ContentFolder,
                 OgcOff = ogcOff.TryGetValue(id, out string[]? off) ? off : [],
+                OgcFees = ogcTerms.TryGetValue(id, out var terms) ? terms.Fees : null,
+                OgcAccessConstraints = terms.Access,
             });
         }
 

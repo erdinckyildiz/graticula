@@ -72,6 +72,7 @@ public static class CapabilitiesDocument
     /// <param name="layers">The layers the caller may see.</param>
     /// <param name="limits">The bounds to publish.</param>
     /// <param name="contact">Who to ask about this server, or nobody.</param>
+    /// <param name="metadata">At a service's own address, what the service says of itself (ADR-167), or null.</param>
     /// <returns>The XML.</returns>
     public static string Write(
         WmsVersion version,
@@ -79,7 +80,8 @@ public static class CapabilitiesDocument
         string title,
         IReadOnlyList<WmsLayer> layers,
         WmsLimits limits,
-        WmsContact contact = default)
+        WmsContact contact = default,
+        Graticula.Catalog.OgcServiceMetadata? metadata = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
         ArgumentNullException.ThrowIfNull(layers);
@@ -97,11 +99,11 @@ public static class CapabilitiesDocument
         {
             if (version == WmsVersion.V130)
             {
-                Write130(writer, endpoint, title, layers, limits, contact);
+                Write130(writer, endpoint, title, layers, limits, contact, metadata);
             }
             else
             {
-                Write111(writer, endpoint, title, layers, limits, contact);
+                Write111(writer, endpoint, title, layers, limits, contact, metadata);
             }
         }
 
@@ -114,7 +116,8 @@ public static class CapabilitiesDocument
         string title,
         IReadOnlyList<WmsLayer> layers,
         WmsLimits limits,
-        WmsContact contact)
+        WmsContact contact,
+        Graticula.Catalog.OgcServiceMetadata? metadata)
     {
         writer.WriteStartElement("WMS_Capabilities", WmsNames.Wms);
         writer.WriteAttributeString("version", "1.3.0");
@@ -123,7 +126,7 @@ public static class CapabilitiesDocument
         writer.WriteAttributeString(
             "xsi", "schemaLocation", null, $"{WmsNames.Wms} {WmsNames.SchemaLocation130}");
 
-        WriteService(writer, endpoint, title, limits, WmsVersion.V130, contact);
+        WriteService(writer, endpoint, title, limits, WmsVersion.V130, contact, metadata);
 
         writer.WriteStartElement("Capability");
         WriteRequests(writer, endpoint, WmsVersion.V130);
@@ -157,7 +160,8 @@ public static class CapabilitiesDocument
         string title,
         IReadOnlyList<WmsLayer> layers,
         WmsLimits limits,
-        WmsContact contact)
+        WmsContact contact,
+        Graticula.Catalog.OgcServiceMetadata? metadata)
     {
         // <b>The DOCTYPE is not decoration.</b> 1.1.1 is DTD-validated, and clients
         // of that era check. A 1.1.1 document without it is refused by some of the
@@ -167,7 +171,7 @@ public static class CapabilitiesDocument
         writer.WriteStartElement("WMT_MS_Capabilities");
         writer.WriteAttributeString("version", "1.1.1");
 
-        WriteService(writer, endpoint, title, limits, WmsVersion.V111, contact);
+        WriteService(writer, endpoint, title, limits, WmsVersion.V111, contact, metadata);
 
         writer.WriteStartElement("Capability");
         WriteRequests(writer, endpoint, WmsVersion.V111);
@@ -199,15 +203,19 @@ public static class CapabilitiesDocument
         string title,
         WmsLimits limits,
         WmsVersion version,
-        WmsContact contact)
+        WmsContact contact,
+        Graticula.Catalog.OgcServiceMetadata? metadata)
     {
         writer.WriteStartElement("Service");
         writer.WriteElementString("Name", version == WmsVersion.V130 ? "WMS" : "OGC:WMS");
         writer.WriteElementString("Title", title);
+        // ADR-167: at a service's own address, the service's own description and tags.
         writer.WriteElementString(
             "Abstract",
-            "Maps drawn from this server's own published layers, using each layer's stored "
-            + "symbology. Read-only.");
+            metadata?.Abstract is { Length: > 0 } described
+                ? described
+                : "Maps drawn from this server's own published layers, using each layer's stored "
+                    + "symbology. Read-only.");
 
         WriteKeywords(
             writer,
@@ -223,11 +231,22 @@ public static class CapabilitiesDocument
             // server — the provider type [security.md](../../docs/security.md) §5 keeps for
             // an authenticated administrator. `GetLegendGraphic` replaces it and is a
             // request this server actually answers.
-            ["WMS", "GetMap", "GetFeatureInfo", "GetLegendGraphic", "vector"]);
+            [.. (metadata?.Keywords ?? []), "WMS", "GetMap", "GetFeatureInfo", "GetLegendGraphic", "vector"]);
 
         WriteOnlineResource(writer, endpoint);
 
         WriteContact(writer, contact);
+
+        // ADR-167: as the service's owner states them; absent when nobody has, which the schema allows.
+        if (metadata?.Fees is { Length: > 0 } fees)
+        {
+            writer.WriteElementString("Fees", fees);
+        }
+
+        if (metadata?.AccessConstraints is { Length: > 0 } constraints)
+        {
+            writer.WriteElementString("AccessConstraints", constraints);
+        }
 
         // <b>Published rather than discovered.</b> A client that learns the limit
         // from the document never sends a request that hits it; one that does not

@@ -218,6 +218,12 @@ public sealed class PublishedService
     /// <summary>The OGC faces its owner turned off — <c>WMS</c>, <c>WFS</c>, <c>OGCFeatures</c>, <c>KML</c> (ADR-166).</summary>
     public IReadOnlyList<string> OgcOff { get; init; } = [];
 
+    /// <summary>What using its OGC faces costs, as its owner states it, or null (ADR-167).</summary>
+    public string? OgcFees { get; init; }
+
+    /// <summary>Who may use its OGC faces and how, as its owner states it, or null (ADR-167).</summary>
+    public string? OgcAccessConstraints { get; init; }
+
     /// <summary>Whether an OGC face answers for this service — ADR-166.</summary>
     /// <param name="face">The face.</param>
     /// <returns>True unless its owner turned it off.</returns>

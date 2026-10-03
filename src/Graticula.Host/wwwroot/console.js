@@ -28792,7 +28792,45 @@ async function drawOgcSetting(name, folder) {
       <code class="hint" id="ogcAddress-${key}">${breakable(address)}</code></div>`).join("")}
     <p class="hint" id="ogcKmlNeeds"${off.has("WMS") ? "" : " hidden"}>KML is not offered while WMS is off: it is drawn through WMS. Turn WMS on to offer it.</p>
     </fieldset>
+    <form class="ogcterms" id="ogcTerms" novalidate>
+      <fieldset><legend><h4>Fees and access constraints</h4></legend>
+      <p class="hint" id="ogcTermsHint">Stated in this ${image ? "image service" : "layer"}'s WMS and WFS GetCapabilities responses,
+        as in ArcGIS Server Manager's WMS and WFS properties. Its description and tags are used as Abstract and Keywords.
+        1,000 characters each.</p>
+      <label class="field">Fees <input type="text" id="ogcFees" maxlength="1000" value="${h(st.ogcFees || "")}"
+        placeholder="None stated" aria-describedby="ogcTermsHint"${manages ? "" : " readonly"}></label>
+      <label class="field">Access constraints <textarea id="ogcAccess" rows="2" maxlength="1000"
+        placeholder="None stated" aria-describedby="ogcTermsHint"${manages ? "" : " readonly"}>${h(st.ogcAccessConstraints || "")}</textarea></label>
+      ${manages ? `<div class="row"><button type="submit" id="ogcTermsSave">Save fees and constraints</button>
+        <span class="hint" id="ogcTermsDirty" hidden>Unsaved changes</span></div>` : ""}
+      <p class="hint" id="ogcTermsSaid" role="status" aria-live="polite"></p>
+      </fieldset>
+    </form>
     <p class="hint" id="ogcSaid" role="status" aria-live="polite"></p>`;
+
+  // ADR-167: the terms are saved together, by a button, with their own status line (ux review 13).
+  const terms = $("ogcTerms");
+  terms?.addEventListener("input", () => {
+    const d = $("ogcTermsDirty"); if (d) d.hidden = false;
+    const said = $("ogcTermsSaid"); if (said) { said.textContent = ""; said.classList.remove("bad-inline"); }
+  });
+  terms?.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!manages) return;
+    const said = $("ogcTermsSaid");
+    const fees = $("ogcFees").value, access = $("ogcAccess").value;
+    if (said) { said.classList.remove("bad-inline"); said.textContent = "Saving…"; }
+    try {
+      await api(`/admin/services/${encodeURIComponent(name)}/ogc/terms?folder=${encodeURIComponent(folder || "")}`,
+        { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fees, accessConstraints: access }) });
+      const dirty = $("ogcTermsDirty"); if (dirty) dirty.hidden = true;
+      if (said) said.textContent = fees.trim() || access.trim()
+        ? "Saved. WMS and WFS GetCapabilities now state these fees and access constraints."
+        : "Saved. No fees or access constraints are stated.";
+    } catch (e) {
+      if (said) { said.classList.add("bad-inline"); said.textContent = `Not saved: ${e.message || e}`; }
+    }
+  });
 
   const boxes = () => [...box.querySelectorAll("[data-ogc-face]")];
   const kml = () => box.querySelector('[data-ogc-face="KML"]');

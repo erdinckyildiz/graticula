@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>0089ecd</code> · 2026-10-03 16:24</p>
+<p class="stamp">Şu commit’ten üretildi: <code>56b0e81</code> · 2026-10-03 17:13</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">165</div><div class="kpi-l">ADR</div><div class="kpi-n">71 koşulsuz kabul</div></div>
+<div class="kpi "><div class="kpi-v">166</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">287/385</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">95 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4604</div><div class="kpi-l">test</div><div class="kpi-n">455 kaynak dosya, 203,935 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4604</div><div class="kpi-l">test</div><div class="kpi-n">456 kaynak dosya, 204,145 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -374,6 +374,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">164</td><td>`generateKml` is a network link to the service&#x27;s map</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the document and the request it makes are checked; Google Earth has not been…</td><td class="num">0/1</td></tr>
 <tr><td class="id">165</td><td>OGC API Features filters in Basic CQL2 text</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each claimed class has a case that observes it; no OGC test suite for Part 3 has…</td><td class="num">0/1</td></tr>
 <tr><td class="id">166</td><td>A service&#x27;s OGC faces are turned off one by one</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — each face is checked against the switch end to end; ArcGIS Manager&#x27;s vocabulary…</td><td class="num"></td></tr>
+<tr><td class="id">167</td><td>A service&#x27;s own OGC documents describe it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the documents are checked; ArcGIS Manager&#x27;s other OGC properties (contact a…</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -511,6 +512,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>56b0e81</code><time>2026-10-03</time><span>A service&#x27;s owner turns its OGC faces off one by one, as ArcGIS Manager turns capabilities off</span></li>
 <li><code>0089ecd</code><time>2026-10-03</time><span>OGC API Features filters in Basic CQL2 text, with queryables</span></li>
 <li><code>069f214</code><time>2026-10-03</time><span>An image service answers WMTS over its own tiles, and a map or image service opens in Google Earth through generateKml</span></li>
 <li><code>7744c4a</code><time>2026-10-03</time><span>WMS and WFS answer at each service&#x27;s own address, image services are WMS layers, and text/xml feature info is XML</span></li>
@@ -524,7 +526,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>0f145e5</code><time>2026-10-03</time><span>Imagery answers areas, resamples as asked and gives uploads back; the geometry service answers the JS SDK</span></li>
 <li><code>4e68bd6</code><time>2026-10-02</time><span>Several images are one mosaic</span></li>
 <li><code>d96c609</code><time>2026-10-02</time><span>An uploaded image is given its overviews</span></li>
-<li><code>702ca78</code><time>2026-10-02</time><span>A renderer sent as a rendering rule is drawn</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

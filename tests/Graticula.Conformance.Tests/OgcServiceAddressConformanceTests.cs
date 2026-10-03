@@ -129,6 +129,24 @@ public sealed class OgcServiceAddressConformanceTests : ArcGisClient
             Assert.Equal(HttpStatusCode.OK, await OffAsync("""{"off":[]}"""));
             (_, _, byte[] back) = await GetAsync(root, token!, "/wms?service=WMS&request=GetCapabilities&version=1.3.0");
             Assert.Contains($"hosted/{name}", LayerNames(back));
+
+            // ADR-167: the fees and access constraints its owner states are in its own WMS document, and nowhere else.
+            using (HttpRequestMessage terms = new(HttpMethod.Put, $"{root}/admin/services/{name}/ogc/terms?folder=hosted")
+            {
+                Content = new StringContent("""{"fees":"No charge","accessConstraints":"CC BY 4.0"}""", System.Text.Encoding.UTF8, "application/json"),
+            })
+            {
+                terms.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage said = await Http.SendAsync(terms);
+                Assert.Equal(HttpStatusCode.OK, said.StatusCode);
+            }
+
+            (_, _, byte[] stated) = await GetAsync(root, token!, $"{own}?service=WMS&request=GetCapabilities&version=1.3.0");
+            XElement service = XDocument.Parse(System.Text.Encoding.UTF8.GetString(stated)).Descendants().First(e => e.Name.LocalName == "Service");
+            Assert.Equal("No charge", service.Elements().First(e => e.Name.LocalName == "Fees").Value);
+            Assert.Equal("CC BY 4.0", service.Elements().First(e => e.Name.LocalName == "AccessConstraints").Value);
+            (_, _, byte[] server) = await GetAsync(root, token!, "/wms?service=WMS&request=GetCapabilities&version=1.3.0");
+            Assert.DoesNotContain("CC BY 4.0", System.Text.Encoding.UTF8.GetString(server), StringComparison.Ordinal);
         }
         finally
         {

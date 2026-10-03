@@ -339,6 +339,9 @@ internal sealed record ProtectionRequest(bool Protected);
 /// <summary>What <c>…/ogc</c> reads: the OGC faces to turn off — ADR-166.</summary>
 internal sealed record OgcOffRequest(string?[]? Off);
 
+/// <summary>What <c>…/ogc/terms</c> reads: the fees and access constraints a service's OGC documents state — ADR-167.</summary>
+internal sealed record OgcTermsRequest(string? Fees, string? AccessConstraints);
+
 /// <summary>
 /// What a service is configured to offer. Null means unset, everywhere.
 /// </summary>
@@ -662,6 +665,7 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/services/{name}/description", SetServiceDescriptionAsync);
         app.MapGet("/admin/services/{name}/stewardship", GetStewardshipAsync);
         app.MapPut("/admin/services/{name}/ogc", SetOgcOffAsync);
+        app.MapPut("/admin/services/{name}/ogc/terms", SetOgcTermsAsync);
         app.MapPut("/admin/services/{name}/editing", SetEditingOfferedAsync);
         app.MapPut("/admin/services/{name}/protection", SetDeleteProtectedAsync);
 
@@ -4652,6 +4656,8 @@ internal static partial class AdminEndpoints
             ceiling = found.Ceiling,
             deleteProtected = found.DeleteProtected,
             ogcOff = found.OgcOff ?? [],
+            ogcFees = found.OgcFees,
+            ogcAccessConstraints = found.OgcAccessConstraints,
             manages,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
@@ -4720,6 +4726,45 @@ internal static partial class AdminEndpoints
             succeeded: true, cancellation).ConfigureAwait(false);
 
         await Results.Json(new { name, folder = at, editingOffered = wanted }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// States the fees and access constraints a service's own OGC capabilities documents carry — ADR-167. Blank states
+    /// none; each is a line of text, at most 1,000 characters.
+    /// </summary>
+    private static async Task SetOgcTermsAsync(
+        HttpContext context, string name, string? folder, OgcTermsRequest request, IAdminCatalog catalog,
+        IAuditLog audit, PostgresLayerCatalog owners, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (!await ManagesServiceAsync(context, owners, at, name, "state the OGC terms of", cancellation).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string? fees = string.IsNullOrWhiteSpace(request.Fees) ? null : request.Fees.Trim();
+        string? access = string.IsNullOrWhiteSpace(request.AccessConstraints) ? null : request.AccessConstraints.Trim();
+
+        if ((fees?.Length ?? 0) > 1000 || (access?.Length ?? 0) > 1000)
+        {
+            await Refuse(context, 400, "Fees and access constraints are each at most 1,000 characters.").ConfigureAwait(false);
+            return;
+        }
+
+        if (!await catalog.SetOgcTermsAsync(name, at, fees, access, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(context, audit, "service.ogc.terms", name, Detail(new { folder = at, fees, accessConstraints = access }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { name, folder = at, ogcFees = fees, ogcAccessConstraints = access }).ExecuteAsync(context)
+            .ConfigureAwait(false);
     }
 
     /// <summary>The OGC faces there are to turn off, by the name the column keeps — ADR-166.</summary>

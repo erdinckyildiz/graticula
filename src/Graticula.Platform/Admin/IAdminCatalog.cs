@@ -1263,6 +1263,10 @@ public interface IAdminCatalog
     /// <returns>True when the service exists.</returns>
     Task<bool> SetOgcOffAsync(string serviceName, string? folder, IReadOnlyList<string> off, CancellationToken cancellationToken);
 
+    /// <summary>Sets the fees and access constraints a service's OGC documents state; null states none (ADR-167).</summary>
+    /// <returns>True when the service exists.</returns>
+    Task<bool> SetOgcTermsAsync(string serviceName, string? folder, string? fees, string? accessConstraints, CancellationToken cancellationToken);
+
     /// <summary>
     /// Makes a freshly published service a view of another — ADR-113: records its source, gives each of its layers the
     /// source layer's number, and keeps each filter as it was written.

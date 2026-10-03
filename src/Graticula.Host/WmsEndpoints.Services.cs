@@ -98,6 +98,32 @@ internal static partial class WmsEndpoints
             .OrderBy(c => c.QualifiedName, StringComparer.OrdinalIgnoreCase)];
     }
 
+    /// <summary>
+    /// At a service's own address, what the service says of itself for the capabilities document — ADR-167 — or null
+    /// at <c>/wms</c>.
+    /// </summary>
+    private static async Task<Graticula.Catalog.OgcServiceMetadata?> ScopeMetadataAsync(
+        HttpContext context, CatalogFallback catalog, ICoverageCatalog coverages, CancellationToken cancellation)
+    {
+        if (ScopeOf(context) is not { } scope)
+        {
+            return null;
+        }
+
+        if (scope.Kind == "ImageServer")
+        {
+            return await coverages.FindAsync(scope.Folder, scope.Name, cancellation).ConfigureAwait(false) is { } coverage
+                ? new Graticula.Catalog.OgcServiceMetadata(coverage.Description, coverage.Tags, coverage.OgcFees, coverage.OgcAccessConstraints)
+                : null;
+        }
+
+        PublishedService? service = (await catalog.ListServicesAsync(cancellation).ConfigureAwait(false)).Services?
+            .FirstOrDefault(s => InScope(scope, s.Folder, s.Name, "FeatureServer"));
+        return service is null
+            ? null
+            : new Graticula.Catalog.OgcServiceMetadata(service.Description, service.Tags, service.OgcFees, service.OgcAccessConstraints);
+    }
+
     private static PublishedCoverage? FindCoverage(IReadOnlyList<PublishedCoverage> coverages, string name) =>
         coverages.FirstOrDefault(c => string.Equals(c.QualifiedName, name, StringComparison.OrdinalIgnoreCase));
 

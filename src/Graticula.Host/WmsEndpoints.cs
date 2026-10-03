@@ -424,7 +424,8 @@ internal static partial class WmsEndpoints
             ScopeOf(context) is { } scope ? (scope.Folder is null ? scope.Name : $"{scope.Folder}/{scope.Name}") : "Graticula",
             published,
             limits,
-            settings.WmsContact);
+            settings.WmsContact,
+            await ScopeMetadataAsync(context, catalog, coverages, cancellation).ConfigureAwait(false));
 
         context.Response.ContentType = request.Version == WmsVersion.V130
             ? WmsNames.CapabilitiesMediaType130

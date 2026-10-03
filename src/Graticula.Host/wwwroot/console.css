@@ -4689,6 +4689,10 @@ h4.spaced { margin-top: 24px; }
 
 /* ADR-166: General › OGC services, one switch a face, its address beside it. */
 #generalOgc { margin-bottom: 16px; }
+#generalOgc .ogcterms { margin-top: 24px; max-width: 40rem; }
+#generalOgc .ogcterms fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
+#generalOgc .ogcterms textarea { width: 100%; resize: vertical; font: inherit; }
+#generalOgc .ogcterms .field { display: grid; gap: 2px; }
 #generalOgc .ogcfaces { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; }
 #generalOgc legend { padding: 0; }
 #generalOgc legend h4 { margin: 0; }

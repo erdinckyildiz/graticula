@@ -54,7 +54,7 @@ OGC API Features (with Part 3's `filter` in Basic CQL2 text, [ADR-165](docs/adr/
 address as ArcGIS gives it (`…/MapServer/WMSServer`, `…/ImageServer/WMSServer`, `…/FeatureServer/WFSServer`), with
 image services as WMS layers ([ADR-162](docs/adr/ADR-162-ogc-at-a-service-s-own-address.md)), an image service's tiles
 through WMTS at `…/ImageServer/WMTS` ([ADR-163](docs/adr/ADR-163-an-image-service-is-a-wmts.md)) and a map or image
-service in Google Earth through `generateKml` ([ADR-164](docs/adr/ADR-164-generatekml-links-to-the-map.md)), each of which its owner may turn off in Studio as ArcGIS Manager turns capabilities off ([ADR-166](docs/adr/ADR-166-ogc-faces-are-turned-off-one-by-one.md)) — and the vector tiles
+service in Google Earth through `generateKml` ([ADR-164](docs/adr/ADR-164-generatekml-links-to-the-map.md)), each of which its owner may turn off in Studio as ArcGIS Manager turns capabilities off ([ADR-166](docs/adr/ADR-166-ogc-faces-are-turned-off-one-by-one.md)) and whose documents carry the service's own description, keywords, fees and access constraints ([ADR-167](docs/adr/ADR-167-a-service-s-ogc-documents-describe-it.md)) — and the vector tiles
 through OGC API Tiles, TileJSON and WMTS 1.0.0 ([ADR-097](docs/adr/ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md));
 [docs/](docs/) has the detail,
 and [docs/reviews/](docs/reviews/) has the OGC CITE runs behind them.

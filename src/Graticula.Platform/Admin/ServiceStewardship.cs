@@ -9,8 +9,12 @@ namespace Graticula.Platform.Admin;
 /// <param name="DeleteProtected">Whether the service refuses to be deleted until this is turned off.</param>
 /// <param name="Ceiling">The administrator's capability ceiling, or null for every operation; the owner chooses inside it.</param>
 /// <param name="OgcOff">The OGC faces the owner turned off (ADR-166).</param>
+/// <param name="OgcFees">The fees its OGC documents state (ADR-167).</param>
+/// <param name="OgcAccessConstraints">The access constraints its OGC documents state (ADR-167).</param>
 public sealed record ServiceStewardship(
     IReadOnlyList<string>? EditingOffered,
     bool DeleteProtected,
     IReadOnlyList<string>? Ceiling,
-    IReadOnlyList<string>? OgcOff = null);
+    IReadOnlyList<string>? OgcOff = null,
+    string? OgcFees = null,
+    string? OgcAccessConstraints = null);

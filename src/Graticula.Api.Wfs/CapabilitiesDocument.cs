@@ -83,13 +83,15 @@ public static class CapabilitiesDocument
     /// <param name="title">What to call this server.</param>
     /// <param name="types">The feature types this caller may see.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="metadata">At a service's own address, what the service says of itself (ADR-167), or null.</param>
     /// <returns>A task.</returns>
     public static async Task WriteAsync(
         Stream stream,
         string endpoint,
         string title,
         IReadOnlyList<WfsFeatureType> types,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        Graticula.Catalog.OgcServiceMetadata? metadata = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(types);
@@ -107,7 +109,7 @@ public static class CapabilitiesDocument
             await xml.WriteAttributeStringAsync(null, "version", null, WfsNames.Version)
                 .ConfigureAwait(false);
 
-            await IdentificationAsync(xml, title).ConfigureAwait(false);
+            await IdentificationAsync(xml, title, metadata).ConfigureAwait(false);
             await ProviderAsync(xml).ConfigureAwait(false);
             await OperationsAsync(xml, endpoint).ConfigureAwait(false);
             await TypesAsync(xml, types).ConfigureAwait(false);
@@ -143,7 +145,7 @@ public static class CapabilitiesDocument
             "xmlns", WfsNames.Prefix, null, WfsNames.Namespace).ConfigureAwait(false);
     }
 
-    private static async Task IdentificationAsync(XmlWriter xml, string title)
+    private static async Task IdentificationAsync(XmlWriter xml, string title, Graticula.Catalog.OgcServiceMetadata? metadata)
     {
         await xml.WriteStartElementAsync("ows", "ServiceIdentification", WfsNames.Ows)
             .ConfigureAwait(false);
@@ -161,9 +163,24 @@ public static class CapabilitiesDocument
                 // administrator — it implies a version, and by implication an
                 // organisation's internal topology. Nothing a WFS client does with this
                 // document changes on the answer, which is what made it free to remove.
-                "Read-only WFS 2.0. Query, paging and property values are "
-                + "supported; Transaction and LockFeature are not implemented.")
+                // ADR-167: at a service's own address, the service's own description.
+                metadata?.Abstract is { Length: > 0 } described
+                    ? described
+                    : "Read-only WFS 2.0. Query, paging and property values are "
+                        + "supported; Transaction and LockFeature are not implemented.")
             .ConfigureAwait(false);
+
+        if (metadata?.Keywords is { Count: > 0 } keywords)
+        {
+            await xml.WriteStartElementAsync("ows", "Keywords", WfsNames.Ows).ConfigureAwait(false);
+
+            foreach (string keyword in keywords)
+            {
+                await xml.WriteElementStringAsync("ows", "Keyword", WfsNames.Ows, keyword).ConfigureAwait(false);
+            }
+
+            await xml.WriteEndElementAsync().ConfigureAwait(false);
+        }
 
         await xml.WriteStartElementAsync("ows", "ServiceType", WfsNames.Ows).ConfigureAwait(false);
         await xml.WriteAttributeStringAsync(null, "codeSpace", null, "OGC").ConfigureAwait(false);
@@ -173,9 +190,11 @@ public static class CapabilitiesDocument
         await xml.WriteElementStringAsync(
             "ows", "ServiceTypeVersion", WfsNames.Ows, WfsNames.Version).ConfigureAwait(false);
 
-        await xml.WriteElementStringAsync("ows", "Fees", WfsNames.Ows, "NONE").ConfigureAwait(false);
+        await xml.WriteElementStringAsync("ows", "Fees", WfsNames.Ows,
+            metadata?.Fees is { Length: > 0 } fees ? fees : "NONE").ConfigureAwait(false);
 
-        await xml.WriteElementStringAsync("ows", "AccessConstraints", WfsNames.Ows, "NONE")
+        await xml.WriteElementStringAsync("ows", "AccessConstraints", WfsNames.Ows,
+                metadata?.AccessConstraints is { Length: > 0 } constraints ? constraints : "NONE")
             .ConfigureAwait(false);
 
         await xml.WriteEndElementAsync().ConfigureAwait(false);
