@@ -33,6 +33,9 @@ public enum WmsOperation
 
     /// <summary>A legend swatch.</summary>
     GetLegendGraphic = 4,
+
+    /// <summary>The layers' styles as SLD — ADR-171, from the SLD profile.</summary>
+    GetStyles = 5,
 }
 
 /// <summary>

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Globalization;
 using Graticula.Cartography;
 using Graticula.Geometries;
@@ -103,6 +104,12 @@ public sealed class WmsRequest
     /// <summary>The styles named, one per layer, each empty for the layer's own.</summary>
     public IReadOnlyList<string> Styles { get; private init; } = [];
 
+    /// <summary>
+    /// What an <c>SLD_BODY</c> styles, a layer each — ADR-171 — or empty when there is none. A layer it names is drawn
+    /// with the style it says, for this request only; a layer it does not name is drawn with its own.
+    /// </summary>
+    public IReadOnlyList<SldLayer> Sld { get; private init; } = [];
+
     /// <summary>The EPSG code of the requested CRS.</summary>
     public int Srid { get; private init; }
 
@@ -176,8 +183,8 @@ public sealed class WmsRequest
         {
             fault = new WmsFault(
                 WmsFault.OperationNotSupported,
-                $"This server implements GetCapabilities, GetMap, GetFeatureInfo and "
-                + $"GetLegendGraphic; it was asked for `{operation}`.",
+                $"This server implements GetCapabilities, GetMap, GetFeatureInfo, "
+                + $"GetLegendGraphic and GetStyles; it was asked for `{operation}`.",
                 "REQUEST");
 
             return false;
@@ -210,6 +217,9 @@ public sealed class WmsRequest
             WmsOperation.GetLegendGraphic =>
                 TryLegend(parameter, version, out request, out fault),
 
+            WmsOperation.GetStyles =>
+                TryStylesRequest(parameter, limits, version, out request, out fault),
+
             _ => TryMap(parameter, limits, version, asked.Value, out request, out fault),
         };
     }
@@ -226,6 +236,7 @@ public sealed class WmsRequest
         "GETMAP" or "MAP" => WmsOperation.GetMap,
         "GETFEATUREINFO" or "FEATURE_INFO" => WmsOperation.GetFeatureInfo,
         "GETLEGENDGRAPHIC" => WmsOperation.GetLegendGraphic,
+        "GETSTYLES" => WmsOperation.GetStyles,
         _ => null,
     };
 
@@ -377,7 +388,36 @@ public sealed class WmsRequest
         request = null;
         fault = null;
 
-        if (!TrySplit(parameter("LAYERS"), "LAYERS", limits.MaximumLayers, out List<string> layers, out fault))
+        // <b>ADR-171: a style sent with the request.</b> `SLD` — a URL to fetch — is refused: fetching an address a
+        // caller names is this server making requests on a stranger's behalf, and `SLD_BODY` carries the same document.
+        if (!string.IsNullOrWhiteSpace(parameter("SLD")))
+        {
+            fault = WmsFault.Invalid(
+                "SLD",
+                "This server does not fetch a style from an address. Send the document itself as SLD_BODY.");
+
+            return false;
+        }
+
+        IReadOnlyList<SldLayer> sld = [];
+
+        if (parameter("SLD_BODY") is { Length: > 0 } body)
+        {
+            if (!StyledLayerDescriptor.TryRead(body, out sld, out string? refused))
+            {
+                fault = new WmsFault(WmsFault.StyleNotDefined, refused!, "SLD_BODY");
+                return false;
+            }
+        }
+
+        // With an SLD, LAYERS may be left out: the layers are the ones it names, in its order (SLD profile §10.3).
+        List<string> layers;
+
+        if (sld.Count > 0 && string.IsNullOrWhiteSpace(parameter("LAYERS")))
+        {
+            layers = [.. sld.Select(one => one.Name)];
+        }
+        else if (!TrySplit(parameter("LAYERS"), "LAYERS", limits.MaximumLayers, out layers, out fault))
         {
             return false;
         }
@@ -441,7 +481,7 @@ public sealed class WmsRequest
             format = parsed;
         }
 
-        if (!TryStyles(parameter("STYLES"), layers.Count, out List<string> styles, out fault))
+        if (!TryStyles(parameter("STYLES") ?? (sld.Count > 0 ? string.Empty : null), layers.Count, out List<string> styles, out fault))
         {
             return false;
         }
@@ -462,6 +502,7 @@ public sealed class WmsRequest
         {
             Layers = layers,
             Styles = styles,
+            Sld = sld,
             Srid = srid,
             Extent = extent,
             Width = width,
@@ -604,6 +645,27 @@ public sealed class WmsRequest
     /// for every layer's default</b>, and it is the thing a naive parser reads as
     /// missing. Refusing it would refuse the request every WMS client sends.
     /// </remarks>
+    /// <summary>
+    /// GetStyles — ADR-171, from the SLD profile: <c>LAYERS</c>, and nothing else matters.
+    /// </summary>
+    private static bool TryStylesRequest(
+        Func<string, string?> parameter,
+        WmsLimits limits,
+        WmsVersion version,
+        out WmsRequest? request,
+        out WmsFault? fault)
+    {
+        request = null;
+
+        if (!TrySplit(parameter("LAYERS") ?? parameter("LAYER"), "LAYERS", limits.MaximumLayers, out List<string> layers, out fault))
+        {
+            return false;
+        }
+
+        request = new WmsRequest(version, WmsOperation.GetStyles) { Layers = layers };
+        return true;
+    }
+
     private static bool TryStyles(
         string? value, int layers, out List<string> styles, out WmsFault? fault)
     {

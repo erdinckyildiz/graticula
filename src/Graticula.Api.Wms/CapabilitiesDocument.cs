@@ -123,8 +123,9 @@ public static class CapabilitiesDocument
         writer.WriteAttributeString("version", "1.3.0");
         writer.WriteAttributeString("xmlns", "xlink", null, WmsNames.Xlink);
         writer.WriteAttributeString("xmlns", "xsi", null, WmsNames.Xsi);
+        writer.WriteAttributeString("xmlns", "sld", null, Sld);
         writer.WriteAttributeString(
-            "xsi", "schemaLocation", null, $"{WmsNames.Wms} {WmsNames.SchemaLocation130}");
+            "xsi", "schemaLocation", null, $"{WmsNames.Wms} {WmsNames.SchemaLocation130} {Sld} {SldCapabilities}");
 
         WriteService(writer, endpoint, title, limits, WmsVersion.V130, contact, metadata);
 
@@ -133,6 +134,16 @@ public static class CapabilitiesDocument
 
         writer.WriteStartElement("Exception");
         writer.WriteElementString("Format", "XML");
+        writer.WriteEndElement();
+
+        // ADR-171: a style may be sent with GetMap, for a layer this server publishes and not one sent with it.
+        writer.WriteStartElement("sld", "UserDefinedSymbolization", Sld);
+        writer.WriteAttributeString("SupportSLD", "1");
+        writer.WriteAttributeString("UserLayer", "0");
+        writer.WriteAttributeString("UserStyle", "1");
+        writer.WriteAttributeString("RemoteWFS", "0");
+        writer.WriteAttributeString("InlineFeature", "0");
+        writer.WriteAttributeString("RemoteWCS", "0");
         writer.WriteEndElement();
 
         // The root layer, which has a title and no name. A named root would be a
@@ -178,6 +189,14 @@ public static class CapabilitiesDocument
 
         writer.WriteStartElement("Exception");
         writer.WriteElementString("Format", WmsNames.ExceptionMediaType111);
+        writer.WriteEndElement();
+
+        // ADR-171, in 1.1.1's own element.
+        writer.WriteStartElement("UserDefinedSymbolization");
+        writer.WriteAttributeString("SupportSLD", "1");
+        writer.WriteAttributeString("UserLayer", "0");
+        writer.WriteAttributeString("UserStyle", "1");
+        writer.WriteAttributeString("RemoteWFS", "0");
         writer.WriteEndElement();
 
         writer.WriteStartElement("Layer");
@@ -289,8 +308,36 @@ public static class CapabilitiesDocument
         WriteHttpGet(writer, endpoint);
         writer.WriteEndElement();
 
+        // <b>The SLD profile's operations — ADR-171.</b> 1.3.0 extends the request list through `sld:`; 1.1.1's DTD
+        // names them itself, in this order.
+        foreach ((string operation, string format) in (ReadOnlySpan<(string, string)>)[("GetLegendGraphic", "image/png"), ("GetStyles", StylesMediaType)])
+        {
+            if (version == WmsVersion.V130)
+            {
+                writer.WriteStartElement("sld", operation, Sld);
+                writer.WriteElementString("Format", WmsNames.Wms, format);
+            }
+            else
+            {
+                writer.WriteStartElement(operation);
+                writer.WriteElementString("Format", format);
+            }
+
+            WriteHttpGet(writer, endpoint);
+            writer.WriteEndElement();
+        }
+
         writer.WriteEndElement();
     }
+
+    /// <summary>The SLD namespace, which 1.3.0's extended operations are in — ADR-171.</summary>
+    private const string Sld = "http://www.opengis.net/sld";
+
+    /// <summary>Where the SLD profile's capabilities schema is.</summary>
+    private const string SldCapabilities = "http://schemas.opengis.net/sld/1.1.0/sld_capabilities.xsd";
+
+    /// <summary>What GetStyles answers.</summary>
+    public const string StylesMediaType = "application/vnd.ogc.sld+xml";
 
     /// <summary>
     /// The address a client appends its parameters to.

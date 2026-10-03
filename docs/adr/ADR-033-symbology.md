@@ -9,6 +9,8 @@
 | **Superseded by** | [ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md) — §5a, with §5c's write-normalisation and §6's State line only: the canonical document. *(Corrected 2026-09-09 from **§1**, which is this document's Context — [D-238](../architecture-debt.md).)* |
 | **Amends** | [ADR-028](ADR-028-style-documents.md) — a style stops being *per service* and becomes *per layer, composed into a service* |
 
+
+> **Amended 2026-10-03 by [ADR-171](ADR-171-sld-at-the-wms-boundary.md).** SLD came, by owner decision, where §2E said it would have to: at the WMS boundary, as a style sent with one GetMap and a style answered by GetStyles. It is never stored and never the canonical form, and §2E's rejection of SLD as an authoring format stands.
 ---
 
 > **Amended 2026-09-03 by [ADR-052](ADR-052-the-canonical-symbology-document-is-cim.md),

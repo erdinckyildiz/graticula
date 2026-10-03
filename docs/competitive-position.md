@@ -175,7 +175,7 @@ the last two days moved us further behind:**
 | Q-67 | Tiles from any registered store | Owner: no. Tiles are wanted from hosted data, which is where they are |
 | Q-70 | Deployment without PostgreSQL | **Overstated in the first draft of this table.** PostgreSQL is bundled inside the appliance; the operator never installs or manages it, and data still comes from any of three engines. The narrow fact survives — a site forbidding PostgreSQL binaries anywhere cannot run us — but the operational impact is close to zero |
 | Q-28 / A-016 | GDAL in the serving container | **Overstated in the first draft.** A-016 moves GDAL to the job-worker image; it does not remove format support. GDAL is available where conversion happens |
-| Never planned | WCS, WPS, CSW, SLD/CSS/YSLD, the extension ecosystem | Genuinely absent, genuinely deliberate |
+| Never planned | WPS, CSW, CSS/YSLD, stored SLD, the extension ecosystem | Genuinely absent, genuinely deliberate. ~~WCS~~ came 2026-10-03 ([ADR-170](adr/ADR-170-image-services-are-wcs-coverages.md)) and ~~SLD~~ at the WMS boundary only ([ADR-171](adr/ADR-171-sld-at-the-wms-boundary.md)), both by owner decision |
 
 **Two rows of this table were wrong when first written, and the correction came
 from the owner rather than from review.** The original version conflated

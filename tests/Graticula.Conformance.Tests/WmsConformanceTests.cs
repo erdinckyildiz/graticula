@@ -837,6 +837,50 @@ public sealed class WmsConformanceTests : ArcGisClient
         return null;
     }
 
+    // ---------- SLD (ADR-171) ----------
+
+    [Fact]
+    public async Task A_style_sent_as_sld_body_draws_for_that_request_and_get_styles_answers_one_that_draws_the_same()
+    {
+        (string layer, string bbox, string colour) = Assert.Single((await FilledLayersAsync()).Take(1));
+        string map = MapUrl(layer, crs: "CRS:84", bbox: bbox, width: 384, height: 384, extra: "&transparent=true");
+
+        // Magenta, which no stored style here uses: the map is drawn with it, and with nothing of its own colour.
+        string magenta = $"""
+            <StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld"><NamedLayer><Name>{layer}</Name>
+            <UserStyle><FeatureTypeStyle><Rule><PolygonSymbolizer><Fill><CssParameter name="fill">#ff00ff</CssParameter></Fill>
+            </PolygonSymbolizer></Rule></FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>
+            """;
+        (_, byte[] styled) = await RawAsync(map + "&sld_body=" + Uri.EscapeDataString(magenta));
+        Assert.True(Painted(styled, (255, 0, 255)) > 0, "SLD_BODY's fill was not drawn.");
+        Assert.Equal(0, Painted(styled, Hex(colour)));
+
+        // Only that request: the next map is the layer's own again.
+        (_, byte[] own) = await RawAsync(map);
+        Assert.Equal(0, Painted(own, (255, 0, 255)));
+
+        // GetStyles writes the layer's style as SLD 1.1, and sent back as SLD_BODY it draws the layer's own colour.
+        (string type, byte[] sld) = await RawAsync($"/wms?service=WMS&version=1.3.0&request=GetStyles&layers={Uri.EscapeDataString(layer)}");
+        Assert.Equal("application/vnd.ogc.sld+xml", type);
+        XDocument document = XDocument.Parse(System.Text.Encoding.UTF8.GetString(sld));
+        Assert.Equal("1.1.0", document.Root!.Attribute("version")!.Value);
+        Assert.Contains(document.Descendants(), e => e.Name.LocalName == "PolygonSymbolizer");
+        (_, byte[] back) = await RawAsync(map + "&sld_body=" + Uri.EscapeDataString(System.Text.Encoding.UTF8.GetString(sld)));
+        Assert.True(Painted(back, Hex(colour)) > 0, "GetStyles' SLD, sent back, did not draw the layer's own colour.");
+
+        // Refused by name rather than drawn as though the filter were not there; a style is not fetched from an address.
+        string like = magenta.Replace("<Rule>", "<Rule><Filter xmlns=\"http://www.opengis.net/ogc\"><PropertyIsLike><PropertyName>n</PropertyName><Literal>a%</Literal></PropertyIsLike></Filter>", StringComparison.Ordinal);
+        Assert.Equal("StyleNotDefined", await RefusalOfAsync(map + "&sld_body=" + Uri.EscapeDataString(like)));
+        Assert.Equal("InvalidParameterValue", await RefusalOfAsync(map + "&sld=" + Uri.EscapeDataString("http://example.com/a.sld")));
+
+        // Both versions say so.
+        XDocument capabilities = await XmlAsync("/wms?service=WMS&version=1.3.0&request=GetCapabilities");
+        Assert.Contains(capabilities.Descendants(), e => e.Name == XName.Get("GetStyles", "http://www.opengis.net/sld"));
+        Assert.Equal("1", capabilities.Descendants().First(e => e.Name.LocalName == "UserDefinedSymbolization").Attribute("UserStyle")!.Value);
+        (_, byte[] old) = await RawAsync("/wms?service=WMS&version=1.1.1&request=GetCapabilities");
+        Assert.Contains("<GetStyles>", System.Text.Encoding.UTF8.GetString(old), StringComparison.Ordinal);
+    }
+
     private static double Number(string? text) =>
         double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
             ? value

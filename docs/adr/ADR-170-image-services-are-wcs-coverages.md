@@ -9,6 +9,8 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-166](ADR-166-ogc-faces-are-turned-off-one-by-one.md) (*WCS is not a face here at all*); [v1-scope](../v1-scope.md) §3b, where WCS was cut with rendering |
 
+
+> **Note 2026-10-03.** [competitive-position.md](../competitive-position.md) §6 listed WCS as *never planned* and was not updated when this was decided; corrected with ADR-171, which found it.
 ---
 
 ## 1. Context

@@ -12,6 +12,8 @@
 
 > **Amended 2026-10-03 by [ADR-162](ADR-162-ogc-at-a-service-s-own-address.md).** WMS lists image services as layers and answers at each service's own address; `text/xml` feature info is XML.
 
+
+> **Amended 2026-10-03 by [ADR-171](ADR-171-sld-at-the-wms-boundary.md).** §5.2's *no SLD* is now *no stored SLD*. GetMap takes `SLD_BODY` for one request and GetStyles answers SLD 1.1. Named styles other than `default` are still refused.
 ---
 
 ## 0. This reverses something the owner said, and that is stated first

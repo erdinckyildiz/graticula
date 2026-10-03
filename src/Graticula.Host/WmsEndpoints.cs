@@ -170,6 +170,10 @@ internal static partial class WmsEndpoints
                         .ConfigureAwait(false);
                     return;
 
+                case WmsOperation.GetStyles:
+                    await StylesAsync(context, catalog, request, cancellation).ConfigureAwait(false);
+                    return;
+
                 default:
                     await RefuseAsync(
                         context,
@@ -796,12 +800,20 @@ internal static partial class WmsEndpoints
                 continue;
             }
 
+            // ADR-171: a layer the request's SLD styles is drawn with that style, read into CIM through the
+            // `drawingInfo` reading every pasted ArcGIS renderer takes, and kept for this request only.
+            string? styled = request.Sld.FirstOrDefault(one => string.Equals(one.Name, layer!.Definition.Name, StringComparison.OrdinalIgnoreCase))
+                is { DrawingInfo: { } sent }
+                ? CimEsri.FromDrawingInfo(sent, layer!.GeometryType).Renderer.ToJsonString()
+                : null;
+
             await DrawLayerAsync(
                 contexts, renderer, transform, layer!, request.Srid, request.Time,
                 settings.MaximumRecordCount, cancellation,
                 context.RequestServices.GetService(typeof(ILoggerFactory)) is ILoggerFactory made
                     ? made.CreateLogger("wms")
                     : null,
+                symbology: styled,
                 honourVisibleRange: true)
                 .ConfigureAwait(false);
         }
@@ -1226,6 +1238,51 @@ internal static partial class WmsEndpoints
     }
 
     // ---------- GetLegendGraphic ----------
+
+    /// <summary>
+    /// GetStyles — ADR-171: each layer's style as SLD 1.1.0, derived from its CIM document through the
+    /// <c>drawingInfo</c> the FeatureServer publishes, with what did not survive the trip said in the document.
+    /// </summary>
+    private static async Task StylesAsync(
+        HttpContext context, CatalogFallback catalog, WmsRequest request, CancellationToken cancellation)
+    {
+        IReadOnlyList<PublishedLayer>? visible = await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
+
+        if (visible is null)
+        {
+            return;
+        }
+
+        List<(string, System.Text.Json.Nodes.JsonNode?, IReadOnlyList<string>)> styles = [];
+
+        foreach (string name in request.Layers)
+        {
+            if (Find(visible, name) is not { } layer)
+            {
+                await RefuseAsync(
+                    context, request.Version,
+                    new WmsFault(WmsFault.LayerNotDefined, $"`{name}` is not a layer this server publishes to you.", "LAYERS"),
+                    cancellation).ConfigureAwait(false);
+                return;
+            }
+
+            if (layer.Symbology is { Length: > 0 } stored)
+            {
+                DerivedDrawingInfo derived = SymbologyConversion.ToDrawingInfo(stored, layer.Definition.Name, layer.GeometryType);
+                styles.Add((layer.Definition.Name, derived.DrawingInfo, derived.Losses));
+            }
+            else
+            {
+                styles.Add((layer.Definition.Name,
+                    System.Text.Json.JsonSerializer.SerializeToNode(
+                        Graticula.Api.ArcGis.FeatureServerMetadataWriter.DrawingInfo(layer.Definition.Name, layer.GeometryType)),
+                    ["This layer has no stored style; this is its generated one."]));
+            }
+        }
+
+        context.Response.ContentType = "application/vnd.ogc.sld+xml; charset=utf-8";
+        await context.Response.WriteAsync(StyledLayerDescriptor.Write(styles), cancellation).ConfigureAwait(false);
+    }
 
     private static async Task LegendAsync(
         HttpContext context,
