@@ -149,7 +149,10 @@ public sealed class PostgresLayerCatalog
         s.content_folder_id as service_content_folder,
 
         -- ADR-115, migration 73: whether its editors change only what they added. On the end.
-        l.edit_own_only
+        l.edit_own_only,
+
+        -- ADR-166, migration 79: the OGC faces its owner turned off. On the end, read by name.
+        s.ogc_off as service_ogc_off
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -878,6 +881,7 @@ public sealed class PostgresLayerCatalog
             string? SridWkt, DateTimeOffset Created, DateTimeOffset Modified, string? TilingScheme,
             int? TileCacheQuota, string[] Tags, Guid? ViewOf, bool HasViews, Guid? ContentFolder)> heads = [];
         List<Guid> order = [];
+        Dictionary<Guid, string[]> ogcOff = [];
 
         // <b>Its own scope, so the reader is closed before the group query
         // runs.</b> Disposing it by hand and letting `await using` dispose it
@@ -957,6 +961,9 @@ public sealed class PostgresLayerCatalog
                         reader.IsDBNull(reader.GetOrdinal("service_content_folder"))
                             ? null
                             : reader.GetGuid(reader.GetOrdinal("service_content_folder")));
+
+                    // ADR-166: beside the head rather than in it, which is a tuple every reader would have to widen.
+                    ogcOff[owning] = reader.GetFieldValue<string[]>(reader.GetOrdinal("service_ogc_off"));
                 }
 
                 // A left join, so a service with no layers arrives as one row of
@@ -1032,6 +1039,7 @@ public sealed class PostgresLayerCatalog
                 ViewOf = head.ViewOf,
                 HasViews = head.HasViews,
                 ContentFolder = head.ContentFolder,
+                OgcOff = ogcOff.TryGetValue(id, out string[]? off) ? off : [],
             });
         }
 

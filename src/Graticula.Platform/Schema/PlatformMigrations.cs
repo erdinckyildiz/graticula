@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(78);
+    public static SchemaVersion ComponentSchemaVersion => new(79);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -113,6 +113,7 @@ public static class PlatformMigrations
         AnImageMayBeDownloadedV76,
         AMosaicHasACatalogV77,
         AClassifiedImageNamesItsClassesV78,
+        AServiceTurnsOgcOffV79,
     ]);
 
     /// <summary>
@@ -150,6 +151,20 @@ public static class PlatformMigrations
     /// A web map may be protected from deletion, as a service may be (ADR-102 condition 2) — the ArcGIS review's second
     /// pass found maps the one item kind without it.
     /// </summary>
+    /// <summary>
+    /// A service's OGC faces may be turned off one by one — ADR-166, as ArcGIS Manager turns WMS, WFS and KML off per
+    /// service: the faces its owner turned off.
+    /// </summary>
+    /// <remarks><b>Expand.</b> Empty by default, every face on, which is what every service did before it.</remarks>
+    private static Migration AServiceTurnsOgcOffV79 => Migration.Expand(
+        new SchemaVersion(79),
+        "A service's OGC faces may be turned off one by one (ADR-166).",
+        "alter table service add column if not exists ogc_off text[] not null default '{}'",
+        """
+        alter table service add constraint service_ogc_off_known
+          check (ogc_off <@ array['WMS','WFS','OGCFeatures','WMTS','KML']::text[])
+        """);
+
     /// <summary>
     /// A classified image names its classes — ADR-154, ArcGIS's raster attribute table: each value's class name and
     /// colour, set by its owner in Studio.

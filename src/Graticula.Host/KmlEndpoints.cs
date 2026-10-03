@@ -50,6 +50,12 @@ internal static class KmlEndpoints
     private static Task RefuseAsync(HttpContext context, int code, string message) =>
         Results.Json(new { error = new { code, message, details = Array.Empty<string>() } }).ExecuteAsync(context);
 
+    /// <summary>Why KML is not offered — its owner turned it off, or turned off the WMS it draws through — or null.</summary>
+    private static string? OffRefusal(bool kml, bool wms) =>
+        !kml ? "This service's owner has turned KML off."
+        : !wms ? "This service's owner has turned WMS off, and its KML is drawn through WMS."
+        : null;
+
     private static string? Folder(HttpContext context) =>
         context.Request.RouteValues.TryGetValue("folder", out object? folder) && folder is string text && text.Length > 0
             ? text
@@ -61,6 +67,12 @@ internal static class KmlEndpoints
         if (await ServiceLookup.ServiceAsync(context, catalog, serviceName, cancellation, Folder(context) ?? string.Empty)
                 .ConfigureAwait(false) is not { } service)
         {
+            return;
+        }
+
+        if (OffRefusal(service.OffersOgc("KML"), service.OffersOgc("WMS")) is { } off)
+        {
+            await RefuseAsync(context, 400, off).ConfigureAwait(false);
             return;
         }
 
@@ -98,6 +110,12 @@ internal static class KmlEndpoints
                 coverage.Sharing, coverage.Owner, principal.Principal, principal.Authorization, coverage.SharedWith).IsAllowed())
         {
             await RefuseAsync(context, 404, $"No image service '{serviceName}' is visible to you.").ConfigureAwait(false);
+            return;
+        }
+
+        if (OffRefusal(coverage.OffersOgc("KML"), coverage.OffersOgc("WMS")) is { } off)
+        {
+            await RefuseAsync(context, 400, off).ConfigureAwait(false);
             return;
         }
 

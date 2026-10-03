@@ -4686,3 +4686,13 @@ h4.spaced { margin-top: 24px; }
 /* ux review 10: a class without a colour is checkered, not white. */
 #coverageClasses input[type=color][data-none="true"]::-webkit-color-swatch { background: repeating-conic-gradient(#c8ced6 0 25%, #fff 0 50%) 0 0 / 8px 8px !important; }
 #coverageClasses input[type=color][data-none="true"]::-moz-color-swatch { background: repeating-conic-gradient(#c8ced6 0 25%, #fff 0 50%) 0 0 / 8px 8px !important; }
+
+/* ADR-166: General › OGC services, one switch a face, its address beside it. */
+#generalOgc { margin-bottom: 16px; }
+#generalOgc .ogcfaces { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; }
+#generalOgc legend { padding: 0; }
+#generalOgc legend h4 { margin: 0; }
+#generalOgc .check-row { display: grid; grid-template-columns: 13rem 1fr; align-items: center; gap: 4px 12px; min-height: 36px; }
+#generalOgc .check-row > * { min-width: 0; }
+#generalOgc input[aria-disabled="true"], #generalOgc input[aria-disabled="true"] + span { opacity: .5; }
+@media (max-width: 480px) { #generalOgc .check-row { grid-template-columns: 1fr; } }

@@ -336,6 +336,9 @@ internal sealed record EditingRequest(string[]? Operations);
 /// <summary>Whether a service refuses to be deleted.</summary>
 internal sealed record ProtectionRequest(bool Protected);
 
+/// <summary>What <c>…/ogc</c> reads: the OGC faces to turn off — ADR-166.</summary>
+internal sealed record OgcOffRequest(string?[]? Off);
+
 /// <summary>
 /// What a service is configured to offer. Null means unset, everywhere.
 /// </summary>
@@ -658,6 +661,7 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/services/{name}/sharing", SetServiceSharingAsync);
         app.MapPut("/admin/services/{name}/description", SetServiceDescriptionAsync);
         app.MapGet("/admin/services/{name}/stewardship", GetStewardshipAsync);
+        app.MapPut("/admin/services/{name}/ogc", SetOgcOffAsync);
         app.MapPut("/admin/services/{name}/editing", SetEditingOfferedAsync);
         app.MapPut("/admin/services/{name}/protection", SetDeleteProtectedAsync);
 
@@ -4618,11 +4622,21 @@ internal static partial class AdminEndpoints
         // Read by whoever may read the service; the same 404 as its other routes for anybody else.
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
         var service = await owners.FindServiceAsync(at, name, cancellation).ConfigureAwait(false);
-        bool manages = service is not null && LayerAccess.MayManage(service.Owner, current.Principal, current.Authorization);
 
-        if (service is null
-            || (!manages && !LayerAccess.Evaluate(service.Sharing, service.Owner, current.Principal, current.Authorization,
-                    service.SharedWith).IsAllowed())
+        // ADR-166: an image service is a service too — its row is in the same table — and its OGC faces are read here.
+        PublishedCoverage? coverage = service is null
+            && context.RequestServices.GetService(typeof(ICoverageCatalog)) is ICoverageCatalog coverages
+            ? await coverages.FindAsync(at, name, cancellation).ConfigureAwait(false)
+            : null;
+        (Guid? owner, SharingScope sharing, IReadOnlyCollection<Guid> sharedWith) = service is not null
+            ? (service.Owner, service.Sharing, service.SharedWith)
+            : coverage is not null ? (coverage.Owner, coverage.Sharing, coverage.SharedWith) : (null, SharingScope.Private, []);
+        bool known = service is not null || coverage is not null;
+        bool manages = known && LayerAccess.MayManage(owner, current.Principal, current.Authorization);
+
+        if (!known
+            || (!manages && !LayerAccess.Evaluate(sharing, owner, current.Principal, current.Authorization,
+                    sharedWith).IsAllowed())
             || await catalog.FindStewardshipAsync(name, at, cancellation).ConfigureAwait(false) is not { } found)
         {
             await Refuse(context, 404, $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
@@ -4637,6 +4651,7 @@ internal static partial class AdminEndpoints
             editingOffered = found.EditingOffered,
             ceiling = found.Ceiling,
             deleteProtected = found.DeleteProtected,
+            ogcOff = found.OgcOff ?? [],
             manages,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
@@ -4705,6 +4720,54 @@ internal static partial class AdminEndpoints
             succeeded: true, cancellation).ConfigureAwait(false);
 
         await Results.Json(new { name, folder = at, editingOffered = wanted }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>The OGC faces there are to turn off, by the name the column keeps — ADR-166.</summary>
+    private static readonly string[] OgcFaces = ["WMS", "WFS", "OGCFeatures", "WMTS", "KML"];
+
+    /// <summary>
+    /// Turns a service's OGC faces off and on — its owner's act or an administrator's, as ArcGIS Manager's
+    /// per-service capabilities: ADR-166. The ArcGIS face is not here; it is the service.
+    /// </summary>
+    private static async Task SetOgcOffAsync(
+        HttpContext context, string name, string? folder, OgcOffRequest request, IAdminCatalog catalog,
+        IAuditLog audit, PostgresLayerCatalog owners, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (!await ManagesServiceAsync(context, owners, at, name, "turn OGC faces off for", cancellation).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        List<string> off = [];
+
+        foreach (string? asked in request.Off ?? [])
+        {
+            if (OgcFaces.FirstOrDefault(f => string.Equals(f, asked?.Trim(), StringComparison.OrdinalIgnoreCase)) is not { } face)
+            {
+                await Refuse(context, 400, $"'{asked}' is not an OGC face. They are {string.Join(", ", OgcFaces)}.").ConfigureAwait(false);
+                return;
+            }
+
+            if (!off.Contains(face))
+            {
+                off.Add(face);
+            }
+        }
+
+        if (!await catalog.SetOgcOffAsync(name, at, off, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(context, audit, "service.ogc", name, Detail(new { folder = at, off }), succeeded: true, cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Json(new { name, folder = at, ogcOff = off }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>

@@ -92,6 +92,7 @@ internal static partial class WmsEndpoints
 
         return [.. (await coverages.ListAsync(cancellation).ConfigureAwait(false))
             .Where(c => seesStopped || c.Status == ServiceStatus.Started)
+            .Where(c => c.OffersOgc("WMS"))
             .Where(c => InScope(scope, c.Folder, c.Name, "ImageServer"))
             .Where(c => LayerAccess.Evaluate(c.Sharing, c.Owner, current.Principal, current.Authorization, c.SharedWith).IsAllowed())
             .OrderBy(c => c.QualifiedName, StringComparer.OrdinalIgnoreCase)];

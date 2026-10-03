@@ -1259,6 +1259,10 @@ public interface IAdminCatalog
     /// <returns>True when the service exists.</returns>
     Task<bool> SetDeleteProtectedAsync(string serviceName, string? folder, bool protectedFromDeletion, CancellationToken cancellationToken);
 
+    /// <summary>Sets the OGC faces a service has turned off (ADR-166).</summary>
+    /// <returns>True when the service exists.</returns>
+    Task<bool> SetOgcOffAsync(string serviceName, string? folder, IReadOnlyList<string> off, CancellationToken cancellationToken);
+
     /// <summary>
     /// Makes a freshly published service a view of another — ADR-113: records its source, gives each of its layers the
     /// source layer's number, and keeps each filter as it was written.

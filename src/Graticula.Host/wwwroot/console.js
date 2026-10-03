@@ -7958,6 +7958,7 @@ function drawServiceSettings(name, folder) {
 
   if (open === "general") section("sharing", () => drawGeneralSharing(name, folder));
   if (open === "general" && serviceOpenKind === "ImageServer") drawImageDownloadSetting(name, folder);
+  if (open === "general") drawOgcSetting(name, folder);
 
   // An old layer address lands here with `layer=`; that layer's block is the one brought into view.
   if (open === "layers") showAskedLayer();
@@ -8877,6 +8878,7 @@ function serviceSettingsMarkup(name, folder) {
       <p class="lede" id="generalSharing">Reading who can reach this…</p>
       <div class="row"><button type="button" data-share="${h(folder ? folder + "/" + name : name)}">Change sharing…</button></div>
       <div id="generalDownload"></div>
+      <div id="generalOgc"></div>
       <div id="generalDangerSlot"></div>
     </section>
 
@@ -28745,6 +28747,110 @@ function imageOffersDownload() {
  * Settings › General's Download, for an image service — ADR-148, ArcGIS's Download capability: off, only whoever manages
  * it may take the file; on, everyone it is shared with may. A file registered from the server's disk is not offered.
  */
+/**
+ * General › OGC: which OGC faces answer for this item — ADR-166, as ArcGIS Manager turns WMS, WFS and KML on and off
+ * per service. Each switch saves when changed, as Download beside it does; the ArcGIS face is the item and stays on.
+ */
+async function drawOgcSetting(name, folder) {
+  const box = $("generalOgc");
+  if (!box) return;
+  const at = serviceOpen;
+  let st;
+  try {
+    st = await api(`/admin/services/${encodeURIComponent(name)}/stewardship?folder=${encodeURIComponent(folder || "")}`);
+  } catch { box.innerHTML = ""; return; }
+  if (serviceOpen !== at || !$("generalOgc")) return;
+
+  const qualified = folder ? `${folder}/${name}` : name;
+  const base = `${location.origin}/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}`;
+  const image = serviceOpenKind === "ImageServer";
+  // OGC API – Features names a collection a layer (ux review 12: the list of every collection was not this item's).
+  const collections = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).map(one => one.name);
+  const features = collections.length === 1
+    ? `${location.origin}/ogc/features/v1/collections/${encodeURIComponent(collections[0])}`
+    : `${location.origin}/ogc/features/v1/collections (one collection a layer)`;
+  // What each face is and where a client finds it, in ArcGIS's names.
+  const faces = image
+    ? [["WMS", "WMS", `${base}/ImageServer/WMSServer`], ["WMTS", "WMTS", `${base}/ImageServer/WMTS`],
+       ["KML", "KML (Google Earth)", `${base}/ImageServer/generateKml`]]
+    : [["WMS", "WMS", `${base}/MapServer/WMSServer`], ["WFS", "WFS", `${base}/FeatureServer/WFSServer`],
+       ["OGCFeatures", "OGC API – Features", features],
+       ["KML", "KML (Google Earth)", `${base}/MapServer/generateKml`]];
+  const off = new Set(st.ogcOff || []);
+  const manages = st.manages !== false;
+  // An address may break after each slash, never inside a word (ux review 12).
+  const breakable = address => h(address).replace(/\//g, "/<wbr>");
+
+  box.innerHTML = `<fieldset class="ogcfaces" aria-describedby="ogcHint">
+    <legend><h4>OGC services</h4></legend>
+    <p class="hint" id="ogcHint">Clients that do not speak ArcGIS reach this ${image ? "image service" : "layer"} through these.
+      ArcGIS Server Manager calls them capabilities. The ArcGIS REST service (${image ? "ImageServer" : "FeatureServer and MapServer"})
+      stays on whatever is chosen here.${manages ? "" : " Only its owner or an administrator changes these."}</p>
+    ${faces.map(([key, label, address]) => `<div class="check-row">
+      <label><input type="checkbox" data-ogc-face="${key}"${off.has(key) ? "" : " checked"}${manages ? "" : ' aria-disabled="true"'}
+        aria-describedby="ogcAddress-${key}${key === "KML" ? " ogcKmlNeeds" : ""}"> <span>${h(label)}</span></label>
+      <code class="hint" id="ogcAddress-${key}">${breakable(address)}</code></div>`).join("")}
+    <p class="hint" id="ogcKmlNeeds"${off.has("WMS") ? "" : " hidden"}>KML is not offered while WMS is off: it is drawn through WMS. Turn WMS on to offer it.</p>
+    </fieldset>
+    <p class="hint" id="ogcSaid" role="status" aria-live="polite"></p>`;
+
+  const boxes = () => [...box.querySelectorAll("[data-ogc-face]")];
+  const kml = () => box.querySelector('[data-ogc-face="KML"]');
+  const followWms = () => {
+    const wmsOff = !box.querySelector('[data-ogc-face="WMS"]')?.checked;
+    const k = kml();
+    if (k && manages) k.setAttribute("aria-disabled", wmsOff ? "true" : "false");
+    const needs = $("ogcKmlNeeds");
+    if (needs) needs.hidden = !wmsOff;
+  };
+  followWms();
+
+  // The newest choice is the one saved: a change made while a save is under way is sent when it finishes, rather
+  // than reverted (ux review 12 — a quick second press was lost).
+  let saving = false, again = false, last = null;
+  const save = async () => {
+    saving = true;
+    const said = $("ogcSaid");
+    const wanted = boxes().filter(i => !i.checked).map(i => i.dataset.ogcFace);
+    if (said) { said.classList.remove("bad-inline"); said.textContent = "Saving…"; }
+    try {
+      await api(`/admin/services/${encodeURIComponent(name)}/ogc?folder=${encodeURIComponent(folder || "")}`,
+        { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ off: wanted }) });
+      if (said && !again && last) {
+        const label = faces.find(f => f[0] === last.dataset.ogcFace)?.[1] || last.dataset.ogcFace;
+        said.textContent = last.checked ? `Saved: ${label} is on.`
+          : `Saved: ${label} is off. Clients using it no longer see this ${image ? "image service" : "layer"}.`;
+      }
+    } catch (e) {
+      if (said) { said.classList.add("bad-inline"); said.textContent = `Not saved: ${e.message || e}`; }
+    } finally {
+      saving = false;
+      if (again) { again = false; save(); }
+    }
+  };
+
+  box.addEventListener("click", event => {
+    // aria-disabled keeps a box in the tab order and says why; it is not changed.
+    const input = event.target?.closest?.("[data-ogc-face]");
+    if (input?.getAttribute("aria-disabled") === "true") {
+      event.preventDefault();
+      const said = $("ogcSaid");
+      if (said) {
+        said.classList.remove("bad-inline");
+        // The KML reason is already on the page beside it; the status line says only what the reader would not see.
+        said.textContent = manages ? "" : "Only its owner or an administrator changes these.";
+      }
+    }
+  });
+  box.addEventListener("change", event => {
+    if (!event.target?.dataset?.ogcFace) return;
+    last = event.target;
+    followWms();
+    if (saving) { again = true; return; }
+    save();
+  });
+}
+
 async function drawImageDownloadSetting(name, folder) {
   const box = $("generalDownload");
   if (!box) return;

@@ -44,10 +44,16 @@ internal static partial class ImageServerEndpoints
         app.MapGet($"{prefix}/{{serviceName}}/ImageServer/WMTS/1.0.0/WMTSCapabilities.xml", WmtsCapabilitiesAsync)
             .Governed(SharingGovernedExtensions.ByService);
         app.MapGet($"{prefix}/{{serviceName}}/ImageServer/WMTS/tile/1.0.0/{{layer}}/{{style}}/{{set}}/{{level:int}}/{{row:int}}/{{column:int}}",
-                (HttpContext context, string serviceName, int level, int row, int column, ICoverageCatalog coverages,
+                async (HttpContext context, string serviceName, int level, int row, int column, ICoverageCatalog coverages,
                     ICoverageReaderFactory readers, IMapCanvasFactory canvases, IProjector projector, ConnectionBudget budget,
                     CancellationToken cancellation) =>
-                    TileAsync(context, serviceName, level, row, column, coverages, readers, canvases, projector, budget, cancellation))
+                {
+                    if (!await WmtsOffAsync(context, serviceName, coverages, cancellation).ConfigureAwait(false))
+                    {
+                        await TileAsync(context, serviceName, level, row, column, coverages, readers, canvases, projector, budget, cancellation)
+                            .ConfigureAwait(false);
+                    }
+                })
             .Governed(SharingGovernedExtensions.ByService);
     }
 
@@ -92,8 +98,26 @@ internal static partial class ImageServerEndpoints
             return;
         }
 
-        await TileAsync(context, serviceName, level, row, column, coverages, readers, canvases, projector, budget, cancellation)
-            .ConfigureAwait(false);
+        if (!await WmtsOffAsync(context, serviceName, coverages, cancellation).ConfigureAwait(false))
+        {
+            await TileAsync(context, serviceName, level, row, column, coverages, readers, canvases, projector, budget, cancellation)
+                .ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Whether the service's owner turned WMTS off — ADR-166 — said as a WMTS exception when they did.</summary>
+    private static async Task<bool> WmtsOffAsync(HttpContext context, string serviceName, ICoverageCatalog coverages, CancellationToken cancellation)
+    {
+        (string? folder, string name) = Split(context, serviceName);
+
+        if (await coverages.FindAsync(folder, name, cancellation).ConfigureAwait(false) is { } coverage && !coverage.OffersOgc("WMTS"))
+        {
+            await WmtsExceptionAsync(context, 404, "OperationNotSupported", "service",
+                "This image service's owner has turned WMTS off. Its ArcGIS face is unaffected.").ConfigureAwait(false);
+            return true;
+        }
+
+        return false;
     }
 
     private static async Task WmtsCapabilitiesAsync(
@@ -101,6 +125,13 @@ internal static partial class ImageServerEndpoints
     {
         if (await FindAsync(context, serviceName, coverages, cancellation).ConfigureAwait(false) is not { } coverage)
         {
+            return;
+        }
+
+        if (!coverage.OffersOgc("WMTS"))
+        {
+            await WmtsExceptionAsync(context, 404, "OperationNotSupported", "service",
+                "This image service's owner has turned WMTS off. Its ArcGIS face is unaffected.").ConfigureAwait(false);
             return;
         }
 

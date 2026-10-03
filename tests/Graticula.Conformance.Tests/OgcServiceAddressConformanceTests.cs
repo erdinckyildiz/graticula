@@ -103,6 +103,32 @@ public sealed class OgcServiceAddressConformanceTests : ArcGisClient
             (_, string? earthType, _) = await GetAsync(root, token!, href[href.IndexOf("/rest/", StringComparison.Ordinal)..]
                 + "&BBOX=29.9,40.9,30.2,41.1&WIDTH=64&HEIGHT=64");
             Assert.Equal("image/png", earthType);
+
+            // ADR-166: its owner turns WMS, WMTS and KML off one by one; the ArcGIS face stays; on again, all answer.
+            async Task<HttpStatusCode> OffAsync(string json)
+            {
+                using HttpRequestMessage put = new(HttpMethod.Put, $"{root}/admin/services/{name}/ogc?folder=hosted")
+                {
+                    Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+                };
+                put.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage answered = await Http.SendAsync(put);
+                return answered.StatusCode;
+            }
+
+            Assert.Equal(HttpStatusCode.OK, await OffAsync("""{"off":["WMS","WMTS","KML"]}"""));
+            (_, _, byte[] without) = await GetAsync(root, token!, "/wms?service=WMS&request=GetCapabilities&version=1.3.0");
+            Assert.DoesNotContain($"hosted/{name}", LayerNames(without));
+            (HttpStatusCode wmtsOff, _, _) = await GetAsync(root, token!, $"{wmts}/tile/1.0.0/{name}/default/default028mm/8/69/298");
+            Assert.Equal(HttpStatusCode.NotFound, wmtsOff);
+            (_, _, byte[] kmlOff) = await GetAsync(root, token!, $"/rest/services/hosted/{name}/ImageServer/generateKml");
+            Assert.Contains("turned KML off", System.Text.Encoding.UTF8.GetString(kmlOff), StringComparison.Ordinal);
+            (_, string? arcgisType, _) = await GetAsync(root, token!, $"/rest/services/hosted/{name}/ImageServer/tile/8/69/298");
+            Assert.Equal("image/png", arcgisType);
+            Assert.Equal(HttpStatusCode.BadRequest, await OffAsync("""{"off":["FTP"]}"""));
+            Assert.Equal(HttpStatusCode.OK, await OffAsync("""{"off":[]}"""));
+            (_, _, byte[] back) = await GetAsync(root, token!, "/wms?service=WMS&request=GetCapabilities&version=1.3.0");
+            Assert.Contains($"hosted/{name}", LayerNames(back));
         }
         finally
         {

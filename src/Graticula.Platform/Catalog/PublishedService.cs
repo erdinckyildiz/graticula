@@ -215,6 +215,14 @@ public sealed class PublishedService
     /// <summary>The owner's content folder it is in, or null for the root — ADR-114. Not in its URL.</summary>
     public Guid? ContentFolder { get; init; }
 
+    /// <summary>The OGC faces its owner turned off — <c>WMS</c>, <c>WFS</c>, <c>OGCFeatures</c>, <c>KML</c> (ADR-166).</summary>
+    public IReadOnlyList<string> OgcOff { get; init; } = [];
+
+    /// <summary>Whether an OGC face answers for this service — ADR-166.</summary>
+    /// <param name="face">The face.</param>
+    /// <returns>True unless its owner turned it off.</returns>
+    public bool OffersOgc(string face) => !OgcOff.Contains(face, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Who owns it, or null.</summary>
     public Guid? Owner { get; }
 

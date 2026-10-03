@@ -123,6 +123,14 @@ public sealed class PublishedCoverage
     /// <summary>The classes its owner named — ADR-154 — or null when none were: value, name and colour (#rrggbb).</summary>
     public IReadOnlyList<CoverageClassEntry>? Classes { get; init; }
 
+    /// <summary>The OGC faces its owner turned off — <c>WMS</c>, <c>WMTS</c>, <c>KML</c> (ADR-166).</summary>
+    public IReadOnlyList<string> OgcOff { get; init; } = [];
+
+    /// <summary>Whether an OGC face answers for this service — ADR-166.</summary>
+    /// <param name="face">The face.</param>
+    /// <returns>True unless its owner turned it off.</returns>
+    public bool OffersOgc(string face) => !System.Linq.Enumerable.Contains(OgcOff, face, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Its own identifier.</summary>
     public Guid Id { get; }
 

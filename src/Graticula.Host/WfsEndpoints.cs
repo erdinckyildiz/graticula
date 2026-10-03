@@ -363,6 +363,12 @@ internal static class WfsEndpoints
                 continue;
             }
 
+            // ADR-166: a service whose owner turned WFS off is not in it.
+            if (!service.OffersOgc("WFS"))
+            {
+                continue;
+            }
+
             // ADR-162: at a service's own address, that service's layers only.
             if (!InScope(context, service))
             {

@@ -8,6 +8,9 @@
 | **Supersedes** | — |
 | **Superseded by** | — |
 
+
+> **Amended 2026-10-03 by [ADR-166](ADR-166-ogc-faces-are-turned-off-one-by-one.md).** §5g: each OGC face may be turned off by the service's owner as well as following the feature face.
+
 ---
 
 ## 1. Context

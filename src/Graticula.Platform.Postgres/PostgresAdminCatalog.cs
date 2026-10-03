@@ -2252,7 +2252,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
 
         const string Sql = """
-            select editing_offered, delete_protected, capability_ceiling
+            select editing_offered, delete_protected, capability_ceiling, ogc_off
               from service
              where lower(name) = lower(@name)
                and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
@@ -2273,7 +2273,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         return new ServiceStewardship(
             reader.IsDBNull(0) ? null : reader.GetFieldValue<string[]>(0),
             reader.GetBoolean(1),
-            reader.IsDBNull(2) ? null : reader.GetFieldValue<string[]>(2));
+            reader.IsDBNull(2) ? null : reader.GetFieldValue<string[]>(2),
+            reader.GetFieldValue<string[]>(3));
     }
 
     /// <inheritdoc/>
@@ -2293,6 +2294,28 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         command.Parameters.AddWithValue("name", serviceName);
         command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
         command.Parameters.AddWithValue("offered", operations is null ? DBNull.Value : (object)new List<string>(operations).ToArray());
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetOgcOffAsync(
+        string serviceName, string? folder, IReadOnlyList<string> off, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+        ArgumentNullException.ThrowIfNull(off);
+
+        const string Sql = """
+            update service
+               set ogc_off = @off::text[], updated_at = now()
+             where lower(name) = lower(@name)
+               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("off", new List<string>(off).ToArray());
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }

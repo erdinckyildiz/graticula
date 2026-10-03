@@ -320,6 +320,12 @@ internal static partial class WmsEndpoints
                 continue;
             }
 
+            // ADR-166: a service whose owner turned WMS off is not in it.
+            if (!service.OffersOgc("WMS"))
+            {
+                continue;
+            }
+
             // ADR-162: at a service's own address, that service's layers only.
             if (!InScope(ScopeOf(context), service.Folder, service.Name, "FeatureServer"))
             {
