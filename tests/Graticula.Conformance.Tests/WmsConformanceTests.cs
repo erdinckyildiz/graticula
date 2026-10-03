@@ -875,7 +875,8 @@ public sealed class WmsConformanceTests : ArcGisClient
 
         // Both versions say so.
         XDocument capabilities = await XmlAsync("/wms?service=WMS&version=1.3.0&request=GetCapabilities");
-        Assert.Contains(capabilities.Descendants(), e => e.Name == XName.Get("GetStyles", "http://www.opengis.net/sld"));
+        Assert.Contains(capabilities.Descendants(), e => e.Name == XName.Get("GetLegendGraphic", "http://www.opengis.net/sld"));
+        Assert.DoesNotContain(capabilities.Descendants(), e => e.Name.LocalName == "GetStyles");
         Assert.Equal("1", capabilities.Descendants().First(e => e.Name.LocalName == "UserDefinedSymbolization").Attribute("UserStyle")!.Value);
         (_, byte[] old) = await RawAsync("/wms?service=WMS&version=1.1.1&request=GetCapabilities");
         Assert.Contains("<GetStyles>", System.Text.Encoding.UTF8.GetString(old), StringComparison.Ordinal);

@@ -132,6 +132,9 @@ public sealed class PublishedCoverage
     /// <summary>Who may use its OGC faces and how, as its owner states it, or null (ADR-167).</summary>
     public string? OgcAccessConstraints { get; init; }
 
+    /// <summary>Its INSPIRE settings, or null when it is not an INSPIRE service (ADR-172).</summary>
+    public Graticula.Catalog.InspireSettings? Inspire { get; init; }
+
     /// <summary>Whether an OGC face answers for this service — ADR-166.</summary>
     /// <param name="face">The face.</param>
     /// <returns>True unless its owner turned it off.</returns>

@@ -155,7 +155,10 @@ public sealed class PostgresLayerCatalog
         s.ogc_off as service_ogc_off,
 
         -- ADR-167, migration 80: the fees and access constraints its OGC documents state. On the end, by name.
-        s.ogc_fees as service_ogc_fees, s.ogc_access_constraints as service_ogc_access
+        s.ogc_fees as service_ogc_fees, s.ogc_access_constraints as service_ogc_access,
+
+        -- ADR-172, migration 82.
+        s.ogc_inspire as service_ogc_inspire
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -886,6 +889,7 @@ public sealed class PostgresLayerCatalog
         List<Guid> order = [];
         Dictionary<Guid, string[]> ogcOff = [];
         Dictionary<Guid, (string? Fees, string? Access)> ogcTerms = [];
+        Dictionary<Guid, Graticula.Catalog.InspireSettings?> ogcInspire = [];
 
         // <b>Its own scope, so the reader is closed before the group query
         // runs.</b> Disposing it by hand and letting `await using` dispose it
@@ -969,6 +973,7 @@ public sealed class PostgresLayerCatalog
                     // ADR-166: beside the head rather than in it, which is a tuple every reader would have to widen.
                     ogcOff[owning] = reader.GetFieldValue<string[]>(reader.GetOrdinal("service_ogc_off"));
                     ogcTerms[owning] = (Nullable(reader, "service_ogc_fees"), Nullable(reader, "service_ogc_access"));
+                    ogcInspire[owning] = Graticula.Catalog.InspireSettings.Parse(Nullable(reader, "service_ogc_inspire"));
                 }
 
                 // A left join, so a service with no layers arrives as one row of
@@ -1047,6 +1052,7 @@ public sealed class PostgresLayerCatalog
                 OgcOff = ogcOff.TryGetValue(id, out string[]? off) ? off : [],
                 OgcFees = ogcTerms.TryGetValue(id, out var terms) ? terms.Fees : null,
                 OgcAccessConstraints = terms.Access,
+                Inspire = ogcInspire.GetValueOrDefault(id),
             });
         }
 

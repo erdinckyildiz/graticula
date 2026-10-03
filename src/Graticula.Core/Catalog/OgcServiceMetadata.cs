@@ -11,4 +11,8 @@ namespace Graticula.Catalog;
 /// <param name="Fees">What using it costs, or null for none stated.</param>
 /// <param name="AccessConstraints">Who may use it and how, or null for none stated.</param>
 public sealed record OgcServiceMetadata(
-    string? Abstract, IReadOnlyList<string> Keywords, string? Fees, string? AccessConstraints);
+    string? Abstract, IReadOnlyList<string> Keywords, string? Fees, string? AccessConstraints)
+{
+    /// <summary>Its INSPIRE settings, which make its WMS a View service and its WFS a Download service (ADR-172).</summary>
+    public InspireSettings? Inspire { get; init; }
+}

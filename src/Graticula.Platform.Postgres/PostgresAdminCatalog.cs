@@ -2252,7 +2252,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
 
         const string Sql = """
-            select editing_offered, delete_protected, capability_ceiling, ogc_off, ogc_fees, ogc_access_constraints
+            select editing_offered, delete_protected, capability_ceiling, ogc_off, ogc_fees, ogc_access_constraints, ogc_inspire
               from service
              where lower(name) = lower(@name)
                and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
@@ -2276,7 +2276,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             reader.IsDBNull(2) ? null : reader.GetFieldValue<string[]>(2),
             reader.GetFieldValue<string[]>(3),
             reader.IsDBNull(4) ? null : reader.GetString(4),
-            reader.IsDBNull(5) ? null : reader.GetString(5));
+            reader.IsDBNull(5) ? null : reader.GetString(5),
+            reader.IsDBNull(6) ? null : reader.GetString(6));
     }
 
     /// <inheritdoc/>
@@ -2318,6 +2319,27 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
         command.Parameters.AddWithValue("fees", (object?)fees ?? DBNull.Value);
         command.Parameters.AddWithValue("access", (object?)accessConstraints ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetOgcInspireAsync(
+        string serviceName, string? folder, string? settings, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
+        const string Sql = """
+            update service
+               set ogc_inspire = @inspire, updated_at = now()
+             where lower(name) = lower(@name)
+               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("inspire", (object?)settings ?? DBNull.Value);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }

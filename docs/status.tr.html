@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>74e25f5</code> · 2026-10-03 22:18</p>
+<p class="stamp">Şu commit’ten üretildi: <code>ec07382</code> · 2026-10-03 22:31</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">170</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">289/393</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">101 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">171</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">290/394</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">101 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4610</div><div class="kpi-l">test</div><div class="kpi-n">461 kaynak dosya, 206,716 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4611</div><div class="kpi-l">test</div><div class="kpi-n">462 kaynak dosya, 207,032 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-161</b> — Is a service&#x27;s own OGC address wanted beside /wms and /wfs?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">115 madde</span></div><p><b>101 ADR conditions</b> outstanding across 64 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">115 madde</span></div><p><b>101 ADR conditions</b> outstanding across 65 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -152,7 +152,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-169 · WFS-T through the one write path</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-170 · Image services are WCS 2.0.1 cover</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-171 · SLD at the WMS boundary</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-002 · Primary Data Architecture</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-005 · API Architecture</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
@@ -195,6 +194,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-164 · `generateKml` is a network link to</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-165 · OGC API Features filters in Basic </div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-168 · WFS 1.1.0 is spoken beside 2.0.0</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-171 · SLD at the WMS boundary</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-172 · A service may be an INSPIRE View a</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -382,7 +383,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">168</td><td>WFS 1.1.0 is spoken beside 2.0.0</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each operation is checked end to end in 1.1.0&#x27;s own terms; no 1.1.0-only client…</td><td class="num">1/2</td></tr>
 <tr><td class="id">169</td><td>WFS-T through the one write path</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each action is checked end to end in both versions; OGC&#x27;s Transactional test…</td><td class="num">0/2</td></tr>
 <tr><td class="id">170</td><td>Image services are WCS 2.0.1 coverages</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each operation, trimming, scaling, reprojection and the switch are checked end…</td><td class="num">0/2</td></tr>
-<tr><td class="id">171</td><td>SLD at the WMS boundary</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — a style sent with GetMap is drawn and forgotten, GetStyles&#x27; document draws the…</td><td class="num">0/2</td></tr>
+<tr><td class="id">171</td><td>SLD at the WMS boundary</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — a style sent with GetMap is drawn and forgotten, GetStyles&#x27; document draws the…</td><td class="num">1/2</td></tr>
+<tr><td class="id">172</td><td>A service may be an INSPIRE View and Download service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the documents validate against INSPIRE&#x27;s published schemas with and without the…</td><td class="num">0/1</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -507,7 +509,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1232</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:70.5%"></div></div><div class="bar-n">869</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.0%"></div></div><div class="bar-n">690</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.1%"></div></div><div class="bar-n">691</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.9%"></div></div><div class="bar-n">270</div></div>
@@ -520,6 +522,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>ec07382</code><time>2026-10-03</time><span>ADR-171: WMS takes an SLD with GetMap and answers GetStyles</span></li>
 <li><code>74e25f5</code><time>2026-10-03</time><span>ADR-170: image services are WCS 2.0.1 coverages at /wcs and their own WCSServer</span></li>
 <li><code>dac5157</code><time>2026-10-03</time><span>WFS-T is offered to a caller who may edit, and not to one who may not</span></li>
 <li><code>ce1c100</code><time>2026-10-03</time><span>WFS-T: Insert, Update, Replace and Delete through the one write path, in WFS 2.0.0 and 1.1.0</span></li>
@@ -533,7 +536,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>c8218b7</code><time>2026-10-03</time><span>The geometry service answers findTransformations and project applies the transformation named; a mosaic draws seamlines</span></li>
 <li><code>f34010b</code><time>2026-10-03</time><span>A mosaic composites and is reordered, a map chooses its bands, and a NetCDF of variables is multidimensional</span></li>
 <li><code>76e6419</code><time>2026-10-03</time><span>Image services do what ArcGIS&#x27;s do: band functions, a mosaic catalog, time, value functions, mensuration, classes and other formats</span></li>
-<li><code>ae68dde</code><time>2026-10-03</time><span>The display test waits for Save before choosing Slope</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

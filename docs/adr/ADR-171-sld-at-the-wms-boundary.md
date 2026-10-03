@@ -49,8 +49,10 @@ never the canonical form."* The owner has now asked for it, and this is that bou
   `se:Abstract`. A renderer with no SLD form (a heat map, dot density, charts) is answered as a `NamedStyle` of
   `default` with the reason beside it. Sent back as `SLD_BODY`, it draws the layer's own colours.
 - **The capabilities say so.** 1.3.0 adds `sld:UserDefinedSymbolization` (`UserStyle="1"`, `UserLayer="0"`, no
-  remote WFS or WCS, no inline features) and lists `sld:GetLegendGraphic` and `sld:GetStyles`, with the SLD 1.1
-  capabilities schema. 1.1.1 uses its DTD's own `UserDefinedSymbolization`, `GetLegendGraphic` and `GetStyles`.
+  remote WFS or WCS, no inline features) and lists `sld:GetLegendGraphic`, with the SLD 1.1 capabilities schema.
+  1.1.1 uses its DTD's own `UserDefinedSymbolization`, `GetLegendGraphic` and `GetStyles`. **1.3.0 does not declare
+  GetStyles and answers it anyway**: SLD 1.1's capabilities schema has no `sld:GetStyles`, and the first version
+  declared one and failed validation against the published schemas.
 
 ### Alternative B — SLD to CIM directly
 
@@ -81,8 +83,12 @@ As §2, Alternative A.
 
 ## Conditions
 
-1. OGC's WMS 1.3.0 suite still passes with the SLD capabilities in the document.
+1. OGC's WMS 1.3.0 suite still passes with the SLD capabilities in the document. **DISCHARGED 2026-10-03**: the
+   CITE workflow, WMS 1.3.0 among its suites, passed on `ec07382` (v1.0.300), the commit that added them.
 2. GetStyles' documents validate against the SLD 1.1.0 schema, and an SLD exported from QGIS draws.
+   **PARTLY DISCHARGED 2026-10-03**: GetStyles' document for a unique-value layer with a default class validates against
+   `StyledLayerDescriptor.xsd` 1.1.0, and the WMS 1.3.0 document with the SLD capabilities validates against the WMS
+   and SLD capabilities schemas (`validate.py`, fetched from schemas.opengis.net). No QGIS export has been sent.
 
 ## 6. Consequences
 

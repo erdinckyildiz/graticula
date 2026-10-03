@@ -28747,6 +28747,21 @@ function imageOffersDownload() {
  * Settings › General's Download, for an image service — ADR-148, ArcGIS's Download capability: off, only whoever manages
  * it may take the file; on, everyone it is shared with may. A file registered from the server's disk is not offered.
  */
+/** ADR-172: the languages an INSPIRE service names, ISO 639-2/B — the EU's official languages, and Turkish. */
+const INSPIRE_LANGUAGES = [
+  ["bul", "Bulgarian"], ["hrv", "Croatian"], ["cze", "Czech"], ["dan", "Danish"], ["dut", "Dutch"], ["eng", "English"],
+  ["est", "Estonian"], ["fin", "Finnish"], ["fre", "French"], ["ger", "German"], ["gre", "Greek"], ["hun", "Hungarian"],
+  ["gle", "Irish"], ["ita", "Italian"], ["lav", "Latvian"], ["lit", "Lithuanian"], ["mlt", "Maltese"], ["pol", "Polish"],
+  ["por", "Portuguese"], ["rum", "Romanian"], ["slo", "Slovak"], ["slv", "Slovenian"], ["spa", "Spanish"], ["swe", "Swedish"],
+  ["tur", "Turkish"],
+];
+
+function inspireLanguages(chosen) {
+  const known = INSPIRE_LANGUAGES.some(([code]) => code === chosen);
+  return [...(known ? [] : [[chosen, chosen]]), ...INSPIRE_LANGUAGES]
+    .map(([code, label]) => `<option value="${h(code)}"${code === chosen ? " selected" : ""}>${h(label)} (${h(code)})</option>`).join("");
+}
+
 /**
  * General › OGC: which OGC faces answer for this item — ADR-166, as ArcGIS Manager turns WMS, WFS, WCS and KML on and off
  * per service. Each switch saves when changed, as Download beside it does; the ArcGIS face is the item and stays on.
@@ -28778,6 +28793,7 @@ async function drawOgcSetting(name, folder) {
        ["KML", "KML (Google Earth)", `${base}/MapServer/generateKml`]];
   const off = new Set(st.ogcOff || []);
   const manages = st.manages !== false;
+  let inspire = st.ogcInspire || null;
   // An address may break after each slash, never inside a word (ux review 12).
   const breakable = address => h(address).replace(/\//g, "/<wbr>");
 
@@ -28806,7 +28822,89 @@ async function drawOgcSetting(name, folder) {
       <p class="hint" id="ogcTermsSaid" role="status" aria-live="polite"></p>
       </fieldset>
     </form>
+    <form class="ogcterms" id="ogcInspire" novalidate>
+      <fieldset><legend><h4>INSPIRE</h4></legend>
+      <p class="hint" id="ogcInspireHint">Only for European public bodies that publish under the INSPIRE directive; most services leave
+        this empty. With a metadata record, this ${image ? "image service" : "layer"}'s own WMS is an INSPIRE View
+        service${image ? "" : ", and with a data set identifier its own WFS is a Download service"}, as ArcGIS Server's INSPIRE
+        extensions make them.</p>
+      <p class="inspire-state" id="ogcInspireState"></p>
+      <label class="field">Metadata record <input type="url" id="inspireUrl" maxlength="2000" value="${h(inspire?.metadataUrl || "")}"
+        placeholder="Not an INSPIRE service" aria-describedby="inspireUrlHint"${manages ? "" : " readonly"}>
+        <span class="hint" id="inspireUrlHint">The service's metadata record in your CSW catalogue, for example
+          ${breakable("https://catalogue.example/csw?service=CSW&request=GetRecordById&id=…").replace(/\?/g, "?<wbr>").replace(/&amp;/g, "&amp;<wbr>")}</span></label>
+      <label class="field">Language <select id="inspireLanguage" aria-describedby="inspireLanguageHint"${manages ? "" : " disabled"}>
+        ${inspireLanguages(inspire?.language || "eng")}</select>
+        <span class="hint" id="inspireLanguageHint">The language of this service's capabilities documents (ISO 639-2/B).</span></label>
+      ${image ? "" : `<label class="field">Spatial data set identifier (code) <input type="text" id="inspireCode" maxlength="2000"
+        value="${h(inspire?.datasetCode || "")}" placeholder="Not a Download service" aria-describedby="inspireDatasetHint"${manages ? "" : " readonly"}></label>
+      <label class="field">Identifier namespace <input type="text" id="inspireNamespace" maxlength="2000" value="${h(inspire?.datasetNamespace || "")}"
+        placeholder="None" aria-describedby="inspireDatasetHint"${manages ? "" : " readonly"}></label>
+      <p class="hint" id="inspireDatasetHint">As in the data set's metadata record, its unique resource identifier. Fill in the code to make
+        WFS a Download service; the namespace is optional and needs a code.</p>`}
+      ${manages ? `<div class="row"><button type="submit" id="ogcInspireSave">Save INSPIRE settings</button>
+        <span class="hint" id="ogcInspireDirty" hidden>Unsaved changes</span></div>` : ""}
+      <p class="hint" id="ogcInspireSaid" role="status" aria-live="polite"></p>
+      </fieldset>
+    </form>
     <p class="hint" id="ogcSaid" role="status" aria-live="polite"></p>`;
+
+  // ADR-172: INSPIRE is saved by its own button, with its own status line, as the terms are. Its state is said first
+  // (ux review: four open fields read as half set up), and says when the face it needs is turned off above.
+  const inspireState = () => {
+    const line = $("ogcInspireState");
+    if (!line) return;
+    const download = !image && inspire?.datasetCode;
+    const faces = download ? "WMS is an INSPIRE View service and WFS a Download service" : "WMS is an INSPIRE View service";
+    const blocked = ["WMS", ...(download ? ["WFS"] : [])].filter(face => off.has(face));
+    line.classList.toggle("warn", blocked.length > 0);
+    line.innerHTML = !inspire ? "<strong>Off</strong>: not an INSPIRE service."
+      : `<strong>On</strong>: ${faces}.` + (blocked.length
+        ? ` ${blocked.join(" and ")} ${blocked.length > 1 ? "are" : "is"} turned off above, so ${blocked.length > 1
+          ? "neither the View nor the Download service is" : blocked[0] === "WMS" ? "the View service is not" : "the Download service is not"} served until ${blocked.join(" and ")} ${blocked.length > 1 ? "are" : "is"} turned on.`
+        : "");
+  };
+  inspireState();
+  const inspireForm = $("ogcInspire");
+  inspireForm?.addEventListener("input", () => {
+    const d = $("ogcInspireDirty"); if (d) d.hidden = false;
+    const said = $("ogcInspireSaid"); if (said) { said.textContent = ""; said.classList.remove("bad-inline"); }
+  });
+  inspireForm?.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!manages) return;
+    const said = $("ogcInspireSaid"), button = $("ogcInspireSave");
+    const fields = ["inspireUrl", "inspireLanguage", "inspireCode", "inspireNamespace"].map(id => $(id)).filter(Boolean);
+    fields.forEach(one => one.removeAttribute("aria-invalid"));
+    const body = {
+      metadataUrl: $("inspireUrl").value, language: $("inspireLanguage").value,
+      datasetCode: $("inspireCode")?.value || "", datasetNamespace: $("inspireNamespace")?.value || "",
+    };
+    if (said) { said.classList.remove("bad-inline"); said.textContent = "Saving…"; }
+    if (button?.getAttribute("aria-disabled") === "true") return;
+    button?.setAttribute("aria-disabled", "true");
+    try {
+      const saved = await api(`/admin/services/${encodeURIComponent(name)}/ogc/inspire?folder=${encodeURIComponent(folder || "")}`,
+        { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      inspire = saved?.ogcInspire || null;
+      // Off keeps no language; the form says what the server kept.
+      if (!inspire && $("inspireLanguage")) $("inspireLanguage").value = "eng";
+      const dirty = $("ogcInspireDirty"); if (dirty) dirty.hidden = true;
+      if (said) said.textContent = !inspire ? "Saved. This is not an INSPIRE service."
+        : !image && inspire.datasetCode ? "Saved. WMS now answers as an INSPIRE View service, and WFS as a Download service."
+          : "Saved. WMS now answers as an INSPIRE View service.";
+      inspireState();
+    } catch (e) {
+      if (said) { said.classList.add("bad-inline"); said.textContent = `Not saved: ${e.message || e}`; }
+      // The field the refusal names takes the focus (ux review).
+      const text = String(e.message || e);
+      const named = /language/i.test(text) ? $("inspireLanguage") : /namespace/i.test(text) ? $("inspireNamespace")
+        : /identifier|data set/i.test(text) ? $("inspireCode") : $("inspireUrl");
+      if (named) { named.setAttribute("aria-invalid", "true"); named.focus(); }
+    } finally {
+      button?.removeAttribute("aria-disabled");
+    }
+  });
 
   // ADR-167: the terms are saved together, by a button, with their own status line (ux review 13).
   const terms = $("ogcTerms");
@@ -28817,9 +28915,11 @@ async function drawOgcSetting(name, folder) {
   terms?.addEventListener("submit", async event => {
     event.preventDefault();
     if (!manages) return;
-    const said = $("ogcTermsSaid");
+    const said = $("ogcTermsSaid"), button = $("ogcTermsSave");
     const fees = $("ogcFees").value, access = $("ogcAccess").value;
     if (said) { said.classList.remove("bad-inline"); said.textContent = "Saving…"; }
+    if (button?.getAttribute("aria-disabled") === "true") return;
+    button?.setAttribute("aria-disabled", "true");
     try {
       await api(`/admin/services/${encodeURIComponent(name)}/ogc/terms?folder=${encodeURIComponent(folder || "")}`,
         { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fees, accessConstraints: access }) });
@@ -28829,6 +28929,8 @@ async function drawOgcSetting(name, folder) {
         : "Saved. No fees or access constraints are stated.";
     } catch (e) {
       if (said) { said.classList.add("bad-inline"); said.textContent = `Not saved: ${e.message || e}`; }
+    } finally {
+      button?.removeAttribute("aria-disabled");
     }
   });
 

@@ -1267,6 +1267,10 @@ public interface IAdminCatalog
     /// <returns>True when the service exists.</returns>
     Task<bool> SetOgcTermsAsync(string serviceName, string? folder, string? fees, string? accessConstraints, CancellationToken cancellationToken);
 
+    /// <summary>Sets a service's INSPIRE settings as stored JSON; null makes it not an INSPIRE service (ADR-172).</summary>
+    /// <returns>True when the service exists.</returns>
+    Task<bool> SetOgcInspireAsync(string serviceName, string? folder, string? settings, CancellationToken cancellationToken);
+
     /// <summary>
     /// Makes a freshly published service a view of another — ADR-113: records its source, gives each of its layers the
     /// source layer's number, and keeps each filter as it was written.

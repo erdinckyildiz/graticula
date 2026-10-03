@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(81);
+    public static SchemaVersion ComponentSchemaVersion => new(82);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -116,6 +116,7 @@ public static class PlatformMigrations
         AServiceTurnsOgcOffV79,
         AServiceStatesItsOgcTermsV80,
         AnImageServiceTurnsWcsOffV81,
+        AServiceStatesItsInspireSettingsV82,
     ]);
 
     /// <summary>
@@ -153,6 +154,15 @@ public static class PlatformMigrations
     /// A web map may be protected from deletion, as a service may be (ADR-102 condition 2) — the ArcGIS review's second
     /// pass found maps the one item kind without it.
     /// </summary>
+    /// <summary>
+    /// A service states its INSPIRE settings — ADR-172, ArcGIS's INSPIRE View and Download service extensions.
+    /// </summary>
+    /// <remarks><b>Expand.</b> A nullable column; null is not an INSPIRE service, which is what every service was.</remarks>
+    private static Migration AServiceStatesItsInspireSettingsV82 => Migration.Expand(
+        new SchemaVersion(82),
+        "A service states its INSPIRE settings: its metadata record, language and data set (ADR-172).",
+        "alter table service add column if not exists ogc_inspire text");
+
     /// <summary>
     /// An image service's WCS face may be turned off as its others are — ADR-170, WCS joins the faces ADR-166 lists.
     /// </summary>

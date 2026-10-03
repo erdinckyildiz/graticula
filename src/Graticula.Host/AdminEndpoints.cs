@@ -342,6 +342,9 @@ internal sealed record OgcOffRequest(string?[]? Off);
 /// <summary>What <c>…/ogc/terms</c> reads: the fees and access constraints a service's OGC documents state — ADR-167.</summary>
 internal sealed record OgcTermsRequest(string? Fees, string? AccessConstraints);
 
+/// <summary>What <c>…/ogc/inspire</c> reads — ADR-172. No metadata record makes it not an INSPIRE service.</summary>
+internal sealed record OgcInspireRequest(string? MetadataUrl, string? Language, string? DatasetCode, string? DatasetNamespace);
+
 /// <summary>
 /// What a service is configured to offer. Null means unset, everywhere.
 /// </summary>
@@ -669,6 +672,7 @@ internal static partial class AdminEndpoints
         app.MapGet("/admin/services/{name}/stewardship", GetStewardshipAsync);
         app.MapPut("/admin/services/{name}/ogc", SetOgcOffAsync);
         app.MapPut("/admin/services/{name}/ogc/terms", SetOgcTermsAsync);
+        app.MapPut("/admin/services/{name}/ogc/inspire", SetOgcInspireAsync);
         app.MapPut("/admin/services/{name}/editing", SetEditingOfferedAsync);
         app.MapPut("/admin/services/{name}/protection", SetDeleteProtectedAsync);
 
@@ -4661,6 +4665,7 @@ internal static partial class AdminEndpoints
             ogcOff = found.OgcOff ?? [],
             ogcFees = found.OgcFees,
             ogcAccessConstraints = found.OgcAccessConstraints,
+            ogcInspire = Graticula.Catalog.InspireSettings.Parse(found.OgcInspire),
             manages,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
@@ -4729,6 +4734,54 @@ internal static partial class AdminEndpoints
             succeeded: true, cancellation).ConfigureAwait(false);
 
         await Results.Json(new { name, folder = at, editingOffered = wanted }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// States a service's INSPIRE settings — ADR-172: its metadata record and language make its own WMS an INSPIRE View
+    /// service, and a data set's identifier makes its own WFS a Download service. No metadata record clears them.
+    /// </summary>
+    private static async Task SetOgcInspireAsync(
+        HttpContext context, string name, string? folder, OgcInspireRequest request, IAdminCatalog catalog,
+        IAuditLog audit, PostgresLayerCatalog owners, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (!await ManagesServiceAsync(context, owners, at, name, "state the INSPIRE settings of", cancellation).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        static string? Blank(string? text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+        Graticula.Catalog.InspireSettings? settings = Blank(request.MetadataUrl) is { } url
+            ? new Graticula.Catalog.InspireSettings(
+                url, Graticula.Catalog.InspireSettings.Normalise(Blank(request.Language) ?? "eng"), Blank(request.DatasetCode), Blank(request.DatasetNamespace))
+            : null;
+
+        if (settings?.Refusal() is { } refused)
+        {
+            await Refuse(context, 400, refused).ConfigureAwait(false);
+            return;
+        }
+
+        // A language alone is not a setting — the form always sends one (ux review: clearing the record was refused).
+        if (settings is null && (Blank(request.DatasetCode) ?? Blank(request.DatasetNamespace)) is not null)
+        {
+            await Refuse(context, 400, "A data set identifier belongs to an INSPIRE service, which has a metadata record; give its address, or clear the identifier.").ConfigureAwait(false);
+            return;
+        }
+
+        if (!await catalog.SetOgcInspireAsync(name, at, settings?.ToJson(), cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(context, audit, "service.ogc.inspire", name, Detail(new { folder = at, inspire = settings }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { name, folder = at, ogcInspire = settings }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>

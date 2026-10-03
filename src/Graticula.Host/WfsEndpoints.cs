@@ -135,7 +135,7 @@ internal static partial class WfsEndpoints
             .FirstOrDefault(s => InScope(context, s));
         return service is null
             ? null
-            : new Graticula.Catalog.OgcServiceMetadata(service.Description, service.Tags, service.OgcFees, service.OgcAccessConstraints);
+            : new Graticula.Catalog.OgcServiceMetadata(service.Description, service.Tags, service.OgcFees, service.OgcAccessConstraints) { Inspire = service.Inspire };
     }
 
     private static bool InScope(HttpContext context, PublishedService service) =>

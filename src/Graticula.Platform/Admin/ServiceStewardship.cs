@@ -11,10 +11,12 @@ namespace Graticula.Platform.Admin;
 /// <param name="OgcOff">The OGC faces the owner turned off (ADR-166).</param>
 /// <param name="OgcFees">The fees its OGC documents state (ADR-167).</param>
 /// <param name="OgcAccessConstraints">The access constraints its OGC documents state (ADR-167).</param>
+/// <param name="OgcInspire">Its stored INSPIRE settings (ADR-172).</param>
 public sealed record ServiceStewardship(
     IReadOnlyList<string>? EditingOffered,
     bool DeleteProtected,
     IReadOnlyList<string>? Ceiling,
     IReadOnlyList<string>? OgcOff = null,
     string? OgcFees = null,
-    string? OgcAccessConstraints = null);
+    string? OgcAccessConstraints = null,
+    string? OgcInspire = null);

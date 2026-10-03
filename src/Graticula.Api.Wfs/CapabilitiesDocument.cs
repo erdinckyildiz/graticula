@@ -114,7 +114,7 @@ public static class CapabilitiesDocument
 
             await IdentificationAsync(xml, title, metadata).ConfigureAwait(false);
             await ProviderAsync(xml).ConfigureAwait(false);
-            await OperationsAsync(xml, endpoint, transactions).ConfigureAwait(false);
+            await OperationsAsync(xml, endpoint, transactions, metadata?.Inspire).ConfigureAwait(false);
             await TypesAsync(xml, types).ConfigureAwait(false);
             await FilterCapabilitiesAsync(xml).ConfigureAwait(false);
 
@@ -225,7 +225,47 @@ public static class CapabilitiesDocument
         await xml.WriteEndElementAsync().ConfigureAwait(false);
     }
 
-    private static async Task OperationsAsync(XmlWriter xml, string endpoint, bool transactions)
+    private const string InspireDownload = "http://inspire.ec.europa.eu/schemas/inspire_dls/1.0";
+    private const string InspireCommon = "http://inspire.ec.europa.eu/schemas/common/1.0";
+
+    /// <summary>
+    /// ADR-172: an INSPIRE Download service (pre-defined data sets, WFS 2.0) — scenario 1's metadata link and language,
+    /// and the data set this service delivers. Only with a data set to name: the schema requires one.
+    /// </summary>
+    private static async Task InspireAsync(XmlWriter xml, Graticula.Catalog.InspireSettings inspire)
+    {
+        await xml.WriteStartElementAsync("ows", "ExtendedCapabilities", WfsNames.Ows).ConfigureAwait(false);
+        await xml.WriteStartElementAsync("inspire_dls", "ExtendedCapabilities", InspireDownload).ConfigureAwait(false);
+        await xml.WriteAttributeStringAsync("xmlns", "inspire_common", null, InspireCommon).ConfigureAwait(false);
+
+        await xml.WriteStartElementAsync("inspire_common", "MetadataUrl", InspireCommon).ConfigureAwait(false);
+        await xml.WriteElementStringAsync("inspire_common", "URL", InspireCommon, inspire.MetadataUrl).ConfigureAwait(false);
+        await xml.WriteElementStringAsync("inspire_common", "MediaType", InspireCommon, "application/vnd.ogc.csw.GetRecordByIdResponse_xml")
+            .ConfigureAwait(false);
+        await xml.WriteEndElementAsync().ConfigureAwait(false);
+        await xml.WriteStartElementAsync("inspire_common", "SupportedLanguages", InspireCommon).ConfigureAwait(false);
+        await xml.WriteStartElementAsync("inspire_common", "DefaultLanguage", InspireCommon).ConfigureAwait(false);
+        await xml.WriteElementStringAsync("inspire_common", "Language", InspireCommon, inspire.Language).ConfigureAwait(false);
+        await xml.WriteEndElementAsync().ConfigureAwait(false);
+        await xml.WriteEndElementAsync().ConfigureAwait(false);
+        await xml.WriteStartElementAsync("inspire_common", "ResponseLanguage", InspireCommon).ConfigureAwait(false);
+        await xml.WriteElementStringAsync("inspire_common", "Language", InspireCommon, inspire.Language).ConfigureAwait(false);
+        await xml.WriteEndElementAsync().ConfigureAwait(false);
+
+        await xml.WriteStartElementAsync("inspire_dls", "SpatialDataSetIdentifier", InspireDownload).ConfigureAwait(false);
+        await xml.WriteElementStringAsync("inspire_common", "Code", InspireCommon, inspire.DatasetCode!).ConfigureAwait(false);
+
+        if (inspire.DatasetNamespace is { Length: > 0 } space)
+        {
+            await xml.WriteElementStringAsync("inspire_common", "Namespace", InspireCommon, space).ConfigureAwait(false);
+        }
+
+        await xml.WriteEndElementAsync().ConfigureAwait(false);
+        await xml.WriteEndElementAsync().ConfigureAwait(false);
+        await xml.WriteEndElementAsync().ConfigureAwait(false);
+    }
+
+    private static async Task OperationsAsync(XmlWriter xml, string endpoint, bool transactions, Graticula.Catalog.InspireSettings? inspire = null)
     {
         await xml.WriteStartElementAsync("ows", "OperationsMetadata", WfsNames.Ows)
             .ConfigureAwait(false);
@@ -317,6 +357,11 @@ public static class CapabilitiesDocument
         ])
         {
             await ConstraintAsync(xml, WfsNames.Ows, "ows", name, value).ConfigureAwait(false);
+        }
+
+        if (inspire is { Downloads: true })
+        {
+            await InspireAsync(xml, inspire).ConfigureAwait(false);
         }
 
         await xml.WriteEndElementAsync().ConfigureAwait(false);

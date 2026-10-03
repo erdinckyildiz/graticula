@@ -124,8 +124,17 @@ public static class CapabilitiesDocument
         writer.WriteAttributeString("xmlns", "xlink", null, WmsNames.Xlink);
         writer.WriteAttributeString("xmlns", "xsi", null, WmsNames.Xsi);
         writer.WriteAttributeString("xmlns", "sld", null, Sld);
+        Graticula.Catalog.InspireSettings? inspire = metadata?.Inspire;
+
+        if (inspire is not null)
+        {
+            writer.WriteAttributeString("xmlns", "inspire_vs", null, InspireView);
+            writer.WriteAttributeString("xmlns", "inspire_common", null, InspireCommon);
+        }
+
         writer.WriteAttributeString(
-            "xsi", "schemaLocation", null, $"{WmsNames.Wms} {WmsNames.SchemaLocation130} {Sld} {SldCapabilities}");
+            "xsi", "schemaLocation", null, $"{WmsNames.Wms} {WmsNames.SchemaLocation130} {Sld} {SldCapabilities}"
+                + (inspire is null ? string.Empty : $" {InspireView} {InspireViewSchema}"));
 
         WriteService(writer, endpoint, title, limits, WmsVersion.V130, contact, metadata);
 
@@ -145,6 +154,14 @@ public static class CapabilitiesDocument
         writer.WriteAttributeString("InlineFeature", "0");
         writer.WriteAttributeString("RemoteWCS", "0");
         writer.WriteEndElement();
+
+        // ADR-172: an INSPIRE View service, scenario 1 — its metadata record is elsewhere and this links to it.
+        if (inspire is not null)
+        {
+            writer.WriteStartElement("inspire_vs", "ExtendedCapabilities", InspireView);
+            WriteInspireCommon(writer, inspire);
+            writer.WriteEndElement();
+        }
 
         // The root layer, which has a title and no name. A named root would be a
         // layer a client could ask for, and there is nothing behind it to draw.
@@ -309,9 +326,16 @@ public static class CapabilitiesDocument
         writer.WriteEndElement();
 
         // <b>The SLD profile's operations — ADR-171.</b> 1.3.0 extends the request list through `sld:`; 1.1.1's DTD
-        // names them itself, in this order.
+        // names them itself, in this order. <b>GetStyles is answered by both and declared only by 1.1.1</b>: SLD 1.1's
+        // capabilities schema defines `sld:DescribeLayer` and `sld:GetLegendGraphic` and no `sld:GetStyles`, so declaring
+        // it made the 1.3.0 document invalid — measured against the published schemas on 2026-10-03.
         foreach ((string operation, string format) in (ReadOnlySpan<(string, string)>)[("GetLegendGraphic", "image/png"), ("GetStyles", StylesMediaType)])
         {
+            if (version == WmsVersion.V130 && operation == "GetStyles")
+            {
+                continue;
+            }
+
             if (version == WmsVersion.V130)
             {
                 writer.WriteStartElement("sld", operation, Sld);
@@ -327,6 +351,39 @@ public static class CapabilitiesDocument
             writer.WriteEndElement();
         }
 
+        writer.WriteEndElement();
+    }
+
+    /// <summary>INSPIRE's View service namespace — ADR-172.</summary>
+    private const string InspireView = "http://inspire.ec.europa.eu/schemas/inspire_vs/1.0";
+
+    /// <summary>INSPIRE's common namespace.</summary>
+    public const string InspireCommon = "http://inspire.ec.europa.eu/schemas/common/1.0";
+
+    private const string InspireViewSchema = "http://inspire.ec.europa.eu/schemas/inspire_vs/1.0/inspire_vs.xsd";
+
+    /// <summary>
+    /// What every INSPIRE extended capabilities block starts with: the metadata record, the language it supports and
+    /// the one it answers in — ADR-172.
+    /// </summary>
+    /// <param name="writer">Where.</param>
+    /// <param name="inspire">The service's settings.</param>
+    public static void WriteInspireCommon(XmlWriter writer, Graticula.Catalog.InspireSettings inspire)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        ArgumentNullException.ThrowIfNull(inspire);
+
+        writer.WriteStartElement("inspire_common", "MetadataUrl", InspireCommon);
+        writer.WriteElementString("inspire_common", "URL", InspireCommon, inspire.MetadataUrl);
+        writer.WriteElementString("inspire_common", "MediaType", InspireCommon, "application/vnd.ogc.csw.GetRecordByIdResponse_xml");
+        writer.WriteEndElement();
+        writer.WriteStartElement("inspire_common", "SupportedLanguages", InspireCommon);
+        writer.WriteStartElement("inspire_common", "DefaultLanguage", InspireCommon);
+        writer.WriteElementString("inspire_common", "Language", InspireCommon, inspire.Language);
+        writer.WriteEndElement();
+        writer.WriteEndElement();
+        writer.WriteStartElement("inspire_common", "ResponseLanguage", InspireCommon);
+        writer.WriteElementString("inspire_common", "Language", InspireCommon, inspire.Language);
         writer.WriteEndElement();
     }
 

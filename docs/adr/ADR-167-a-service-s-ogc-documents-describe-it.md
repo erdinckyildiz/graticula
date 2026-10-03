@@ -9,6 +9,8 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-162](ADR-162-ogc-at-a-service-s-own-address.md) |
 
+
+> **Amended 2026-10-03 by [ADR-172](ADR-172-inspire-view-and-download-services.md).** A service's own WMS and WFS documents also carry its INSPIRE settings when its owner states them: View service on WMS 1.3.0, Download service on WFS 2.0.
 ---
 
 ## 1. Context

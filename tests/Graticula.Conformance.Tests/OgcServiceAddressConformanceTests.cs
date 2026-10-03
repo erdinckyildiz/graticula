@@ -188,4 +188,82 @@ public sealed class OgcServiceAddressConformanceTests : ArcGisClient
         Assert.NotEmpty(LayerNames(wms));
         Assert.True(LayerNames(wms).Length <= mine.Length);
     }
+
+    [Fact]
+    public async Task A_service_s_inspire_settings_make_its_own_wms_a_view_service_and_its_wfs_a_download_service()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        (_, _, byte[] listing) = await GetAsync(root, token!, "/rest/services/hosted?f=json");
+        string? service = JsonDocument.Parse(listing).RootElement.GetProperty("services").EnumerateArray()
+            .Where(s => s.GetProperty("type").GetString() == "FeatureServer")
+            .Select(s => s.GetProperty("name").GetString())
+            .FirstOrDefault();
+        Assert.False(service is null, "No hosted feature service to look at.");
+        string name = service![(service.IndexOf('/', StringComparison.Ordinal) + 1)..];
+
+        async Task<HttpStatusCode> SetAsync(string json)
+        {
+            using HttpRequestMessage put = new(HttpMethod.Put, $"{root}/admin/services/{name}/ogc/inspire?folder=hosted")
+            {
+                Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+            };
+            put.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage answered = await Http.SendAsync(put);
+            return answered.StatusCode;
+        }
+
+        const string Vs = "http://inspire.ec.europa.eu/schemas/inspire_vs/1.0", Dls = "http://inspire.ec.europa.eu/schemas/inspire_dls/1.0";
+        const string Common = "http://inspire.ec.europa.eu/schemas/common/1.0";
+        const string Record = "https://catalogue.example/csw?service=CSW&request=GetRecordById&id=abc";
+        string wms = $"/rest/services/{service}/MapServer/WMSServer?service=WMS&request=GetCapabilities&version=1.3.0";
+        string wfs = $"/rest/services/{service}/FeatureServer/WFSServer?service=WFS&request=GetCapabilities&version=2.0.0";
+
+        try
+        {
+            Assert.Equal(HttpStatusCode.OK, await SetAsync(
+                $$"""{"metadataUrl":"{{Record}}","language":"tur","datasetCode":"TR.ROADS.1","datasetNamespace":"https://data.example/id"}"""));
+
+            // Its own WMS is a View service, scenario 1: the record and the language.
+            (_, _, byte[] view) = await GetAsync(root, token!, wms);
+            XElement vs = XDocument.Parse(System.Text.Encoding.UTF8.GetString(view)).Descendants(XName.Get("ExtendedCapabilities", Vs)).Single();
+            Assert.Equal(Record, vs.Descendants(XName.Get("URL", Common)).Single().Value);
+            Assert.All(vs.Descendants(XName.Get("Language", Common)), l => Assert.Equal("tur", l.Value));
+
+            // Its own WFS is a Download service naming its data set.
+            (_, _, byte[] download) = await GetAsync(root, token!, wfs);
+            XElement dls = XDocument.Parse(System.Text.Encoding.UTF8.GetString(download)).Descendants(XName.Get("ExtendedCapabilities", Dls)).Single();
+            Assert.Equal("TR.ROADS.1", dls.Descendants(XName.Get("Code", Common)).Single().Value);
+            Assert.Equal("ExtendedCapabilities", dls.Parent!.Name.LocalName);
+            Assert.Equal("OperationsMetadata", dls.Parent.Parent!.Name.LocalName);
+
+            // The server's own documents are not this service's, and say nothing of it.
+            (_, _, byte[] server) = await GetAsync(root, token!, "/wms?service=WMS&request=GetCapabilities&version=1.3.0");
+            Assert.DoesNotContain(Vs, System.Text.Encoding.UTF8.GetString(server), StringComparison.Ordinal);
+
+            // Without a data set it is a View service only; a bad language and a namespace without a code are refused.
+            Assert.Equal(HttpStatusCode.OK, await SetAsync($$"""{"metadataUrl":"{{Record}}","language":"eng"}"""));
+            (_, _, byte[] viewOnly) = await GetAsync(root, token!, wfs);
+            Assert.DoesNotContain(Dls, System.Text.Encoding.UTF8.GetString(viewOnly), StringComparison.Ordinal);
+            Assert.Equal(HttpStatusCode.BadRequest, await SetAsync($$"""{"metadataUrl":"{{Record}}","language":"english"}"""));
+            Assert.Equal(HttpStatusCode.BadRequest, await SetAsync($$"""{"metadataUrl":"{{Record}}","datasetNamespace":"x"}"""));
+            Assert.Equal(HttpStatusCode.BadRequest, await SetAsync("""{"metadataUrl":"not an address"}"""));
+            Assert.Equal(HttpStatusCode.BadRequest, await SetAsync($$"""{"metadataUrl":"{{Record}}","language":"xyz"}"""));
+
+            // A 639-2/T code is INSPIRE's /B one; a language with no record is no setting at all, as the form sends it.
+            Assert.Equal(HttpStatusCode.OK, await SetAsync($$"""{"metadataUrl":"{{Record}}","language":"deu"}"""));
+            (_, _, byte[] german) = await GetAsync(root, token!, wms);
+            Assert.Contains("<inspire_common:Language>ger</inspire_common:Language>", System.Text.Encoding.UTF8.GetString(german), StringComparison.Ordinal);
+            Assert.Equal(HttpStatusCode.OK, await SetAsync("""{"metadataUrl":"","language":"eng","datasetCode":"","datasetNamespace":""}"""));
+        }
+        finally
+        {
+            Assert.Equal(HttpStatusCode.OK, await SetAsync("{}"));
+        }
+
+        (_, _, byte[] cleared) = await GetAsync(root, token!, wms);
+        Assert.DoesNotContain(Vs, System.Text.Encoding.UTF8.GetString(cleared), StringComparison.Ordinal);
+    }
 }
