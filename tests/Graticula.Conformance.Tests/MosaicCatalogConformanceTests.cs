@@ -21,7 +21,7 @@ public sealed class MosaicCatalogConformanceTests : ArcGisClient
     private const int Side = 8;
     private const string Inside = "30.025,40.975";
 
-    private static byte[] Constant(float value, double west = 30.0)
+    internal static byte[] Constant(float value, double west = 30.0)
     {
         using MemoryStream file = new();
         using BinaryWriter w = new(file);

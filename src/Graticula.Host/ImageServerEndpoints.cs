@@ -1070,6 +1070,49 @@ internal static partial class ImageServerEndpoints
     }
 
     /// <summary>
+    /// Draws a coverage into a map another face is drawing — WMS, ADR-162 — as its own <c>exportImage</c> would draw
+    /// it with no parameters: its style, its raster function, its classes, its default slice when multidimensional.
+    /// </summary>
+    /// <returns>Null when it drew, or why it could not.</returns>
+    internal static async Task<string?> DrawIntoMapAsync(
+        HttpContext context,
+        IMapCanvas canvas,
+        PublishedCoverage coverage,
+        Envelope extent,
+        int width,
+        int height,
+        int srid,
+        ICoverageReaderFactory readers,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
+        if (srid != coverage.Info.Srid && !await projector.KnowsAsync(srid, cancellation).ConfigureAwait(false))
+        {
+            return $"EPSG:{srid.ToString(CultureInfo.InvariantCulture)} is not a reference this server's projection database has.";
+        }
+
+        if (IsMultidimensional(coverage))
+        {
+            (readers, _) = await MosaicReadersAsync(context, _ => null, coverage, readers, extent, cancellation).ConfigureAwait(false);
+        }
+
+        ImageServerExportParameters asked = ImageServerExportParameters.ForMap(extent, width, height, srid);
+        RasterFunction function = RasterFunction.FromStyleText(coverage.Style);
+        Func<CoverageWindow, IReadOnlyList<BandInfo>, Rgba[]>? painter =
+            function.Kind == RasterFunctionKind.None && AttributeTableOf(coverage) is { Colours: true } table ? table.Paint : null;
+        Resampling how = painter is not null ? Resampling.Nearest : DefaultResampling(coverage.Info, function, null);
+
+        if (srid == coverage.Info.Srid)
+        {
+            await DrawAlignedAsync(canvas, coverage, asked, readers, null, function, painter, how, cancellation).ConfigureAwait(false);
+            return null;
+        }
+
+        return await DrawWarpedAsync(canvas, coverage, asked, readers, projector, null, function, painter, how, cancellation)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Draws a coverage into a request written in its own reference.
     /// </summary>
     /// <remarks>

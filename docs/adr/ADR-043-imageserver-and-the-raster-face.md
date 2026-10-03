@@ -25,6 +25,9 @@
 
 > **Amended 2026-10-03 by [ADR-155](ADR-155-an-image-service-measures-on-the-ground.md).** `measure`, `computePixelLocation`, `imageToMap` and `mapToImage` are answered, on the ground.
 
+
+> **Amended 2026-10-03 by [ADR-162](ADR-162-ogc-at-a-service-s-own-address.md).** §3's expectation is met: WMS draws image services.
+
 ---
 
 ## 1. What was asked, and what the register already held

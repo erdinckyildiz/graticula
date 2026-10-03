@@ -9,6 +9,9 @@
 | **Superseded by** | — |
 | **Amends** | [ADR-004](ADR-004-rendering-engine.md) — un-defers it, and records that it is being un-deferred against a preference the owner stated in its own §0 |
 
+
+> **Amended 2026-10-03 by [ADR-162](ADR-162-ogc-at-a-service-s-own-address.md).** WMS lists image services as layers and answers at each service's own address; `text/xml` feature info is XML.
+
 ---
 
 ## 0. This reverses something the owner said, and that is stated first

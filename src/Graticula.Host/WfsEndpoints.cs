@@ -85,7 +85,45 @@ internal static class WfsEndpoints
 
         app.MapGet(Path, GetAsync).Governed(SharingGovernedExtensions.ByFiltering);
         app.MapPost(Path, PostAsync).Governed(SharingGovernedExtensions.ByFiltering);
+
+        // ADR-162: a service's own address, as ArcGIS gives it — …/MapServer/WFSServer and …/FeatureServer/WFSServer —
+        // answered by the same handlers, narrowed to that service.
+        foreach (string prefix in (string[])["/rest/services", "/rest/services/{folder}"])
+        {
+            foreach (string kind in (string[])["MapServer", "FeatureServer"])
+            {
+                app.MapGet($"{prefix}/{{serviceName}}/{kind}/WFSServer", (
+                        HttpContext context, string serviceName, CatalogFallback catalog, ServiceContexts contexts,
+                        HostSettings settings, CancellationToken cancellation) =>
+                    {
+                        context.Items[ScopeKey] = (Folder(context), serviceName);
+                        return GetAsync(context, catalog, contexts, settings, cancellation);
+                    })
+                    .Governed(SharingGovernedExtensions.ByFiltering);
+                app.MapPost($"{prefix}/{{serviceName}}/{kind}/WFSServer", (
+                        HttpContext context, string serviceName, CatalogFallback catalog, ServiceContexts contexts,
+                        HostSettings settings, CancellationToken cancellation) =>
+                    {
+                        context.Items[ScopeKey] = (Folder(context), serviceName);
+                        return PostAsync(context, catalog, contexts, settings, cancellation);
+                    })
+                    .Governed(SharingGovernedExtensions.ByFiltering);
+            }
+        }
     }
+
+    /// <summary>Where a request at a service's own address keeps the service it is narrowed to — ADR-162.</summary>
+    private const string ScopeKey = "wfs.scope";
+
+    private static string? Folder(HttpContext context) =>
+        context.Request.RouteValues.TryGetValue("folder", out object? folder) && folder is string text && text.Length > 0
+            ? text
+            : null;
+
+    private static bool InScope(HttpContext context, PublishedService service) =>
+        !context.Items.TryGetValue(ScopeKey, out object? held) || held is not ValueTuple<string?, string> scope
+        || (string.Equals(service.Name, scope.Item2, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(service.Folder ?? string.Empty, scope.Item1 ?? string.Empty, StringComparison.OrdinalIgnoreCase));
 
     private static async Task GetAsync(
         HttpContext context,
@@ -321,6 +359,12 @@ internal static class WfsEndpoints
             // reopening a door the operator closed is exactly the failure a new
             // surface is most likely to introduce. D-123.
             if (!service.Limits.AllowsFeatures(dataSupportsIt: true))
+            {
+                continue;
+            }
+
+            // ADR-162: at a service's own address, that service's layers only.
+            if (!InScope(context, service))
             {
                 continue;
             }
@@ -1644,7 +1688,7 @@ internal static class WfsEndpoints
             : $"{layer.Folder} / {layer.Definition.Name}";
 
     private static string Endpoint(HttpContext context) =>
-        $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}{Path}";
+        $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}{context.Request.Path}";
 
     private static async IAsyncEnumerable<Feature> Nothing()
     {

@@ -47,6 +47,10 @@ internal sealed class ImageServerExportParameters
     internal static ImageServerExportParameters ForTile(Envelope extent, int size, int srid) =>
         new(extent, size, size, MapImageFormat.Png, srid);
 
+    /// <summary>A picture of an extent at a size, in a reference — a WMS map's, ADR-162.</summary>
+    internal static ImageServerExportParameters ForMap(Envelope extent, int width, int height, int srid) =>
+        new(extent, width, height, MapImageFormat.Png, srid);
+
     /// <summary>
     /// The values of an extent at a size, in a reference — ADR-147, a block of an image being conformed to a mosaic's
     /// grid, read as a raw export reads.

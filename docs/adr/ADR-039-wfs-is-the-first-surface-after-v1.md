@@ -4,6 +4,9 @@
 **Confidence:** MEDIUM
 **Date:** 2026-08-19
 
+
+> **Amended 2026-10-03 by [ADR-162](ADR-162-ogc-at-a-service-s-own-address.md).** WFS is answered at each service's own address too — `…/MapServer/WFSServer`, `…/FeatureServer/WFSServer` — narrowed to that service; `/wfs` is unchanged.
+
 ---
 
 ## 1. Context

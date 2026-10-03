@@ -63,7 +63,7 @@ public static class CapabilitiesDocument
 
     /// <summary>The formats <c>GetFeatureInfo</c> will answer in.</summary>
     public static readonly string[] InfoFormats =
-        ["text/plain", "application/json", "text/html"];
+        ["text/plain", "application/json", "text/html", "text/xml"];
 
     /// <summary>Writes the document.</summary>
     /// <param name="version">Which version.</param>

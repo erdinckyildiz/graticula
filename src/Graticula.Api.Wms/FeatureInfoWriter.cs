@@ -63,10 +63,8 @@ public static class FeatureInfoWriter
             }
         }
 
-        // text/xml is what several clients send meaning "anything structured".
-        return string.Equals(value, "text/xml", StringComparison.OrdinalIgnoreCase)
-            ? "application/json"
-            : null;
+        // ADR-162: text/xml is written as XML, in the shape ArcGIS's WMS answers it, since that is a known format now.
+        return null;
     }
 
     /// <summary>Writes the answer.</summary>
@@ -84,6 +82,7 @@ public static class FeatureInfoWriter
         {
             "application/json" => Json(hits, at, srid),
             "text/html" => Html(hits),
+            "text/xml" => Xml(hits),
             _ => Plain(hits),
         };
     }
@@ -216,6 +215,37 @@ public static class FeatureInfoWriter
     /// values are attribute data a user uploaded. Escaping is the whole of the
     /// safety here.
     /// </remarks>
+    private static string Xml(IReadOnlyList<Hits> hits)
+    {
+        // ADR-162: ArcGIS's WMS shape — a FIELDS element a feature, its attributes as XML attributes — with the layer
+        // named, so a client that reads either reads this.
+        System.Xml.Linq.XNamespace esri = "http://www.esri.com/wms";
+        System.Xml.Linq.XElement root = new(esri + "FeatureInfoResponse",
+            new System.Xml.Linq.XAttribute(System.Xml.Linq.XNamespace.Xmlns + "esri_wms", esri.NamespaceName));
+
+        foreach (Hits layer in hits)
+        {
+            foreach (Feature feature in layer.Features)
+            {
+                System.Xml.Linq.XElement fields = new(esri + "FIELDS", new System.Xml.Linq.XAttribute("layer", layer.Layer));
+
+                foreach (string name in feature.Schema.Names)
+                {
+                    string attribute = System.Xml.XmlConvert.EncodeLocalName(name);
+
+                    if (attribute != "layer")
+                    {
+                        fields.Add(new System.Xml.Linq.XAttribute(attribute, Text(feature[name])));
+                    }
+                }
+
+                root.Add(fields);
+            }
+        }
+
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + root;
+    }
+
     private static string Html(IReadOnlyList<Hits> hits)
     {
         StringBuilder text = new();

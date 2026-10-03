@@ -8,6 +8,7 @@ using Graticula.Api.Wms;
 using Graticula.Cartography;
 using Graticula.Catalog;
 using Graticula.Features;
+using Graticula.Coverages;
 using Graticula.Geometries;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
@@ -38,7 +39,7 @@ namespace Graticula.Host;
 /// lesson applied at the moment a third surface was built rather than after.
 /// </para>
 /// </remarks>
-internal static class WmsEndpoints
+internal static partial class WmsEndpoints
 {
     /// <summary>Where the surface lives.</summary>
     public const string Path = "/wms";
@@ -109,6 +110,9 @@ internal static class WmsEndpoints
         ArgumentNullException.ThrowIfNull(app);
 
         app.MapGet(Path, GetAsync).Governed(SharingGovernedExtensions.ByFiltering);
+
+        // ADR-162: a service's own address, as ArcGIS gives it.
+        MapServiceAddresses(app);
     }
 
     private static async Task GetAsync(
@@ -118,6 +122,8 @@ internal static class WmsEndpoints
         IMapCanvasFactory canvases,
         IProjector projector,
         HostSettings settings,
+        ICoverageCatalog coverages,
+        ICoverageReaderFactory readers,
         CancellationToken cancellation)
     {
         WmsLimits limits = new(
@@ -145,12 +151,12 @@ internal static class WmsEndpoints
                 case WmsOperation.GetCapabilities:
                     await CapabilitiesAsync(
                         context, catalog, contexts, canvases, projector, request, limits,
-                        settings, cancellation)
+                        settings, coverages, cancellation)
                         .ConfigureAwait(false);
                     return;
 
                 case WmsOperation.GetMap:
-                    await MapImageAsync(context, catalog, contexts, canvases, request, settings, cancellation)
+                    await MapImageAsync(context, catalog, contexts, canvases, request, settings, coverages, readers, projector, cancellation)
                         .ConfigureAwait(false);
                     return;
 
@@ -160,7 +166,7 @@ internal static class WmsEndpoints
                     return;
 
                 case WmsOperation.GetLegendGraphic:
-                    await LegendAsync(context, catalog, contexts, canvases, request, cancellation)
+                    await LegendAsync(context, catalog, contexts, canvases, request, coverages, cancellation)
                         .ConfigureAwait(false);
                     return;
 
@@ -314,6 +320,12 @@ internal static class WmsEndpoints
                 continue;
             }
 
+            // ADR-162: at a service's own address, that service's layers only.
+            if (!InScope(ScopeOf(context), service.Folder, service.Name, "FeatureServer"))
+            {
+                continue;
+            }
+
             if (!LayerAccess
                 .Evaluate(
                     service.Sharing,
@@ -353,8 +365,9 @@ internal static class WmsEndpoints
         return null;
     }
 
+    // ADR-162: the address the request came to — /wms, or a service's own.
     private static string EndpointOf(HttpContext context) =>
-        $"{context.Request.Scheme}://{context.Request.Host}{Path}";
+        $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}{context.Request.Path}";
 
     // ---------- GetCapabilities ----------
 
@@ -367,6 +380,7 @@ internal static class WmsEndpoints
         WmsRequest request,
         WmsLimits limits,
         HostSettings settings,
+        ICoverageCatalog coverages,
         CancellationToken cancellation)
     {
         IReadOnlyList<PublishedLayer>? visible =
@@ -392,12 +406,16 @@ internal static class WmsEndpoints
             }
         }
 
+        // ADR-162: image services, after the vector layers.
+        published.AddRange((await VisibleCoveragesAsync(context, coverages, cancellation).ConfigureAwait(false))
+            .Select(DescribeCoverage));
+
         await GeographicallyAsync(projector, published, cancellation).ConfigureAwait(false);
 
         string document = CapabilitiesDocument.Write(
             request.Version,
             EndpointOf(context),
-            "Graticula",
+            ScopeOf(context) is { } scope ? (scope.Folder is null ? scope.Name : $"{scope.Folder}/{scope.Name}") : "Graticula",
             published,
             limits,
             settings.WmsContact);
@@ -664,6 +682,9 @@ internal static class WmsEndpoints
         IMapCanvasFactory canvases,
         WmsRequest request,
         HostSettings settings,
+        ICoverageCatalog coverages,
+        ICoverageReaderFactory readers,
+        IProjector projector,
         CancellationToken cancellation)
     {
         IReadOnlyList<PublishedLayer>? visible =
@@ -675,10 +696,19 @@ internal static class WmsEndpoints
             return;
         }
 
-        List<PublishedLayer> wanted = [];
+        List<PublishedCoverage> images = await VisibleCoveragesAsync(context, coverages, cancellation).ConfigureAwait(false);
+
+        // Drawn in the order named, each a vector layer or — ADR-162 — an image service.
+        List<(PublishedLayer? Layer, PublishedCoverage? Image)> wanted = [];
 
         foreach (string name in request.Layers)
         {
+            if (Find(visible, name) is null && FindCoverage(images, name) is { } named)
+            {
+                wanted.Add((null, named));
+                continue;
+            }
+
             if (Find(visible, name) is not { } found)
             {
                 await RefuseAsync(
@@ -726,7 +756,7 @@ internal static class WmsEndpoints
                 return;
             }
 
-            wanted.Add(found);
+            wanted.Add((found, null));
         }
 
         PixelTransform transform = new(request.Extent, request.Width, request.Height);
@@ -741,10 +771,26 @@ internal static class WmsEndpoints
                 ? Rgba.Transparent
                 : request.Background);
 
-        foreach (PublishedLayer layer in wanted)
+        foreach ((PublishedLayer? layer, PublishedCoverage? picture) in wanted)
         {
+            if (picture is not null)
+            {
+                string? refused = await ImageServerEndpoints.DrawIntoMapAsync(
+                        context, canvas, picture, request.Extent, request.Width, request.Height, request.Srid, readers, projector, cancellation)
+                    .ConfigureAwait(false);
+
+                if (refused is not null)
+                {
+                    await RefuseAsync(context, request.Version, new WmsFault(WmsFault.InvalidCrs, refused, "CRS"), cancellation)
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                continue;
+            }
+
             await DrawLayerAsync(
-                contexts, renderer, transform, layer, request.Srid, request.Time,
+                contexts, renderer, transform, layer!, request.Srid, request.Time,
                 settings.MaximumRecordCount, cancellation,
                 context.RequestServices.GetService(typeof(ILoggerFactory)) is ILoggerFactory made
                     ? made.CreateLogger("wms")
@@ -1180,6 +1226,7 @@ internal static class WmsEndpoints
         ServiceContexts contexts,
         IMapCanvasFactory canvases,
         WmsRequest request,
+        ICoverageCatalog coverages,
         CancellationToken cancellation)
     {
         IReadOnlyList<PublishedLayer>? visible =
@@ -1188,6 +1235,14 @@ internal static class WmsEndpoints
         // Null means the refusal is already written: no listing, so nothing to filter.
         if (visible is null)
         {
+            return;
+        }
+
+        // ADR-162: an image service's legend is its colours, darkest to lightest.
+        if (Find(visible, request.Layers[0]) is null
+            && FindCoverage(await VisibleCoveragesAsync(context, coverages, cancellation).ConfigureAwait(false), request.Layers[0]) is not null)
+        {
+            await CoverageLegendAsync(context, canvases, request, cancellation).ConfigureAwait(false);
             return;
         }
 

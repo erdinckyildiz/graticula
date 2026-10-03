@@ -560,6 +560,13 @@ public sealed class WmsConformanceTests : ArcGisClient
         Assert.True(
             properties.EnumerateObject().Count() > 1,
             "The identified feature carries no attributes of its own.");
+
+        // ADR-162: text/xml is XML, in ArcGIS's WMS shape — a FIELDS element a feature — not JSON under that name.
+        (string xmlType, byte[] xml) = await RawAsync(layer.Replace("info_format=application/json", "info_format=text/xml", StringComparison.Ordinal));
+        Assert.Equal("text/xml", xmlType);
+        XDocument answered = XDocument.Parse(System.Text.Encoding.UTF8.GetString(xml));
+        Assert.Equal("FeatureInfoResponse", answered.Root!.Name.LocalName);
+        Assert.Contains(answered.Root.Elements(), e => e.Name.LocalName == "FIELDS");
     }
 
     [Fact]
