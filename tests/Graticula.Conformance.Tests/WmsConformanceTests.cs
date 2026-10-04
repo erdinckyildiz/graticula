@@ -716,6 +716,34 @@ public sealed class WmsConformanceTests : ArcGisClient
         Assert.Equal(string.Empty, one11.Root!.Name.NamespaceName);
     }
 
+    /// <summary>
+    /// What CITE's WMS 1.1 suite found the first time it ran, 2026-10-04: 1.1.1's documents are held to its DTDs,
+    /// and a request for a version below both is answered in the lower one.
+    /// </summary>
+    [Fact]
+    public async Task One_one_one_documents_keep_to_their_dtds_and_a_low_version_is_answered_in_one_one_one()
+    {
+        string? layer = await AnyPublishedAsync();
+        Assert.NotNull(layer);
+
+        // The capabilities DTD declares no MaxWidth or MaxHeight; those are 1.3.0's.
+        XDocument capabilities = await XmlAsync("/wms?service=WMS&version=1.1.1&request=GetCapabilities");
+        Assert.DoesNotContain(capabilities.Descendants(), e => e.Name.LocalName is "MaxWidth" or "MaxHeight");
+
+        // A 1.1.1 exception names its DTD, and that DTD has no locator.
+        (_, byte[] refusal) = await RawAsync(MapUrl(layer!, version: "1.1.1", format: "image/gif"));
+        XDocument exception = XDocument.Parse(System.Text.Encoding.UTF8.GetString(refusal));
+        Assert.Equal("http://schemas.opengis.net/wms/1.1.1/WMS_exception_1_1_1.dtd", exception.DocumentType?.SystemId);
+        Assert.Null(exception.Descendants().First(e => e.Name.LocalName == "ServiceException").Attribute("locator"));
+
+        // Lower than both, between the two, higher than both.
+        foreach ((string asked, string answered) in new[] { ("0.0.0", "1.1.1"), ("1.2.0", "1.1.1"), ("9.9.9", "1.3.0") })
+        {
+            XDocument negotiated = await XmlAsync($"/wms?service=WMS&version={asked}&request=GetCapabilities");
+            Assert.Equal(answered, negotiated.Root!.Attribute("version")?.Value);
+        }
+    }
+
     [Fact]
     public async Task Query_layers_must_be_among_the_layers_drawn()
     {

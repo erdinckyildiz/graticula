@@ -109,6 +109,11 @@ public sealed record WmsFault(string? Code, string Message, string? Locator = nu
             }
             else
             {
+                // <b>1.1.1 is validated against its DTD, so it names it — and that DTD has no
+                // `locator`.</b> CITE's WMS 1.1 suite, first run 2026-10-04, failed
+                // `basic_elements-validate-exception` on a report with no DOCTYPE and an attribute
+                // the DTD does not declare. The locator is 1.3.0's; 1.1.1 says it in the message.
+                writer.WriteDocType("ServiceExceptionReport", null, WmsNames.ExceptionDtd111, null);
                 writer.WriteStartElement("ServiceExceptionReport");
                 writer.WriteAttributeString("version", WmsNames.Text(version));
             }
@@ -120,7 +125,7 @@ public sealed record WmsFault(string? Code, string Message, string? Locator = nu
                 writer.WriteAttributeString("code", Code);
             }
 
-            if (Locator is { Length: > 0 })
+            if (Locator is { Length: > 0 } && version == WmsVersion.V130)
             {
                 writer.WriteAttributeString("locator", Locator);
             }

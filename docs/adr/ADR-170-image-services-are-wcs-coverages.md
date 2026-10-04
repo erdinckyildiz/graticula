@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `MEDIUM` — each operation, trimming, scaling, reprojection and the switch are checked end to end; OGC's WCS 2.0 test suite has not been run against it, and no WCS client has been watched reading it |
+| **Confidence** | `MEDIUM` — each operation, trimming, scaling, reprojection and the switch are checked end to end; ~~OGC's WCS 2.0 test suite has not been run against it, and no WCS client has been watched reading it~~ OGC's WCS 2.0 suite passes it with no failure (condition 1); GDAL has been watched reading it and its values match `exportImage`'s, and QGIS's own WCS dialog has been watched failing to (condition 2) |
 | **Decided** | 2026-10-03 by owner decision (*"Yap"*, in answer to the three OGC items left — SLD, WCS, INSPIRE — with WCS taken first) |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -79,7 +79,19 @@ As §2, Alternative A.
 ## Conditions
 
 1. OGC's WCS 2.0 test suite is run against a public coverage, or the declared profiles are narrowed to what it passes.
-2. QGIS or GDAL reads a coverage through WCS, and its values match `exportImage`'s.
+   **DISCHARGED 2026-10-04 by running it, and nothing was narrowed.** `ogccite/ets-wcs20` now runs nightly in
+   `cite.yml` against a public image service. Its first run failed 5 of 75. All five were this server's and were fixed
+   in the same commit: `InvalidAxisLabel` and `InvalidSubsetting` answered 400 where WCS 2.0.1's exception table gives
+   404, a second subset on one axis was intersected instead of refused (requirement 31), and a bogus `mediaType` was
+   ignored (requirement 29). The run after the fixes was **80 passed, 0 failed**, and the baseline is 0.
+2. QGIS or GDAL reads a coverage through WCS, and its values match `exportImage`'s. **DISCHARGED 2026-10-04,
+   through GDAL and not through QGIS's WCS menu.** GDAL 3.6's WCS driver opened `hosted/ci_imagery` with
+   `WCS:…/wcs?version=2.0.1&coverage=hosted__ci_imagery`, asking DescribeCoverage and two GetCoverage requests, and
+   read 256 × 192 bytes at origin 30, 41 with 0.01° pixels — the same grid, statistics and checksum (47616) as
+   `exportImage` over the same box with nearest-neighbour. QGIS 3.28 opened the same string through its GDAL
+   provider. **Its own WCS provider — the *Add WCS layer* dialog a QGIS user actually reaches for — did not open it
+   at any version setting**: it asks `DescribeCoverage` in 1.0.0 or 1.1, and this server answers those
+   `VersionNegotiationFailed`. That is [Q-162](../open-questions.md), and §7's assumption is corrected below.
 
 ## 6. Consequences
 
@@ -94,7 +106,7 @@ faces.
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | WCS clients ask for 2.0.1 and accept GeoTIFF | True of QGIS and GDAL |
+| — | WCS clients ask for 2.0.1 and accept GeoTIFF | ~~True of QGIS and GDAL~~ **True of GDAL, false of QGIS's WCS provider — measured 2026-10-04.** QGIS 3.28's *Add WCS layer* speaks 1.0.0 and 1.1 only and could not open a coverage here at any version setting; QGIS reaches it only through GDAL's driver. Condition 2 and [Q-162](../open-questions.md) |
 
 ## 8. Dependencies
 

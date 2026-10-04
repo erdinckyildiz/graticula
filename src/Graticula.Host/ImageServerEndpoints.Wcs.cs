@@ -395,6 +395,17 @@ internal static partial class ImageServerEndpoints
     /// GetCoverage: the values of the coverage, or of the part its <c>subset</c>s trim, at its own resolution or the one
     /// a scaling asks for, in its reference or <c>outputcrs</c>, as GeoTIFF.
     /// </summary>
+    /// <summary>
+    /// The status a refused subset is answered with: 404, as WCS 2.0.1 Core's exception table gives for both
+    /// <c>InvalidAxisLabel</c> and <c>InvalidSubsetting</c>.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not 400, which is what a reader would guess and what this answered until 2026-10-04</b>, when OGC's WCS 2.0
+    /// suite was first run here and its four exception tests each failed on the status alone, with the right code in
+    /// the body.
+    /// </remarks>
+    private const int SubsetRefused = 404;
+
     private static async Task GetCoverageAsync(
         HttpContext context, List<PublishedCoverage> visible, ICoverageReaderFactory readers, IProjector projector,
         HostSettings settings, Func<string, string?> q, CancellationToken cancellation)
@@ -415,6 +426,15 @@ internal static partial class ImageServerEndpoints
         {
             await WcsRefuseAsync(context, 400, "InvalidParameterValue", "format", $"'{format}' is not a format this server writes: image/tiff.")
                 .ConfigureAwait(false);
+            return;
+        }
+
+        // <b>`mediaType` has one legal value</b> (WCS 2.0.1 Core requirement 29): `multipart/related`. Anything else was
+        // ignored and the coverage answered anyway until CITE asked with `mediatype_bogus` on 2026-10-04.
+        if (q("mediaType") is { } mediaType && !string.Equals(mediaType, "multipart/related", StringComparison.OrdinalIgnoreCase))
+        {
+            await WcsRefuseAsync(context, 400, "InvalidParameterValue", "mediaType",
+                $"'{mediaType}' is not a mediaType; the only one WCS 2.0.1 defines is multipart/related.").ConfigureAwait(false);
             return;
         }
 
@@ -445,6 +465,9 @@ internal static partial class ImageServerEndpoints
             : (await ReprojectAsync(projector, info.Srid, info.Extent, subsetSrid, cancellation).ConfigureAwait(false)) ?? info.Extent;
         double minX = extent.MinX, maxX = extent.MaxX, minY = extent.MinY, maxY = extent.MaxY;
 
+        // Requirement 31: at most one subset per axis. A second one was quietly intersected with the first.
+        bool subsetVertical = false, subsetHorizontal = false;
+
         foreach (string subset in context.Request.Query.Where(p => string.Equals(p.Key, "subset", StringComparison.OrdinalIgnoreCase))
                      .SelectMany(p => p.Value.ToArray()).OfType<string>())
         {
@@ -453,7 +476,7 @@ internal static partial class ImageServerEndpoints
 
             if (open <= 0 || close < open)
             {
-                await WcsRefuseAsync(context, 400, "InvalidSubsetting", "subset", $"'{subset}' is not axis(low,high) or axis(point).").ConfigureAwait(false);
+                await WcsRefuseAsync(context, SubsetRefused, "InvalidSubsetting", "subset", $"'{subset}' is not axis(low,high) or axis(point).").ConfigureAwait(false);
                 return;
             }
 
@@ -464,10 +487,19 @@ internal static partial class ImageServerEndpoints
 
             if (!vertical && !horizontal)
             {
-                await WcsRefuseAsync(context, 400, "InvalidAxisLabel", "subset",
+                await WcsRefuseAsync(context, SubsetRefused, "InvalidAxisLabel", "subset",
                     $"'{subset[..open].Trim()}' is not an axis of this coverage; they are {AxesOf(subsetSrid).First} and {AxesOf(subsetSrid).Second}.").ConfigureAwait(false);
                 return;
             }
+
+            if (vertical ? subsetVertical : subsetHorizontal)
+            {
+                await WcsRefuseAsync(context, SubsetRefused, "InvalidAxisLabel", "subset",
+                    $"'{subset[..open].Trim()}' is subset twice; a GetCoverage takes at most one subset per axis.").ConfigureAwait(false);
+                return;
+            }
+
+            (subsetVertical, subsetHorizontal) = (subsetVertical || vertical, subsetHorizontal || horizontal);
 
             double[] values = new double[bounds.Length];
 
@@ -479,7 +511,7 @@ internal static partial class ImageServerEndpoints
                 }
                 else if (!double.TryParse(bounds[b], NumberStyles.Float, CultureInfo.InvariantCulture, out values[b]))
                 {
-                    await WcsRefuseAsync(context, 400, "InvalidSubsetting", "subset", $"'{bounds[b]}' is not a number.").ConfigureAwait(false);
+                    await WcsRefuseAsync(context, SubsetRefused, "InvalidSubsetting", "subset", $"'{bounds[b]}' is not a number.").ConfigureAwait(false);
                     return;
                 }
             }
@@ -491,7 +523,7 @@ internal static partial class ImageServerEndpoints
 
             if (low > high)
             {
-                await WcsRefuseAsync(context, 400, "InvalidSubsetting", "subset", $"'{subset}' has its low above its high.").ConfigureAwait(false);
+                await WcsRefuseAsync(context, SubsetRefused, "InvalidSubsetting", "subset", $"'{subset}' has its low above its high.").ConfigureAwait(false);
                 return;
             }
 
@@ -507,7 +539,7 @@ internal static partial class ImageServerEndpoints
 
         if (minX >= maxX || minY >= maxY)
         {
-            await WcsRefuseAsync(context, 400, "InvalidSubsetting", "subset", "The subsets leave nothing of the coverage.").ConfigureAwait(false);
+            await WcsRefuseAsync(context, SubsetRefused, "InvalidSubsetting", "subset", "The subsets leave nothing of the coverage.").ConfigureAwait(false);
             return;
         }
 

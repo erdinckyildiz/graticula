@@ -224,7 +224,8 @@ public sealed record WfsRequest(
             Value("bbox"),
             List(Value("sortby")),
             List(Value("propertyname")),
-            ParseNamespaces(Value("namespaces")),
+            // 2.0 calls it NAMESPACES and 1.1.0 NAMESPACE; either binds the prefixes typeNames uses.
+            ParseNamespaces(Value("namespaces") ?? Value("namespace")),
             hits,
             Value("storedquery_id"),
 
@@ -401,6 +402,13 @@ public sealed record WfsRequest(
     /// binding the default namespace. Split naively on commas and a URI containing
     /// one takes the parser with it, so the pairs are matched rather than split.
     /// </para>
+    /// <para>
+    /// <b>WFS 1.1.0 spells the pair <c>xmlns(prefix=uri)</c></b> (§14.2.2), in a parameter called
+    /// <c>NAMESPACE</c>. Neither was read until CITE's WFS 1.1 suite, first run 2026-10-04, asked for
+    /// <c>app:ci_EarlyAlert_reports</c> with <c>namespace=xmlns(app=urn:graticula:ns)</c> and was told the type
+    /// did not exist. The <c>=</c> form is taken only when what precedes it is a bare prefix, so a 2.0
+    /// <c>xmlns(uri)</c> whose URI carries a query string is still a default namespace.
+    /// </para>
     /// </remarks>
     private static Dictionary<string, string> ParseNamespaces(string? text)
     {
@@ -411,16 +419,18 @@ public sealed record WfsRequest(
             return bound;
         }
 
-        foreach (Match match in Regex.Matches(
-            text, @"xmlns\(\s*([^,()\s]*)\s*(?:,\s*([^()]*?)\s*)?\)", RegexOptions.None))
+        foreach (Match match in Regex.Matches(text, @"xmlns\(([^()]*)\)", RegexOptions.None))
         {
-            string first = match.Groups[1].Value;
-            string second = match.Groups[2].Success ? match.Groups[2].Value : string.Empty;
+            string inner = match.Groups[1].Value.Trim();
+            int comma = inner.IndexOf(',', StringComparison.Ordinal);
+            int equals = inner.IndexOf('=', StringComparison.Ordinal);
 
-            // xmlns(uri) binds the default namespace; xmlns(prefix,uri) binds one.
-            (string prefix, string uri) = match.Groups[2].Success
-                ? (first, second)
-                : (string.Empty, first);
+            // xmlns(uri) binds the default namespace; xmlns(prefix,uri) — or 1.1.0's xmlns(prefix=uri) — binds one.
+            (string prefix, string uri) = comma >= 0
+                ? (inner[..comma].Trim(), inner[(comma + 1)..].Trim())
+                : equals > 0 && Regex.IsMatch(inner[..equals].Trim(), @"^[A-Za-z_][\w.\-]*$")
+                    ? (inner[..equals].Trim(), inner[(equals + 1)..].Trim())
+                    : (string.Empty, inner);
 
             if (!string.IsNullOrEmpty(uri))
             {

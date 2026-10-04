@@ -133,12 +133,40 @@ jobs:
             --raster="$PWD/tests/Graticula.Raster.Tiff.Tests/corpus/gray-byte-deflate.tif" \
             --github-env="$GITHUB_ENV"
 
+      # <b>A public image service, because these engines are anonymous.</b> The seeder's
+      # `ci_imagery` is private on purpose -- `ServiceScopeTests` asserts that a private
+      # service says so -- and WCS and an image service's WMTS list only what the caller
+      # may see. Against the private one WCS answers an empty Contents and WMTS a 404, and
+      # either reads as a suite failure rather than as a fixture nobody may look at.
+      - name: a public image service for WCS and WMTS
+        run: |
+          python - <<'EOF'
+          import importlib.util, os
+          spec = importlib.util.spec_from_file_location("seed", "tools/seed-conformance.py")
+          seed = importlib.util.module_from_spec(spec); spec.loader.exec_module(seed)
+          server = seed.Server(os.environ["GRATICULA_TEST_URL"])
+          server.sign_in(os.environ["GRATICULA_TEST_USER"], os.environ["GRATICULA_TEST_PASSWORD"])
+          # A different file from the seeder's: a path already registered is refused with 409,
+          # and accepting 409 here let the first run go on with no service at all.
+          server.call("POST", "/admin/coverages", body={"name": "cite_imagery", "folder": "hosted",
+              "path": os.path.abspath("tests/Graticula.Raster.Tiff.Tests/corpus/rgb-byte-deflate.tif")},
+              expect=(201,))
+          server.call("PUT", "/admin/services/cite_imagery/sharing?folder=hosted",
+              body={"sharing": "public"}, expect=(200, 204))
+          print("hosted/cite_imagery: public")
+          EOF
+
       - name: what the server advertises
         run: |
           for face in \
             "/wfs?service=WFS&version=2.0.0&request=GetCapabilities" \
             "/wms?service=WMS&version=1.3.0&request=GetCapabilities" \
-            "/ogc/features/v1"; do
+            "/ogc/features/v1" \
+            "/wms?service=WMS&version=1.1.1&request=GetCapabilities" \
+            "/wfs?service=WFS&version=1.1.0&request=GetCapabilities" \
+            "/wcs?service=WCS&version=2.0.1&request=GetCapabilities" \
+            "/rest/services/hosted/cite_imagery/ImageServer/WMTS/1.0.0/WMTSCapabilities.xml" \
+            "/ogc/tiles/v1"; do
             printf '%-58s %s\n' "$face" \
               "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:8445$face")"
           done
@@ -161,6 +189,34 @@ jobs:
         continue-on-error: true
         run: sh tools/cite-run.sh wms13 "$CITE_SERVER" cite
 
+      # <b>The second five, 2026-10-04.</b> Surfaces this server already answered and that
+      # nothing outside this repository had checked. Each is its own step for the reason the
+      # first three are.
+      - name: WMS 1.1
+        id: wms11
+        continue-on-error: true
+        run: sh tools/cite-run.sh wms11 "$CITE_SERVER" cite
+
+      - name: WFS 1.1
+        id: wfs11
+        continue-on-error: true
+        run: sh tools/cite-run.sh wfs11 "$CITE_SERVER" cite
+
+      - name: WCS 2.0
+        id: wcs20
+        continue-on-error: true
+        run: sh tools/cite-run.sh wcs20 "$CITE_SERVER" cite
+
+      - name: WMTS 1.0
+        id: wmts10
+        continue-on-error: true
+        run: sh tools/cite-run.sh wmts10 "$CITE_SERVER" cite
+
+      - name: OGC API Tiles 1.0
+        id: tiles
+        continue-on-error: true
+        run: sh tools/cite-run.sh ogcapi-tiles-1.0 "$CITE_SERVER" cite
+
       # <b>The reports outlive the run.</b> A build that says *six failures* and keeps no
       # report leaves the next person to reproduce it before they can read it, and these
       # take four minutes to reproduce.
@@ -178,7 +234,10 @@ jobs:
         if: always()
         run: |
           failed=""
-          for suite in wfs:${{ steps.wfs.outcome }} features:${{ steps.features.outcome }} wms:${{ steps.wms.outcome }}; do
+          for suite in wfs:${{ steps.wfs.outcome }} features:${{ steps.features.outcome }} wms:${{ steps.wms.outcome }} \
+                       wms11:${{ steps.wms11.outcome }} wfs11:${{ steps.wfs11.outcome }} \
+                       wcs20:${{ steps.wcs20.outcome }} wmts10:${{ steps.wmts10.outcome }} \
+                       tiles:${{ steps.tiles.outcome }}; do
             name=${suite%%:*}
             outcome=${suite#*:}
             printf '%-10s %s\n' "$name" "$outcome"

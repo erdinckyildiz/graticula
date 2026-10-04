@@ -291,9 +291,17 @@ public sealed class WmsRequest
                 return true;
 
             default:
+                // <b>GetCapabilities negotiates, by the specification's rule rather than to the
+                // newest.</b> Lower than every version this server speaks is answered in the lowest,
+                // between the two in the lower, higher than both in the highest (WMS 1.3.0 §6.2.4,
+                // 1.1.1 §6.2.4). Until 2026-10-04 everything here got 1.3.0, so a request for 0.0.0
+                // was answered in a version higher than it asked for, and CITE's WMS 1.1 suite failed
+                // `basic_elements-version-negotiation-4`. A version that is not numbers gets 1.3.0.
                 if (operation == WmsOperation.GetCapabilities)
                 {
-                    version = WmsVersion.V130;
+                    version = System.Version.TryParse(asked.Trim(), out System.Version? number) && number < new System.Version(1, 3, 0)
+                        ? WmsVersion.V111
+                        : WmsVersion.V130;
                     return true;
                 }
 

@@ -379,6 +379,14 @@ public sealed class WfsConformanceTests : ArcGisClient
         XDocument one = await XmlAsync($"/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName={type}&filter={filter}");
         Assert.Equal("1", (string?)one.Root!.Attribute("numberOfFeatures"));
 
+        // 1.1.0 binds a prefix of the caller's own with NAMESPACE=xmlns(prefix=uri), §14.2.2. CITE's WFS 1.1 suite
+        // asked with app: on 2026-10-04 and was told the type did not exist.
+        string local = type[(type.IndexOf(':', StringComparison.Ordinal) + 1)..];
+        XDocument rebound = await XmlAsync(
+            $"/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=app:{local}&maxFeatures=1"
+            + $"&namespace={Uri.EscapeDataString("xmlns(app=urn:graticula:ns)")}");
+        Assert.Equal(wfs11 + "FeatureCollection", rebound.Root!.Name);
+
         string root = await RequireServerAsync();
         using HttpRequestMessage asked = new(HttpMethod.Get,
             new Uri(root + "/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=graticula:no_such_layer"));

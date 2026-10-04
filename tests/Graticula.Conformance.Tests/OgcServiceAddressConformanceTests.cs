@@ -74,6 +74,26 @@ public sealed class OgcServiceAddressConformanceTests : ArcGisClient
                 $"{own}?service=WMS&request=GetLegendGraphic&version=1.3.0&layer=hosted/{name}&format=image/png");
             Assert.Equal("image/png", legendType);
 
+            // Declared queryable="0", so asking about it is LayerNotQueryable rather than LayerNotDefined — in both
+            // versions, at both addresses. CITE's WMS 1.3 suite found it 2026-10-04, the first time it had an image layer.
+            foreach (string at in new[] { own, "/wms" })
+            {
+                foreach (string query in new[]
+                {
+                    "version=1.3.0&crs=EPSG:4326&bbox=40.9,29.98,41.02,30.1&i=30&j=30",
+                    "version=1.1.1&srs=EPSG:4326&bbox=29.98,40.9,30.1,41.02&x=30&y=30",
+                })
+                {
+                    (_, _, byte[] refused) = await GetAsync(root, token!,
+                        $"{at}?service=WMS&request=GetFeatureInfo&{query}&layers=hosted/{name}&query_layers=hosted/{name}"
+                        + "&styles=&width=60&height=60&format=image/png&info_format=text/xml");
+                    Assert.Equal(
+                        "LayerNotQueryable",
+                        XDocument.Parse(System.Text.Encoding.UTF8.GetString(refused)).Descendants()
+                            .FirstOrDefault(e => e.Name.LocalName == "ServiceException")?.Attribute("code")?.Value);
+                }
+            }
+
             // ADR-163: WMTS at ArcGIS's address, over the service's own grid — a tile is the ArcGIS tile, byte for byte.
             string wmts = $"/rest/services/hosted/{name}/ImageServer/WMTS";
             (_, _, byte[] wmtsCapabilities) = await GetAsync(root, token!, $"{wmts}?service=WMTS&request=GetCapabilities");

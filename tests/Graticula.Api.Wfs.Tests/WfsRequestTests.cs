@@ -246,6 +246,29 @@ public sealed class WfsRequestTests
     }
 
     [Fact]
+    public void One_one_zero_binds_with_namespace_and_an_equals_sign()
+    {
+        // WFS 1.1.0 §14.2.2: NAMESPACE=xmlns(prefix=uri). CITE's WFS 1.1 suite, 2026-10-04.
+        WfsRequest request = Ok(
+            ("service", "WFS"), ("version", "1.1.0"), ("request", "GetFeature"),
+            ("typename", "app:roads"),
+            ("namespace", "xmlns(app=urn:graticula:ns)"));
+
+        Assert.Equal(WfsNames.Namespace, request.Namespaces["app"]);
+    }
+
+    [Fact]
+    public void A_default_namespace_whose_uri_has_an_equals_sign_is_not_read_as_a_prefix()
+    {
+        WfsRequest request = Ok(
+            ("service", "WFS"), ("version", "2.0.0"), ("request", "GetFeature"),
+            ("typenames", "roads"),
+            ("namespaces", "xmlns(http://example.org/ns?v=1)"));
+
+        Assert.Equal("http://example.org/ns?v=1", request.Namespaces[string.Empty]);
+    }
+
+    [Fact]
     public void A_bound_prefix_only_means_something_if_it_names_our_namespace()
     {
         // One namespace, so the check is an equality rather than a lookup. The

@@ -161,7 +161,7 @@ internal static partial class WmsEndpoints
                     return;
 
                 case WmsOperation.GetFeatureInfo:
-                    await FeatureInfoAsync(context, catalog, contexts, request, settings, cancellation)
+                    await FeatureInfoAsync(context, catalog, contexts, request, settings, coverages, cancellation)
                         .ConfigureAwait(false);
                     return;
 
@@ -1131,6 +1131,7 @@ internal static partial class WmsEndpoints
         ServiceContexts contexts,
         WmsRequest request,
         HostSettings settings,
+        ICoverageCatalog coverages,
         CancellationToken cancellation)
     {
         if (FeatureInfoWriter.Resolve(request.InfoFormat) is not { } mediaType)
@@ -1167,6 +1168,27 @@ internal static partial class WmsEndpoints
         {
             if (Find(visible, name) is not { } layer)
             {
+                /*
+                  <b>An image service is a layer here and is declared `queryable="0"`</b> — ADR-162 —
+                  so asking about one is `LayerNotQueryable`, not `LayerNotDefined`: the layer is in the
+                  capabilities document the caller read. Found 2026-10-04 when CITE's WMS 1.3 suite was
+                  first given a public image service and its `query_layers-not-queryable` test, which
+                  had had no non-queryable layer to pick, failed.
+                */
+                if (FindCoverage(await VisibleCoveragesAsync(context, coverages, cancellation).ConfigureAwait(false), name) is not null)
+                {
+                    await RefuseAsync(
+                        context,
+                        request.Version,
+                        new WmsFault(
+                            WmsFault.LayerNotQueryable,
+                            $"`{name}` is an image service, and this server does not answer GetFeatureInfo about one.",
+                            "QUERY_LAYERS"),
+                        cancellation).ConfigureAwait(false);
+
+                    return;
+                }
+
                 await RefuseAsync(
                     context,
                     request.Version,

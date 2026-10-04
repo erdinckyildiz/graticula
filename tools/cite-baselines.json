@@ -47,7 +47,77 @@
       "Lowered to five on 2026-09-27: the scheduled run and a dispatched one both failed",
       "five, so one of the six had come right in the weeks the WFS regression was hiding",
       "the whole workflow's red. Which one is in the cite-reports artefact of run",
-      "36317564820."
+      "36317564820.",
+      "",
+      "2026-10-04: a public image service joined the fixture for WCS and WMTS and became a",
+      "WMS layer, which gave query_layers-not-queryable its first non-queryable layer to",
+      "ask about. It failed -- LayerNotDefined where LayerNotQueryable is due -- and was",
+      "fixed in the same commit that added the fixture, so the five are the same five."
+    ]
+  },
+
+  "wms11": {
+    "failed": 10,
+    "run": "2026-10-04, 62 passed / 10 failed / 0 untested of 72 attempted (run 37205953170)",
+    "note": [
+      "First run 2026-10-04: 13 failed. Three were this server's and were fixed with the run:",
+      "a 0.0.0 request answered in 1.3.0, a 1.1.1 capabilities document carrying 1.3.0's",
+      "MaxWidth and MaxHeight against its DTD, and a 1.1.1 exception with no DOCTYPE and a",
+      "locator the DTD does not declare.",
+      "",
+      "ALL TEN THAT REMAIN NEED THE CITE STANDARD DATASET -- cite:Lakes, NamedPlaces, Forests,",
+      "Streams, BasicPolygons -- by name: profiles-basic-1, profiles-queryable-1 and -3, and",
+      "seven GetFeatureInfo tests whose layers are VAR_LAKES and its siblings (read from",
+      "ets-wms11's tests.xml). They say nothing about this server until those layers are",
+      "published in the fixture; D-290."
+    ]
+  },
+
+  "wfs11": {
+    "failed": 9,
+    "run": "2026-10-04, 76 passed / 9 failed / 0 untested of 85 attempted (run 37205953170)",
+    "note": [
+      "First run 2026-10-04: 10 failed. One was fixed with the run -- NAMESPACE=xmlns(app=uri),",
+      "1.1.0's way of binding a prefix, was not read, so app:<type> was 'not a feature type'.",
+      "",
+      "The nine are open and are this server's, not the fixture's: the Sections parameter of",
+      "GetCapabilities (Basic-GetCapabilities-tc13, tc15), and GML 3.1.1 output and a",
+      "DescribeFeatureType POST that do not validate against the schemas the suite holds them",
+      "to (GetFeature-tc4, GetFeature-POST-tc7, DescribeFeatureType-POST-tc4). D-290."
+    ]
+  },
+
+  "wcs20": {
+    "failed": 0,
+    "run": "2026-10-04, 80 passed / 0 failed / 0 untested of 80 attempted (run 37205953170)",
+    "note": [
+      "First run 2026-10-04: 5 failed, all fixed with the run -- InvalidAxisLabel and",
+      "InvalidSubsetting answered 400 where WCS 2.0.1's exception table gives 404, a second",
+      "subset on one axis intersected instead of refused, and a bogus mediaType ignored.",
+      "ADR-170 condition 1."
+    ]
+  },
+
+  "wmts10": {
+    "failed": 15,
+    "run": "2026-10-04, 18 passed / 15 failed / 19 untested of 52 attempted (run 37205953170)",
+    "note": [
+      "Against an image service's own WMTS. Untouched by the run that added it, and every",
+      "one is this server's: GetCapabilities ignores a missing or wrong SERVICE and the",
+      "Sections parameter and its schema reference is faulted; GetTile does not refuse an",
+      "unknown TileMatrixSet, TileMatrix, Style, Format or Layer with the code and status",
+      "WMTS 1.0 Table 28 gives; OperationNotSupported is answered 400 where OWS gives 501;",
+      "a malformed query string is not refused. D-290."
+    ]
+  },
+
+  "ogcapi-tiles-1.0": {
+    "failed": 0,
+    "run": "2026-10-04, 13 passed / 0 failed / 3 untested of 16 attempted (run 37205953170)",
+    "note": [
+      "The first run's three failures were the suite's own -- it starts nothing without a",
+      "tile matrix set URI, a URL template, a level and a row and column range, which",
+      "tools/cite-run.sh now hands it. Nothing on the server changed."
     ]
   }
 }

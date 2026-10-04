@@ -67,6 +67,9 @@ public static class WmsNames
     /// <summary>The 1.1.1 capabilities DTD, which 1.1.1 uses instead of a schema.</summary>
     public const string Dtd111 = "http://schemas.opengis.net/wms/1.1.1/WMS_MS_Capabilities.dtd";
 
+    /// <summary>The 1.1.1 exception DTD, which a 1.1.1 ServiceExceptionReport is validated against.</summary>
+    public const string ExceptionDtd111 = "http://schemas.opengis.net/wms/1.1.1/WMS_exception_1_1_1.dtd";
+
     /// <summary>The media type a 1.3.0 exception is served as.</summary>
     public const string ExceptionMediaType130 = "text/xml";
 

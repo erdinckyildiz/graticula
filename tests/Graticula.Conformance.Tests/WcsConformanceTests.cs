@@ -108,8 +108,19 @@ public sealed class WcsConformanceTests : ArcGisClient
             Assert.Equal("NoSuchCoverage", Xml(noSuch).Descendants().First(e => e.Name.LocalName == "Exception").Attribute("exceptionCode")!.Value);
             (HttpStatusCode badAxis, _, byte[] axis) = await GetAsync(root, token!,
                 $"/wcs?service=WCS&version=2.0.1&request=GetCoverage&coverageId={id}&subset=time(1,2)");
-            Assert.Equal(HttpStatusCode.BadRequest, badAxis);
+            // 404, as WCS 2.0.1's exception table gives for InvalidAxisLabel and InvalidSubsetting — CITE, 2026-10-04.
+            Assert.Equal(HttpStatusCode.NotFound, badAxis);
             Assert.Equal("InvalidAxisLabel", Xml(axis).Descendants().First(e => e.Name.LocalName == "Exception").Attribute("exceptionCode")!.Value);
+
+            // At most one subset per axis (requirement 31), and mediaType is multipart/related or absent (29).
+            (HttpStatusCode twice, _, byte[] twiceBody) = await GetAsync(root, token!,
+                $"/wcs?service=WCS&version=2.0.1&request=GetCoverage&coverageId={id}&subset=Lat(40.96,40.99)&subset=Lat(40.96,40.99)");
+            Assert.Equal(HttpStatusCode.NotFound, twice);
+            Assert.Equal("InvalidAxisLabel", Xml(twiceBody).Descendants().First(e => e.Name.LocalName == "Exception").Attribute("exceptionCode")!.Value);
+            (HttpStatusCode bogus, _, byte[] bogusBody) = await GetAsync(root, token!,
+                $"/wcs?service=WCS&version=2.0.1&request=GetCoverage&coverageId={id}&mediaType=mediatype_bogus");
+            Assert.Equal(HttpStatusCode.BadRequest, bogus);
+            Assert.Equal("InvalidParameterValue", Xml(bogusBody).Descendants().First(e => e.Name.LocalName == "Exception").Attribute("exceptionCode")!.Value);
 
             // ADR-166: its owner turns WCS off; the coverage leaves the document and is refused by id.
             async Task<HttpStatusCode> OffAsync(string json)

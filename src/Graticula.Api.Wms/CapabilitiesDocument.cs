@@ -287,10 +287,18 @@ public static class CapabilitiesDocument
         // <b>Published rather than discovered.</b> A client that learns the limit
         // from the document never sends a request that hits it; one that does not
         // learns by being refused, which it reports as a server fault.
-        writer.WriteElementString(
-            "MaxWidth", limits.MaximumWidth.ToString(CultureInfo.InvariantCulture));
-        writer.WriteElementString(
-            "MaxHeight", limits.MaximumHeight.ToString(CultureInfo.InvariantCulture));
+        //
+        // <b>1.3.0 only.</b> `LayerLimit`, `MaxWidth` and `MaxHeight` arrived in 1.3.0; 1.1.1's DTD
+        // has no declaration for them, so writing them made every 1.1.1 capabilities document invalid
+        // — CITE's WMS 1.1 suite, first run 2026-10-04, failed `wmsops-getcapabilities-response-2`
+        // on exactly these two elements.
+        if (version == WmsVersion.V130)
+        {
+            writer.WriteElementString(
+                "MaxWidth", limits.MaximumWidth.ToString(CultureInfo.InvariantCulture));
+            writer.WriteElementString(
+                "MaxHeight", limits.MaximumHeight.ToString(CultureInfo.InvariantCulture));
+        }
 
         writer.WriteEndElement();
     }
