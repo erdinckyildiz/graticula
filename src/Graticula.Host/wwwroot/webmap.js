@@ -236,6 +236,13 @@ const wmMap = new ol.Map({
   target: "map",
   layers: [wmBase, wmGround, wmHighlight, wmMeasured],
   view: new ol.View({ projection: WM_MERCATOR, center: [0, 0], zoom: 2 }),
+  // <b>The wheel zooms whether or not the map has focus — 2026-10-04.</b> OpenLayers' own default is
+  // `onFocusOnly: true`, which does nothing on a target with no `tabindex` and everything on this one:
+  // `#map` carries `tabindex="0"` for the keyboard, so the wheel was ignored on first open and again
+  // after every click in the side panel, until a drag gave the map focus back. The owner reported it as
+  // *the wheel does not zoom until I pan*. The guard is for a map inside a scrolling page, where the wheel
+  // belongs to the page; this map fills the window and nothing behind it scrolls.
+  interactions: ol.interaction.defaults.defaults({ onFocusOnly: false }),
   controls: ol.control.defaults.defaults({ attribution: true }).extend([
     new ol.control.ScaleLine({ units: "metric", target: wm$("stripScale") }),
     new ol.control.MousePosition({

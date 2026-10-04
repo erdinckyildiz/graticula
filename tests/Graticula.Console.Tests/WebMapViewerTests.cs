@@ -1065,6 +1065,50 @@ public sealed class WebMapViewerTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
+    /// <summary>
+    /// The mouse wheel zooms the map on first open, and again after a click in the side panel.
+    /// </summary>
+    /// <remarks>
+    /// <b>A real wheel event through the browser, not a call to the view</b>, because the defect was in
+    /// which events OpenLayers listens to: <c>#map</c> has a <c>tabindex</c>, OpenLayers' default
+    /// ignores the wheel on such a target until it has focus, and the owner had to drag the map before
+    /// the wheel did anything — 2026-10-04. Focus is put somewhere else first, as a reader who has just
+    /// clicked a tab leaves it.
+    /// </remarks>
+    [Fact]
+    public async Task The_wheel_zooms_the_map_without_the_map_being_clicked_first()
+    {
+        (string token, string cookie) = await SignInAsync();
+
+        await OpenAsync("/studio/webmap.html", token, cookie);
+
+        await WaitForAsync("typeof wmMap === 'object' && !!wmMap.getSize() && wmMap.getSize()[0] > 0",
+            "The map never got a size.");
+
+        await Browser.EvaluateAsync<bool>("(document.getElementById('tab-search').focus(), true)");
+
+        double before = await Browser.EvaluateAsync<double>("wmMap.getView().getZoom()");
+
+        double[] centre = await Browser.EvaluateAsync<double[]>(
+            "(() => { const r = document.getElementById('map').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()")
+            ?? [];
+
+        await Browser.CallAsync("Input.dispatchMouseEvent", new { type = "mouseMoved", x = centre[0], y = centre[1] });
+
+        for (int i = 0; i < 3; i++)
+        {
+            await Browser.CallAsync("Input.dispatchMouseEvent", new
+            {
+                type = "mouseWheel", x = centre[0], y = centre[1], deltaX = 0, deltaY = -300,
+            });
+        }
+
+        await WaitForAsync($"wmMap.getView().getZoom() > {before.ToString(System.Globalization.CultureInfo.InvariantCulture)} + 0.5",
+            "Three turns of the wheel over the map did not zoom it while the focus was elsewhere.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
     /// <summary>The address of some feature layer this server publishes.</summary>
     private async Task<string> AnyFeatureLayerUrlAsync(string token)
     {
