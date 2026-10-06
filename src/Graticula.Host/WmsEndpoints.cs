@@ -115,6 +115,13 @@ internal static partial class WmsEndpoints
         MapServiceAddresses(app);
     }
 
+    /// <summary>What a map request may ask for — the same for WMS and for OGC API Maps (ADR-175).</summary>
+    internal static WmsLimits LimitsFor(HostSettings settings) => new(
+        settings.MaximumImageWidth,
+        settings.MaximumImageHeight,
+        MaximumLayersPerMap,
+        MaximumFeatureInfoCount);
+
     private static async Task GetAsync(
         HttpContext context,
         CatalogFallback catalog,
@@ -126,11 +133,7 @@ internal static partial class WmsEndpoints
         ICoverageReaderFactory readers,
         CancellationToken cancellation)
     {
-        WmsLimits limits = new(
-            settings.MaximumImageWidth,
-            settings.MaximumImageHeight,
-            MaximumLayersPerMap,
-            MaximumFeatureInfoCount);
+        WmsLimits limits = LimitsFor(settings);
 
         if (!WmsRequest.TryParse(Parameter(context), limits, out WmsRequest? request, out WmsFault? fault))
         {
@@ -319,13 +322,9 @@ internal static partial class WmsEndpoints
                 continue;
             }
 
-            if (!service.Limits.AllowsFeatures(dataSupportsIt: true))
-            {
-                continue;
-            }
-
-            // ADR-166: a service whose owner turned WMS off is not in it.
-            if (!service.OffersOgc("WMS"))
+            // The feature face gates it, and ADR-166: a service whose owner turned WMS off is not in it.
+            // One rule in ServiceFaces, which OGC API Records reads too (ADR-177).
+            if (!ServiceFaces.OffersWms(service))
             {
                 continue;
             }
@@ -372,6 +371,17 @@ internal static partial class WmsEndpoints
             }
         }
 
+        // <b>ArcGIS's names, at a service's own address — ADR-162 condition 2.</b> ArcGIS Server's WMSServer names a
+        // layer by its index, `0`, `1`, so a QGIS project saved against one asks for LAYERS=0. Where every layer is one
+        // service's — its own WMSServer — a number is that service's layer of that index. At /wms, across services, a
+        // number names nothing, and the names this server advertises stay what they were.
+        if (layers.Count > 0 && name.Length > 0 && name.All(char.IsAsciiDigit)
+            && layers.All(l => l.ServiceId == layers[0].ServiceId)
+            && int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out int index))
+        {
+            return layers.FirstOrDefault(l => l.LayerIndex == index);
+        }
+
         return null;
     }
 
@@ -393,34 +403,20 @@ internal static partial class WmsEndpoints
         ICoverageCatalog coverages,
         CancellationToken cancellation)
     {
-        IReadOnlyList<PublishedLayer>? visible =
-            await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
+        // <b>At a feature or map service's own WMSServer, a layer is named by its index — ADR-162 condition 2.</b>
+        // ArcGIS Server's WMSServer names its layers 0, 1, 2, and QGIS finds a saved project's layer by that name in
+        // this document before it asks for a map; a request-side alias alone left QGIS with "Cannot calculate extent"
+        // on 2026-10-06. The table name is still accepted in a request (Find), so a request written against the
+        // three days of table names is still answered. /wms names layers as before: across services an index is
+        // ambiguous.
+        bool byIndex = ScopeOf(context) is { Kind: not "ImageServer" };
 
         // Null means the refusal is already written: no listing, so nothing to filter.
-        if (visible is null)
+        if (await PublishedAsync(context, catalog, contexts, canvases, projector, coverages, cancellation, byIndex)
+                .ConfigureAwait(false) is not { } published)
         {
             return;
         }
-
-        List<WmsLayer> published = [];
-
-        foreach (PublishedLayer layer in visible)
-        {
-            // V-43: one layer whose source fails is left out, not allowed to take GetCapabilities down.
-            if (await ListingGuard.DescribeOrLeaveOutAsync(
-                    context, "WMS GetCapabilities", layer,
-                    () => DescribeAsync(contexts, canvases, layer, cancellation), cancellation)
-                    .ConfigureAwait(false) is { } described)
-            {
-                published.Add(described);
-            }
-        }
-
-        // ADR-162: image services, after the vector layers.
-        published.AddRange((await VisibleCoveragesAsync(context, coverages, cancellation).ConfigureAwait(false))
-            .Select(DescribeCoverage));
-
-        await GeographicallyAsync(projector, published, cancellation).ConfigureAwait(false);
 
         string document = CapabilitiesDocument.Write(
             request.Version,
@@ -436,6 +432,48 @@ internal static partial class WmsEndpoints
             : WmsNames.CapabilitiesMediaType111;
 
         await context.Response.WriteAsync(document, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The layers a caller may draw, as WMS describes them, with their geographic boxes: the vector layers, then the
+    /// image services — or null when the listing has already been refused.
+    /// </summary>
+    /// <remarks>
+    /// <b>Shared with OGC API Maps — ADR-175</b>, whose collections are these layers, so the two faces cannot disagree
+    /// about what may be drawn or where it is.
+    /// </remarks>
+    internal static async Task<List<WmsLayer>?> PublishedAsync(
+        HttpContext context, CatalogFallback catalog, ServiceContexts contexts, IMapCanvasFactory canvases, IProjector projector,
+        ICoverageCatalog coverages, CancellationToken cancellation, bool byIndex = false)
+    {
+        IReadOnlyList<PublishedLayer>? visible =
+            await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false);
+
+        if (visible is null)
+        {
+            return null;
+        }
+
+        List<WmsLayer> published = [];
+
+        foreach (PublishedLayer layer in visible)
+        {
+            // V-43: one layer whose source fails is left out, not allowed to take GetCapabilities down.
+            if (await ListingGuard.DescribeOrLeaveOutAsync(
+                    context, "WMS GetCapabilities", layer,
+                    () => DescribeAsync(contexts, canvases, layer, cancellation), cancellation)
+                    .ConfigureAwait(false) is { } described)
+            {
+                published.Add(byIndex ? described with { Name = layer.LayerIndex.ToString(CultureInfo.InvariantCulture) } : described);
+            }
+        }
+
+        // ADR-162: image services, after the vector layers.
+        published.AddRange((await VisibleCoveragesAsync(context, coverages, cancellation).ConfigureAwait(false))
+            .Select(DescribeCoverage));
+
+        await GeographicallyAsync(projector, published, cancellation).ConfigureAwait(false);
+        return published;
     }
 
     /// <summary>
@@ -686,7 +724,7 @@ internal static partial class WmsEndpoints
 
     // ---------- GetMap ----------
 
-    private static async Task MapImageAsync(
+    internal static async Task MapImageAsync(
         HttpContext context,
         CatalogFallback catalog,
         ServiceContexts contexts,
@@ -1288,22 +1326,38 @@ internal static partial class WmsEndpoints
                 return;
             }
 
-            if (layer.Symbology is { Length: > 0 } stored)
-            {
-                DerivedDrawingInfo derived = SymbologyConversion.ToDrawingInfo(stored, layer.Definition.Name, layer.GeometryType);
-                styles.Add((layer.Definition.Name, derived.DrawingInfo, derived.Losses));
-            }
-            else
-            {
-                styles.Add((layer.Definition.Name,
-                    System.Text.Json.JsonSerializer.SerializeToNode(
-                        Graticula.Api.ArcGis.FeatureServerMetadataWriter.DrawingInfo(layer.Definition.Name, layer.GeometryType)),
-                    ["This layer has no stored style; this is its generated one."]));
-            }
+            styles.Add(SldLayerOf(layer));
         }
 
         context.Response.ContentType = "application/vnd.ogc.sld+xml; charset=utf-8";
         await context.Response.WriteAsync(StyledLayerDescriptor.Write(styles), cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// What an SLD says of one layer: its name, the <c>drawingInfo</c> its CIM document derives to, and what the
+    /// derivation lost — ADR-171.
+    /// </summary>
+    /// <param name="layer">The layer.</param>
+    /// <returns>The tuple <see cref="StyledLayerDescriptor.Write"/> takes.</returns>
+    /// <remarks>
+    /// <b>Split out of GetStyles on 2026-10-06 so OGC API Styles writes the same SLD</b> (ADR-176): a layer's SLD
+    /// there and here is one derivation, not two that could disagree about the same symbology.
+    /// </remarks>
+    internal static (string Name, System.Text.Json.Nodes.JsonNode? DrawingInfo, IReadOnlyList<string> Losses) SldLayerOf(
+        PublishedLayer layer)
+    {
+        ArgumentNullException.ThrowIfNull(layer);
+
+        if (layer.Symbology is { Length: > 0 } stored)
+        {
+            DerivedDrawingInfo derived = SymbologyConversion.ToDrawingInfo(stored, layer.Definition.Name, layer.GeometryType);
+            return (layer.Definition.Name, derived.DrawingInfo, derived.Losses);
+        }
+
+        return (layer.Definition.Name,
+            System.Text.Json.JsonSerializer.SerializeToNode(
+                Graticula.Api.ArcGis.FeatureServerMetadataWriter.DrawingInfo(layer.Definition.Name, layer.GeometryType)),
+            ["This layer has no stored style; this is its generated one."]);
     }
 
     private static async Task LegendAsync(

@@ -75,7 +75,7 @@ internal static class WmtsEndpoints
 
         if (request!.Operation == WmtsOperation.GetCapabilities)
         {
-            await CapabilitiesAsync(context, catalog, contexts, projector, cancellation).ConfigureAwait(false);
+            await CapabilitiesAsync(context, catalog, contexts, projector, cancellation, request.Sections).ConfigureAwait(false);
             return;
         }
 
@@ -121,7 +121,7 @@ internal static class WmtsEndpoints
 
     private static async Task CapabilitiesAsync(
         HttpContext context, CatalogFallback catalog, ServiceContexts contexts, IProjector projector,
-        CancellationToken cancellation)
+        CancellationToken cancellation, WmtsSections? sections = null)
     {
         if (await VisibleOrRefuseAsync(context, catalog, cancellation).ConfigureAwait(false) is not { } visible)
         {
@@ -134,7 +134,8 @@ internal static class WmtsEndpoints
 
         byte[] document = WmtsCapabilities.Write(
             Endpoint(context),
-            [.. described.Select(d => new WmtsLayer(d.Id, d.Title, d.Description, d.Wgs84, d.Set))]);
+            [.. described.Select(d => new WmtsLayer(d.Id, d.Title, d.Description, d.Wgs84, d.Set))],
+            sections);
 
         context.Response.ContentType = "application/xml; charset=utf-8";
         await context.Response.Body.WriteAsync(document, cancellation).ConfigureAwait(false);
@@ -158,7 +159,7 @@ internal static class WmtsEndpoints
 
         (TileFaces.Lookup outcome, TileFaces.Candidate? found) = lookup;
 
-        if (outcome != TileFaces.Lookup.Found)
+        if (outcome != TileFaces.Lookup.Found || !found!.Service.OffersOgc("WMTS"))
         {
             // Absent, forbidden and ambiguous are one answer here: the layer is not one this caller can be
             // served under that identifier.
@@ -213,7 +214,10 @@ internal static class WmtsEndpoints
     {
         if (await TileFaces.VisibleAsync(context, catalog, cancellation).ConfigureAwait(false) is { } visible)
         {
-            return visible;
+            // <b>The service's own WMTS switch</b> (`/admin/services/{name}/ogc`), which the image-service WMTS
+            // always read and this one did not: TileFaces.Serves is shared with OGC API Tiles, which has no switch
+            // of its own, so the WMTS face filters here rather than there. Found by the ADR-176 work, 2026-10-06.
+            return visible with { Services = [.. visible.Services.Where(c => c.Service.OffersOgc("WMTS"))] };
         }
 
         await UnavailableAsync(context).ConfigureAwait(false);

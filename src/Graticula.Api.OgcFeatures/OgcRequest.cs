@@ -48,6 +48,10 @@ public sealed class OgcRequest
 
         // ADR-165: Part 3's filter, in CQL2 text.
         "filter", "filter-lang", "filter-crs",
+
+        // The credential a client that cannot set a header signs in with, read by the host before this parser
+        // and never a filter: refusing it as an unknown parameter made the face unreadable to exactly that client.
+        "token",
     };
 
     private OgcRequest()
@@ -260,7 +264,19 @@ public sealed class OgcRequest
         return true;
     }
 
-    private static bool TryLimit(
+    /// <summary>Reads <c>limit</c>: a positive whole number, clamped to the maximum rather than refused.</summary>
+    /// <remarks>
+    /// <b>Public since 2026-10-06 because OGC API Records inherits this parameter from Features Part 1</b>
+    /// (20-004r1 <c>/req/record-core-query-parameters/limit</c>), and a second reading of the same parameter
+    /// would be a second place for the clamp rule to drift. The same is true of <see cref="TryOffset"/>,
+    /// <see cref="TryBbox"/> and <see cref="TryDateTime"/> — ADR-177.
+    /// </remarks>
+    /// <param name="value">The parameter as written, or null.</param>
+    /// <param name="limits">The default and the maximum.</param>
+    /// <param name="limit">The limit to apply.</param>
+    /// <param name="problem">Why not, when it did not parse.</param>
+    /// <returns>Whether it parsed.</returns>
+    public static bool TryLimit(
         string? value, OgcLimits limits, out int limit, out OgcProblem? problem)
     {
         limit = limits.DefaultLimit;
@@ -287,7 +303,12 @@ public sealed class OgcRequest
         return true;
     }
 
-    private static bool TryOffset(string? value, out int offset, out OgcProblem? problem)
+    /// <summary>Reads <c>offset</c>: a whole number from zero, or zero when absent.</summary>
+    /// <param name="value">The parameter as written, or null.</param>
+    /// <param name="offset">How many to skip.</param>
+    /// <param name="problem">Why not, when it did not parse.</param>
+    /// <returns>Whether it parsed.</returns>
+    public static bool TryOffset(string? value, out int offset, out OgcProblem? problem)
     {
         offset = 0;
         problem = null;
@@ -359,7 +380,13 @@ public sealed class OgcRequest
     /// not. Read the wrong way round, a request for Turkey selects the Indian Ocean
     /// and the response is a valid empty collection.
     /// </remarks>
-    private static bool TryBbox(
+    /// <param name="value">The parameter as written, or null.</param>
+    /// <param name="latitudeFirst">Whether the box's reference system names latitude first.</param>
+    /// <param name="bbox">The box, or its western half when it crosses the antimeridian; null when absent.</param>
+    /// <param name="east">The eastern half of a box that crosses the antimeridian, or null.</param>
+    /// <param name="problem">Why not, when it did not parse.</param>
+    /// <returns>Whether it parsed.</returns>
+    public static bool TryBbox(
         string? value,
         bool latitudeFirst,
         out Envelope? bbox,
@@ -459,7 +486,12 @@ public sealed class OgcRequest
     /// midnight* is useful.
     /// </para>
     /// </remarks>
-    private static bool TryDateTime(
+    /// <param name="value">The parameter as written, or null.</param>
+    /// <param name="from">The first instant included, or null for no lower bound.</param>
+    /// <param name="until">The first instant excluded, or null for no upper bound.</param>
+    /// <param name="problem">Why not, when it did not parse.</param>
+    /// <returns>Whether it parsed.</returns>
+    public static bool TryDateTime(
         string? value,
         out DateTimeOffset? from,
         out DateTimeOffset? until,

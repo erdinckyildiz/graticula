@@ -69,7 +69,17 @@ As §2, Alternative A.
 
 1. OGC's WFS 2.0 Transactional test class is run against the server as a caller who may edit, or the claim is
    narrowed to what it passes. The CI suite calls anonymously and so, rightly, no longer reaches the class.
+   **DISCHARGED 2026-10-06 by running it.** `cite.yml` signs in as the fixture's editor and runs `wfs20` through
+   `tools/cite-proxy.py`, which adds the bearer token to each request. The run before the last fixes failed 19; after them
+   (properties read before the filter, GML and identity properties skipped on insert, `InvalidValue` for a bad value
+   or an unknown type in an Insert, `ReplaceResults`), **338 passed, 18 failed**. All eighteen are one gap, recorded at
+   the baseline rather than fixed: `gml:name` and `gml:description` are accepted and not stored, so reading a feature
+   back does not return them ([D-290](../architecture-debt.md)).
 2. QGIS edits a layer through WFS-T and the edit is seen through the ArcGIS face.
+   **Measured 2026-10-06, and it fails.** QGIS 3.28 opens the layer as editable, and the Transaction is refused with
+   403: QGIS sends the `token` it was given on its GET requests and not on the Transaction POST, and this server
+   offers no other credential to an OGC client. Which one to offer is the owner's —
+   [Q-163](../open-questions.md).
 
 ## 6. Consequences
 

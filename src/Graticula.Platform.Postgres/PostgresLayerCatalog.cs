@@ -868,6 +868,69 @@ public sealed class PostgresLayerCatalog
             : null;
     }
 
+    /// <summary>
+    /// The names of the styles some services carry, without their documents — for OGC API Styles' list (ADR-176).
+    /// </summary>
+    /// <param name="serviceIds">The services.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Each style once: its service, its name, whether it is the default, and when it was last written.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The two places a style lives, read as <c>PostgresAdminCatalog.ListStylesAsync</c> reads them</b> — the
+    /// default in <c>service.style</c>, named <c>default</c> when it was stored without a name, and the rest in
+    /// <c>service_style</c> (migration 62) — so the names this answers are the names <see cref="FindNamedStyleAsync"/>
+    /// finds.
+    /// </para>
+    /// <para>
+    /// <b>Names only, and every service in one statement.</b> A list of styles across a few hundred services would
+    /// otherwise read up to twenty megabyte-sized documents per service to print their names, one round trip each.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<(Guid ServiceId, string Name, bool IsDefault, DateTimeOffset? UpdatedAt)>> ListStyleNamesAsync(
+        IReadOnlyCollection<Guid> serviceIds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(serviceIds);
+
+        if (serviceIds.Count == 0)
+        {
+            return [];
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand("""
+            select service_id, name, is_default, updated_at
+              from (
+                select s.id as service_id, coalesce(s.style_name, 'default') as name, true as is_default,
+                       s.style_updated_at as updated_at, 0 as rank
+                  from service s
+                 where s.id = any(@services) and s.style is not null
+                union all
+                select st.service_id, st.name, false, st.updated_at, 1
+                  from service_style st
+                 where st.service_id = any(@services)
+              ) styles
+             order by service_id, rank, lower(name) collate "C", name collate "C"
+            """);
+
+        Guid[] ids = [.. serviceIds];
+        command.Parameters.AddWithValue("services", ids);
+
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        List<(Guid, string, bool, DateTimeOffset?)> styles = [];
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            styles.Add((
+                reader.GetGuid(0),
+                reader.GetString(1),
+                reader.GetBoolean(2),
+                reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3)));
+        }
+
+        return styles;
+    }
+
     private async Task<IReadOnlyList<PublishedService>> ReadServicesAsync(
         NpgsqlCommand command, CancellationToken cancellationToken)
     {

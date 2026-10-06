@@ -72,6 +72,8 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["ImageServerEndpoints.Catalog.CatalogTypes"] = "fixed: a mosaic catalog's fields and their types (ADR-152)",
         ["ImageServerEndpoints.Mensuration.LinearUnits"] = "fixed: Esri's linear units for measure (ADR-155)",
         ["ImageServerEndpoints.Mensuration.AreaUnits"] = "fixed: Esri's area units for measure (ADR-155)",
+        ["OgcMapsEndpoints.WebColours"] = "fixed: the sixteen W3C basic colour names bgcolor takes (ADR-175)",
+        ["OgcProcessesEndpoints.JobStore"] = "at most 1,000 jobs, each for an hour, finished and oldest evicted first (ADR-174)",
         ["ArcGisAppendEndpoints.Uploads"] = "at most MaximumUploads waiting, each for an hour (ADR-105)",
         // ADR-135, 2026-10-02: a minute's request counts, emptied every minute and capped, because a path's name is the client's.
         ["ServiceUsageCounter._counts"] = "emptied every minute when written, and at most MaximumServicesAMinute names a minute",
@@ -88,6 +90,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["StaleTileNotices._served"] = "one per service answered with a stale tile since the process started, so the catalogue bounds it",
         ["FeatureServerQueryWriter._fields"] = "one per column of the layer being queried; the writer is built per request and does not outlive it",
         ["InventoryScan.ServiceTypes"] = "fixed: the ArcGIS service types the inventory names, written once",
+        ["OgcRecordsEndpoints._services"] = "one per service in the catalogue listing; built per records request and does not outlive it (ADR-177)",
         ["FeatureCollectionPbfWriter._fields"] = "one per column of the layer being queried; the pbf writer is built per request and does not outlive it",
         ["JobSignal._waiting"] = "one per job kind, and the kinds are an enum",
         ["LayerConnections._pools"] = "one pool per connection string; cleared on reload",

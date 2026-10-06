@@ -46,6 +46,19 @@ case "$SUITE" in
                        ENTRY="$SERVER/wfs?service=WFS&version=1.1.0&request=GetCapabilities" ;;
   wcs20)               IMAGE=ogccite/ets-wcs20;               PORT=8117; PARAM=url; CODE=wcs
                        ENTRY="$SERVER/wcs?service=WCS&version=2.0.1&request=GetCapabilities" ;;
+  # <b>Not WCS 1.0.0</b> (ADR-173), and not by choice: ogccite/ets-wcs10 registers no REST controller, so its
+  # engine lists no suites and every run is a 404 — measured 2026-10-06. It runs only from TEAM Engine's web form.
+  # <b>WFS 2.0 again, as a caller who may edit — ADR-169 condition 1.</b> SERVER here is tools/cite-proxy.py, which
+  # signs every request in, so the document offers Transaction and the suite reaches its Transactional class. It
+  # writes to the fixture's layers, and cite.yml runs it last for that reason.
+  wfs20-transactional) IMAGE=ogccite/ets-wfs20;               PORT=8121; PARAM=wfs; CODE=wfs20
+                       ENTRY="$SERVER/wfs?service=WFS&version=2.0.0&request=GetCapabilities" ;;
+  # <b>OGC API Processes, 2026-10-06 — ADR-174.</b> The suite runs its execution modes against the process it is told
+  # is OGC's echo; cite.yml shares the geometry service publicly first, because the processes are its operations and
+  # follow its sharing, and the engine is anonymous.
+  ogcapi-processes-1.0) IMAGE=ogccite/ets-ogcapi-processes10; PORT=8122; PARAM=iut
+                       ENTRY="$SERVER/ogc/processes/v1"
+                       EXTRA="echoprocessid=echo" ;;
   wmts10)              IMAGE=ogccite/ets-wmts10;              PORT=8118; PARAM=capabilities-url; CODE=wmts
                        ENTRY="$SERVER/rest/services/hosted/cite_imagery/ImageServer/WMTS/1.0.0/WMTSCapabilities.xml" ;;
   # <b>The Tiles suite will not start its core tests without a tile to fetch.</b> *A tile

@@ -92,12 +92,17 @@ internal static partial class WfsEndpoints
         LayerConnections connections = context.RequestServices.GetRequiredService<LayerConnections>();
         List<TransactionPlan> plans = [];
         List<(TransactionPlan Plan, string? Handle)> inserted = [];
+        List<(string Id, string? Handle)> replacedIds = [];
 
         async Task<TransactionPlan?> PlanOfAsync(string typeName, string capability)
         {
             if (!TryFind(visible, typeName, namespaces, out PublishedLayer? layer, out WfsFault? notFound))
             {
-                await RefuseAsync(context, notFound!, cancellation).ConfigureAwait(false);
+                // <b>In an Insert the feature is the value, so a type this server does not serve is InvalidValue</b> — WFS
+                // 2.0.0 Table 3, which OGC's Transactional class checks with a tns:Airport. Elsewhere it is still the
+                // typeNames parameter that is wrong.
+                await RefuseAsync(context, capability == "Create" ? ValueFault(context, notFound!.Locator ?? "typeNames", notFound.Text) : notFound!,
+                    cancellation).ConfigureAwait(false);
                 return null;
             }
 
@@ -186,25 +191,11 @@ internal static partial class WfsEndpoints
                 return;
             }
 
-            if (action.Element(fes + "Filter") is not { } filter)
-            {
-                await RefuseAsync(context, WfsFault.Missing("Filter"), cancellation).ConfigureAwait(false);
-                return;
-            }
-
-            List<long>? matched = await MatchingAsync(context, target, filter, settings, cancellation).ConfigureAwait(false);
-
-            if (matched is null)
-            {
-                return;
-            }
-
-            if (verb == "Delete")
-            {
-                target.Deletes.AddRange(matched);
-                continue;
-            }
-
+            // <b>What an Update or Replace sets is read before what it selects — 2026-10-06.</b> A value the type cannot
+            // hold is InvalidValue whatever the filter says, and OGC's WFS 2.0 Transactional class sends one with no
+            // filter at all; checking the filter first answered MissingParameterValue to a request whose fault was its
+            // value. The filter is still required: 2.0 lets an Update without one change every feature of the type,
+            // and this server does not take that from an omission.
             Dictionary<string, object?> attributes = new(StringComparer.Ordinal);
             Geometry? geometry = null;
 
@@ -218,9 +209,8 @@ internal static partial class WfsEndpoints
 
                 attributes = whole.Attributes;
                 geometry = whole.Geometry;
-                target.Replaced += matched.Count;
             }
-            else
+            else if (verb == "Update")
             {
                 foreach (XElement property in action.Elements(wfs + "Property"))
                 {
@@ -245,6 +235,34 @@ internal static partial class WfsEndpoints
 
                     geometry = moved ?? geometry;
                 }
+            }
+
+            if (action.Element(fes + "Filter") is not { } filter)
+            {
+                await RefuseAsync(context, WfsFault.Missing("Filter"), cancellation).ConfigureAwait(false);
+                return;
+            }
+
+            List<long>? matched = await MatchingAsync(context, target, filter, settings, cancellation).ConfigureAwait(false);
+
+            if (matched is null)
+            {
+                return;
+            }
+
+            if (verb == "Delete")
+            {
+                target.Deletes.AddRange(matched);
+                continue;
+            }
+
+            if (verb == "Replace")
+            {
+                target.Replaced += matched.Count;
+
+                // A replaced feature keeps its identity, and 2.0 names it in ReplaceResults (§15.3.6).
+                replacedIds.AddRange(matched.Select(id =>
+                    ($"{target.Layer.Definition.Name}.{id.ToString(CultureInfo.InvariantCulture)}", (string?)action.Attribute("handle"))));
             }
 
             target.Updates.AddRange(matched.Select(id => new FeatureUpdate(id, attributes, geometry)));
@@ -287,7 +305,7 @@ internal static partial class WfsEndpoints
         List<(string Id, string? Handle)> ids = [.. inserted.Select(i =>
             ($"{i.Plan.Layer.Definition.Name}.{newIds[i.Plan].Dequeue().ToString(CultureInfo.InvariantCulture)}", i.Handle))];
 
-        await AnswerTransactionAsync(context, dialect, totalInserted, totalUpdated, totalReplaced, totalDeleted, ids, cancellation)
+        await AnswerTransactionAsync(context, dialect, totalInserted, totalUpdated, totalReplaced, totalDeleted, ids, cancellation, replacedIds)
             .ConfigureAwait(false);
     }
 
@@ -306,6 +324,20 @@ internal static partial class WfsEndpoints
 
         foreach (XElement property in feature.Elements())
         {
+            // <b>A whole feature carries what GML gives every feature, and what the server gave this one.</b>
+            // gml:identifier, gml:name, gml:description and gml:boundedBy are properties of every GML feature, not
+            // columns of this type, and the identity and GlobalID columns are the server's to assign. A feature read
+            // with GetFeature and sent back in an Insert or a Replace carries all of them, so they are passed over
+            // rather than refused — OGC's WFS 2.0 suite inserts exactly such features, and every Insert it sent was
+            // refused for its gml:identifier until 2026-10-06. Naming one of them in an Update's ValueReference is
+            // still an attempt to set it, and is still refused.
+            if (property.Name.NamespaceName is GmlNamespace32 or GmlNamespace311
+                || string.Equals(property.Name.LocalName, plan.Layer.Definition.IdentityColumn, StringComparison.OrdinalIgnoreCase)
+                || IsGlobalIdColumn(plan.Described, property.Name.LocalName))
+            {
+                continue;
+            }
+
             (bool ok, Geometry? moved) = await TryPropertyAsync(
                 context, plan, property.Name.LocalName, property, attributes, projector, cancellation).ConfigureAwait(false);
 
@@ -319,6 +351,22 @@ internal static partial class WfsEndpoints
 
         return (attributes, geometry);
     }
+
+    private const string GmlNamespace32 = "http://www.opengis.net/gml/3.2";
+    private const string GmlNamespace311 = "http://www.opengis.net/gml";
+
+    /// <summary>Whether a column is the layer's GlobalID, which the server assigns.</summary>
+    private static bool IsGlobalIdColumn(LayerDescription described, string name) =>
+        GlobalIds.FieldOf(described.Fields) is { } globalId && string.Equals(globalId, name, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A property's value refused: InvalidValue in a 2.0 transaction (WFS 2.0.0 Table 3), InvalidParameterValue in a 1.1.0
+    /// one, whose code list has no InvalidValue.
+    /// </summary>
+    private static WfsFault ValueFault(HttpContext context, string name, string why) =>
+        context.Items.TryGetValue(DialectKey, out object? dialect) && ReferenceEquals(dialect, WfsDialect.V110)
+            ? WfsFault.Invalid(name, why)
+            : new WfsFault(WfsFaultCode.InvalidValue, name, why);
 
     /// <summary>
     /// One property's value into the attributes, or — for the geometry column — the geometry it holds, moved into the
@@ -365,7 +413,7 @@ internal static partial class WfsEndpoints
 
         if (plan.Described.Find(name) is not { } field)
         {
-            await RefuseAsync(context, WfsFault.Invalid(name, $"'{name}' is not a property of '{layer.Definition.Name}'."), cancellation)
+            await RefuseAsync(context, ValueFault(context, name, $"'{name}' is not a property of '{layer.Definition.Name}'."), cancellation)
                 .ConfigureAwait(false);
             return (false, null);
         }
@@ -378,7 +426,7 @@ internal static partial class WfsEndpoints
 
         if (!OgcFeaturesEndpoints.TryValue(plan.Described, field.Name, value!.Value, out object? converted, out OgcProblem? problem))
         {
-            await RefuseAsync(context, WfsFault.Invalid(name, problem?.Detail ?? $"'{value.Value}' is not a value of '{name}'."), cancellation)
+            await RefuseAsync(context, ValueFault(context, name, problem?.Detail ?? $"'{value.Value}' is not a value of '{name}'."), cancellation)
                 .ConfigureAwait(false);
             return (false, null);
         }
@@ -454,7 +502,7 @@ internal static partial class WfsEndpoints
     /// <summary><c>wfs:TransactionResponse</c>, in the version the transaction was in.</summary>
     private static async Task AnswerTransactionAsync(
         HttpContext context, WfsDialect dialect, int inserted, int updated, int replaced, int deleted,
-        List<(string Id, string? Handle)> ids, CancellationToken cancellation)
+        List<(string Id, string? Handle)> ids, CancellationToken cancellation, List<(string Id, string? Handle)>? replacedIds = null)
     {
         context.Response.ContentType = "text/xml; charset=utf-8";
         using MemoryStream buffer = new();
@@ -478,11 +526,17 @@ internal static partial class WfsEndpoints
             await xml.WriteElementStringAsync("wfs", "totalDeleted", dialect.Wfs, deleted.ToString(CultureInfo.InvariantCulture)).ConfigureAwait(false);
             await xml.WriteEndElementAsync().ConfigureAwait(false);
 
-            if (ids.Count > 0)
+            foreach ((string results, List<(string Id, string? Handle)> named) in
+                new[] { ("InsertResults", ids), ("ReplaceResults", dialect.IsLegacy ? [] : replacedIds ?? []) })
             {
-                await xml.WriteStartElementAsync("wfs", "InsertResults", dialect.Wfs).ConfigureAwait(false);
+                if (named.Count == 0)
+                {
+                    continue;
+                }
 
-                foreach ((string id, string? handle) in ids)
+                await xml.WriteStartElementAsync("wfs", results, dialect.Wfs).ConfigureAwait(false);
+
+                foreach ((string id, string? handle) in named)
                 {
                     await xml.WriteStartElementAsync("wfs", "Feature", dialect.Wfs).ConfigureAwait(false);
 

@@ -93,6 +93,26 @@ public sealed class WcsConformanceTests : ArcGisClient
                 $"/wcs?service=WCS&version=2.0.1&request=GetCoverage&coverageId={id}&subset=Lat(40.96,41)&subset=Long(30,30.04)&format=image/tiff");
             Assert.Equal((4, 4), SizeOf(quarter));
 
+            // ADR-173: the same coverage in WCS 1.0.0 — QGIS's Add WCS layer — and the same quarter, byte for byte.
+            (_, _, byte[] capabilities10) = await GetAsync(root, token!, "/wcs?service=WCS&version=1.0.0&request=GetCapabilities");
+            XDocument old = Xml(capabilities10);
+            Assert.Equal("WCS_Capabilities", old.Root!.Name.LocalName);
+            Assert.Equal("1.0.0", old.Root.Attribute("version")!.Value);
+            Assert.Contains(old.Descendants(), e => e.Name.LocalName == "name" && e.Value == id);
+
+            (_, _, byte[] described10) = await GetAsync(root, token!, $"/wcs?service=WCS&version=1.0.0&request=DescribeCoverage&coverage={id}");
+            Assert.Equal("7 7", Xml(described10).Descendants().First(e => e.Name.LocalName == "high").Value);
+
+            (_, string? type10, byte[] quarter10) = await GetAsync(root, token!,
+                $"/wcs?service=WCS&version=1.0.0&request=GetCoverage&coverage={id}&crs=EPSG:4326&bbox=30,40.96,30.04,41&width=4&height=4&format=GeoTIFF");
+            Assert.Equal("image/tiff", type10);
+            Assert.Equal(quarter, quarter10);
+
+            (HttpStatusCode notDefined, _, byte[] notDefinedBody) = await GetAsync(root, token!,
+                "/wcs?service=WCS&version=1.0.0&request=GetCoverage&coverage=nothing__here&crs=EPSG:4326&bbox=0,0,1,1&width=1&height=1&format=GeoTIFF");
+            Assert.Equal(HttpStatusCode.BadRequest, notDefined);
+            Assert.Equal("CoverageNotDefined", Xml(notDefinedBody).Descendants().First(e => e.Name.LocalName == "ServiceException").Attribute("code")!.Value);
+
             (_, _, byte[] scaled) = await GetAsync(root, token!,
                 $"/wcs?service=WCS&version=2.0.1&request=GetCoverage&coverageId={id}&scalesize=i(16),j(16)");
             Assert.Equal((16, 16), SizeOf(scaled));

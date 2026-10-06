@@ -1206,12 +1206,54 @@ internal static class PortalEndpoints
         },
         statusCode: StatusCodes.Status400BadRequest);
 
-    /// <summary>Published services, as portal items.</summary>
-    private static async Task<IResult> SearchAsync(
+    /// <summary>One portal item, with what it was made from.</summary>
+    /// <remarks>
+    /// <b>The source rides with the item because a second reader needs it</b> — OGC API Records (ADR-177)
+    /// links a record to its service's other faces, and which faces a service answers is a property of the
+    /// service, not of the item a portal client reads. Exactly one of <paramref name="Service"/>,
+    /// <paramref name="Map"/> and <paramref name="Coverage"/> is set.
+    /// </remarks>
+    /// <param name="Id">The item's id.</param>
+    /// <param name="Item">The item, as a portal search writes it.</param>
+    /// <param name="Service">The service it is a face of, or null.</param>
+    /// <param name="Face">Which face of <paramref name="Service"/> it is: FeatureServer, MapServer or VectorTileServer.</param>
+    /// <param name="Map">The saved web map it is, or null.</param>
+    /// <param name="Coverage">The image service it is, or null.</param>
+    internal sealed record PortalListed(
+        string Id,
+        object Item,
+        PublishedService? Service = null,
+        string? Face = null,
+        WebMap? Map = null,
+        PublishedCoverage? Coverage = null);
+
+    /// <summary>
+    /// Every portal item this caller may see that satisfies a query, or null when a catalogue cannot be read.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The one listing, read by the portal's search and by OGC API Records — ADR-177, 2026-10-06.</b> It was
+    /// the body of <see cref="SearchAsync"/>; it moved here so that a record exists exactly when this search
+    /// would show its item to the same caller, which a second listing could only promise.
+    /// </para>
+    /// <para>
+    /// <b>Services, then saved web maps, then image services</b>, each under its own face's sharing rule, as the
+    /// search has always listed them. <c>group:</c> reaches a service's groups only, as it did before the move.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request, whose caller decides what is visible.</param>
+    /// <param name="catalog">The service catalogue.</param>
+    /// <param name="maps">The saved web maps.</param>
+    /// <param name="coverages">The image services.</param>
+    /// <param name="query">A portal search query, or empty for everything.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The items, or null — the caller answers 503 in its own words (D-127).</returns>
+    internal static async Task<IReadOnlyList<PortalListed>?> ListAsync(
         HttpContext context,
         CatalogFallback catalog,
         IWebMapStore maps,
         ICoverageCatalog coverages,
+        string? query,
         CancellationToken cancellation)
     {
         IReadOnlyList<PublishedService>? visible =
@@ -1222,28 +1264,20 @@ internal static class PortalEndpoints
 
         if (visible is null || images is null)
         {
-            return Unavailable();
+            return null;
         }
 
-        string query = context.Request.Query["q"].ToString();
-
-        if (query.Length == 0 && context.Request.HasFormContentType)
-        {
-            IFormCollection form = await context.Request.ReadFormAsync(cancellation)
-                .ConfigureAwait(false);
-
-            query = form["q"].ToString();
-        }
-
-        List<object> results = [];
+        List<PortalListed> results = [];
 
         foreach (PublishedService service in visible)
         {
-            foreach ((_, object item) in ItemsOf(context, service))
+            foreach (string face in FacesOf(service))
             {
+                object item = Item(context, service, face);
+
                 if (PortalQuery.Matches(item, query, service.SharedWith))
                 {
-                    results.Add(item);
+                    results.Add(new PortalListed(ItemIdOf(service, face), item, Service: service, Face: face));
                 }
             }
         }
@@ -1255,7 +1289,7 @@ internal static class PortalEndpoints
 
             if (PortalQuery.Matches(item, query))
             {
-                results.Add(item);
+                results.Add(new PortalListed(map.Id, item, Map: map));
             }
         }
 
@@ -1266,9 +1300,38 @@ internal static class PortalEndpoints
 
             if (PortalQuery.Matches(item, query))
             {
-                results.Add(item);
+                results.Add(new PortalListed(CoverageItemId(coverage), item, Coverage: coverage));
             }
         }
+
+        return results;
+    }
+
+    /// <summary>Published services, as portal items.</summary>
+    private static async Task<IResult> SearchAsync(
+        HttpContext context,
+        CatalogFallback catalog,
+        IWebMapStore maps,
+        ICoverageCatalog coverages,
+        CancellationToken cancellation)
+    {
+        string query = context.Request.Query["q"].ToString();
+
+        if (query.Length == 0 && context.Request.HasFormContentType)
+        {
+            IFormCollection form = await context.Request.ReadFormAsync(cancellation)
+                .ConfigureAwait(false);
+
+            query = form["q"].ToString();
+        }
+
+        if (await ListAsync(context, catalog, maps, coverages, query, cancellation).ConfigureAwait(false)
+            is not { } listed)
+        {
+            return Unavailable();
+        }
+
+        List<object> results = [.. listed.Select(entry => entry.Item)];
 
         return Results.Ok(new
         {
@@ -1662,7 +1725,7 @@ internal static class PortalEndpoints
         (context.RequestServices.GetService(typeof(ServiceUsageCounter)) as ServiceUsageCounter)?.Of(serviceId)?.Total ?? 0;
 
     /// <summary>An image service's extent in WGS 84, as an item document carries it, or empty.</summary>
-    private static async Task<double[][]> CoverageExtentAsync(
+    internal static async Task<double[][]> CoverageExtentAsync(
         PublishedCoverage coverage, Graticula.Geometries.IProjector projector, CancellationToken cancellation)
     {
         IReadOnlyList<Graticula.Geometries.Envelope?> geographic = await Graticula.Geometries.GeographicExtents
@@ -1852,20 +1915,42 @@ internal static class PortalEndpoints
     internal static IEnumerable<(string Id, object Item)> ItemsOf(
         HttpContext context, PublishedService service, double[][]? extent = null)
     {
+        foreach (string face in FacesOf(service))
+        {
+            yield return (ItemIdOf(service, face), Item(context, service, face, extent));
+        }
+    }
+
+    /// <summary>The faces a service is a portal item for, its primary face first.</summary>
+    /// <remarks>
+    /// <b>Named apart from <see cref="ItemsOf"/> on 2026-10-06</b> so that <see cref="ListAsync"/> can say which
+    /// face each item is without parsing it back out of the item's <c>url</c> — ADR-177.
+    /// </remarks>
+    /// <param name="service">The service.</param>
+    /// <returns>FeatureServer or VectorTileServer, then MapServer and VectorTileServer where it answers them.</returns>
+    internal static IEnumerable<string> FacesOf(PublishedService service)
+    {
         string primary = PrimaryFace(service);
 
-        yield return (ItemId(service), Item(context, service, primary, extent));
+        yield return primary;
 
         if (primary != "MapServer" && ServiceFaces.Drawable(service))
         {
-            yield return (FaceItemId(service, "MapServer"), Item(context, service, "MapServer", extent));
+            yield return "MapServer";
         }
 
         if (primary != "VectorTileServer" && ServiceFaces.Tileable(service))
         {
-            yield return (FaceItemId(service, "VectorTileServer"), Item(context, service, "VectorTileServer", extent));
+            yield return "VectorTileServer";
         }
     }
+
+    /// <summary>The item id of one face of a service: the service's own id for its primary face.</summary>
+    /// <param name="service">The service.</param>
+    /// <param name="face">The face.</param>
+    /// <returns>The id.</returns>
+    internal static string ItemIdOf(PublishedService service, string face) =>
+        face == PrimaryFace(service) ? ItemId(service) : FaceItemId(service, face);
 
     /// <summary>
     /// A service's extent in WGS 84, as a portal item carries it: <c>[[xmin, ymin], [xmax, ymax]]</c>, or
@@ -1885,7 +1970,7 @@ internal static class PortalEndpoints
     /// costs its own box and not the item.
     /// </para>
     /// </remarks>
-    private static async Task<double[][]> ExtentAsync(
+    internal static async Task<double[][]> ExtentAsync(
         PublishedService service,
         ServiceContexts contexts,
         Graticula.Geometries.IProjector projector,
@@ -1973,7 +2058,7 @@ internal static class PortalEndpoints
 
         return new
         {
-            id = face == PrimaryFace(service) ? ItemId(service) : FaceItemId(service, face),
+            id = ItemIdOf(service, face),
             owner,
 
             // ADR-114: the owner's folder it is in — said only to its owner, as the owner is.

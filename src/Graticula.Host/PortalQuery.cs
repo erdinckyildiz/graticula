@@ -372,8 +372,15 @@ internal static class PortalQuery
     /// item, which is the thing this whole surface avoids — and a search that reads
     /// a different object from the one it returns is a search that can disagree
     /// with its own results.
+    ///
+    /// <b>Internal since 2026-10-06, for the same reason it exists</b>: OGC API Records writes its records
+    /// from these items (ADR-177), and reading the item a portal search returns is what keeps a record
+    /// saying what the portal says.
     /// </remarks>
-    private static object? Field(object item, string name)
+    /// <param name="item">The item.</param>
+    /// <param name="name">The field, in any case.</param>
+    /// <returns>Its value, or null.</returns>
+    internal static object? Field(object item, string name)
     {
         PropertyInfo? property = item.GetType().GetProperty(
             name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);

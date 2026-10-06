@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>e9ae3d4</code> · 2026-10-04 16:31</p>
+<p class="stamp">Şu commit’ten üretildi: <code>82f8a20</code> · 2026-10-06 11:12</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">171</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">292/394</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">99 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">176</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">295/406</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">108 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">14</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4615</div><div class="kpi-l">test</div><div class="kpi-n">462 kaynak dosya, 207,120 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4717</div><div class="kpi-l">test</div><div class="kpi-n">470 kaynak dosya, 212,659 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-162</b> — Should WCS also be spoken in 1.0.0 (and 1.1), so that QGIS&#x27;s Add WCS layer dialog opens an image service?</p><p><b>Q-161</b> — Is a service&#x27;s own OGC address wanted beside /wms and /wfs?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-164</b> — The INFERRED choices in the four new OGC APIs — confirm or change.</p><p><b>Q-163</b> — Which credential should an OGC client send, so that QGIS can edit through WFS-T?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">114 madde</span></div><p><b>99 ADR conditions</b> outstanding across 64 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">126 madde</span></div><p><b>108 ADR conditions</b> outstanding across 68 decisions — the largest commitment on this page.</p><p><b>14 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -136,6 +136,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-101 · Studio is walked the way a Portal </div><div class="bar-t"><div class="bar-f" style="width:44%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-086 · The operator chooses the map groun</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-176 · OGC API Styles, read-only, over th</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-177 · OGC API Records is a searchable ca</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-017 · Admin API Shape</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
@@ -150,7 +152,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-087 · A domain is a named object that fi</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-169 · WFS-T through the one write path</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-174 · OGC API Processes, over the geomet</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-175 · OGC API Maps, over the WMS rendere</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-002 · Primary Data Architecture</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-005 · API Architecture</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
@@ -192,9 +195,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-163 · An image service answers WMTS over</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-164 · `generateKml` is a network link to</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-165 · OGC API Features filters in Basic </div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-168 · WFS 1.1.0 is spoken beside 2.0.0</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-169 · WFS-T through the one write path</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-171 · SLD at the WMS boundary</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-172 · A service may be an INSPIRE View a</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-173 · WCS 1.0.0 is spoken too, so that Q</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -379,17 +383,22 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">165</td><td>OGC API Features filters in Basic CQL2 text</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each claimed class has a case that observes it; no OGC test suite for Part 3 has…</td><td class="num">0/1</td></tr>
 <tr><td class="id">166</td><td>A service&#x27;s OGC faces are turned off one by one</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — each face is checked against the switch end to end; ArcGIS Manager&#x27;s vocabulary…</td><td class="num"></td></tr>
 <tr><td class="id">167</td><td>A service&#x27;s own OGC documents describe it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the documents are checked; ArcGIS Manager&#x27;s other OGC properties (contact a…</td><td class="num"></td></tr>
-<tr><td class="id">168</td><td>WFS 1.1.0 is spoken beside 2.0.0</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each operation is checked end to end in 1.1.0&#x27;s own terms; no 1.1.0-only client…</td><td class="num">1/2</td></tr>
-<tr><td class="id">169</td><td>WFS-T through the one write path</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each action is checked end to end in both versions; OGC&#x27;s Transactional test…</td><td class="num">0/2</td></tr>
+<tr><td class="id">168</td><td>WFS 1.1.0 is spoken beside 2.0.0</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each operation is checked end to end in 1.1.0&#x27;s own terms; no 1.1.0-only client…</td><td class="num">2/2</td></tr>
+<tr><td class="id">169</td><td>WFS-T through the one write path</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each action is checked end to end in both versions; OGC&#x27;s Transactional test…</td><td class="num">1/2</td></tr>
 <tr><td class="id">170</td><td>Image services are WCS 2.0.1 coverages</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each operation, trimming, scaling, reprojection and the switch are checked end…</td><td class="num">2/2</td></tr>
 <tr><td class="id">171</td><td>SLD at the WMS boundary</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — a style sent with GetMap is drawn and forgotten, GetStyles&#x27; document draws the…</td><td class="num">1/2</td></tr>
 <tr><td class="id">172</td><td>A service may be an INSPIRE View and Download service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the documents validate against INSPIRE&#x27;s published schemas with and without the…</td><td class="num">0/1</td></tr>
+<tr><td class="id">173</td><td>WCS 1.0.0 is spoken too, so that QGIS opens an image service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — QGIS 3.28&#x27;s own WCS provider opens a coverage through it, its documents validate…</td><td class="num">0/1</td></tr>
+<tr><td class="id">174</td><td>OGC API Processes, over the geometry service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each process is one geometry-engine operation under the geometry service&#x27;s own…</td><td class="num">0/2</td></tr>
+<tr><td class="id">175</td><td>OGC API Maps, over the WMS renderer</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — a map drawn here is byte-identical to the WMS GetMap for the same box, size and…</td><td class="num">0/2</td></tr>
+<tr><td class="id">176</td><td>OGC API Styles, read-only, over the styles the tile faces already serve</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the documents, the negotiation and SLD 1.0 beside 1.1 are unit-tested, the face…</td><td class="num">1/4</td></tr>
+<tr><td class="id">177</td><td>OGC API Records is a searchable catalogue of the portal&#x27;s items</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every claimed class has a test against a running server, and OWSLib 0.25 and…</td><td class="num">0/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
-<article class="card"><div class="card-h"><span class="id">Q-161</span><span class="owner">[OWNER]</span></div><p>Is a service&#x27;s own OGC address wanted beside /wms and /wfs?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-162</span><span class="owner">[OWNER]</span></div><p>Should WCS also be spoken in 1.0.0 (and 1.1), so that QGIS&#x27;s Add WCS layer dialog opens an image service?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-163</span><span class="owner">[OWNER]</span></div><p>Which credential should an OGC client send, so that QGIS can edit through WFS-T?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-164</span><span class="owner">[OWNER]</span></div><p>The INFERRED choices in the four new OGC APIs — confirm or change.</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -410,7 +419,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-282</td><td>An exported tile package lives on the server that wrote it, and the console&#x27;s download holds it in the browser&#x27;s memory.</td><td class="muted-t">A deployment runs more than one server against one catalogue and exports; or an operator reports the console failing on…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-287</td><td>The generated sprite sheet has no ceiling on its size.</td><td class="muted-t">A service whose sprite@2x.png is taller than 4,096 pixels, or a report of a map whose icons vanish on one machine and…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-289</td><td>Two of Studio&#x27;s downloads still fetch the whole file into the page and save it at the end.</td><td class="muted-t">A tile package or an export measured past a few hundred megabytes, or a report of a save arriving on the wrong page</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-290</td><td>Three OGC faces have CITE failures that are counted rather than fixed: WMTS 15, WMS 1.1 10, WFS 1.1 9.</td><td class="muted-t">WMTS and WFS 1.1: the first client report of either, or the next change to either face.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-290</td><td>~~Three OGC faces have CITE failures that are counted rather than fixed: WMTS 15, WMS 1.1 10, WFS 1.1 9.~~ Updated 2026-10-06: WMTS 0, WFS 1.1 4, WMS 1.1 10, and two suites added with failures of their own — WFS 2.0 Transactional 18 and OGC API Maps 4.</td><td class="muted-t">WFS 1.1: the engine&#x27;s image fixed upstream.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-291</td><td>A portal item can name a face its service has turned off.</td><td class="muted-t">The next change to the portal&#x27;s item listing, or a client report of an item that will not open</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-292</td><td>A group: search finds services and nothing else.</td><td class="muted-t">The next change to the portal search, or a group member who cannot find a map shared with the group</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-293</td><td>The conformance harness&#x27;s shared client keeps cookies.</td><td class="muted-t">The next test that asserts anonymity, or a sweep of the tests that sign in through Http</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">268 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
@@ -508,35 +520,35 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1232</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:70.5%"></div></div><div class="bar-n">869</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.2%"></div></div><div class="bar-n">692</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:43.4%"></div></div><div class="bar-n">535</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">406</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:22.0%"></div></div><div class="bar-n">271</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:16.7%"></div></div><div class="bar-n">206</div></div>
-<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:10.1%"></div></div><div class="bar-n">124</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.6%"></div></div><div class="bar-n">118</div></div>
-<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:4.1%"></div></div><div class="bar-n">50</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.8%"></div></div><div class="bar-n">47</div></div>
-<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">41</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1295</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:67.1%"></div></div><div class="bar-n">869</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.1%"></div></div><div class="bar-n">727</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:41.3%"></div></div><div class="bar-n">535</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:31.4%"></div></div><div class="bar-n">406</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.9%"></div></div><div class="bar-n">271</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.9%"></div></div><div class="bar-n">206</div></div>
+<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:9.6%"></div></div><div class="bar-n">124</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.4%"></div></div><div class="bar-n">122</div></div>
+<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.9%"></div></div><div class="bar-n">50</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.6%"></div></div><div class="bar-n">47</div></div>
+<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.2%"></div></div><div class="bar-n">41</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
-<li><code>e9ae3d4</code><time>2026-10-04</time><span>WIP: WCS and WFS 1.1 fixes CITE found; Tiles suite inputs</span></li>
-<li><code>7940813</code><time>2026-10-04</time><span>WIP: WMS fixes CITE found, and the suites&#x27; real names</span></li>
-<li><code>6810244</code><time>2026-10-04</time><span>WIP: the public image service from a file not already registered</span></li>
-<li><code>364caaf</code><time>2026-10-04</time><span>WIP: restore the line continuations the heredoc ate</span></li>
-<li><code>80e46be</code><time>2026-10-04</time><span>WIP: measure five more CITE suites on a branch</span></li>
+<li><code>82f8a20</code><time>2026-10-06</time><span>WIP: the process and job lists page; Processes baseline 0</span></li>
+<li><code>08a7a71</code><time>2026-10-06</time><span>WIP: ADR-173/174/175 and the registers; vector WMTS honours its switch, OGC Features reads ?token=</span></li>
+<li><code>b5a6ed6</code><time>2026-10-06</time><span>ADR-177: OGC API Records — a searchable catalogue of the portal&#x27;s items</span></li>
+<li><code>280027d</code><time>2026-10-06</time><span>ADR-176: OGC API Styles, read-only, over the styles the tile faces already serve</span></li>
+<li><code>e0bcded</code><time>2026-10-06</time><span>WIP: OGC API Maps over WMS&#x27;s renderer, its suite as a jar, Processes shares the geometry service by folder</span></li>
+<li><code>eba391d</code><time>2026-10-06</time><span>WIP: OGC API Processes over the geometry engine; WFS-T ReplaceResults</span></li>
+<li><code>a94cbbc</code><time>2026-10-06</time><span>WIP: WFS-T takes a feature as GetFeature gives it, and a bad value is InvalidValue</span></li>
+<li><code>52a2960</code><time>2026-10-06</time><span>WIP: WMSServer layers by index, WFS-T suite through a signing proxy, no WCS 1.0 suite</span></li>
+<li><code>57cbcc6</code><time>2026-10-06</time><span>WIP: WCS 1.0.0 beside 2.0.1, and its CITE suite</span></li>
+<li><code>2369960</code><time>2026-10-06</time><span>WIP: WMTS and WFS 1.1 fixes the CITE suites found</span></li>
+<li><code>67dd956</code><time>2026-10-04</time><span>Five more OGC suites run nightly, and what they found the first time is fixed or counted</span></li>
 <li><code>0a7118f</code><time>2026-10-04</time><span>The web map zooms with the wheel without being clicked first</span></li>
 <li><code>5c6a769</code><time>2026-10-03</time><span>ADR-172: a service may be an INSPIRE View and Download service; 1.3.0 no longer declares GetStyles</span></li>
 <li><code>ec07382</code><time>2026-10-03</time><span>ADR-171: WMS takes an SLD with GetMap and answers GetStyles</span></li>
-<li><code>74e25f5</code><time>2026-10-03</time><span>ADR-170: image services are WCS 2.0.1 coverages at /wcs and their own WCSServer</span></li>
-<li><code>dac5157</code><time>2026-10-03</time><span>WFS-T is offered to a caller who may edit, and not to one who may not</span></li>
-<li><code>ce1c100</code><time>2026-10-03</time><span>WFS-T: Insert, Update, Replace and Delete through the one write path, in WFS 2.0.0 and 1.1.0</span></li>
-<li><code>b5845d6</code><time>2026-10-03</time><span>Q-161 decided: the owner confirms the OGC work taken on inference</span></li>
-<li><code>92093b3</code><time>2026-10-03</time><span>WFS 1.1.0 is spoken beside 2.0.0, in its own terms</span></li>
-<li><code>d5cbc85</code><time>2026-10-03</time><span>A service&#x27;s own WMS and WFS documents describe it: its name, description, tags, fees and access constraints</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

@@ -120,6 +120,14 @@ internal static class RequestFacts
 
         // <b>OGC API Features: the collection is a path segment.</b> `/ogc/features/v1/
         // collections/{id}` and everything under it — items, a single feature, the queryables.
+        //
+        // <b>Not OGC API Records — ADR-177.</b> Its one collection is the catalogue, not a service, and filing every
+        // catalogue search under a service called `catalog` would be a row about a service that does not exist.
+        if (Starts(value, RecordNames.Base))
+        {
+            return null;
+        }
+
         if (Starts(value, "/ogc"))
         {
             string[] ogc = value.Split('/', StringSplitOptions.RemoveEmptyEntries);

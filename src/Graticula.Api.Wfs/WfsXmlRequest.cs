@@ -88,6 +88,20 @@ public static class WfsXmlRequest
         XNamespace wfs = legacy ? WfsDialect.V110.Wfs : WfsNames.Wfs;
         XNamespace fes = legacy ? WfsDialect.V110.Filter : WfsNames.Fes;
 
+        // <b>1.1.0's schema gives both attributes a default; 2.0's requires them.</b> wfs.xsd 1.1.0's BaseRequestType
+        // declares service="WFS" and version="1.1.0" optional with those defaults, so a 1.1.0 body without them is a
+        // complete request and was refused until OGC's WFS 1.1 suite sent one — 2026-10-06. A 2.0 body without them
+        // is still refused, as that schema says it should be.
+        if (legacy)
+        {
+            kvp.TryAdd("service", "WFS");
+
+            if (root.Name.LocalName != nameof(WfsOperation.GetCapabilities))
+            {
+                kvp.TryAdd("version", "1.1.0");
+            }
+        }
+
         if (root.Element(ows + "AcceptVersions") is { } accept)
         {
             kvp["acceptversions"] = string.Join(

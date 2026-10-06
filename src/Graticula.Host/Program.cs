@@ -2145,6 +2145,20 @@ public static class Program
         OgcTilesEndpoints.Map(app);
         WmtsEndpoints.Map(app);
 
+        // ADR-174: the geometry service's operations as OGC API Processes, under its sharing.
+        OgcProcessesEndpoints.Map(app);
+
+        // ADR-175: the layers WMS draws, as OGC API Maps collections, drawn by WMS's own renderer.
+        OgcMapsEndpoints.Map(app);
+
+        // <b>OGC API Styles — ADR-176.</b> Read-only, over the styles the tile faces already serve: a service's stored
+        // Mapbox styles and its layers' own symbology as Mapbox and SLD, found by the tile faces' own rule.
+        OgcStylesEndpoints.Map(app);
+
+        // <b>OGC API Records — ADR-177.</b> A searchable catalogue of the portal's items, read from the portal's own
+        // listing so a record exists exactly when the portal would show its item to the same caller.
+        OgcRecordsEndpoints.Map(app);
+
         // <b>The portal surface, and it is here for one reason.</b> ArcGIS Pro's
         // server connection wants a SOAP catalogue this product has never scoped;
         // its portal connection wants the ArcGIS REST API, which is what everything
@@ -2578,6 +2592,14 @@ public static class Program
                             // ADR-097: the standard tile faces are the server's too.
                             OgcTilesEndpoints.DirectoryLink(),
                             WmtsEndpoints.DirectoryLink(),
+                            OgcProcessesEndpoints.DirectoryLink(),
+                            OgcMapsEndpoints.DirectoryLink(),
+
+                            // ADR-176: and the styles those tiles are drawn with.
+                            OgcStylesEndpoints.DirectoryLink(),
+
+                            // ADR-177: the catalogue of everything above, for a client that searches.
+                            OgcRecordsEndpoints.DirectoryLink(),
                         ]
                         : null),
                 "text/html; charset=utf-8");

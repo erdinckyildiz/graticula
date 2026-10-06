@@ -233,7 +233,7 @@ public sealed class PostConformanceTests : ArcGisClient
         Assert.Equal("application/json", type);
 
         Assert.Equal(
-            "Image,Tilemap",
+            "Image,Tilemap,Catalog,Mensuration",
             JsonDocument.Parse(body).RootElement.GetProperty("capabilities").GetString());
     }
 

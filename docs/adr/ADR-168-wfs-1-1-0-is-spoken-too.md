@@ -69,6 +69,9 @@ As §2, Alternative A.
 
 1. The owner confirms 1.1.0 is wanted (`INFERRED`, Q-161). **DISCHARGED 2026-10-03** — the owner: *"evet onayladım"*.
 2. A 1.1.0 client — FME or an older QGIS forced to 1.1.0 — reads a layer and its filter.
+   **DISCHARGED 2026-10-06.** QGIS 3.28's WFS provider forced to `version='1.1.0'` reads `ci_buildings`, and the same
+   layer with a filter reads exactly the matching features and fewer than all. OGC's WFS 1.1 suite runs nightly; its
+   four remaining failures are the engine's own Schematron (`ets-wfs11` issue #109).
 
 ## 6. Consequences
 

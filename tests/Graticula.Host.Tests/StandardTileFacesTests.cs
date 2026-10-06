@@ -354,6 +354,34 @@ public sealed class StandardTileFacesTests
 
     // ---------- WMTS ----------
 
+    /// <summary>
+    /// A document has a ServiceProvider, and Sections names which parts it carries — OGC's WMTS 1.0 suite,
+    /// 2026-10-06, failed both on the image services' WMTS, and this one had neither.
+    /// </summary>
+    [Fact]
+    public void The_capabilities_carry_a_service_provider_and_only_the_sections_asked_for()
+    {
+        static string[] Parts(WmtsSections? sections)
+        {
+            XmlDocument xml = new();
+            xml.LoadXml(Encoding.UTF8.GetString(WmtsCapabilities.Write(
+                "https://x/wmts", [new WmtsLayer("roads", "roads", null, null, TileMatrixSet.WebMercatorQuad)], sections)));
+            return [.. xml.DocumentElement!.ChildNodes.OfType<XmlElement>().Select(e => e.LocalName)];
+        }
+
+        Assert.Equal(
+            ["ServiceIdentification", "ServiceProvider", "OperationsMetadata", "Contents", "ServiceMetadataURL"],
+            Parts(null));
+
+        Assert.True(WmtsSections.TryRead("ServiceProvider,contents", out WmtsSections? two, out _));
+        Assert.Equal(["ServiceProvider", "Contents", "ServiceMetadataURL"], Parts(two));
+
+        Assert.True(WmtsSections.TryRead("All", out WmtsSections? all, out _));
+        Assert.Same(WmtsSections.All, all);
+        Assert.False(WmtsSections.TryRead("Nonsense", out _, out WmtsFault? fault));
+        Assert.Equal("Sections", fault!.Locator);
+    }
+
     /// <summary>The capabilities are well formed, in WMTS 1.0's and OWS 1.1's namespaces, and say what a client needs.</summary>
     [Fact]
     public void The_capabilities_are_WMTS_1_0_0_with_each_layer_s_set()
@@ -435,6 +463,8 @@ public sealed class StandardTileFacesTests
     [InlineData("service=WMS&request=GetCapabilities", "InvalidParameterValue", "SERVICE", 400)]
     [InlineData("service=WMTS", "MissingParameterValue", "REQUEST", 400)]
     [InlineData("service=WMTS&request=GetFeatureInfo", "OperationNotSupported", "REQUEST", 501)]
+    [InlineData("service=WMTS&request=GetBOGUS", "InvalidParameterValue", "REQUEST", 400)]
+    [InlineData("service=WMTS&request=GetCapabilities&sections=Nonsense", "InvalidParameterValue", "Sections", 400)]
     [InlineData("service=WMTS&request=GetCapabilities&AcceptVersions=2.0.0", "VersionNegotiationFailed", "AcceptVersions", 400)]
     [InlineData("service=WMTS&request=GetTile&layer=a", "MissingParameterValue", "VERSION", 400)]
     [InlineData("service=WMTS&request=GetTile&version=1.1.0&layer=a", "InvalidParameterValue", "VERSION", 400)]

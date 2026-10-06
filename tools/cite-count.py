@@ -14,7 +14,11 @@ and this does not treat it as one. **A failure is.** The baseline records how ma
 failures each suite had when a person last looked at them and decided they were
 acceptable; more than that is a regression and fails the build.
 
-Usage:  tools/cite-count.py <report.rdf> [--baseline tools/cite-baselines.json]
+**Or a TestNG report.** OGC API Maps' suite has no TEAM Engine image and runs as its own jar
+(ADR-175), which writes testng-results.xml rather than EARL. A test method is counted as an
+assertion: PASS is passed, FAIL is failed, SKIP is untested -- the same three numbers.
+
+Usage:  tools/cite-count.py <report.rdf|report.xml> [--baseline tools/cite-baselines.json]
 """
 
 import io
@@ -22,6 +26,7 @@ import json
 import os
 import re
 import sys
+import xml.etree.ElementTree as ElementTree
 
 OUTCOME = re.compile(r'earl:outcome\s+rdf:resource="[^"]*#(passed|failed|untested|inapplicable|cantTell)"')
 
@@ -29,10 +34,27 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 BASELINES = os.path.join(HERE, "cite-baselines.json")
 
 
+TESTNG = {"PASS": "passed", "FAIL": "failed", "SKIP": "untested"}
+
+
 def counts(path):
     text = io.open(path, encoding="utf-8", errors="replace").read()
 
     tally = {}
+
+    if "<testng-results" in text:
+        for method in ElementTree.fromstring(text.encode("utf-8")).iter("test-method"):
+            if method.get("is-config") == "true":
+                continue
+
+            outcome = TESTNG.get(method.get("status"), "cantTell")
+            tally[outcome] = tally.get(outcome, 0) + 1
+
+            # The names, because a TestNG report is small enough to say which ones failed.
+            if outcome == "failed":
+                print(f"  failed: {method.get('name')}")
+
+        return tally
 
     for outcome in OUTCOME.findall(text):
         tally[outcome] = tally.get(outcome, 0) + 1

@@ -217,6 +217,44 @@ jobs:
         continue-on-error: true
         run: sh tools/cite-run.sh ogcapi-tiles-1.0 "$CITE_SERVER" cite
 
+      # ADR-174: the processes are the geometry service's operations under its sharing, which the seeder sets to the
+      # organisation; the engine is anonymous, so it is shared publicly here, for this run only.
+      - name: OGC API Processes 1.0
+        id: processes
+        continue-on-error: true
+        run: |
+          python - <<'EOF'
+          import importlib.util, os
+          spec = importlib.util.spec_from_file_location("seed", "tools/seed-conformance.py")
+          seed = importlib.util.module_from_spec(spec); spec.loader.exec_module(seed)
+          server = seed.Server(os.environ["GRATICULA_TEST_URL"])
+          server.sign_in(os.environ["GRATICULA_TEST_USER"], os.environ["GRATICULA_TEST_PASSWORD"])
+          server.call("PUT", "/admin/services/Geometry/sharing?folder=Utilities", body={"sharing": "public"}, expect=(200, 204))
+          EOF
+          sh tools/cite-run.sh ogcapi-processes-1.0 "$CITE_SERVER" cite
+
+      # ADR-175: OGC publishes no TEAM Engine image for Maps, so its suite is built from source at a pinned commit
+      # and run as its own jar, on the runner rather than in a container -- hence the runner's address, not
+      # host.docker.internal. Java 17 and Maven are on the ubuntu image already.
+      - name: OGC API Maps 1.0
+        id: maps
+        continue-on-error: true
+        run: sh tools/cite-run-maps.sh "$GRATICULA_TEST_URL/ogc/maps/v1" cite
+
+      # <b>Last, because it writes.</b> WFS 2.0's Transactional class inserts, updates and deletes in the
+      # fixture's layers, as a caller who may edit -- ADR-169 condition 1 -- reached through a proxy that signs
+      # each request in, since the engine cannot send a credential and this server offers WFS-T to nobody else.
+      - name: WFS 2.0 as an editor
+        id: wfst
+        continue-on-error: true
+        run: |
+          curl -s -X POST "$GRATICULA_TEST_URL/rest/auth/login" -H "Content-Type: application/json" \
+            -d "{\"name\":\"$GRATICULA_TEST_USER\",\"password\":\"$GRATICULA_TEST_PASSWORD\"}" \
+            | python -c "import sys,json;print(json.load(sys.stdin)['token'])" > editor.tok
+          nohup python tools/cite-proxy.py 8446 "$GRATICULA_TEST_URL" editor.tok > proxy.log 2>&1 &
+          sleep 2
+          sh tools/cite-run.sh wfs20-transactional "http://host.docker.internal:8446" cite
+
       # <b>The reports outlive the run.</b> A build that says *six failures* and keeps no
       # report leaves the next person to reproduce it before they can read it, and these
       # take four minutes to reproduce.
@@ -227,6 +265,8 @@ jobs:
           name: cite-reports
           path: |
             cite/*.rdf
+            cite/*.xml
+            cite/*.log
             server.log
           retention-days: 30
 
@@ -236,8 +276,11 @@ jobs:
           failed=""
           for suite in wfs:${{ steps.wfs.outcome }} features:${{ steps.features.outcome }} wms:${{ steps.wms.outcome }} \
                        wms11:${{ steps.wms11.outcome }} wfs11:${{ steps.wfs11.outcome }} \
-                       wcs20:${{ steps.wcs20.outcome }} wmts10:${{ steps.wmts10.outcome }} \
-                       tiles:${{ steps.tiles.outcome }}; do
+                       wcs20:${{ steps.wcs20.outcome }} \
+                       wmts10:${{ steps.wmts10.outcome }} \
+                       tiles:${{ steps.tiles.outcome }} processes:${{ steps.processes.outcome }} \
+                       maps:${{ steps.maps.outcome }} \
+                       wfst:${{ steps.wfst.outcome }}; do
             name=${suite%%:*}
             outcome=${suite#*:}
             printf '%-10s %s\n' "$name" "$outcome"

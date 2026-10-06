@@ -8,6 +8,7 @@
 | **Supersedes** | — |
 | **Superseded by** | — |
 | **Amends** | [ADR-166](ADR-166-ogc-faces-are-turned-off-one-by-one.md) (*WCS is not a face here at all*); [v1-scope](../v1-scope.md) §3b, where WCS was cut with rendering |
+| **Amended by** | [ADR-173](ADR-173-wcs-1-0-0-for-qgis.md) — 1.0.0 is spoken too, so that QGIS's own WCS dialog opens a coverage |
 
 
 > **Note 2026-10-03.** [competitive-position.md](../competitive-position.md) §6 listed WCS as *never planned* and was not updated when this was decided; corrected with ADR-171, which found it.

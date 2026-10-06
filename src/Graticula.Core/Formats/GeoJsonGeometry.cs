@@ -45,7 +45,23 @@ public static class GeoJsonGeometry
     /// <param name="error">Why not, on failure.</param>
     /// <returns>Whether it was read.</returns>
     public static bool TryRead(
-        JsonElement json, int index, bool keepZ, out Geometry? geometry, out string? error)
+        JsonElement json, int index, bool keepZ, out Geometry? geometry, out string? error) =>
+        TryRead(json, index, keepZ, geographic: true, out geometry, out error);
+
+    /// <summary>Reads one geometry whose positions may be in a reference other than WGS 84.</summary>
+    /// <param name="json">The geometry object.</param>
+    /// <param name="index">Which feature it came from, for the message.</param>
+    /// <param name="keepZ">Whether a position's third element is kept as Z.</param>
+    /// <param name="geographic">
+    /// Whether the positions are longitude and latitude, and so held to WGS 84's range. False only where the caller
+    /// names another reference — an OGC API Processes request with a <c>crs</c> input, ADR-174 — because GeoJSON itself is
+    /// WGS 84 and the range check is this reader's one defence against a latitude-first file.
+    /// </param>
+    /// <param name="geometry">The geometry, on success.</param>
+    /// <param name="error">Why not, on failure.</param>
+    /// <returns>Whether it was read.</returns>
+    public static bool TryRead(
+        JsonElement json, int index, bool keepZ, bool geographic, out Geometry? geometry, out string? error)
     {
         geometry = null;
         error = null;
@@ -77,13 +93,13 @@ public static class GeoJsonGeometry
         {
             geometry = type switch
             {
-                "Point" => ReadPoint(coordinates, keepZ),
-                "MultiPoint" => new MultiPoint([.. Each(coordinates, c => ReadPoint(c, keepZ))]),
-                "LineString" => new LineString(ReadSequence(coordinates, minimum: 2, keepZ)),
+                "Point" => ReadPoint(coordinates, keepZ, geographic),
+                "MultiPoint" => new MultiPoint([.. Each(coordinates, c => ReadPoint(c, keepZ, geographic))]),
+                "LineString" => new LineString(ReadSequence(coordinates, minimum: 2, keepZ, geographic)),
                 "MultiLineString" => new MultiLineString(
-                    [.. Each(coordinates, c => new LineString(ReadSequence(c, minimum: 2, keepZ)))]),
-                "Polygon" => ReadPolygon(coordinates, keepZ),
-                "MultiPolygon" => new MultiPolygon([.. Each(coordinates, c => ReadPolygon(c, keepZ))]),
+                    [.. Each(coordinates, c => new LineString(ReadSequence(c, minimum: 2, keepZ, geographic)))]),
+                "Polygon" => ReadPolygon(coordinates, keepZ, geographic),
+                "MultiPolygon" => new MultiPolygon([.. Each(coordinates, c => ReadPolygon(c, keepZ, geographic))]),
                 _ => throw new FormatException($"'{type}' is not a GeoJSON geometry type."),
             };
 
@@ -106,9 +122,9 @@ public static class GeoJsonGeometry
         }
     }
 
-    private static Point ReadPoint(JsonElement coordinates, bool keepZ)
+    private static Point ReadPoint(JsonElement coordinates, bool keepZ, bool geographic)
     {
-        (double x, double y, double? z) = ReadPosition(coordinates, keepZ);
+        (double x, double y, double? z) = ReadPosition(coordinates, keepZ, geographic);
         return Point.Create(x, y, z, null);
     }
 
@@ -145,7 +161,7 @@ public static class GeoJsonGeometry
     /// first ring is the shell because the format says so, whichever way it
     /// turns.
     /// </remarks>
-    private static Polygon ReadPolygon(JsonElement coordinates, bool keepZ)
+    private static Polygon ReadPolygon(JsonElement coordinates, bool keepZ, bool geographic)
     {
         if (coordinates.ValueKind != JsonValueKind.Array || coordinates.GetArrayLength() == 0)
         {
@@ -156,7 +172,7 @@ public static class GeoJsonGeometry
 
         foreach (JsonElement ring in coordinates.EnumerateArray())
         {
-            rings.Add(new LinearRing(Close(ReadSequence(ring, minimum: 3, keepZ))));
+            rings.Add(new LinearRing(Close(ReadSequence(ring, minimum: 3, keepZ, geographic))));
         }
 
         return rings.Count == 1 ? new Polygon(rings[0]) : new Polygon(rings[0], [.. rings[1..]]);
@@ -192,7 +208,7 @@ public static class GeoJsonGeometry
         return XySequence.Wrap(closed, points.HasZ ? [.. points.ZSpan(), points.Z(0)] : null, null);
     }
 
-    private static XySequence ReadSequence(JsonElement coordinates, int minimum, bool keepZ)
+    private static XySequence ReadSequence(JsonElement coordinates, int minimum, bool keepZ, bool geographic)
     {
         if (coordinates.ValueKind != JsonValueKind.Array)
         {
@@ -213,7 +229,7 @@ public static class GeoJsonGeometry
 
         foreach (JsonElement position in coordinates.EnumerateArray())
         {
-            (interleaved[i * 2], interleaved[(i * 2) + 1], double? z) = ReadPosition(position, keepZ);
+            (interleaved[i * 2], interleaved[(i * 2) + 1], double? z) = ReadPosition(position, keepZ, geographic);
 
             if (z is { } elevation)
             {
@@ -234,7 +250,7 @@ public static class GeoJsonGeometry
     }
 
     /// <summary>One position: longitude, then latitude, then — when kept — the elevation.</summary>
-    private static (double X, double Y, double? Z) ReadPosition(JsonElement position, bool keepZ)
+    private static (double X, double Y, double? Z) ReadPosition(JsonElement position, bool keepZ, bool geographic)
     {
         if (position.ValueKind != JsonValueKind.Array || position.GetArrayLength() < 2)
         {
@@ -261,7 +277,7 @@ public static class GeoJsonGeometry
             throw new FormatException("a position has a non-finite coordinate.");
         }
 
-        if (x is < -180 or > 180 || y is < -90 or > 90)
+        if (geographic && (x is < -180 or > 180 || y is < -90 or > 90))
         {
             throw new FormatException(
                 string.Create(

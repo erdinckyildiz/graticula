@@ -51,6 +51,9 @@ As §2, Alternative A.
 ## Conditions
 
 1. QGIS adds the layer from the capabilities address and draws it over a basemap in the same reference.
+   **PARTLY DISCHARGED 2026-10-06.** QGIS 3.28 adds an image service's WMTS from its `WMTSCapabilities.xml` address
+   (`default028mm`) and draws it — more than a quarter of 4,096 sampled pixels drawn — after the GetTile refusals and `SECTIONS`
+   this ADR's face was missing were added (OGC's WMTS 1.0 suite: 15 failures to 0). It was not drawn over a basemap.
 
 ## 6. Consequences
 

@@ -92,11 +92,19 @@ internal static partial class ImageServerEndpoints
 
         string request = Q("request") ?? string.Empty;
 
+        // ADR-173: 1.0.0 is spoken beside 2.0.1, for QGIS's WCS provider, which speaks nothing later.
+        if (IsWcs10(request, Q("version")))
+        {
+            await Wcs10Async(context, request, await WcsVisibleAsync(context, coverages, cancellation).ConfigureAwait(false),
+                readers, projector, settings, Q, cancellation).ConfigureAwait(false);
+            return;
+        }
+
         if (!request.Equals("GetCapabilities", StringComparison.OrdinalIgnoreCase) && Q("version") is { } version
             && version is not ("2.0.1" or "2.0.0"))
         {
             await WcsRefuseAsync(context, 400, "VersionNegotiationFailed", "version",
-                $"This server speaks WCS 2.0.1, and the request asks for '{version}'.").ConfigureAwait(false);
+                $"This server speaks WCS 2.0.1 and 1.0.0, and the request asks for '{version}'.").ConfigureAwait(false);
             return;
         }
 

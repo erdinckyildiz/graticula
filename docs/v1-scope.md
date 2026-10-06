@@ -190,9 +190,21 @@ is the bullet above being given up on purpose, not overlooked.
 
 ### 3d. The rest of the protocol surface
 
-~~**OGC API Features**~~ ~~**Tiles**~~ **Styles, Records, Processes, EDR · WFS ·** ~~**WMTS**~~ **· WPS ·
+~~**OGC API Features**~~ ~~**Tiles**~~ ~~**Styles, Records, Processes,**~~ **EDR · WFS ·** ~~**WMTS**~~ **· WPS ·
 SensorThings · OData · gRPC · MCP · STAC · PMTiles · 3D Tiles · Terrain-RGB ·
 geocoding.**
+
+> **OGC API Styles, Records and Processes struck 2026-10-06, with OGC API Maps beside them — owner decision.**
+> The owner asked to finish the OGC faces (*"hadi ogc yi de bitirelim"*) and, offered the measured gaps alone or
+> those and the four OGC APIs not yet served, took all four. They are in, each read-only or bounded to what the
+> server already does: **Processes** at `/ogc/processes/v1` is the geometry service's operations
+> ([ADR-174](adr/ADR-174-ogc-api-processes-over-the-geometry-service.md)); **Maps** at `/ogc/maps/v1` is WMS's layers
+> drawn by WMS ([ADR-175](adr/ADR-175-ogc-api-maps-over-the-wms-renderer.md)) — it never had a line here, as TileJSON
+> had none; **Styles** at `/ogc/styles/v1` is the styles the tile faces serve ([ADR-176](adr/ADR-176-ogc-api-styles.md));
+> **Records** at `/ogc/records/v1` is the portal's items as a catalogue ([ADR-177](adr/ADR-177-ogc-api-records.md)).
+> The same answer added **WCS 1.0.0** beside 2.0.1 ([ADR-173](adr/ADR-173-wcs-1-0-0-for-qgis.md), [Q-162](open-questions.md)).
+> **WPS stays on this list**: Processes is its successor and is what was asked for. *Struck rather than deleted, so
+> the change of mind stays visible.*
 
 > **OGC API Tiles and WMTS struck 2026-09-29, with TileJSON beside them — owner decision,
 > [ADR-097](adr/ADR-097-vector-tiles-through-ogc-api-tiles-tilejson-and-wmts.md).** The owner asked for the vector tiles to be served through the

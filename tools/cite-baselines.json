@@ -74,16 +74,13 @@
   },
 
   "wfs11": {
-    "failed": 9,
-    "run": "2026-10-04, 76 passed / 9 failed / 0 untested of 85 attempted (run 37205953170)",
+    "failed": 4,
+    "run": "2026-10-06, 87 passed / 4 failed / 0 untested of 91 attempted (run 37428946159)",
     "note": [
-      "First run 2026-10-04: 10 failed. One was fixed with the run -- NAMESPACE=xmlns(app=uri),",
-      "1.1.0's way of binding a prefix, was not read, so app:<type> was 'not a feature type'.",
-      "",
-      "The nine are open and are this server's, not the fixture's: the Sections parameter of",
-      "GetCapabilities (Basic-GetCapabilities-tc13, tc15), and GML 3.1.1 output and a",
-      "DescribeFeatureType POST that do not validate against the schemas the suite holds them",
-      "to (GetFeature-tc4, GetFeature-POST-tc7, DescribeFeatureType-POST-tc4). D-290."
+      "Lowered from 9: the GetFeature-by-POST defaults (service and version taken from a 1.1.0",
+      "body), ogc:EID in Id_Capabilities, and NAMESPACE are fixed. The four left are the",
+      "engine's own: its Schematron for ExceptionReport is broken in the published image",
+      "(ets-wfs11 issue #109), so a well-formed report fails it. D-290."
     ]
   },
 
@@ -99,15 +96,12 @@
   },
 
   "wmts10": {
-    "failed": 15,
-    "run": "2026-10-04, 18 passed / 15 failed / 19 untested of 52 attempted (run 37205953170)",
+    "failed": 0,
+    "run": "2026-10-06, 40 passed / 0 failed / 19 untested of 59 attempted (run 37428946159)",
     "note": [
-      "Against an image service's own WMTS. Untouched by the run that added it, and every",
-      "one is this server's: GetCapabilities ignores a missing or wrong SERVICE and the",
-      "Sections parameter and its schema reference is faulted; GetTile does not refuse an",
-      "unknown TileMatrixSet, TileMatrix, Style, Format or Layer with the code and status",
-      "WMTS 1.0 Table 28 gives; OperationNotSupported is answered 400 where OWS gives 501;",
-      "a malformed query string is not refused. D-290."
+      "Lowered from 15: SECTIONS, ServiceProvider, an unknown REQUEST as InvalidParameterValue,",
+      "GetFeatureInfo as OperationNotSupported 501, and every GetTile refusal Table 28 names",
+      "(layer, style, format, set, matrix, row and column) on the image-service WMTS too."
     ]
   },
 
@@ -118,6 +112,41 @@
       "The first run's three failures were the suite's own -- it starts nothing without a",
       "tile matrix set URI, a URL template, a level and a row and column range, which",
       "tools/cite-run.sh now hands it. Nothing on the server changed."
+    ]
+  },
+
+  "wfs20-transactional": {
+    "failed": 18,
+    "run": "2026-10-06, 338 passed / 18 failed / 226 untested of 582 attempted (run 37428946159)",
+    "note": [
+      "ADR-169 condition 1: WFS 2.0's Transactional class, as an editor, through",
+      "tools/cite-proxy.py. Nine are updateGMLName and nine replaceFeature, and all eighteen",
+      "are one gap: gml:name and gml:description are read and dropped, because a layer has no",
+      "column for them, so reading the feature back does not return them. Storing GML's",
+      "standard properties is a schema decision, not a fix. D-290."
+    ]
+  },
+
+  "ogcapi-maps-1.0": {
+    "failed": 4,
+    "run": "2026-10-06, 13 passed / 4 failed / 7 untested of 24 test methods (local, ETS 83d2560)",
+    "note": [
+      "ADR-175. Not EARL: the suite runs as its own jar (tools/cite-run-maps.sh) and these",
+      "count TestNG methods. Three of the four test classes this server does not claim, which",
+      "the suite runs regardless -- tilesets-map links, TIFF and CORS. The fourth asks a fully",
+      "transparent background to carry bgcolor's RGB, which a premultiplied PNG cannot: at",
+      "alpha 0 the channels are 0. The seven untested need void areas, styles or",
+      "api-operations, none claimed."
+    ]
+  },
+
+  "ogcapi-processes-1.0": {
+    "failed": 0,
+    "run": "2026-10-06, 49 passed / 0 failed / 5 untested of 54 attempted (run 37434627197; the run before, 37432299384, failed 1)",
+    "note": [
+      "ADR-174. The failure was the process list ignoring limit (/req/core/pl-limit-response):",
+      "?limit=1 answered all eight. The list and the job list now page, with a next link.",
+      "The engine is anonymous, so cite.yml shares the geometry service publicly for the run."
     ]
   }
 }

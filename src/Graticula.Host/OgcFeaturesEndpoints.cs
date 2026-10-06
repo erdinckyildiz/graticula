@@ -652,8 +652,7 @@ internal static partial class OgcFeaturesEndpoints
         {
             // ADR-166: a service whose owner turned OGC API Features off is not in it.
             if ((!service.IsRunning && !seesStopped)
-                || !service.Limits.AllowsFeatures(dataSupportsIt: true)
-                || !service.OffersOgc("OGCFeatures"))
+                || !ServiceFaces.OffersOgcFeatures(service))
             {
                 continue;
             }

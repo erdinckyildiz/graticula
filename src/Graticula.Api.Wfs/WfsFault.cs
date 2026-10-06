@@ -23,6 +23,12 @@ public enum WfsFaultCode
 
     /// <summary>The request was understood and could not be carried out.</summary>
     OperationProcessingFailed,
+
+    /// <summary>
+    /// A transaction gave a property a value it cannot hold, or named a property the type does not have — WFS 2.0.0
+    /// Table 3. 2.0's own code, used only in 2.0's transactions; 1.1.0 has no such code and says InvalidParameterValue.
+    /// </summary>
+    InvalidValue,
 }
 
 /// <summary>

@@ -111,6 +111,29 @@ public sealed class OgcServiceAddressConformanceTests : ArcGisClient
             Assert.Equal(arcgis, tile);
             Assert.Equal(arcgis, kvp);
 
+            // The key-value binding is held to WMTS's rules, as OGC's suite holds it — 2026-10-06: SERVICE is required,
+            // and a GetTile for a layer, style or tile matrix set this service does not have is refused, not drawn.
+            string getTile = $"{wmts}?service=WMTS&request=GetTile&version=1.0.0&tilematrix=8&tilerow=69&tilecol=298&format=image/png";
+            foreach ((string query, HttpStatusCode expected, string code) in new[]
+            {
+                ($"{wmts}?request=GetCapabilities", HttpStatusCode.BadRequest, "MissingParameterValue"),
+                ($"{wmts}?service=WMTS&request=GetBOGUS", HttpStatusCode.BadRequest, "InvalidParameterValue"),
+                ($"{getTile}&layer=other&style=default&tilematrixset=default028mm", HttpStatusCode.BadRequest, "InvalidParameterValue"),
+                ($"{getTile}&layer={name}&style=dark&tilematrixset=default028mm", HttpStatusCode.BadRequest, "InvalidParameterValue"),
+                ($"{getTile}&layer={name}&style=default&tilematrixset=GoogleMapsCompatible", HttpStatusCode.BadRequest, "InvalidParameterValue"),
+            })
+            {
+                (HttpStatusCode refused, _, byte[] report) = await GetAsync(root, token!, query);
+                Assert.Equal(expected, refused);
+                Assert.Equal(code, XDocument.Parse(System.Text.Encoding.UTF8.GetString(report)).Descendants()
+                    .First(e => e.Name.LocalName == "Exception").Attribute("exceptionCode")!.Value);
+            }
+
+            (_, _, byte[] provider) = await GetAsync(root, token!, $"{wmts}?service=WMTS&request=GetCapabilities&sections=ServiceProvider");
+            Assert.Equal(
+                ["ServiceProvider", "ServiceMetadataURL"],
+                XDocument.Parse(System.Text.Encoding.UTF8.GetString(provider)).Root!.Elements().Select(e => e.Name.LocalName));
+
             // ADR-164: generateKml is a KMZ whose overlay Google Earth redraws from the service's own WMS address.
             (_, string? kmzType, byte[] kmz) = await GetAsync(root, token!, $"/rest/services/hosted/{name}/ImageServer/generateKml");
             Assert.Equal("application/vnd.google-earth.kmz", kmzType);
@@ -207,6 +230,19 @@ public sealed class OgcServiceAddressConformanceTests : ArcGisClient
         (_, _, byte[] wms) = await GetAsync(root, token!, $"/rest/services/{service}/MapServer/WMSServer?service=WMS&request=GetCapabilities&version=1.3.0");
         Assert.NotEmpty(LayerNames(wms));
         Assert.True(LayerNames(wms).Length <= mine.Length);
+
+        // ADR-162 condition 2: at its own WMSServer a layer is named as ArcGIS names it — by index — so a QGIS project
+        // saved against an ArcGIS Server opens here. The table name is still answered; /wms keeps naming by table.
+        Assert.All(LayerNames(wms), n => Assert.True(n.All(char.IsAsciiDigit), $"'{n}' is not an index."));
+        string first = LayerNames(wms)[0];
+        string map = $"/rest/services/{service}/MapServer/WMSServer?service=WMS&request=GetMap&version=1.3.0&styles=&crs=EPSG:3857"
+            + "&bbox=0,0,1000,1000&width=8&height=8&format=image/png&layers=";
+        (_, string? byIndex, _) = await GetAsync(root, token!, map + first);
+        Assert.Equal("image/png", byIndex);
+        (_, string? byTable, _) = await GetAsync(root, token!, map + Uri.EscapeDataString(mine[0][(mine[0].IndexOf(':', StringComparison.Ordinal) + 1)..]));
+        Assert.Equal("image/png", byTable);
+        (_, _, byte[] everywhere) = await GetAsync(root, token!, "/wms?service=WMS&request=GetCapabilities&version=1.3.0");
+        Assert.DoesNotContain(LayerNames(everywhere), n => n.Length > 0 && n.All(char.IsAsciiDigit));
     }
 
     [Fact]

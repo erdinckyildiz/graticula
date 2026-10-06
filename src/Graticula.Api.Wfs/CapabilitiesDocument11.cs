@@ -231,7 +231,12 @@ public static class CapabilitiesDocument11
         await xml.WriteEndElementAsync().ConfigureAwait(false);
         await xml.WriteEndElementAsync().ConfigureAwait(false);
 
+        // <b>EID as well as FID</b>: a GmlObjectId is read as a FeatureId is (WfsDialect), and WFS 1.1.0's basic
+        // conformance requires the capability be said. OGC's WFS 1.1 suite failed Basic-GetCapabilities-tc15 on
+        // its absence, the first time it ran — 2026-10-04.
         await xml.WriteStartElementAsync("ogc", "Id_Capabilities", Ogc).ConfigureAwait(false);
+        await xml.WriteStartElementAsync("ogc", "EID", Ogc).ConfigureAwait(false);
+        await xml.WriteEndElementAsync().ConfigureAwait(false);
         await xml.WriteStartElementAsync("ogc", "FID", Ogc).ConfigureAwait(false);
         await xml.WriteEndElementAsync().ConfigureAwait(false);
         await xml.WriteEndElementAsync().ConfigureAwait(false);

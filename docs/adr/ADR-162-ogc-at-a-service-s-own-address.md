@@ -68,10 +68,19 @@ could draw an image, which it can. And `GetFeatureInfo` answered `text/xml` with
 
 As §2, Alternative A.
 
+**Amended 2026-10-06: at a feature or map service's own `WMSServer`, a layer is named by its index.** ArcGIS Server
+names WMS layers `0`, `1`, … at a service's address, and a QGIS project saved against one asks for `layers=0`. Before
+this, the layer was named as at `/wms` (`hosted/ci_parcels`) and such a project found nothing. A request may still use
+the server-wide name, because every layer in that listing belongs to the one service; `/wms` and an image service's
+`ImageServer/WMSServer` are unchanged. Found while measuring condition 2.
+
 ## Conditions
 
 1. The owner confirms that a service's own OGC address is wanted beside the server-wide ones (`INFERRED`). **DISCHARGED 2026-10-03** — the owner: *"evet onayladım"* (Q-161).
 2. A QGIS project saved against an ArcGIS Server `WMSServer` address is opened against this one.
+   **PARTLY DISCHARGED 2026-10-06.** QGIS 3.28, given a `MapServer/WMSServer` address and `layers=0` — what a project
+   saved against ArcGIS Server holds — adds the layer and draws it, after the index naming above; before it, the
+   layer was not found. No project file actually saved against an ArcGIS Server has been opened.
 
 ## 6. Consequences
 

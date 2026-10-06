@@ -26,6 +26,8 @@ public enum WmtsOperation
 /// <param name="TileMatrix">GetTile's tile matrix.</param>
 /// <param name="TileRow">GetTile's row.</param>
 /// <param name="TileCol">GetTile's column.</param>
+/// <param name="Sections">GetCapabilities' sections, by their OWS names; null when the request named none,
+/// which means all of them.</param>
 /// <remarks>
 /// <para>
 /// <b>Parameter names without case, values with it</b> — OWS Common 1.1 §11.5.2: a client writing
@@ -46,7 +48,8 @@ public sealed record WmtsRequest(
     string TileMatrixSet,
     string TileMatrix,
     long TileRow,
-    long TileCol)
+    long TileCol,
+    WmtsSections? Sections = null)
 {
     /// <summary>The one version served.</summary>
     public const string Version = "1.0.0";
@@ -101,18 +104,28 @@ public sealed record WmtsRequest(
                 return false;
             }
 
+            if (!WmtsSections.TryRead(parameter("SECTIONS"), out WmtsSections? sections, out fault))
+            {
+                return false;
+            }
+
             fault = null;
-            request = new WmtsRequest(WmtsOperation.GetCapabilities, "", "", "", "", "", 0, 0);
+            request = new WmtsRequest(WmtsOperation.GetCapabilities, "", "", "", "", "", 0, 0, sections);
             return true;
         }
 
         if (!string.Equals(operation, "GetTile", StringComparison.OrdinalIgnoreCase))
         {
-            // GetFeatureInfo is an optional WMTS operation, and a vector tile carries its features already.
-            fault = new WmtsFault(
-                WmtsFault.OperationNotSupported,
-                "REQUEST",
-                $"'{operation}' is not offered. This server answers GetCapabilities and GetTile.");
+            // <b>An operation WMTS defines and this server does not offer is OperationNotSupported; a word
+            // WMTS does not define is an invalid value of REQUEST</b> — 501 and 400. OGC's WMTS 1.0 suite
+            // asks with `GetBOGUS` and wants the second, which it did not get until 2026-10-06. GetFeatureInfo
+            // is the one optional operation, and a vector or image tile here carries no features to ask about.
+            fault = string.Equals(operation, "GetFeatureInfo", StringComparison.OrdinalIgnoreCase)
+                ? new WmtsFault(
+                    WmtsFault.OperationNotSupported,
+                    "REQUEST",
+                    $"'{operation}' is not offered. This server answers GetCapabilities and GetTile.")
+                : WmtsFault.Invalid("REQUEST", $"'{operation}' is not a WMTS operation. This server answers GetCapabilities and GetTile.");
             return false;
         }
 
@@ -165,8 +178,9 @@ public sealed record WmtsRequest(
     }
 
     /// <summary>What is wrong with a GetTile's style and format, or null — the checks both bindings share.</summary>
+    /// <param name="format">The one format the layer is offered in: vector tiles here, PNG for an image service.</param>
     /// <returns>The fault, or null.</returns>
-    public WmtsFault? StyleOrFormatFault()
+    public WmtsFault? StyleOrFormatFault(string format = TileNames.Mvt)
     {
         // An empty STYLE is read as the default: 07-057r7 requires the parameter, and some clients send it
         // blank for a layer whose only style is the default.
@@ -175,9 +189,9 @@ public sealed record WmtsRequest(
             return WmtsFault.Invalid("STYLE", $"'{Style}' is not a style of this layer; its one style is '{DefaultStyle}'.");
         }
 
-        return string.Equals(Format, TileNames.Mvt, StringComparison.OrdinalIgnoreCase)
+        return string.Equals(Format, format, StringComparison.OrdinalIgnoreCase)
             ? null
-            : WmtsFault.Invalid("FORMAT", $"'{Format}' is not a format of this layer; its one format is {TileNames.Mvt}.");
+            : WmtsFault.Invalid("FORMAT", $"'{Format}' is not a format of this layer; its one format is {format}.");
     }
 
     /// <summary>A row or column: a non-negative integer in digits only.</summary>

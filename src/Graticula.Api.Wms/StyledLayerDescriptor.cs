@@ -482,10 +482,116 @@ public static class StyledLayerDescriptor
 
     /// <summary>Writes an SLD 1.1.0 document, a NamedLayer a layer.</summary>
     /// <param name="layers">Each layer's name, its <c>drawingInfo</c>, and what the <c>drawingInfo</c> lost.</param>
+    /// <param name="styleName">
+    /// What each <c>UserStyle</c> is called. <c>default</c> for WMS, where it is the one style a layer has (ADR-041
+    /// §5.2); OGC API Styles passes the style's id, which its <c>/rec/sld-se/style-names</c> asks for (ADR-176).
+    /// </param>
+    /// <param name="namesFeatureTypes">
+    /// Whether each <c>FeatureTypeStyle</c> names its layer in <c>se:FeatureTypeName</c> — OGC API Styles'
+    /// <c>/rec/sld-se/style-names</c> C. Off for WMS, whose <c>GetStyles</c> answer is left as it was.
+    /// </param>
     /// <returns>The document.</returns>
-    public static string Write(IReadOnlyList<(string Name, JsonNode? DrawingInfo, IReadOnlyList<string> Losses)> layers)
+    public static string Write(
+        IReadOnlyList<(string Name, JsonNode? DrawingInfo, IReadOnlyList<string> Losses)> layers,
+        string styleName = "default",
+        bool namesFeatureTypes = false) =>
+        Serialise(Build(layers, styleName, namesFeatureTypes));
+
+    /// <summary>Writes the same document as SLD 1.0.0 — ADR-176.</summary>
+    /// <param name="layers">As <see cref="Write"/>.</param>
+    /// <param name="styleName">As <see cref="Write"/>.</param>
+    /// <param name="namesFeatureTypes">As <see cref="Write"/>.</param>
+    /// <returns>The document.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Translated from the 1.1 tree, not written a second time.</b> SLD 1.0 is SLD 1.1 before Symbology Encoding
+    /// was split out of it: the same elements in the <c>sld</c> namespace, <c>CssParameter</c> where SE says
+    /// <c>SvgParameter</c>, and a <c>Title</c> and <c>Abstract</c> directly where SE wraps them in a
+    /// <c>Description</c>. A second writer would be a second set of rules for which renderer becomes which rule, and
+    /// the two would drift; a rename cannot.
+    /// </para>
+    /// <para>
+    /// <b>Checked against both schemas on 2026-10-06</b>, with lxml and the files at <c>schemas.opengis.net</c>, for a
+    /// simple, a unique-value and a class-breaks layer and a layer with no SLD form.
+    /// </para>
+    /// </remarks>
+    public static string Write10(
+        IReadOnlyList<(string Name, JsonNode? DrawingInfo, IReadOnlyList<string> Losses)> layers,
+        string styleName = "default",
+        bool namesFeatureTypes = false)
+    {
+        XElement eleven = Build(layers, styleName, namesFeatureTypes);
+        XNamespace sld = SldNs, xsi = XsiNs;
+
+        XElement root = new(sld + "StyledLayerDescriptor",
+            new XAttribute("version", "1.0.0"),
+            new XAttribute(XNamespace.Xmlns + "sld", SldNs),
+            new XAttribute(XNamespace.Xmlns + "ogc", OgcNs),
+            new XAttribute(XNamespace.Xmlns + "xsi", XsiNs),
+            new XAttribute(xsi + "schemaLocation", $"{SldNs} http://schemas.opengis.net/sld/1.0.0/StyledLayerDescriptor.xsd"),
+            eleven.Nodes().Select(To10));
+
+        return Serialise(root);
+    }
+
+    /// <summary>One node of a 1.1 document as SLD 1.0 has it.</summary>
+    private static object To10(XNode node)
+    {
+        if (node is not XElement element)
+        {
+            return node is XComment comment ? new XComment(comment.Value) : node;
+        }
+
+        XNamespace sld = SldNs;
+
+        // The ogc filter namespace is the same in both versions; only SE's and SLD's own elements move.
+        if (element.Name.NamespaceName == OgcNs)
+        {
+            return new XElement(element);
+        }
+
+        string local = element.Name.LocalName switch
+        {
+            "SvgParameter" => "CssParameter",
+            _ => element.Name.LocalName,
+        };
+
+        XElement copy = new(sld + local, element.Attributes());
+
+        foreach (XNode child in element.Nodes())
+        {
+            // SE's Description holds Title and Abstract; SLD 1.0 puts them straight in their parent.
+            if (child is XElement { Name.LocalName: "Description" } description && description.Name.NamespaceName == SeNs)
+            {
+                copy.Add(description.Elements().Select(To10));
+                continue;
+            }
+
+            copy.Add(To10(child));
+        }
+
+        return copy;
+    }
+
+    private static string Serialise(XElement root)
+    {
+        StringBuilder text = new();
+
+        using (XmlWriter w = XmlWriter.Create(text, new XmlWriterSettings { Indent = true, OmitXmlDeclaration = true }))
+        {
+            new XDocument(root).Save(w);
+        }
+
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + text;
+    }
+
+    private static XElement Build(
+        IReadOnlyList<(string Name, JsonNode? DrawingInfo, IReadOnlyList<string> Losses)> layers,
+        string styleName,
+        bool namesFeatureTypes)
     {
         ArgumentNullException.ThrowIfNull(layers);
+        ArgumentException.ThrowIfNullOrWhiteSpace(styleName);
         XNamespace sld = SldNs, se = SeNs, ogc = OgcNs, xsi = XsiNs;
 
         XElement root = new(sld + "StyledLayerDescriptor",
@@ -509,30 +615,31 @@ public static class StyledLayerDescriptor
             }
             else
             {
-                XElement style = new(sld + "UserStyle", new XElement(se + "Name", "default"));
+                XElement style = new(sld + "UserStyle", new XElement(se + "Name", styleName));
 
                 if (lost.Count > 0)
                 {
                     style.Add(new XElement(se + "Description",
-                        new XElement(se + "Title", "default"),
+                        new XElement(se + "Title", styleName),
                         new XElement(se + "Abstract", "Not carried into SLD: " + string.Join(" ", lost))));
                 }
 
-                style.Add(new XElement(sld + "IsDefault", "1"), new XElement(se + "FeatureTypeStyle", rules));
+                XElement featureTypeStyle = new(se + "FeatureTypeStyle");
+
+                if (namesFeatureTypes)
+                {
+                    featureTypeStyle.Add(new XElement(se + "FeatureTypeName", name));
+                }
+
+                featureTypeStyle.Add(rules);
+                style.Add(new XElement(sld + "IsDefault", "1"), featureTypeStyle);
                 named.Add(style);
             }
 
             root.Add(named);
         }
 
-        StringBuilder text = new();
-
-        using (XmlWriter w = XmlWriter.Create(text, new XmlWriterSettings { Indent = true, OmitXmlDeclaration = true }))
-        {
-            new XDocument(root).Save(w);
-        }
-
-        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + text;
+        return root;
     }
 
     private static string Comment(string text) => text.Replace("--", "- -", StringComparison.Ordinal);

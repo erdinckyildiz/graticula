@@ -58,6 +58,10 @@ As §2, Alternative A.
 ## Conditions
 
 1. OGC's Part 3 / CQL2 executable test suite is run against the server, or the claim is narrowed to what it passes.
+   *(2026-10-06: there is no such suite to run. OGC's `opengeospatial` organisation has executable suites for OGC API
+   Features Part 1, Tiles, Processes, Maps, EDR and Coverages and none for Part 3 or CQL2, and Docker Hub's `ogccite`
+   has no image for either. The condition stays open — it is met the day one is published — and the claim stands on
+   this repository's own tests.)*
 
 ## 6. Consequences
 

@@ -100,6 +100,10 @@ public sealed class WfsTransactionConformanceTests : ArcGisClient
                 + Equal("http://www.opengis.net/fes/2.0", "fes", text, renamed) + "</wfs:Replace></wfs:Transaction>");
             Assert.True(replaced == HttpStatusCode.OK, replaceBody);
             Assert.Equal("1", XDocument.Parse(replaceBody).Descendants().First(e => e.Name.LocalName == "totalReplaced").Value);
+
+            // 2.0 names the replaced feature in ReplaceResults (§15.3.6); it keeps its identity.
+            Assert.Equal(inserted, XDocument.Parse(replaceBody).Descendants().First(e => e.Name.LocalName == "ReplaceResults")
+                .Descendants().First(e => e.Name.LocalName == "ResourceId").Attribute("rid")!.Value);
             (_, string moved) = await SendAsync(HttpMethod.Get, $"{items}?{text}={renamed}");
             Assert.Equal(32.88, JsonDocument.Parse(moved).RootElement.GetProperty("features")[0]
                 .GetProperty("geometry").GetProperty("coordinates")[0].GetDouble(), 4);
@@ -139,6 +143,69 @@ public sealed class WfsTransactionConformanceTests : ArcGisClient
         Assert.Equal("TRUE", Transactional(signedIn));
         Assert.Equal("FALSE", Transactional(anonymous));
         Assert.DoesNotContain("name=\"Transaction\"", anonymous, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A feature as GetFeature gives it can be inserted, and a value the type cannot hold is InvalidValue — what OGC's WFS
+    /// 2.0 Transactional class found the first time it ran as an editor, 2026-10-06.
+    /// </summary>
+    [Fact]
+    public async Task A_feature_carrying_gml_s_own_properties_and_its_ids_is_inserted_and_a_bad_value_is_invalid()
+    {
+        string layer = Layer();
+        string items = $"/ogc/features/v1/collections/{Uri.EscapeDataString(layer)}/items";
+        (_, string page) = await SendAsync(HttpMethod.Get, $"{items}?limit=1");
+        string text = JsonDocument.Parse(page).RootElement.GetProperty("features")[0].GetProperty("properties")
+            .EnumerateObject().First(p => p.Value.ValueKind == JsonValueKind.String && p.Name != "globalid").Name;
+        (_, string schema) = await SendAsync(HttpMethod.Get,
+            $"/wfs?service=WFS&version=2.0.0&request=DescribeFeatureType&typeNames=graticula:{layer}");
+        string geometry = XDocument.Parse(schema).Descendants()
+            .First(e => e.Name.LocalName == "element" && ((string?)e.Attribute("type") ?? "").StartsWith("gml:", StringComparison.Ordinal))
+            .Attribute("name")!.Value;
+
+        string probe = $"wfsg-{Guid.NewGuid():N}"[..14];
+
+        // gml:identifier, gml:name and an objectid and globalid copied from another feature: passed over, not refused,
+        // and the server assigns this feature its own ids.
+        (HttpStatusCode status, string body) = await SendAsync(HttpMethod.Post, "/wfs",
+            $"<wfs:Transaction service=\"WFS\" version=\"2.0.0\" xmlns:wfs=\"{Wfs20}\" xmlns:gml=\"http://www.opengis.net/gml/3.2\" "
+            + "xmlns:graticula=\"urn:graticula:ns\"><wfs:Insert>"
+            + $"<graticula:{layer} gml:id=\"x-1\"><gml:identifier codeSpace=\"http://cite.opengeospatial.org/\">{Guid.NewGuid()}</gml:identifier>"
+            + "<gml:name>copied</gml:name><graticula:objectid>1</graticula:objectid>"
+            + "<graticula:globalid>{00000000-0000-0000-0000-000000000001}</graticula:globalid>"
+            + $"<graticula:{text}>{probe}</graticula:{text}><graticula:{geometry}>"
+            + "<gml:Point srsName=\"urn:ogc:def:crs:EPSG::4326\"><gml:pos>39.9601 32.8712</gml:pos></gml:Point>"
+            + $"</graticula:{geometry}></graticula:{layer}></wfs:Insert></wfs:Transaction>");
+
+        try
+        {
+            Assert.True(status == HttpStatusCode.OK, body);
+            Assert.Equal("1", XDocument.Parse(body).Descendants(XName.Get("totalInserted", Wfs20)).Single().Value);
+
+            // A property the type does not have, and an Update with no filter at all: InvalidValue, because the value is
+            // what is wrong.
+            foreach (string update in new[]
+            {
+                "<wfs:Insert><tns:Airport xmlns:tns=\"http://example.org\" gml:id=\"YVR\"><gml:name>Vancouver</gml:name></tns:Airport></wfs:Insert>",
+                $"<wfs:Update typeName=\"graticula:{layer}\"><wfs:Property><wfs:ValueReference>gml:boundedBy</wfs:ValueReference>"
+                    + "<wfs:Value><Point xmlns=\"http://www.opengis.net/kml/2.2\"><coordinates>-123.1,49.25</coordinates></Point></wfs:Value>"
+                    + "</wfs:Property></wfs:Update>",
+                $"<wfs:Update typeName=\"graticula:{layer}\"><wfs:Property><wfs:ValueReference>no_such_property</wfs:ValueReference>"
+                    + "<wfs:Value>1</wfs:Value></wfs:Property>" + Equal("http://www.opengis.net/fes/2.0", "fes", text, probe) + "</wfs:Update>",
+            })
+            {
+                (HttpStatusCode refused, string report) = await SendAsync(HttpMethod.Post, "/wfs",
+                    $"<wfs:Transaction service=\"WFS\" version=\"2.0.0\" xmlns:wfs=\"{Wfs20}\" xmlns:gml=\"http://www.opengis.net/gml/3.2\" "
+                    + $"xmlns:graticula=\"urn:graticula:ns\">{update}</wfs:Transaction>");
+                Assert.NotEqual(HttpStatusCode.OK, refused);
+                Assert.Equal("InvalidValue", XDocument.Parse(report).Descendants().First(e => e.Name.LocalName == "Exception")
+                    .Attribute("exceptionCode")!.Value);
+            }
+        }
+        finally
+        {
+            await SendAsync(HttpMethod.Post, "/wfs", Delete(layer, text, probe));
+        }
     }
 
     private async Task<string> InsertAsync(string layer, string text, string geometry, string probe)

@@ -307,6 +307,38 @@ public sealed class WfsRequestTests
         Assert.Equal("ns7:look_parcels", Assert.Single(request.TypeNames));
     }
 
+    [Theory]
+    [InlineData("version=\"1.1.0\"")]
+    [InlineData("service=\"WFS\"")]
+    [InlineData("")]
+    public void A_one_one_zero_body_takes_the_schema_s_defaults_for_service_and_version(string attributes)
+    {
+        // wfs.xsd 1.1.0 gives both a default; OGC's WFS 1.1 suite sends bodies without each — 2026-10-06.
+        string body =
+            $"<wfs:GetFeature {attributes} xmlns:wfs=\"http://www.opengis.net/wfs\" xmlns:app=\"urn:graticula:ns\">"
+            + "<wfs:Query typeName=\"app:look_parcels\"/>"
+            + "</wfs:GetFeature>";
+
+        using MemoryStream stream = new(Encoding.UTF8.GetBytes(body));
+        Assert.True(WfsXmlRequest.TryRead(stream, out IReadOnlyDictionary<string, string> parameters, out _));
+        Assert.True(WfsRequest.TryParse(parameters, out WfsRequest? request, out WfsFault? fault), fault?.Text);
+        Assert.Equal("app:look_parcels", Assert.Single(request!.TypeNames));
+    }
+
+    [Fact]
+    public void A_two_zero_body_without_its_version_is_still_refused()
+    {
+        // wfs.xsd 2.0 requires the attribute; the 1.1.0 defaults are 1.1.0's alone.
+        string body =
+            "<wfs:GetFeature service=\"WFS\" xmlns:wfs=\"http://www.opengis.net/wfs/2.0\" xmlns:ns7=\"urn:graticula:ns\">"
+            + "<wfs:Query typeNames=\"ns7:look_parcels\"/>"
+            + "</wfs:GetFeature>";
+
+        using MemoryStream stream = new(Encoding.UTF8.GetBytes(body));
+        Assert.True(WfsXmlRequest.TryRead(stream, out IReadOnlyDictionary<string, string> parameters, out _));
+        Assert.False(WfsRequest.TryParse(parameters, out _, out _));
+    }
+
     [Fact]
     public void An_xml_request_binds_to_the_same_shape_as_the_query_string()
     {

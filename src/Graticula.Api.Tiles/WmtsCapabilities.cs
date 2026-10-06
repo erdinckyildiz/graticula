@@ -61,11 +61,13 @@ public static class WmtsCapabilities
     /// <summary>Writes the document.</summary>
     /// <param name="endpoint">The KVP endpoint's absolute URL, <c>…/wmts</c>.</param>
     /// <param name="layers">The layers the caller may see.</param>
+    /// <param name="sections">The sections asked for; every one when null.</param>
     /// <returns>UTF-8 XML.</returns>
-    public static byte[] Write(string endpoint, IReadOnlyList<WmtsLayer> layers)
+    public static byte[] Write(string endpoint, IReadOnlyList<WmtsLayer> layers, WmtsSections? sections = null)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
         ArgumentNullException.ThrowIfNull(layers);
+        sections ??= WmtsSections.All;
 
         using MemoryStream stream = new();
 
@@ -81,35 +83,49 @@ public static class WmtsCapabilities
                 Wmts + " http://schemas.opengis.net/wmts/1.0/wmtsGetCapabilities_response.xsd");
             xml.WriteAttributeString("version", WmtsRequest.Version);
 
-            xml.WriteStartElement("ows", "ServiceIdentification", WmtsFault.Ows);
-            xml.WriteElementString("ows", "Title", WmtsFault.Ows, "Graticula — vector tiles");
-            xml.WriteElementString(
-                "ows", "Abstract", WmtsFault.Ows,
-                "The vector tiles of this server's VectorTileServer services as WMTS layers. The tiles are "
-                + "the same bytes the ArcGIS and OGC API Tiles faces serve.");
-            xml.WriteElementString("ows", "ServiceType", WmtsFault.Ows, "OGC WMTS");
-            xml.WriteElementString("ows", "ServiceTypeVersion", WmtsFault.Ows, WmtsRequest.Version);
-            xml.WriteEndElement();
-
-            xml.WriteStartElement("ows", "OperationsMetadata", WmtsFault.Ows);
-            Operation(xml, "GetCapabilities", endpoint + "?", endpoint + RestCapabilities);
-            Operation(xml, "GetTile", endpoint + "?", endpoint + "/1.0.0/");
-            xml.WriteEndElement();
-
-            xml.WriteStartElement("Contents", Wmts);
-
-            foreach (WmtsLayer layer in layers)
+            if (sections.Includes("ServiceIdentification"))
             {
-                Layer(xml, endpoint, layer);
+                xml.WriteStartElement("ows", "ServiceIdentification", WmtsFault.Ows);
+                xml.WriteElementString("ows", "Title", WmtsFault.Ows, "Graticula — vector tiles");
+                xml.WriteElementString(
+                    "ows", "Abstract", WmtsFault.Ows,
+                    "The vector tiles of this server's VectorTileServer services as WMTS layers. The tiles are "
+                    + "the same bytes the ArcGIS and OGC API Tiles faces serve.");
+                xml.WriteElementString("ows", "ServiceType", WmtsFault.Ows, "OGC WMTS");
+                xml.WriteElementString("ows", "ServiceTypeVersion", WmtsFault.Ows, WmtsRequest.Version);
+                xml.WriteEndElement();
             }
 
-            // Each set once, however many layers use it, in the order the layers first name them.
-            foreach (TileMatrixSet set in layers.Select(l => l.Set).DistinctBy(s => s.Id, StringComparer.Ordinal))
+            if (sections.Includes("ServiceProvider"))
             {
-                Set(xml, set);
+                WmtsSections.WriteServiceProvider(xml, "Graticula", null);
             }
 
-            xml.WriteEndElement();
+            if (sections.Includes("OperationsMetadata"))
+            {
+                xml.WriteStartElement("ows", "OperationsMetadata", WmtsFault.Ows);
+                Operation(xml, "GetCapabilities", endpoint + "?", endpoint + RestCapabilities);
+                Operation(xml, "GetTile", endpoint + "?", endpoint + "/1.0.0/");
+                xml.WriteEndElement();
+            }
+
+            if (sections.Includes("Contents"))
+            {
+                xml.WriteStartElement("Contents", Wmts);
+
+                foreach (WmtsLayer layer in layers)
+                {
+                    Layer(xml, endpoint, layer);
+                }
+
+                // Each set once, however many layers use it, in the order the layers first name them.
+                foreach (TileMatrixSet set in layers.Select(l => l.Set).DistinctBy(s => s.Id, StringComparer.Ordinal))
+                {
+                    Set(xml, set);
+                }
+
+                xml.WriteEndElement();
+            }
 
             xml.WriteStartElement("ServiceMetadataURL", Wmts);
             xml.WriteAttributeString("xlink", "href", XLink, endpoint + RestCapabilities);

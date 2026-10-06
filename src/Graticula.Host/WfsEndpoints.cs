@@ -412,13 +412,10 @@ internal static partial class WfsEndpoints
             // the ArcGIS decision, unenforced, and a second protocol quietly
             // reopening a door the operator closed is exactly the failure a new
             // surface is most likely to introduce. D-123.
-            if (!service.Limits.AllowsFeatures(dataSupportsIt: true))
-            {
-                continue;
-            }
-
-            // ADR-166: a service whose owner turned WFS off is not in it.
-            if (!service.OffersOgc("WFS"))
+            //
+            // ADR-166: a service whose owner turned WFS off is not in it. Both in ServiceFaces, which OGC API
+            // Records reads too (ADR-177).
+            if (!ServiceFaces.OffersWfs(service))
             {
                 continue;
             }
