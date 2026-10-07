@@ -42,17 +42,39 @@ internal static partial class ImageServerEndpoints
     private static IEnumerable<int> Wcs10References(PublishedCoverage coverage) =>
         new[] { coverage.Info.Srid, 4326, 3857 }.Distinct();
 
-    /// <summary>Whether a request is for WCS 1.0.0, by the version it names — GetCapabilities negotiating below 2.0.</summary>
-    private static bool IsWcs10(string request, string? version) =>
+    /// <summary>
+    /// Whether a request is for WCS 1.0.0: by the version it names — GetCapabilities negotiating below 2.0 — or, when it
+    /// names no version or one that is not 2.0, by speaking 1.0.0's vocabulary (<c>COVERAGE</c> rather than
+    /// <c>coverageId</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The vocabulary decides the dialect of the refusal.</b> A 1.0.0 client that leaves VERSION out is owed a
+    /// <c>ServiceExceptionReport</c> it can read, and OGC's 1.0.0 suite asks for exactly that; it was answered with
+    /// 2.0's <c>ows:ExceptionReport</c> about a missing <c>coverageId</c> (measured 2026-10-07, ADR-173).
+    /// </remarks>
+    private static bool IsWcs10(string request, string? version, bool speaks10) =>
         version is { Length: > 0 } asked
-        && (string.Equals(asked, Wcs10Version, StringComparison.Ordinal)
-            || (request.Equals("GetCapabilities", StringComparison.OrdinalIgnoreCase)
-                && Version.TryParse(asked, out Version? number) && number < new Version(2, 0)));
+            ? string.Equals(asked, Wcs10Version, StringComparison.Ordinal)
+              || (request.Equals("GetCapabilities", StringComparison.OrdinalIgnoreCase)
+                  && Version.TryParse(asked, out Version? number) && number < new Version(2, 0))
+              || (speaks10 && !asked.StartsWith("2.", StringComparison.Ordinal))
+            : speaks10 && !request.Equals("GetCapabilities", StringComparison.OrdinalIgnoreCase);
 
     private static async Task Wcs10Async(
         HttpContext context, string request, List<PublishedCoverage> visible, ICoverageReaderFactory readers,
         IProjector projector, HostSettings settings, Func<string, string?> q, CancellationToken cancellation)
     {
+        // Past GetCapabilities a 1.0.0 request names its version, and only 1.0.0 is spoken here.
+        if (!request.Equals("GetCapabilities", StringComparison.OrdinalIgnoreCase) && q("VERSION") != Wcs10Version)
+        {
+            await Wcs10RefuseAsync(context, q("VERSION") is null ? "MissingParameterValue" : "InvalidParameterValue",
+                q("VERSION") is null
+                    ? $"{request} names a VERSION: 1.0.0."
+                    : $"'{q("VERSION")}' is not a version this server speaks for {request}: 1.0.0, or 2.0.1 with coverageId.",
+                "VERSION").ConfigureAwait(false);
+            return;
+        }
+
         switch (request.ToUpperInvariant())
         {
             case "GETCAPABILITIES":
@@ -251,9 +273,15 @@ internal static partial class ImageServerEndpoints
                 w.WriteEndElement();
                 w.WriteEndElement();
 
+                // One element per reference, as the schema allows (maxOccurs unbounded): OGC's suite reads each element
+                // as one CRS, and a space-separated list became a RESPONSE_CRS with a space in it.
                 w.WriteStartElement("supportedCRSs", Wcs10);
-                w.WriteElementString("requestResponseCRSs", Wcs10,
-                    string.Join(' ', Wcs10References(coverage).Select(s => $"EPSG:{s.ToString(CultureInfo.InvariantCulture)}")));
+
+                foreach (int reference in Wcs10References(coverage))
+                {
+                    w.WriteElementString("requestResponseCRSs", Wcs10, $"EPSG:{reference.ToString(CultureInfo.InvariantCulture)}");
+                }
+
                 w.WriteEndElement();
 
                 w.WriteStartElement("supportedFormats", Wcs10);
@@ -306,6 +334,45 @@ internal static partial class ImageServerEndpoints
             await Wcs10RefuseAsync(context, "InvalidParameterValue",
                 $"'{interpolation}' is not an interpolation this server offers: nearest neighbor.", "INTERPOLATION").ConfigureAwait(false);
             return;
+        }
+
+        // The range set's one axis, `Band`, as DescribeCoverage lists it: a list of band numbers from 1, or an interval
+        // a/b. A value it does not list is refused, as 1.0.0 §8.3.3 asks, rather than ignored.
+        RasterFunction function = RasterFunction.None;
+
+        if (q("Band") is { } bands)
+        {
+            List<int> chosen = [];
+            int count = coverage.Info.Bands.Count;
+            bool valid = true;
+
+            foreach (string part in bands.Split(',', StringSplitOptions.TrimEntries))
+            {
+                string[] interval = part.Split('/');
+
+                if (interval.Length is 1 or 2 or 3
+                    && int.TryParse(interval[0], NumberStyles.None, CultureInfo.InvariantCulture, out int first)
+                    && (interval.Length == 1 ? first : int.TryParse(interval[1], NumberStyles.None, CultureInfo.InvariantCulture, out int last) ? last : -1) is int end
+                    && first >= 1 && end >= first && end <= count)
+                {
+                    chosen.AddRange(Enumerable.Range(first - 1, end - first + 1));
+                }
+                else
+                {
+                    valid = false;
+                    break;
+                }
+            }
+
+            if (!valid || chosen.Count == 0)
+            {
+                await Wcs10RefuseAsync(context, "InvalidParameterValue",
+                    $"'{bands}' is not a value of the Band axis, whose values are 1 to {count.ToString(CultureInfo.InvariantCulture)}.", "Band")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            function = new RasterFunction(RasterFunctionKind.ExtractBand) { BandIds = chosen };
         }
 
         int? Reference(string name) =>
@@ -379,7 +446,7 @@ internal static partial class ImageServerEndpoints
         }
 
         (byte[]? file, string? refused) = await RawAsync(coverage,
-                ImageServerExportParameters.ForValues(asked, width, height, responseCrs), RasterFunction.None, readers, projector,
+                ImageServerExportParameters.ForValues(asked, width, height, responseCrs), function, readers, projector,
                 Resampling.Nearest, cancellation)
             .ConfigureAwait(false);
 

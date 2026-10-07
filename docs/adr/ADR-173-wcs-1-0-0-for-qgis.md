@@ -90,6 +90,14 @@ OGC suite.
 
 1. OGC's `ets-wcs10` is run against a public coverage — through TEAM Engine's web form, by hand, if no headless route
    appears — and its failures are fixed or recorded.
+   **DISCHARGED 2026-10-07, headless after all.** The image carries the suite and TEAM Engine's own classes, and the
+   console (`com.occamlab.te.Test -test=wcs1-0-0:main`, the form's fields as the main test's parameters) runs it with
+   no web form; `tools/cite-run-wcs10.sh` does that in `cite.yml`. First run: **38 passed, 9 failed**, all but one this
+   server's and fixed — `requestResponseCRSs` written as one space-separated element (the suite then sent
+   `RESPONSE_CRS=EPSG:4326 EPSG:3857`), a 1.0.0 request with no or an unknown VERSION answered in 2.0's report, and
+   the `Band` axis ignored rather than honoured and its unknown values refused. After: **46 passed, 1 failed**. The one
+   is the suite's arithmetic: `bbox-inside` moves each side of the coverage's envelope 1 unit inwards, which inverts
+   a box less than 2 units high — this coverage is 1.92 degrees — and expects content for it. It is the baseline.
 
 ## 9. Revisit triggers
 

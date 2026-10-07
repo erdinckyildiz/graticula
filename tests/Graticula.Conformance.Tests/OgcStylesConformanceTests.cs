@@ -184,14 +184,24 @@ public sealed class OgcStylesConformanceTests : ArcGisClient
             .Distinct(StringComparer.Ordinal)];
         Assert.NotEmpty(sourceLayers);
 
-        // Absolute, so a client that fetched the style from here finds the tiles; and the address answers.
+        // Absolute, so a client that fetched the style from here finds the tiles; and the address answers. A Web Mercator
+        // service's own source is its TileJSON, whose tile addresses are absolute too — MapLibre does not resolve the
+        // VectorTileServer document's relative `tile/{z}/{y}/{x}.pbf` (measured 2026-10-07).
         foreach (JsonProperty source in mapbox.GetProperty("sources").EnumerateObject())
         {
             string url = source.Value.GetProperty("url").GetString()!;
-            Assert.StartsWith("https://", url, StringComparison.Ordinal);
-            Assert.Contains("/VectorTileServer", url, StringComparison.Ordinal);
-            (HttpStatusCode tiles, string service, _) = await FetchAsync(url + "?f=json");
+            Assert.True(Uri.TryCreate(url, UriKind.Absolute, out _), $"The style's source {url} is not absolute.");
+            bool tileJson = url.EndsWith("?f=tilejson", StringComparison.Ordinal);
+            Assert.True(tileJson || url.Contains("/VectorTileServer", StringComparison.Ordinal), $"The style's source {url} is neither.");
+            (HttpStatusCode tiles, string service, _) = await FetchAsync(tileJson ? url : url + "?f=json");
             Assert.True(tiles == HttpStatusCode.OK, $"The style's source {url} answered {(int)tiles}: {service}");
+
+            if (tileJson)
+            {
+                string template = JsonDocument.Parse(service).RootElement.GetProperty("tiles")[0].GetString()!;
+                Assert.True(Uri.TryCreate(template.Replace("{z}", "0").Replace("{y}", "0").Replace("{x}", "0"), UriKind.Absolute, out _),
+                    $"The TileJSON's tiles {template} are not absolute.");
+            }
         }
 
         foreach ((string f, string version) in new[] { ("sld11", "1.1.0"), ("sld10", "1.0.0") })
@@ -253,10 +263,8 @@ public sealed class OgcStylesConformanceTests : ArcGisClient
 
             JsonElement served = JsonDocument.Parse(body).RootElement;
             Assert.Equal("Dark", served.GetProperty("name").GetString());
-            Assert.EndsWith(
-                $"/rest/services/{Service}/VectorTileServer/",
-                served.GetProperty("sources").GetProperty("esri").GetProperty("url").GetString(),
-                StringComparison.Ordinal);
+            string esri = served.GetProperty("sources").GetProperty("esri").GetProperty("url").GetString()!;
+            Assert.EndsWith($"/collections/{Service.Replace('/', '.')}/tiles/WebMercatorQuad?f=tilejson", esri, StringComparison.Ordinal);
 
             (HttpStatusCode refused, string problem, string? problemType) = await FetchAsync($"{Ogc}/styles/{id}?f=sld11");
             Assert.Equal(HttpStatusCode.NotAcceptable, refused);

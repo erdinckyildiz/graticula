@@ -177,6 +177,24 @@ public sealed class OgcStylesTests
         Assert.Equal("../keep", (string?)resolved["layers"]![0]!["metadata"]!["url"]);
     }
 
+    /// <summary>The service's own VectorTileServer, as a source, becomes its TileJSON when there is one (MapLibre).</summary>
+    [Fact]
+    public void The_service_s_own_source_becomes_its_tilejson()
+    {
+        const string TileJson = "https://example.org/ogc/tiles/v1/collections/hosted.parcels/tiles/WebMercatorQuad?f=tilejson";
+        string style = """
+            {"version":8,"sources":{"esri":{"type":"vector","url":"../../"},
+             "abs":{"type":"vector","url":"https://example.org/rest/services/hosted/parcels/VectorTileServer"},
+             "other":{"type":"vector","url":"https://other.example/tiles.json"}},"layers":[]}
+            """;
+
+        JsonNode resolved = JsonNode.Parse(OgcStylesDocuments.AbsoluteAddresses(style, WrittenFor, TileJson))!;
+
+        Assert.Equal(TileJson, (string?)resolved["sources"]!["esri"]!["url"]);
+        Assert.Equal(TileJson, (string?)resolved["sources"]!["abs"]!["url"]);
+        Assert.Equal("https://other.example/tiles.json", (string?)resolved["sources"]!["other"]!["url"]);
+    }
+
     /// <summary>A sprite array (style spec 8's multi-sprite form) is resolved item by item.</summary>
     [Fact]
     public void Each_sprite_of_an_array_is_resolved()

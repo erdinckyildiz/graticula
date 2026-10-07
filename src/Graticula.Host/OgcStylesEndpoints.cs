@@ -227,9 +227,14 @@ internal static class OgcStylesEndpoints
         Uri writtenFor = new(
             $"{TileFaces.Origin(context)}/rest/services/{service.QualifiedName}/VectorTileServer/resources/styles/root.json");
 
+        // A Web Mercator service has a TileJSON on the OGC API Tiles face, whose tile addresses are absolute.
+        string? tileJson = string.Equals(found.Candidate.Set.Id, TileMatrixSet.WebMercatorQuad.Id, StringComparison.Ordinal)
+            ? $"{TilesBase(context)}/collections/{Uri.EscapeDataString(found.Candidate.Id)}/tiles/{TileMatrixSet.WebMercatorQuad.Id}?f=tilejson"
+            : null;
+
         context.Response.ContentType = OgcStylesDocuments.MapboxMediaType + "; charset=utf-8";
         await context.Response
-            .WriteAsync(OgcStylesDocuments.AbsoluteAddresses(document, writtenFor), cancellation)
+            .WriteAsync(OgcStylesDocuments.AbsoluteAddresses(document, writtenFor, tileJson), cancellation)
             .ConfigureAwait(false);
     }
 

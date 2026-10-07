@@ -54,6 +54,9 @@ As §2, Alternative A.
    **PARTLY DISCHARGED 2026-10-06.** QGIS 3.28 adds an image service's WMTS from its `WMTSCapabilities.xml` address
    (`default028mm`) and draws it — more than a quarter of 4,096 sampled pixels drawn — after the GetTile refusals and `SECTIONS`
    this ADR's face was missing were added (OGC's WMTS 1.0 suite: 15 failures to 0). It was not drawn over a basemap.
+   **DISCHARGED 2026-10-07:** drawn over OpenStreetMap's tiles in EPSG:3857, in a window across the coverage's east
+   edge — every sampled pixel has the basemap, and 2,112 of 4,096 are changed by the WMTS layer, the half the coverage
+   covers.
 
 ## 6. Consequences
 

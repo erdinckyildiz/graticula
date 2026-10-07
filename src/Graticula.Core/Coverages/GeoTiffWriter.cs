@@ -105,10 +105,17 @@ public static class GeoTiffWriter
             ? Encoding.ASCII.GetBytes(nd.ToString("R", CultureInfo.InvariantCulture) + "\0")
             : [];
 
+        // ExtraSamples: a grey picture has one colour channel, so each band after the first is an extra sample, and TIFF
+        // 6.0 asks for one tag value apiece (0, unspecified). Without it a two-band answer — WCS 1.0's Band=2,3 — read
+        // in GDAL as "Sum of Photometric type-related color channels and ExtraSamples doesn't match SamplesPerPixel".
+        bool colour = bands == 3 && kind == SampleKind.Unsigned8;
+        int extra = colour ? 0 : bands - 1;
+
         int imageAt = 8;
         int bitsAt = imageAt + image.Length;
         int formatAt = bitsAt + (bitsPerSample.Length * 2);
-        int scaleAt = Align(formatAt + (sampleFormat.Length * 2));
+        int extraAt = formatAt + (sampleFormat.Length * 2);
+        int scaleAt = Align(extraAt + (extra * 2));
         int tieAt = scaleAt + 24;
         int keysAt = tieAt + 48;
         int nodataAt = keysAt + (keys.Length * 2);
@@ -123,6 +130,7 @@ public static class GeoTiffWriter
         w.Write(image);
         foreach (ushort b in bitsPerSample) w.Write(b);
         foreach (ushort f in sampleFormat) w.Write(f);
+        for (int i = 0; i < extra; i++) w.Write((ushort)0);
         Pad(w, scaleAt);
         foreach (double d in scale) w.Write(d);
         foreach (double d in tie) w.Write(d);
@@ -130,7 +138,6 @@ public static class GeoTiffWriter
         w.Write(nodataText);
         Pad(w, directoryAt);
 
-        bool colour = bands == 3 && kind == SampleKind.Unsigned8;
         List<(ushort Tag, ushort Type, int Count, int Value)> tags =
         [
             (256, 4, 1, width),
@@ -144,11 +151,21 @@ public static class GeoTiffWriter
             (278, 4, 1, height),
             (279, 4, 1, image.Length),
             (284, 3, 1, 1),
+        ];
+
+        if (extra > 0)
+        {
+            // Two shorts or fewer fit in the entry, and every value is zero.
+            tags.Add((338, 3, extra, extra <= 2 ? 0 : extraAt));
+        }
+
+        tags.AddRange(
+        [
             (339, 3, bands, bands == 1 ? format : bands == 2 ? format | (format << 16) : formatAt),
             (33550, 12, 3, scaleAt),
             (33922, 12, 6, tieAt),
             (34735, 3, keys.Length, keysAt),
-        ];
+        ]);
 
         if (nodataText.Length > 0)
         {

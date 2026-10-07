@@ -112,6 +112,10 @@ the image size ceiling. A fourth ETS-run suite must be maintained, and this one 
 1. A client that speaks OGC API Maps 1.0 — GDAL 3.8 or later through its `OGCAPI` driver, or QGIS on such a GDAL —
    opens a collection and draws it. Not yet met: the only GDAL here is 3.6, which reads a pre-1.0 draft and refuses
    (*API MAP requested, but not available*), measured 2026-10-06.
+   **DISCHARGED 2026-10-07** with GDAL 3.14 (`ghcr.io/osgeo/gdal`, on the showcase's host): `gdalinfo` opens
+   `OGCAPI:…/ogc/maps/v1/collections/tr_il` with `API=MAP` as a 4-band RGBA raster over Türkiye's extent, and
+   `gdal_translate` writes a 600 × 202 PNG of the provinces' outlines. GDAL sizes the raster from a resolution it
+   assumes, as a collection here states no `scaleDenominator`.
 2. The suite's remaining failures are reported upstream where they are the suite's (classes run without being
    declared, `conf/core` recognised only in https), or the baseline is lowered when the suite changes.
 

@@ -207,6 +207,13 @@ jobs:
         continue-on-error: true
         run: sh tools/cite-run.sh wcs20 "$CITE_SERVER" cite
 
+      # ADR-173: WCS 1.0.0's suite is CTL with no REST controller, so it runs through TEAM Engine's console, on the
+      # runner and against the runner's address, with the suite and the engine copied out of OGC's own image.
+      - name: WCS 1.0
+        id: wcs10
+        continue-on-error: true
+        run: sh tools/cite-run-wcs10.sh "$GRATICULA_TEST_URL/wcs" cite
+
       - name: WMTS 1.0
         id: wmts10
         continue-on-error: true
@@ -276,7 +283,7 @@ jobs:
           failed=""
           for suite in wfs:${{ steps.wfs.outcome }} features:${{ steps.features.outcome }} wms:${{ steps.wms.outcome }} \
                        wms11:${{ steps.wms11.outcome }} wfs11:${{ steps.wfs11.outcome }} \
-                       wcs20:${{ steps.wcs20.outcome }} \
+                       wcs20:${{ steps.wcs20.outcome }} wcs10:${{ steps.wcs10.outcome }} \
                        wmts10:${{ steps.wmts10.outcome }} \
                        tiles:${{ steps.tiles.outcome }} processes:${{ steps.processes.outcome }} \
                        maps:${{ steps.maps.outcome }} \

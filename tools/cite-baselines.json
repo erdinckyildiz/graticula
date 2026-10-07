@@ -148,5 +148,17 @@
       "?limit=1 answered all eight. The list and the job list now page, with a next link.",
       "The engine is anonymous, so cite.yml shares the geometry service publicly for the run."
     ]
+  },
+
+  "wcs10": {
+    "failed": 1,
+    "run": "2026-10-07, 46 passed / 1 failed (run 37581324130; TEAM Engine console, tools/cite-run-wcs10.sh)",
+    "note": [
+      "ADR-173. Not EARL: the console's EARL is empty in -test mode, so cite-count.py reads its",
+      "log, one line per test, an inherited failure not counted twice. The first local run was",
+      "38 passed, 9 failed; eight were this server's and are fixed. The one left is the suite's",
+      "arithmetic: bbox-inside moves each side of the envelope 1 unit inwards, which inverts a",
+      "box under 2 units high -- the fixture's coverage is 1.92 degrees -- and expects content."
+    ]
   }
 }

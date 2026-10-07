@@ -108,6 +108,27 @@ public sealed class WcsConformanceTests : ArcGisClient
             Assert.Equal("image/tiff", type10);
             Assert.Equal(quarter, quarter10);
 
+            // What OGC's 1.0.0 suite found, 2026-10-07: one requestResponseCRSs per reference; a 1.0.0 request without a
+            // version is refused in 1.0.0's report, not 2.0's; and the Band axis is honoured, its unknown values refused.
+            Assert.True(Xml(described10).Descendants().Count(e => e.Name.LocalName == "requestResponseCRSs") >= 2,
+                "Each reference is its own requestResponseCRSs.");
+            Assert.DoesNotContain(Xml(described10).Descendants().Where(e => e.Name.LocalName == "requestResponseCRSs"), e => e.Value.Contains(' ', StringComparison.Ordinal));
+
+            (HttpStatusCode unversioned, _, byte[] unversionedBody) = await GetAsync(root, token!,
+                $"/wcs?service=WCS&request=DescribeCoverage&coverage={id}");
+            Assert.Equal(HttpStatusCode.BadRequest, unversioned);
+            Assert.Equal("ServiceExceptionReport", Xml(unversionedBody).Root!.Name.LocalName);
+
+            (HttpStatusCode badBand, _, byte[] badBandBody) = await GetAsync(root, token!,
+                $"/wcs?service=WCS&version=1.0.0&request=GetCoverage&coverage={id}&crs=EPSG:4326&bbox=30,40.96,30.04,41&width=4&height=4&format=GeoTIFF&Band=99");
+            Assert.Equal(HttpStatusCode.BadRequest, badBand);
+            Assert.Equal("Band", Xml(badBandBody).Descendants().First(e => e.Name.LocalName == "ServiceException").Attribute("locator")!.Value);
+
+            (_, string? bandType, byte[] oneBand) = await GetAsync(root, token!,
+                $"/wcs?service=WCS&version=1.0.0&request=GetCoverage&coverage={id}&crs=EPSG:4326&bbox=30,40.96,30.04,41&width=4&height=4&format=GeoTIFF&Band=1");
+            Assert.Equal("image/tiff", bandType);
+            Assert.True(oneBand.Length > 8, "Band=1 answered nothing.");
+
             (HttpStatusCode notDefined, _, byte[] notDefinedBody) = await GetAsync(root, token!,
                 "/wcs?service=WCS&version=1.0.0&request=GetCoverage&coverage=nothing__here&crs=EPSG:4326&bbox=0,0,1,1&width=1&height=1&format=GeoTIFF");
             Assert.Equal(HttpStatusCode.BadRequest, notDefined);

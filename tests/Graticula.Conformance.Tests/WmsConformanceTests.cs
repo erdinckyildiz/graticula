@@ -867,6 +867,44 @@ public sealed class WmsConformanceTests : ArcGisClient
 
     // ---------- SLD (ADR-171) ----------
 
+    /// <summary>
+    /// An SLD longer than a request line holds is POSTed as a form and drawn — ADR-171 condition 2.
+    /// </summary>
+    /// <remarks>
+    /// <b>A 25-class style exported from QGIS is about 8 KB</b>, and Kestrel refuses a request line over 8 KB with 414
+    /// before WMS sees it, so such a style could not be sent at all while the reader takes 64 KB. Measured 2026-10-07.
+    /// </remarks>
+    [Fact]
+    public async Task A_long_sld_is_posted_as_a_form_and_drawn()
+    {
+        (string layer, string bbox, _) = Assert.Single((await FilledLayersAsync()).Take(1));
+        string map = MapUrl(layer, crs: "CRS:84", bbox: bbox, width: 256, height: 256, extra: "&transparent=true");
+
+        // Twenty-four rules for values nothing has, then the one that draws: long because a real classified style is.
+        string rules = string.Concat(Enumerable.Range(0, 24).Select(i =>
+            $"<Rule><Filter xmlns=\"http://www.opengis.net/ogc\"><PropertyIsEqualTo><PropertyName>objectid</PropertyName><Literal>{-1000 - i}</Literal></PropertyIsEqualTo></Filter>"
+            + $"<PolygonSymbolizer><Fill><CssParameter name=\"fill\">#0000{i:x2}</CssParameter></Fill></PolygonSymbolizer></Rule>"));
+        string sld = $"""
+            <StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld"><NamedLayer><Name>{layer}</Name>
+            <UserStyle><FeatureTypeStyle>{rules}<Rule><ElseFilter/><PolygonSymbolizer><Fill><CssParameter name="fill">#ff00ff</CssParameter></Fill>
+            </PolygonSymbolizer></Rule></FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>
+            """;
+        Assert.True(Uri.EscapeDataString(sld).Length > 8 * 1024, "The style must be longer than a request line holds.");
+
+        string root = await RequireServerAsync();
+        string query = map[(map.IndexOf('?', StringComparison.Ordinal) + 1)..];
+        using HttpRequestMessage post = new(HttpMethod.Post, new Uri(root + "/wms"))
+        {
+            Content = new StringContent(query + "&sld_body=" + Uri.EscapeDataString(sld), System.Text.Encoding.UTF8, "application/x-www-form-urlencoded"),
+        };
+        await AuthenticateAsync(post, root);
+        using HttpResponseMessage response = await Http.SendAsync(post);
+        byte[] image = await response.Content.ReadAsByteArrayAsync();
+
+        Assert.Equal("image/png", response.Content.Headers.ContentType?.MediaType);
+        Assert.True(Painted(image, (255, 0, 255)) > 0, "The posted SLD's else rule was not drawn.");
+    }
+
     [Fact]
     public async Task A_style_sent_as_sld_body_draws_for_that_request_and_get_styles_answers_one_that_draws_the_same()
     {

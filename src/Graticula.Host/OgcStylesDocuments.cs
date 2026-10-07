@@ -403,6 +403,7 @@ internal static partial class OgcStylesDocuments
     /// Where its relative addresses were meant to be read from: the service's
     /// <c>VectorTileServer/resources/styles/root.json</c>.
     /// </param>
+    /// <param name="tileJson">The service's TileJSON, which a source naming the service itself is pointed at, or null.</param>
     /// <returns>The stylesheet, unchanged when nothing in it is relative.</returns>
     /// <remarks>
     /// <para>
@@ -423,8 +424,15 @@ internal static partial class OgcStylesDocuments
     /// <b><c>{fontstack}</c>, <c>{range}</c>, <c>{z}</c>, <c>{x}</c> and <c>{y}</c> stay as they were.</b> They are the
     /// client's placeholders, and a URL resolver percent-encodes braces.
     /// </para>
+    /// <para>
+    /// <b>A source that is the service's own VectorTileServer is pointed at its TileJSON</b> when the caller has one —
+    /// the OGC API Tiles tileset's, for a service tiled on WebMercatorQuad. The VectorTileServer document names its
+    /// tiles relatively (<c>tile/{z}/{y}/{x}.pbf</c>), which ArcGIS's JavaScript API resolves against the document and
+    /// MapLibre does not: given the absolute VectorTileServer address, MapLibre asked for <c>tile/14/6203/9688.pbf</c>
+    /// and drew nothing (measured 2026-10-06, ADR-176 condition 3). The TileJSON's tiles are absolute.
+    /// </para>
     /// </remarks>
-    public static string AbsoluteAddresses(string style, Uri writtenFor)
+    public static string AbsoluteAddresses(string style, Uri writtenFor, string? tileJson = null)
     {
         ArgumentNullException.ThrowIfNull(style);
         ArgumentNullException.ThrowIfNull(writtenFor);
@@ -459,10 +467,23 @@ internal static partial class OgcStylesDocuments
             }
         }
 
+        string serviceRoot = new Uri(writtenFor, "../../").AbsoluteUri.TrimEnd('/');
+
         if (document["sources"] is JsonObject sources)
         {
             foreach ((string _, JsonNode? source) in sources.ToList())
             {
+                if (tileJson is not null
+                    && source is JsonObject holder
+                    && holder["url"] is JsonValue value
+                    && value.TryGetValue(out string? address)
+                    && string.Equals((Absolute(address, writtenFor) ?? address).TrimEnd('/'), serviceRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    holder["url"] = tileJson;
+                    changed = true;
+                    continue;
+                }
+
                 Resolve(source, "url");
                 Resolve(source, "data");
 

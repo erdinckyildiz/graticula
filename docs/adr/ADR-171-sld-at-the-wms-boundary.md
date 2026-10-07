@@ -89,6 +89,11 @@ As §2, Alternative A.
    **PARTLY DISCHARGED 2026-10-03**: GetStyles' document for a unique-value layer with a default class validates against
    `StyledLayerDescriptor.xsd` 1.1.0, and the WMS 1.3.0 document with the SLD capabilities validates against the WMS
    and SLD capabilities schemas (`validate.py`, fetched from schemas.opengis.net). No QGIS export has been sent.
+   **DISCHARGED 2026-10-07**: QGIS 3.28's `saveSldStyle` writes an SE 1.1 document for a red fill, and GetMap with it
+   as SLD_BODY draws the layer red (136 red pixels of the sample). Sending it found the gap this condition was for: a
+   classified style is longer than a request line — a 25-class SLD is 8 KB and Kestrel answered **414** — so the
+   style reader's 64 KB could not be reached by GET, and `/wms` refused POST with 405. **Every WMS address now takes
+   POST as a form** with the same parameters (`A_long_sld_is_posted_as_a_form_and_drawn`).
 
 ## 6. Consequences
 

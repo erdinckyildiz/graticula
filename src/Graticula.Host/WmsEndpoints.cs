@@ -109,7 +109,10 @@ internal static partial class WmsEndpoints
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        app.MapGet(Path, GetAsync).Governed(SharingGovernedExtensions.ByFiltering);
+        // <b>GET, and POST as a form</b> — the same key-value request in the body, for an SLD_BODY longer than a request
+        // line holds. Kestrel refuses a request line over 8 KB with 414, so a 25-class SLD exported from QGIS could not be
+        // sent at all, though the reader takes 64 KB (measured 2026-10-07, ADR-171 condition 2).
+        app.MapMethods(Path, Methods, GetAsync).Governed(SharingGovernedExtensions.ByFiltering);
 
         // ADR-162: a service's own address, as ArcGIS gives it.
         MapServiceAddresses(app);
@@ -121,6 +124,9 @@ internal static partial class WmsEndpoints
         settings.MaximumImageHeight,
         MaximumLayersPerMap,
         MaximumFeatureInfoCount);
+
+    /// <summary>The methods every WMS address answers: GET, and POST with the same parameters as a form.</summary>
+    internal static readonly string[] Methods = [HttpMethods.Get, HttpMethods.Post];
 
     private static async Task GetAsync(
         HttpContext context,
@@ -134,6 +140,22 @@ internal static partial class WmsEndpoints
         CancellationToken cancellation)
     {
         WmsLimits limits = LimitsFor(settings);
+
+        // A POST is a form, read once here so that Parameter can read it synchronously; anything else is not a request.
+        if (HttpMethods.IsPost(context.Request.Method))
+        {
+            if (!context.Request.HasFormContentType)
+            {
+                await RefuseAsync(
+                        context, VersionOf(context),
+                        new WmsFault(WmsFault.InvalidParameter, "A POST to WMS is a form (application/x-www-form-urlencoded) carrying the same parameters as a GET.", "REQUEST"),
+                        cancellation)
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
+        }
 
         if (!WmsRequest.TryParse(Parameter(context), limits, out WmsRequest? request, out WmsFault? fault))
         {
@@ -226,6 +248,18 @@ internal static partial class WmsEndpoints
                 if (string.Equals(pair.Key, name, StringComparison.OrdinalIgnoreCase))
                 {
                     return pair.Value.ToString();
+                }
+            }
+
+            // A POSTed form, already read by GetAsync: the body's parameters after the query string's.
+            if (HttpMethods.IsPost(context.Request.Method) && context.Request.HasFormContentType)
+            {
+                foreach (KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues> pair in context.Request.Form)
+                {
+                    if (string.Equals(pair.Key, name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return pair.Value.ToString();
+                    }
                 }
             }
 

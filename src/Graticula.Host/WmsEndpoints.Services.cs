@@ -46,7 +46,7 @@ internal static partial class WmsEndpoints
             foreach (string kind in (string[])["MapServer", "ImageServer"])
             {
                 string serviceKind = kind;
-                app.MapGet($"{prefix}/{{serviceName}}/{kind}/WMSServer", (
+                app.MapMethods($"{prefix}/{{serviceName}}/{kind}/WMSServer", Methods, (
                         HttpContext context, string serviceName, CatalogFallback catalog, ServiceContexts contexts,
                         IMapCanvasFactory canvases, IProjector projector, HostSettings settings, ICoverageCatalog coverages,
                         ICoverageReaderFactory readers, CancellationToken cancellation) =>

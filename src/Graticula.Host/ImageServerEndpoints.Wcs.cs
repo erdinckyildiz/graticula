@@ -93,7 +93,7 @@ internal static partial class ImageServerEndpoints
         string request = Q("request") ?? string.Empty;
 
         // ADR-173: 1.0.0 is spoken beside 2.0.1, for QGIS's WCS provider, which speaks nothing later.
-        if (IsWcs10(request, Q("version")))
+        if (IsWcs10(request, Q("version"), speaks10: Q("coverage") is not null && Q("coverageId") is null))
         {
             await Wcs10Async(context, request, await WcsVisibleAsync(context, coverages, cancellation).ConfigureAwait(false),
                 readers, projector, settings, Q, cancellation).ConfigureAwait(false);

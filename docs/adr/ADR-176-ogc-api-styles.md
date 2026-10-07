@@ -247,6 +247,13 @@ moved into `WmsEndpoints.SldLayerOf` so that both faces call one function.
    tests written here. When one is published it is run, and its findings replace this condition.
 3. **A client reads a stylesheet from this face**: a MapLibre page pointed at `/styles/{id}?f=mapbox` that draws the
    tiles, and QGIS or another SLD reader that loads `?f=sld11` or `?f=sld10`. No client has done either yet.
+   **DISCHARGED 2026-10-07, and the MapLibre half found a defect first.** MapLibre GL JS 4.7 in headless Chrome,
+   given `hosted.ci_parcels._symbology?f=mapbox`, asked for `tile/14/6203/9688.pbf` and drew nothing: the style's
+   source was the absolute VectorTileServer address, whose document names its tiles relatively — ArcGIS's JavaScript
+   API resolves that against the document, MapLibre does not. A source that is the service's own VectorTileServer is
+   now pointed at the service's OGC API Tiles TileJSON when it is tiled on WebMercatorQuad, whose tile addresses are
+   absolute; MapLibre then draws the parcels (9 rendered features). QGIS 3.28 loads both `?f=sld11` and `?f=sld10`
+   with `loadSldStyle` and draws the layer with them.
 4. **Schema validation of the SLD in the test suite.** Validation against the schemas was done by hand (§4). No
    test repeats it, because the suite does not fetch schemas from the network. **PARTLY DISCHARGED** 2026-10-06 by
    the manual run.

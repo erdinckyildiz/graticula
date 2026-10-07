@@ -409,6 +409,12 @@ attribute is useful* are different claims and only the first is what a schema ch
    WFS itself rather than through GDAL, and it is the client of the population that justified
    building WFS ahead of OGC API Features in §1. Pro and GDAL between them show the documents are
    readable; neither shows that the market this was built for can read them.
+
+   **DISCHARGED 2026-10-07.** QGIS 3.28.0 (OSGeo4W) adds `graticula:ci_buildings` from `/wfs` with its
+   own WFS provider at version 2.0.0, reads every feature — 8, the FeatureServer's count — and draws
+   them; and OSGeo4W's GDAL `ogr2ogr` converts the same type from `WFS:…/wfs?VERSION=2.0.0` to GeoJSON,
+   8 polygons with their fields. QGIS's WFS 1.1.0 read and filter had been shown on 2026-10-06
+   (ADR-168 condition 2).
 2. **DISCHARGED 2026-08-20 by [wfs-filter-review-1](../reviews/wfs-filter-review-1.md), and it
    was worth every line of the condition.** An independent reviewer, working against the running
    server rather than the source, **took the process down twice with a single unauthenticated

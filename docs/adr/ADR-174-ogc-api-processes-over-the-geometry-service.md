@@ -111,6 +111,9 @@ this is acceptable — part of [Q-164](../open-questions.md).)*
 
 1. A processing client — QGIS's OGC API Processes provider or OWSLib's `OGCAPIProcesses` — lists the processes and
    runs a buffer.
+   **DISCHARGED 2026-10-07** with OWSLib 0.35's `owslib.ogcapi.processes.Processes`, signed in by a bearer header: it
+   lists the eight processes, describes `buffer`'s inputs, and a 10-unit buffer of a point in EPSG:3857 comes back a
+   polygon spanning 990 to 1010. (The OWSLib QGIS 3.28 ships, 0.25, predates the Processes client.)
 2. The owner confirms that the processes follow the geometry service's sharing rather than having a sharing of their
    own (`INFERRED`).
 

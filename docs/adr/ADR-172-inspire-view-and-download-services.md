@@ -76,6 +76,11 @@ As §2, Alternative A.
 
 1. The INSPIRE Reference Validator's View and Download service test suites are run against a service, and what they
    find is fixed or recorded.
+   *(2026-10-07: the central INSPIRE Reference Validator was discontinued on 2026-04-01; its software stays published
+   for self-hosting. A deployment run by LifeWatch ERIC still answers its API and lists both suites — "Conformance
+   Class: View Service - WMS" and "Download Service - Pre-defined WFS". It must reach the service over the internet,
+   so the run is against the showcase, and enabling INSPIRE on a showcase service needs its administrator — asked of
+   the owner. Open.)*
 
 ## 6. Consequences
 

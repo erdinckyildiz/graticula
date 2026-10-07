@@ -18,7 +18,12 @@ acceptable; more than that is a regression and fails the build.
 (ADR-175), which writes testng-results.xml rather than EARL. A test method is counted as an
 assertion: PASS is passed, FAIL is failed, SKIP is untested -- the same three numbers.
 
-Usage:  tools/cite-count.py <report.rdf|report.xml> [--baseline tools/cite-baselines.json]
+**Or a TEAM Engine console log.** WCS 1.0.0's suite is CTL with no REST controller, so it runs
+through TEAM Engine's console (ADR-173, tools/cite-run-wcs10.sh), whose EARL report is empty in
+that mode. Each "Test <name> Passed|Failed" line is one test; a failure marked "- Inherited" is
+a parent repeating a child's, and is not counted twice.
+
+Usage:  tools/cite-count.py <report.rdf|report.xml|console.log> [--baseline tools/cite-baselines.json]
 """
 
 import io
@@ -35,6 +40,7 @@ BASELINES = os.path.join(HERE, "cite-baselines.json")
 
 
 TESTNG = {"PASS": "passed", "FAIL": "failed", "SKIP": "untested"}
+CONSOLE = re.compile(r"^\s*Test (\S+) (Passed|Failed|Skipped|Not Tested)(.*)$", re.M)
 
 
 def counts(path):
@@ -53,6 +59,19 @@ def counts(path):
             # The names, because a TestNG report is small enough to say which ones failed.
             if outcome == "failed":
                 print(f"  failed: {method.get('name')}")
+
+        return tally
+
+    if path.endswith(".log"):
+        for name, outcome, rest in CONSOLE.findall(text):
+            if "Inherited" in rest:
+                continue
+
+            outcome = {"Passed": "passed", "Failed": "failed"}.get(outcome, "untested")
+            tally[outcome] = tally.get(outcome, 0) + 1
+
+            if outcome == "failed":
+                print(f"  failed: {name}")
 
         return tally
 
