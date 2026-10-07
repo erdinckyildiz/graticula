@@ -4409,7 +4409,12 @@ fieldset.offered label.check { display: flex; gap: var(--gap-2); align-items: ba
 /* ADR-102 step 10: the publisher's per-layer settings, now in the item. */
 #featureLayers .layerblock { flex-wrap: wrap; }
 #featureLayers .layerblock .setting { flex-basis: 100%; margin-top: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-#featureLayers .layerblock .setting input[data-time-input] { width: 16em; max-width: 100%; }
+/* Free text, not a number: the generic .setting rule above is 116px, right-aligned and monospace, which cut a
+   title to its first word and pushed the placeholder to the far edge (design review, 2026-10-07). Both boxes one
+   width so the two rows line up. */
+#featureLayers .layerblock .setting input[data-time-input],
+#featureLayers .layerblock .setting input[data-layer-title-input] {
+  width: 24em; max-width: 100%; text-align: left; font-family: inherit; }
 .symrail .visrange .setting { flex-wrap: wrap; gap: 4px; align-items: center; }
 .symrail .visrange .setting .q { flex-basis: 100%; }
 .symrail .visrange .row { flex-wrap: wrap; gap: 6px; }
@@ -4423,7 +4428,7 @@ fieldset.offered label.check { display: flex; gap: var(--gap-2); align-items: ba
 #exportData fieldset + .hint { margin-top: 12px; }
 #exportData h3:focus:not(:focus-visible), #updateData h3:focus:not(:focus-visible) { outline: none; }
 #featureLayers .layerblock .setting .q { width: auto; min-width: 0; }
-#featureLayers input[data-time-input] { font: inherit; }
+#featureLayers input[data-time-input], #featureLayers input[data-layer-title-input] { font: inherit; }
 #featureLayers button.ghost, .symrail .visrange button.ghost { border: 1px solid var(--control-edge); }
 details.removelayer { margin-top: var(--gap-3); }
 details.removelayer > summary { cursor: pointer; color: var(--alert); }
@@ -4453,8 +4458,10 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
   align-items: center; gap: 8px; margin: 8px 0 0; max-width: none; }
 #featureLayers .layerblock .setting .q { width: auto; text-align: left; }
 #featureLayers .layerblock .setting .val { font-family: inherit; }
-#featureLayers .layerblock .setting input[data-time-input] { width: 14em; text-align: left; }
-@media (max-width: 600px) { #featureLayers .layerblock .setting { grid-template-columns: 1fr; } }
+/* The time box's width is set once, with the title's, above; a second rule here at 14em won by coming later and the
+   two rows stopped lining up. And minmax(0, 1fr), not 1fr: a bare 1fr track cannot shrink below a 24em box, so at
+   phone width the title row ran past the card (design review, 2026-10-07). */
+@media (max-width: 600px) { #featureLayers .layerblock .setting { grid-template-columns: minmax(0, 1fr); } }
 
 /* A web map's item page (2026-10-01): the main column and the actions beside it, as the layer item. */
 .mapitem { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--gap-4); align-items: start; }

@@ -189,6 +189,7 @@ public readonly record struct PublishedLayerAddress(
 /// before it keeps compiling; read by the listing to say how closely the layer's tiles follow its data
 /// (<see cref="TileSources.CoherenceOf"/>, ADR-010 §6b).
 /// </param>
+/// <param name="Title">What the OGC faces call it, or null for its name (ADR-179).</param>
 public readonly record struct AdminLayer(
     Guid Id,
     string Name,
@@ -208,7 +209,8 @@ public readonly record struct AdminLayer(
     double? MinScale = null,
     double? MaxScale = null,
     bool Tileable = false,
-    string Kind = DataSourceKinds.PostGis)
+    string Kind = DataSourceKinds.PostGis,
+    string? Title = null)
 {
     /// <summary>Its address in the services directory, without the host.</summary>
     public string Address =>

@@ -66,7 +66,7 @@ fixture its baseline was.
 
 **Positive.** A publisher says what a layer is, once, and every OGC client's layer list shows it.
 
-**Negative.** The ArcGIS surface does not show it. There is no Studio control for it yet — condition 1.
+**Negative.** The ArcGIS surface does not show it. Studio sets it in Settings › Feature layer (condition 1).
 
 **State.** One nullable column on `layer`. Nothing at runtime beyond the catalogue's existing cache.
 
@@ -87,6 +87,15 @@ fixture its baseline was.
 ## Conditions
 
 1. Studio's layer settings set and clear the title, through the design review every screen gets.
+   **DISCHARGED 2026-10-07:** Settings › Feature layer has a *Title in OGC clients* row in each layer's block
+   — Set, *Use the name*, Enter — with a sentence under the layers saying what a title is and why ArcGIS
+   clients keep the name. Three rounds of design review found, and the release fixed: a cleared title that
+   stayed in the box because the block is never redrawn (the time column's row had the same fault and was
+   fixed with it), a 116-pixel right-aligned monospace box that cut a title to its first word, Enter doing
+   nothing, two rows that did not line up, and the row running past its card at phone width. Both listings
+   the box is drawn from — the administrative one and an owner's own — now carry the title, and the owner's
+   carries the time column too, which it never had. `ItemStructureTests` and
+   `ALayerTitleIsWhatTheOgcFacesShowTests` hold it.
 
 ## 9. Revisit triggers
 

@@ -7823,6 +7823,7 @@ async function drawFeatureFacts(name, folder) {
     <div id="featureLayers">${serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).map(one => `
       <div class="layerblock">
         <b>${h(one.name || "")}</b> <span class="rowmeta">id ${num(one.id ?? 0)}</span>
+        ${st.manages ? layerTitleMarkup({ ...layerNamed(one.name || ""), ...(content.get(one.name || "") || {}) }, one.name || "") : ""}
         ${st.manages ? layerTimeMarkup({ ...layerNamed(one.name || ""), ...(content.get(one.name || "") || {}) }, one.name || "") : ""}
         ${st.manages && layerNamed(one.name || "").hosted ? `
         <div class="setting"><span class="q">Keep history:</span>
@@ -7837,6 +7838,8 @@ async function drawFeatureFacts(name, folder) {
           Editors can only update and delete the features they add</label>
           <span class="rowmeta" id="ownWhy-${h(one.name || "")}" data-own-only-why="${h(one.name || "")}"></span></div>` : ""}
       </div>`).join("")}</div>
+    ${st.manages ? `<p class="hint">A layer's <b>title</b> is what WMS, WFS and OGC API Features list it as. Left
+      empty, they show its name. ArcGIS clients always show the name, because they use it to find the layer.</p>` : ""}
     ${st.manages ? `<p class="hint">A layer's <b>time column</b> is when each feature happened. Left empty, the server
       uses the layer's one date column, or publishes no time when it has none or several — name one when the table
       has more than one date, <code>observed_at</code> rather than <code>created_at</code>.</p>` : ""}
@@ -8647,6 +8650,22 @@ function layerTimeMarkup(l, name) {
           value="${h(l.timeField || "")}">
         <button type="button" class="tiny" data-time="${h(name)}">Set</button>
         <button type="button" class="tiny ghost" data-time="${h(name)}" data-clear="1">Derive it</button></div>
+
+`;
+}
+
+/**
+ * A layer's title, as Settings › Feature layer draws it for each layer — ADR-179. What WMS, WFS and OGC API
+ * Features call the layer in their lists; the ArcGIS surface keeps showing its name, which clients use to
+ * address it. The input is found from the button that was pressed, as the time column's is.
+ */
+function layerTitleMarkup(l, name) {
+  return `
+      <div class="setting"><span class="q">Title in OGC clients:</span>
+        <input type="text" data-layer-title-input maxlength="256" aria-label="The title of ${h(name)} in OGC clients"
+          placeholder="${h(name)}" value="${h(l.title || "")}">
+        <button type="button" class="tiny" data-layer-title="${h(name)}">Set</button>
+        <button type="button" class="tiny ghost" data-layer-title="${h(name)}" data-clear="1">Use the name</button></div>
 
 `;
 }
@@ -23353,6 +23372,23 @@ async function createImported(event) {
 let logTyping = null;
 
 /*
+  <b>Enter in a layer's title or time box presses that row's Set</b> — one text box and a button beside it is a form
+  to whoever is typing, and Enter did nothing (design review of the title row, 2026-10-07).
+*/
+document.addEventListener("keydown", event => {
+  if (event.key !== "Enter" || !event.target.matches?.("[data-layer-title-input], [data-time-input]")) {
+    return;
+  }
+
+  const set = event.target.closest(".setting")?.querySelector("button:not([data-clear])");
+
+  if (set) {
+    event.preventDefault();
+    set.click();
+  }
+});
+
+/*
   <b>A row that a keyboard can focus has to be a row a keyboard can open.</b> Space as well as
   Enter, because the row announces itself as a button and that is what a button does.
 */
@@ -23761,6 +23797,30 @@ async function handleClick(event) {
     return;
   }
 
+  if (d.layerTitle) {
+    // ADR-179. Empty, or "Use the name", clears it: the OGC faces then show the layer's name, as before.
+    const input = t.closest(".layerblock")?.querySelector("[data-layer-title-input]");
+    const title = d.clear || !input ? "" : input.value.trim();
+    const place = placeOf(d.layerTitle);
+    const which = place ? `?service=${encodeURIComponent(place.service)}` : "";
+    try {
+      const r = await api(`/admin/layers/${encodeURIComponent(d.layerTitle)}/title${which}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title || null }),
+      });
+      // <b>The server's answer goes back into the box</b>, because nothing redraws this block: loadLayers refreshes
+      // the lists, not #featureLayers, so a cleared title stayed in the box over a toast saying it was gone. Found
+      // in the design review of 2026-10-07; writing the value rather than redrawing keeps focus on the button.
+      if (input) input.value = r.title || "";
+      toast(r.title
+        ? `WMS, WFS and OGC API Features now list ${d.layerTitle} as “${r.title}”. ArcGIS clients still show ${d.layerTitle}.`
+        : `WMS, WFS and OGC API Features list ${d.layerTitle} by its name again.`, true);
+    } catch (e) { toast(e.message); }
+    await loadLayers();
+    return;
+  }
+
   if (d.time) {
     const input = t.closest(".layerblock")?.querySelector("[data-time-input]") || $("timeField");
     const field = d.clear || !input ? null : input.value.trim();
@@ -23773,6 +23833,8 @@ async function handleClick(event) {
 
       // The server's note says whether the declaration holds against the columns the
       // layer actually has, which is the half a publisher cannot see from here.
+      // The box shows what is saved, for the reason the title's does: this block is not redrawn.
+      if (input) input.value = r.timeField || "";
       toast(r.note, r.declarationHolds);
     } catch (e) { toast(e.message); }
     await loadLayers();

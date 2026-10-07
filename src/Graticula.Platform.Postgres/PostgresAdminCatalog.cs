@@ -950,7 +950,10 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                    -- here, which was a second copy of `VectorTileEndpoints.Tileable`; ADR-095 changed the
                    -- rule (a registered PostGIS layer is tiled too) and `TileSources.Tiled` is now the
                    -- one place it lives, asked by this listing and by the tile face alike.
-                   d.kind
+                   d.kind,
+
+                   -- ADR-179: the title the OGC faces show, so Studio shows what is set.
+                   l.title
             from layer l
             join data_source d on d.id = l.data_source_id
             join service s on s.id = l.service_id
@@ -985,7 +988,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 reader.IsDBNull(16) ? null : reader.GetDouble(16),
                 reader.IsDBNull(17) ? null : reader.GetDouble(17),
                 TileSources.Tiled(reader.GetBoolean(10), reader.GetString(18)),
-                reader.GetString(18)));
+                reader.GetString(18),
+                reader.IsDBNull(19) ? null : reader.GetString(19)));
         }
 
         return layers;

@@ -315,6 +315,49 @@ public sealed class ItemStructureTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
+    /// <summary>
+    /// ADR-179 condition 1: each layer's title is set from Settings › Feature layer — a box wide enough to read a
+    /// title in, and Enter in it sends the title as Set does.
+    /// </summary>
+    /// <remarks>
+    /// <b>Its width is measured because the first version was 116 pixels</b>, right-aligned and monospace — the
+    /// page-wide rule for a number — and a saved title showed as its first word (design review, 2026-10-07).
+    /// </remarks>
+    [Fact]
+    public async Task Each_layers_title_is_set_from_Feature_layer_and_Enter_sends_it()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync($"/studio/#/service/{Service()}?tab=settings&section=feature", token);
+
+        await WaitForAsync(
+            "(() => { const i = document.querySelector('#featureLayers [data-layer-title-input]'); if (!i) return false; "
+            + "i.scrollIntoView(); return i.offsetParent !== null && i.getBoundingClientRect().width >= 200; })()",
+            "Settings › Feature layer does not show a layer title box wide enough to read a title in.");
+
+        string align = await Browser.EvaluateAsync<string>(
+            "getComputedStyle(document.querySelector('#featureLayers [data-layer-title-input]')).textAlign") ?? "";
+
+        Assert.NotEqual("right", align);
+
+        // The time box beside it is the same width, or the two rows of one block do not line up: two rules gave
+        // them 14em and 24em, and then the same 24em measured in two different font sizes.
+        int[] widths = await Browser.EvaluateAsync<int[]>(
+            "['data-layer-title-input', 'data-time-input'].map(a => Math.round(document.querySelector(`#featureLayers [${a}]`).getBoundingClientRect().width))")
+            ?? [];
+
+        Assert.Equal(widths[0], widths[1]);
+
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const i = document.querySelector('#featureLayers [data-layer-title-input]'); i.focus(); i.value = 'Parseller'; "
+            + "i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return true; })()");
+
+        await WaitForAsync("(window.__writes || []).some(w => w.startsWith('PUT ') && w.includes('/title'))",
+            "Enter in the title box sent nothing to the title route.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
     /// <summary>Step 11: Studio draws no layer screen — every layer address it is given opens the item.</summary>
     [Theory]
     [InlineData("")]

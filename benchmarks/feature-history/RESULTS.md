@@ -114,6 +114,11 @@ near Ankara, seven runs after two warm-ups, median, end to end on the same host.
    not the client's. Fixed in the same release; with the client's half lifted the copy took **64.6 s**
    for 1,000,003 rows under its lock.
 
+   **Confirmed on the v1.0.309 images, same day**, with nothing lifted by hand: history off and on again
+   for the same 1,000,003 points answered 200 in 64.2 s; the 20 km envelope, count only, median of seven,
+   was **27 ms today and 28 ms at the moment**, where it had been 1.7 s; and the FeatureServer and
+   MapServer documents both carried `archivingInfo`.
+
 ## An ArcGIS client reading a moment — 2026-10-07 (ADR-078 condition 2)
 
 The ArcGIS Maps SDK for JavaScript 4.29, in headless Chrome, against the local fixture: a hosted layer

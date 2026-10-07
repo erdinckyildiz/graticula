@@ -60,6 +60,14 @@ public sealed class ALayerTitleIsWhatTheOgcFacesShowTests : ArcGisClient
                 Assert.True(body.Contains(title, StringComparison.Ordinal), $"{path} does not show the title.");
             }
 
+            // And the two listings Studio's Settings › Feature layer draws the box from — the administrative one
+            // and an owner's own — say what is set, or the box shows empty over a title that is there.
+            foreach (string listing in (string[]) ["/admin/layers", "/content/layers"])
+            {
+                (_, string body) = await SignedAsync(HttpMethod.Get, listing);
+                Assert.True(body.Contains(title, StringComparison.Ordinal), $"{listing} does not carry the title.");
+            }
+
             (HttpStatusCode tooLong, _) = await SignedAsync(HttpMethod.Put, $"/admin/layers/{layer}/title",
                 JsonSerializer.Serialize(new { title = new string('x', 257) }));
             Assert.Equal(HttpStatusCode.BadRequest, tooLong);

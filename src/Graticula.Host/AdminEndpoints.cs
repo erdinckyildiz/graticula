@@ -1462,6 +1462,12 @@ internal static partial class AdminEndpoints
                     // public. A publisher reading *organization* knows why they cannot restyle
                     // it before they try.
                     because = reason.ToString(),
+
+                    // <b>The two per-layer settings Settings › Feature layer shows, for an owner who is not an
+                    // administrator</b> — the console draws them from this listing when the administrative one
+                    // is not theirs to read, so without them a title or a time column that is set showed empty.
+                    title = layer.Title,
+                    timeField = layer.TimeField,
                 };
 
                 // <b>Three lists, because two of them made a false statement.</b> Everything not
@@ -9620,6 +9626,9 @@ internal static partial class AdminEndpoints
 
                 // Q-129: which column this layer's time comes from, when somebody said.
                 timeField = l.TimeField,
+
+                // ADR-179: what the OGC faces call it, or null for its name.
+                title = l.Title,
 
                 // D-159: the console has read this off this listing since the tile-cache
                 // control was written, and it was not here.
