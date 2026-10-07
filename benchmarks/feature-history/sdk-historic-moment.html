@@ -1,0 +1,46 @@
+<!doctype html>
+<!--
+  ADR-078 condition 2: the ArcGIS Maps SDK for JavaScript reading an archived layer at a historic moment.
+  Run 2026-10-07 against the local fixture: serve this folder on http://127.0.0.1:18498 with catch.py, which
+  writes POST /result to result.txt, open ?m=<epoch ms> in headless Chrome with --ignore-certificate-errors,
+  and read the file. The layer was made by sdk-historic-moment-setup.py. RESULTS.md has what it printed.
+-->
+<html><head><meta charset="utf-8"><title>historicMoment</title>
+<script src="https://js.arcgis.com/4.29/"></script></head>
+<body><pre id="out">running</pre>
+<script>
+var historicAt = Number(new URLSearchParams(location.search).get("m"));
+console.log("PROBE start " + historicAt);
+require(["esri/layers/FeatureLayer"], function (FeatureLayer) {
+  console.log("PROBE module");
+  run(FeatureLayer);
+}, function (e) { console.log("PROBE amd " + e); });
+
+async function run(FeatureLayer) {
+  var lines = [];
+  try {
+    var url = "https://127.0.0.1:18491/rest/services/hosted/zz_hist_sdk/FeatureServer/0";
+    var today = new FeatureLayer({ url: url });
+    var then = new FeatureLayer({ url: url, historicMoment: new Date(historicAt) });
+    await today.load(); await then.load();
+    console.log("PROBE loaded");
+    lines.push("isDataArchived " + today.sourceJSON.isDataArchived);
+    lines.push("caps.query " + JSON.stringify(today.capabilities.query));
+    lines.push("aqc " + JSON.stringify(today.sourceJSON.advancedQueryCapabilities));
+    lines.push("data " + JSON.stringify(today.capabilities.data));
+    lines.push("capabilities.query.supportsHistoricMoment " + (today.capabilities && today.capabilities.query && today.capabilities.query.supportsHistoricMoment));
+    var show = async function (layer, name, extra) {
+      var q = layer.createQuery(); q.outFields = ["*"]; q.returnGeometry = true; Object.assign(q, extra || {});
+      var r = await layer.queryFeatures(q);
+      lines.push(name + ": " + r.features.map(function (f) { return f.attributes.label + " @ " + Math.round(f.geometry.x) + "," + Math.round(f.geometry.y); }).sort().join(" | "));
+    };
+    await show(today, "today");
+    await show(then, "layer.historicMoment");
+    await show(today, "query.historicMoment", { historicMoment: new Date(historicAt) });
+    lines.push("count then " + await then.queryFeatureCount());
+  } catch (e) { console.log("PROBE error " + e); lines.push("ERROR " + (e.message || e) + " " + JSON.stringify(e.details || {})); }
+  document.getElementById("out").textContent = "DONE\n" + lines.join("\n");
+  await fetch("/result", { method: "POST", body: lines.join("\n") });
+  console.log("PROBE done");
+}
+</script></body></html>

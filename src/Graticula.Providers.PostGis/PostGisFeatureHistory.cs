@@ -78,6 +78,7 @@ public sealed class PostGisFeatureHistory
     /// </summary>
     /// <param name="layer">The layer.</param>
     /// <param name="parameter">The name of the <c>timestamptz</c> parameter holding the moment.</param>
+    /// <param name="box">Predicates on <c>h.geom</c> to add, or null.</param>
     /// <returns>A parenthesised relation, aliased as the table.</returns>
     /// <remarks>
     /// <para>
@@ -90,12 +91,14 @@ public sealed class PostGisFeatureHistory
     /// against it unchanged.
     /// </para>
     /// <para>
-    /// <b>The cost, stated rather than hidden:</b> a spatial filter on a historic read cannot use the
-    /// history's spatial index, because the geometry it tests is the one rebuilt from text. The
-    /// validity filter uses the index on the dates. ADR-078 condition 6 is where that gets measured.
+    /// <b>A spatial filter goes in twice.</b> The query's own clause tests the geometry rebuilt from
+    /// text, which no index can answer; <paramref name="box"/> is the same filter as a box test on
+    /// the history's own <c>h.geom</c>, ahead of the rebuild, where the GiST index answers it.
+    /// Without it every version valid at the moment was rebuilt first — 1.7 s for a 20 km square
+    /// of a million points, ADR-078 condition 6.
     /// </para>
     /// </remarks>
-    public static string AtMoment(LayerDefinition layer, string parameter)
+    public static string AtMoment(LayerDefinition layer, string parameter, string? box = null)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentException.ThrowIfNullOrWhiteSpace(parameter);
@@ -108,7 +111,8 @@ public sealed class PostGisFeatureHistory
             + $"lateral jsonb_populate_record(null::{table}, "
             + $"h.attributes || jsonb_build_object('{geometry}', h.geom::text)) p "
             + $"where h.gdb_from_date <= @{parameter} "
-            + $"and (h.gdb_to_date is null or h.gdb_to_date > @{parameter})) "
+            + $"and (h.gdb_to_date is null or h.gdb_to_date > @{parameter})"
+            + (box is null ? ") " : $" and {box}) ")
             + LayerDefinition.Quote(layer.TableName);
     }
 
@@ -126,6 +130,32 @@ public sealed class PostGisFeatureHistory
             await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         return await IsOnAsync(connection, _layer, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The earliest moment a layer's history answers for, on a connection the caller holds.</summary>
+    /// <param name="connection">An open connection to the layer's database.</param>
+    /// <param name="layer">A layer whose history is on.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The first version's start — the moment history was turned on.</returns>
+    /// <remarks>
+    /// <b>Why an ArcGIS client needs it:</b> the SDK reads whether a layer answers
+    /// <c>historicMoment</c> from <c>archivingInfo</c>, not from <c>advancedQueryCapabilities</c>, and
+    /// <c>startArchivingMoment</c> beside it is where a time slider starts. One index read on the dates.
+    /// </remarks>
+    public static async Task<DateTimeOffset> SinceAsync(
+        NpgsqlConnection connection, LayerDefinition layer, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(layer);
+
+        string history = $"{LayerDefinition.Quote(layer.SchemaName)}.{LayerDefinition.Quote(layer.TableName + Suffix)}";
+
+        // An empty history — a layer with no features when it was turned on, and none since — began
+        // when its trigger did, which nothing records; now is the honest lower bound of what it holds.
+        await using NpgsqlCommand command = new($"select coalesce(min(gdb_from_date), now()) from {history}", connection);
+        object? since = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+
+        return new DateTimeOffset(DateTime.SpecifyKind((DateTime)since!, DateTimeKind.Utc));
     }
 
     /// <summary>Whether a layer keeps its history, on a connection the caller holds.</summary>
@@ -175,6 +205,14 @@ public sealed class PostGisFeatureHistory
     /// <b>No statement timeout for this one transaction.</b> The pool's thirty seconds is right for a
     /// query somebody is waiting on; copying a large layer once is an administrator's deliberate
     /// act and is bounded by the table, not by a reader.
+    /// </para>
+    /// <para>
+    /// <b>On both sides of the wire.</b> <c>statement_timeout</c> is the server's bound and Npgsql's
+    /// <c>CommandTimeout</c> is ours, thirty seconds by default, and lifting only the first still
+    /// stopped the copy at thirty: a million-point layer on the arm64 datastore answered 502 and kept
+    /// no history (ADR-078 condition 6). What bounds the copy now is the request's own deadline,
+    /// through the cancellation token, which an operator sets and Npgsql honours by cancelling the
+    /// statement on the server.
     /// </para>
     /// </remarks>
     public async Task<long> EnableAsync(CancellationToken cancellationToken)
@@ -238,7 +276,7 @@ public sealed class PostGisFeatureHistory
              from {_layer.QuotedTable} t
              """,
             connection,
-            transaction))
+            transaction) { CommandTimeout = 0 })
         {
             seed.Parameters.AddWithValue("geometry", _layer.GeometryColumn);
             seeded = await seed.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -688,7 +726,7 @@ public sealed class PostGisFeatureHistory
     private static async Task ExecuteAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction, string sql, CancellationToken cancellationToken)
     {
-        await using NpgsqlCommand command = new(sql, connection, transaction);
+        await using NpgsqlCommand command = new(sql, connection, transaction) { CommandTimeout = 0 };
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 }

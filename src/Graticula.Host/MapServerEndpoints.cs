@@ -273,7 +273,8 @@ internal static class MapServerEndpoints
             Labels(layer),
             CapabilityCeilings.Refuses(layer, "Query") ? string.Empty : Capabilities,
             layer.Definition.IntegerIdentityColumn,
-            FeatureServerMetadataWriter.TimeInfo(time is null ? null : (time.Field, time.From, time.Until)));
+            FeatureServerMetadataWriter.TimeInfo(time is null ? null : (time.Field, time.From, time.Until)),
+            FeatureServerMetadataWriter.ArchivingInfo(described));
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {

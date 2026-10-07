@@ -44,6 +44,38 @@ public sealed class FeatureServerMetadataWriterTests
         JsonDocument.Parse(JsonSerializer.Serialize(value)).RootElement;
 
     [Fact]
+    public void A_layer_that_keeps_its_history_says_so_where_the_SDK_reads_it()
+    {
+        // ADR-078 condition 2: the ArcGIS Maps SDK took `supportsHistoricMoment` from `archivingInfo`
+        // and said false while answering historic queries, because only `advancedQueryCapabilities`
+        // carried the flag.
+        DateTimeOffset since = new(2026, 10, 7, 10, 0, 0, TimeSpan.Zero);
+
+        JsonElement archived = Json(FeatureServerMetadataWriter.Layer(
+            Layer(), GeometryKind.Polygon, Description() with { Archived = true, ArchivedSince = since }, "Query"));
+
+        Assert.True(archived.GetProperty("isDataArchived").GetBoolean());
+        JsonElement info = archived.GetProperty("archivingInfo");
+        Assert.True(info.GetProperty("supportsQueryWithHistoricMoment").GetBoolean());
+        Assert.Equal(since.ToUnixTimeMilliseconds(), info.GetProperty("startArchivingMoment").GetInt64());
+        Assert.True(archived.GetProperty("advancedQueryCapabilities").GetProperty("supportsQueryWithHistoricMoment").GetBoolean());
+
+        JsonElement present = Json(FeatureServerMetadataWriter.Layer(
+            Layer(), GeometryKind.Polygon, Description(), "Query"));
+
+        Assert.False(present.GetProperty("isDataArchived").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, present.GetProperty("archivingInfo").ValueKind);
+
+        // MapServer/{id}/query is the same handler and answers the moment too, so its document says so.
+        JsonElement map = Json(MapServerMetadataWriter.Layer(
+            OneLayer(), [], null, null, 1000,
+            archivingInfo: FeatureServerMetadataWriter.ArchivingInfo(Description() with { ArchivedSince = since })));
+
+        Assert.True(map.GetProperty("isDataArchived").GetBoolean());
+        Assert.Equal(since.ToUnixTimeMilliseconds(), map.GetProperty("archivingInfo").GetProperty("startArchivingMoment").GetInt64());
+    }
+
+    [Fact]
     public void The_service_document_reports_the_capabilities_it_is_given()
     {
         // ADR-008 §2 applied where it bites first. A client reads this string to

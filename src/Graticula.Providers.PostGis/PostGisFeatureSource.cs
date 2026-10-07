@@ -559,8 +559,7 @@ public sealed class PostGisFeatureSource
         //
         // The reference stamped on is the caller's, and ToLayerReference brings it
         // the rest of the way when the two differ.
-        string filter = ToLayerReference(
-            $"st_setsrid(st_geomfromwkb(@filter), {Literal(FilterSrid(query))})", query);
+        string filter = FilterReference(query);
 
         if (spatial.Distance > 0)
         {
@@ -574,13 +573,8 @@ public sealed class PostGisFeatureSource
                 // the widened box reaches, which is never narrower than the circle it has to hold.
                 // Near a pole the cosine goes to nothing, the box to the whole band, and the query
                 // to a scan — correct, and slower, where hardly anybody asks.
-                const string DegreesOfLatitude = "(@distance / 111000.0)";
-
-                string widened =
-                    $"st_expand({filter}, {DegreesOfLatitude} / greatest(cos(radians(least(89.9, "
-                    + $"greatest(abs(st_ymin({filter})), abs(st_ymax({filter}))) + {DegreesOfLatitude}))), 0.001))";
-
-                return $"{column} && {widened} and st_dwithin({column}::geography, {filter}::geography, @distance)";
+                return $"{column} && {GeographicWidening(filter)} "
+                    + $"and st_dwithin({column}::geography, {filter}::geography, @distance)";
             }
 
             return $"st_dwithin({column}, {filter}, @distance)";
@@ -606,6 +600,21 @@ public sealed class PostGisFeatureSource
 
             _ => $"st_intersects({column}, {filter})",
         };
+    }
+
+    /// <summary>The bound filter geometry, in the layer's reference.</summary>
+    private string FilterReference(FeatureQuery query) =>
+        ToLayerReference($"st_setsrid(st_geomfromwkb(@filter), {Literal(FilterSrid(query))})", query);
+
+    /// <summary>
+    /// A filter in degrees widened by <c>@distance</c> metres, never narrower than the circle.
+    /// </summary>
+    private static string GeographicWidening(string filter)
+    {
+        const string DegreesOfLatitude = "(@distance / 111000.0)";
+
+        return $"st_expand({filter}, {DegreesOfLatitude} / greatest(cos(radians(least(89.9, "
+            + $"greatest(abs(st_ymin({filter})), abs(st_ymax({filter}))) + {DegreesOfLatitude}))), 0.001))";
     }
 
     /// <summary>The order, then the window.</summary>
@@ -750,7 +759,52 @@ public sealed class PostGisFeatureSource
     private string From(FeatureQuery query) =>
         query.HistoricMoment is null
             ? _layer.QuotedTable
-            : PostGisFeatureHistory.AtMoment(_layer, MomentParameter);
+            : PostGisFeatureHistory.AtMoment(_layer, MomentParameter, HistoricBox(query));
+
+    /// <summary>
+    /// The query's spatial filter as a box test on the history's own geometry column, or null.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Measured before it was written — ADR-078 condition 6.</b> The relation a historic read
+    /// returns rebuilds every column from the version's JSON, the geometry included, so a filter on
+    /// it is a filter on a value computed per row: no index can answer it, and every version valid
+    /// at the moment is rebuilt before one is tested. A million points on the arm64 datastore: a
+    /// 20 km square answered in 26 ms today and 1.7 s at a moment, and counting the whole layer at
+    /// the moment took the same 1.7 s — the rebuild was the cost, not the test.
+    /// </para>
+    /// <para>
+    /// <b>So the box goes in front of the rebuild, on <c>h.geom</c>, where the GiST index is.</b>
+    /// Every spatial clause this provider writes implies an overlap of boxes — each relation
+    /// already puts <c>&amp;&amp;</c> in front of itself, and a distance implies the filter widened by
+    /// it — so a version this test drops is one the full clause would have dropped. The full
+    /// clause still runs on what is left, against the rebuilt geometry, unchanged.
+    /// </para>
+    /// </remarks>
+    private string? HistoricBox(FeatureQuery query)
+    {
+        const string Column = "h.geom";
+        List<string> boxes = [];
+
+        if (query.BoundingBox is not null)
+        {
+            boxes.Add($"{Column} && {ToLayerReference(
+                $"st_makeenvelope(@minx, @miny, @maxx, @maxy, {Literal(FilterSrid(query))})", query)}");
+        }
+
+        if (query.Spatial is { } spatial)
+        {
+            string filter = FilterReference(query);
+
+            boxes.Add(spatial.Distance > 0
+                ? $"{Column} && {(Graticula.Geometries.AxisOrder.IsGeographic(_layer.Srid)
+                    ? GeographicWidening(filter)
+                    : $"st_expand({filter}, @distance)")}"
+                : $"{Column} && {filter}");
+        }
+
+        return boxes.Count == 0 ? null : string.Join(" and ", boxes);
+    }
 
     /// <summary>The name <see cref="From"/> binds the historic moment under.</summary>
     private const string MomentParameter = "historic_moment";
@@ -1229,13 +1283,16 @@ public sealed class PostGisFeatureSource
         (IReadOnlyList<FieldDescription> fields, bool? writable, GeometryOrdinates ordinates, bool? indexed) =
             await ReadShapeAsync(cancellationToken).ConfigureAwait(false);
 
+        DateTimeOffset? archivedSince = await ArchivedSinceAsync(cancellationToken).ConfigureAwait(false);
+
         return new LayerDescription(
             fields,
             await ReadExtentAsync(cancellationToken).ConfigureAwait(false),
             writable)
         {
             StoredOrdinates = ordinates,
-            Archived = await ArchivedAsync(cancellationToken).ConfigureAwait(false),
+            Archived = archivedSince is not null,
+            ArchivedSince = archivedSince,
             SpatiallyIndexed = indexed,
         };
     }
@@ -1248,18 +1305,21 @@ public sealed class PostGisFeatureSource
     /// the datastore (ADR-002 §4.2), so a registered table is not asked: the answer is no, and asking
     /// would be a query per describe against somebody else's database for a fact that cannot be true.
     /// </remarks>
-    private async Task<bool> ArchivedAsync(CancellationToken cancellationToken)
+    /// <returns>When the history begins, or null when the layer keeps none.</returns>
+    private async Task<DateTimeOffset?> ArchivedSinceAsync(CancellationToken cancellationToken)
     {
         if (!string.Equals(_layer.SchemaName, PostGisImporter.HostedSchema, StringComparison.Ordinal)
             || _layer.IntegerIdentityColumn is null)
         {
-            return false;
+            return null;
         }
 
         await using NpgsqlConnection connection =
             await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
 
-        return await PostGisFeatureHistory.IsOnAsync(connection, _layer, cancellationToken).ConfigureAwait(false);
+        return await PostGisFeatureHistory.IsOnAsync(connection, _layer, cancellationToken).ConfigureAwait(false)
+            ? await PostGisFeatureHistory.SinceAsync(connection, _layer, cancellationToken).ConfigureAwait(false)
+            : null;
     }
 
     /// <summary>

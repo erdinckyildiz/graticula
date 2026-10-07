@@ -146,6 +146,7 @@ public static class MapServerMetadataWriter
     /// <param name="capabilities">What this layer offers, comma-separated.</param>
     /// <param name="objectIdField">The layer's object id column, or null when it has none.</param>
     /// <param name="timeInfo">The layer's timeInfo, as the FeatureServer document writes it, or null.</param>
+    /// <param name="archivingInfo">The layer's archivingInfo, as the FeatureServer document writes it, or null.</param>
     /// <returns>The document.</returns>
     public static object Layer(
         FeatureServerMetadataWriter.ServiceLayer layer,
@@ -156,7 +157,8 @@ public static class MapServerMetadataWriter
         bool hasLabels = false,
         string capabilities = "Map",
         string? objectIdField = null,
-        object? timeInfo = null)
+        object? timeInfo = null,
+        object? archivingInfo = null)
     {
         ArgumentNullException.ThrowIfNull(fields);
 
@@ -199,6 +201,13 @@ public static class MapServerMetadataWriter
             supportsAdvancedQueries = true,
             supportedQueryFormats = "JSON, geoJSON, PBF",
             isDataVersioned = false,
+
+            // <b>The same layer's history, said here too — ADR-078, 2026-10-07.</b> `MapServer/{id}/query`
+            // is the FeatureServer's handler and has answered `historicMoment` since history existed;
+            // this document said nothing about it, which is the under-claim the FeatureServer
+            // document had in `archivingInfo` until the SDK was pointed at it.
+            isDataArchived = archivingInfo is not null,
+            archivingInfo,
 
             // The FeatureServer document's own timeInfo for the same layer — V-73.
             timeInfo,

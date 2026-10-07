@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `HIGH` that the database keeps it · `MEDIUM` on the write cost, which is measured once on one machine (§4) |
+| **Confidence** | `HIGH` that the database keeps it · `MEDIUM` on the write cost, which is measured once on one machine (§4) — **`HIGH` since 2026-10-07**, when the same measurement on the showcase's arm64 datastore image gave the same share (§4a) |
 | **Decided** | 2026-09-19, by owner decision, after a comparison with NextGIS Web ([research/nextgis-web-comparison.md](../research/nextgis-web-comparison.md)), which keeps every version of a vector feature. The comparison named two things Graticula lacks that a user would notice, and the owner answered: *"2. Kapsama alalım"* — take them into scope. **That feature history is in v1 is the owner's.** **Opt-in per layer, the ArcGIS archiving shape, restore as a new edit, and hosted layers only are `INFERRED`** and listed in §11 — *(Confirmed by the owner 2026-09-19, all of them, after each was put in plain words: *"onaylıyorum"* — Q-155.)* |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -119,6 +119,27 @@ was committed.** It was one function per schema that built its statements with `
 which PL/pgSQL plans again on every row; one function per table with the names written in keeps its plans.
 Condition 1 holds this ADR to the number being re-measured on the datastore image the showcase runs.
 
+**On the datastore image, 2026-10-07** — the showcase's VPS (arm64, Neoverse-N1), the v1.0.307 server and
+datastore images in a compose project of their own, the same script on the same host:
+
+| | history off | history on |
+|---|---|---|
+| 500 updates | 619 / 689 ms | 956 / 861 ms — **1.25× to 1.55×** |
+| 1,000 updates | 1352 / 1343 ms | 2109 / 2113 ms — **1.56× / 1.57×** |
+| 500 or 1,000 adds, deletes | | 1.2× to 1.4× |
+
+The machine is about twice as slow per write either way, and history's share of an update travelled with
+it. §10's revisit trigger — more than twice, for 1,000 features — is not met.
+
+### 4b. What a historic read costs
+
+The same deployment, a million points and 1,100,003 versions, a 20 km envelope: **26 ms today, 1.7 s at a
+moment** — and 1.7 s for the whole layer at a moment with no filter at all. The filter tested the geometry
+rebuilt from each version's JSON, which no index can answer, so every version valid at the moment was
+rebuilt first. **Put on the history's own geometry as well, ahead of the rebuild, the same query is
+2.2 ms** and returns the same 207 versions; the server writes it that way from the release after v1.0.308.
+A historic read with no spatial filter still rebuilds the layer, and that is §6's to say.
+
 ## 5. Decision
 
 1. **History is a property of a hosted layer, switched on and off by its owner.** `POST
@@ -172,6 +193,8 @@ Studio. The history includes the edits made in QGIS, which is the case that woul
 
 **Negative.**
 - Every write to an archived layer writes twice; §4a says how much.
+- A historic read rebuilds every version it returns from JSON. With a spatial filter that is the versions
+  in the box; without one it is the whole layer as it was — 1.7 s for a million points (§4b).
 - History grows without bound. There is no pruning, and ArcGIS has none by default either; condition 3.
 - The companion table is DDL the server now runs on a live table under a lock; switching it on for a
   multi-million-row layer copies every row once and blocks writers for that long.
@@ -199,10 +222,18 @@ degradation).
 ## 9. Conditions
 
 1. **The write cost is re-measured on the datastore image** — linux-arm64, the showcase's — and written into
-   §4a beside the first number.
+   §4a beside the first number. **DISCHARGED 2026-10-07:** 1.25× to 1.57× on an update, 1.2× to 1.4× on an
+   add or a delete, 500 and 1,000 features, two runs each — §4a,
+   [RESULTS.md](../../benchmarks/feature-history/RESULTS.md).
 2. **An ArcGIS client is shown reading a historic moment** — the SDK's `FeatureLayer.historicMoment` or
    Pro's time slider on an archived layer — against a running server. Until then the claim is that the
-   response has the right shape, not that a client uses it.
+   response has the right shape, not that a client uses it. **DISCHARGED 2026-10-07 with the SDK:**
+   4.29 in headless Chrome read the layer at a moment through both `FeatureLayer.historicMoment` and
+   `Query.historicMoment` and got the moved feature where it was and the deleted one back. It also found
+   that the layer document under-claimed: the SDK takes `supportsHistoricMoment` from `archivingInfo`,
+   which was not written, so it reported false while answering — fixed in the same release, in the
+   MapServer document of the same layer too, whose `query` is the same handler
+   ([RESULTS.md](../../benchmarks/feature-history/RESULTS.md) §10). Pro's time slider is not run.
 3. **History has a retention answer before a layer has one in production** — a *keep for N days* on the
    layer, or a recorded decision that there is none.
 4. **Attachments.** Archived or recorded as never; a restore that silently drops a photo is the case to
@@ -212,7 +243,10 @@ degradation).
    this is recorded as the rule.
 6. **A historic read's spatial filter is measured on a large layer.** It cannot use the history's spatial
    index (the geometry it tests is rebuilt from the version's text), and nobody has measured what that
-   costs on a layer of a million features.
+   costs on a layer of a million features. **DISCHARGED 2026-10-07:** 1.7 s against 26 ms today, and the
+   measurement found the cause — the rebuild, not the test — and the repair: the filter put on the
+   history's own geometry as well, 2.2 ms (§4b). Turning history on for the million had first failed at
+   Npgsql's thirty seconds, which is fixed in the same release.
 
 ## 10. Revisit triggers
 

@@ -278,6 +278,15 @@ public sealed record LayerDescription(
     /// </remarks>
     public bool Archived { get; init; }
 
+    /// <summary>
+    /// The earliest moment the layer's history can answer for, or null when it keeps none — ADR-078.
+    /// </summary>
+    /// <remarks>
+    /// The layer document's <c>archivingInfo.startArchivingMoment</c>. A moment before it is answered
+    /// with nothing rather than refused, which is what ArcGIS does too: the layer had no versions then.
+    /// </remarks>
+    public DateTimeOffset? ArchivedSince { get; init; }
+
     /// <summary>Finds a field by name, or null.</summary>
     public FieldDescription? Find(string name)
     {

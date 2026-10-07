@@ -4,7 +4,9 @@ The same applyEdits batches against the same hosted layer, with history off and 
 through a running server: 500 attribute updates in one batch, 500 adds in one batch, and those 500
 deleted in one batch. Seven timed runs after two warm-ups, median reported.
 
-Usage:  python bench.py https://127.0.0.1:18472 <user> <password> <folder/service> <layer name> <text field>
+Usage:  python bench.py https://127.0.0.1:18472 <user> <password> <folder/service> <layer name> <text field> [features]
+
+The batch is 500 features unless a size is given; the layer must hold at least that many.
 """
 
 import json
@@ -18,7 +20,7 @@ import urllib.request
 BASE, USER, PASSWORD, SERVICE, LAYER, FIELD = sys.argv[1:7]
 CTX = ssl._create_unverified_context()
 FS = f"/rest/services/{SERVICE}/FeatureServer/0"
-N = 500
+N = int(sys.argv[7]) if len(sys.argv) > 7 else 500
 WARM, RUNS = 2, 7
 
 

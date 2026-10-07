@@ -892,6 +892,13 @@ public static class FeatureServerMetadataWriter
             // Every version of every feature kept by the database, with when it was true — ADR-078.
             isDataArchived = description.Archived,
 
+            // <b>Where the ArcGIS Maps SDK actually looks — found 2026-10-07 with the SDK pointed at an
+            // archived layer.</b> `capabilities.query.supportsHistoricMoment` is read from this object,
+            // not from `advancedQueryCapabilities` below, so with only that one the SDK said false and
+            // answered historic queries anyway — a client that reads the flag before offering a time
+            // slider would never offer one. ADR-078 condition 2.
+            archivingInfo = ArchivingInfo(description),
+
             // <b>Two of these were false while the query endpoint honoured
             // them, and that is the never-degrade-silently rule broken in the
             // direction nobody checks.</b> ADR-008 §2 is usually read as "do not
@@ -1094,6 +1101,22 @@ public static class FeatureServerMetadataWriter
           || capabilities.Contains("Update", StringComparison.Ordinal)
           || capabilities.Contains("Delete", StringComparison.Ordinal)
           || capabilities.Contains("Editing", StringComparison.Ordinal));
+
+    /// <summary>
+    /// A layer's <c>archivingInfo</c>, or null for a layer that keeps no history — one writer for the
+    /// FeatureServer and MapServer documents of one layer, since both faces' <c>query</c> answers
+    /// <c>historicMoment</c> (ADR-078).
+    /// </summary>
+    /// <param name="description">The layer as described.</param>
+    /// <returns>The object, or null.</returns>
+    public static object? ArchivingInfo(LayerDescription description)
+    {
+        ArgumentNullException.ThrowIfNull(description);
+
+        return description.ArchivedSince is { } since
+            ? new { supportsQueryWithHistoricMoment = true, startArchivingMoment = since.ToUnixTimeMilliseconds() }
+            : null;
+    }
 
     /// <summary>
     /// A layer's <c>timeInfo</c>, or null for a layer without time — one writer for the FeatureServer and

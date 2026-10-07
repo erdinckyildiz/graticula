@@ -121,6 +121,43 @@ public sealed class FeatureHistoryTests : PostgresFixture
     }
 
     [Fact]
+    public async Task A_spatial_filter_at_a_moment_finds_a_feature_where_it_was_then()
+    {
+        // The box test on the history's own geometry (ADR-078 condition 6) must test the version's
+        // geometry, not today's: a feature moved since is found at its old place and not at its new.
+        await using Layer layer = await LayerAsync();
+        long moved = await layer.AddAsync("moved");
+        await layer.History.EnableAsync(CancellationToken.None);
+
+        DateTimeOffset before = await NowAsync();
+        await ExecuteAsync($"update {layer.Table} set geom = st_setsrid(st_makepoint(5000, 5000), {Srid}) where objectid = {moved}");
+        DateTimeOffset after = await NowAsync();
+
+        Envelope there = new(0, 0, 10, 10);
+        Envelope here = new(4990, 4990, 5010, 5010);
+
+        Assert.Equal([moved], await IdsAsync(new FeatureQuery(10, boundingBox: there) { HistoricMoment = before }));
+        Assert.Empty(await IdsAsync(new FeatureQuery(10, boundingBox: here) { HistoricMoment = before }));
+        Assert.Equal([moved], await IdsAsync(new FeatureQuery(10, boundingBox: here) { HistoricMoment = after }));
+
+        // The same through a geometry filter, a distance, and the bare index relation.
+        Assert.Equal([moved], await IdsAsync(new FeatureQuery(10, spatial: new SpatialFilter(
+            Polygon(0, 0, 10, 10))) { HistoricMoment = before }));
+        Assert.Equal([moved], await IdsAsync(new FeatureQuery(10, spatial: new SpatialFilter(
+            new Point(20, 2), Distance: 25)) { HistoricMoment = before }));
+        Assert.Empty(await IdsAsync(new FeatureQuery(10, spatial: new SpatialFilter(
+            new Point(20, 2), Distance: 25)) { HistoricMoment = after }));
+        Assert.Equal([moved], await IdsAsync(new FeatureQuery(10, spatial: new SpatialFilter(
+            Polygon(4990, 4990, 5010, 5010), SpatialRelation.EnvelopeIntersects)) { HistoricMoment = after }));
+
+        Task<IReadOnlyList<long>> IdsAsync(FeatureQuery query) =>
+            layer.Source.ObjectIdsAsync(query, CancellationToken.None);
+
+        static Polygon Polygon(double minX, double minY, double maxX, double maxY) =>
+            new(new LinearRing(XySequence.Wrap([minX, minY, maxX, minY, maxX, maxY, minX, maxY, minX, minY])));
+    }
+
+    [Fact]
     public async Task Two_updates_in_one_batch_are_one_version()
     {
         await using Layer layer = await LayerAsync();
@@ -244,6 +281,52 @@ public sealed class FeatureHistoryTests : PostgresFixture
 
         // Writes still work with the trigger gone.
         await layer.AddAsync("two");
+    }
+
+    [Fact]
+    public async Task Turning_history_on_outlasts_the_client_s_command_timeout()
+    {
+        // ADR-078 condition 6 found it: a million points took longer to copy than Npgsql's thirty
+        // seconds, and the statement_timeout of zero the copy already set is only the server's half.
+        // A held lock is the slow copy made deterministic — the copy waits on it exactly as it would
+        // on a large table — and a one-second command timeout is the thirty made short.
+        await using Layer layer = await LayerAsync();
+        await layer.AddAsync("first");
+
+        NpgsqlDataSourceBuilder impatient = new(Environment.GetEnvironmentVariable("GRATICULA_TEST_PG"));
+        impatient.ConnectionStringBuilder.CommandTimeout = 1;
+        await using NpgsqlDataSource oneSecond = impatient.Build();
+
+        LayerDefinition definition = new(
+            name: layer.Name,
+            schemaName: PostGisImporter.HostedSchema,
+            tableName: layer.Name,
+            geometryColumn: "geom",
+            srid: Srid,
+            identityColumn: "objectid",
+            integerIdentityColumn: "objectid",
+            isHosted: true);
+
+        await using NpgsqlConnection holder = await DataSource.OpenConnectionAsync();
+        await using NpgsqlTransaction held = await holder.BeginTransactionAsync();
+        await using (NpgsqlCommand hold = new($"lock table {layer.Table} in share row exclusive mode", holder, held))
+        {
+            await hold.ExecuteNonQueryAsync();
+        }
+
+        Task<long> enabling = new PostGisFeatureHistory(oneSecond, definition).EnableAsync(CancellationToken.None);
+        await Task.Delay(TimeSpan.FromSeconds(2.5));
+        Assert.False(enabling.IsCompleted, "The copy finished while the lock it needs was held.");
+        await held.RollbackAsync();
+
+        Assert.Equal(1, await enabling);
+        LayerDescription described = await layer.Source.DescribeAsync(CancellationToken.None);
+        Assert.True(described.Archived);
+
+        // The moment it began is the first version's, and that is what archivingInfo publishes.
+        Assert.Equal(
+            await ScalarAsync<DateTime>($"select min(gdb_from_date) from hosted.\"{layer.Name}__history\""),
+            described.ArchivedSince!.Value.UtcDateTime);
     }
 
     [Fact]
