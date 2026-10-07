@@ -282,10 +282,21 @@ public sealed record LayerDescription(
     /// The earliest moment the layer's history can answer for, or null when it keeps none — ADR-078.
     /// </summary>
     /// <remarks>
-    /// The layer document's <c>archivingInfo.startArchivingMoment</c>. A moment before it is answered
-    /// with nothing rather than refused, which is what ArcGIS does too: the layer had no versions then.
+    /// The layer document's <c>archivingInfo.startArchivingMoment</c>. A moment before it is answered with nothing,
+    /// because the layer had no versions then — except under a keeping period (<see cref="HistoryKeepDays"/>), where
+    /// it is refused, because then it did have versions and some of them are gone.
     /// </remarks>
     public DateTimeOffset? ArchivedSince { get; init; }
+
+    /// <summary>
+    /// How many days of replaced and deleted versions the layer's history keeps, or null for all of them — ADR-078
+    /// condition 3.
+    /// </summary>
+    /// <remarks>
+    /// With a period, <see cref="ArchivedSince"/> is the start of it, and a <c>historicMoment</c> before it is refused:
+    /// the versions that answered it may have been deleted, and part of a layer is not what it was.
+    /// </remarks>
+    public int? HistoryKeepDays { get; init; }
 
     /// <summary>Finds a field by name, or null.</summary>
     public FieldDescription? Find(string name)

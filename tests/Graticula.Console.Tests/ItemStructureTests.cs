@@ -358,6 +358,75 @@ public sealed class ItemStructureTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
+    /// <summary>
+    /// ADR-078 condition 3: how long a history keeps its old versions is set beside it, asks first only when the period
+    /// shortens, and sends nothing for a value that is not a number of days.
+    /// </summary>
+    /// <remarks>
+    /// <b>The history is made to read as on, with 30 days, in this page alone</b> — the harness never sends a write, so
+    /// turning it on for real is not something this page could show. What is tested is the page's half: the row
+    /// appears for a kept history, shortening asks (one slipped digit deletes versions within the hour — design
+    /// review, 2026-10-07), widening does not, and a malformed entry is marked and not sent.
+    /// </remarks>
+    [Fact]
+    public async Task A_historys_keeping_period_is_set_beside_it_and_shortening_it_asks_first()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync($"/studio/#/service/{Service()}?tab=settings&section=feature", token);
+
+        await WaitForAsync("!!document.querySelector('#featureLayers [data-keep-row]')",
+            "Settings › Feature layer has no row for how long a history is kept.");
+
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const real = api; window.api = (path, options) => /\\/history$/.test(path) && !(options && options.method)"
+            + " ? Promise.resolve({ available: true, enabled: true, keepDays: 30 }) : real(path, options);"
+            + " fillLayerStewardship(); return true; })()");
+
+        await WaitForAsync(
+            "(() => { const r = document.querySelector('#featureLayers [data-keep-row]'); const b = r && r.querySelector('[data-keep-input]');"
+            + " return !!r && !r.hidden && b.value === '30' && r.offsetParent !== null; })()",
+            "A history kept for 30 days does not show its row with 30 in the box.");
+
+        // What the row means is on the page before anything is pressed, and it does not bend the row: spanning the grid
+        // stretched the buttons to the card's edge, and one column squeezed the sentence to six lines (design review).
+        int[] shape = await Browser.EvaluateAsync<int[]>(
+            "(() => { const w = document.querySelector('#featureLayers [data-keep-why]'); const set = document.querySelector('#featureLayers [data-keep-history]:not([data-clear])');"
+            + " return [w && !w.hidden && w.offsetParent !== null ? 1 : 0, Math.round(w.getBoundingClientRect().height), Math.round(set.getBoundingClientRect().width)]; })()")
+            ?? [];
+
+        Assert.Equal(1, shape[0]);
+        Assert.InRange(shape[1], 1, 80);
+        Assert.InRange(shape[2], 1, 80);
+
+        // Types a value, presses Set, and answers how many confirms it raised.
+        async Task<int> SetAsync(string typed) =>
+            await Browser.EvaluateAsync<int>(
+                "(async () => { const r = document.querySelector('#featureLayers [data-keep-row]');"
+                + " r.querySelector('[data-keep-input]').value = '" + typed + "'; const a = (window.__confirmed || []).length;"
+                + " r.querySelector('button[data-keep-history]:not([data-clear])').click(); await new Promise(z => setTimeout(z, 300));"
+                + " return (window.__confirmed || []).length - a; })()");
+
+        int writesBefore = (await WritesAsync()).Count(w => w.Contains("/history/keep", StringComparison.Ordinal));
+
+        Assert.Equal(1, await SetAsync("7"));
+
+        // The page's own copy of what is saved is still 30 — the harness answered the write with {}, not 7 — so
+        // the widening is measured from 30 as the server would have it.
+        Assert.Equal(0, await SetAsync("60"));
+
+        int writesAfterValid = (await WritesAsync()).Count(w => w.Contains("/history/keep", StringComparison.Ordinal));
+        Assert.Equal(writesBefore + 2, writesAfterValid);
+
+        await SetAsync("1e");
+
+        Assert.Equal(writesAfterValid, (await WritesAsync()).Count(w => w.Contains("/history/keep", StringComparison.Ordinal)));
+        Assert.Equal("true", await Browser.EvaluateAsync<string>(
+            "document.querySelector('#featureLayers [data-keep-input]').getAttribute('aria-invalid')"));
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
     /// <summary>Step 11: Studio draws no layer screen — every layer address it is given opens the item.</summary>
     [Theory]
     [InlineData("")]

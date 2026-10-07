@@ -382,6 +382,56 @@ public static class DomainRules
             + (subtypes.Types.Count > Listed ? $" and {subtypes.Types.Count - Listed} more." : ".");
     }
 
+    /// <summary>
+    /// Every value of one feature that today's domains and subtypes would refuse, as the refusals an edit would get.
+    /// </summary>
+    /// <param name="fields">The layer's columns, as it describes them now.</param>
+    /// <param name="subtypes">Its subtypes, or null.</param>
+    /// <param name="valueOf">The feature's value of a column, as read.</param>
+    /// <returns>The refusals, empty when every value fits.</returns>
+    /// <remarks>
+    /// <b>For a restore, which writes a version back as it was — ADR-078 condition 5, owner decision 2026-10-07.</b> A
+    /// version written before a list was narrowed is restored anyway, because history is the record of what was;
+    /// this is how the restore says which of its values today's rules would not have let in. The same two checks
+    /// an edit makes, so the sentences are the ones a client already gets from <c>applyEdits</c>.
+    /// </remarks>
+    public static IReadOnlyList<string> Outside(
+        IReadOnlyList<FieldDescription> fields, LayerSubtypes? subtypes, Func<string, object?> valueOf)
+    {
+        ArgumentNullException.ThrowIfNull(fields);
+        ArgumentNullException.ThrowIfNull(valueOf);
+
+        List<string> outside = [];
+        long? kind = subtypes is not null && TryCode(valueOf(subtypes.Field), out long code) ? code : null;
+
+        foreach (FieldDescription field in fields)
+        {
+            object? value = valueOf(field.Name);
+
+            if (subtypes is not null && string.Equals(field.Name, subtypes.Field, StringComparison.Ordinal))
+            {
+                if (SubtypeRefusal(subtypes, value) is { } notASubtype)
+                {
+                    outside.Add(notASubtype);
+                }
+
+                continue;
+            }
+
+            FieldDomain? governing = subtypes?.DomainFor(field.Name, kind, field.Domain) ?? field.Domain;
+            Subtype? whose = governing is not null && !ReferenceEquals(governing, field.Domain) && kind is { } k
+                ? subtypes!.Find(k)
+                : null;
+
+            if (Refusal(field, value, governing, whose) is { } refused)
+            {
+                outside.Add(refused);
+            }
+        }
+
+        return outside;
+    }
+
     /// <summary>A value from the subtype column as a code, when it is an integer.</summary>
     /// <param name="value">The value, as read or converted.</param>
     /// <param name="code">The code.</param>

@@ -281,6 +281,33 @@ public sealed class DomainRulesTests
         Assert.Contains("object id", DomainRules.Refuse(onIdentity, table, Unlocked, None)!, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void A_restored_version_is_told_every_value_today_s_rules_would_refuse()
+    {
+        // ADR-078 condition 5: a version from before a list was narrowed is written back as it was, and the
+        // restore says which values an edit would be refused for today — the column's own domain, the subtype's
+        // narrower one, and a subtype that no longer exists, each as applyEdits would say it.
+        FieldDescription kind = new("kind", FieldType.SmallInteger, true, null);
+        FieldDescription status = Status with { Domain = Coded((1, "Open"), (2, "Closed")) };
+
+        Dictionary<string, object?> version = new() { ["kind"] = (short)1, ["material"] = "PVC", ["status"] = (short)3 };
+
+        IReadOnlyList<string> outside = DomainRules.Outside([kind, Material, status], Pipes(), c => version.GetValueOrDefault(c));
+
+        Assert.Equal(2, outside.Count);
+        Assert.Contains(outside, o => o.Contains("'material' is", StringComparison.Ordinal) && o.Contains("subtype 1 (Main)", StringComparison.Ordinal));
+        Assert.Contains(outside, o => o.Contains("'status' is 3", StringComparison.Ordinal));
+
+        version["kind"] = (short)9;
+        version["status"] = (short)2;
+
+        string gone = Assert.Single(DomainRules.Outside([kind, Material, status], Pipes(), c => version.GetValueOrDefault(c)));
+        Assert.Contains("not one of this layer's subtypes", gone, StringComparison.Ordinal);
+
+        version["kind"] = (short)2;
+        Assert.Empty(DomainRules.Outside([kind, Material, status], Pipes(), c => version.GetValueOrDefault(c)));
+    }
+
     /// <summary>Two subtypes of a pipe, the first narrowing what it may be made of.</summary>
     private static LayerSubtypes Pipes() =>
         new(

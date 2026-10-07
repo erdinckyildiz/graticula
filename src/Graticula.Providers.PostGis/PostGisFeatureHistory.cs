@@ -132,17 +132,27 @@ public sealed class PostGisFeatureHistory
         return await IsOnAsync(connection, _layer, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>The earliest moment a layer's history answers for, on a connection the caller holds.</summary>
+    /// <summary>
+    /// How a layer's history is kept: the earliest moment it answers for, and how many days of it are kept.
+    /// </summary>
     /// <param name="connection">An open connection to the layer's database.</param>
     /// <param name="layer">A layer whose history is on.</param>
     /// <param name="cancellationToken">Cancellation.</param>
-    /// <returns>The first version's start — the moment history was turned on.</returns>
+    /// <returns>The state.</returns>
     /// <remarks>
-    /// <b>Why an ArcGIS client needs it:</b> the SDK reads whether a layer answers
+    /// <para>
+    /// <b>Why an ArcGIS client needs the moment:</b> the SDK reads whether a layer answers
     /// <c>historicMoment</c> from <c>archivingInfo</c>, not from <c>advancedQueryCapabilities</c>, and
     /// <c>startArchivingMoment</c> beside it is where a time slider starts. One index read on the dates.
+    /// </para>
+    /// <para>
+    /// <b>With a keeping period, the moment moves</b> — ADR-078 condition 3: versions that ended more than that
+    /// many days ago are deleted, so a moment before then would be answered with some of its features missing.
+    /// The earliest moment is then the later of the first version and the start of the period, and a query for
+    /// an earlier one is refused rather than answered with part of the layer.
+    /// </para>
     /// </remarks>
-    public static async Task<DateTimeOffset> SinceAsync(
+    public static async Task<HistoryKept> KeptAsync(
         NpgsqlConnection connection, LayerDefinition layer, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(connection);
@@ -152,10 +162,170 @@ public sealed class PostGisFeatureHistory
 
         // An empty history — a layer with no features when it was turned on, and none since — began
         // when its trigger did, which nothing records; now is the honest lower bound of what it holds.
-        await using NpgsqlCommand command = new($"select coalesce(min(gdb_from_date), now()) from {history}", connection);
-        object? since = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlCommand command = new(
+            $"select coalesce(min(gdb_from_date), now()), now(), obj_description(@history::regclass, 'pg_class') "
+            + $"from {history}",
+            connection);
+        command.Parameters.AddWithValue("history", history);
 
-        return new DateTimeOffset(DateTime.SpecifyKind((DateTime)since!, DateTimeKind.Utc));
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+
+        DateTimeOffset first = new(DateTime.SpecifyKind(reader.GetDateTime(0), DateTimeKind.Utc));
+        DateTimeOffset now = new(DateTime.SpecifyKind(reader.GetDateTime(1), DateTimeKind.Utc));
+        int? keep = KeepDaysOf(reader.IsDBNull(2) ? null : reader.GetString(2));
+
+        return keep is { } days && now.AddDays(-days) > first
+            ? new HistoryKept(now.AddDays(-days), days)
+            : new HistoryKept(first, keep);
+    }
+
+    /// <summary>How this layer's history is kept, or null when it keeps none.</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The state, or null.</returns>
+    public async Task<HistoryKept?> KeptAsync(CancellationToken cancellationToken)
+    {
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        return await IsOnAsync(connection, _layer, cancellationToken).ConfigureAwait(false)
+            ? await KeptAsync(connection, _layer, cancellationToken).ConfigureAwait(false)
+            : null;
+    }
+
+    /// <summary>The longest a history may be kept for, in days: a hundred years.</summary>
+    public const int LongestKeep = 36_500;
+
+    /// <summary>What a history table's comment begins with when this server wrote it.</summary>
+    private const string CommentPrefix = "graticula:";
+
+    /// <summary>
+    /// Keeps this layer's history for so many days, or for ever.
+    /// </summary>
+    /// <param name="days">Days, 1 to <see cref="LongestKeep"/>, or null for no limit.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the layer keeps a history to set it on.</returns>
+    /// <remarks>
+    /// <b>On the history table, as its comment — not in the catalogue.</b> ADR-078's state is the database's: the
+    /// trigger is the history, and its keeping period lives beside it, so it goes with the table when history is
+    /// turned off and every node reads the same one. Nothing is deleted here; <see cref="PruneAsync"/> does that.
+    /// </remarks>
+    public async Task<bool> SetKeepAsync(int? days, CancellationToken cancellationToken)
+    {
+        RefuseOutsideHosted();
+
+        if (days is { } d)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(d, 1);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(d, LongestKeep);
+        }
+
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await IsOnAsync(connection, _layer, cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        // A comment takes no parameter; the text is a fixed prefix and an integer, written by this code alone.
+        string comment = days is { } keep
+            ? "'" + CommentPrefix + "{\"keepDays\":" + keep.ToString(CultureInfo.InvariantCulture) + "}'"
+            : "null";
+
+        await using NpgsqlCommand command = new($"comment on table {Qualified} is {comment}", connection);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
+    /// Deletes, from every hosted layer's history that has a keeping period, the versions that ended before it.
+    /// </summary>
+    /// <param name="dataSource">The datastore.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Each history pruned, and how many versions went.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Only versions that have ended.</b> A feature's current version is never deleted, however old, so the layer
+    /// as it is today is always in its history; what goes is what was replaced or deleted more than the period ago.
+    /// A moment inside the period needs only versions that ended after it, which this never touches.
+    /// </para>
+    /// <para>
+    /// <b>The one exception to "history is never rewritten"</b>, and the owner's: ADR-078 condition 3, decided
+    /// 2026-10-07. Safe to run on every node at once — deleting what another node already deleted deletes nothing.
+    /// </para>
+    /// </remarks>
+    public static async Task<IReadOnlyList<(string Table, long Versions)>> PruneAsync(
+        NpgsqlDataSource dataSource, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dataSource);
+
+        List<(string Schema, string Table, int Days)> kept = [];
+
+        await using (NpgsqlCommand list = dataSource.CreateCommand(
+            """
+            select n.nspname, c.relname, obj_description(c.oid, 'pg_class')
+            from pg_class c
+            join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname = @schema and c.relkind = 'r' and right(c.relname, 9) = '__history'
+              and obj_description(c.oid, 'pg_class') like 'graticula:%'
+            """))
+        {
+            list.Parameters.AddWithValue("schema", PostGisImporter.HostedSchema);
+
+            await using NpgsqlDataReader reader = await list.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (KeepDaysOf(reader.GetString(2)) is { } days)
+                {
+                    kept.Add((reader.GetString(0), reader.GetString(1), days));
+                }
+            }
+        }
+
+        List<(string Table, long Versions)> pruned = [];
+
+        foreach ((string schema, string table, int days) in kept)
+        {
+            await using NpgsqlCommand delete = dataSource.CreateCommand(
+                $"delete from {LayerDefinition.Quote(schema)}.{LayerDefinition.Quote(table)} "
+                + "where gdb_to_date is not null and gdb_to_date < now() - make_interval(days => @days)");
+            delete.Parameters.AddWithValue("days", days);
+
+            // A first prune of years of history is one long delete, bounded by the host's stop rather than 30 s.
+            delete.CommandTimeout = 0;
+
+            long gone = await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+            if (gone > 0)
+            {
+                pruned.Add(($"{schema}.{table}", gone));
+            }
+        }
+
+        return pruned;
+    }
+
+    /// <summary>The keeping period a history table's comment states, or null.</summary>
+    private static int? KeepDaysOf(string? comment)
+    {
+        if (comment is null || !comment.StartsWith(CommentPrefix, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        try
+        {
+            using JsonDocument said = JsonDocument.Parse(comment[CommentPrefix.Length..]);
+            return said.RootElement.TryGetProperty("keepDays", out JsonElement days)
+                && days.TryGetInt32(out int value) && value is >= 1 and <= LongestKeep
+                    ? value
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Whether a layer keeps its history, on a connection the caller holds.</summary>
@@ -786,3 +956,8 @@ public enum RestoreResult
 /// <param name="Result">What happened.</param>
 /// <param name="AttachmentsNotRestored">Whether a recreated feature came back without attachments it may have had.</param>
 public sealed record RestoreOutcome(RestoreResult Result, bool AttachmentsNotRestored);
+
+/// <summary>How a layer's history is kept — ADR-078.</summary>
+/// <param name="Since">The earliest moment it answers for.</param>
+/// <param name="KeepDays">How many days of ended versions are kept, or null for all of them.</param>
+public sealed record HistoryKept(DateTimeOffset Since, int? KeepDays);

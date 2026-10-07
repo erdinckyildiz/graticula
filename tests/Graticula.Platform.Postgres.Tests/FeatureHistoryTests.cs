@@ -330,6 +330,62 @@ public sealed class FeatureHistoryTests : PostgresFixture
     }
 
     [Fact]
+    public async Task A_kept_period_deletes_only_versions_that_ended_before_it_and_moves_the_first_moment()
+    {
+        // ADR-078 condition 3. Three features: one changed long ago, one changed recently, one never changed since
+        // history began long ago. The ended versions' dates are moved back by hand, which is what forty days of
+        // edits would have left.
+        await using Layer layer = await LayerAsync();
+        long old = await layer.AddAsync("old");
+        long recent = await layer.AddAsync("recent");
+        long untouched = await layer.AddAsync("untouched");
+        await layer.History.EnableAsync(CancellationToken.None);
+
+        await layer.UpdateAsync(old, "old, changed");
+        await layer.UpdateAsync(recent, "recent, changed");
+
+        string history = $"hosted.\"{layer.Name}__history\"";
+        await ExecuteAsync($"update {history} set gdb_from_date = now() - interval '60 days' where opened_by = 'seed'");
+        await ExecuteAsync($"update {history} set gdb_to_date = now() - interval '40 days' where objectid = {old} and gdb_to_date is not null");
+        await ExecuteAsync($"update {history} set gdb_from_date = now() - interval '40 days' where objectid = {old} and gdb_to_date is null");
+        await ExecuteAsync($"update {history} set gdb_to_date = now() - interval '5 days' where objectid = {recent} and gdb_to_date is not null");
+        await ExecuteAsync($"update {history} set gdb_from_date = now() - interval '5 days' where objectid = {recent} and gdb_to_date is null");
+
+        LayerDescription before = await layer.Source.DescribeAsync(CancellationToken.None);
+        Assert.Null(before.HistoryKeepDays);
+        Assert.True(before.ArchivedSince < DateTimeOffset.UtcNow.AddDays(-59));
+
+        Assert.True(await layer.History.SetKeepAsync(30, CancellationToken.None));
+
+        // Setting the period deletes nothing; it moves the first moment the layer answers for.
+        Assert.Equal(5L, await ScalarAsync<long>($"select count(*) from {history}"));
+        LayerDescription kept = await layer.Source.DescribeAsync(CancellationToken.None);
+        Assert.Equal(30, kept.HistoryKeepDays);
+        Assert.InRange(kept.ArchivedSince!.Value, DateTimeOffset.UtcNow.AddDays(-30).AddMinutes(-5), DateTimeOffset.UtcNow.AddDays(-30).AddMinutes(5));
+
+        IReadOnlyList<(string Table, long Versions)> pruned =
+            await PostGisFeatureHistory.PruneAsync(DataSource, CancellationToken.None);
+
+        Assert.Contains(pruned, p => p.Table == $"hosted.{layer.Name}__history" && p.Versions == 1);
+
+        // The version that ended forty days ago is gone; the one that ended five days ago and every current one stay.
+        Assert.Equal(0L, await ScalarAsync<long>($"select count(*) from {history} where objectid = {old} and gdb_to_date is not null"));
+        Assert.Equal(1L, await ScalarAsync<long>($"select count(*) from {history} where objectid = {recent} and gdb_to_date is not null"));
+        Assert.Equal(3L, await ScalarAsync<long>($"select count(*) from {history} where gdb_to_date is null"));
+        Assert.Equal(1L, await ScalarAsync<long>($"select count(*) from {history} where objectid = {untouched}"));
+
+        // A moment inside the period still reads the whole layer as it was.
+        Assert.Equal(
+            ["old, changed", "recent", "untouched"],
+            await LabelsAsync(layer.Source, DateTimeOffset.UtcNow.AddDays(-10)));
+
+        // And keeping all of it again deletes nothing more and puts the first moment back.
+        Assert.True(await layer.History.SetKeepAsync(null, CancellationToken.None));
+        Assert.Null((await layer.Source.DescribeAsync(CancellationToken.None)).HistoryKeepDays);
+        Assert.DoesNotContain(await PostGisFeatureHistory.PruneAsync(DataSource, CancellationToken.None), p => p.Table.Contains(layer.Name, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_table_outside_the_hosted_schema_is_refused()
     {
         await ExecuteAsync($"create table \"{SchemaName}\".registered (objectid integer generated always as identity primary key, geom geometry(Point, {Srid}))");

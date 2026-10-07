@@ -744,6 +744,12 @@ public static class Program
         // window and says how much it swept.
         builder.Services.AddHostedService<LogRetention>();
 
+        // ADR-078 condition 3: a layer's history kept for so many days is pruned to them, on the datastore's pool —
+        // the keyed one, whose search path reaches PostGIS and the hosted schema.
+        builder.Services.AddHostedService(services => new HistoryRetention(
+            services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool),
+            services.GetRequiredService<ILogger<HistoryRetention>>()));
+
         builder.Services.AddSingleton<ISetupStore>(services =>
             new PostgresSetupStore(services.GetRequiredService<NpgsqlDataSource>()));
 
@@ -5579,6 +5585,31 @@ public static class Program
         {
             await Results.Json(
                 new { error = new { code = 400, message = error, details = Array.Empty<string>() } },
+                statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        // <b>A moment before a kept history's period is refused, not answered with part of the layer</b> — ADR-078
+        // condition 3. The versions that ended before it may have been deleted, so features that were there then
+        // would be missing from the answer. A history with no period keeps everything and is not asked.
+        if (query.HistoricMoment is { } moment
+            && described.HistoryKeepDays is { } keepDays
+            && described.ArchivedSince is { } keptFrom
+            && moment < keptFrom)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message = $"'historicMoment' is before {keptFrom.ToUnixTimeMilliseconds()} "
+                            + $"({keptFrom:yyyy-MM-dd HH:mm} UTC): this layer keeps {keepDays} days of its history, and "
+                            + "what it was before then has been deleted. Its document's archivingInfo.startArchivingMoment "
+                            + "is the earliest moment it answers for.",
+                        details = Array.Empty<string>(),
+                    },
+                },
                 statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
             return;
         }

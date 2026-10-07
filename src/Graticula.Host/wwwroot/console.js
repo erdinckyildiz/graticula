@@ -7736,7 +7736,21 @@ async function fillLayerStewardship() {
         if (button) button.hidden = true;
         continue;
       }
-      state.textContent = answer.enabled ? "On — every version of every feature is kept" : "Off";
+      state.textContent = !answer.enabled ? "Off"
+        : answer.keepDays ? `On — replaced and deleted versions are kept for ${num(answer.keepDays)} days`
+        : "On — every version of every feature is kept";
+
+      // ADR-078 condition 3: how long, shown only where there is a history to keep.
+      const keepRow = document.querySelector(`#featureLayers [data-keep-row="${CSS.escape(name)}"]`);
+      if (keepRow) {
+        keepRow.hidden = !answer.enabled;
+        const box = keepRow.querySelector("[data-keep-input]");
+        if (box && document.activeElement !== box) box.value = answer.keepDays || "";
+        // What is saved, for the shorter-period check: a confirm is asked only when versions could start to go.
+        keepRow.dataset.saved = answer.keepDays || "";
+      }
+      const keepWhy = document.querySelector(`#featureLayers [data-keep-why="${CSS.escape(name)}"]`);
+      if (keepWhy) keepWhy.hidden = !answer.enabled;
       if (button) {
         button.hidden = false;
         button.textContent = answer.enabled ? "Turn off" : "Turn on";
@@ -7829,6 +7843,16 @@ async function drawFeatureFacts(name, folder) {
         <div class="setting"><span class="q">Keep history:</span>
           <span class="val" data-history-state="${h(one.name || "")}">reading…</span>
           <button type="button" class="tiny" data-history-toggle="${h(one.name || "")}" hidden></button></div>
+        <div class="setting" data-keep-row="${h(one.name || "")}" hidden><span class="q">Keep old versions for:</span>
+          <span class="keepdays"><input type="text" inputmode="numeric" maxlength="6" data-keep-input="${h(one.name || "")}"
+            placeholder="all" aria-label="Days ${h(one.name || "")} keeps its old versions; empty keeps all of them"
+            aria-describedby="keepWhy-${h(one.name || "")}">
+          <span class="u">days</span></span>
+          <button type="button" class="tiny" data-keep-history="${h(one.name || "")}">Set</button>
+          <button type="button" class="tiny ghost" data-keep-history="${h(one.name || "")}" data-clear="1">Keep all</button></div>
+        <p class="rowmeta keepwhy" id="keepWhy-${h(one.name || "")}" data-keep-why="${h(one.name || "")}" hidden>Versions
+          replaced or deleted longer ago than this are deleted every hour. Each feature's current version is always kept.
+          ArcGIS clients can't ask for a moment earlier than this. Leave empty to keep everything.</p>
         <div class="setting"><span class="q">Who creates and edits:</span>
           <span class="val" data-tracking-state="${h(one.name || "")}">reading…</span>
           ${serviceItem?.isView ? "" : `<button type="button" class="tiny" data-track-edits="${h(one.name || "")}"
@@ -15987,6 +16011,36 @@ document.addEventListener("click", async e => {
     return;
   }
 
+  if (t.dataset?.keepHistory) {
+    // ADR-078 condition 3, owner decision 2026-10-07. Nothing is deleted by this request; the hourly sweep does that.
+    //
+    // <b>Shortening it asks first</b> — design review, 2026-10-07: "within the hour" can be two minutes, nothing on
+    // the page says there is a window, and one slip of a digit sets a day. Widening it, or keeping all, never asks.
+    const name = t.dataset.keepHistory;
+    const row = t.closest(".setting");
+    const box = row?.querySelector("[data-keep-input]");
+    const typed = t.dataset.clear || !box ? "" : box.value.trim();
+    const days = typed === "" ? null : (/^\d+$/.test(typed) ? Number(typed) : NaN);
+    if (days !== null && (!Number.isInteger(days) || days < 1 || days > 36500)) {
+      if (box) { box.setAttribute("aria-invalid", "true"); box.select(); }
+      toast("Enter a whole number of days from 1 to 36,500, or leave the box empty to keep every version.");
+      return;
+    }
+    if (box) box.removeAttribute("aria-invalid");
+    const saved = row?.dataset.saved ? Number(row.dataset.saved) : null;
+    if (days !== null && (saved === null || days < saved) && !confirm(
+      `Keep the old versions of ${name} for ${num(days)} days? Versions replaced or deleted longer ago than that are `
+      + "deleted within the hour and cannot be recovered. Every feature's current version is kept.")) return;
+    try {
+      const answer = await api(`/admin/layers/${encodeURIComponent(name)}/history/keep`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ days }) });
+      if (box) box.value = answer.keepDays || "";
+      toast(answer.note, true);
+    } catch (e) { toast(`${name}: ${e.message || e}`); }
+    await fillLayerStewardship();
+    return;
+  }
+
   if (t.dataset?.trackEdits) {
     const name = t.dataset.trackEdits;
     const stopping = t.dataset.on === "1";
@@ -23372,11 +23426,16 @@ async function createImported(event) {
 let logTyping = null;
 
 /*
-  <b>Enter in a layer's title or time box presses that row's Set</b> — one text box and a button beside it is a form
+  <b>Enter in a layer's title, time or history-keeping box presses that row's Set</b> — one text box and a button beside it is a form
   to whoever is typing, and Enter did nothing (design review of the title row, 2026-10-07).
 */
+// A refused keeping period is marked invalid until the box is typed in again, not until the next good Set.
+document.addEventListener("input", event => {
+  if (event.target.matches?.("[data-keep-input][aria-invalid]")) event.target.removeAttribute("aria-invalid");
+});
+
 document.addEventListener("keydown", event => {
-  if (event.key !== "Enter" || !event.target.matches?.("[data-layer-title-input], [data-time-input]")) {
+  if (event.key !== "Enter" || !event.target.matches?.("[data-layer-title-input], [data-time-input], [data-keep-input]")) {
     return;
   }
 

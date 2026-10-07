@@ -4461,6 +4461,15 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 /* The time box's width is set once, with the title's, above; a second rule here at 14em won by coming later and the
    two rows stopped lining up. And minmax(0, 1fr), not 1fr: a bare 1fr track cannot shrink below a 24em box, so at
    phone width the title row ran past the card (design review, 2026-10-07). */
+/* A history's keeping period: the box and its unit are one grid cell, so the row has the four its neighbours have. */
+#featureLayers .layerblock .setting .keepdays { display: inline-flex; align-items: center; gap: 6px; }
+#featureLayers .layerblock .setting .keepdays .u { width: auto; }
+/* One value, not a column of numbers: the neighbours' font and alignment, and their height (design review). */
+#featureLayers .layerblock .setting .keepdays input { width: 6em; text-align: left; font: inherit; }
+/* Out of the grid, under the box: inside it, spanning the row stretched Set and Keep all to the card's edge, and one
+   column squeezed it to six lines (design review, 2026-10-07). 180px and the 8px gap are the label column's. */
+#featureLayers .layerblock .keepwhy { margin: 4px 0 0 188px; max-width: 70ch; }
+@media (max-width: 600px) { #featureLayers .layerblock .keepwhy { margin-left: 0; } }
 @media (max-width: 600px) { #featureLayers .layerblock .setting { grid-template-columns: minmax(0, 1fr); } }
 
 /* A web map's item page (2026-10-01): the main column and the actions beside it, as the layer item. */

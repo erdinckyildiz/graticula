@@ -21,6 +21,10 @@ namespace Graticula.Host;
 /// <param name="Enabled">Whether the layer keeps its history.</param>
 internal sealed record HistorySwitchRequest(bool Enabled);
 
+/// <summary>How long a layer's history keeps what was replaced or deleted.</summary>
+/// <param name="Days">Days, or null to keep all of it.</param>
+internal sealed record HistoryKeepRequest(int? Days);
+
 /// <summary>Which version to put a feature back as.</summary>
 /// <param name="Version">The version's id, from the feature's history.</param>
 internal sealed record HistoryRestoreRequest(long Version);
@@ -47,6 +51,7 @@ internal static partial class AdminEndpoints
     {
         app.MapGet("/admin/layers/{name}/history", HistoryAsync);
         app.MapPost("/admin/layers/{name}/history", SwitchHistoryAsync);
+        app.MapPut("/admin/layers/{name}/history/keep", KeepHistoryAsync);
         app.MapGet("/admin/layers/{name}/history/{objectId:long}", FeatureHistoryAsync);
         app.MapPost("/admin/layers/{name}/history/{objectId:long}/restore", RestoreFeatureAsync);
     }
@@ -98,6 +103,7 @@ internal static partial class AdminEndpoints
 
             IReadOnlyList<FeatureChange> changes =
                 await history.ChangesAsync(before, HistoryPage + 1, cancellation).ConfigureAwait(false);
+            HistoryKept? kept = await history.KeptAsync(cancellation).ConfigureAwait(false);
 
             bool more = changes.Count > HistoryPage;
             List<FeatureChange> page = changes.Take(HistoryPage).ToList();
@@ -107,6 +113,10 @@ internal static partial class AdminEndpoints
                 name,
                 available = true,
                 enabled = true,
+
+                // ADR-078 condition 3: how much of it is kept, and so the earliest moment it answers for.
+                keepDays = kept?.KeepDays,
+                since = kept?.Since,
                 changes = page.Select(c => new
                 {
                     version = c.HistoryId,
@@ -195,6 +205,84 @@ internal static partial class AdminEndpoints
                 ? $"History is on. It begins now, with the {features:N0} features the layer holds; every change from here is kept, "
                     + "including changes made directly in the database."
                 : "History is off, and the history it had is gone.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Keeps a layer's history for so many days, or all of it — ADR-078 condition 3, owner decision 2026-10-07.
+    /// </summary>
+    /// <remarks>
+    /// <b>The owner's, like switching history on</b>, because it decides what the datastore keeps about the layer.
+    /// Nothing is deleted by this request: the hourly <see cref="HistoryRetention"/> sweep does that, so a period
+    /// set too short by mistake can be widened again before anything is gone.
+    /// </remarks>
+    private static async Task KeepHistoryAsync(
+        HttpContext context,
+        string name,
+        HistoryKeepRequest request,
+        PostgresLayerCatalog layers,
+        LayerConnections connections,
+        ServiceContexts contexts,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (request.Days is { } asked and (< 1 or > PostGisFeatureHistory.LongestKeep))
+        {
+            await Refuse(context, 400,
+                $"A history is kept for 1 to {PostGisFeatureHistory.LongestKeep:N0} days, or without a limit (null); "
+                + $"{asked} is neither.").ConfigureAwait(false);
+            return;
+        }
+
+        if (await ManagedLayerAsync(context, layers, name, "set how long the history of", cancellation)
+                .ConfigureAwait(false) is not { } layer)
+        {
+            return;
+        }
+
+        if (HistoryRefusal(layer) is { } refusal)
+        {
+            await Refuse(context, 409, refusal).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            if (!await connections.HistoryFor(layer).SetKeepAsync(request.Days, cancellation).ConfigureAwait(false))
+            {
+                await Refuse(context, 409, $"Layer '{name}' does not keep its history; turn it on first.").ConfigureAwait(false);
+                return;
+            }
+        }
+        catch (NpgsqlException e)
+        {
+            await Refuse(context, 502, $"The datastore refused: {e.Message}").ConfigureAwait(false);
+            return;
+        }
+
+        // archivingInfo's start moves with the period, and the query's refusal reads it from the description.
+        contexts.Forget(layer);
+
+        await AuditAsync(
+            context, audit, "layer.history.keep", name, Detail(new { days = request.Days }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            name,
+            keepDays = request.Days,
+            note = request.Days is { } days
+                ? $"Versions replaced or deleted more than {days:N0} days ago are deleted within the hour, and then every "
+                    + "hour. Every feature's current version is kept, however old. ArcGIS clients can ask for a moment "
+                    + $"up to {days:N0} days back."
+                : "All of the history is kept.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -291,7 +379,8 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        (_, LayerDescription description) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+        (IFeatureSource source, LayerDescription description) =
+            await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
         if (!description.Archived)
         {
@@ -327,6 +416,22 @@ internal static partial class AdminEndpoints
         // A restore changes what the layer draws, like any edit does (ADR-069).
         tiles.Purge(layer.Id);
 
+        // <b>Restored as it was, and told where today's rules disagree — ADR-078 condition 5, owner decision
+        // 2026-10-07.</b> A version from before a list was narrowed comes back with its old value; the edit that
+        // would have been refused is not refused here, because the history is the record, but it is not silent.
+        IReadOnlyList<string> outside = [];
+
+        await foreach (Feature restored in source.ReadAsync(
+            new FeatureQuery(
+                1, fields: [.. description.Fields.Select(f => f.Name)], includeGeometry: false, identities: [objectId]),
+            cancellation).ConfigureAwait(false))
+        {
+            outside = Graticula.Catalog.DomainRules.Outside(
+                description.Fields,
+                description.Subtypes,
+                column => restored.Schema.IndexOf(column) is var at and >= 0 ? restored[at] : null);
+        }
+
         await AuditAsync(
             context, audit, "layer.history.restore", name,
             Detail(new { objectId, version = request.Version, result = outcome.Result.ToString() }),
@@ -338,9 +443,17 @@ internal static partial class AdminEndpoints
             objectId,
             restored = request.Version,
             result = outcome.Result == RestoreResult.Recreated ? "recreated" : "updated",
-            note = outcome.AttachmentsNotRestored
+
+            // What today's domains would refuse in the values just written back — empty when nothing.
+            outsideDomains = outside,
+            note = (outcome.AttachmentsNotRestored
                 ? "The feature is back under its old object id. Attachments are not kept in history, so any it had are not."
-                : "The feature is back as that version was. The restore is itself a new version in the history.",
+                : "The feature is back as that version was. The restore is itself a new version in the history.")
+                + (outside.Count == 0
+                    ? string.Empty
+                    : $" {outside.Count} of its values would be refused as a new edit today, because a domain has "
+                      + "changed since that version was written; they were restored as they were: "
+                      + string.Join(" ", outside)),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

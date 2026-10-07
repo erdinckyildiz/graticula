@@ -176,15 +176,30 @@ A historic read with no spatial filter still rebuilds the layer, and that is §6
 5. **Restore is an edit.** Restoring a feature writes the version's whole row back to the table — an
    update if the feature exists, an insert under its old object id if it was deleted — in a transaction
    that names the restorer, so the trigger records the restore as a new version and it can be undone by
-   restoring the version before it. Nothing in history is ever rewritten. It asks what any edit asks
+   restoring the version before it. Nothing in history is rewritten, and nothing is deleted from it except by
+   a keeping period (§5.7). It asks what any edit asks
    (ADR-075: the owner, an administrator, or a group shared for editing), and a tracked layer's editor
    columns carry the restorer. **It does not go through the `applyEdits` writer**, and that is chosen:
    the writer takes the attributes a client sends, and a restore is every column exactly as it was —
-   including ones a client cannot see or write, like the GlobalID. The cost is that a domain narrowed
-   since the version was written does not refuse the restore; condition 5.
-6. **What is not kept.** Attachments (their companion table is not archived; a deleted feature restored
-   comes back without them, and the restore says so). Schema: a dropped column's values stay in the
-   versions' JSON and are not restored into a column that is gone.
+   including ones a client cannot see or write, like the GlobalID. **A domain narrowed since the version was
+   written does not refuse the restore, and the restore says so** — owner decision 2026-10-07, condition 5: the
+   version comes back as it was, and the answer's `outsideDomains` lists, in `applyEdits`' own sentences,
+   every value today's domains and subtypes would refuse.
+6. **What is not kept.** Attachments, **never** — owner decision 2026-10-07, condition 4: their companion
+   table is not archived, a deleted feature restored comes back without them, and the restore says so.
+   Archiving them would put every photo's bytes in the history a second time. Schema: a dropped column's
+   values stay in the versions' JSON and are not restored into a column that is gone.
+7. **How long it is kept: so many days, per layer, or all of it** — owner decision 2026-10-07, condition 3.
+   `PUT /admin/layers/{name}/history/keep` with `{"days": N}` (1 to 36,500) or `{"days": null}`, set by the
+   layer's owner in Settings › Feature layer. The period is the history table's own comment, not a catalogue
+   column, so it goes with the table when history is turned off and every node reads the same one. An hourly
+   sweep on every node (`HistoryRetention`) deletes the versions that **ended** more than N days ago; a
+   feature's current version is never deleted, however old, so the layer as it is today is always in its
+   history. Setting the period deletes nothing by itself, so a period set too short can be widened before the
+   next sweep. With a period, `archivingInfo.startArchivingMoment` is the later of the first version and
+   N days ago, and a `historicMoment` before it is **refused** rather than answered: the versions that
+   answered it may be gone, and part of a layer is not what it was. Without a period, a moment before the
+   first version is answered with nothing, because the layer had nothing then.
 
 ## 6. Consequences
 
@@ -195,7 +210,7 @@ Studio. The history includes the edits made in QGIS, which is the case that woul
 - Every write to an archived layer writes twice; §4a says how much.
 - A historic read rebuilds every version it returns from JSON. With a spatial filter that is the versions
   in the box; without one it is the whole layer as it was — 1.7 s for a million points (§4b).
-- History grows without bound. There is no pruning, and ArcGIS has none by default either; condition 3.
+- History grows without bound unless its owner sets a period (§5.7). The default is all of it.
 - The companion table is DDL the server now runs on a live table under a lock; switching it on for a
   multi-million-row layer copies every row once and blocks writers for that long.
 
@@ -235,12 +250,19 @@ degradation).
    MapServer document of the same layer too, whose `query` is the same handler
    ([RESULTS.md](../../benchmarks/feature-history/RESULTS.md) §10). Pro's time slider is not run.
 3. **History has a retention answer before a layer has one in production** — a *keep for N days* on the
-   layer, or a recorded decision that there is none.
+   layer, or a recorded decision that there is none. **DISCHARGED 2026-10-07 by owner decision** — *keep for
+   N days, per layer* — and built: §5.7, `FeatureHistoryTests` (only ended versions older than the period
+   go, and a moment inside it still reads the whole layer), `HistoryKeepingConformanceTests` (the period, the
+   first moment, and a moment before it refused).
 4. **Attachments.** Archived or recorded as never; a restore that silently drops a photo is the case to
    design against. Today the restore does not drop them silently — it says so — but it does drop them.
+   **DISCHARGED 2026-10-07 by owner decision: never** — recorded in §5.6. The restore's sentence saying so is
+   the whole of it.
 5. **A restore meets today's domains.** A version written before a column's list of values was narrowed
    is restored with the old value. Either the restore checks the layer's domains as `applyEdits` does, or
-   this is recorded as the rule.
+   this is recorded as the rule. **DISCHARGED 2026-10-07 by owner decision: restore, and say so** — §5.5;
+   `DomainRules.Outside` is the one check, held by `DomainRulesTests` and over HTTP by
+   `HistoryKeepingConformanceTests`, which narrows a shared list and restores a version from before it.
 6. **A historic read's spatial filter is measured on a large layer.** It cannot use the history's spatial
    index (the geometry it tests is rebuilt from the version's text), and nobody has measured what that
    costs on a layer of a million features. **DISCHARGED 2026-10-07:** 1.7 s against 26 ms today, and the

@@ -1283,7 +1283,7 @@ public sealed class PostGisFeatureSource
         (IReadOnlyList<FieldDescription> fields, bool? writable, GeometryOrdinates ordinates, bool? indexed) =
             await ReadShapeAsync(cancellationToken).ConfigureAwait(false);
 
-        DateTimeOffset? archivedSince = await ArchivedSinceAsync(cancellationToken).ConfigureAwait(false);
+        HistoryKept? kept = await HistoryKeptAsync(cancellationToken).ConfigureAwait(false);
 
         return new LayerDescription(
             fields,
@@ -1291,8 +1291,9 @@ public sealed class PostGisFeatureSource
             writable)
         {
             StoredOrdinates = ordinates,
-            Archived = archivedSince is not null,
-            ArchivedSince = archivedSince,
+            Archived = kept is not null,
+            ArchivedSince = kept?.Since,
+            HistoryKeepDays = kept?.KeepDays,
             SpatiallyIndexed = indexed,
         };
     }
@@ -1305,8 +1306,8 @@ public sealed class PostGisFeatureSource
     /// the datastore (ADR-002 §4.2), so a registered table is not asked: the answer is no, and asking
     /// would be a query per describe against somebody else's database for a fact that cannot be true.
     /// </remarks>
-    /// <returns>When the history begins, or null when the layer keeps none.</returns>
-    private async Task<DateTimeOffset?> ArchivedSinceAsync(CancellationToken cancellationToken)
+    /// <returns>How its history is kept, or null when the layer keeps none.</returns>
+    private async Task<HistoryKept?> HistoryKeptAsync(CancellationToken cancellationToken)
     {
         if (!string.Equals(_layer.SchemaName, PostGisImporter.HostedSchema, StringComparison.Ordinal)
             || _layer.IntegerIdentityColumn is null)
@@ -1318,7 +1319,7 @@ public sealed class PostGisFeatureSource
             await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         return await PostGisFeatureHistory.IsOnAsync(connection, _layer, cancellationToken).ConfigureAwait(false)
-            ? await PostGisFeatureHistory.SinceAsync(connection, _layer, cancellationToken).ConfigureAwait(false)
+            ? await PostGisFeatureHistory.KeptAsync(connection, _layer, cancellationToken).ConfigureAwait(false)
             : null;
     }
 
