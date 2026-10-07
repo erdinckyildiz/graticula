@@ -362,6 +362,7 @@ internal static class QueryResponseCaching
             [nameof(PublishedLayer.CacheLifetime)] = "shapes Cache-Control, not the body",
             [nameof(PublishedLayer.StaleLimit)] = "decides whether a stale tile may stand in for a refused one (ADR-010 §5.1a), not what any answer says",
             [nameof(PublishedLayer.VisibleRange)] = "a query answers the same rows at every scale (ADR-070)",
+            [nameof(PublishedLayer.Title)] = "shown by the OGC faces' documents, never in a query's answer (ADR-179)",
             [nameof(PublishedLayer.ConnectionString)] = "a secret; the data source name and definition identify the data",
             [nameof(PublishedLayer.PublishedSrid)] = "derived from ServedSrid and Definition.Srid",
             [nameof(PublishedLayer.IsRunning)] = "derived from Status",
