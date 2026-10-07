@@ -232,12 +232,50 @@ internal readonly record struct FeatureExportPackaging(
     /// heaviest. A layer with nothing sampled weighs nothing; the layer's fixed overhead is
     /// <see cref="PerLayerOverhead"/>.
     /// </remarks>
-    internal static long EstimateBytes(long sampleBytes, long sampleRows, long rows)
+    /// <param name="width">How wide the output is beside the GeoJSON staging, from <see cref="OutputWidth"/>.</param>
+    internal static long EstimateBytes(long sampleBytes, long sampleRows, long rows, double width = 1.0)
     {
         long perRow = sampleRows <= 0 ? 0 : (sampleBytes + sampleRows - 1) / sampleRows;
 
-        return checked((perRow * Math.Max(0, rows) * 2) + PerLayerOverhead);
+        return checked((perRow * Math.Max(0, rows)) + OutputBytes(sampleBytes, sampleRows, rows, width) + PerLayerOverhead);
     }
+
+    /// <summary>The output alone, without the staging beside it: the rows' GeoJSON weight times the format's width.</summary>
+    internal static long OutputBytes(long sampleBytes, long sampleRows, long rows, double width)
+    {
+        long perRow = sampleRows <= 0 ? 0 : (sampleBytes + sampleRows - 1) / sampleRows;
+
+        return checked((long)Math.Ceiling(perRow * (double)Math.Max(0, rows) * width));
+    }
+
+    /// <summary>
+    /// How wide a format's file is beside the same rows as GeoJSON — measured on a 60,000-point layer of five fields,
+    /// 2026-10-07: KML 2.85, Esri JSON 1.21, GeoJSON 1, GeoPackage 0.95, CSV 0.44, workbook 0.22, Shapefile and File
+    /// Geodatabase 0.17, each zipped where it is shipped zipped.
+    /// </summary>
+    /// <remarks>
+    /// <b>Before this, every format was estimated as GeoJSON</b>, on the reasoning that GeoJSON is among the widest. KML is
+    /// wider: a 300,000-row KML was estimated at 143 MB, wrote 181 MB, and was stopped for taking disk another export
+    /// was counted for. Rounded up, so the estimate stays the upper bound it says it is.
+    /// </remarks>
+    internal static double OutputWidth(FeatureExportFormat format) => format switch
+    {
+        FeatureExportFormat.Kml => 3.0,
+        FeatureExportFormat.EsriJson => 1.5,
+        _ => 1.0,
+    };
+
+    /// <summary>
+    /// The largest KML this server writes — ADR-106 condition 5.
+    /// </summary>
+    /// <remarks>
+    /// <b>GDAL's KML writer builds the whole document in memory</b> before it writes it, at about nine times the file's
+    /// size: 350 MB for a 38 MB file of 60,000 points, and 1.56 GB and climbing at 300,000, against the reader child's
+    /// 2 GB ceiling. A larger KML would be killed by that ceiling rather than refused at the request, after minutes, and
+    /// Google Earth draws far fewer features than this anyway. So it is refused by its estimated size, with the formats
+    /// that stream named.
+    /// </remarks>
+    internal const long KmlLargestBytes = 150L * 1024 * 1024;
 
     /// <summary>What a layer costs beside its rows: a table's pages, a sheet's parts, a file's headers.</summary>
     internal const long PerLayerOverhead = 64 * 1024;

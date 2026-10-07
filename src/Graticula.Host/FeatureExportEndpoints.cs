@@ -58,6 +58,7 @@ internal static class FeatureExportEndpoints
         ["gpkg", "shapefile", "xlsx", "fgdb", "kml", "csv", "geojson", "esrijson"];
 
     private static readonly string[] TooManyRows = ["tooManyRows"];
+    private static readonly string[] KmlTooLarge = ["kmlTooLarge"];
 
     private static readonly string[] OverBudget = ["exceedsExportBudget"];
 
@@ -214,7 +215,7 @@ internal static class FeatureExportEndpoints
         long cap = settings.FeatureExportMaximumRows;
 
         FeatureExporter.Weighed weighed =
-            await FeatureExporter.WeighAsync(layers, contexts, cap, cancellation).ConfigureAwait(false);
+            await FeatureExporter.WeighAsync(layers, contexts, cap, cancellation, format).ConfigureAwait(false);
 
         if (weighed.Rows > cap)
         {
@@ -235,6 +236,33 @@ internal static class FeatureExportEndpoints
                 $"'{layers[tooLong.i].Definition.Name}' has more than {FeatureExportPackaging.WorkbookSheetRows:N0} rows, which is "
                 + "more than one sheet of a workbook holds. Export it as another format.",
                 TooManyRows, new { rows = tooLong.rows, cap = FeatureExportPackaging.WorkbookSheetRows }).ConfigureAwait(false);
+            return;
+        }
+
+        // Esri JSON is written by the ArcGIS surface's own writer, which needs an integer object id; a layer published without
+        // one was accepted here and failed in the job a moment later (measured 2026-10-07). Refused at the request instead.
+        if (format == FeatureExportFormat.EsriJson
+            && layers.FirstOrDefault(layer => layer.Definition.IntegerIdentityColumn is null) is { } noObjectId)
+        {
+            await RefuseAsync(
+                context, 400,
+                $"'{noObjectId.Definition.Name}' has no integer object-id column, and Esri JSON is written as the ArcGIS surface "
+                + "writes it. Export it as GeoJSON or GeoPackage, or publish it with an integer object id.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        // ADR-106 condition 5: a KML is built in memory before it is written, so it is held to a size the writer's ceiling
+        // can hold — refused here, at once, rather than killed by the ceiling minutes into the job.
+        if (format == FeatureExportFormat.Kml && weighed.OutputBytes > FeatureExportPackaging.KmlLargestBytes)
+        {
+            await RefuseAsync(
+                context, 400,
+                $"A KML of these rows would be about {TileSeedEstimate.Size(weighed.OutputBytes)}, and this server writes a KML of at "
+                + $"most {TileSeedEstimate.Size(FeatureExportPackaging.KmlLargestBytes)}: KML is built whole in memory before it is "
+                + "written. Export fewer layers, or as GeoPackage, File Geodatabase or GeoJSON, which are written as they are read.",
+                KmlTooLarge, new { estimatedBytes = weighed.OutputBytes, largest = FeatureExportPackaging.KmlLargestBytes })
+                .ConfigureAwait(false);
             return;
         }
 

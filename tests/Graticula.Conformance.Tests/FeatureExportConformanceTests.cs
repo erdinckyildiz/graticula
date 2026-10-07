@@ -197,6 +197,52 @@ public sealed class FeatureExportConformanceTests : ArcGisClient
         return (done, file, response);
     }
 
+    /// <summary>
+    /// A field's coded-value domain leaves in a GeoPackage as a domain — ADR-106 conditions 1 and 2.
+    /// </summary>
+    /// <remarks>
+    /// <b>On whatever this suite runs on</b>, which is the point: the domain is made through GDAL's C function, looked up in
+    /// the native library by its file name, and that name differs between Windows and Linux. A GeoPackage keeps domains
+    /// in <c>gpkg_data_column_constraints</c>, a table GDAL makes only when it writes one, and the codes' descriptions are
+    /// in its pages; so both are looked for in the file's bytes.
+    /// </remarks>
+    [Fact]
+    public async Task A_fields_domain_leaves_in_a_GeoPackage_as_a_domain()
+    {
+        string token = await AdminTokenAsync();
+        const string Sites = "ci_EarlyAlert_sites";
+        string fields = $"/admin/layers/{Sites}/fields";
+
+        await ClearAsync(token);
+
+        (int set, string said, _) = await SendAsync(HttpMethod.Put, fields, token, """
+            {"overrides":[{"column":"severity","domain":{"type":"codedValue","name":"ExportSeverity",
+             "codedValues":[{"code":0,"name":"Calm ğ"},{"code":1,"name":"Watch ş"},{"code":2,"name":"Warning İ"},{"code":3,"name":"Alert ı"}]}}]}
+            """);
+        Assert.True(set == 200, $"Setting the domain answered {set}: {said}");
+
+        try
+        {
+            (JsonElement export, byte[] file, _) = await ExportAsync(token, "gpkg");
+
+            try
+            {
+                string pages = Encoding.UTF8.GetString(file);
+                Assert.Contains("gpkg_data_column_constraints", pages, StringComparison.Ordinal);
+                Assert.Contains("ExportSeverity", pages, StringComparison.Ordinal);
+                Assert.Contains("Warning İ", pages, StringComparison.Ordinal);
+            }
+            finally
+            {
+                await SendAsync(HttpMethod.Delete, export.GetProperty("watch").GetString()!, token);
+            }
+        }
+        finally
+        {
+            await SendAsync(HttpMethod.Put, fields, token, """{"overrides":[]}""");
+        }
+    }
+
     [Fact]
     public async Task A_GeoPackage_of_every_layer_is_one_file_with_a_table_for_each()
     {
@@ -536,6 +582,17 @@ public sealed class FeatureExportConformanceTests : ArcGisClient
         Assert.Equal(404, nothing);
     }
 
+    /// <summary>A service document's capabilities, and whether it says Editing and hasStaticData, for a caller.</summary>
+    private async Task<(string Capabilities, bool Editing, bool StaticData)> CapabilitiesAsync(string document, string token)
+    {
+        (int status, string body, _) = await SendAsync(HttpMethod.Get, document, token);
+        Assert.True(status == 200, $"{document} answered {status}: {body}");
+        JsonElement service = JsonDocument.Parse(body).RootElement;
+        string capabilities = service.GetProperty("capabilities").GetString() ?? string.Empty;
+        bool staticData = service.TryGetProperty("hasStaticData", out JsonElement s) && s.ValueKind == JsonValueKind.True;
+        return (capabilities, capabilities.Split(',').Contains("Editing", StringComparer.Ordinal), staticData);
+    }
+
     [Fact]
     public async Task A_reader_exports_only_where_the_owner_offered_Extract_sees_only_their_own_and_loses_the_download_when_it_is_withdrawn()
     {
@@ -585,10 +642,33 @@ public sealed class FeatureExportConformanceTests : ArcGisClient
                 refused == 403 && sentence.Contains("Extract", StringComparison.Ordinal),
                 $"A reader's export before Extract was offered answered {refused}: {sentence}");
 
+            // <b>Advertised as the service's setting, not the caller's</b> (§5.5, amended 2026-09-30): before the offer
+            // nobody is told Extract, the administrator included; Editing and hasStaticData come from the edits alone.
+            string document = $"/rest/services/{Uri.EscapeDataString(folder)}/{Uri.EscapeDataString(bare)}/FeatureServer?f=json";
+            (string readerCaps, bool readerEditing, bool readerStatic) = await CapabilitiesAsync(document, reader);
+            (string adminCaps, _, _) = await CapabilitiesAsync(document, admin);
+            Assert.DoesNotContain("Extract", readerCaps, StringComparison.Ordinal);
+            Assert.DoesNotContain("Extract", adminCaps, StringComparison.Ordinal);
+
+            // <b>The owner and administrators export whatever is offered</b>: the administrator, before any offer.
+            (int unoffered, JsonElement adminFirst) = await StartAsync(admin, new { format = "csv", layers = new[] { layers[0].Id } });
+            Assert.True(unoffered == 202, $"The administrator's export where Extract is not offered answered {unoffered}: {adminFirst}");
+            JsonElement adminFirstDone = await WaitAsync(adminFirst.GetProperty("watch").GetString()!, admin, TimeSpan.FromMinutes(5));
+            Assert.Equal("done", adminFirstDone.GetProperty("status").GetString());
+            await SendAsync(HttpMethod.Delete, adminFirstDone.GetProperty("watch").GetString()!, admin);
+
             (int offered, string offeredSaid, _) = await SendAsync(
                 HttpMethod.Put, editing, admin, JsonSerializer.Serialize(new { operations = ExtractOnly }));
 
             Assert.True(offered == 200, $"Offering Extract answered {offered}: {offeredSaid}");
+
+            // Offered: every signed-in caller who may read it is told, and nothing else in the document moves.
+            (string readerOffered, bool editingOffered, bool staticOffered) = await CapabilitiesAsync(document, reader);
+            (string adminOffered, _, _) = await CapabilitiesAsync(document, admin);
+            Assert.Contains("Extract", readerOffered, StringComparison.Ordinal);
+            Assert.Contains("Extract", adminOffered, StringComparison.Ordinal);
+            Assert.Equal(readerEditing, editingOffered);
+            Assert.Equal(readerStatic, staticOffered);
 
             // The administrator has an export of their own, which is not the reader's to see.
             (int adminStatus, JsonElement adminStarted) = await StartAsync(admin, new { format = "csv", layers = new[] { layers[0].Id } });

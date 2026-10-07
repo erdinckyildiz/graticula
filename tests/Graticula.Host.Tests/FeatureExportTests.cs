@@ -184,6 +184,31 @@ public sealed class FeatureExportTests
         Assert.Equal(FeatureExportPackaging.PerLayerOverhead, FeatureExportPackaging.EstimateBytes(0, 0, 500));
     }
 
+    /// <summary>
+    /// A wider format is estimated wider — ADR-106 condition 5: a 300,000-row KML estimated as GeoJSON wrote 181 MB against
+    /// 143 MB counted, and was stopped for it.
+    /// </summary>
+    [Fact]
+    public void Kml_and_esri_json_are_estimated_wider_than_geojson_and_kml_has_a_largest_size()
+    {
+        Assert.Equal(3.0, FeatureExportPackaging.OutputWidth(FeatureExportFormat.Kml));
+        Assert.Equal(1.5, FeatureExportPackaging.OutputWidth(FeatureExportFormat.EsriJson));
+
+        foreach (FeatureExportFormat narrower in (FeatureExportFormat[])
+            [FeatureExportFormat.GeoPackage, FeatureExportFormat.Shapefile, FeatureExportFormat.Excel, FeatureExportFormat.FileGeodatabase,
+             FeatureExportFormat.Csv, FeatureExportFormat.GeoJson])
+        {
+            Assert.Equal(1.0, FeatureExportPackaging.OutputWidth(narrower));
+        }
+
+        // Staging plus three times the staging: 500 a row, 10,000 rows.
+        Assert.Equal((500L * 10_000 * 4) + FeatureExportPackaging.PerLayerOverhead, FeatureExportPackaging.EstimateBytes(250_000, 500, 10_000, 3.0));
+        Assert.Equal(500L * 10_000 * 3, FeatureExportPackaging.OutputBytes(250_000, 500, 10_000, 3.0));
+
+        // The measurements behind the limit: 200,000 points wrote a 127 MB KML at a 1.06 GB peak; 300,000 were refused.
+        Assert.Equal(150L * 1024 * 1024, FeatureExportPackaging.KmlLargestBytes);
+    }
+
     [Fact]
     public void A_feature_export_is_rerun_from_the_start_and_is_harmless_to_repeat() =>
         Assert.Equal(JobRerun.Harmless, JobKinds.RerunOf(JobKind.FeatureExport));

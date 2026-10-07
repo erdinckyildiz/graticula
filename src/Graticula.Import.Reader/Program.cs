@@ -208,9 +208,14 @@ internal static class Program
                 request.TryGetProperty("x", out JsonElement xs) ? xs.GetString() : null,
                 request.TryGetProperty("y", out JsonElement ys) ? ys.GetString() : null),
 
+            // ADR-106 conditions 1 and 2: `domains`, when sent, are written into a GeoPackage or File Geodatabase as
+            // domains and each listed field is pointed at its own.
             "export" => Export(
                 Text(request, "in"), Text(request, "out"), Text(request, "format"), Text(request, "layer"),
-                request.TryGetProperty("append", out JsonElement append) && append.ValueKind == JsonValueKind.True),
+                request.TryGetProperty("append", out JsonElement append) && append.ValueKind == JsonValueKind.True,
+                request.TryGetProperty("domains", out JsonElement domains) && domains.ValueKind == JsonValueKind.Array
+                    ? domains
+                    : null),
 
 
             // ADR-157: imagery in a format the server does not read itself, written as the GeoTIFFs it does.
@@ -896,7 +901,9 @@ internal static class Program
     /// <b>Add to an output that exists</b> — GDAL's <c>-update -append</c>. The host asks for it only for the formats it
     /// has measured able to (ADR-106 §5.6); a format that could not would write a second dataset over the first.
     /// </param>
-    private static object Export(string input, string output, string format, string layer, bool append = false)
+    /// <param name="domains">The layer's field domains, written into a GeoPackage or File Geodatabase (<see cref="ExportDomains"/>).</param>
+    private static object Export(
+        string input, string output, string format, string layer, bool append = false, JsonElement? domains = null)
     {
         string driver = format switch
         {
@@ -946,7 +953,12 @@ internal static class Program
             _messages = null;
         }
 
-        return new { ok = true, messages = said };
+        // After the dataset GDAL wrote is closed: the domains are added to the file it left.
+        List<string> domained = format is "gpkg" or "fgdb" && domains is { } listed && listed.GetArrayLength() > 0
+            ? ExportDomains.Apply(output, layer, listed)
+            : [];
+
+        return new { ok = true, messages = said, domains = domained };
     }
 
     /// <summary>

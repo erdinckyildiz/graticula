@@ -52,6 +52,8 @@
 > every write with an empty 200 — and ADR-107's synchronous dialog test had been passing on that answer, saving its two bytes as `export.gpkg`.
 > **Still to come:** the caller's list of past exports in the console (§5.9), and conditions 1 to 6 and 9 — no reader
 > outside GDAL has opened a file yet.
+>
+> **Amended 2026-10-07, measuring conditions 1 to 9:** two of the departures above are reversed — a Shapefile's field names are §5.6's, cut on a character boundary, with `<layer>.fieldnames.csv` (condition 4), and a layer's coded-value and range domains are written into a GeoPackage and a File Geodatabase as domains (condition 1). Staging stays GeoJSON. And two things this text did not foresee: each format is estimated at its own width beside GeoJSON, and a KML is held to 150 MB, because GDAL builds it whole in memory (condition 5).
 
 ## 1. Context
 
@@ -459,6 +461,14 @@ and as the checkbox draws it today — is simpler and is how the three edits beh
 1. **The `export` op writes every format from FlatGeobuf staging**, including the field domains of a layer with a
    shared coded-value domain (ADR-087), and `ogrinfo -al -so` on each output reports the layers, fields, types,
    domains, reference, geometry type and row count the job reported.
+   **DISCHARGED 2026-10-07, from GeoJSON staging** — the departure recorded at the top of this ADR, kept: the condition's
+   substance is what the outputs hold, and staging is how they are made. **Domains are now written**: the reader adds a
+   layer's coded-value and range domains to a GeoPackage or File Geodatabase after GDAL writes the rows and points each
+   field at its own (`ExportDomains`, through GDAL's `OGR_CodedFldDomain_Create`, which the C# bindings do not wrap).
+   GDAL reads back from both a coded domain `Iller` (`Muş` → *Muş ili*, `Iğdır` → *Iğdır ili*) on `şehir` and a range
+   `Nufus` (0–100,000) on `nüfus`, 25 rows; every other format was read back by GDAL with the layer, its fields and types,
+   its reference and its rows (conditions 3, 5). `A_fields_domain_leaves_in_a_GeoPackage_as_a_domain` holds it on
+   whatever CI runs on, since the native library is found by its file name.
 2. **Independent readers open every format.** ArcGIS Pro adds the Shapefile, the GeoPackage and the File Geodatabase
    (domains shown as domains in the last two); Excel opens the XLSX; Google Earth or Pro opens the KML; Pro's *JSON To
    Features* reads the Feature Collection; `ogrinfo` reads the CSV and GeoJSON. What differs from §5.6 is written back. **PARTLY DISCHARGED 2026-09-30,
@@ -471,23 +481,57 @@ and as the checkbox draws it today — is simpler and is how the three edits beh
    column changed Pro's answer. The same day the owner opened the zipped Shapefile in Pro and the Feature Collection
    with Pro's *JSON To Features*, so every format has now been opened by a reader outside GDAL. **Still open: field
    domains shown as domains** in the GeoPackage and the File Geodatabase, which the first build does not write.
+   *(2026-10-07: written now (condition 1), and QGIS 3.28 shows them as domains — a value map on `şehir`, a range on
+   `nüfus` — from both files. ArcGIS Pro has not been shown them; that is what is still open.)*
 3. **Turkish text survives every format.** A layer with `ğ`, `ş`, `İ`, `ı` in attribute values and in field names is
    exported in all eight formats and read back by condition 2's readers with every letter intact. **PARTLY DISCHARGED
    2026-09-30:** `tr_il`'s `il` values (Nevşehir, Kırşehir, Muş …) read back intact in Pro from the GeoPackage and the
    File Geodatabase and in Excel from the CSV and the workbook, and then from the Shapefile and the Feature Collection
    in Pro. **Still open: Turkish letters in field names**, which `tr_il` does not have.
+   *(2026-10-07: a registered layer with `şehir`, `ilçe_adı`, `mahalle_adı_3`, `nüfus` and `aççççç` exported in all
+   eight formats and read back by GDAL with every name intact — the Shapefile's within its ten bytes, condition 4 — and
+   60,000 rows of `ğüşİıöç` in values intact in every format. A hosted layer's designed fields fold Turkish letters to
+   ASCII when they are made (`şehir` became `sehir`), so it is a registered layer that carries them. Still open: those
+   names read by condition 2's readers rather than by GDAL.)*
 4. **A Shapefile name collision** — three fields whose first ten bytes agree, one of them Turkish — gets §5.6's names and
-   the `fieldnames.csv` says so.
+   the `fieldnames.csv` says so. **DISCHARGED 2026-10-07.** `mahalle_adi_1`, `mahalle_adi_2` and `mahalle_adı_3` leave as
+   `mahalle_ad`, `mahalle__1` and `mahalle__2`, and `aççççç` (eleven bytes) as `açççç` — cut before the fifth `ç`, where
+   GDAL's byte cut would have split it — and `zz_turkce.fieldnames.csv` in the zip lists the four that changed.
+   `ShapefileFieldNames` rewrites the names GDAL wrote in the `.dbf`'s descriptors after checking the file holds the
+   fields expected; GDAL then reads the Shapefile with its 25 rows and Turkish values (`ShapefileFieldNamesTests`).
+   This reverses the departure at the top of this ADR that left GDAL's names and no `fieldnames.csv`.
 5. **A layer larger than 50,000 rows** (at least three pages) exports with every object id once, in every format; the
    largest layer the showcase has is exported as XLSX and File Geodatabase and the child's peak working set is recorded.
+   **PARTLY DISCHARGED 2026-10-07, on the fixture.** 60,000 points exported in all eight formats, and GDAL read each back
+   with 60,000 rows, every object id once and every Turkish label intact. The reader child's peak working set: about
+   50 MB for GeoPackage, Shapefile, File Geodatabase, CSV and GeoJSON, 93 MB for the workbook, **350 MB for KML**; at
+   300,000 rows, 78 MB GeoPackage, 66 MB File Geodatabase, 283 MB workbook. **Two defects found and fixed:** KML was
+   estimated as GeoJSON and is nearly three times wider, so a 300,000-row KML wrote 181 MB against 143 MB counted and was
+   stopped for the budget — each format is now estimated at its measured width (`OutputWidth`); and GDAL's KML writer
+   holds the whole document in memory at about nine times the file (1.56 GB and climbing at 300,000 rows, against the
+   child's 2 GB ceiling), so a KML estimated above 150 MB is refused at the request (`kmlTooLarge`) — 200,000 points
+   wrote 127 MB at a 1.06 GB peak. **Still open:** the showcase's largest layer, which needs its administrator.
 6. **Every source**: a hosted layer, a registered PostGIS layer and a GeoParquet layer each export, and a hidden field
-   (ADR-063) is in none of them.
+   (ADR-063) is in none of them. **DISCHARGED 2026-10-07.** A hosted layer with `n` hidden (GeoJSON, CSV and GeoPackage
+   without it), a registered layer over the same table with `sehir` hidden (GeoJSON, 1,000 rows, without it), and a
+   GeoParquet layer read by DuckDB with `name` hidden (GeoJSON and GeoPackage, 3,405 rows, without it).
 7. **`Extract` is enforced**: a signed-in reader is refused where the service does not offer it and allowed where it
    does, and refused again at download after the owner turns it off; the owner is allowed either way; an anonymous
    caller is refused either way; `capabilities`, `Editing` and `hasStaticData` are as §5.5 says for each caller.
-8. **A cookie-only `POST`** to start an export is refused, and one with a bearer header is not.
+   **DISCHARGED 2026-10-07** by `A_reader_exports_only_where_the_owner_offered_Extract…`, which now also has the
+   administrator export where Extract is not offered, `capabilities` without Extract for reader and administrator before
+   the offer and with it for both after, and `Editing` and `hasStaticData` unchanged by it; the anonymous refusal is
+   `A_cookie_alone_cannot_start_an_export_and_nobody_anonymous_can`.
+8. **A cookie-only `POST`** to start an export is refused, and one with a bearer header is not. **DISCHARGED** by
+   `A_cookie_alone_cannot_start_an_export_and_nobody_anonymous_can`, which asserts both, in CI since 2026-09-30.
 9. **The budget is shared**: a feature export that would pass the budget with a tile package held is refused with
-   `exceedsExportBudget`, and the stray sweeps of each leave the other's files.
+   `exceedsExportBudget`, and the stray sweeps of each leave the other's files. **DISCHARGED 2026-10-07.** One budget
+   across both: `One_budget_holds_the_tile_exports_and_the_feature_exports_together` (a held tile package refuses a
+   feature export and the reverse). The refusal at the request, measured with `Graticula:ExportBudgetMB=5`: 400,
+   `exceedsExportBudget`, the estimate, what is held and the budget named. The sweeps: the feature exporter's reads only
+   its own `data/` folder and its own names, the tile exporter's lists the top folder's files without descending
+   (`Feature_exports_live_in_a_folder_the_tile_exporters_stray_sweep_does_not_read` holds the layout), and each deletes
+   only its own suffixes.
 
 ## 12. INFERRED, for confirmation
 

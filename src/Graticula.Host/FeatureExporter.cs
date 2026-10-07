@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -199,7 +200,8 @@ internal sealed partial class FeatureExporter : BackgroundService
     /// <param name="Rows">Rows across the layers, counted up to one past what the cap allows.</param>
     /// <param name="EstimatedBytes">The upper bound on the disk the export takes.</param>
     /// <param name="RowsByLayer">Each layer's count, in the order given.</param>
-    internal sealed record Weighed(long Rows, long EstimatedBytes, IReadOnlyList<long> RowsByLayer);
+    /// <param name="OutputBytes">The estimate of the output alone, without staging — what KML's limit is held to.</param>
+    internal sealed record Weighed(long Rows, long EstimatedBytes, IReadOnlyList<long> RowsByLayer, long OutputBytes = 0);
 
     /// <summary>
     /// Counts each layer's rows, up to one past the cap in all, and weighs a sample of them — the dry run's numbers and
@@ -209,6 +211,7 @@ internal sealed partial class FeatureExporter : BackgroundService
     /// <param name="contexts">The layers' sources.</param>
     /// <param name="cap">The most rows one export may hold.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="format">The format, whose width beside GeoJSON the estimate is scaled by.</param>
     /// <returns>The counts and the estimate.</returns>
     /// <remarks>
     /// <b>The estimate is the size of the first <see cref="SampleRows"/> rows as staging, scaled to the count and
@@ -217,8 +220,10 @@ internal sealed partial class FeatureExporter : BackgroundService
     /// nothing.
     /// </remarks>
     internal static async Task<Weighed> WeighAsync(
-        IReadOnlyList<PublishedLayer> layers, ServiceContexts contexts, long cap, CancellationToken cancellation)
+        IReadOnlyList<PublishedLayer> layers, ServiceContexts contexts, long cap, CancellationToken cancellation,
+        FeatureExportFormat format = FeatureExportFormat.GeoJson)
     {
+        double width = FeatureExportPackaging.OutputWidth(format);
         List<long> counts = [];
         long total = 0;
 
@@ -241,6 +246,7 @@ internal sealed partial class FeatureExporter : BackgroundService
         }
 
         long bytes = 0;
+        long output = 0;
 
         for (int i = 0; i < layers.Count; i++)
         {
@@ -259,10 +265,11 @@ internal sealed partial class FeatureExporter : BackgroundService
                     weighed, source, described, layers[i], layers[i].Definition.Srid, SampleRows - 1, SampleRows, null, cancellation)
                 .ConfigureAwait(false);
 
-            bytes += FeatureExportPackaging.EstimateBytes(weighed.Length, sampled, counts[i]);
+            bytes += FeatureExportPackaging.EstimateBytes(weighed.Length, sampled, counts[i], width);
+            output += FeatureExportPackaging.OutputBytes(weighed.Length, sampled, counts[i], width);
         }
 
-        return new Weighed(total, bytes, counts);
+        return new Weighed(total, bytes, counts, output);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stopping)
@@ -579,7 +586,11 @@ internal sealed partial class FeatureExporter : BackgroundService
                             .ConfigureAwait(false);
 
                         dataset = await WriteLayerAsync(
-                                format, packaging, input, layerName, i, staging, dataset, written, checkpoint, working)
+                                format, packaging, input, layerName, i, staging, dataset, written, checkpoint, working,
+                                [.. described.Fields.Select(f => f.Name)],
+                                format is FeatureExportFormat.GeoPackage or FeatureExportFormat.FileGeodatabase
+                                    ? DomainsOf(layer, [.. described.Fields.Select(f => f.Name)])
+                                    : null)
                             .ConfigureAwait(false);
                     }
 
@@ -653,7 +664,9 @@ internal sealed partial class FeatureExporter : BackgroundService
         string? dataset,
         List<(string Path, string Entry)> written,
         Checkpoint checkpoint,
-        CancellationToken working)
+        CancellationToken working,
+        IReadOnlyList<string>? fields = null,
+        object[]? domains = null)
     {
         string output;
         bool append = false;
@@ -703,6 +716,7 @@ internal sealed partial class FeatureExporter : BackgroundService
                     format = FeatureExportPackaging.ReaderToken(format),
                     layer = layerName,
                     append,
+                    domains,
                 },
                 _settings.FeatureExportTimeout,
                 working).ConfigureAwait(false);
@@ -724,6 +738,12 @@ internal sealed partial class FeatureExporter : BackgroundService
         {
             if (format == FeatureExportFormat.Shapefile)
             {
+                // ADR-106 §5.6 and condition 4: ten-byte names cut on a character boundary, and the list of what each was.
+                if (fields is not null && !ShapefileFieldNames.Apply(output, layerName, fields))
+                {
+                    LogNamesLeft(layerName);
+                }
+
                 foreach (string file in Directory.EnumerateFiles(output))
                 {
                     written.Add((file, Path.GetFileName(file)));
@@ -736,6 +756,39 @@ internal sealed partial class FeatureExporter : BackgroundService
         }
 
         return packaging.OneDataset ? output : dataset;
+    }
+
+    /// <summary>
+    /// The layer's field domains, as the reader writes them into a GeoPackage or File Geodatabase — ADR-106 conditions 1
+    /// and 2. One entry per domain, with every exported field that uses it; a subtype's own domains are not written
+    /// (§5.6, INFERRED).
+    /// </summary>
+    internal static object[] DomainsOf(PublishedLayer layer, IReadOnlyList<string> fields)
+    {
+        static string? Text(Graticula.Catalog.DomainValue? value) =>
+            value is not { } v ? null : v.Number is { } number ? number.ToString(CultureInfo.InvariantCulture) : v.Text;
+
+        return
+        [
+            .. layer.FieldOverrides
+                .Where(o => o.Domain is not null && fields.Contains(o.Column, StringComparer.OrdinalIgnoreCase))
+                .GroupBy(o => o.Domain!.Name, StringComparer.Ordinal)
+                .Select(group =>
+                {
+                    Graticula.Catalog.FieldDomain domain = group.First().Domain!;
+
+                    return (object)new
+                    {
+                        name = domain.Name,
+                        description = string.Empty,
+                        kind = domain.Kind == Graticula.Catalog.DomainKind.Range ? "range" : "coded",
+                        codes = domain.Codes.Select(c => new { code = Text(c.Code), name = c.Name }).ToArray(),
+                        min = Text(domain.Min),
+                        max = Text(domain.Max),
+                        fields = group.Select(o => o.Column).ToArray(),
+                    };
+                }),
+        ];
     }
 
     /// <summary>Makes the finished file at <paramref name="part"/> — a rename, a move or a zip, by the packaging.</summary>
@@ -956,6 +1009,12 @@ internal sealed partial class FeatureExporter : BackgroundService
         Level = LogLevel.Warning,
         Message = "The feature export file or folder {Path} could not be deleted and will be tried again: {Why}")]
     private static partial void LogFileStuck(ILogger logger, string path, string why);
+
+    [LoggerMessage(
+        EventId = 1407,
+        Level = LogLevel.Information,
+        Message = "Shapefile {Layer}'s field names were left as GDAL wrote them: the file did not hold the fields expected.")]
+    private partial void LogNamesLeft(string layer);
 
     /// <summary>
     /// A running export's progress, written at most every two seconds — and how it learns it was cancelled.
