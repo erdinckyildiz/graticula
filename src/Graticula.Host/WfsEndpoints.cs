@@ -1775,9 +1775,10 @@ internal static partial class WfsEndpoints
     /// capabilities unless the title carries it.
     /// </remarks>
     private static string TitleOf(PublishedLayer layer) =>
-        string.IsNullOrWhiteSpace(layer.Folder)
+        // ADR-179: the publisher's title when there is one.
+        layer.Title ?? (string.IsNullOrWhiteSpace(layer.Folder)
             ? layer.Definition.Name
-            : $"{layer.Folder} / {layer.Definition.Name}";
+            : $"{layer.Folder} / {layer.Definition.Name}");
 
     private static string Endpoint(HttpContext context) =>
         $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}{context.Request.Path}";

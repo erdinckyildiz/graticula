@@ -9,6 +9,8 @@
 
 > **Amended 2026-10-03 by [ADR-144](ADR-144-the-geometry-service-answers-the-js-sdk.md).** A `token` in a form-encoded POST body is read, as the JS SDK sends it past 2,000 characters.
 
+> **Amended 2026-10-07 by [ADR-178](ADR-178-http-basic-on-the-ogc-faces.md), owner decision (Q-163).** On the OGC faces, over HTTPS only, `Authorization: Basic` is read when no token is sent: it goes through the same sign-in and opens a fifteen-minute session scoped like an ArcGIS token, held so the password is checked once per fifteen minutes. Over plain HTTP it is refused with 403.
+
 ---
 
 > **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are

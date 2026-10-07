@@ -20,6 +20,10 @@ namespace Graticula.Host;
 /// <param name="MaxScale">The smallest scale it draws at; 0 or null for no limit.</param>
 internal sealed record VisibleRangeRequest(double? MinScale, double? MaxScale);
 
+/// <summary>What a layer's title is set to; null or blank shows the composed one again.</summary>
+/// <param name="Title">The title.</param>
+internal sealed record LayerTitleRequest(string? Title);
+
 /// <summary>
 /// A layer's visible scale range — ADR-070.
 /// </summary>
@@ -32,6 +36,7 @@ internal static partial class AdminEndpoints
     private static void MapVisibleRange(WebApplication app)
     {
         app.MapPut("/admin/layers/{name}/visible-range", SetVisibleRangeAsync);
+        app.MapPut("/admin/layers/{name}/title", SetLayerTitleAsync);
         app.MapPost("/admin/layers/{name}/visible-range/suggestion", SuggestVisibleRangeAsync);
     }
 
@@ -90,6 +95,55 @@ internal static partial class AdminEndpoints
             maxScale = max,
             note = Describe(new VisibleScaleRange(min, max)),
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Stores the title a layer is shown by in the OGC faces — ADR-179.</summary>
+    /// <remarks>
+    /// <b><c>content:publishFeatures</c>, as the visible range</b>: a title is how the publisher means the layer to be
+    /// read. At most 256 characters, as the column's check says; blank is the same as none.
+    /// </remarks>
+    private static async Task SetLayerTitleAsync(
+        HttpContext context,
+        string name,
+        LayerTitleRequest request,
+        PostgresLayerCatalog layers,
+        ServiceContexts contexts,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string? title = string.IsNullOrWhiteSpace(request.Title) ? null : request.Title.Trim();
+
+        if (title is { Length: > 256 })
+        {
+            await Refuse(context, 400, $"A title is at most 256 characters; this one is {title.Length}.").ConfigureAwait(false);
+            return;
+        }
+
+        if (await ManagedLayerAsync(context, layers, name, "set the title of", cancellation).ConfigureAwait(false) is not { } layer)
+        {
+            return;
+        }
+
+        if (!await catalog.SetLayerTitleAsync(layer.Id, title, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        contexts.Forget(layer);
+
+        await AuditAsync(
+            context, audit, "layer.title", name, Detail(new { title }), succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { name, title }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>Measures what the range should be, without storing it.</summary>

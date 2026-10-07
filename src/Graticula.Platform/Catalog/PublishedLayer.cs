@@ -344,6 +344,12 @@ public sealed class PublishedLayer
     /// </summary>
     public bool EditOwnOnly { get; init; }
 
+    /// <summary>
+    /// The title its publisher gave it, or null — ADR-179. The OGC faces show it in place of the title they compose from
+    /// the service's and the layer's names; nothing addresses a layer by it.
+    /// </summary>
+    public string? Title { get; init; }
+
     /// <summary>The catalogue identity.</summary>
     public Guid Id { get; }
 

@@ -30,6 +30,7 @@ It prints the environment variables the suite wants, so a caller can eval them.
 
 import argparse
 import json
+import os
 import ssl
 import sys
 import time
@@ -158,7 +159,7 @@ class Server:
 
 
 def define(server, name, geometry, fields, sharing="public", service=None,
-           parent=None, cache=None):
+           parent=None, cache=None, srid=None):
     """An empty hosted layer, created from a schema rather than a file."""
     design = {
         "name": name,
@@ -175,6 +176,9 @@ def define(server, name, geometry, fields, sharing="public", service=None,
 
     if cache is not None:
         design["cacheSeconds"] = cache
+
+    if srid is not None:
+        design["srid"] = srid
 
     _, body = server.call("POST", "/admin/hosted/define", body=design)
 
@@ -339,6 +343,31 @@ def square(x, y, size, attributes):
         },
         "attributes": attributes,
     }
+
+
+def seed_cite_wms11(server, path=None):
+    """OGC's WMS 1.1.1 standard dataset, eleven layers titled cite:<Name> -- ADR-179.
+
+    <b>For the CITE workflow only.</b> ets-wms11 finds its standard dataset by
+    layer title -- cite:Lakes, cite:Forests and nine more -- and ten of its checks
+    asked for a layer the fixture did not have, so they measured the fixture
+    rather than the server (D-290). The data is OGC's own (tools/cite-data/wms11.json
+    says where from), in EPSG:4326 as published, in one service so that the
+    conformance suites' own fixtures are not disturbed.
+    """
+    path = path or os.path.join(os.path.dirname(os.path.abspath(__file__)), "cite-data", "wms11.json")
+    data = json.load(open(path, encoding="utf-8"))
+    service = "cite_wms11"
+    address = f"hosted/{service}"
+    existing = set(server.layers())
+
+    for layer in data["layers"]:
+        ensure_layer(server, existing, layer["name"], layer["geometryType"], layer["fields"],
+                     service=service, srid=4326)
+        ensure_features(server, address, layer["name"], layer["features"])
+        server.call("PUT", f"/admin/layers/{urllib.parse.quote(layer['name'])}/title",
+                    body={"title": layer["title"]}, expect=(200,))
+        print(f"  {address}: {layer['name']} titled {layer['title']}", file=sys.stderr)
 
 
 def main():

@@ -74,6 +74,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["ImageServerEndpoints.Mensuration.AreaUnits"] = "fixed: Esri's area units for measure (ADR-155)",
         ["OgcMapsEndpoints.WebColours"] = "fixed: the sixteen W3C basic colour names bgcolor takes (ADR-175)",
         ["OgcProcessesEndpoints.JobStore"] = "at most 1,000 jobs, each for an hour, finished and oldest evicted first (ADR-174)",
+        ["BasicCredentials._held"] = "at most Capacity (1,000) credentials, each for fifteen minutes (ADR-178)",
         ["ArcGisAppendEndpoints.Uploads"] = "at most MaximumUploads waiting, each for an hour (ADR-105)",
         // ADR-135, 2026-10-02: a minute's request counts, emptied every minute and capped, because a path's name is the client's.
         ["ServiceUsageCounter._counts"] = "emptied every minute when written, and at most MaximumServicesAMinute names a minute",

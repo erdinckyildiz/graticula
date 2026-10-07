@@ -192,10 +192,36 @@ jobs:
       # <b>The second five, 2026-10-04.</b> Surfaces this server already answered and that
       # nothing outside this repository had checked. Each is its own step for the reason the
       # first three are.
+      # ADR-179: ets-wms11 finds OGC's standard dataset by layer title (cite:Lakes and ten more), and ten of its checks
+      # had nothing to find. The dataset is published for this suite alone and removed after it, so every other suite
+      # is measured on the fixture its baseline was.
       - name: WMS 1.1
         id: wms11
         continue-on-error: true
-        run: sh tools/cite-run.sh wms11 "$CITE_SERVER" cite
+        run: |
+          python - <<'EOF'
+          import importlib.util, os
+          spec = importlib.util.spec_from_file_location("seed", "tools/seed-conformance.py")
+          seed = importlib.util.module_from_spec(spec); spec.loader.exec_module(seed)
+          server = seed.Server(os.environ["GRATICULA_TEST_URL"])
+          server.sign_in(os.environ["GRATICULA_TEST_USER"], os.environ["GRATICULA_TEST_PASSWORD"])
+          seed.seed_cite_wms11(server)
+          EOF
+          status=0
+          sh tools/cite-run.sh wms11 "$CITE_SERVER" cite || status=$?
+          python - <<'EOF'
+          import importlib.util, json, os
+          spec = importlib.util.spec_from_file_location("seed", "tools/seed-conformance.py")
+          seed = importlib.util.module_from_spec(spec); spec.loader.exec_module(seed)
+          server = seed.Server(os.environ["GRATICULA_TEST_URL"])
+          server.sign_in(os.environ["GRATICULA_TEST_USER"], os.environ["GRATICULA_TEST_PASSWORD"])
+          for layer in json.load(open("tools/cite-data/wms11.json", encoding="utf-8"))["layers"]:
+              server.call("DELETE", f"/admin/layers/{layer['name']}?service=cite_wms11", expect=(200, 204, 404))
+          # The emptied service stays listed until it is deleted itself (D-157), and an empty service is a failure for
+          # every suite that walks the catalogue.
+          server.call("DELETE", "/admin/featureservices/cite_wms11?folder=hosted", expect=(200, 204, 404))
+          EOF
+          exit $status
 
       - name: WFS 1.1
         id: wfs11

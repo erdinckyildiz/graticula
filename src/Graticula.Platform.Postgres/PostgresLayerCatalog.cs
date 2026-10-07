@@ -151,6 +151,9 @@ public sealed class PostgresLayerCatalog
         -- ADR-115, migration 73: whether its editors change only what they added. On the end.
         l.edit_own_only,
 
+        -- ADR-179, migration 83: the title a publisher gave it, or null for the composed one. On the end, read by name.
+        l.title as layer_title,
+
         -- ADR-166, migration 79: the OGC faces its owner turned off. On the end, read by name.
         s.ogc_off as service_ogc_off,
 
@@ -579,6 +582,9 @@ public sealed class PostgresLayerCatalog
 
             // ADR-115.
             EditOwnOnly = reader.GetBoolean(reader.GetOrdinal("edit_own_only")),
+
+            // ADR-179.
+            Title = Nullable(reader, "layer_title"),
         };
     }
 

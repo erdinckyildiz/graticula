@@ -80,6 +80,11 @@ As §2, Alternative A.
    403: QGIS sends the `token` it was given on its GET requests and not on the Transaction POST, and this server
    offers no other credential to an OGC client. Which one to offer is the owner's —
    [Q-163](../open-questions.md).
+   **DISCHARGED 2026-10-07** after the owner chose HTTP Basic over HTTPS ([ADR-178](ADR-178-http-basic-on-the-ogc-faces.md)):
+   QGIS 3.28 with a Basic auth config inserts a point through WFS-T and the insert is read back through the
+   FeatureServer; it deletes it and the FeatureServer no longer has it. **With the layer at version 1.1.0**: QGIS 3.28
+   reads a Transaction response only in 1.0's and 1.1's shape, and reported this server's 2.0 response as nothing
+   added for an insert that was made.
 
 ## 6. Consequences
 

@@ -1,0 +1,869 @@
+{
+ "_source": [
+  "OGC's WMS 1.1.1 conformance test dataset, from opengeospatial/ets-wms11",
+  "src/site/resources/OGCTestData/wms/1.1.1/data/WmsTestData.zip (mapinfo/*.mif), Apache License 2.0.",
+  "Converted with ogr2ogr to EPSG:4326 and then to Esri JSON by a one-off script; Buildings keeps its",
+  "footprints and drops the position points the MapInfo file carries beside them. Used only by",
+  "the CITE workflow (ADR-179), which publishes each as a layer titled cite:<Name>."
+ ],
+ "layers": [
+  {
+   "name": "cite_BasicPolygons",
+   "title": "cite:BasicPolygons",
+   "geometryType": "Polygon",
+   "queryable": true,
+   "fields": [
+    {
+     "name": "id",
+     "type": "Text"
+    }
+   ],
+   "features": [
+    {
+     "geometry": {
+      "rings": [
+       [
+        [
+         -1.0,
+         0.0
+        ],
+        [
+         0.0,
+         1.0
+        ],
+        [
+         1.0,
+         0.0
+        ],
+        [
+         0.0,
+         -1.0
+        ],
+        [
+         -1.0,
+         0.0
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "id": ""
+     }
+    },
+    {
+     "geometry": {
+      "rings": [
+       [
+        [
+         -2.0,
+         6.0
+        ],
+        [
+         1.0,
+         6.0
+        ],
+        [
+         1.0,
+         3.0
+        ],
+        [
+         -2.0,
+         3.0
+        ],
+        [
+         -2.0,
+         6.0
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "id": ""
+     }
+    },
+    {
+     "geometry": {
+      "rings": [
+       [
+        [
+         -1.0,
+         5.0
+        ],
+        [
+         2.0,
+         5.0
+        ],
+        [
+         2.0,
+         2.0
+        ],
+        [
+         -1.0,
+         2.0
+        ],
+        [
+         -1.0,
+         5.0
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "id": ""
+     }
+    }
+   ]
+  },
+  {
+   "name": "cite_Bridges",
+   "title": "cite:Bridges",
+   "geometryType": "Point",
+   "queryable": false,
+   "fields": [
+    {
+     "name": "fid",
+     "type": "Text"
+    },
+    {
+     "name": "name",
+     "type": "Text"
+    }
+   ],
+   "features": [
+    {
+     "geometry": {
+      "x": 0.0002,
+      "y": 0.0007,
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "110",
+      "name": "Cam Bridge"
+     }
+    }
+   ]
+  },
+  {
+   "name": "cite_Buildings",
+   "title": "cite:Buildings",
+   "geometryType": "Polygon",
+   "queryable": false,
+   "fields": [
+    {
+     "name": "fid",
+     "type": "Text"
+    },
+    {
+     "name": "address",
+     "type": "Text"
+    }
+   ],
+   "features": [
+    {
+     "geometry": {
+      "rings": [
+       [
+        [
+         0.0008,
+         0.0005
+        ],
+        [
+         0.0008,
+         0.0007
+        ],
+        [
+         0.0012,
+         0.0007
+        ],
+        [
+         0.0012,
+         0.0005
+        ],
+        [
+         0.0008,
+         0.0005
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "113",
+      "address": "123 Main Street"
+     }
+    },
+    {
+     "geometry": {
+      "rings": [
+       [
+        [
+         0.002,
+         0.0008
+        ],
+        [
+         0.002,
+         0.001
+        ],
+        [
+         0.0024,
+         0.001
+        ],
+        [
+         0.0024,
+         0.0008
+        ],
+        [
+         0.002,
+         0.0008
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "114",
+      "address": "215 Main Street"
+     }
+    }
+   ]
+  },
+  {
+   "name": "cite_DividedRoutes",
+   "title": "cite:DividedRoutes",
+   "geometryType": "MultiLineString",
+   "queryable": false,
+   "fields": [
+    {
+     "name": "fid",
+     "type": "Text"
+    },
+    {
+     "name": "name",
+     "type": "Text"
+    },
+    {
+     "name": "num_lanes",
+     "type": "Double"
+    }
+   ],
+   "features": [
+    {
+     "geometry": {
+      "paths": [
+       [
+        [
+         -0.0032,
+         -0.0024
+        ],
+        [
+         -0.0032,
+         0.0024
+        ]
+       ],
+       [
+        [
+         -0.0026,
+         -0.0024
+        ],
+        [
+         -0.0026,
+         0.0024
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "119",
+      "name": "Route 75",
+      "num_lanes": 4.0
+     }
+    }
+   ]
+  },
+  {
+   "name": "cite_Forests",
+   "title": "cite:Forests",
+   "geometryType": "Polygon",
+   "queryable": true,
+   "fields": [
+    {
+     "name": "fid",
+     "type": "Text"
+    },
+    {
+     "name": "name",
+     "type": "Text"
+    }
+   ],
+   "features": [
+    {
+     "geometry": {
+      "rings": [
+       [
+        [
+         -0.0014,
+         -0.0024
+        ],
+        [
+         -0.0014,
+         0.0002
+        ],
+        [
+         0.0002,
+         0.0007
+        ],
+        [
+         0.0014,
+         0.001
+        ],
+        [
+         0.0028,
+         0.0014
+        ],
+        [
+         0.0042,
+         0.0018
+        ],
+        [
+         0.0042,
+         -0.0024
+        ],
+        [
+         -0.0014,
+         -0.0024
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "109",
+      "name": "Green Forest"
+     }
+    }
+   ]
+  },
+  {
+   "name": "cite_Lakes",
+   "title": "cite:Lakes",
+   "geometryType": "Polygon",
+   "queryable": true,
+   "fields": [
+    {
+     "name": "fid",
+     "type": "Text"
+    },
+    {
+     "name": "name",
+     "type": "Text"
+    }
+   ],
+   "features": [
+    {
+     "geometry": {
+      "rings": [
+       [
+        [
+         0.0006,
+         -0.0018
+        ],
+        [
+         0.001,
+         -0.0006
+        ],
+        [
+         0.0024,
+         -0.0001
+        ],
+        [
+         0.0031,
+         -0.0015
+        ],
+        [
+         0.0006,
+         -0.0018
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "101",
+      "name": "Blue Lake"
+     }
+    }
+   ]
+  },
+  {
+   "name": "cite_MapNeatline",
+   "title": "cite:MapNeatline",
+   "geometryType": "LineString",
+   "queryable": false,
+   "fields": [
+    {
+     "name": "fid",
+     "type": "Text"
+    }
+   ],
+   "features": [
+    {
+     "geometry": {
+      "paths": [
+       [
+        [
+         -0.0042,
+         -0.0024
+        ],
+        [
+         -0.0042,
+         0.0024
+        ],
+        [
+         0.0042,
+         0.0024
+        ],
+        [
+         0.0042,
+         -0.0024
+        ],
+        [
+         -0.0042,
+         -0.0024
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "115"
+     }
+    }
+   ]
+  },
+  {
+   "name": "cite_NamedPlaces",
+   "title": "cite:NamedPlaces",
+   "geometryType": "Polygon",
+   "queryable": true,
+   "fields": [
+    {
+     "name": "fid",
+     "type": "Text"
+    },
+    {
+     "name": "name",
+     "type": "Text"
+    }
+   ],
+   "features": [
+    {
+     "geometry": {
+      "rings": [
+       [
+        [
+         0.002,
+         0.0024
+        ],
+        [
+         0.0042,
+         0.0024
+        ],
+        [
+         0.0042,
+         0.0006
+        ],
+        [
+         0.0014,
+         0.0006
+        ],
+        [
+         0.0014,
+         0.001
+        ],
+        [
+         0.002,
+         0.0024
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "117",
+      "name": "Ashton"
+     }
+    },
+    {
+     "geometry": {
+      "rings": [
+       [
+        [
+         0.0017,
+         -0.0011
+        ],
+        [
+         0.0017,
+         -0.0006
+        ],
+        [
+         0.0025,
+         -0.0006
+        ],
+        [
+         0.0025,
+         -0.0011
+        ],
+        [
+         0.0017,
+         -0.0011
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "118",
+      "name": "Goose Island"
+     }
+    }
+   ]
+  },
+  {
+   "name": "cite_Ponds",
+   "title": "cite:Ponds",
+   "geometryType": "MultiPolygon",
+   "queryable": true,
+   "fields": [
+    {
+     "name": "fid",
+     "type": "Text"
+    },
+    {
+     "name": "name",
+     "type": "Text"
+    },
+    {
+     "name": "type",
+     "type": "Text"
+    }
+   ],
+   "features": [
+    {
+     "geometry": {
+      "rings": [
+       [
+        [
+         -0.002,
+         0.0018
+        ],
+        [
+         -0.0018,
+         0.002
+        ],
+        [
+         -0.0018,
+         0.0016
+        ],
+        [
+         -0.002,
+         0.0018
+        ]
+       ],
+       [
+        [
+         -0.0014,
+         0.0018
+        ],
+        [
+         -0.0016,
+         0.0016
+        ],
+        [
+         -0.0016,
+         0.002
+        ],
+        [
+         -0.0014,
+         0.0018
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "120",
+      "name": "",
+      "type": "Stock Pond"
+     }
+    }
+   ]
+  },
+  {
+   "name": "cite_RoadSegments",
+   "title": "cite:RoadSegments",
+   "geometryType": "LineString",
+   "queryable": false,
+   "fields": [
+    {
+     "name": "fid",
+     "type": "Text"
+    },
+    {
+     "name": "name",
+     "type": "Text"
+    }
+   ],
+   "features": [
+    {
+     "geometry": {
+      "paths": [
+       [
+        [
+         -0.0042,
+         -0.0006
+        ],
+        [
+         -0.0032,
+         -0.0003
+        ],
+        [
+         -0.0026,
+         -0.0001
+        ],
+        [
+         -0.0014,
+         0.0002
+        ],
+        [
+         0.0002,
+         0.0007
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "102",
+      "name": "Route 5"
+     }
+    },
+    {
+     "geometry": {
+      "paths": [
+       [
+        [
+         0.0002,
+         0.0007
+        ],
+        [
+         0.0014,
+         0.001
+        ],
+        [
+         0.0028,
+         0.0014
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "103",
+      "name": "Route 5"
+     }
+    },
+    {
+     "geometry": {
+      "paths": [
+       [
+        [
+         0.0028,
+         0.0014
+        ],
+        [
+         0.003,
+         0.0024
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "104",
+      "name": "Route 5"
+     }
+    },
+    {
+     "geometry": {
+      "paths": [
+       [
+        [
+         0.0002,
+         0.0007
+        ],
+        [
+         0.0014,
+         0.001
+        ],
+        [
+         0.0028,
+         0.0014
+        ],
+        [
+         0.0042,
+         0.0018
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "105",
+      "name": "Main Street"
+     }
+    },
+    {
+     "geometry": {
+      "paths": [
+       [
+        [
+         -0.0014,
+         -0.0024
+        ],
+        [
+         -0.0014,
+         0.0002
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "106",
+      "name": "Dirt Road by Green Forest"
+     }
+    }
+   ]
+  },
+  {
+   "name": "cite_Streams",
+   "title": "cite:Streams",
+   "geometryType": "LineString",
+   "queryable": false,
+   "fields": [
+    {
+     "name": "fid",
+     "type": "Text"
+    },
+    {
+     "name": "name",
+     "type": "Text"
+    }
+   ],
+   "features": [
+    {
+     "geometry": {
+      "paths": [
+       [
+        [
+         -0.0004,
+         0.0024
+        ],
+        [
+         0.0002,
+         0.0017
+        ],
+        [
+         -0.0001,
+         0.0012
+        ],
+        [
+         0.0002,
+         0.0007
+        ],
+        [
+         0.001,
+         -0.0006
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "111",
+      "name": "Cam Stream"
+     }
+    },
+    {
+     "geometry": {
+      "paths": [
+       [
+        [
+         0.0034,
+         -0.0024
+        ],
+        [
+         0.0036,
+         -0.002
+        ],
+        [
+         0.0031,
+         -0.0015
+        ]
+       ]
+      ],
+      "spatialReference": {
+       "wkid": 4326
+      }
+     },
+     "attributes": {
+      "fid": "112",
+      "name": ""
+     }
+    }
+   ]
+  }
+ ]
+}

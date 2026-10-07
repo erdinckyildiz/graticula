@@ -761,6 +761,13 @@ public interface IAdminCatalog
     Task<bool> SetTimeFieldAsync(
         Guid layerId, string? field, CancellationToken cancellationToken);
 
+    /// <summary>Stores the title a layer is shown by, or clears it — ADR-179.</summary>
+    /// <param name="id">The layer — by id, because a name may belong to layers in several services.</param>
+    /// <param name="title">The title, already trimmed and checked, or null to show the composed one again.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the layer was found.</returns>
+    Task<bool> SetLayerTitleAsync(Guid id, string? title, CancellationToken cancellationToken);
+
     /// <summary>Stores the scales a layer draws at — ADR-070.</summary>
     /// <param name="id">The layer — by id, because a name may belong to layers in several services.</param>
     /// <param name="minScale">The largest scale it draws at, 0 for no limit.</param>

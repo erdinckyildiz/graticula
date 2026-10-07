@@ -767,7 +767,13 @@ public static class Program
             services.GetRequiredService<TimeProvider>(),
             services.GetRequiredService<IRoleGrants>(),
             services.GetRequiredService<SourceBreaker>(),
-            services.GetRequiredService<AnonymousGrants>()));
+            services.GetRequiredService<AnonymousGrants>(),
+            services.GetRequiredService<BasicCredentials>()));
+
+        // ADR-178: HTTP Basic on the OGC faces, over HTTPS, through the same sign-in as /rest/auth/login.
+        builder.Services.AddSingleton(services => new BasicCredentials(
+            services.GetRequiredService<LoginService>(),
+            services.GetRequiredService<TimeProvider>()));
 
         // ADR-089: a name with no password here is asked of the configured directories, inside this one service.
         builder.Services.AddSingleton<Graticula.Host.Ldap.LdapDirectory>();
@@ -1264,6 +1270,12 @@ public static class Program
             if (current.TokenWasRejected && InvalidToken.Applies(context.Request.Path))
             {
                 await InvalidToken.WriteAsync(context).ConfigureAwait(false);
+                return;
+            }
+
+            if (current.BasicRefusal is { } basicRefused)
+            {
+                await BasicCredentials.WriteAsync(context, basicRefused).ConfigureAwait(false);
                 return;
             }
 

@@ -779,9 +779,10 @@ internal static partial class OgcFeaturesEndpoints
 
         return new CollectionMetadata(
             layer.Definition.Name,
-            layer.Folder is { Length: > 0 } folder
+            // ADR-179: the publisher's title when there is one.
+            layer.Title ?? (layer.Folder is { Length: > 0 } folder
                 ? $"{folder}/{layer.ServiceName} — {layer.Definition.Name}"
-                : $"{layer.ServiceName} — {layer.Definition.Name}",
+                : $"{layer.ServiceName} — {layer.Definition.Name}"),
             Description: null,
             layer.Definition.Srid,
             layer.GeometryType,

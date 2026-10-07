@@ -708,6 +708,18 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> SetLayerTitleAsync(Guid id, string? title, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update layer set title = @title, updated_at = now() where id = @id");
+
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.Add(new NpgsqlParameter("title", NpgsqlDbType.Text) { Value = (object?)title ?? DBNull.Value });
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> SetVisibleRangeAsync(
         Guid id, double minScale, double maxScale, CancellationToken cancellationToken)
     {

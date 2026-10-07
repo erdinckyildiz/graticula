@@ -115,7 +115,8 @@ this is acceptable — part of [Q-164](../open-questions.md).)*
    lists the eight processes, describes `buffer`'s inputs, and a 10-unit buffer of a point in EPSG:3857 comes back a
    polygon spanning 990 to 1010. (The OWSLib QGIS 3.28 ships, 0.25, predates the Processes client.)
 2. The owner confirms that the processes follow the geometry service's sharing rather than having a sharing of their
-   own (`INFERRED`).
+   own (`INFERRED`). **DISCHARGED 2026-10-07** — the owner, asked with the other three APIs' choices ([Q-164](../open-questions.md)):
+   *"Hepsi onaylı"*, including the anonymous callers' shared job list.
 
 ## 9. Revisit triggers
 

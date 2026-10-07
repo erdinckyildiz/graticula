@@ -126,6 +126,7 @@ published standard (20-004r1) and the clients' observable requests only.
    backend read it from Python; the QGIS dialog has not been driven.
 3. The owner confirms the `INFERRED` choices: a record per portal item (§2 A, against B), the portal's item types as
    `type` (§3), `datetime` against the record's change time (§3), and `rights` from the OGC access constraints.
+   **DISCHARGED 2026-10-07** — the owner ([Q-164](../open-questions.md)): *"Hepsi onaylı"*.
 
 ## 6. Consequences
 

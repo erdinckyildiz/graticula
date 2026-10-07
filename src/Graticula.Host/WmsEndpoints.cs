@@ -648,9 +648,10 @@ internal static partial class WmsEndpoints
     }
 
     private static string TitleOf(PublishedLayer layer) =>
-        layer.Folder is { Length: > 0 } folder
+        // ADR-179: the publisher's title when there is one.
+        layer.Title ?? (layer.Folder is { Length: > 0 } folder
             ? $"{folder}/{layer.ServiceName} — {layer.Definition.Name}"
-            : $"{layer.ServiceName} — {layer.Definition.Name}";
+            : $"{layer.ServiceName} — {layer.Definition.Name}");
 
     /// <summary>
     /// A layer's time dimension, measured once and cached.

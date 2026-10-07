@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(82);
+    public static SchemaVersion ComponentSchemaVersion => new(83);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -117,6 +117,7 @@ public static class PlatformMigrations
         AServiceStatesItsOgcTermsV80,
         AnImageServiceTurnsWcsOffV81,
         AServiceStatesItsInspireSettingsV82,
+        ALayerMayCarryATitleV83,
     ]);
 
     /// <summary>
@@ -154,6 +155,29 @@ public static class PlatformMigrations
     /// A web map may be protected from deletion, as a service may be (ADR-102 condition 2) — the ArcGIS review's second
     /// pass found maps the one item kind without it.
     /// </summary>
+    /// <summary>
+    /// A layer may carry a title, which the OGC faces show in place of the one they compose — ADR-179.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>What a person reads, beside what a client asks for.</b> A layer's name is its identifier in every face's
+    /// address; a title is free text a publisher chooses — "Parcels, 2026" rather than <c>parcels_2026</c> — and WMS,
+    /// WFS and OGC API Features each composed one from the service's and the layer's names. OGC's WMS 1.1 suite finds
+    /// its standard dataset by title alone (<c>cite:Lakes</c>), which is how the column came to be wanted.
+    /// </para>
+    /// <para><b>Expand.</b> A nullable column with a check; null is the composed title every layer had. The minimum reader
+    /// does not move.</para>
+    /// </remarks>
+    private static Migration ALayerMayCarryATitleV83 => Migration.Expand(
+        new SchemaVersion(83),
+        "A layer may carry a title, shown by the OGC faces in place of the composed one (ADR-179).",
+        "alter table layer add column if not exists title text",
+        "alter table layer drop constraint if exists layer_title_is_text",
+        """
+        alter table layer add constraint layer_title_is_text
+          check (title is null or (length(btrim(title)) between 1 and 256))
+        """);
+
     /// <summary>
     /// A service states its INSPIRE settings — ADR-172, ArcGIS's INSPIRE View and Download service extensions.
     /// </summary>

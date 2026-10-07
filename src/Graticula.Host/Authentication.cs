@@ -82,12 +82,14 @@ internal sealed class Authentication
     /// [D-249](../../docs/architecture-debt.md). Optional for the breaker's reason: without it
     /// every anonymous request reads the store, which is what every one did before it existed.
     /// </param>
+    /// <param name="basic">HTTP Basic on the OGC faces — ADR-178. Optional: without it only tokens are read.</param>
     public Authentication(
         IIdentityStore store,
         TimeProvider time,
         IRoleGrants? grants = null,
         SourceBreaker? breaker = null,
-        AnonymousGrants? anonymous = null)
+        AnonymousGrants? anonymous = null,
+        BasicCredentials? basic = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(time);
@@ -97,10 +99,14 @@ internal sealed class Authentication
         _time = time;
         _breaker = breaker;
         _anonymous = anonymous;
+        _basic = basic;
     }
 
     private readonly SourceBreaker? _breaker;
     private readonly AnonymousGrants? _anonymous;
+
+    /// <summary>HTTP Basic on the OGC faces — ADR-178. Optional, so a resolver built without it reads tokens only.</summary>
+    private readonly BasicCredentials? _basic;
 
     /// <summary>
     /// Resolves the principal and what it may do, defaulting to anonymous.
@@ -165,6 +171,20 @@ internal sealed class Authentication
             AuthenticatedSession? session =
                 await FindSessionAsync(context, cancellationToken).ConfigureAwait(false);
 
+            // <b>HTTP Basic, on an OGC face and nowhere else — ADR-178.</b> Only when no token was sent, so a client that
+            // has one is never asked for its password again, and only over HTTPS.
+            BasicRefusal? basicRefusal = null;
+
+            if (session is null
+                && _basic is { } basic
+                && BasicCredentials.AppliesTo(context.Request.Path)
+                && (BearerToken(context) ?? EsriToken(context)) is null
+                && BasicCredentials.TryRead(context, out string basicName, out string basicPassword))
+            {
+                (session, basicRefusal) = await BasicSessionAsync(context, basic, basicName, basicPassword, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             // <b>A bound token used from somewhere it was not bound to is not a token — D-268.</b>
             // Treated exactly as an unrecognised one, so the ArcGIS surface answers 498 and nothing
             // tells the caller whether the token exists.
@@ -227,6 +247,7 @@ internal sealed class Authentication
                 {
                     TokenWasRejected = rejected,
                     TokenOutsideScope = outsideScope,
+                    BasicRefusal = basicRefusal,
                 };
             }
 
@@ -263,6 +284,7 @@ internal sealed class Authentication
             {
                 TokenWasRejected = rejected,
                 TokenOutsideScope = outsideScope,
+                BasicRefusal = basicRefusal,
             };
         }
         catch (Npgsql.NpgsqlException unreachable)
@@ -304,6 +326,43 @@ internal sealed class Authentication
     /// </para>
     /// </remarks>
     public const string SessionCookie = "gis-session";
+
+    /// <summary>
+    /// The session a Basic credential opens, or why it opens none — ADR-178.
+    /// </summary>
+    private async Task<(AuthenticatedSession? Session, BasicRefusal? Refusal)> BasicSessionAsync(
+        HttpContext context, BasicCredentials basic, string name, string password, CancellationToken cancellationToken)
+    {
+        if (!context.Request.IsHttps)
+        {
+            return (null, BasicRefusal.Plaintext);
+        }
+
+        // Twice at most: a held token whose session the store has since forgotten — revoked, or its password changed —
+        // is dropped and the credential is checked again.
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            (string? token, string key, LoginFailure failure) =
+                await basic.TokenAsync(name, password, context, cancellationToken).ConfigureAwait(false);
+
+            if (token is null)
+            {
+                return (null, failure is LoginFailure.AccountThrottled or LoginFailure.AddressThrottled
+                    ? BasicRefusal.Throttled
+                    : BasicRefusal.Rejected);
+            }
+
+            if (await _store.FindSessionAsync(SessionToken.HashOf(token), _time.GetUtcNow(), cancellationToken)
+                    .ConfigureAwait(false) is { } session)
+            {
+                return (session, null);
+            }
+
+            basic.Forget(key);
+        }
+
+        return (null, BasicRefusal.Rejected);
+    }
 
     private async Task<AuthenticatedSession?> FindSessionAsync(
         HttpContext context, CancellationToken cancellationToken)
@@ -610,6 +669,9 @@ internal sealed class RequestPrincipal
     /// API, which such a token does not open — ADR-015 §4, Q-154.
     /// </summary>
     public bool TokenOutsideScope { get; init; }
+
+    /// <summary>Why a Basic credential on an OGC face opened no session, or null — ADR-178.</summary>
+    public BasicRefusal? BasicRefusal { get; init; }
 
     /// <summary>What they may do, resolved once for the request.</summary>
     public Authorization Authorization { get; }
