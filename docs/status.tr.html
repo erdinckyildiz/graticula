@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>f89548b</code> · 2026-10-07 15:26</p>
+<p class="stamp">Şu commit’ten üretildi: <code>7a56351</code> · 2026-10-09 10:06</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">178</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">318/408</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">87 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">15</div><div class="kpi-l">açık borç</div><div class="kpi-n">268 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">14</div><div class="kpi-l">açık borç</div><div class="kpi-n">269 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4758</div><div class="kpi-l">test</div><div class="kpi-n">474 kaynak dosya, 214,332 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4759</div><div class="kpi-l">test</div><div class="kpi-n">474 kaynak dosya, 214,341 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">106 madde</span></div><p><b>87 ADR conditions</b> outstanding across 62 decisions — the largest commitment on this page.</p><p><b>15 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">105 madde</span></div><p><b>87 ADR conditions</b> outstanding across 62 decisions — the largest commitment on this page.</p><p><b>14 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -418,9 +418,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-291</td><td>A portal item can name a face its service has turned off.</td><td class="muted-t">The next change to the portal&#x27;s item listing, or a client report of an item that will not open</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-292</td><td>A group: search finds services and nothing else.</td><td class="muted-t">The next change to the portal search, or a group member who cannot find a map shared with the group</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-293</td><td>The conformance harness&#x27;s shared client keeps cookies.</td><td class="muted-t">The next test that asserts anonymity, or a sweep of the tests that sign in through Http</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-294</td><td>Npgsql&#x27;s thirty seconds bounds the datastore&#x27;s own DDL, which statementtimeout = 0 does not lift.</td><td class="muted-t">The first hosted import or GlobalID backfill of a table above a million rows — or measure one on the arm64 deployment…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">268 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">269 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -519,7 +518,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1324</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.7%"></div></div><div class="bar-n">870</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.3%"></div></div><div class="bar-n">732</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.6%"></div></div><div class="bar-n">538</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.7%"></div></div><div class="bar-n">539</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.7%"></div></div><div class="bar-n">407</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.6%"></div></div><div class="bar-n">273</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.6%"></div></div><div class="bar-n">206</div></div>
@@ -531,6 +530,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>7a56351</code><time>2026-10-09</time><span>CITE maps: pin Maven 3.9.9 (WIP)</span></li>
+<li><code>a463173</code><time>2026-10-07</time><span>A layer&#x27;s history is kept for so many days, and a restore says what today&#x27;s domains refuse</span></li>
 <li><code>f89548b</code><time>2026-10-07</time><span>A layer&#x27;s title is set in Studio, and the box beside it now shows what was saved</span></li>
 <li><code>ecd290d</code><time>2026-10-07</time><span>A layer&#x27;s history turns on for a million features, a historic read uses its index, and the SDK sees it</span></li>
 <li><code>1568f7c</code><time>2026-10-07</time><span>Exports keep their domains and their Shapefile names, and KML is held to what its writer can hold</span></li>
@@ -543,8 +544,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>5c6a769</code><time>2026-10-03</time><span>ADR-172: a service may be an INSPIRE View and Download service; 1.3.0 no longer declares GetStyles</span></li>
 <li><code>ec07382</code><time>2026-10-03</time><span>ADR-171: WMS takes an SLD with GetMap and answers GetStyles</span></li>
 <li><code>74e25f5</code><time>2026-10-03</time><span>ADR-170: image services are WCS 2.0.1 coverages at /wcs and their own WCSServer</span></li>
-<li><code>dac5157</code><time>2026-10-03</time><span>WFS-T is offered to a caller who may edit, and not to one who may not</span></li>
-<li><code>ce1c100</code><time>2026-10-03</time><span>WFS-T: Insert, Update, Replace and Delete through the one write path, in WFS 2.0.0 and 1.1.0</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

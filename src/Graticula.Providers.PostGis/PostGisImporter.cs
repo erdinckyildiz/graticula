@@ -1752,13 +1752,22 @@ public sealed class PostGisImporter
         }
     }
 
+    /// <remarks>
+    /// <b>No client timeout — D-294, measured 2026-10-09.</b> Npgsql stops waiting after thirty seconds by default, and
+    /// on the showcase's arm64 datastore the one statement that rewrites every imported row — <c>update … set geom =
+    /// ST_GeomFromWKB(import_wkb)</c> — took 23 s for a million 41-vertex polygons, inside the importer's own
+    /// million-feature ceiling: a more detailed layer of that size would have been written in full and then rolled back
+    /// at the thirty-first second. What bounds these statements is the caller's token — the request's deadline or the
+    /// import job's — which Npgsql honours by cancelling on the server; a lock is still bounded by
+    /// <c>lock_timeout</c>, two seconds, where one is taken.
+    /// </remarks>
     private static async Task ExecuteAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction? transaction,
         string sql,
         CancellationToken cancellationToken)
     {
-        await using NpgsqlCommand command = new(sql, connection, transaction);
+        await using NpgsqlCommand command = new(sql, connection, transaction) { CommandTimeout = 0 };
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 

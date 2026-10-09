@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -464,6 +465,41 @@ public sealed class PostGisImporterTests : PostgresFixture
                  where f_table_schema = '{result.SchemaName}'
                    and f_table_name = '{result.TableName}'
                  """));
+        }
+        finally
+        {
+            await DropAsync(result);
+        }
+    }
+
+    [Fact]
+    public async Task An_import_outlasts_the_client_s_command_timeout()
+    {
+        // D-294: the statement that rewrites every row from its WKB took 23 s for a million polygons on the arm64
+        // datastore, and Npgsql gives up at 30. A one-second command timeout is the thirty made short, and enough
+        // points that the rewrite and the index outlast it on any machine this suite runs on.
+        NpgsqlDataSourceBuilder impatient = new(Environment.GetEnvironmentVariable("GRATICULA_TEST_PG"));
+        impatient.ConnectionStringBuilder.CommandTimeout = 1;
+        await using NpgsqlDataSource oneSecond = impatient.Build();
+
+        Random random = new(2026);
+        ImportedFeature[] features = new ImportedFeature[600_000];
+        Dictionary<string, JsonElement> none = [];
+
+        for (int i = 0; i < features.Length; i++)
+        {
+            features[i] = new ImportedFeature(
+                new Graticula.Geometries.Point(2_900_000 + random.NextDouble() * 2_100_000, 4_200_000 + random.NextDouble() * 1_000_000),
+                none);
+        }
+
+        ImportResult result = await new PostGisImporter(oneSecond).ImportAsync(
+            new ImportedDataset(features, [], Graticula.Geometries.GeometryKind.Point, 3857), "patient", CancellationToken.None);
+
+        try
+        {
+            Assert.Equal(600_000L, await ScalarAsync<long>(
+                $"select count(*) from \"{result.SchemaName}\".\"{result.TableName}\" where geom is not null"));
         }
         finally
         {

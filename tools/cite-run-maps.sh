@@ -22,7 +22,17 @@ rm -rf "$WORK"
 git init -q "$WORK"
 git -C "$WORK" fetch -q --depth 1 https://github.com/opengeospatial/ets-ogcapi-maps10 "$PIN"
 git -C "$WORK" checkout -q FETCH_HEAD
-( cd "$WORK" && mvn -q -B -DskipTests package )
+
+# <b>Maven is pinned too, for the suite's reason.</b> The pinned commit's pom declares proj4j twice; the runner's
+# Maven accepted that until the ubuntu-24.04 image of 2026-10-02, which refused the pom outright ("must be unique")
+# and turned a green suite into a build failure with nothing on the server changed. The last Maven that built it.
+MAVEN=3.9.9
+MVN_HOME=${RUNNER_TEMP:-/tmp}/apache-maven-$MAVEN
+if [ ! -x "$MVN_HOME/bin/mvn" ]; then
+  curl -sSfL "https://archive.apache.org/dist/maven/maven-3/$MAVEN/binaries/apache-maven-$MAVEN-bin.tar.gz" \
+    | tar -xz -C "${RUNNER_TEMP:-/tmp}"
+fi
+( cd "$WORK" && "$MVN_HOME/bin/mvn" -q -B -DskipTests package )
 
 cat > "$WORK/props.xml" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
