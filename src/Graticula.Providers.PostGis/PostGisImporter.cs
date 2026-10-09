@@ -972,6 +972,9 @@ public sealed class PostGisImporter
         await using NpgsqlBinaryImporter writer = await connection.BeginBinaryImportAsync(
             $"copy {table} ({copyColumns}) from stdin (format binary)", cancellationToken).ConfigureAwait(false);
 
+        // No client timeout on the copy either: see ExecuteAsync, and the line that says why below.
+        writer.Timeout = TimeSpan.Zero;
+
         foreach (ImportedFeature feature in dataset.Features)
         {
             await writer.StartRowAsync(cancellationToken).ConfigureAwait(false);
@@ -1623,6 +1626,11 @@ public sealed class PostGisImporter
             $"copy {Qualified(table)} ({copyColumns}) from stdin (format binary)",
             cancellationToken).ConfigureAwait(false))
         {
+            // <b>The copy's own timeout is the command timeout too</b> — measured 2026-10-09: with the statements lifted,
+            // CI's slower runner still timed out in Complete(), which waits for the server to finish taking the rows.
+            // Zero is no timeout; the caller's token bounds it, as it bounds ExecuteAsync.
+            writer.Timeout = TimeSpan.Zero;
+
             foreach (ImportedFeature feature in dataset.Features)
             {
                 await writer.StartRowAsync(cancellationToken).ConfigureAwait(false);
