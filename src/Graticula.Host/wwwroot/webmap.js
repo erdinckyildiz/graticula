@@ -3267,6 +3267,8 @@ function wmRangeNote(range) {
   The layer list is redrawn when a layer crosses its range, so its sentence follows the map.
 */
 wmMap.on("moveend", () => {
+  // Before a map is open there are no layers to ask about, and `wmLayers` reads the open map's document.
+  if (!wmState.doc) return;
   let crossed = false;
   for (const layer of wmLayers()) {
     const run = wmRuntime.get(layer);
