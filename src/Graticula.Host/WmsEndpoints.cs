@@ -887,7 +887,8 @@ internal static partial class WmsEndpoints
                     ? made.CreateLogger("wms")
                     : null,
                 symbology: styled,
-                honourVisibleRange: true)
+                honourVisibleRange: true,
+                whole: true)
                 .ConfigureAwait(false);
         }
 
@@ -952,6 +953,7 @@ internal static partial class WmsEndpoints
     /// </returns>
     /// <param name="honourVisibleRange">Whether the layer's visible range decides if it is drawn at this scale — ADR-070. A map a client asked for does; a thumbnail or a preview does not.</param>
     /// <param name="definition">A MapServer layer definition already parsed against this layer's columns, or null.</param>
+    /// <param name="whole">Whether to draw every feature in the area, a page at a time, rather than stop at <paramref name="limit"/> — a map a client asked for does; a thumbnail or a preview samples.</param>
     public static async Task<int> DrawLayerAsync(
         ServiceContexts contexts,
         MapRenderer renderer,
@@ -964,7 +966,8 @@ internal static partial class WmsEndpoints
         ILogger? log = null,
         string? symbology = null,
         bool honourVisibleRange = false,
-        AttributePredicate? definition = null)
+        AttributePredicate? definition = null,
+        bool whole = false)
     {
         ArgumentNullException.ThrowIfNull(contexts);
         ArgumentNullException.ThrowIfNull(renderer);
@@ -1092,8 +1095,20 @@ internal static partial class WmsEndpoints
             }
         }
 
-        FeatureQuery features = new(
-            limit: limit,
+        /*
+          <b>A whole drawing reads page after page until the area is exhausted — owner decision, 2026-10-10.</b>
+          *"o scaleler arasında ekranda ne varsa single image olarak gelecek … ekrandaki nesnelere limit
+          uygulanmayacak."* MapServer export and WMS GetMap read up to the deployment's record ceiling and stopped
+          there without a word, so a map with more features in view than the ceiling drew the first of them and
+          looked complete — the failure ADR-070 §2 named when it refused to lower the ceiling. The visible range is
+          what bounds a drawn map now. The ceiling stays what one query may read, so it is the page size, and the
+          pages follow one another in identity order, which every provider gives a limited read (D-21).
+        */
+        int page = limit;
+
+        FeatureQuery Page(int offset) => new(
+            limit: page,
+            offset: offset,
             fields: fields.Count > 0 ? fields : [],
             includeGeometry: true,
             spatial: new SpatialFilter(Rectangle(query)),
@@ -1124,11 +1139,24 @@ internal static partial class WmsEndpoints
 
         try
         {
-            await foreach (Feature feature
-                in source.ReadAsync(features, cancellation).ConfigureAwait(false))
+            for (int offset = 0; ;)
             {
-                pass.Draw(feature);
-                drawn++;
+                int read = 0;
+
+                await foreach (Feature feature
+                    in source.ReadAsync(Page(offset), cancellation).ConfigureAwait(false))
+                {
+                    pass.Draw(feature);
+                    drawn++;
+                    read++;
+                }
+
+                if (!whole || read < page)
+                {
+                    break;
+                }
+
+                offset += read;
             }
         }
         catch (PostgresException outside) when (ErrorResponse.IsOutsideItsReference(outside))

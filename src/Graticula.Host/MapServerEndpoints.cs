@@ -235,12 +235,19 @@ internal static class MapServerEndpoints
         (int servedSrid, Envelope? servedExtent) = await ServedAsync(
             layer, described.Extent, projector, cancellation).ConfigureAwait(false);
 
+        // ADR-070: the export draws the layer only inside its range, so its own document says so too. It said 0 and 0
+        // until 2026-10-10 while the service document and the legend carried the range — and an ArcGIS client reads a
+        // layer's range from the layer.
         FeatureServerMetadataWriter.ServiceLayer entry = new(
             layer.LayerIndex,
             layer.Definition.Name,
             layer.GeometryType,
             servedSrid,
-            servedExtent);
+            servedExtent)
+        {
+            MinScale = layer.VisibleRange.MinScale,
+            MaxScale = layer.VisibleRange.MaxScale,
+        };
 
         // <b>The layer's own stored style, not a synthesised one.</b> This called
         // the two-argument `DrawingInfo`, which always invents an appearance from the
@@ -398,7 +405,8 @@ internal static class MapServerEndpoints
                 .DrawLayerAsync(
                     contexts, renderer, transform, layer, asked.ImageSrid, window,
                     settings.MaximumRecordCount, cancellation, honourVisibleRange: true,
-                    definition: definitions.GetValueOrDefault(layer.Id))
+                    definition: definitions.GetValueOrDefault(layer.Id),
+                    whole: true)
                 .ConfigureAwait(false);
         }
 

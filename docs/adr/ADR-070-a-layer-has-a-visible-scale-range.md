@@ -86,6 +86,15 @@ Refused otherwise, in the endpoint and by a check constraint.
   style's zooms are narrowed on its levels. For Web Mercator the numbers are the ones above.)*
 - **Drawn maps.** MapServer export and WMS GetMap leave the layer out when the map's scale is outside.
   A thumbnail and a symbology preview do not ask, because a blank thumbnail describes nothing.
+  *(Amended 2026-10-10 by owner decision: *"mapserver min max scale'e uyacak. ama o scaleler arasında
+  ekranda ne varsa single image olarak gelecek … ekrandaki nesnelere limit uygulanmayacak."* Inside the
+  range a drawn map draws **every** feature in its area: MapServer export and WMS GetMap read page after
+  page, the deployment's record ceiling being the page size, until the area is exhausted. They read to the
+  ceiling and stopped until then, so a view holding more than it drew the first of them and looked
+  complete — measured on the fixture at a ceiling of 200 over 600 squares: 200 drawn before, 600 after,
+  on both faces. The range is now the only bound on a drawn map; a thumbnail and a composition preview
+  still sample, and say so. The same day the MapServer **layer** document was found stating `0` and `0`
+  while its service document and legend carried the range; it carries it now.)*
 - **Queries are unaffected.** ArcGIS applies a range on the client and on drawn maps, and a query
   answers the same rows at any scale; the range is not part of the query cache's fingerprint.
 
@@ -107,8 +116,10 @@ storing; `PUT …/visible-range` stores; the layer page in the console has both.
   at runtime — the range rides on the `PublishedLayer` each node already reads, and a change is picked up
   when that read is forgotten, as every other layer setting is.
 
-- **The deployment's record ceiling is still 50,000 by default** and still caps drawn maps; lowering it
-  is an operator's setting with that side effect, not this decision.
+- **The deployment's record ceiling is still 50,000 by default** ~~and still caps drawn maps; lowering it
+  is an operator's setting with that side effect, not this decision~~. *(Amended 2026-10-10, §5.1: it caps
+  one query and is a drawn map's page size, and no longer how much of a map is drawn. A layer with no range
+  over a large area is therefore drawn whole, however long that takes — which is what the range is for.)*
 - WMS 1.3.0 capabilities state the range as `MinScaleDenominator`/`MaxScaleDenominator`; 1.1.1's
   `ScaleHint` is a different quantity and is not written.
 - Layers published before this build have no range until someone measures or sets one.
