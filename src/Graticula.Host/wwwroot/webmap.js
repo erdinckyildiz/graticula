@@ -19,6 +19,9 @@ const WM_WORLD = [-20037508.342789244, -20037508.342789244, 20037508.342789244, 
 /** Features drawn per request for a feature layer, per view; more than this is said, not drawn. */
 const WM_DRAW_LIMIT = 2000;
 
+/** How far past a visible range's bound still counts as inside it — rounding, not a wider range. */
+const WM_RANGE_SLACK = 1.001;
+
 /** Colours for layers whose document carries no renderer, by position in the map. */
 const WM_PALETTE = ["#b8422e", "#1f5fa8", "#2f7a55", "#92620d", "#6b3fa0", "#0b6157", "#a63a6b"];
 
@@ -800,7 +803,10 @@ function wmBuildLayer(layer, run, index) {
           const truncated = !!payload.exceededTransferLimit;
           const wasError = !!run.error;
           run.error = null;
-          if (run.truncated !== truncated || wasError) {
+          // Redrawn when what the list says changes, and only then: a redraw takes the focus with it.
+          const recount = truncated && run.shown !== features.length;
+          run.shown = features.length;
+          if (run.truncated !== truncated || wasError || recount) {
             run.truncated = truncated;
             wmDrawLayerList();
           }
@@ -816,6 +822,15 @@ function wmBuildLayer(layer, run, index) {
 
     const drawn = renderer.heat ? wmHeatLayer(source, renderer.heat)
       : new ol.layer.Vector({ source, style: renderer.style, declutter: false });
+
+    // <b>The layer's visible range, as ArcGIS clients honour it — 2026-10-10.</b> Outside it a layer is not drawn,
+    // and a layer that is not drawn asks for nothing. Without it, 1,270,971 Istanbul buildings opened with one
+    // query for the whole city, answered with its first thousand rows.
+    // OpenLayers leaves a layer out *at* its maxResolution and ArcGIS draws it at its minScale, so the bound is
+    // widened by a hair: the wheel stops on whole zooms, and 1:72,224 is exactly zoom 13.
+    const range = wmScaleRange(wmLayerRange(layer, run.info));
+    if (range.maxResolution) drawn.setMaxResolution(range.maxResolution * WM_RANGE_SLACK);
+    if (range.minResolution) drawn.setMinResolution(range.minResolution / WM_RANGE_SLACK);
     if (!label) return drawn;
 
     // ADR-117: the labels are a second layer over the same source, decluttered among themselves only — in one
@@ -1009,9 +1024,12 @@ function wmLayerState(layer) {
       return { text: `Could not be read: ${run.error}`, tone: "bad" };
     default:
       if (run.error) return { text: run.error, tone: "bad" };
+      if (run.info && wmKind(layer) === "feature" && !wmInRange(layer, run.info)) {
+        return { text: wmRangeNote(wmLayerRange(layer, run.info)), tone: "" };
+      }
       if (run.truncated) {
         return {
-          text: `Showing the first ${WM_DRAW_LIMIT.toLocaleString()} features in this view. Zoom in, or filter, for the rest.`,
+          text: `Showing the first ${(run.shown || WM_DRAW_LIMIT).toLocaleString()} features in this view. Zoom in, or filter, for the rest.`,
           tone: "warn",
         };
       }
@@ -3209,6 +3227,64 @@ function wmScaleRange(label) {
     ...(label.maxScale > 0 ? { minResolution: label.maxScale * perScale } : {}),
   };
 }
+
+/**
+ * The scales a feature layer is drawn between: the map's own, when its author set one, else the layer's — the order
+ * ArcGIS reads a web map's `layerDefinition` over the service.
+ */
+function wmLayerRange(layer, info) {
+  const own = (layer && layer.layerDefinition) || {};
+  const has = value => Number(value) > 0;
+  return has(own.minScale) || has(own.maxScale)
+    ? { minScale: Number(own.minScale) || 0, maxScale: Number(own.maxScale) || 0 }
+    : { minScale: Number((info || {}).minScale) || 0, maxScale: Number((info || {}).maxScale) || 0 };
+}
+
+/** Whether the map is now inside a feature layer's range. */
+function wmInRange(layer, info) {
+  const range = wmLayerRange(layer, info);
+  const now = wmMap.getView().getResolution() * 96 * 39.37;
+  return (!range.minScale || now <= range.minScale * WM_RANGE_SLACK)
+    && (!range.maxScale || now >= range.maxScale / WM_RANGE_SLACK);
+}
+
+/** What the layer list says about a layer the map is outside the range of. */
+function wmRangeNote(range) {
+  const scale = value => `1:${Math.round(value).toLocaleString()}`;
+  const now = wmMap.getView().getResolution() * 96 * 39.37;
+  return range.minScale && now > range.minScale * WM_RANGE_SLACK
+    ? `Not drawn at this scale. Zoom in past ${scale(range.minScale)} to see it.`
+    : `Not drawn at this scale. Zoom out past ${scale(range.maxScale)} to see it.`;
+}
+
+/*
+  <b>A layer whose last answer was cut short is asked again when the view moves — 2026-10-10.</b> OpenLayers' `bbox`
+  strategy remembers every extent it loaded, so the city-wide first read — a thousand of 1,270,971 buildings — made
+  every view inside the city count as loaded, and zooming in to a street asked for nothing: the owner zoomed to the
+  ground and the same thousand stayed. Marking the extent unloaded in the loader instead would ask again on the next
+  frame of the same view, forever; a refresh per move asks once per view.
+
+  The layer list is redrawn when a layer crosses its range, so its sentence follows the map.
+*/
+wmMap.on("moveend", () => {
+  let crossed = false;
+  for (const layer of wmLayers()) {
+    const run = wmRuntime.get(layer);
+    if (!run || !run.ol || !run.info || wmKind(layer) !== "feature") continue;
+
+    const inside = wmInRange(layer, run.info);
+    if (run.inRange !== inside) {
+      crossed = true;
+      run.inRange = inside;
+    }
+
+    if (run.truncated && inside && run.ol.getSource && run.ol.getSource().refresh) {
+      run.truncated = false;
+      run.ol.getSource().refresh();
+    }
+  }
+  if (crossed) wmDrawLayerList();
+});
 
 /** The scales a Labels panel offers, ArcGIS's named ones, from the world down to a building. */
 const WM_SCALES = [
