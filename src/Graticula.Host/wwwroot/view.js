@@ -979,6 +979,136 @@ function loadMap(document_) {
   drawGroundPicker();
 }
 
+// A page of features, and how many this viewer holds at once. A viewer that will happily fetch a
+// million features is a viewer that hangs a browser.
+const PAGE = 5000;
+const CEILING = 50000;
+
+// The layer being read for the view, or null when the whole layer is in hand.
+let byView = null;
+let viewController = null;
+
+/** The scale the view is at, as 1:<em>n</em> — 96 pixels to the inch, as ArcGIS reckons it. */
+function viewScale() {
+  return map.getView().getResolution() * 96 / 0.0254;
+}
+
+/**
+ * Draws a layer too large to hold by reading only what the view shows.
+ *
+ * <b>The layer's own visible range is honoured.</b> Zoomed out past its minimum scale nothing is
+ * asked for and the strip says how far to come in — what an ArcGIS client does with the same
+ * document. Asking anyway would page 50,000 features of a whole city to draw a smear.
+ */
+function readByView(at, described, count) {
+  byView = { at, count, minScale: described.minScale > 0 ? described.minScale : 0 };
+
+  drawLegend();
+  drawGroundPicker();
+
+  const box = described.extent;
+  const extent = box && Number.isFinite(box.xmin)
+    ? ol.proj.transformExtent(
+      [box.xmin, box.ymin, box.xmax, box.ymax],
+      `EPSG:${(box.spatialReference && (box.spatialReference.latestWkid
+        || box.spatialReference.wkid)) || 4326}`,
+      WEB_MERCATOR)
+    : null;
+
+  byView.extent = extent;
+
+  // The fit's `moveend` reads the view. A layer with no extent moves nothing, so it is read here.
+  if (extent) {
+    fitWhenSized(extent);
+  } else {
+    readView();
+  }
+}
+
+/** Reads the features under the view, replacing the last view's. A newer view cancels this one. */
+async function readView() {
+  if (!byView) return;
+
+  viewController?.abort();
+  const controller = viewController = new AbortController();
+  const { at, count, minScale, extent } = byView;
+
+  const facts = (said, partial) => {
+    $("facts").innerHTML =
+      `<span>${said}</span>`
+      + `<span>${count.toLocaleString()} in the layer, read for the view</span>`
+      + `<span><code>EPSG:3857</code></span>`
+      + (extent ? `<button id="frameLayer">Frame layer</button>` : "")
+      + `<a href="${escape(at)}?f=html" style="color:var(--accent)">layer document</a>`;
+
+    const frame = $("frameLayer");
+    if (frame && extent) frame.onclick = () => fitWhenSized(extent);
+    return partial;
+  };
+
+  if (minScale && viewScale() > minScale) {
+    dataSource.clear();
+    facts(`Zoom in to 1:${Math.round(minScale).toLocaleString()} to draw it — the layer's visible range`);
+    return;
+  }
+
+  const [xmin, ymin, xmax, ymax] = map.getView().calculateExtent(map.getSize());
+  const geometry = encodeURIComponent(JSON.stringify(
+    { xmin, ymin, xmax, ymax, spatialReference: { wkid: 3857 } }));
+
+  facts("Reading the features in view…");
+
+  const features = [];
+  let truncated = false;
+
+  try {
+    for (let offset = 0; ;) {
+      const query = `${at}/query?where=1%3D1&outFields=*&returnGeometry=true`
+        + `&geometry=${geometry}&geometryType=esriGeometryEnvelope&inSR=3857`
+        + `&spatialRel=esriSpatialRelIntersects`
+        + `&outSR=3857&f=json&resultRecordCount=${PAGE}&resultOffset=${offset}`;
+
+      const response = await fetch(query,
+        { headers: { Accept: "application/json" }, signal: controller.signal });
+      const payload = await response.json();
+
+      if (!response.ok || payload.error) {
+        throw new Error((payload.error && payload.error.message) || `${response.status}`);
+      }
+
+      const page = ESRI.readFeatures(payload, { featureProjection: WEB_MERCATOR });
+      features.push(...page);
+      offset += page.length;
+
+      if (!payload.exceededTransferLimit || page.length === 0) break;
+
+      if (offset >= CEILING) {
+        truncated = true;
+        break;
+      }
+    }
+  } catch (e) {
+    if (controller.signal.aborted) return;
+    problem("The layer could not be read.",
+      `${escape(e.message || e)}<br><br>Reading <code>${escape(at)}</code> for the view.`);
+    return;
+  }
+
+  if (controller !== viewController) return;
+
+  dataSource.clear();
+  dataSource.addFeatures(features);
+
+  facts(`<b>${features.length.toLocaleString()}</b> feature${features.length === 1 ? "" : "s"} in view`
+    + (truncated
+      ? ` — <b>more exist</b>, stopped at this viewer's ${CEILING.toLocaleString()} ceiling; zoom in`
+      : ""));
+}
+
+map.on("moveend", () => {
+  if (byView) readView();
+});
+
 /**
  * Loads one layer, replacing whatever was drawn.
  *
@@ -990,8 +1120,43 @@ function loadMap(document_) {
 async function load(layerId, name) {
   dataSource.clear();
   $("attrs").className = "";
+  byView = null;
+  viewController?.abort();
 
   const at = `${serviceUrl()}/FeatureServer/${encodeURIComponent(layerId)}`;
+
+  $("title").textContent = name ? `${SERVICE} — ${name}` : `${SERVICE} / ${layerId}`;
+
+  /*
+    <b>A layer larger than the ceiling is read for the view, not from its first row, 2026-10-10.</b>
+    This read every layer once, from `where=1=1` and offset zero, and stopped at the ceiling. On
+    1,270,971 Istanbul buildings that drew the first 50,000 rows of a spatially sorted Parquet file
+    — rectangular blocks of the city — and no pan or zoom ever asked again, so wherever the owner
+    went the picture was the same. A count decides which of the two reads a layer gets.
+  */
+  let described;
+  let total;
+
+  try {
+    [described, total] = await Promise.all([
+      fetch(`${at}?f=json`, { headers: { Accept: "application/json" } }).then(r => r.json()),
+      fetch(`${at}/query?where=1%3D1&returnCountOnly=true&f=json`,
+        { headers: { Accept: "application/json" } }).then(r => r.json()),
+    ]);
+
+    if (described.error || total.error) {
+      throw new Error((described.error || total.error).message || "refused");
+    }
+  } catch (e) {
+    problem("The layer could not be read.",
+      `${escape(e.message || e)}<br><br>Reading <code>${escape(at)}</code>.`);
+    return;
+  }
+
+  if (Number.isFinite(total.count) && total.count > CEILING) {
+    readByView(at, described, total.count);
+    return;
+  }
 
   /*
     <b>Paged, because one page of a boundary layer is not a boundary layer.</b> A
@@ -1005,9 +1170,6 @@ async function load(layerId, name) {
     ceiling is reported when it is hit, which keeps the honest half of the old
     behaviour.
   */
-  const PAGE = 5000;
-  const CEILING = 50000;
-
   const features = [];
   let truncated = false;
   let offset = 0;
@@ -1059,8 +1221,6 @@ async function load(layerId, name) {
     + `<span><code>EPSG:3857</code></span>`
     + (empty ? "" : `<button id="frameLayer">Frame layer</button>`)
     + `<a href="${escape(at)}?f=html" style="color:var(--accent)">layer document</a>`;
-
-  $("title").textContent = name ? `${SERVICE} — ${name}` : `${SERVICE} / ${layerId}`;
 
   drawLegend();
 
