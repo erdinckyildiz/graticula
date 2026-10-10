@@ -100,7 +100,7 @@ public sealed class WebMapAsksAgainWhenCutShortTests : ConsoleTest
 
         await WaitForAsync(
             $"!!{Run} && !!{Run}.twin && {Run}.twin.getVisible() && {State}.includes('drawn from the service')",
-            "A layer whose answer was cut short, over a service with tiles and a style that reads no field, was not "
+            "A layer whose answer was cut short, over a service whose tiles carry what its style reads, was not "
             + "drawn from the tiles — the reader is shown a thousand of however many there are.");
 
         Assert.True(

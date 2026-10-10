@@ -668,8 +668,15 @@ function wmRendererStyle(info, colour) {
       const style = wmSymbolStyle(entry.symbol, colour);
       if (style) byValue.set(String(entry.value), style);
     }
+    // <b>A missing value is matched as the server matches it — 2026-10-10.</b> `String(null)` is "null", which no
+    // class holds, so every building without a subtype went undrawn here while the server's own picture drew them in
+    // the "" class; a tile leaves the tag out altogether, which is `undefined`. ArcGIS's "<Null>" class first, then "".
+    const missing = byValue.get("<Null>") || byValue.get("");
     return {
-      style: feature => byValue.get(String(feature.get(renderer.field1))) || fallbackStyle || null,
+      style: feature => {
+        const value = feature.get(renderer.field1);
+        return (value === null || value === undefined ? missing : byValue.get(String(value))) || fallbackStyle || null;
+      },
       fields: [renderer.field1],
       own: true,
     };
@@ -833,14 +840,13 @@ function wmBuildLayer(layer, run, index) {
     if (range.maxResolution) drawn.setMaxResolution(range.maxResolution * WM_RANGE_SLACK);
     if (range.minResolution) drawn.setMinResolution(range.minResolution / WM_RANGE_SLACK);
 
-    // A style that reads no field can be drawn from the service's tiles as it is; one that reads a field cannot,
-    // since a tile need not carry it, and a heat map is density over the features it has.
+    // A heat map is density over the features it has, so it is never drawn from tiles.
     run.features = drawn;
     run.featureStyle = renderer.style;
     // A restyle builds the layer again on the same state, so what the last drawing showed starts over.
     run.fromTiles = undefined;
     run.twinReady = false;
-    run.twin = renderer.fields.length === 0 && !renderer.heat ? wmTileTwin(layer, run, renderer.style) : null;
+    run.twin = renderer.heat ? null : wmTileTwin(layer, run, renderer.style, renderer.fields);
     if (run.twin && range.maxResolution) run.twin.setMaxResolution(range.maxResolution * WM_RANGE_SLACK);
     if (run.twin && range.minResolution) run.twin.setMinResolution(range.minResolution / WM_RANGE_SLACK);
 
@@ -3282,12 +3288,18 @@ function wmInRange(layer, info) {
  *
  * <b>Not when the map narrows the layer.</b> A tile knows nothing of a filter or the time slider, so a filtered layer
  * drawn from tiles would show what the filter took out; it keeps its features and says they are a first page.
+ *
+ * <b>Only when the tiles carry what the style reads.</b> A tile holds a capped set of columns, and a style coloured by
+ * one it lacks would paint nothing. The service's TileJSON names the columns each tile layer carries, so that is asked
+ * rather than guessed — the Istanbul buildings are coloured by `subtype`, and their tiles carry it.
  */
-function wmTileTwin(layer, run, style) {
-  const match = /^(.*\/rest\/services\/.+)\/FeatureServer\/\d+$/.exec(layer.url || "");
+function wmTileTwin(layer, run, style, fields) {
+  const match = /^(.*)\/rest\/services\/(.+)\/FeatureServer\/\d+$/.exec(layer.url || "");
   if (!match || !run.info || !run.info.name) return null;
 
-  const service = `${match[1]}/VectorTileServer`;
+  const service = `${match[1]}/rest/services/${match[2]}/VectorTileServer`;
+  const tileJson = `${match[1]}/ogc/tiles/v1/collections/${encodeURIComponent(match[2].split("/").join("."))}`
+    + "/tiles/WebMercatorQuad?f=tilejson";
   const twin = new ol.layer.VectorTile({
     visible: false,
     source: new ol.source.VectorTile({
@@ -3298,9 +3310,14 @@ function wmTileTwin(layer, run, style) {
     style,
   });
 
-  // Only a service that has tiles is drawn from them; the answer may come after the first page did.
-  wmFetch(`${service}?f=json`)
-    .then(() => {
+  // Only a service whose tiles carry this layer and every column its style reads is drawn from them; the answer may
+  // come after the first page did.
+  wmFetch(tileJson)
+    .then(said => {
+      const carried = ((said && said.vector_layers) || []).find(l => l.id === run.info.name);
+      const named = (carried && carried.fields) || {};
+      const has = new Set(Array.isArray(named) ? named : Object.keys(named));
+      if (!carried || !(fields || []).every(field => has.has(field))) return;
       run.twinReady = true;
       if (wmShowTwin(layer, run, run.truncated)) wmDrawLayerList();
     })
