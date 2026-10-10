@@ -94,7 +94,9 @@ public sealed class WebMapAsksAgainWhenCutShortTests : ConsoleTest
         await Browser.PlantAsync(CutShort);
         await OpenAsync($"/studio/webmap.html?service={Uri.EscapeDataString(service)}", token, cookie);
 
-        const string Run = "wmRuntime.get(wmLayers()[0])";
+        // Null until a map is open: `wmLayers` reads the open map's document, and an expression that throws is a
+        // failure to the wait rather than a "not yet" — which is how this failed on CI and not here.
+        const string Run = "(wmState.doc ? wmRuntime.get(wmLayers()[0]) : null)";
 
         await WaitForAsync(
             $"!!{Run} && !!{Run}.twin && {Run}.twin.getVisible() && {State}.includes('drawn from the service')",
