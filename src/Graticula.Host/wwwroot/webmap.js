@@ -806,7 +806,8 @@ function wmBuildLayer(layer, run, index) {
           // Redrawn when what the list says changes, and only then: a redraw takes the focus with it.
           const recount = truncated && run.shown !== features.length;
           run.shown = features.length;
-          if (run.truncated !== truncated || wasError || recount) {
+          const switched = wmShowTwin(layer, run, truncated);
+          if (run.truncated !== truncated || wasError || recount || switched) {
             run.truncated = truncated;
             wmDrawLayerList();
           }
@@ -831,13 +832,28 @@ function wmBuildLayer(layer, run, index) {
     const range = wmScaleRange(wmLayerRange(layer, run.info));
     if (range.maxResolution) drawn.setMaxResolution(range.maxResolution * WM_RANGE_SLACK);
     if (range.minResolution) drawn.setMinResolution(range.minResolution / WM_RANGE_SLACK);
-    if (!label) return drawn;
+
+    // A style that reads no field can be drawn from the service's tiles as it is; one that reads a field cannot,
+    // since a tile need not carry it, and a heat map is density over the features it has.
+    run.features = drawn;
+    run.featureStyle = renderer.style;
+    // A restyle builds the layer again on the same state, so what the last drawing showed starts over.
+    run.fromTiles = undefined;
+    run.twinReady = false;
+    run.twin = renderer.fields.length === 0 && !renderer.heat ? wmTileTwin(layer, run, renderer.style) : null;
+    if (run.twin && range.maxResolution) run.twin.setMaxResolution(range.maxResolution * WM_RANGE_SLACK);
+    if (run.twin && range.minResolution) run.twin.setMinResolution(range.minResolution / WM_RANGE_SLACK);
+
+    if (!label && !run.twin) return drawn;
 
     // ADR-117: the labels are a second layer over the same source, decluttered among themselves only — in one
     // layer a point's own symbol claimed the space and every label beside it was dropped (design review 2026-10-01).
-    const group = new ol.layer.Group({
-      layers: [drawn, new ol.layer.Vector({ source, style: wmLabelStyle(label), declutter: true, ...wmScaleRange(label) })],
-    });
+    run.labels = label
+      ? new ol.layer.Vector({ source, style: wmLabelStyle(label), declutter: true, ...wmScaleRange(label) })
+      : null;
+    // The features and their labels keep their places, first and second; the tiles go last, and are only ever shown
+    // when the other two draw nothing.
+    const group = new ol.layer.Group({ layers: [drawn, run.labels, run.twin].filter(Boolean) });
     group.getSource = () => source;
     return group;
   }
@@ -1026,6 +1042,12 @@ function wmLayerState(layer) {
       if (run.error) return { text: run.error, tone: "bad" };
       if (run.info && wmKind(layer) === "feature" && !wmInRange(layer, run.info)) {
         return { text: wmRangeNote(wmLayerRange(layer, run.info)), tone: "" };
+      }
+      if (run.truncated && run.fromTiles) {
+        return {
+          text: `More than ${(run.shown || WM_DRAW_LIMIT).toLocaleString()} features in this view, so all of them are drawn from the service's tiles. A click still opens each one's pop-up.`,
+          tone: "",
+        };
       }
       if (run.truncated) {
         return {
@@ -3246,6 +3268,60 @@ function wmInRange(layer, info) {
   const now = wmMap.getView().getResolution() * 96 * 39.37;
   return (!range.minScale || now <= range.minScale * WM_RANGE_SLACK)
     && (!range.maxScale || now >= range.maxScale / WM_RANGE_SLACK);
+}
+
+/**
+ * The same layer as its service's vector tiles, drawn in its place when a view holds more features than one answer
+ * carries — 2026-10-10.
+ *
+ * <b>Why, and why only for drawing.</b> A feature layer is read a page at a time, and the server's page is a thousand:
+ * over a city's buildings the view showed a thousand scattered ones, and filled in only once zoomed close enough for a
+ * thousand to be all. The service draws every one of them as tiles. The features are still asked for — a click's
+ * pop-up and the table read the FeatureServer, not the drawing — and whether the answer was cut short is what decides
+ * which of the two is shown.
+ *
+ * <b>Not when the map narrows the layer.</b> A tile knows nothing of a filter or the time slider, so a filtered layer
+ * drawn from tiles would show what the filter took out; it keeps its features and says they are a first page.
+ */
+function wmTileTwin(layer, run, style) {
+  const match = /^(.*\/rest\/services\/.+)\/FeatureServer\/\d+$/.exec(layer.url || "");
+  if (!match || !run.info || !run.info.name) return null;
+
+  const service = `${match[1]}/VectorTileServer`;
+  const twin = new ol.layer.VectorTile({
+    visible: false,
+    source: new ol.source.VectorTile({
+      format: new ol.format.MVT({ layers: [run.info.name] }),
+      url: `${service}/tile/{z}/{y}/{x}.pbf`,
+      maxZoom: 22,
+    }),
+    style,
+  });
+
+  // Only a service that has tiles is drawn from them; the answer may come after the first page did.
+  wmFetch(`${service}?f=json`)
+    .then(() => {
+      run.twinReady = true;
+      if (wmShowTwin(layer, run, run.truncated)) wmDrawLayerList();
+    })
+    .catch(() => { /* no tiles: the features stay, as they were drawn before */ });
+
+  return twin;
+}
+
+/** Shows the tiles or the features, by whether the view's answer was cut short. Says whether that changed. */
+function wmShowTwin(layer, run, truncated) {
+  if (!run.twin) return false;
+  const narrowed = wmWhere(layer) !== "1=1" || Object.keys(wmTimeParam(layer)).length > 0;
+  const tiles = !!(run.twinReady && truncated && !narrowed);
+  run.twin.setVisible(tiles);
+  // <b>Unstyled, not hidden</b>: a hidden layer stops loading, and the next view's answer is what says whether the
+  // tiles are still the drawing to show.
+  if (tiles !== run.fromTiles) run.features.setStyle(tiles ? null : run.featureStyle);
+  if (run.labels) run.labels.setVisible(!tiles);
+  if (run.fromTiles === tiles) return false;
+  run.fromTiles = tiles;
+  return true;
 }
 
 /** What the layer list says about a layer the map is outside the range of. */

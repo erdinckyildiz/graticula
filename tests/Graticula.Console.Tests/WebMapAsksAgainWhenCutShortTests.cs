@@ -56,8 +56,9 @@ public sealed class WebMapAsksAgainWhenCutShortTests : ConsoleTest
         await Browser.PlantAsync(CutShort);
         await OpenAsync($"/studio/webmap.html?service={Uri.EscapeDataString(service)}", token, cookie);
 
+        // Either sentence is a cut-short answer said: the first page, or the tiles drawn in its place.
         await WaitForAsync(
-            $"window.__queries.length > 0 && {State}.includes('Showing the first')",
+            $"window.__queries.length > 0 && ({State}.includes('Showing the first') || {State}.includes('drawn from the service'))",
             "The map never drew the layer's first answer and said it was cut short.");
 
         int before = await Browser.EvaluateAsync<int>("window.__queries.length");
@@ -74,6 +75,42 @@ public sealed class WebMapAsksAgainWhenCutShortTests : ConsoleTest
             $"window.__queries.length > {before}",
             "Zooming in over a layer whose answer was cut short asked for nothing. The view counts as loaded because "
             + "a wider one was, and the reader is left with the first page wherever they go — the defect of 2026-10-10.");
+    }
+
+    /// <summary>
+    /// A cut-short answer over a layer whose service has tiles is drawn from the tiles; a filter takes it back.
+    /// </summary>
+    /// <remarks>
+    /// <b>Both halves, because the second is the one that would be wrong silently.</b> A tile knows nothing of the
+    /// map's filter, so a filtered layer drawn from tiles shows exactly what the filter was set to take out — and looks
+    /// like a layer that drew.
+    /// </remarks>
+    [Fact]
+    public async Task A_cut_short_layer_is_drawn_from_its_tiles_until_the_map_filters_it()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string service = QueryableService();
+
+        await Browser.PlantAsync(CutShort);
+        await OpenAsync($"/studio/webmap.html?service={Uri.EscapeDataString(service)}", token, cookie);
+
+        const string Run = "wmRuntime.get(wmLayers()[0])";
+
+        await WaitForAsync(
+            $"!!{Run} && !!{Run}.twin && {Run}.twin.getVisible() && {State}.includes('drawn from the service')",
+            "A layer whose answer was cut short, over a service with tiles and a style that reads no field, was not "
+            + "drawn from the tiles — the reader is shown a thousand of however many there are.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>($"{Run}.features.getStyle() === null"),
+            "The features are still styled under the tiles, so the first page is drawn twice over them.");
+
+        await Browser.EvaluateAsync<string>("(wmSetFilter(wmLayers()[0], wmRuntime.get(wmLayers()[0]).info.objectIdField + ' >= 0'), 'filtered')");
+
+        await WaitForAsync(
+            $"!{Run}.twin.getVisible() && {Run}.features.getStyle() !== null && {State}.includes('Showing the first')",
+            "A filtered layer stayed drawn from its tiles. A tile carries no filter, so this shows what the filter "
+            + "takes out.");
     }
 
     [Fact]
