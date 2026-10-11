@@ -269,7 +269,11 @@ internal static class RestDirectory
 
         List<(string Name, string Type)> serviceList = [.. services];
 
-        if (serviceList.Count == 0)
+        // <b>A root whose services are all in folders says nothing about services — 2026-10-11.</b> The showcase's
+        // first page read *No services … You are not signed in … sign in and look again* above six folders of public
+        // services, and a reviewer walking it as a visitor from a public post read it as a locked demo. ArcGIS lists
+        // the folders and says nothing. The sentence below stays for a directory with nothing in it at all.
+        if (serviceList.Count == 0 && folderList.Count == 0)
         {
             // Said rather than left blank. An empty list and a list that failed
             // to load look identical, and the first is a fact worth stating —
@@ -301,7 +305,7 @@ internal static class RestDirectory
 
             body.Append("</div>");
         }
-        else
+        else if (serviceList.Count > 0)
         {
             /*
               <b>One row per service, with its faces beside it, instead of one row per

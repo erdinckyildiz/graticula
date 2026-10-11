@@ -514,6 +514,28 @@ public sealed class BrowsingConformanceTests : ArcGisClient
     }
 
     /// <summary>
+    /// A directory whose services are all in folders lists the folders and says nothing about services.
+    /// </summary>
+    /// <remarks>
+    /// <b>2026-10-11: the showcase's first page read as a locked demo.</b> Its root holds folders only, so it showed
+    /// *No services … You are not signed in … sign in and look again* above six folders of public services, and a
+    /// reviewer walking it as a visitor from a public post stopped there. ArcGIS lists the folders and says nothing.
+    /// </remarks>
+    [Fact]
+    public async Task A_root_of_folders_does_not_say_it_is_empty()
+    {
+        string root = await RequireServerAsync();
+
+        using HttpClient stranger = Browser(new CookieContainer());
+
+        string html = await HtmlAsync(stranger, root + "/rest/services");
+
+        Assert.Contains("Folders", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("No services", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("not signed in", html, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// A signed-in reader is not nagged, and sees the service.
     /// </summary>
     [Fact]

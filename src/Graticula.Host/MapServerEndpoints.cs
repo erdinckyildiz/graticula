@@ -295,7 +295,8 @@ internal static class MapServerEndpoints
                     formats:
                     [
                         WmsEndpoints.DirectoryLink(
-                            layer.Definition.Name, described.Extent, layer.Definition.Srid),
+                            layer.Definition.Name, described.Extent, layer.Definition.Srid,
+                            layer.VisibleRange.MinScale),
                     ]),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
@@ -942,6 +943,17 @@ internal static class MapServerEndpoints
             {
                 whole = whole.IsEmpty ? box : whole.Union(box);
             }
+        }
+
+        // Inside the layers' visible range — WmsEndpoints.InsideRange says why.
+        if (!whole.IsEmpty)
+        {
+            whole = WmsEndpoints.InsideRange(
+                whole,
+                layers[0].Srid,
+                layers.Where(l => l.MinScale > 0).Select(l => l.MinScale).DefaultIfEmpty(0).Min(),
+                800,
+                600);
         }
 
         return whole.IsEmpty

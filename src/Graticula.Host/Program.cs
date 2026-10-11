@@ -3707,7 +3707,8 @@ public static class Program
                     [
                         WfsEndpoints.DirectoryLink(layer.Definition.Name),
                         WmsEndpoints.DirectoryLink(
-                            layer.Definition.Name, description.Extent, layer.Definition.Srid),
+                            layer.Definition.Name, description.Extent, layer.Definition.Srid,
+                            layer.VisibleRange.MinScale),
                         OgcFeaturesEndpoints.DirectoryLink(layer.Definition.Name),
                     ]),
                 "text/html; charset=utf-8")

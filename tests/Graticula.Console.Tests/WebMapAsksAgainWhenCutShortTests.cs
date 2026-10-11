@@ -139,6 +139,30 @@ public sealed class WebMapAsksAgainWhenCutShortTests : ConsoleTest
         Assert.Equal(layerType, await Browser.EvaluateAsync<string>("wmLayers()[0].layerType"));
     }
 
+    /// <summary>A link may say where the map opens — `center=lon,lat&amp;level=n`, as ArcGIS's Map Viewer reads it.</summary>
+    /// <remarks>
+    /// 2026-10-11: a link to a city's buildings opened framed on the whole city, outside the range they are drawn in.
+    /// The opening's own framing comes first; the place the link named has the last word.
+    /// </remarks>
+    [Fact]
+    public async Task A_link_that_names_a_place_opens_there()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string service = QueryableService();
+
+        await OpenAsync(
+            $"/studio/webmap.html?service={Uri.EscapeDataString(service)}&center=28.95,41.01&level=15", token, cookie);
+
+        await WaitForAsync(
+            "!!wmState.doc && wmLayers().length > 0 && Math.abs(wmMap.getView().getZoom() - 15) < 0.01",
+            "The Map Viewer did not open at the level its link named.");
+
+        double[] at = await Browser.EvaluateAsync<double[]>("ol.proj.toLonLat(wmMap.getView().getCenter())") ?? [];
+
+        Assert.InRange(at[0], 28.949, 28.951);
+        Assert.InRange(at[1], 41.009, 41.011);
+    }
+
     [Fact]
     public async Task Outside_the_layers_visible_range_nothing_is_asked_and_the_list_says_to_zoom_in()
     {

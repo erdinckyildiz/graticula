@@ -289,6 +289,25 @@ function wmFit(extent, frames = 0, margin = 40) {
   wmMap.getView().fit(box, { padding: [margin, margin, margin, margin], maxZoom: 18 });
 }
 
+/**
+ * Centres the view on a place at a zoom level, once the map has a size — `center=lon,lat&level=n`, the parameters
+ * ArcGIS's Map Viewer reads from its own address — 2026-10-11.
+ *
+ * <b>For a link from somewhere else to land where the data is drawn.</b> A layer of a city's buildings is drawn from
+ * 1:72,224 in, and a Map Viewer link opened it framed on the whole city: an empty map under a sentence saying to zoom
+ * in, which is what a reviewer walking the showcase from a public post found. Queued after any framing the opening
+ * asked for, so it is the last word.
+ */
+function wmCentreOn(lon, lat, level, frames = 0) {
+  const size = wmMap.getSize();
+  if (!size || !size[0] || !size[1]) {
+    if (frames < 60) requestAnimationFrame(() => wmCentreOn(lon, lat, level, frames + 1));
+    return;
+  }
+  wmMap.getView().setCenter(ol.proj.fromLonLat([lon, lat]));
+  wmMap.getView().setZoom(level);
+}
+
 // ----------------------------------------------------------------------------- the document
 
 /** A Web Map document with nothing in it yet, in the subset this page writes. */
@@ -3198,6 +3217,13 @@ async function wmStart() {
       } catch (e) {
         last = e;
       }
+    }
+
+    const [lon, lat] = (WM_QUERY.get("center") || "").split(",").map(Number);
+    const level = Number(WM_QUERY.get("level"));
+    if (added > 0 && Number.isFinite(lon) && Number.isFinite(lat) && Number.isFinite(level)
+      && Math.abs(lon) <= 180 && Math.abs(lat) <= 90 && level >= 0 && level <= 22) {
+      requestAnimationFrame(() => wmCentreOn(lon, lat, level));
     }
 
     wmSay(added > 0

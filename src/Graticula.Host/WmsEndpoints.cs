@@ -76,13 +76,16 @@ internal static partial class WmsEndpoints
     /// <param name="extent">Where to draw, or null when that is unknown.</param>
     /// <param name="srid">The layer's CRS.</param>
     /// <returns>The label and the address.</returns>
+    /// <param name="minScale">The layer's minimum scale, or 0 — the link is drawn inside it (<see cref="InsideRange"/>).</param>
     public static (string Label, string Href) DirectoryLink(
-        string? layerName, Envelope? extent, int srid)
+        string? layerName, Envelope? extent, int srid, double minScale = 0)
     {
-        if (layerName is null || extent is not { IsEmpty: false } box)
+        if (layerName is null || extent is not { IsEmpty: false } whole)
         {
             return ("WMS", $"{Path}?service=WMS&version=1.3.0&request=GetCapabilities");
         }
+
+        Envelope box = InsideRange(whole, srid, minScale, 800, 600);
 
         // 1.3.0 with a geographic CRS is latitude first, which is the whole trap.
         // A link this server writes must obey the rule this server publishes, or
@@ -101,6 +104,44 @@ internal static partial class WmsEndpoints
             + $"&layers={Uri.EscapeDataString(layerName)}&styles="
             + $"&crs=EPSG:{srid.ToString(CultureInfo.InvariantCulture)}"
             + $"&bbox={bbox}&width=800&height=600&format=image/png&transparent=true");
+    }
+
+    /// <summary>
+    /// The extent a directory's preview link asks for: the whole of it, or its middle at a scale the layer draws at.
+    /// </summary>
+    /// <remarks>
+    /// <b>Added 2026-10-11, because the first click drew nothing.</b> MapServer's Export link and a layer page's WMS
+    /// link asked for a layer's whole extent at 800×600, which over a city's buildings is far outside the visible
+    /// range ADR-070 gives them, so both drew a blank picture — a reviewer walking the showcase took it for a broken
+    /// face. Where the whole extent is out of range, the link asks for its middle at a tenth inside the limit.
+    /// </remarks>
+    /// <param name="whole">The layer's extent.</param>
+    /// <param name="srid">Its reference.</param>
+    /// <param name="minScale">The tightest minimum scale to stay inside, or 0 for none.</param>
+    /// <param name="width">The picture's width in pixels.</param>
+    /// <param name="height">Its height.</param>
+    /// <returns>The extent to ask for.</returns>
+    public static Envelope InsideRange(Envelope whole, int srid, double minScale, int width, int height)
+    {
+        if (whole.IsEmpty || minScale <= 0)
+        {
+            return whole;
+        }
+
+        double perPixel = minScale * 0.9 / VisibleScaleRange.DotsPerMetre
+            / (AxisOrder.IsGeographic(srid) ? MapScale.MetresPerDegree : 1);
+        double halfWidth = perPixel * width / 2;
+        double halfHeight = perPixel * height / 2;
+
+        if (whole.Width / 2 <= halfWidth && whole.Height / 2 <= halfHeight)
+        {
+            return whole;
+        }
+
+        double x = (whole.MinX + whole.MaxX) / 2;
+        double y = (whole.MinY + whole.MaxY) / 2;
+
+        return new Envelope(x - halfWidth, y - halfHeight, x + halfWidth, y + halfHeight);
     }
 
     /// <summary>Maps the surface.</summary>

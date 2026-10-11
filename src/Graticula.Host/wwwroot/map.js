@@ -350,7 +350,7 @@
         // mechanisms, one symptom: a map that will not stay where it is put.
         const frame = document.getElementById("frameLayer");
         if (frame) {
-          frame.onclick = () => view.goTo(features.fullExtent.expand(1.4))
+          frame.onclick = () => frameInside(features)
             .catch(error => problem("The view could not move.", String(error.message || error)));
         }
       }
@@ -363,6 +363,20 @@
        * usually an untrusted certificate, or a query parameter this server refused
        * with a reason worth reading.
        */
+      /*
+        <b>Framed inside the layer's visible range — 2026-10-11.</b> The layer's whole extent is a city, and a city's
+        buildings are drawn only from 1:72,224 in, so the page opened on an empty map under a feature count — a
+        reviewer walking the showcase saw nothing and was told nothing. Where the whole extent is out of range, the
+        view comes in on its middle to a tenth inside the limit, which is what an ArcGIS layer's own range means.
+      */
+      async function frameInside(features) {
+        await view.goTo(features.fullExtent.expand(1.4));
+        const limit = Number(features.minScale) || 0;
+        if (limit > 0 && view.scale > limit) {
+          await view.goTo({ center: view.center, scale: limit * 0.9 });
+        }
+      }
+
       function add(at) {
         // <b>One layer, replacing whatever was there.</b> This page used to add
         // every layer of a service on top of each other, which is a stack of
@@ -429,7 +443,7 @@
             }
 
             try {
-              await view.goTo(features.fullExtent.expand(1.4));
+              await frameInside(features);
             } catch (error) {
               problem("The view could not move to the layer.", String(error.message || error));
             }

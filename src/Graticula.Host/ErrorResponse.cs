@@ -646,6 +646,21 @@ internal static class ErrorResponse
                 + "sends its literals as text, and neither the ArcGIS `where` grammar nor Filter "
                 + "Encoding converts them. The request cannot be answered as written."),
 
+        // <b>The same mistake on a layer DuckDB reads — 2026-10-11.</b> `where=objectid='x'` answered PostGIS
+        // layers with the arm above and the GeoParquet, DuckDB and MotherDuck layers with a 500, because DuckDB
+        // says it as *Conversion Error: Could not convert string 'x' to INT64* and nothing here read that. A
+        // reviewer typing what a veteran types found it on the showcase's headline layers.
+        DuckDB.NET.Data.DuckDBException duck
+            when duck.Message.StartsWith("Conversion Error", StringComparison.Ordinal) => new(
+                StatusCodes.Status400BadRequest,
+                "This filter compares a column with a value of a type this server does not convert "
+                + $"for it — the database reports: {duck.Message}. The database is healthy; the "
+                + "request cannot be answered as written.",
+                "This filter compares a field with a value of a type this server does not convert "
+                + "for it. The usual case is a date or timestamp field: every filter language here "
+                + "sends its literals as text, and neither the ArcGIS `where` grammar nor Filter "
+                + "Encoding converts them. The request cannot be answered as written."),
+
         // <b>The third thing 42883 covers, and it is the caller's too.</b> *function avg(text)
         // does not exist* is not PostGIS missing — it is a numeric statistic asked for over a
         // text column, which is exactly what classifying a text field by ranges does. It fell
