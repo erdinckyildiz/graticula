@@ -669,7 +669,17 @@ public static partial class CimStyle
             ? of(fell.Paints.ElementAtOrDefault(level))
             : null;
 
-        JsonNode? fallback = standIn ?? values.FirstOrDefault(v => v is not null);
+        // <b>A feature with no value, where no default symbol says otherwise, is drawn as the class for it — 2026-10-10.</b>
+        // `match` sends a null to its otherwise, and that was the first class's value: Istanbul's buildings without a
+        // subtype were drawn by MapServer as residential, while the renderer's "" class exists for them and every
+        // other face was told so. ArcGIS's "<Null>" class first, then "" (MissingValue).
+        int missingClass = standIn is null && MissingValue(projection) is { } missing
+            ? projection.Classes.ToList().FindIndex(c => c.Values.Contains(missing, StringComparer.Ordinal))
+            : -1;
+
+        JsonNode? fallback = standIn
+            ?? (missingClass >= 0 ? values[missingClass] : null)
+            ?? values.FirstOrDefault(v => v is not null);
 
         // <b>Every class the same, or only one: a constant.</b> An expression over a single
         // value is a slower way to say the same thing and a harder one to read in a style
@@ -824,6 +834,26 @@ public static partial class CimStyle
         };
 
         return new DerivedStyle(style, losses);
+    }
+
+    /// <summary>
+    /// The class value a feature with no value is drawn as: ArcGIS's <c>&lt;Null&gt;</c> where a class lists it, else
+    /// the empty string where a class lists that, else none — and none when the renderer has a default symbol, which
+    /// is what such a feature is drawn with then, or classifies by more than one field.
+    /// </summary>
+    /// <param name="projection">What the renderer says.</param>
+    /// <returns>The value, or null.</returns>
+    internal static string? MissingValue(CimProjection projection)
+    {
+        if (projection.Default is not null || projection.Kind != Cim.UniqueValue || projection.Fields.Count > 1)
+        {
+            return null;
+        }
+
+        bool Lists(string value) =>
+            projection.Classes.Any(c => c.Values.Contains(value, StringComparer.Ordinal));
+
+        return Lists("<Null>") ? "<Null>" : Lists(string.Empty) ? string.Empty : null;
     }
 
     /// <summary>What a classified renderer matches on: one field, or several joined.</summary>

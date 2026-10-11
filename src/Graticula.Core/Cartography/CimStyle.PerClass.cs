@@ -467,6 +467,7 @@ public static partial class CimStyle
         HashSet<string> seen = new(StringComparer.Ordinal);
         List<IReadOnlyList<string>> everyTuple = [];
         List<Cell> listed = [];
+        string? missing = MissingValue(projection);
 
         for (int i = 0; i < projection.Classes.Count; i++)
         {
@@ -511,7 +512,7 @@ public static partial class CimStyle
             }
 
             listed.Add(new Cell(
-                i.ToString(CultureInfo.InvariantCulture), Listed(fields, tuples), feature));
+                i.ToString(CultureInfo.InvariantCulture), Listed(fields, tuples, missing), feature));
         }
 
         List<Cell> cells = [];
@@ -534,15 +535,23 @@ public static partial class CimStyle
     /// <param name="fields">The fields classified by.</param>
     /// <param name="tuples">One value per field, for each value the class lists.</param>
     /// <returns>The filter.</returns>
-    private static JsonArray Listed(IReadOnlyList<string> fields, List<IReadOnlyList<string>> tuples)
+    /// <param name="missing">The value a feature without one is drawn as (<see cref="MissingValue"/>), or null.</param>
+    private static JsonArray Listed(IReadOnlyList<string> fields, List<IReadOnlyList<string>> tuples, string? missing = null)
     {
         if (fields.Count == 1)
         {
             List<string> values = [.. tuples.Select(t => t[0])];
 
-            return values.Count == 1 && Numeric(values[0]) is null
+            JsonArray listed = values.Count == 1 && Numeric(values[0]) is null
                 ? new JsonArray("==", fields[0], values[0])
                 : new JsonArray(["in", fields[0], .. Twinned(values)]);
+
+            // <b>And a feature that has no value at all — 2026-10-10.</b> A tile leaves a null out of the feature's
+            // tags, so `["==", "subtype", ""]` matched none of Istanbul's buildings without a subtype — most of them —
+            // and every vector tile client drew them as nothing, while the renderer's "" class exists for them.
+            return missing is not null && values.Contains(missing, StringComparer.Ordinal)
+                ? new JsonArray("any", listed, new JsonArray("!has", fields[0]))
+                : listed;
         }
 
         return tuples.Count == 1

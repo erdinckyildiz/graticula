@@ -532,6 +532,29 @@ public static partial class CimStyle
         return true;
     }
 
+    /// <summary>
+    /// Reads `["any", ["==", f, v], ["!has", f]]` (or `in`), the class that also takes a feature with no value — what
+    /// <see cref="PerClass"/> writes for the renderer's <see cref="MissingValue"/> since 2026-10-10.
+    /// </summary>
+    /// <param name="atom">A condition.</param>
+    /// <returns>The equality inside it, or null when the condition is not that.</returns>
+    private static JsonArray? OrMissing(JsonArray atom)
+    {
+        if (atom.Count != 3
+            || (atom[0] as JsonValue)?.ToString() != "any"
+            || atom[1] is not JsonArray { Count: >= 3 } equal
+            || (equal[0] as JsonValue)?.ToString() is not ("==" or "in")
+            || atom[2] is not JsonArray { Count: 2 } missing
+            || (missing[0] as JsonValue)?.ToString() != "!has"
+            || Name(missing[1]) is not { } field
+            || Name(equal[1]) != field)
+        {
+            return null;
+        }
+
+        return equal;
+    }
+
     /// <summary>Reads `["any", ["!has", f], ["&lt;", f, s]]`, the band below a variable's first stop.</summary>
     /// <param name="atom">A condition.</param>
     /// <returns>The field and the stop, or null.</returns>
@@ -681,8 +704,11 @@ public static partial class CimStyle
             string? ranged = null;
             double? below = null;
 
-            foreach (JsonArray atom in atoms)
+            foreach (JsonArray written in atoms)
             {
+                // The class that also takes a feature with no value is read as the class: the `!has` is written
+                // again from the renderer on every publish (CimStyle.MissingValue), so it is not part of what is kept.
+                JsonArray atom = CimStyle.OrMissing(written) ?? written;
                 string op = (atom[0] as JsonValue)?.ToString() ?? string.Empty;
 
                 switch (op)

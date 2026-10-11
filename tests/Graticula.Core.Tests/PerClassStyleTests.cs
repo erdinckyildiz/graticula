@@ -157,6 +157,70 @@ public sealed class PerClassStyleTests
         }
     }
 
+    /// <summary>Istanbul's buildings by subtype: most have none, and the renderer's "" class is for them.</summary>
+    private static JsonObject Subtypes(bool otherwise = false) =>
+        Unique(
+            ["subtype"],
+            [
+                ([["residential"]], (68, 119, 170)),
+                ([["commercial"]], (204, 187, 68)),
+                ([[""]], (81, 251, 132)),
+            ],
+            otherwise ? (200, 200, 200) : null,
+            false);
+
+    /// <summary>
+    /// A feature with no value is drawn as the "" class on the tile face and the map face alike — 2026-10-10.
+    /// </summary>
+    /// <remarks>
+    /// A tile leaves a null out of the feature's tags, so `["==", "subtype", ""]` matched none of the buildings
+    /// without a subtype and every vector tile client drew them as nothing; MapServer's `match` sent them to its
+    /// otherwise, which was the first class, and drew them as residential. Three faces, three answers.
+    /// </remarks>
+    [Fact]
+    public void A_feature_with_no_value_is_drawn_as_the_empty_class_on_every_face()
+    {
+        JsonArray layers = Layers(CimStyle.ToMapLibre(Subtypes(), "binalar"));
+        JsonObject empty = layers.OfType<JsonObject>().Single(l => (string?)l["id"] == "binalar-0-2");
+        JsonObject residential = layers.OfType<JsonObject>().Single(l => (string?)l["id"] == "binalar-0-0");
+
+        Assert.True(Filter.Matches(empty["filter"], new()), "A building with no subtype matched no class's tiles.");
+        Assert.True(Filter.Matches(empty["filter"], new() { ["subtype"] = "" }));
+        Assert.False(Filter.Matches(residential["filter"], new()));
+
+        // The map face draws from the expression form: its otherwise is the "" class, not the first.
+        JsonNode? colour = ((JsonArray)CimStyle.ToExpressions(Subtypes(), "binalar").Style["layers"]!)
+            .OfType<JsonObject>().Select(l => Paint(l)["fill-color"]).First(c => c is JsonArray);
+        JsonArray match = Assert.IsType<JsonArray>(colour);
+        Assert.Equal("#51fb84", (string?)match[^1]);
+    }
+
+    /// <summary>With a default symbol, a feature with no value is the default's, on both faces, as before.</summary>
+    [Fact]
+    public void With_a_default_symbol_a_feature_with_no_value_stays_the_defaults()
+    {
+        JsonArray layers = Layers(CimStyle.ToMapLibre(Subtypes(otherwise: true), "binalar"));
+
+        JsonObject empty = layers.OfType<JsonObject>().Single(l => (string?)l["id"] == "binalar-0-2");
+        JsonObject other = layers.OfType<JsonObject>().Single(l => (string?)l["id"] == "binalar-0-other");
+
+        Assert.False(Filter.Matches(empty["filter"], new()));
+        Assert.True(Filter.Matches(other["filter"], new()));
+    }
+
+    /// <summary>The class that also takes a missing value is read back as the class, and publishes again the same.</summary>
+    [Fact]
+    public void The_round_trip_keeps_the_class_that_takes_a_missing_value()
+    {
+        DerivedStyle first = CimStyle.ToMapLibre(Subtypes(), "binalar");
+
+        CimWrite back = CimStyle.FromMapLibre(first.Style, GeometryKind.Polygon);
+        DerivedStyle again = CimStyle.ToMapLibre(back.Renderer, "binalar");
+
+        Assert.Equal(first.Style.ToJsonString(), again.Style.ToJsonString());
+        Assert.Contains(Cim.Project(back.Renderer).Classes, c => c.Values.Contains(string.Empty));
+    }
+
     [Fact]
     public void A_value_that_reads_as_a_number_is_matched_as_text_and_as_a_number()
     {
