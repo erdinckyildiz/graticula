@@ -99,8 +99,9 @@ Refused otherwise, in the endpoint and by a check constraint.
   ver" — and listed for confirmation.)* A layer whose whole extent is outside its range has its FeatureServer and
   MapServer documents' `initialExtent` moved to an 800×600 picture inside the range, centred on the densest tile at
   the level the range begins (`VisibleRangeSuggestion.DensestPlaceAsync`, the same counts the suggestion makes);
-  `fullExtent` is unchanged. Found in the background on the first ask and kept per layer and reference, so no document
-  waits on it. The directory's preview links and the SDK page open there. Two walks of the showcase as a visitor
+  `fullExtent` is unchanged. Framed one level inside the limit, because the densest place at the limit is the slowest
+  picture the layer has (7–11 s over Istanbul). Found by `InitialExtentWarmer` shortly after start, one layer at a time,
+  and on the first ask for anything it missed; kept per layer and reference, so no document waits on it. The directory's preview links and the SDK page open there. Two walks of the showcase as a visitor
   found why: the whole extent drew nothing, and its middle — Istanbul's — is a forest.
 - **Queries are unaffected.** ArcGIS applies a range on the client and on drawn maps, and a query
   answers the same rows at any scale; the range is not part of the query cache's fingerprint.

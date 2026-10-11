@@ -385,6 +385,7 @@
           (InitialExtents); until then that equals `fullExtent`, and the middle is what there is.
         */
         let centre = view.center;
+        let scale = limit * 0.9;
         try {
           const root = String(features.url).replace(/\/(FeatureServer|MapServer|VectorTileServer)(\/\d+)?$/, "");
           const doc = await (await fetch(`${root}/MapServer?f=json`, { headers: { Accept: "application/json" } })).json();
@@ -398,12 +399,15 @@
               ? [x, y]
               : [x / 20037508.342789244 * 180,
                 Math.atan(Math.exp(y / 6378137)) * 360 / Math.PI - 90];
+            // A level inside the limit, as the server frames it: the densest place at the limit is the slowest
+            // picture the layer has (third walk, 2026-10-12).
+            scale = limit * 0.45;
           }
         } catch {
           // No map face, or it did not answer: the middle stands.
         }
 
-        await view.goTo({ center: centre, scale: limit * 0.9 });
+        await view.goTo({ center: centre, scale });
       }
 
       function add(at) {

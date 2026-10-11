@@ -46,8 +46,36 @@ internal static class InitialExtents
         int servedSrid,
         Envelope? servedExtent,
         ServiceContexts contexts,
+        IProjector projector) =>
+        Known(layer, servedSrid, servedExtent, contexts, projector, out _);
+
+    /// <summary>Starts the search for a layer in a reference, if it needs one, and returns it to wait on.</summary>
+    /// <remarks>
+    /// <b>For <see cref="InitialExtentWarmer"/> — 2026-10-12.</b> A third walk of the showcase found that the first
+    /// visitor after each deploy still got the whole extent, because the search began with the first ask and every
+    /// push restarts the showcase. The warmer asks for every ranged layer at start, one at a time.
+    /// </remarks>
+    public static Task WarmAsync(
+        PublishedLayer layer,
+        int servedSrid,
+        Envelope? servedExtent,
+        ServiceContexts contexts,
         IProjector projector)
     {
+        _ = Known(layer, servedSrid, servedExtent, contexts, projector, out Task<Envelope?>? searched);
+        return searched ?? Task.CompletedTask;
+    }
+
+    private static Envelope? Known(
+        PublishedLayer layer,
+        int servedSrid,
+        Envelope? servedExtent,
+        ServiceContexts contexts,
+        IProjector projector,
+        out Task<Envelope?>? searched)
+    {
+        searched = null;
+
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(contexts);
         ArgumentNullException.ThrowIfNull(projector);
@@ -68,6 +96,7 @@ internal static class InitialExtents
             (_, kept) => kept.MinScale == minScale ? kept : Start());
 
         Task<Envelope?> task = entry.Search.Value;
+        searched = task;
 
         return task.IsCompletedSuccessfully ? task.Result : null;
 
@@ -93,8 +122,11 @@ internal static class InitialExtents
                 return null;
             }
 
+            // <b>One level inside the limit, not at it.</b> The densest place at the limit is the most expensive
+            // picture the layer has — 7 to 11 seconds over Istanbul, which a third walk took for a hung Export link.
+            // A level in is a quarter of the area and still a street of buildings.
             Envelope box = WmsEndpoints.Around(
-                (tile.MinX + tile.MaxX) / 2, (tile.MinY + tile.MaxY) / 2, 3857, layer.VisibleRange.MinScale, 800, 600);
+                (tile.MinX + tile.MaxX) / 2, (tile.MinY + tile.MaxY) / 2, 3857, layer.VisibleRange.MinScale / 2, 800, 600);
 
             return servedSrid == 3857
                 ? box

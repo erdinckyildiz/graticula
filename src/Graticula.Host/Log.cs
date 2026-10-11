@@ -32,7 +32,7 @@ internal static partial class Log
     // `LogEventIdTests`, not this comment** — the same lesson as the debt register, where a numbering
     // collision took three entries to notice and then got a tool.
     //
-    // The next id is 1066 — the sentence said 1033 long after 1064 was taken, so read the tail of this
+    // The next id is 1413 (2026-10-12; it said 1066 long after 1409 was taken) — so read the tail of this
     // file rather than trusting a number in a comment.
 
     /// <summary>
