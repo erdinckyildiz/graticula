@@ -54,6 +54,7 @@ public static class MapServerMetadataWriter
     /// <param name="maximumHeight">The tallest image export will draw.</param>
     /// <param name="maxRecordCount">What a query may return.</param>
     /// <param name="time">The union of the layers' time extents, or null when none has time.</param>
+    /// <param name="description">The service's description, or null for none.</param>
     /// <returns>The document.</returns>
     public static object Service(
         IReadOnlyList<FeatureServerMetadataWriter.ServiceLayer> layers,
@@ -61,7 +62,8 @@ public static class MapServerMetadataWriter
         int maximumWidth,
         int maximumHeight,
         int maxRecordCount,
-        (DateTimeOffset? From, DateTimeOffset? Until)? time = null)
+        (DateTimeOffset? From, DateTimeOffset? Until)? time = null,
+        string? description = null)
     {
         ArgumentNullException.ThrowIfNull(layers);
         ArgumentNullException.ThrowIfNull(capabilities);
@@ -78,7 +80,8 @@ public static class MapServerMetadataWriter
             // print it in a table of contents. A server inventing something here puts
             // its own word in the client's user interface.
             mapName = "Layers",
-            description = string.Empty,
+            // The service's own description, as the FeatureServer document states it — where its data comes from (2026-10-12).
+            description = description ?? string.Empty,
             copyrightText = string.Empty,
             supportsDynamicLayers = false,
 

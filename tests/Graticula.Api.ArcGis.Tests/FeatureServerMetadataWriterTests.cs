@@ -118,6 +118,13 @@ public sealed class FeatureServerMetadataWriterTests
             Assert.Equal(27.9, document.GetProperty("fullExtent").GetProperty("xmin").GetDouble(), 9);
         }
 
+        // And the map face states the service's description, as the feature face does (2026-10-12): it is where the
+        // data's attribution is written.
+        Assert.Equal(
+            "Data: Overture Maps Foundation, ODbL 1.0.",
+            Json(MapServerMetadataWriter.Service([layer], "Map", 4096, 4096, 1000, null, "Data: Overture Maps Foundation, ODbL 1.0."))
+                .GetProperty("description").GetString());
+
         // Without one, the two are the same, as they always were.
         JsonElement plain = Json(FeatureServerMetadataWriter.Service([layer with { Initial = null }], "Query"));
         Assert.Equal(27.9, plain.GetProperty("initialExtent").GetProperty("xmin").GetDouble(), 9);

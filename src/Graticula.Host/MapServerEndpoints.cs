@@ -157,7 +157,8 @@ internal static class MapServerEndpoints
             service.Limits.Cost.PageSize(
                 await ServerPageSize.OfAsync(context, cancellation).ConfigureAwait(false),
                 settings.MaximumRecordCount),
-            await TimeOfServiceAsync(service, contexts, cancellation).ConfigureAwait(false));
+            await TimeOfServiceAsync(service, contexts, cancellation).ConfigureAwait(false),
+            service.Description);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
