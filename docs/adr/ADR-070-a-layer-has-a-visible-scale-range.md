@@ -95,6 +95,13 @@ Refused otherwise, in the endpoint and by a check constraint.
   on both faces. The range is now the only bound on a drawn map; a thumbnail and a composition preview
   still sample, and say so. The same day the MapServer **layer** document was found stating `0` and `0`
   while its service document and legend carried the range; it carries it now.)*
+- **Where a map opens.** *(Added 2026-10-12, under the owner's delegation of that night's decisions — "kararları
+  ver" — and listed for confirmation.)* A layer whose whole extent is outside its range has its FeatureServer and
+  MapServer documents' `initialExtent` moved to an 800×600 picture inside the range, centred on the densest tile at
+  the level the range begins (`VisibleRangeSuggestion.DensestPlaceAsync`, the same counts the suggestion makes);
+  `fullExtent` is unchanged. Found in the background on the first ask and kept per layer and reference, so no document
+  waits on it. The directory's preview links and the SDK page open there. Two walks of the showcase as a visitor
+  found why: the whole extent drew nothing, and its middle — Istanbul's — is a forest.
 - **Queries are unaffected.** ArcGIS applies a range on the client and on drawn maps, and a query
   answers the same rows at any scale; the range is not part of the query cache's fingerprint.
 
