@@ -79,6 +79,9 @@ public sealed class TilePipelineVersionTests
     /// its own question.
     /// </remarks>
     private const string RecordedHash =
+        // <b>Moved 2026-10-11 for a page, and the version deliberately did not move.</b> The service document route
+        // answers a browser that asks for HTML with a page and its View in links, as the FeatureServer and MapServer
+        // faces do; every other caller gets the document it got. No tile route, key, encoder or byte of a tile moved.
         // <b>Moved 2026-09-30 for a comment, and the version deliberately did not move.</b> D-288 derives each TUREF
         // zone's built-in grid from the whole country, and `Derive`'s worked example in `VectorTileScheme` now says
         // TM30's 1,772 km is 3460.9375 m (TUREF's area of use, offshore included). A grid is part of a tile's cache key (its fingerprint), so a service set
@@ -207,7 +210,7 @@ public sealed class TilePipelineVersionTests
         // stored style is checked against the generated icons' names as well as the uploaded ones. A picture marker is
         // drawn by the style from the sprite, beside the tiles; the tile route, the key, the encoder and every byte of
         // a tile are what they were.
-        "528bdece8653eb3a1226df1b043f6991dbb16b49f9f13124e93b2e4c17eedb26";
+        "a73711b58e493462ba2404cb9690b76afcc28cba853a34e7952c63407966b5e1";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 3;
