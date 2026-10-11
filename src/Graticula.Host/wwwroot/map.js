@@ -371,10 +371,39 @@
       */
       async function frameInside(features) {
         await view.goTo(features.fullExtent.expand(1.4));
-        const limit = Number(features.minScale) || 0;
-        if (limit > 0 && view.scale > limit) {
-          await view.goTo({ center: view.center, scale: limit * 0.9 });
+
+        // A map service's range is its sublayers'; the service's own is 0 (second walk, 2026-10-11).
+        const subs = features.sublayers ? features.sublayers.toArray() : [];
+        const limit = Number(features.minScale)
+          || Math.max(0, ...subs.map(l => Number(l.minScale) || 0));
+        if (!(limit > 0 && view.scale > limit)) return;
+
+        /*
+          <b>Where the layer is densest, not the middle of its extent.</b> The middle of Istanbul's extent is a
+          forest, and coming in on it drew almost nothing (second walk, 2026-10-11). The server states where a map
+          of the service should open as the map document's `initialExtent`, once it has found the densest place
+          (InitialExtents); until then that equals `fullExtent`, and the middle is what there is.
+        */
+        let centre = view.center;
+        try {
+          const root = String(features.url).replace(/\/(FeatureServer|MapServer|VectorTileServer)(\/\d+)?$/, "");
+          const doc = await (await fetch(`${root}/MapServer?f=json`, { headers: { Accept: "application/json" } })).json();
+          const box = doc.initialExtent;
+          const full = doc.fullExtent;
+          if (box && full && (box.xmin !== full.xmin || box.xmax !== full.xmax)) {
+            const x = (box.xmin + box.xmax) / 2;
+            const y = (box.ymin + box.ymax) / 2;
+            const wkid = (box.spatialReference && (box.spatialReference.latestWkid || box.spatialReference.wkid)) || 4326;
+            centre = wkid === 4326
+              ? [x, y]
+              : [x / 20037508.342789244 * 180,
+                Math.atan(Math.exp(y / 6378137)) * 360 / Math.PI - 90];
+          }
+        } catch {
+          // No map face, or it did not answer: the middle stands.
         }
+
+        await view.goTo({ center: centre, scale: limit * 0.9 });
       }
 
       function add(at) {

@@ -66,6 +66,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
     private static readonly Dictionary<string, string> Bounds = new(StringComparer.Ordinal)
     {
         ["LayerExportEndpoints.Formats"] = "fixed: the three export formats (ADR-107)",
+        ["InitialExtents.Found"] = "one per published layer per reference it is served in; a changed range replaces the layer's entry",
         ["GeometryServerEndpoints.Units.LinearUnits"] = "fixed: Esri's linear units, by code and name (ADR-145)",
         ["GeometryServerEndpoints.Units.AreaUnits"] = "fixed: Esri's area units, by name (ADR-145)",
         ["CoverageAdminEndpoints.Formats.Translated"] = "fixed: the file extensions GDAL writes as GeoTIFF on the way in (ADR-157)",

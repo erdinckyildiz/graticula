@@ -92,7 +92,7 @@ public static class MapServerMetadataWriter
             // them differ so a service can open zoomed to somewhere interesting; this
             // server has no opinion about where that is, and inventing one would move
             // every client's first view for no reason it could see.
-            initialExtent = Box(extent, srid),
+            initialExtent = Box(FeatureServerMetadataWriter.InitialOf(layers) ?? extent, srid),
             fullExtent = Box(extent, srid),
 
             minScale = 0,

@@ -128,18 +128,25 @@ internal static partial class WmsEndpoints
             return whole;
         }
 
+        Envelope around = Around((whole.MinX + whole.MaxX) / 2, (whole.MinY + whole.MaxY) / 2, srid, minScale, width, height);
+
+        return whole.Width <= around.Width && whole.Height <= around.Height ? whole : around;
+    }
+
+    /// <summary>A picture's extent centred on a point at a tenth inside a minimum scale.</summary>
+    /// <param name="x">The centre's first coordinate, in <paramref name="srid"/>.</param>
+    /// <param name="y">Its second.</param>
+    /// <param name="srid">The reference.</param>
+    /// <param name="minScale">The minimum scale to stay inside.</param>
+    /// <param name="width">The picture's width in pixels.</param>
+    /// <param name="height">Its height.</param>
+    /// <returns>The extent.</returns>
+    public static Envelope Around(double x, double y, int srid, double minScale, int width, int height)
+    {
         double perPixel = minScale * 0.9 / VisibleScaleRange.DotsPerMetre
             / (AxisOrder.IsGeographic(srid) ? MapScale.MetresPerDegree : 1);
         double halfWidth = perPixel * width / 2;
         double halfHeight = perPixel * height / 2;
-
-        if (whole.Width / 2 <= halfWidth && whole.Height / 2 <= halfHeight)
-        {
-            return whole;
-        }
-
-        double x = (whole.MinX + whole.MaxX) / 2;
-        double y = (whole.MinY + whole.MaxY) / 2;
 
         return new Envelope(x - halfWidth, y - halfHeight, x + halfWidth, y + halfHeight);
     }

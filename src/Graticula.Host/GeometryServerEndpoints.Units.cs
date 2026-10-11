@@ -130,8 +130,9 @@ internal static partial class GeometryServerEndpoints
         {
             return (0, string.Empty, $"`{field}` names {unit.Name}, and EPSG:{srid.ToString(CultureInfo.InvariantCulture)} is "
                 + "geographic: its coordinates are degrees, and a distance in " + unit.Name + " there is a geodesic one, "
-                + "which this geometry service does not measure. Send the geometry in a projected reference suited to the "
-                + "area (a UTM zone, or TM30 in Türkiye), or omit the unit to work in degrees.");
+                + "which this geometry service does not measure. Name a projected reference suited to the area to work in "
+                + "— for a buffer, `bufferSR` (a UTM zone, TM30 in Türkiye, or 3857), and the answer comes back in this "
+                + "one — or omit the unit to work in degrees.");
         }
 
         return (unit.Metres, unit.Name, null);
@@ -185,6 +186,18 @@ internal static partial class GeometryServerEndpoints
     /// A reference named in a field that must be the request's own — <c>bufferSR</c>, <c>outSR</c> — refused when it is
     /// another, since buffering in it and projecting back is not done here.
     /// </summary>
+    /// <summary>The reference a field names — a bare code or `{"wkid": n}` — as EPSG's code, or null when absent.</summary>
+    private static int? NamedReference(IFormCollection form, string field)
+    {
+        if (Field(form, field) is not { } text
+            || !int.TryParse(UnitKey(text, "wkid"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int named))
+        {
+            return null;
+        }
+
+        return named == 102100 ? 3857 : named;
+    }
+
     private static string? SameReference(IFormCollection form, string field, int srid)
     {
         if (Field(form, field) is not { } text)

@@ -161,6 +161,112 @@ internal static class VisibleRangeSuggestion
         }
     }
 
+    /// <summary>
+    /// The densest tile at the level a layer's visible range begins, in Web Mercator — where a map of it should open.
+    /// </summary>
+    /// <remarks>
+    /// <b>Added 2026-10-11, because the middle of a province is a forest.</b> Istanbul's buildings are drawn from
+    /// 1:72,224 in, and a link or a viewer that came in on the middle of the layer's extent landed north of the city,
+    /// on a picture of almost nothing. This walks down from the level the extent fits in, keeping the densest of each
+    /// tile's four children, to the level the range begins at: a handful of counts, the same ones
+    /// <see cref="SuggestAsync"/> makes, and the same reader.
+    /// </remarks>
+    /// <param name="source">The layer's reader.</param>
+    /// <param name="described">Its description, for the extent.</param>
+    /// <param name="srid">Its reference.</param>
+    /// <param name="projector">For the extent.</param>
+    /// <param name="minScale">Its visible range's zoomed-out limit.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The tile's box in Web Mercator, or null when there is no range, no extent, or no time.</returns>
+    public static async Task<Envelope?> DensestPlaceAsync(
+        IFeatureSource source,
+        LayerDescription described,
+        int srid,
+        IProjector projector,
+        double minScale,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(described);
+        ArgumentNullException.ThrowIfNull(projector);
+
+        if (minScale <= 0)
+        {
+            return null;
+        }
+
+        using CancellationTokenSource deadline =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(10));
+
+        try
+        {
+            if (await ServedExtent.InAsync(described.Extent, srid, WebMercator, projector, deadline.Token)
+                .ConfigureAwait(false) is not { } extent
+                || !(extent.MaxX > extent.MinX || extent.MaxY > extent.MinY))
+            {
+                return null;
+            }
+
+            int target = 0;
+            while (target < DeepestLevel && VisibleScaleRange.VectorTileScale(target) > minScale * 1.0001)
+            {
+                target++;
+            }
+
+            double span = Math.Max(extent.MaxX - extent.MinX, extent.MaxY - extent.MinY);
+            int level = Math.Clamp((int)Math.Floor(Math.Log2(2 * HalfWorld / Math.Max(span, 1))), 0, target);
+            List<(int X, int Y)> candidates = TilesCovering(extent, level);
+
+            while (candidates.Count > MostTilesPerLevel && level > 0)
+            {
+                level--;
+                candidates = TilesCovering(extent, level);
+            }
+
+            while (true)
+            {
+                int z = level;
+                long[] counts = new long[candidates.Count];
+
+                await Parallel.ForEachAsync(
+                    Enumerable.Range(0, candidates.Count),
+                    new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = deadline.Token },
+                    async (i, token) =>
+                    {
+                        counts[i] = await source.CountAsync(
+                            new FeatureQuery(
+                                1,
+                                includeGeometry: false,
+                                spatial: new SpatialFilter(
+                                    Rectangle(TileEnvelope(z, candidates[i].X, candidates[i].Y)),
+                                    SpatialRelation.EnvelopeIntersects),
+                                filterSrid: srid == WebMercator ? null : WebMercator),
+                            token).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+
+                int best = Array.IndexOf(counts, counts.Max());
+
+                if (counts[best] == 0)
+                {
+                    return null;
+                }
+
+                if (level >= target)
+                {
+                    return TileEnvelope(level, candidates[best].X, candidates[best].Y);
+                }
+
+                candidates = [.. Children(candidates[best])];
+                level++;
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
     private static IEnumerable<(int X, int Y)> Children((int X, int Y) tile) =>
     [
         (tile.X * 2, tile.Y * 2), (tile.X * 2 + 1, tile.Y * 2),

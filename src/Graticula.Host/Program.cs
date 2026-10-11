@@ -3190,6 +3190,11 @@ public static class Program
                 ParentId = layer.ParentIndex,
                 MinScale = layer.VisibleRange.MinScale,
                 MaxScale = layer.VisibleRange.MaxScale,
+
+                // Where a map of it opens, when its whole extent is outside its range — InitialExtents.
+                Initial = InitialExtents.Known(
+                    layer, moved is null ? layer.Definition.Srid : service.Srid!.Value, moved ?? described.Extent,
+                    contexts, projector),
             });
         }
 
@@ -3707,7 +3712,10 @@ public static class Program
                     [
                         WfsEndpoints.DirectoryLink(layer.Definition.Name),
                         WmsEndpoints.DirectoryLink(
-                            layer.Definition.Name, description.Extent, layer.Definition.Srid,
+                            layer.Definition.Name,
+                            InitialExtents.Known(layer, layer.Definition.Srid, description.Extent, contexts, projector)
+                                ?? description.Extent,
+                            layer.Definition.Srid,
                             layer.VisibleRange.MinScale),
                         OgcFeaturesEndpoints.DirectoryLink(layer.Definition.Name),
                     ]),

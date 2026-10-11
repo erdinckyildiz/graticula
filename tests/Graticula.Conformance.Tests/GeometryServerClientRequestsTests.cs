@@ -140,9 +140,22 @@ public sealed class GeometryServerClientRequestsTests : ArcGisClient
         (_, JsonElement ellipsoid) = await PostAsync("areasAndLengths", ("sr", "3857"), ("polygons", $"[{kilometre}]"), ("calculationType", "geodesic"));
         Assert.Contains("calculationType", ellipsoid.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
 
-        (_, JsonElement elsewhere) = await PostAsync("buffer", ("inSR", "3857"), ("bufferSR", "32635"),
-            ("geometries", "{\"geometryType\":\"esriGeometryPoint\",\"geometries\":[{\"x\":0,\"y\":0}]}"), ("distances", "1"));
-        Assert.Contains("bufferSR", elsewhere.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
+        // The refusal of metres in degrees names the way out.
+        Assert.Contains("bufferSR", degrees.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
+
+        // <b>A buffer is made in `bufferSR` and answered in `outSR`, or in the request's own reference — 2026-10-11.</b>
+        // A lat/lon point buffered by 100 m in Web Mercator comes back in degrees: 100 Mercator metres is
+        // 100 / 111,319.49 degrees of longitude, about 0.000898.
+        string point = "{\"geometryType\":\"esriGeometryPoint\",\"geometries\":[{\"x\":29,\"y\":41}]}";
+        (_, JsonElement inDegrees) = await PostAsync("buffer", ("inSR", "4326"), ("bufferSR", "3857"),
+            ("geometries", point), ("distances", "100"), ("unit", "9001"));
+        double[] lons = [.. inDegrees.GetProperty("geometries")[0].GetProperty("rings")[0].EnumerateArray().Select(p => p[0].GetDouble())];
+        Assert.InRange(lons.Max() - 29, 0.00089, 0.00090);
+
+        (_, JsonElement inMetres) = await PostAsync("buffer", ("inSR", "4326"), ("bufferSR", "3857"), ("outSR", "3857"),
+            ("geometries", point), ("distances", "100"), ("unit", "9001"));
+        double[] eastings = [.. inMetres.GetProperty("geometries")[0].GetProperty("rings")[0].EnumerateArray().Select(p => p[0].GetDouble())];
+        Assert.InRange(eastings.Max(), (29 * 111_319.49079327358) + 99, (29 * 111_319.49079327358) + 101);
     }
 
     [Fact]

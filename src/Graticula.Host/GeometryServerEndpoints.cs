@@ -1144,15 +1144,43 @@ internal static partial class GeometryServerEndpoints
             return;
         }
 
-        if (operation == "buffer" && (SameReference(form, "bufferSR", srid) ?? SameReference(form, "outSR", srid)) is { } elsewhere)
+        /*
+          <b>A buffer is made in `bufferSR` and answered in `outSR`, as ArcGIS's is — 2026-10-11.</b> Both were refused
+          when they differed from the request's own reference, so *buffer this lat/lon point by 100 m* had no way to be
+          asked: degrees cannot be buffered in metres, and naming a reference in metres was refused too. A reviewer
+          walking the showcase tried it first. The geometries go into `bufferSR`, the distance is read in its units,
+          and the buffers come back in `outSR`, or in the request's own reference when that is not named. A geodesic
+          buffer is still refused: that is a measure on the ellipsoid, and this service measures in a plane.
+        */
+        int answerSrid = srid;
+
+        if (operation == "buffer")
         {
-            await Fail(context, elsewhere).ConfigureAwait(false);
-            return;
+            int work = NamedReference(form, "bufferSR") ?? srid;
+            answerSrid = NamedReference(form, "outSR") ?? srid;
+
+            if (work != Plain(srid))
+            {
+                try
+                {
+                    (IReadOnlyList<Geometry> moved, _) = await context.RequestServices
+                        .GetRequiredService<IProjector>()
+                        .ProjectAsync(request.Left, srid, work, cancellation)
+                        .ConfigureAwait(false);
+                    request = request with { Left = moved, Srid = work };
+                }
+                catch (Exception e) when (e is not OperationCanceledException)
+                {
+                    await Fail(context, $"The geometries could not be put into EPSG:{work.ToString(CultureInfo.InvariantCulture)} "
+                        + $"to be buffered there: {e.Message}").ConfigureAwait(false);
+                    return;
+                }
+            }
         }
 
         if (operation switch { "buffer" => "unit", "offset" => "offsetUnit", "generalize" => "deviationUnit", _ => null } is { } unitField)
         {
-            (double scale, string? unitError) = await InputScaleAsync(context, form, unitField, srid, cancellation).ConfigureAwait(false);
+            (double scale, string? unitError) = await InputScaleAsync(context, form, unitField, request.Srid, cancellation).ConfigureAwait(false);
 
             if (unitError is not null)
             {
@@ -1294,12 +1322,34 @@ internal static partial class GeometryServerEndpoints
             return;
         }
 
+        IReadOnlyList<Geometry> answered = result.Geometries;
+
+        if (Plain(answerSrid) != Plain(request.Srid) && answered.Count > 0)
+        {
+            try
+            {
+                (answered, _) = await context.RequestServices
+                    .GetRequiredService<IProjector>()
+                    .ProjectAsync(answered, request.Srid, Plain(answerSrid), cancellation)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                await Fail(context, $"The buffers could not be put into EPSG:{Plain(answerSrid).ToString(CultureInfo.InvariantCulture)}: "
+                    + e.Message).ConfigureAwait(false);
+                return;
+            }
+        }
+
         await Respond(context, operation, new
         {
-            geometries = result.Geometries.Select(g => ToJson(g, srid)).ToArray(),
+            geometries = answered.Select(g => ToJson(g, Plain(answerSrid) == Plain(request.Srid) ? srid : answerSrid)).ToArray(),
             cost,
         }).ConfigureAwait(false);
     }
+
+    /// <summary>Esri's Web Mercator code read as EPSG's, which is how the projector names it.</summary>
+    private static int Plain(int srid) => srid == 102100 ? 3857 : srid;
 
     /// <summary>
     /// Reads whatever operands the named operation takes.

@@ -411,6 +411,32 @@ public static class FeatureServerMetadataWriter
 
         /// <summary>The smallest scale it draws at, or 0 for no limit — ADR-070.</summary>
         public double MaxScale { get; init; }
+
+        /// <summary>
+        /// Where a map of it should open, when that is not its whole extent — or null. Set where the whole extent is
+        /// outside the visible range, so a client that opens on `initialExtent` lands where the layer is drawn.
+        /// </summary>
+        public Envelope? Initial { get; init; }
+    }
+
+    /// <summary>The union of the layers' <see cref="ServiceLayer.Initial"/> extents, or null when none has one.</summary>
+    /// <param name="layers">The layers.</param>
+    /// <returns>The extent, or null.</returns>
+    public static Envelope? InitialOf(IReadOnlyList<ServiceLayer> layers)
+    {
+        ArgumentNullException.ThrowIfNull(layers);
+
+        Envelope? union = null;
+
+        foreach (ServiceLayer layer in layers)
+        {
+            if (layer.Initial is { IsEmpty: false } box)
+            {
+                union = union is { } so ? so.Union(box) : box;
+            }
+        }
+
+        return union;
     }
 
     /// <summary>One group layer's entry in a service document.</summary>
@@ -506,7 +532,7 @@ public static class FeatureServerMetadataWriter
             description = description ?? string.Empty,
             copyrightText = string.Empty,
             spatialReference = SpatialReference(srid),
-            initialExtent = ExtentOrNull(extent, srid),
+            initialExtent = ExtentOrNull(InitialOf(layers) ?? extent, srid),
             fullExtent = ExtentOrNull(extent, srid),
             allowGeometryUpdates = capabilities.Contains("Update", StringComparison.Ordinal),
             units = UnitsOf(srid),

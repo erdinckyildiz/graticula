@@ -295,7 +295,10 @@ internal static class MapServerEndpoints
                     formats:
                     [
                         WmsEndpoints.DirectoryLink(
-                            layer.Definition.Name, described.Extent, layer.Definition.Srid,
+                            layer.Definition.Name,
+                            InitialExtents.Known(layer, layer.Definition.Srid, described.Extent, contexts, projector)
+                                ?? described.Extent,
+                            layer.Definition.Srid,
                             layer.VisibleRange.MinScale),
                     ]),
                 "text/html; charset=utf-8")
@@ -899,6 +902,9 @@ internal static class MapServerEndpoints
                 // ADR-070: the export draws the layer only inside these, so the document says so.
                 MinScale = layer.VisibleRange.MinScale,
                 MaxScale = layer.VisibleRange.MaxScale,
+
+                // Where a map of it opens, when its whole extent is outside its range — InitialExtents.
+                Initial = InitialExtents.Known(layer, srid, extent, contexts, projector),
             });
         }
 
@@ -945,8 +951,13 @@ internal static class MapServerEndpoints
             }
         }
 
-        // Inside the layers' visible range — WmsEndpoints.InsideRange says why.
-        if (!whole.IsEmpty)
+        // Where the layers are densest, once that is known (InitialExtents); until then inside their visible range,
+        // which WmsEndpoints.InsideRange says why.
+        if (FeatureServerMetadataWriter.InitialOf(layers) is { } initial)
+        {
+            whole = initial;
+        }
+        else if (!whole.IsEmpty)
         {
             whole = WmsEndpoints.InsideRange(
                 whole,

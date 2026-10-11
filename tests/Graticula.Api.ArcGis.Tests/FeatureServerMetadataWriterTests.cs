@@ -96,6 +96,33 @@ public sealed class FeatureServerMetadataWriterTests
         Assert.True(editable.GetProperty("allowGeometryUpdates").GetBoolean());
     }
 
+    /// <summary>
+    /// A layer whose map should open somewhere other than its whole extent says so as `initialExtent`, on both faces,
+    /// and keeps its whole extent as `fullExtent` — 2026-10-11, the province whose middle is a forest.
+    /// </summary>
+    [Fact]
+    public void A_layers_initial_extent_is_stated_beside_its_full_one()
+    {
+        Envelope whole = new(27.9, 40.8, 29.9, 41.6);
+        Envelope opening = new(28.9, 40.98, 29.0, 41.04);
+        FeatureServerMetadataWriter.ServiceLayer layer =
+            new(0, "binalar", GeometryKind.Polygon, 4326, whole) { MinScale = 72224, Initial = opening };
+
+        foreach (JsonElement document in new[]
+        {
+            Json(FeatureServerMetadataWriter.Service([layer], "Query")),
+            Json(MapServerMetadataWriter.Service([layer], "Map", 4096, 4096, 1000)),
+        })
+        {
+            Assert.Equal(28.9, document.GetProperty("initialExtent").GetProperty("xmin").GetDouble(), 9);
+            Assert.Equal(27.9, document.GetProperty("fullExtent").GetProperty("xmin").GetDouble(), 9);
+        }
+
+        // Without one, the two are the same, as they always were.
+        JsonElement plain = Json(FeatureServerMetadataWriter.Service([layer with { Initial = null }], "Query"));
+        Assert.Equal(27.9, plain.GetProperty("initialExtent").GetProperty("xmin").GetDouble(), 9);
+    }
+
     [Fact]
     public void The_layer_document_does_not_claim_capabilities_the_query_endpoint_refuses()
     {
