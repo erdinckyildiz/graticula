@@ -186,8 +186,10 @@ internal static class MapServerEndpoints
                     [
                         ("Map", "/studio/view.html?face=mapserver"
                             + $"&service={Uri.EscapeDataString(service.QualifiedName)}"),
-                        ("Map Viewer", "/studio/webmap.html"
-                            + $"?service={Uri.EscapeDataString(service.QualifiedName)}"),
+                        // `face=mapserver`, 2026-10-10: without it the Map Viewer tried FeatureServer first and opened
+                        // this service as features — the map face's link showing the other face.
+                        ("Map Viewer", "/studio/webmap.html?face=mapserver"
+                            + $"&service={Uri.EscapeDataString(service.QualifiedName)}"),
                         ("ArcGIS SDK", "/studio/map.html?face=mapserver"
                             + $"&service={Uri.EscapeDataString(service.QualifiedName)}"),
                         ("Export", $"{path}/export?{ExtentText(layers)}"

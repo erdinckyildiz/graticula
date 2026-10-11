@@ -3186,7 +3186,12 @@ async function wmStart() {
     let added = 0;
     let last = null;
 
-    for (const type of ["FeatureServer", "VectorTileServer", "MapServer", "ImageServer"]) {
+    // <b>The face the link came from, when it named one — 2026-10-10.</b> A service page's Map Viewer link opened
+    // the FeatureServer whatever face it was on, so MapServer's showed features and VectorTileServer had no link.
+    // `face` puts that face first; the rest stay behind it, for a service that does not have it.
+    const FACES = ["FeatureServer", "VectorTileServer", "MapServer", "ImageServer"];
+    const named = FACES.find(f => f.toLowerCase() === (WM_QUERY.get("face") || "").toLowerCase());
+    for (const type of named ? [named, ...FACES.filter(f => f !== named)] : FACES) {
       try {
         added = await wmAddService(service, type, type === "FeatureServer" ? layer : null);
         if (added > 0) break;

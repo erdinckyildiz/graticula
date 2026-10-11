@@ -367,6 +367,33 @@ internal static class VectorTileEndpoints
                 document, service.Limits.Export.MaximumOf(settings.TileExportMaximumTiles));
         }
 
+        // <b>A page, as every other face has — 2026-10-10.</b> This face answered JSON to a browser that asked for a
+        // page, so the services directory's VectorTileServer link opened the raw document while the FeatureServer and
+        // MapServer links beside it opened a page with a way to look at the map. The owner clicked it on the
+        // showcase expecting a map. `face=vectortileserver` for the reason MapServer gives for `face=mapserver`.
+        if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
+        {
+            string path = context.Request.Path;
+            string named = Uri.EscapeDataString(service.QualifiedName);
+
+            await Results.Content(
+                RestDirectory.Document(
+                    path,
+                    $"{service.QualifiedName} (VectorTileServer)",
+                    document,
+                    links:
+                    [
+                        ("Map Viewer", $"/studio/webmap.html?face=vectortileserver&service={named}"),
+                        ("ArcGIS SDK", $"/studio/map.html?face=vectortileserver&service={named}"),
+                        ("Style", $"{path}/resources/styles/root.json"),
+                    ],
+                    linksLabel: "View in"),
+                "text/html; charset=utf-8")
+                .ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
+
         await Results.Ok(document).ExecuteAsync(context).ConfigureAwait(false);
     }
 

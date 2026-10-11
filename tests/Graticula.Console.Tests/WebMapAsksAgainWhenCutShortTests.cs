@@ -115,6 +115,30 @@ public sealed class WebMapAsksAgainWhenCutShortTests : ConsoleTest
             + "takes out.");
     }
 
+    /// <summary>The Map Viewer opens a service on the face its link named — 2026-10-10.</summary>
+    /// <remarks>
+    /// It tried FeatureServer first whatever face the link was on, so the MapServer page's Map Viewer showed features
+    /// and the VectorTileServer page, which had none, could not have had one that showed tiles.
+    /// </remarks>
+    [Theory]
+    [InlineData("vectortileserver", "VectorTileLayer")]
+    [InlineData("mapserver", "ArcGISMapServiceLayer")]
+    public async Task A_service_opens_on_the_face_its_link_named(string face, string layerType)
+    {
+        (string token, string cookie) = await SignInAsync();
+        string? service = Environment.GetEnvironmentVariable("GRATICULA_TEST_TILE_SERVICE");
+
+        Assert.False(string.IsNullOrWhiteSpace(service), "GRATICULA_TEST_TILE_SERVICE is not set.");
+
+        await OpenAsync($"/studio/webmap.html?face={face}&service={Uri.EscapeDataString(service!)}", token, cookie);
+
+        await WaitForAsync(
+            "!!wmState.doc && wmLayers().length > 0",
+            $"The Map Viewer opened on face={face} added no layer.");
+
+        Assert.Equal(layerType, await Browser.EvaluateAsync<string>("wmLayers()[0].layerType"));
+    }
+
     [Fact]
     public async Task Outside_the_layers_visible_range_nothing_is_asked_and_the_list_says_to_zoom_in()
     {

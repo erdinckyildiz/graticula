@@ -46,6 +46,9 @@
     mapserver: "MapServer",
     imageserver: "ImageServer",
     featureserver: "FeatureServer",
+    // 2026-10-10: the VectorTileServer page had no viewer; the SDK's own VectorTileLayer reads the service and its
+    // default style, which is the client contract this face exists to meet.
+    vectortileserver: "VectorTileServer",
   };
 
   const face = FACES[(query.get("face") || "featureserver").toLowerCase()] || "FeatureServer";
@@ -270,6 +273,9 @@
           const on = features.sublayers.filter(l => l.visible).length;
           const all = features.sublayers.length;
           drawn = `${on} of ${all} sublayer${all === 1 ? "" : "s"} drawn, server-side`;
+        } else if (face === "VectorTileServer") {
+          // Tiles: the browser draws them with the service's own style, and there is no count to ask for.
+          drawn = "vector tiles, drawn in this browser with the service's style";
         } else {
           // An image service has neither: one coverage, one picture. What is worth
           // saying is what the pixels are, because that is what decides whether the
@@ -391,6 +397,8 @@
         */
         const features = face === "ImageServer"
           ? new ImageryLayer({ url: at })
+          : face === "VectorTileServer"
+          ? new VectorTileLayer({ url: at })
           : face === "MapServer"
           ? new MapImageLayer({ url: at })
           : new FeatureLayer({
@@ -441,9 +449,10 @@
       // <b>An image service holds one coverage and publishes no layer list</b>, so there
       // is nothing to pick between and the picker would be an empty row. It is drawn
       // directly, which is also what its service document expects to be read for.
-      if (service && face === "ImageServer") {
-        document.getElementById("which").textContent = `${service} (ImageServer)`;
-        add(`${location.origin}/rest/services/${service}/ImageServer`);
+      if (service && (face === "ImageServer" || face === "VectorTileServer")) {
+        // A tile service is one layer to the SDK too: its document lists no layers to pick between.
+        document.getElementById("which").textContent = `${service} (${face})`;
+        add(`${location.origin}/rest/services/${service}/${face}`);
       } else if (service && layerId === null) {
         fetch(`${location.origin}/rest/services/${service}/${face}?f=json`,
           { headers: { Accept: "application/json" } })
