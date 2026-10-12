@@ -110,30 +110,29 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>7a56351</code> · 2026-10-09 10:06</p>
+<p class="stamp">Generated from commit <code>35c219a7</code> · 2026-10-12 13:15</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">178</div><div class="kpi-l">ADRs</div><div class="kpi-n">72 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">318/408</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">87 live · 3 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">319/408</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">86 live · 3 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open questions</div><div class="kpi-n">160 answered</div></div>
 <div class="kpi warn"><div class="kpi-v">14</div><div class="kpi-l">open debts</div><div class="kpi-n">269 repaid · 6 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">4759</div><div class="kpi-l">tests</div><div class="kpi-n">474 source files, 214,341 lines</div></div>
+<div class="kpi good"><div class="kpi-v">4778</div><div class="kpi-l">tests</div><div class="kpi-n">476 source files, 215,091 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">1 open</span></div><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">105 items</span></div><p><b>87 ADR conditions</b> outstanding across 62 decisions — the largest commitment on this page.</p><p><b>14 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">104 items</span></div><p><b>86 ADR conditions</b> outstanding across 62 decisions — the largest commitment on this page.</p><p><b>14 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-101 · Studio is walked the way a Portal </div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-086 · The operator chooses the map groun</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-106 · A layer&#x27;s data can be exported as </div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-007 · Service Runtime</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
@@ -146,6 +145,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-067 · DuckDB sources beyond a local fold</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-086 · The operator chooses the map groun</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-087 · A domain is a named object that fi</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
@@ -296,7 +296,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">083</td><td>The where clause evaluates ArcGIS&#x27;s standardized functions</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/2</td></tr>
 <tr><td class="id">084</td><td>The page size is one number, and the server&#x27;s is set from the console</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/3</td></tr>
 <tr><td class="id">085</td><td>A tile leaves out what it cannot draw</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">2/3</td></tr>
-<tr><td class="id">086</td><td>The operator chooses the map ground, and it is the portal&#x27;s default basemap</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">0/3</td></tr>
+<tr><td class="id">086</td><td>The operator chooses the map ground, and it is the portal&#x27;s default basemap</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/3</td></tr>
 <tr><td class="id">087</td><td>A domain is a named object that fields on many layers point at</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">0/2</td></tr>
 <tr><td class="id">088</td><td>Sign-in through an OpenID Connect provider</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
 <tr><td class="id">089</td><td>Sign-in through an LDAP directory, and groups mapped to roles and groups here</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
@@ -515,13 +515,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is verified</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1324</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.7%"></div></div><div class="bar-n">870</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.3%"></div></div><div class="bar-n">732</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.7%"></div></div><div class="bar-n">539</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.7%"></div></div><div class="bar-n">407</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.6%"></div></div><div class="bar-n">273</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.6%"></div></div><div class="bar-n">206</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1325</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.9%"></div></div><div class="bar-n">873</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.5%"></div></div><div class="bar-n">735</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.8%"></div></div><div class="bar-n">540</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.8%"></div></div><div class="bar-n">408</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.4%"></div></div><div class="bar-n">283</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.5%"></div></div><div class="bar-n">206</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:9.4%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.2%"></div></div><div class="bar-n">122</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.8%"></div></div><div class="bar-n">50</div></div>
@@ -530,20 +530,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
-<li><code>7a56351</code><time>2026-10-09</time><span>CITE maps: pin Maven 3.9.9 (WIP)</span></li>
-<li><code>a463173</code><time>2026-10-07</time><span>A layer&#x27;s history is kept for so many days, and a restore says what today&#x27;s domains refuse</span></li>
-<li><code>f89548b</code><time>2026-10-07</time><span>A layer&#x27;s title is set in Studio, and the box beside it now shows what was saved</span></li>
-<li><code>ecd290d</code><time>2026-10-07</time><span>A layer&#x27;s history turns on for a million features, a historic read uses its index, and the SDK sees it</span></li>
-<li><code>1568f7c</code><time>2026-10-07</time><span>Exports keep their domains and their Shapefile names, and KML is held to what its writer can hold</span></li>
-<li><code>74c7f84</code><time>2026-10-07</time><span>A layer&#x27;s title is not in the query response&#x27;s fingerprint</span></li>
-<li><code>2164cbd</code><time>2026-10-07</time><span>QGIS edits through WFS-T with a name and password, a layer carries a title, and WMS 1.1 passes OGC&#x27;s suite</span></li>
-<li><code>8e34cc0</code><time>2026-10-07</time><span>The OGC faces meet their clients: GDAL, OWSLib, MapLibre and QGIS, and OGC&#x27;s WCS 1.0 suite</span></li>
-<li><code>10a5b87</code><time>2026-10-06</time><span>The OGC faces are finished: Maps, Processes, Styles and Records, WCS 1.0.0, and the gaps CITE measured</span></li>
-<li><code>67dd956</code><time>2026-10-04</time><span>Five more OGC suites run nightly, and what they found the first time is fixed or counted</span></li>
-<li><code>0a7118f</code><time>2026-10-04</time><span>The web map zooms with the wheel without being clicked first</span></li>
-<li><code>5c6a769</code><time>2026-10-03</time><span>ADR-172: a service may be an INSPIRE View and Download service; 1.3.0 no longer declares GetStyles</span></li>
-<li><code>ec07382</code><time>2026-10-03</time><span>ADR-171: WMS takes an SLD with GetMap and answers GetStyles</span></li>
-<li><code>74e25f5</code><time>2026-10-03</time><span>ADR-170: image services are WCS 2.0.1 coverages at /wcs and their own WCSServer</span></li>
+<li><code>35c219a7</code><time>2026-10-12</time><span>The history-period test stops racing the page&#x27;s own fill for the row it waits on</span></li>
+<li><code>1db42c80</code><time>2026-10-12</time><span>The layer viewer&#x27;s box zoom stays zoomed: the Frame handler is on the button, not the page</span></li>
+<li><code>fc78f07e</code><time>2026-10-12</time><span>The projector stops breaking every second projection on PROJ 8</span></li>
+<li><code>16ee583d</code><time>2026-10-12</time><span>A ranged layer&#x27;s opening place is found at start, a level inside its limit</span></li>
+<li><code>70410dfd</code><time>2026-10-12</time><span>ADR-070 records where a map of a dense layer opens</span></li>
+<li><code>879dfeb1</code><time>2026-10-12</time><span>The MapServer document states the service&#x27;s description</span></li>
+<li><code>c1396e3d</code><time>2026-10-11</time><span>A map of a dense layer opens where it is densest; a buffer is made in bufferSR</span></li>
+<li><code>4e6e45ab</code><time>2026-10-11</time><span>What a visitor from a public post hits first now works</span></li>
+<li><code>f1e9674b</code><time>2026-10-11</time><span>A feature with no value is drawn as the renderer&#x27;s null class on every face</span></li>
+<li><code>baa944a2</code><time>2026-10-11</time><span>The tile pipeline&#x27;s recorded hash moves for the VectorTileServer page</span></li>
+<li><code>863572ad</code><time>2026-10-11</time><span>The VectorTileServer face is a page, and every face&#x27;s viewer opens that face</span></li>
+<li><code>c79b66e1</code><time>2026-10-10</time><span>A drawn map draws everything in view inside the layer&#x27;s range</span></li>
+<li><code>0c2ab40b</code><time>2026-10-10</time><span>The map viewer draws classified layers from tiles, and draws their missing values</span></li>
+<li><code>cb7b8168</code><time>2026-10-10</time><span>The tile-twin test waits for a map to be open before reading its layers</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

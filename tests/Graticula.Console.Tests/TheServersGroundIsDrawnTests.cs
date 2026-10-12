@@ -76,6 +76,27 @@ public sealed class TheServersGroundIsDrawnTests : ConsoleTest
                 await Browser.EvaluateAsync<bool>($"document.querySelector('#grounds button[data-ground=\"{ground}\"]')?.getAttribute('aria-pressed') === 'true'"),
                 "The viewer draws the server's ground but shows its button as off.");
 
+            // ---- a new web map starts on it, as a new map in Map Viewer starts on the portal's default basemap ----
+            // ADR-086 condition 3. Written on 2026-09-30 with ADR-101 and never held by a test, so the condition stood
+            // open over code that already did it. The document is read rather than the pixels: what is saved is what
+            // Map Viewer and Pro will open, and a ground drawn over an OpenStreetMap document would save the wrong one.
+            await OpenAsync("/studio/webmap.html", token, cookie);
+
+            await WaitForAsync(
+                "typeof wmState === 'object' && !!wmState.doc && !!wmState.doc.baseMap",
+                "The web map editor never made a document for a new map.");
+
+            string[] basemap = await Browser.EvaluateAsync<string[]>(
+                "(wmState.doc.baseMap.baseMapLayers || []).map(l => l.layerType + ' ' + (l.id || ''))") ?? [];
+
+            Assert.True(
+                basemap.SequenceEqual([$"VectorTileLayer {ground}"]),
+                $"A new web map's basemap is [{string.Join(", ", basemap)}], not the server's ground {ground}.");
+
+            Assert.True(
+                await Browser.EvaluateAsync<bool>("wmGround.getVisible() && !wmBase.getVisible()"),
+                "The new map's document names the server's ground, but the page draws OpenStreetMap under it.");
+
             // ---- a browser that chose for itself keeps its choice ----
             await Browser.EvaluateAsync<bool>("(() => { localStorage.setItem('gis-ground-tiles', '[]'); return true; })()");
             await OpenAsync($"/studio/map.html?service={Uri.EscapeDataString(ground)}", token, cookie);

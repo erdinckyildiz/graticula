@@ -137,4 +137,10 @@ None recorded.
 2. **An ArcGIS client is seen drawing it** — Map Viewer, or the Maps SDK with the portal set, opening a new map
    on this server's ground.
 3. **The web map editor starts a new map on it.** `webmap.js` draws OpenStreetMap under every web map, and a new
-   web map in ArcGIS starts from the portal's default basemap; it does not yet.
+   web map in ArcGIS starts from the portal's default basemap; it does not yet. **DISCHARGED 2026-10-12** — and
+   it had been met since 2026-09-30, when [ADR-101](ADR-101-studio-is-walked-the-way-a-portal-user-walks-it.md)'s
+   map viewer waited for `portals/self` and gave a new map the ground as its basemap. Nothing held it, so this
+   line stayed open over code that already did it. `TheServersGroundIsDrawnTests` now opens a new web map with a
+   ground set and reads the document: its basemap is the ground's `VectorTileLayer`, and the page draws the
+   ground rather than OpenStreetMap. Falsified with that one line taken out of the served `webmap.js`: the test
+   fails with *basemap is [OpenStreetMap OpenStreetMap]*.
