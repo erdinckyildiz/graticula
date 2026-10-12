@@ -121,6 +121,13 @@ permanent decision by being forgotten.
    the server; and the group member cannot truncate it.
    *(Open until `A_layer_is_written_to_by_its_owner_and_the_group_it_is_shared_with_for_editing` has
    passed in CI.)*
+   **DISCHARGED 2026-10-12.** The test has been in the conformance suite since 2026-09-16, unfiltered in
+   `ci.yml`, and `main`'s CI has passed with it ever since — the criterion above was met within days and
+   nobody came back to say so. **It was not met to the letter on one face, and that is repaired first:** on
+   OGC API Features only the create was asked to be refused, while this condition says every add, update
+   and delete on both faces. The test now also sends a merge patch, a replacement and a delete over OGC as
+   the editor who does not own the layer, each answered 403 — checked against the running server by
+   expecting 200 for the patch and reading the refusal (*… is edited by its owner …*) in the failure.
 2. **The rule is pinned without a database**: `ALayerIsEditedByItsOwnerTests` covers each ground,
    each refusal, anonymous, an owner whose role lost editing, and `MayManage` against a group.
    **DISCHARGED** 2026-09-16 — 11 cases.

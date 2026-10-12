@@ -196,3 +196,12 @@ arrival.
    none.
 2. **A second writer to `layer.symbology` reopens this.** Not a task — a trigger. It is
    written here so that whoever adds one finds it.
+   ***The trigger fired on 2026-09-06 and nobody found it here; recorded 2026-10-12, still open.***
+   [ADR-057](ADR-057-composing-and-publishing-a-service.md) let a publish carry its symbology, and that
+   path is a second writer: `PublishRequest.Symbology` is copied by `TryReadPublication`
+   (`AdminEndpoints.cs`) into the `LayerPublication` the catalogue inserts, **without
+   `SymbologyConversion.Read`** — the one place a symbology is checked against the layer's geometry and
+   columns, which only `PUT /admin/layers/{name}/symbology` calls. `Tools/SymbologyMigrator.cs` is a
+   third, writing `CimStyle.FromMapLibre`'s output through `SetSymbologyAsync`. Found by an audit of the
+   live conditions. **What is owed is the revisit this line asks for, not a quiet patch**: whether a
+   published symbology goes through the same reading, and what a publish answers when it does not pass.

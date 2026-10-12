@@ -153,6 +153,22 @@ public sealed class EditorTrackingConformanceTests : ArcGisClient
                 notMine == HttpStatusCode.Forbidden,
                 $"An OGC create by an editor who does not own the layer answered {(int)notMine}: {notMineBody}");
 
+            // <b>And update and delete over OGC</b> — the condition says every add, update and delete on both
+            // faces, and until 2026-10-12 only the create was asked on this one. Both kinds of update: a patch and
+            // a replacement go through different handlers.
+            await ExpectAsync(HttpStatusCode.Forbidden, "a merge patch by an editor who does not own the layer",
+                HttpMethod.Patch, $"{items}/{Id(theirs)}", editor, "{\"properties\":{\"label\":\"not my layer\"}}");
+
+            (HttpStatusCode replaced, string replacedBody, _) = await OgcAsync(
+                HttpMethod.Put, $"{items}/{Id(theirs)}", editor, AnOgcPoint, "application/geo+json");
+
+            Assert.True(
+                replaced == HttpStatusCode.Forbidden,
+                $"An OGC replace by an editor who does not own the layer answered {(int)replaced}: {replacedBody}");
+
+            await ExpectAsync(HttpStatusCode.Forbidden, "a delete by an editor who does not own the layer",
+                HttpMethod.Delete, $"{items}/{Id(theirs)}", editor, json: null);
+
             // The refusals changed nothing: a 403 that had written anyway would be worse than none.
             Assert.Equal(
                 "the administrator's",
