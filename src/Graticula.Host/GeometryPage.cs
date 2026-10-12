@@ -308,61 +308,56 @@ internal static class GeometryPage
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(query);
 
-        StringBuilder body = new();
+        HtmlBuilder body = new();
 
-        body.Append(CultureInfo.InvariantCulture,
-            $"<h1>{RestDirectory.Encode(operation.Name)}</h1>");
+        body.Append($"<h1>{operation.Name}</h1>");
 
-        body.Append(CultureInfo.InvariantCulture,
-            $"<p class=\"lede\">{operation.Summary}</p>");
+        body.Append($"<p class=\"lede\">{Html.Markup(operation.Summary)}</p>");
 
         if (message is not null)
         {
-            body.Append(CultureInfo.InvariantCulture,
-                $"<p class=\"warn\">{RestDirectory.Encode(message)}</p>");
+            body.Append($"<p class=\"warn\">{message}</p>");
         }
 
         // GET, so the result has a URL somebody can keep, paste into a ticket, or
         // hand to curl. That is most of the value of a form page like this one.
-        body.Append("<form method=\"get\" class=\"query\"><table class=\"form\">");
+        body.Append(Html.Markup("<form method=\"get\" class=\"query\"><table class=\"form\">"));
 
         foreach (Parameter parameter in operation.Parameters)
         {
             string current = query[parameter.Name].ToString();
             string value = current.Length > 0 ? current : parameter.Default ?? string.Empty;
 
-            string control = parameter.Rows > 0
-                ? $"<textarea name=\"{RestDirectory.Encode(parameter.Name)}\" rows=\""
-                  + $"{parameter.Rows}\" cols=\"78\">{RestDirectory.Encode(value)}</textarea>"
-                : $"<input type=\"text\" name=\"{RestDirectory.Encode(parameter.Name)}\" size=\"24\""
-                  + $" value=\"{RestDirectory.Encode(value)}\">";
+            Html control = parameter.Rows > 0
+                ? Html.Of($"<textarea name=\"{parameter.Name}\" rows=\""
+                  + $"{parameter.Rows}\" cols=\"78\">{value}</textarea>")
+                : Html.Of($"<input type=\"text\" name=\"{parameter.Name}\" size=\"24\""
+                  + $" value=\"{value}\">");
 
-            body.Append(CultureInfo.InvariantCulture,
-                $"<tr><th>{RestDirectory.Encode(parameter.Label)}:</th><td>{control}"
-                + $"<div class=\"hint\">{parameter.Hint}</div></td></tr>");
+            body.Append($"<tr><th>{parameter.Label}:</th><td>{control}"
+                + $"<div class=\"hint\">{Html.Markup(parameter.Hint)}</div></td></tr>");
         }
 
         string format = query["f"].ToString();
 
         body.Append(
-            "<tr><th>Format:</th><td><select name=\"f\">"
+            $"<tr><th>Format:</th><td><select name=\"f\">"
             + $"<option value=\"html\"{Selected(format, "html", true)}>HTML</option>"
             + $"<option value=\"json\"{Selected(format, "json", false)}>JSON</option>"
-            + "</select></td></tr>");
+            + $"</select></td></tr>");
 
-        body.Append("<tr><th></th><td><button type=\"submit\">"
-            + operation.Name + "</button></td></tr>");
+        body.Append($"<tr><th></th><td><button type=\"submit\">{operation.Name}</button></td></tr>");
 
-        body.Append("</table></form>");
+        body.Append(Html.Markup("</table></form>"));
 
-        body.Append(
+        body.Append(Html.Markup(
             "<p class=\"hint\">The same operation accepts a form-encoded POST with a "
             + "<code>Authorization: Bearer</code> header, which is what ArcGIS clients send and "
             + "what a body too large for a URL needs. This page uses GET because every operation "
             + "here is a pure function, and because the browsing cookie authenticates reads "
-            + "only.</p>");
+            + "only.</p>"));
 
-        return RestDirectory.Wrap(path, body.ToString());
+        return RestDirectory.Wrap(path, body.ToHtml());
     }
 
     private static string Selected(string current, string value, bool fallback) =>

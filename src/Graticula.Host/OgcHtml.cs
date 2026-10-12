@@ -55,41 +55,40 @@ internal static class OgcHtml
     {
         ArgumentNullException.ThrowIfNull(collections);
 
-        System.Text.StringBuilder body = new();
+        HtmlBuilder body = new();
 
-        body.Append("<h1>Collections</h1>");
+        body.Append(Html.Markup("<h1>Collections</h1>"));
 
         if (collections.Count == 0)
         {
             // <b>A sentence rather than an empty table.</b> Nothing published, or
             // nothing shared with this caller, are the same page to a stranger and
             // both are answers.
-            body.Append(
+            body.Append(Html.Markup(
                 "<p>No collection is published to you. Sign in, or ask whoever published one "
-                + "to share it.</p>");
+                + "to share it.</p>"));
 
-            return RestDirectory.Wrap(path, body.ToString());
+            return RestDirectory.Wrap(path, body.ToHtml());
         }
 
-        body.Append("<table class=\"grid\"><thead><tr><th>Collection</th><th>Title</th>"
-            + "<th>Geometry</th><th>Stored in</th><th>Features</th></tr></thead><tbody>");
+        body.Append(Html.Markup("<table class=\"grid\"><thead><tr><th>Collection</th><th>Title</th>"
+            + "<th>Geometry</th><th>Stored in</th><th>Features</th></tr></thead><tbody>"));
 
         foreach (CollectionMetadata collection in collections)
         {
             string self = $"{OgcNames.Base}/collections/{Uri.EscapeDataString(collection.Id)}";
 
-            body.Append(CultureInfo.InvariantCulture,
-                $"<tr><td><a href=\"{RestDirectory.Encode(self)}?f=html\">"
-                + $"{RestDirectory.Encode(collection.Id)}</a></td>"
-                + $"<td>{RestDirectory.Encode(collection.Title)}</td>"
-                + $"<td>{RestDirectory.Encode(collection.GeometryType.ToString())}</td>"
+            body.Append($"<tr><td><a href=\"{self}?f=html\">"
+                + $"{collection.Id}</a></td>"
+                + $"<td>{collection.Title}</td>"
+                + $"<td>{collection.GeometryType.ToString()}</td>"
                 + $"<td>EPSG:{collection.Srid.ToString(CultureInfo.InvariantCulture)}</td>"
-                + $"<td><a href=\"{RestDirectory.Encode(self)}/items?f=html\">items</a></td></tr>");
+                + $"<td><a href=\"{self}/items?f=html\">items</a></td></tr>");
         }
 
-        body.Append("</tbody></table>");
+        body.Append(Html.Markup("</tbody></table>"));
 
-        return RestDirectory.Wrap(path, body.ToString());
+        return RestDirectory.Wrap(path, body.ToHtml());
     }
 
     /// <summary>One collection's page.</summary>
@@ -102,16 +101,14 @@ internal static class OgcHtml
 
         string self = $"{OgcNames.Base}/collections/{Uri.EscapeDataString(collection.Id)}";
 
-        System.Text.StringBuilder body = new();
+        HtmlBuilder body = new();
 
-        body.Append(CultureInfo.InvariantCulture,
-            $"<h2>{RestDirectory.Encode(collection.Title)}</h2>");
+        body.Append($"<h2>{collection.Title}</h2>");
 
-        body.Append(CultureInfo.InvariantCulture,
-            $"<p><b>Features:</b> <a href=\"{RestDirectory.Encode(self)}/items?f=html\">as HTML</a>"
-            + $" &middot; <a href=\"{RestDirectory.Encode(self)}/items\">as GeoJSON</a></p>");
+        body.Append($"<p><b>Features:</b> <a href=\"{self}/items?f=html\">as HTML</a>"
+            + $" &middot; <a href=\"{self}/items\">as GeoJSON</a></p>");
 
-        body.Append("<table class=\"props\">");
+        body.Append(Html.Markup("<table class=\"props\">"));
 
         Row(body, "id", collection.Id);
         Row(body, "geometry", collection.GeometryType.ToString());
@@ -131,22 +128,21 @@ internal static class OgcHtml
             Row(body, "temporal property", collection.TemporalField!);
         }
 
-        body.Append("</table>");
+        body.Append(Html.Markup("</table>"));
 
-        body.Append("<h3>Properties</h3><table class=\"grid\"><thead><tr><th>Name</th>"
-            + "<th>Type</th><th>Nullable</th></tr></thead><tbody>");
+        body.Append(Html.Markup("<h3>Properties</h3><table class=\"grid\"><thead><tr><th>Name</th>"
+            + "<th>Type</th><th>Nullable</th></tr></thead><tbody>"));
 
         foreach (FieldDescription field in collection.Fields)
         {
-            body.Append(CultureInfo.InvariantCulture,
-                $"<tr><td>{RestDirectory.Encode(field.Name)}</td>"
-                + $"<td>{RestDirectory.Encode(field.Type.ToString())}</td>"
+            body.Append($"<tr><td>{field.Name}</td>"
+                + $"<td>{field.Type.ToString()}</td>"
                 + $"<td>{(field.Nullable ? "yes" : "no")}</td></tr>");
         }
 
-        body.Append("</tbody></table>");
+        body.Append(Html.Markup("</tbody></table>"));
 
-        return RestDirectory.Wrap(path, body.ToString());
+        return RestDirectory.Wrap(path, body.ToHtml());
     }
 
     /// <summary>A page of features, as a table.</summary>
@@ -167,81 +163,74 @@ internal static class OgcHtml
         ArgumentNullException.ThrowIfNull(features);
         ArgumentNullException.ThrowIfNull(request);
 
-        System.Text.StringBuilder body = new();
+        HtmlBuilder body = new();
 
-        body.Append(CultureInfo.InvariantCulture,
-            $"<h2>{RestDirectory.Encode(collection.Title)}</h2>");
+        body.Append($"<h2>{collection.Title}</h2>");
 
-        body.Append(CultureInfo.InvariantCulture,
-            $"<p>{features.Count.ToString("N0", CultureInfo.InvariantCulture)} of "
+        body.Append($"<p>{features.Count.ToString("N0", CultureInfo.InvariantCulture)} of "
             + $"{matched.ToString("N0", CultureInfo.InvariantCulture)}, from "
             + $"{request.Offset.ToString("N0", CultureInfo.InvariantCulture)}. "
-            + $"<a href=\"{RestDirectory.Encode(path)}\">This page as GeoJSON</a></p>");
+            + $"<a href=\"{path}\">This page as GeoJSON</a></p>");
 
         if (features.Count == 0)
         {
-            body.Append("<p>Nothing matched.</p>");
-            return RestDirectory.Wrap(path, body.ToString());
+            body.Append(Html.Markup("<p>Nothing matched.</p>"));
+            return RestDirectory.Wrap(path, body.ToHtml());
         }
 
-        body.Append("<table class=\"grid\"><thead><tr><th>id</th>");
+        body.Append(Html.Markup("<table class=\"grid\"><thead><tr><th>id</th>"));
 
         foreach (string name in features[0].Schema.Names)
         {
-            body.Append(CultureInfo.InvariantCulture, $"<th>{RestDirectory.Encode(name)}</th>");
+            body.Append($"<th>{name}</th>");
         }
 
-        body.Append("</tr></thead><tbody>");
+        body.Append(Html.Markup("</tr></thead><tbody>"));
 
         foreach (Feature feature in features)
         {
             string self = $"{path}/{Uri.EscapeDataString(feature.Id)}?f=html";
 
-            body.Append(CultureInfo.InvariantCulture,
-                $"<tr><td><a href=\"{RestDirectory.Encode(self)}\">"
-                + $"{RestDirectory.Encode(feature.Id)}</a></td>");
+            body.Append($"<tr><td><a href=\"{self}\">"
+                + $"{feature.Id}</a></td>");
 
             for (int i = 0; i < feature.Schema.Count; i++)
             {
-                body.Append(CultureInfo.InvariantCulture,
-                    $"<td>{RestDirectory.Encode(Text(feature[i]))}</td>");
+                body.Append($"<td>{Text(feature[i])}</td>");
             }
 
-            body.Append("</tr>");
+            body.Append(Html.Markup("</tr>"));
         }
 
-        body.Append("</tbody></table>");
+        body.Append(Html.Markup("</tbody></table>"));
 
         // <b>Paging links, because a table with no way forward is a table of the
         // first ten rows of everything.</b> Built from the same offsets the GeoJSON
         // links use, so the two representations page identically.
-        body.Append("<p class=\"paging\">");
+        body.Append(Html.Markup("<p class=\"paging\">"));
 
         if (request.Offset > 0)
         {
-            body.Append(CultureInfo.InvariantCulture,
-                $"<a href=\"{RestDirectory.Encode(path)}?f=html&amp;offset="
+            body.Append($"<a href=\"{path}?f=html&amp;offset="
                 + $"{Math.Max(0, request.Offset - request.Limit).ToString(CultureInfo.InvariantCulture)}"
                 + $"&amp;limit={request.Limit.ToString(CultureInfo.InvariantCulture)}\">Previous</a> ");
         }
 
         if (request.Offset + features.Count < matched)
         {
-            body.Append(CultureInfo.InvariantCulture,
-                $"<a href=\"{RestDirectory.Encode(path)}?f=html&amp;offset="
+            body.Append($"<a href=\"{path}?f=html&amp;offset="
                 + $"{(request.Offset + request.Limit).ToString(CultureInfo.InvariantCulture)}"
                 + $"&amp;limit={request.Limit.ToString(CultureInfo.InvariantCulture)}\">Next</a>");
         }
 
-        body.Append("</p>");
+        body.Append(Html.Markup("</p>"));
 
-        return RestDirectory.Wrap(path, body.ToString());
+        return RestDirectory.Wrap(path, body.ToHtml());
     }
 
-    private static void Row(System.Text.StringBuilder body, string name, string value) =>
-        body.Append(CultureInfo.InvariantCulture,
-            $"<tr><th>{RestDirectory.Encode(name)}</th>"
-            + $"<td>{RestDirectory.Encode(value)}</td></tr>");
+    private static void Row(HtmlBuilder body, string name, string value) =>
+        body.Append($"<tr><th>{name}</th>"
+            + $"<td>{value}</td></tr>");
 
     private static string Text(object? value) => value switch
     {

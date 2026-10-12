@@ -33,8 +33,9 @@ namespace Graticula.Host;
 /// <c>&lt;script&gt;</c> rendered raw is stored XSS against the GIS
 /// administrator — our most privileged user, and the exact threat
 /// <see href="../../docs/security.md">security.md</see> names for uploaded
-/// content. There is one <see cref="H"/> helper and nothing writes a value
-/// without it.
+/// content. Every page is <see cref="Html"/>, whose interpolation escapes any hole that is not already
+/// markup, and the page writer takes nothing else — ADR-023 condition 3. It was one helper and a rule
+/// until 2026-10-12.
 /// </para>
 /// </remarks>
 internal static class RestDirectory
@@ -95,41 +96,40 @@ internal static class RestDirectory
 
         ArgumentNullException.ThrowIfNull(providers);
 
-        StringBuilder body = new();
+        HtmlBuilder body = new();
 
-        body.Append("<div class=\"card\"><div class=\"card-head\"><div><h1>Sign in to Graticula</h1>");
+        body.Append(Html.Markup("<div class=\"card\"><div class=\"card-head\"><div><h1>Sign in to Graticula</h1>"));
 
         if (!string.IsNullOrEmpty(host))
         {
-            body.Append(CultureInfo.InvariantCulture, $"<p class=\"where\">{H(host)}</p>");
+            body.Append($"<p class=\"where\">{host}</p>");
         }
 
-        body.Append("</div><span class=\"mark\" aria-hidden=\"true\">Gr</span></div><div class=\"card-body\">");
+        body.Append(Html.Markup("</div><span class=\"mark\" aria-hidden=\"true\">Gr</span></div><div class=\"card-body\">"));
 
         // <b>A provider first, when there is one</b>: an organisation that configured one expects its people to
         // use it, and the password form below is for the accounts that live here.
         if (providers.Count > 0)
         {
-            body.Append("<ul class=\"providers\">");
+            body.Append(Html.Markup("<ul class=\"providers\">"));
 
             foreach ((string start, string name) in providers)
             {
-                body.Append(CultureInfo.InvariantCulture,
-                    $"<li><a href=\"{H(start)}?return={Uri.EscapeDataString(returnTo)}\">Sign in with {H(name)}</a></li>");
+                body.Append($"<li><a href=\"{start}?return={Uri.EscapeDataString(returnTo)}\">Sign in with {name}</a></li>");
             }
 
-            body.Append("</ul>");
+            body.Append(Html.Markup("</ul>"));
         }
 
         // <b>Whose password the form takes, said</b> — design review 2026-09-24: "an account on this server" told a
         // directory's people their password did not belong here.
-        string whose = directories.Count == 0
-            ? "an account on this server"
-            : $"your {string.Join(" or ", directories.Select(H))} name and password, or an account on this server";
+        Html whose = directories.Count == 0
+            ? Html.Markup("an account on this server")
+            : Html.Of($"your {Html.Join(Html.Markup(" or "), directories.Select(Html.Text))} name and password, or an account on this server");
 
         if (providers.Count > 0 || directories.Count > 0)
         {
-            body.Append(CultureInfo.InvariantCulture, $"<p class=\"hint\">{(providers.Count > 0 ? "Or with " : "Sign in with ")}{whose}:</p>");
+            body.Append($"<p class=\"hint\">{(providers.Count > 0 ? "Or with " : "Sign in with ")}{whose}:</p>");
         }
 
         if (failed is not null)
@@ -137,13 +137,9 @@ internal static class RestDirectory
             // <b>A failed sign-in is a warning, not a hint.</b> `.hint` is the faint
             // grey this page uses for asides; the reason a sign-in did not work is the
             // most important sentence on the page at the moment it appears.
-            body.Append(CultureInfo.InvariantCulture, $"<p class=\"warn\" id=\"signin-refused\">{H(failed)}</p>");
+            body.Append($"<p class=\"warn\" id=\"signin-refused\">{failed}</p>");
         }
 
-        string escapedReturn = H(returnTo);
-
-        // No format provider: the whole expression is a concatenation and so
-        // resolves to Append(string), which the culture overload cannot accept.
         /*
           <b>The two hidden inputs were inside the `<table>`, before its first row.</b> That
           is invalid, and it has worked for as long as it has existed because every browser
@@ -169,27 +165,27 @@ internal static class RestDirectory
           a script. The console's own sign-in has one.
         */
         body.Append(
-            "<form action=\"/rest/auth/login\" method=\"post\">"
-            + "<input type=\"hidden\" name=\"return\" value=\"" + escapedReturn + "\">"
-            + "<input type=\"hidden\" name=\"f\" value=\"html\">"
-            + "<label class=\"field\" for=\"signin-name\">Name</label>"
-            + "<input id=\"signin-name\" type=\"text\" name=\"name\" autocomplete=\"username\" autofocus"
-            + (failed is null ? string.Empty : " aria-describedby=\"signin-refused\"") + ">"
-            + "<label class=\"field\" for=\"signin-password\">Password</label>"
-            + "<input id=\"signin-password\" type=\"password\" name=\"password\" autocomplete=\"current-password\">"
-            + "<label class=\"keep\"><input type=\"checkbox\" name=\"remember\" value=\"true\"> Keep me signed in</label>"
-            + "<button type=\"submit\">Sign in</button>"
-            + "</form>");
+            $"<form action=\"/rest/auth/login\" method=\"post\">"
+            + $"<input type=\"hidden\" name=\"return\" value=\"{returnTo}\">"
+            + $"<input type=\"hidden\" name=\"f\" value=\"html\">"
+            + $"<label class=\"field\" for=\"signin-name\">Name</label>"
+            + $"<input id=\"signin-name\" type=\"text\" name=\"name\" autocomplete=\"username\" autofocus"
+            + $"{(failed is null ? Html.Empty : Html.Markup(" aria-describedby=\"signin-refused\""))}>"
+            + $"<label class=\"field\" for=\"signin-password\">Password</label>"
+            + $"<input id=\"signin-password\" type=\"password\" name=\"password\" autocomplete=\"current-password\">"
+            + $"<label class=\"keep\"><input type=\"checkbox\" name=\"remember\" value=\"true\"> Keep me signed in</label>"
+            + $"<button type=\"submit\">Sign in</button>"
+            + $"</form>");
 
         // Not a reset link: this server sends no mail, so the answer is who can fix it.
-        body.Append(
+        body.Append(Html.Markup(
             "<details><summary>Forgot password?</summary><p>Ask an administrator of this server to reset "
             + "it. They pass you a new password, and you choose your own the first time you use it. If you "
-            + "sign in with your organisation's account, your organisation resets it.</p></details>");
+            + "sign in with your organisation's account, your organisation resets it.</p></details>"));
 
-        body.Append("</div></div>");
+        body.Append(Html.Markup("</div></div>"));
 
-        return Page("/rest/login", body.ToString(), bare: true);
+        return Page("/rest/login", body.ToHtml(), bare: true);
     }
 
     /// <summary>A page that says one thing about a sign-in, with the way back to the form — ADR-088.</summary>
@@ -199,7 +195,7 @@ internal static class RestDirectory
     /// <param name="back">Where the sign-in started, so the way back is to the same place.</param>
     public static string SignInMessage(string heading, string sentence, string back = "/rest/login") =>
         Page("/rest/login",
-            $"<h1>{H(heading)}</h1><p class=\"warn\">{H(sentence)}</p><p><a href=\"{H(back)}\">Back to sign in</a></p>");
+            Html.Of($"<h1>{heading}</h1><p class=\"warn\">{sentence}</p><p><a href=\"{back}\">Back to sign in</a></p>"));
 
     /// <summary>A folder listing: its folders and its services.</summary>
     /// <param name="path">The request path, for the breadcrumb.</param>
@@ -224,7 +220,7 @@ internal static class RestDirectory
         IEnumerable<(string Name, string Type)> services,
         IEnumerable<(string Label, string Href)>? formats = null)
     {
-        StringBuilder body = new();
+        HtmlBuilder body = new();
 
         /*
           <b>The folder's own name is the page's title, and the version is a subtitle.</b>
@@ -238,13 +234,11 @@ internal static class RestDirectory
           heading and a skipped level is the first thing an automated audit reports and the
           thing that breaks heading navigation for a screen-reader user.
         */
-        // No format provider: a conditional whose branches are an interpolated string and a
-        // plain one resolves to `string`, which the culture overload cannot take.
         body.Append(folder is { Length: > 0 }
-            ? $"<h1><code>{H(folder)}</code></h1>"
-            : "<h1>Services</h1>");
+            ? Html.Of($"<h1><code>{folder}</code></h1>")
+            : Html.Markup("<h1>Services</h1>"));
 
-        body.Append(CultureInfo.InvariantCulture,
+        body.Append(
             $"<p class=\"sub\">REST services directory · version "
             + $"{version.ToString("0.00", CultureInfo.InvariantCulture)}</p>");
 
@@ -252,19 +246,18 @@ internal static class RestDirectory
 
         if (folderList.Count > 0)
         {
-            body.Append(CultureInfo.InvariantCulture,
-                $"<h3>Folders<span class=\"count\">{folderList.Count}</span></h3>");
+            body.Append($"<h3>Folders<span class=\"count\">{folderList.Count}</span></h3>");
 
-            body.Append("<ul class=\"cards\">");
+            body.Append(Html.Markup("<ul class=\"cards\">"));
 
             foreach (string name in folderList)
             {
-                body.Append(CultureInfo.InvariantCulture,
+                body.Append(
                     $"<li><a class=\"row\" href=\"/rest/services/{U(name)}\">"
-                    + $"<span class=\"id\">{H(name)}</span></a></li>");
+                    + $"<span class=\"id\">{name}</span></a></li>");
             }
 
-            body.Append("</ul>");
+            body.Append(Html.Markup("</ul>"));
         }
 
         List<(string Name, string Type)> serviceList = [.. services];
@@ -278,10 +271,10 @@ internal static class RestDirectory
             // Said rather than left blank. An empty list and a list that failed
             // to load look identical, and the first is a fact worth stating —
             // especially here, where sharing may be the reason.
-            body.Append(
+            body.Append(Html.Markup(
                 "<h3>Services<span class=\"count\">0</span></h3><div class=\"empty\">"
                 + "<p>No services, or none visible to you. A service you cannot read is not "
-                + "listed, so this may look empty to one person and full to another.</p>");
+                + "listed, so this may look empty to one person and full to another.</p>"));
 
             // <b>And, if they are nobody, tell them what to do about it.</b> The
             // sentence above is honest and useless: the owner read it twice and
@@ -297,13 +290,13 @@ internal static class RestDirectory
             // /admin/health, arriving by a different door.
             if (Current.Value is not { Length: > 0 })
             {
-                body.Append(CultureInfo.InvariantCulture,
+                body.Append(
                     $"<p class=\"hint\">You are not signed in. Services shared with the "
                     + $"organisation are not listed to a stranger — "
                     + $"<a href=\"/rest/login?return={U(path)}\">sign in</a> and look again.</p>");
             }
 
-            body.Append("</div>");
+            body.Append(Html.Markup("</div>"));
         }
         else if (serviceList.Count > 0)
         {
@@ -345,10 +338,9 @@ internal static class RestDirectory
                 kinds.Add(type);
             }
 
-            body.Append(CultureInfo.InvariantCulture,
-                $"<h3>Services<span class=\"count\">{order.Count}</span></h3>");
+            body.Append($"<h3>Services<span class=\"count\">{order.Count}</span></h3>");
 
-            body.Append("<ul class=\"cards\">");
+            body.Append(Html.Markup("<ul class=\"cards\">"));
 
             string prefix = folder is { Length: > 0 } ? folder + "/" : string.Empty;
 
@@ -363,9 +355,9 @@ internal static class RestDirectory
                         ? name[prefix.Length..]
                         : name;
 
-                body.Append(CultureInfo.InvariantCulture,
+                body.Append(
                     $"<li><a class=\"row\" href=\"/rest/services/{U(name)}/{U(kinds[0])}\">"
-                    + $"<span class=\"id\">{H(shown)}</span>");
+                    + $"<span class=\"id\">{shown}</span>");
 
                 // <b>One face is named on the row; several become links.</b> A row that
                 // said "(FeatureServer)" and nothing else for a service with three faces
@@ -376,21 +368,20 @@ internal static class RestDirectory
                 // and some in a caption, with visible dead space under the shorter one. Same
                 // structure for one as for three, and the grid stops looking sorted by
                 // accident.
-                body.Append("</a><span class=\"also\">");
+                body.Append(Html.Markup("</a><span class=\"also\">"));
 
                 foreach (string kind in kinds)
                 {
-                    body.Append(CultureInfo.InvariantCulture,
-                        $"<a href=\"/rest/services/{U(name)}/{U(kind)}\">{H(kind)}</a>");
+                    body.Append($"<a href=\"/rest/services/{U(name)}/{U(kind)}\">{kind}</a>");
                 }
 
-                body.Append("</span></li>");
+                body.Append(Html.Markup("</span></li>"));
             }
 
-            body.Append("</ul>");
+            body.Append(Html.Markup("</ul>"));
         }
 
-        return Page(path, body.ToString(), close: true, formats);
+        return Page(path, body.ToHtml(), close: true, formats);
     }
 
     /// <summary>
@@ -429,9 +420,9 @@ internal static class RestDirectory
         IEnumerable<(string Label, string Href, int Depth)>? tree = null,
         IEnumerable<(string Label, string Href)>? formats = null)
     {
-        StringBuilder body = new();
+        HtmlBuilder body = new();
 
-        body.Append(CultureInfo.InvariantCulture, $"<h1>{H(title)}</h1>");
+        body.Append($"<h1>{title}</h1>");
 
         if (links is not null)
         {
@@ -439,10 +430,10 @@ internal static class RestDirectory
 
             if (list.Count > 0)
             {
-                body.Append(CultureInfo.InvariantCulture, $"<p><b>{H(linksLabel)}:</b> ");
-                body.Append(string.Join(" &middot; ", list.Select(l =>
-                    $"<a href=\"{H(l.Href)}\">{H(l.Label)}</a>")));
-                body.Append("</p>");
+                body.Append($"<p><b>{linksLabel}:</b> ");
+                body.Append(Html.Join(Html.Markup(" &middot; "), list.Select(l =>
+                    Html.Of($"<a href=\"{l.Href}\">{l.Label}</a>"))));
+                body.Append(Html.Markup("</p>"));
             }
         }
 
@@ -453,11 +444,11 @@ internal static class RestDirectory
 
         using JsonDocument parsed = JsonDocument.Parse(JsonSerializer.Serialize(document));
 
-        body.Append("<table class=\"props\">");
+        body.Append(Html.Markup("<table class=\"props\">"));
         Rows(body, parsed.RootElement, path);
-        body.Append("</table>");
+        body.Append(Html.Markup("</table>"));
 
-        return Page(path, body.ToString(), close: true, formats);
+        return Page(path, body.ToHtml(), close: true, formats);
     }
 
     /// <summary>
@@ -471,15 +462,15 @@ internal static class RestDirectory
     /// hide what it is.
     /// </remarks>
     private static void AppendTree(
-        StringBuilder body, List<(string Label, string Href, int Depth)> entries)
+        HtmlBuilder body, List<(string Label, string Href, int Depth)> entries)
     {
         if (entries.Count == 0)
         {
-            body.Append("<h3>Layers:</h3><p><i>None yet.</i></p>");
+            body.Append(Html.Markup("<h3>Layers:</h3><p><i>None yet.</i></p>"));
             return;
         }
 
-        body.Append("<h3>Layers:</h3><ul>");
+        body.Append(Html.Markup("<h3>Layers:</h3><ul>"));
 
         int depth = 0;
         bool open = false;
@@ -493,46 +484,45 @@ internal static class RestDirectory
                 // the &lt;li&gt; it belongs to is invalid, and browsers render
                 // it close enough to right that the mistake survives being
                 // looked at — until a screen reader reads the tree flat.
-                body.Append("<ul>");
+                body.Append(Html.Markup("<ul>"));
                 depth = at;
             }
             else
             {
                 if (open)
                 {
-                    body.Append("</li>");
+                    body.Append(Html.Markup("</li>"));
                     open = false;
                 }
 
                 while (depth > at)
                 {
-                    body.Append("</ul></li>");
+                    body.Append(Html.Markup("</ul></li>"));
                     depth--;
                 }
             }
 
-            body.Append(CultureInfo.InvariantCulture,
-                $"<li><a href=\"{H(href)}\">{H(label)}</a>");
+            body.Append($"<li><a href=\"{href}\">{label}</a>");
 
             open = true;
         }
 
         if (open)
         {
-            body.Append("</li>");
+            body.Append(Html.Markup("</li>"));
         }
 
         while (depth > 0)
         {
-            body.Append("</ul></li>");
+            body.Append(Html.Markup("</ul></li>"));
             depth--;
         }
 
-        body.Append("</ul>");
+        body.Append(Html.Markup("</ul>"));
     }
 
     /// <summary>Walks a JSON object into table rows.</summary>
-    private static void Rows(StringBuilder body, JsonElement element, string path)
+    private static void Rows(HtmlBuilder body, JsonElement element, string path)
     {
         foreach (JsonProperty property in element.EnumerateObject())
         {
@@ -552,7 +542,7 @@ internal static class RestDirectory
               below the fold. Deciding by shape rather than by name fixes that one and every
               future one without a list to maintain.
             */
-            string rendered = property.Value.ValueKind == JsonValueKind.Array
+            Html rendered = property.Value.ValueKind == JsonValueKind.Array
                     && property.Value.GetArrayLength() > 0
                     && property.Value[0].ValueKind == JsonValueKind.Object
                 ? Grid(property.Value, path)
@@ -575,18 +565,17 @@ internal static class RestDirectory
             // stayed a normal one and 24 zoom levels were squeezed into a 76-pixel sliver
             // of the value column at 600px. Asking whether the rendered value contains a
             // grid catches every depth, including the ones nobody has written yet.
-            if (rendered.Contains("class=\"scroll\"", StringComparison.Ordinal))
+            if (rendered.ToString().Contains("class=\"scroll\"", StringComparison.Ordinal))
             {
-                body.Append(CultureInfo.InvariantCulture,
+                body.Append(
                     $"<tr class=\"wide\"><th colspan=\"2\">"
-                    + $"{H(Humanise(property.Name))}</th></tr>"
+                    + $"{Humanise(property.Name)}</th></tr>"
                     + $"<tr class=\"wide\"><td colspan=\"2\">{rendered}</td></tr>");
 
                 continue;
             }
 
-            body.Append(CultureInfo.InvariantCulture,
-                $"<tr><th>{H(Humanise(property.Name))}</th><td>{rendered}</td></tr>");
+            body.Append($"<tr><th>{Humanise(property.Name)}</th><td>{rendered}</td></tr>");
         }
     }
 
@@ -600,7 +589,7 @@ internal static class RestDirectory
     /// dropping it is invisible, which is the worst way for a directory to be
     /// wrong.
     /// </remarks>
-    private static string Grid(JsonElement array, string path)
+    private static Html Grid(JsonElement array, string path)
     {
         List<string> columns = [];
 
@@ -622,33 +611,32 @@ internal static class RestDirectory
             }
         }
 
-        StringBuilder grid = new("<div class=\"scroll\"><table class=\"grid\"><thead><tr>");
+        HtmlBuilder grid = new();
+        grid.Append(Html.Markup("<div class=\"scroll\"><table class=\"grid\"><thead><tr>"));
 
         foreach (string column in columns)
         {
-            grid.Append(
-                CultureInfo.InvariantCulture,
-                $"<th scope=\"col\">{H(Humanise(column))}</th>");
+            grid.Append($"<th scope=\"col\">{Humanise(column)}</th>");
         }
 
-        grid.Append("</tr></thead><tbody>");
+        grid.Append(Html.Markup("</tr></thead><tbody>"));
 
         foreach (JsonElement item in array.EnumerateArray())
         {
-            grid.Append("<tr>");
+            grid.Append(Html.Markup("<tr>"));
 
             foreach (string column in columns)
             {
-                grid.Append(CultureInfo.InvariantCulture,
+                grid.Append(
                     $"<td>{(item.TryGetProperty(column, out JsonElement cell)
                         ? Value(cell, path)
-                        : "<i>—</i>")}</td>");
+                        : Html.Markup("<i>—</i>"))}</td>");
             }
 
-            grid.Append("</tr>");
+            grid.Append(Html.Markup("</tr>"));
         }
 
-        return grid.Append("</tbody></table></div>").ToString();
+        return grid.Append(Html.Markup("</tbody></table></div>")).ToHtml();
     }
 
     /// <summary>Renders one value, following the shapes these documents use.</summary>
@@ -691,31 +679,31 @@ internal static class RestDirectory
         return Math.Round(real, 12).ToString("0.############", CultureInfo.InvariantCulture);
     }
 
-    private static string Value(JsonElement value, string path)
+    private static Html Value(JsonElement value, string path)
     {
         switch (value.ValueKind)
         {
             case JsonValueKind.Null or JsonValueKind.Undefined:
-                return "<i>none</i>";
+                return Html.Markup("<i>none</i>");
 
             case JsonValueKind.True or JsonValueKind.False:
                 // <b>A column of a dozen capability flags is read by pattern, not word by
                 // word.</b> Plain lowercase `true`/`false` gives the eye nothing to catch,
                 // and these documents carry ten or more of them.
                 return value.GetBoolean()
-                    ? "<span class=\"yes\">yes</span>"
-                    : "<span class=\"no\">no</span>";
+                    ? Html.Markup("<span class=\"yes\">yes</span>")
+                    : Html.Markup("<span class=\"no\">no</span>");
 
             case JsonValueKind.Number:
-                return $"<span class=\"v\">{H(Number(value))}</span>";
+                return Html.Of($"<span class=\"v\">{Number(value)}</span>");
 
             case JsonValueKind.String:
-                return H(value.ToString());
+                return Html.Text(value.ToString());
 
             case JsonValueKind.Array:
                 if (value.GetArrayLength() == 0)
                 {
-                    return "<i>none</i>";
+                    return Html.Markup("<i>none</i>");
                 }
 
                 // <b>An array of like-shaped objects is a table wherever it sits, not only
@@ -728,21 +716,22 @@ internal static class RestDirectory
                     return Grid(value, path);
                 }
 
-                StringBuilder items = new("<ul>");
+                HtmlBuilder items = new();
+                items.Append(Html.Markup("<ul>"));
 
                 foreach (JsonElement item in value.EnumerateArray())
                 {
-                    items.Append(CultureInfo.InvariantCulture, $"<li>{Value(item, path)}</li>");
+                    items.Append($"<li>{Value(item, path)}</li>");
                 }
 
-                return items.Append("</ul>").ToString();
+                return items.Append(Html.Markup("</ul>")).ToHtml();
 
             default:
                 // A nested object — a field, an extent, a spatial reference.
                 // Rendered inline as name: value pairs, because a nested table
                 // per spatial reference makes a layer document unreadable.
-                return string.Join(", ", value.EnumerateObject()
-                    .Select(p => $"<b>{H(Humanise(p.Name))}</b>: {Value(p.Value, path)}"));
+                return Html.Join(Html.Markup(", "), value.EnumerateObject()
+                    .Select(p => Html.Of($"<b>{Humanise(p.Name)}</b>: {Value(p.Value, path)}")));
         }
     }
 
@@ -775,7 +764,7 @@ internal static class RestDirectory
     /// in.</b> Two shells would be two stylesheets and two breadcrumbs, and the
     /// query page would slowly stop looking like the pages that link to it.
     /// </remarks>
-    public static string OpenPage(string path, string body) => Page(path, body, close: false);
+    public static string OpenPage(string path, Html body) => Page(path, body, close: false);
 
     /// <summary>The shell: breadcrumb, format links, and the styling.</summary>
     /// <remarks>
@@ -843,7 +832,7 @@ internal static class RestDirectory
     /// <returns>The page.</returns>
     private static string Page(
         string path,
-        string body,
+        Html body,
         bool close = true,
         IEnumerable<(string Label, string Href)>? formats = null,
         bool bare = false)
@@ -895,7 +884,7 @@ internal static class RestDirectory
             trail.Add((label, "/rest" + sofar));
         }
 
-        StringBuilder crumbs = new();
+        HtmlBuilder crumbs = new();
 
         for (int i = 0; i < trail.Count; i++)
         {
@@ -903,22 +892,21 @@ internal static class RestDirectory
             bool last = i == trail.Count - 1;
 
             crumbs.Append(last
-                ? $"<li aria-current=\"page\">{H(label)}</li>"
-                : $"<li><a href=\"{H(href)}\">{H(label)}</a></li>");
+                ? Html.Of($"<li aria-current=\"page\">{label}</li>")
+                : Html.Of($"<li><a href=\"{href}\">{label}</a></li>"));
         }
 
         string json = path + (path.Contains('?', StringComparison.Ordinal) ? "&" : "?") + "f=json";
 
-        StringBuilder faces = new(
-            $"<a href=\"{H(json)}\">JSON</a>");
+        HtmlBuilder faces = new();
+        faces.Append($"<a href=\"{json}\">JSON</a>");
 
         foreach ((string Label, string Href) face in formats ?? [])
         {
             // <b>No separator.</b> These were joined by " | " when they were bare links
             // on a line of their own; they are bordered chips in a flex row with a gap
             // now, so the pipe is a second separator drawn on top of the first.
-            faces.Append(CultureInfo.InvariantCulture,
-                $"<a href=\"{H(face.Href)}\">{H(face.Label)}</a>");
+            faces.Append($"<a href=\"{face.Href}\">{face.Label}</a>");
         }
 
         // Two dollars, so a single brace is CSS and a doubled one interpolates.
@@ -1254,13 +1242,13 @@ internal static class RestDirectory
             </style>
             </head>
             <body>
-            {{(bare ? string.Empty : Chrome(path, crumbs.ToString(), faces.ToString()))}}
+            {{(bare ? string.Empty : Chrome(path, crumbs.ToHtml(), faces.ToHtml()))}}
             <main{{(bare ? " class=\"bare\"" : string.Empty)}}>{{body}}{{(close ? "</main></body></html>" : string.Empty)}}
             """;
     }
 
     /// <summary>The directory's masthead and breadcrumb row, which a bare page leaves out.</summary>
-    private static string Chrome(string path, string crumbs, string faces) =>
+    private static string Chrome(string path, Html crumbs, Html faces) =>
         "<header class=\"top\"><span class=\"name\">Graticula <span>REST Services\n"
         + "Directory</span></span><span class=\"who\">" + Who(path) + "</span></header>\n"
         + "<nav class=\"bar\" aria-label=\"Breadcrumb\"><ol>" + crumbs + "</ol>\n"
@@ -1275,13 +1263,13 @@ internal static class RestDirectory
     /// what an ArcGIS client asks for — and the console is the other thing a person
     /// wants, so it belongs in the one line that appears on every page.
     /// </remarks>
-    private static string Who(string path)
+    private static Html Who(string path)
     {
         string here = U(path);
 
         // Server rather than Console: the application was renamed with ADR-034 and a link
         // that says otherwise teaches the wrong word.
-        string console = "<a href=\"/server/\">Server</a> &middot; ";
+        Html console = Html.Markup("<a href=\"/server/\">Server</a> &middot; ");
 
         /*
           <b>Sign out was a link, and the route is `MapPost`, so it answered 405 with an
@@ -1299,26 +1287,18 @@ internal static class RestDirectory
         */
         return Current.Value is { Length: > 0 } name
             ? console
-              + $"Signed in: <b>{H(name)}</b> &middot; "
-              + "<form class=\"out\" action=\"/rest/auth/logout\" method=\"post\">"
-              + "<input type=\"hidden\" name=\"f\" value=\"html\">"
-              + "<button type=\"submit\">Sign out</button></form>"
-            : console + $"<a href=\"/rest/login?return={here}\">Sign in</a>";
+              + Html.Of($"Signed in: <b>{name}</b> &middot; ")
+              + Html.Markup("<form class=\"out\" action=\"/rest/auth/logout\" method=\"post\">"
+                  + "<input type=\"hidden\" name=\"f\" value=\"html\">"
+                  + "<button type=\"submit\">Sign out</button></form>")
+            : console + Html.Of($"<a href=\"/rest/login?return={here}\">Sign in</a>");
     }
-
-    /// <summary>HTML-encodes a value. Nothing user-supplied is written without it.</summary>
-    /// <summary>HTML-encodes a value, for pages built outside this class.</summary>
-    /// <param name="value">The value.</param>
-    /// <returns>The encoded value.</returns>
-    public static string Encode(string? value) => H(value);
 
     /// <summary>Wraps a body in the directory chrome, for pages built elsewhere.</summary>
     /// <param name="path">The request path, for the breadcrumb.</param>
     /// <param name="body">The page body.</param>
     /// <returns>The complete page.</returns>
-    public static string Wrap(string path, string body) => Page(path, body);
-
-    private static string H(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
+    public static string Wrap(string path, Html body) => Page(path, body);
 
     /// <summary>
     /// URL-encodes a name that may already carry its folder.

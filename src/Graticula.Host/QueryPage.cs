@@ -90,10 +90,10 @@ internal static class QueryPage
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        StringBuilder body = new();
+        HtmlBuilder body = new();
         AppendForm(body, context, layer, description);
 
-        return WritePageAsync(context, body.ToString(), cancellation);
+        return WritePageAsync(context, body.ToHtml(), cancellation);
     }
 
     /// <summary>
@@ -120,23 +120,23 @@ internal static class QueryPage
 
         FeatureSchema schema = source.SchemaFor(query);
 
-        StringBuilder head = new();
+        HtmlBuilder head = new();
         AppendForm(head, context, layer, description);
 
-        head.Append("<h3>Results:</h3>");
-        head.Append("<div class=\"scroll\"><table class=\"grid\"><thead><tr>");
+        head.Append(Html.Markup("<h3>Results:</h3>"));
+        head.Append(Html.Markup("<div class=\"scroll\"><table class=\"grid\"><thead><tr>"));
 
         if (query.IncludeGeometry)
         {
-            head.Append("<th>Geometry</th>");
+            head.Append(Html.Markup("<th>Geometry</th>"));
         }
 
         foreach (string field in schema.Names)
         {
-            head.Append(CultureInfo.InvariantCulture, $"<th>{H(field)}</th>");
+            head.Append($"<th>{field}</th>");
         }
 
-        head.Append("</tr></thead><tbody>");
+        head.Append(Html.Markup("</tr></thead><tbody>"));
 
         context.Response.ContentType = "text/html; charset=utf-8";
 
@@ -157,7 +157,7 @@ internal static class QueryPage
         {
             bool more = await features.MoveNextAsync().ConfigureAwait(false);
 
-            await context.Response.WriteAsync(Page(context, head.ToString()), cancellation)
+            await context.Response.WriteAsync(Page(context, head.ToHtml()), cancellation)
                 .ConfigureAwait(false);
 
             int written = 0;
@@ -165,24 +165,24 @@ internal static class QueryPage
             for (; more; more = await features.MoveNextAsync().ConfigureAwait(false))
             {
                 await context.Response
-                    .WriteAsync(Row(features.Current, schema, query.IncludeGeometry), cancellation)
+                    .WriteAsync(Row(features.Current, schema, query.IncludeGeometry).ToString(), cancellation)
                     .ConfigureAwait(false);
 
                 written++;
             }
 
-            StringBuilder tail = new("</tbody></table></div>");
+            HtmlBuilder tail = new HtmlBuilder().Append(Html.Markup("</tbody></table></div>"));
 
             if (written == 0)
             {
-                tail.Append("<p><i>No features matched.</i></p>");
+                tail.Append(Html.Markup("<p><i>No features matched.</i></p>"));
             }
 
             AppendPaging(tail, context, query, written);
 
-            tail.Append("</main></body></html>");
+            tail.Append(Html.Markup("</main></body></html>"));
 
-            await context.Response.WriteAsync(tail.ToString(), cancellation).ConfigureAwait(false);
+            await context.Response.WriteAsync(tail.ToHtml().ToString(), cancellation).ConfigureAwait(false);
         }
         finally
         {
@@ -212,13 +212,12 @@ internal static class QueryPage
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        StringBuilder body = new();
+        HtmlBuilder body = new();
         AppendForm(body, context, layer, description);
 
-        body.Append(CultureInfo.InvariantCulture,
-            $"<h3>Results:</h3><p><b>Count:</b> {count.ToString("N0", CultureInfo.InvariantCulture)}</p>");
+        body.Append($"<h3>Results:</h3><p><b>Count:</b> {count.ToString("N0", CultureInfo.InvariantCulture)}</p>");
 
-        return WritePageAsync(context, body.ToString(), cancellation);
+        return WritePageAsync(context, body.ToHtml(), cancellation);
     }
 
     /// <summary>Writes an object-id list as a page.</summary>
@@ -235,22 +234,21 @@ internal static class QueryPage
         IReadOnlyList<long> ids,
         CancellationToken cancellation)
     {
-        StringBuilder body = new();
+        HtmlBuilder body = new();
         AppendForm(body, context, layer, description);
 
         string many = ids.Count.ToString("N0", CultureInfo.InvariantCulture);
 
-        body.Append(CultureInfo.InvariantCulture,
-            $"<h3>Results:</h3><p><b>{many}</b> object id(s):</p>");
+        body.Append($"<h3>Results:</h3><p><b>{many}</b> object id(s):</p>");
 
         // <b>Comma-separated in one block, not a table.</b> Somebody looking at
         // this is about to paste it into an objectIds parameter, and a table of
         // ten thousand single-cell rows is unusable for that and slow to render.
-        body.Append("<div class=\"scroll\"><code>")
-            .Append(H(string.Join(", ", ids)))
-            .Append("</code></div>");
+        body.Append(Html.Markup("<div class=\"scroll\"><code>"))
+            .Append(Html.Text(string.Join(", ", ids)))
+            .Append(Html.Markup("</code></div>"));
 
-        return WritePageAsync(context, body.ToString(), cancellation);
+        return WritePageAsync(context, body.ToHtml(), cancellation);
     }
 
     /// <summary>Writes an extent-only answer as a page.</summary>
@@ -269,26 +267,24 @@ internal static class QueryPage
         long count,
         CancellationToken cancellation)
     {
-        StringBuilder body = new();
+        HtmlBuilder body = new();
         AppendForm(body, context, layer, description);
 
-        body.Append(CultureInfo.InvariantCulture,
-            $"<h3>Results:</h3><p><b>Count:</b> {count.ToString("N0", CultureInfo.InvariantCulture)}</p>");
+        body.Append($"<h3>Results:</h3><p><b>Count:</b> {count.ToString("N0", CultureInfo.InvariantCulture)}</p>");
 
         if (extent is { } box)
         {
-            body.Append(CultureInfo.InvariantCulture,
-                $"<table class=\"props\"><tr><th>XMin</th><td>{box.MinX:0.######}</td></tr>"
+            body.Append($"<table class=\"props\"><tr><th>XMin</th><td>{box.MinX:0.######}</td></tr>"
                 + $"<tr><th>YMin</th><td>{box.MinY:0.######}</td></tr>"
                 + $"<tr><th>XMax</th><td>{box.MaxX:0.######}</td></tr>"
                 + $"<tr><th>YMax</th><td>{box.MaxY:0.######}</td></tr></table>");
         }
         else
         {
-            body.Append("<p><i>No extent: nothing matched, or every match has no geometry.</i></p>");
+            body.Append(Html.Markup("<p><i>No extent: nothing matched, or every match has no geometry.</i></p>"));
         }
 
-        return WritePageAsync(context, body.ToString(), cancellation);
+        return WritePageAsync(context, body.ToHtml(), cancellation);
     }
 
     /// <summary>Writes computed statistics as a page.</summary>
@@ -305,46 +301,45 @@ internal static class QueryPage
         IReadOnlyList<IReadOnlyDictionary<string, object?>> rows,
         CancellationToken cancellation)
     {
-        StringBuilder body = new();
+        HtmlBuilder body = new();
         AppendForm(body, context, layer, description);
 
-        body.Append("<h3>Results:</h3>");
+        body.Append(Html.Markup("<h3>Results:</h3>"));
 
         if (rows.Count == 0)
         {
-            body.Append("<p><i>Nothing matched, so there was nothing to compute.</i></p>");
-            return WritePageAsync(context, body.ToString(), cancellation);
+            body.Append(Html.Markup("<p><i>Nothing matched, so there was nothing to compute.</i></p>"));
+            return WritePageAsync(context, body.ToHtml(), cancellation);
         }
 
-        body.Append("<div class=\"scroll\"><table class=\"grid\"><thead><tr>");
+        body.Append(Html.Markup("<div class=\"scroll\"><table class=\"grid\"><thead><tr>"));
 
         foreach (string column in rows[0].Keys)
         {
-            body.Append(CultureInfo.InvariantCulture, $"<th>{H(column)}</th>");
+            body.Append($"<th>{column}</th>");
         }
 
-        body.Append("</tr></thead><tbody>");
+        body.Append(Html.Markup("</tr></thead><tbody>"));
 
         foreach (IReadOnlyDictionary<string, object?> row in rows)
         {
-            body.Append("<tr>");
+            body.Append(Html.Markup("<tr>"));
 
             foreach (string column in rows[0].Keys)
             {
                 object? value = row.TryGetValue(column, out object? found) ? found : null;
 
-                body.Append(CultureInfo.InvariantCulture,
-                    $"<td>{(value is null
-                        ? "<i>null</i>"
-                        : H(Convert.ToString(value, CultureInfo.InvariantCulture)))}</td>");
+                body.Append($"<td>{(value is null
+                        ? Html.Markup("<i>null</i>")
+                        : Html.Text(Convert.ToString(value, CultureInfo.InvariantCulture)))}</td>");
             }
 
-            body.Append("</tr>");
+            body.Append(Html.Markup("</tr>"));
         }
 
-        body.Append("</tbody></table></div>");
+        body.Append(Html.Markup("</tbody></table></div>"));
 
-        return WritePageAsync(context, body.ToString(), cancellation);
+        return WritePageAsync(context, body.ToHtml(), cancellation);
     }
 
     /// <summary>One result row.</summary>
@@ -354,26 +349,25 @@ internal static class QueryPage
     /// attributes — which is what somebody is reading — impossible to find. The
     /// JSON link at the top of the page is where the coordinates are.
     /// </remarks>
-    private static string Row(Feature feature, FeatureSchema schema, bool geometry)
+    private static Html Row(Feature feature, FeatureSchema schema, bool geometry)
     {
-        StringBuilder row = new("<tr>");
+        HtmlBuilder row = new HtmlBuilder().Append(Html.Markup("<tr>"));
 
         if (geometry)
         {
-            row.Append(CultureInfo.InvariantCulture, $"<td>{H(Summarise(feature.Geometry))}</td>");
+            row.Append($"<td>{Summarise(feature.Geometry)}</td>");
         }
 
         for (int i = 0; i < schema.Names.Count; i++)
         {
             object? value = feature[i];
 
-            row.Append(CultureInfo.InvariantCulture,
-                $"<td>{(value is null
-                    ? "<i>null</i>"
-                    : H(Convert.ToString(value, CultureInfo.InvariantCulture)))}</td>");
+            row.Append($"<td>{(value is null
+                    ? Html.Markup("<i>null</i>")
+                    : Html.Text(Convert.ToString(value, CultureInfo.InvariantCulture)))}</td>");
         }
 
-        return row.Append("</tr>").ToString();
+        return row.Append(Html.Markup("</tr>")).ToHtml();
     }
 
     /// <summary>A geometry as its kind and size, which is what fits in a cell.</summary>
@@ -404,32 +398,29 @@ internal static class QueryPage
     /// explanation of why.
     /// </remarks>
     private static void AppendPaging(
-        StringBuilder body, HttpContext context, FeatureQuery query, int written)
+        HtmlBuilder body, HttpContext context, FeatureQuery query, int written)
     {
         int offset = query.Offset;
         int limit = query.Limit;
 
-        body.Append(CultureInfo.InvariantCulture,
-            $"<p class=\"paging\">Rows {offset + 1}–{offset + written} "
+        body.Append($"<p class=\"paging\">Rows {offset + 1}–{offset + written} "
             + $"(page size {limit}). ");
 
         if (offset > 0)
         {
-            body.Append(CultureInfo.InvariantCulture,
-                $"<a href=\"{H(WithOffset(context, Math.Max(0, offset - limit)))}\">« Previous</a> ");
+            body.Append($"<a href=\"{WithOffset(context, Math.Max(0, offset - limit))}\">« Previous</a> ");
         }
 
         if (written >= limit)
         {
-            body.Append(CultureInfo.InvariantCulture,
-                $"<a href=\"{H(WithOffset(context, offset + limit))}\">Next »</a>");
+            body.Append($"<a href=\"{WithOffset(context, offset + limit)}\">Next »</a>");
         }
         else
         {
-            body.Append("<i>Last page.</i>");
+            body.Append(Html.Markup("<i>Last page.</i>"));
         }
 
-        body.Append("</p>");
+        body.Append(Html.Markup("</p>"));
     }
 
     /// <summary>This request's URL with a different <c>resultOffset</c>.</summary>
@@ -469,19 +460,17 @@ internal static class QueryPage
     /// </para>
     /// </remarks>
     private static void AppendForm(
-        StringBuilder body,
+        HtmlBuilder body,
         HttpContext context,
         PublishedLayer layer,
         LayerDescription description)
     {
         IQueryCollection q = context.Request.Query;
 
-        body.Append(CultureInfo.InvariantCulture,
-            $"<h1>Query: {H(layer.ServiceName)} - {H(layer.Definition.Name)} "
+        body.Append($"<h1>Query: {layer.ServiceName} - {layer.Definition.Name} "
             + $"(ID: {layer.LayerIndex})</h1>");
 
-        body.Append(CultureInfo.InvariantCulture,
-            $"<form action=\"{H(context.Request.Path)}\" method=\"get\"><table class=\"form\">");
+        body.Append($"<form action=\"{context.Request.Path}\" method=\"get\"><table class=\"form\">");
 
         Text(body, "Where:", "where", q["where"], "objectid > 0 and address like 'High%'", 80);
 
@@ -547,8 +536,7 @@ internal static class QueryPage
 
         Text(body, "Out Fields:", "outFields", q["outFields"], "*", 80);
 
-        body.Append(CultureInfo.InvariantCulture,
-            $"<tr><th></th><td class=\"hint\">{H(string.Join(", ", description.Fields.Select(f => f.Name)))}</td></tr>");
+        body.Append($"<tr><th></th><td class=\"hint\">{string.Join(", ", description.Fields.Select(f => f.Name))}</td></tr>");
 
         Radio(body, "Return Geometry:", "returnGeometry", q["returnGeometry"], defaultTrue: true);
 
@@ -625,30 +613,29 @@ internal static class QueryPage
         Select(body, "Format:", "f", string.IsNullOrEmpty(q["f"]) ? "html" : q["f"],
             [("html", "HTML (table)"), ("json", "JSON")]);
 
-        body.Append(
-            "<tr><th></th><td><button type=\"submit\">Query (GET)</button></td></tr>");
+        body.Append(Html.Markup(
+            "<tr><th></th><td><button type=\"submit\">Query (GET)</button></td></tr>"));
 
-        body.Append("</table></form>");
+        body.Append(Html.Markup("</table></form>"));
     }
 
     /// <summary>A multi-line input, for the parameters that take JSON.</summary>
     private static void Area(
-        StringBuilder body,
+        HtmlBuilder body,
         string label,
         string name,
         string? value,
         string? disabled,
         string placeholder = "")
     {
-        body.Append(CultureInfo.InvariantCulture,
-            $"<tr><th>{H(label)}</th><td><textarea name=\"{H(name)}\" rows=\"4\" cols=\"78\" "
-            + $"placeholder=\"{H(placeholder)}\"{Off(disabled)}>{H(value)}</textarea>"
+        body.Append($"<tr><th>{label}</th><td><textarea name=\"{name}\" rows=\"4\" cols=\"78\" "
+            + $"placeholder=\"{placeholder}\"{Off(disabled)}>{value}</textarea>"
             + $"{Why(disabled)}</td></tr>");
     }
 
     /// <summary>A true/false pair, which is how ArcGIS renders these.</summary>
     private static void Radio(
-        StringBuilder body,
+        HtmlBuilder body,
         string label,
         string name,
         string? value,
@@ -657,11 +644,10 @@ internal static class QueryPage
     {
         bool on = string.IsNullOrEmpty(value) ? defaultTrue : value == "true";
 
-        body.Append(CultureInfo.InvariantCulture,
-            $"<tr><th>{H(label)}</th><td>"
-            + $"<label><input type=\"radio\" name=\"{H(name)}\" value=\"true\""
+        body.Append($"<tr><th>{label}</th><td>"
+            + $"<label><input type=\"radio\" name=\"{name}\" value=\"true\""
             + $"{(on ? " checked" : string.Empty)}{Off(disabled)}> True</label> "
-            + $"<label><input type=\"radio\" name=\"{H(name)}\" value=\"false\""
+            + $"<label><input type=\"radio\" name=\"{name}\" value=\"false\""
             + $"{(on ? string.Empty : " checked")}{Off(disabled)}> False</label>"
             + $"{Why(disabled)}</td></tr>");
     }
@@ -675,13 +661,13 @@ internal static class QueryPage
     /// <b>The reason is the point.</b> A greyed-out box with no explanation is
     /// the same dead end as a missing one, one step later.
     /// </remarks>
-    private static string Why(string? disabled) =>
+    private static Html Why(string? disabled) =>
         disabled is null
-            ? string.Empty
-            : $"<div class=\"hint\">Not supported: {H(disabled)}</div>";
+            ? Html.Empty
+            : Html.Of($"<div class=\"hint\">Not supported: {disabled}</div>");
 
     private static void Text(
-        StringBuilder body,
+        HtmlBuilder body,
         string label,
         string name,
         string? value,
@@ -689,36 +675,33 @@ internal static class QueryPage
         int size,
         string? disabled = null)
     {
-        body.Append(CultureInfo.InvariantCulture,
-            $"<tr><th>{H(label)}</th><td><input type=\"text\" name=\"{H(name)}\" "
-            + $"value=\"{H(value)}\" placeholder=\"{H(placeholder)}\" "
+        body.Append($"<tr><th>{label}</th><td><input type=\"text\" name=\"{name}\" "
+            + $"value=\"{value}\" placeholder=\"{placeholder}\" "
             + $"size=\"{size.ToString(CultureInfo.InvariantCulture)}\"{Off(disabled)}>"
             + $"{Why(disabled)}</td></tr>");
     }
 
     private static void Select(
-        StringBuilder body,
+        HtmlBuilder body,
         string label,
         string name,
         string? value,
         IReadOnlyList<(string Value, string Label)> options)
     {
-        body.Append(CultureInfo.InvariantCulture,
-            $"<tr><th>{H(label)}</th><td><select name=\"{H(name)}\">");
+        body.Append($"<tr><th>{label}</th><td><select name=\"{name}\">");
 
         foreach ((string option, string text) in options)
         {
             bool chosen = string.Equals(option, value, StringComparison.Ordinal);
 
-            body.Append(CultureInfo.InvariantCulture,
-                $"<option value=\"{H(option)}\"{(chosen ? " selected" : string.Empty)}>"
-                + $"{H(text)}</option>");
+            body.Append($"<option value=\"{option}\"{(chosen ? " selected" : string.Empty)}>"
+                + $"{text}</option>");
         }
 
-        body.Append("</select></td></tr>");
+        body.Append(Html.Markup("</select></td></tr>"));
     }
 
-    private static Task WritePageAsync(HttpContext context, string body, CancellationToken ct)
+    private static Task WritePageAsync(HttpContext context, Html body, CancellationToken ct)
     {
         context.Response.ContentType = "text/html; charset=utf-8";
         return context.Response.WriteAsync(Page(context, body) + "</main></body></html>", ct);
@@ -730,8 +713,7 @@ internal static class QueryPage
     /// results stream in after it, so the page cannot be finished before the
     /// rows are known. Every caller closes it.
     /// </remarks>
-    private static string Page(HttpContext context, string body) =>
+    private static string Page(HttpContext context, Html body) =>
         RestDirectory.OpenPage(context.Request.Path, body);
 
-    private static string H(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
 }

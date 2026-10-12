@@ -525,6 +525,25 @@ which job needs stating before both grow.
    carries "already escaped", or a renderer that cannot be handed a raw string —
    before this surface grows beyond the four document kinds it has. Convention
    held here because there is one helper and one file; neither will stay true.
+   **PARTLY DISCHARGED 2026-10-12 — both of the forms it names, for the directory and every page
+   built on it; two renderers of their own are left and named.** `Html` (`src/Graticula.Host/Html.cs`)
+   carries "already escaped": its interpolation escapes every hole that is not already `Html`, formats
+   numbers with the invariant culture as every page's `Append(CultureInfo.InvariantCulture, …)` did, and
+   `RestDirectory.Wrap` and `OpenPage` take nothing else — the renderer that cannot be handed a raw string.
+   A value written unescaped has to say `Html.Markup` at the line that writes it, which is what this
+   condition asked for: the conversion found **two** holes that had been written raw on purpose
+   (`GeometryPage`'s operation summary and parameter hints, server-written markup) and one that had been
+   escaped and nearly was not, because the conversion first called it markup. The directory, the query
+   page, the GeometryServer form pages and the OGC HTML pages are on the type; `RestDirectory.Encode`
+   and the per-file `H` helpers are gone. **Checked byte for byte**: every HTML page the local fixture
+   serves was crawled from a build of `main` and from this one against one database — 219 pages signed
+   in and 191 anonymous, including query results, ids, counts, extents, statistics, paging and the
+   GeometryServer forms with bad input — and all 410 are identical. `HtmlTests` holds the escaping, and
+   that a layer named `<script>` reaches a folder page escaped; `HtmlIsEscapedByTypeTests` fails when a
+   new file encodes HTML by hand. **Left, by name, in that test's list**: the OAuth sign-in pages, their
+   own renderer with `System.Text.Encodings.Web`'s encoder, which writes non-ASCII as numeric references
+   where `WebUtility` does not, on pages whose title ArcGIS clients read — a byte change nothing local
+   can check; and WMS GetFeatureInfo's `text/html`, in a project the host's type is not visible from.
 4. **The relationship with [ADR-020](ADR-020-admin-console-and-service-status.md)
    is stated** before the console ships anything that overlaps this directory.
    Two browsable surfaces with no boundary is how both end up half-built.
