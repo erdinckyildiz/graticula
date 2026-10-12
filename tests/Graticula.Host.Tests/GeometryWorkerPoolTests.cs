@@ -276,6 +276,17 @@ public sealed class GeometryWorkerPoolTests
         await using GeometryWorkerPool pool = Pool(
             maximumCandidatePairs: GeometryWorkerPool.PreflightAbove);
 
+        // <b>The worker is started before the clock is.</b> The first request starts a process — a .NET
+        // runtime and its JIT — and the clock used to include that, so this measured the start on a busy
+        // runner rather than the pre-flight: CI failed here at 9.0, 11.2 and 11.7 seconds (four times
+        // between 2026-09-29 and 2026-10-11) on input the pre-flight refuses in milliseconds. One small
+        // request leaves a worker idle in the pool, and the one below takes it.
+        EngineResult warm = await pool.ComputeAsync(
+            new EngineRequest(EngineOperation.Intersect, [Square(0, 0, 10)], [Square(5, 5, 10)], 3857),
+            CancellationToken.None);
+
+        Assert.Equal(EngineRefusal.None, warm.Refusal);
+
         Stopwatch clock = Stopwatch.StartNew();
 
         EngineResult result = await pool.ComputeAsync(

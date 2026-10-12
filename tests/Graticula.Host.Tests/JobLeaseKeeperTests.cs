@@ -82,13 +82,20 @@ public sealed class JobLeaseKeeperTests
         Assert.Equal(after, store.Renewals);
     }
 
+    /// <remarks>
+    /// <b>Thirty seconds, not five.</b> The wait ends as soon as the condition holds — a few renewals of
+    /// twenty milliseconds — so the bound only decides how long a real failure takes to report. CI failed
+    /// here once at five, on 2026-10-12, in a test xunit timed at nine seconds although its wait was five:
+    /// four seconds went before the wait began, which reads as a starved thread pool on a busy runner
+    /// rather than as the keeper. That reading is inferred, not measured.
+    /// </remarks>
     private static async Task WithinAsync(Func<bool> condition)
     {
-        DateTime until = DateTime.UtcNow.AddSeconds(5);
+        DateTime until = DateTime.UtcNow.AddSeconds(30);
 
         while (!condition())
         {
-            Assert.True(DateTime.UtcNow < until, "The condition was still false after five seconds.");
+            Assert.True(DateTime.UtcNow < until, "The condition was still false after thirty seconds.");
             await Task.Delay(5);
         }
     }
