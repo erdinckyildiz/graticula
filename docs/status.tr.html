@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>efe04605</code> · 2026-10-12 20:27</p>
+<p class="stamp">Şu commit’ten üretildi: <code>4d31fe60</code> · 2026-10-12 20:33</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">178</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi warn"><div class="kpi-v">14</div><div class="kpi-l">açık borç</div><div class="kpi-n">269 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4782</div><div class="kpi-l">test</div><div class="kpi-n">476 kaynak dosya, 215,163 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4783</div><div class="kpi-l">test</div><div class="kpi-n">476 kaynak dosya, 215,218 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -514,7 +514,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1325</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.9%"></div></div><div class="bar-n">873</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.6%"></div></div><div class="bar-n">737</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.7%"></div></div><div class="bar-n">738</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.9%"></div></div><div class="bar-n">542</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.8%"></div></div><div class="bar-n">408</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.4%"></div></div><div class="bar-n">283</div></div>
@@ -527,6 +527,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>4d31fe60</code><time>2026-10-12</time><span>The attachment pool under slow readers is measured: the ninth waits and gets 504, the feature path does not notice, and a 1 MB file does not release early</span></li>
 <li><code>efe04605</code><time>2026-10-12</time><span>The importer draws from the connection budget: an import and the requests reading the datastore compete for one pool of permits</span></li>
 <li><code>cfe79cbd</code><time>2026-10-12</time><span>A local administrator signs in while the directory and the OpenID provider are down, and a test breaks them to show it</span></li>
 <li><code>5f79859e</code><time>2026-10-12</time><span>ADR-103 condition 2 discharges: Update data refuses a publisher who does not own the layer, and a registered layer</span></li>
@@ -540,7 +541,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>16ee583d</code><time>2026-10-12</time><span>A ranged layer&#x27;s opening place is found at start, a level inside its limit</span></li>
 <li><code>70410dfd</code><time>2026-10-12</time><span>ADR-070 records where a map of a dense layer opens</span></li>
 <li><code>879dfeb1</code><time>2026-10-12</time><span>The MapServer document states the service&#x27;s description</span></li>
-<li><code>c1396e3d</code><time>2026-10-11</time><span>A map of a dense layer opens where it is densest; a buffer is made in bufferSR</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

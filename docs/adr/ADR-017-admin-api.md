@@ -389,6 +389,15 @@ administrator has left.
    not.** What remains, and it is the whole of what remains: `GET /admin/layers/{name}`,
    drift detection (A-023's fingerprint), a **scope** for the invalidation that exists, and a
    generation time that is already being read.
+
+   **2026-10-12: `GET /admin/layers/{name}` exists.** It answers the listing's row for that
+   layer from the same method, so the two cannot describe one layer differently, and it
+   resolves the name the way every route under the path does (D-109): a name two services
+   share is a 409 naming both, and `?service=` chooses. `ALayerIsReadBackByNameTests` holds
+   the row byte for byte against the listing, the 404, the 409 and the choice. The walk's
+   §3.1 step 1 answers now. **Still absent**: drift detection, a scope for the invalidation,
+   and per-level generation times in the admin API — the tile's own `Age` header came with
+   D-248, and the admin API does not report it.
 3. **The break-glass path in §6 cannot be used while the platform store is
    reachable**, tested — otherwise it is an authentication bypass.
    **NOT YET APPLICABLE: the break-glass path is not built** (A-051), so there

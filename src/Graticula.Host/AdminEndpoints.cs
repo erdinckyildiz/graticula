@@ -594,6 +594,7 @@ internal static partial class AdminEndpoints
         // by name in a constant and could say nothing about the other six thousand.
         app.MapGet("/admin/references", SearchReferencesAsync);
         app.MapGet("/admin/layers", ListLayersAsync);
+        app.MapGet("/admin/layers/{name}", GetLayerAsync);
 
         // <b>What this caller owns, and what is shared with them — ADR-034 §5f.</b> The
         // listing above needs `admin:viewAllContent`, so a publisher asking for their own
@@ -9580,77 +9581,131 @@ internal static partial class AdminEndpoints
 
         await Results.Json(new
         {
-            layers = layers.Select(l => new
-            {
-                l.Id,
-                l.Name,
-
-                // <b>Whether this caller may change it — ADR-075, D-271.</b> The server's answer, so the
-                // console does not keep a second copy of the rule and offer controls that answer 403.
-                manages = LayerAccess.MayManage(l.Owner, current.Principal, current.Authorization),
-                dataSource = l.DataSourceName,
-                table = l.Qualified,
-                sharing = PostgresSharing(l.Sharing),
-                status = Wire(l.Status),
-                owner = l.OwnerName,
-                l.ArcGisServable,
-
-                // <b>Whether the data is in the datastore</b> — which the console reads for the
-                // edit-and-alter controls, and no longer for tiles.
-                l.Hosted,
-
-                // <b>Whether the tile face answers — D-264.</b> *Hosted* was the tile question until
-                // ADR-066 §9, and a GeoParquet layer is tiled and never hosted: the tile-cache page said
-                // *this layer has no tile cache* over a layer whose tiles were being cached. Showing a
-                // control everywhere and letting it 400 is the other half of the same mistake.
-                l.Tileable,
-
-                // <b>Whether its schema may be edited — ADR-058, and it is not the same as
-                // hosted.</b> A datastore source can serve a schema this server did not create,
-                // and the field endpoints refuse that; the console needs the server's answer
-                // rather than its own guess, or it draws an Add field button that always fails.
-                alterable = HostedDataEndpoints.AlterableSchema(
-                    l.Hosted,
-                    l.Qualified.Contains('.', StringComparison.Ordinal)
-                        ? l.Qualified[..l.Qualified.IndexOf('.', StringComparison.Ordinal)]
-                        : null),
-
-                // <b>Where it is, which ADR-020 §2 asked for and this listing did not give.</b>
-                // A caller that has to work out a layer's URL from its name walks the services
-                // directory, and a stopped service is absent from that walk — see AdminLayer's
-                // own remark for the three defects that came of it.
-                l.Service,
-                l.Folder,
-                l.LayerIndex,
-                url = l.Address,
-
-                // Q-129: which column this layer's time comes from, when somebody said.
-                timeField = l.TimeField,
-
-                // ADR-179: what the OGC faces call it, or null for its name.
-                title = l.Title,
-
-                // D-159: the console has read this off this listing since the tile-cache
-                // control was written, and it was not here.
-                cacheSeconds = l.CacheSeconds,
-
-                // <b>ADR-010 §6b: the coherence policy, readable per layer — ADR-095 §5.3.</b> What the
-                // tiles and query answers are kept for when `cacheSeconds` is null (a registered PostGIS
-                // layer's default is shorter than a hosted one's), and how closely they follow the data:
-                // `exact` for hosted, `file-version` for a file whose version rides in the tile key, and
-                // `best-effort` for a database other tools write to, where only that lifetime bounds an
-                // edit this server did not make.
-                kind = l.Kind,
-                tileLifetimeSeconds = l.CacheSeconds
-                    ?? (long)TileSources.DefaultLifetimeOf(l.Hosted, l.Kind, settings.TileCacheLifetime).TotalSeconds,
-                coherence = TileSources.CoherenceOf(l.Hosted, l.Kind),
-
-                // ADR-070: the scales it draws at; 0 or null is no limit on that side.
-                minScale = l.MinScale ?? 0,
-                maxScale = l.MaxScale ?? 0,
-            }),
+            layers = layers.Select(l => LayerRow(l, current, settings)),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// One layer, as the listing describes it — ADR-017 §3, 2026-10-12.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The address a scenario step meant by <i>read this layer back</i>, and there was none.</b>
+    /// Every write under <c>/admin/layers/{name}</c> existed — sharing, cache, time field, title,
+    /// visible range, symbology, refresh — and the walk in ADR-017 condition 2 found no
+    /// <c>GET</c> among them, so the only way to read one layer was the whole listing.
+    /// </para>
+    /// <para>
+    /// <b>The listing's row, from the same method</b>, so the two cannot describe a layer
+    /// differently; and the name is resolved by <see cref="OneNamedLayerAsync"/>, so an
+    /// ambiguous one is a 409 naming the services and <c>?service=</c> chooses, as it does on
+    /// every other route under this path.
+    /// </para>
+    /// </remarks>
+    private static async Task GetLayerAsync(
+        HttpContext context,
+        string name,
+        IAdminCatalog catalog,
+        PostgresLayerCatalog published,
+        HostSettings settings,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminViewAllContent)
+            .ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await OneNamedLayerAsync(context, published, name, cancellation).ConfigureAwait(false)
+            is not { } found)
+        {
+            return;
+        }
+
+        IReadOnlyList<AdminLayer> layers =
+            await catalog.ListLayersAsync(cancellation).ConfigureAwait(false);
+
+        if (layers.Where(l => l.Id == found.Id).Select(l => (AdminLayer?)l).FirstOrDefault() is not { } layer)
+        {
+            // Resolved a moment ago and gone now: unpublished in between.
+            await Refuse(context, 404, $"No layer '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await Results.Json(LayerRow(layer, context.Features.Get<RequestPrincipal>()!, settings))
+            .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>How the admin API describes one layer, in the listing and on its own.</summary>
+    private static object LayerRow(AdminLayer l, RequestPrincipal current, HostSettings settings) => new
+    {
+        l.Id,
+        l.Name,
+
+        // <b>Whether this caller may change it — ADR-075, D-271.</b> The server's answer, so the
+        // console does not keep a second copy of the rule and offer controls that answer 403.
+        manages = LayerAccess.MayManage(l.Owner, current.Principal, current.Authorization),
+        dataSource = l.DataSourceName,
+        table = l.Qualified,
+        sharing = PostgresSharing(l.Sharing),
+        status = Wire(l.Status),
+        owner = l.OwnerName,
+        l.ArcGisServable,
+
+        // <b>Whether the data is in the datastore</b> — which the console reads for the
+        // edit-and-alter controls, and no longer for tiles.
+        l.Hosted,
+
+        // <b>Whether the tile face answers — D-264.</b> *Hosted* was the tile question until
+        // ADR-066 §9, and a GeoParquet layer is tiled and never hosted: the tile-cache page said
+        // *this layer has no tile cache* over a layer whose tiles were being cached. Showing a
+        // control everywhere and letting it 400 is the other half of the same mistake.
+        l.Tileable,
+
+        // <b>Whether its schema may be edited — ADR-058, and it is not the same as
+        // hosted.</b> A datastore source can serve a schema this server did not create,
+        // and the field endpoints refuse that; the console needs the server's answer
+        // rather than its own guess, or it draws an Add field button that always fails.
+        alterable = HostedDataEndpoints.AlterableSchema(
+            l.Hosted,
+            l.Qualified.Contains('.', StringComparison.Ordinal)
+                ? l.Qualified[..l.Qualified.IndexOf('.', StringComparison.Ordinal)]
+                : null),
+
+        // <b>Where it is, which ADR-020 §2 asked for and this listing did not give.</b>
+        // A caller that has to work out a layer's URL from its name walks the services
+        // directory, and a stopped service is absent from that walk — see AdminLayer's
+        // own remark for the three defects that came of it.
+        l.Service,
+        l.Folder,
+        l.LayerIndex,
+        url = l.Address,
+
+        // Q-129: which column this layer's time comes from, when somebody said.
+        timeField = l.TimeField,
+
+        // ADR-179: what the OGC faces call it, or null for its name.
+        title = l.Title,
+
+        // D-159: the console has read this off this listing since the tile-cache
+        // control was written, and it was not here.
+        cacheSeconds = l.CacheSeconds,
+
+        // <b>ADR-010 §6b: the coherence policy, readable per layer — ADR-095 §5.3.</b> What the
+        // tiles and query answers are kept for when `cacheSeconds` is null (a registered PostGIS
+        // layer's default is shorter than a hosted one's), and how closely they follow the data:
+        // `exact` for hosted, `file-version` for a file whose version rides in the tile key, and
+        // `best-effort` for a database other tools write to, where only that lifetime bounds an
+        // edit this server did not make.
+        kind = l.Kind,
+        tileLifetimeSeconds = l.CacheSeconds
+            ?? (long)TileSources.DefaultLifetimeOf(l.Hosted, l.Kind, settings.TileCacheLifetime).TotalSeconds,
+        coherence = TileSources.CoherenceOf(l.Hosted, l.Kind),
+
+        // ADR-070: the scales it draws at; 0 or null is no limit on that side.
+        minScale = l.MinScale ?? 0,
+        maxScale = l.MaxScale ?? 0,
+    };
 
     /// <remarks>
     /// <para>
