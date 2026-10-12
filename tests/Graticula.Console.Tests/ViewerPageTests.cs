@@ -235,6 +235,115 @@ public sealed class ViewerPageTests : ConsoleTest
             + "stopped describing which face it is showing.");
     }
 
+    /// <summary>
+    /// A shift-drag zooms the map to the box, and a click afterwards leaves it there.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Real mouse events through the browser, because the defect was in which element heard
+    /// the click.</b> The box was drawn and OpenLayers started the zoom; the click that ends the
+    /// drag then reached a <i>Frame layer</i> handler that `view.js` had attached to <c>#frame</c>
+    /// — the page's layout wrapper — and the layer was put back in frame before the animation
+    /// finished. The owner reported it on 2026-10-12. <c>map.js</c> had the same collision and
+    /// lost it on 2026-08-22, when the button became <c>#frameLayer</c>; the two lookups in this
+    /// page were left behind.
+    /// </para>
+    /// <para>
+    /// <b>The plain click is the general form.</b> Any click anywhere on the page re-framed the
+    /// map, so the second half asserts that one on the map moves nothing.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("")]
+    [InlineData("&face=mapserver")]
+    public async Task A_shift_drag_zooms_to_the_box_and_a_click_leaves_it_there(string extra)
+    {
+        (string token, string cookie) = await SignInAsync();
+
+        string service = await AnyServiceAsync();
+
+        await OpenAsync(
+            $"/studio/view.html?service={Uri.EscapeDataString(service)}{extra}", token, cookie);
+
+        await WaitForAsync(
+            $"{Facts}.length > 0",
+            "The viewer's script did not reach the end, so there is no map to zoom.");
+
+        await WaitForAsync(
+            "!!map.getSize() && map.getSize()[0] > 0 && map.getView().getResolution() > 0",
+            "The map never got a size.");
+
+        // The load frames the layer once, a frame or two later; zooming before that settles
+        // would measure the load's fit rather than the box.
+        double before = await SettledResolutionAsync();
+
+        double[] centre = await Browser.EvaluateAsync<double[]>(
+            "(() => { const r = document.getElementById('map').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()")
+            ?? [];
+
+        const int Shift = 8;
+        double x0 = centre[0] - 150, y0 = centre[1] - 100;
+
+        await Browser.CallAsync("Input.dispatchMouseEvent",
+            new { type = "mouseMoved", x = x0, y = y0, modifiers = Shift });
+        await Browser.CallAsync("Input.dispatchMouseEvent",
+            new { type = "mousePressed", x = x0, y = y0, button = "left", buttons = 1, clickCount = 1, modifiers = Shift });
+
+        for (int i = 1; i <= 10; i++)
+        {
+            await Browser.CallAsync("Input.dispatchMouseEvent",
+                new { type = "mouseMoved", x = x0 + 30 * i, y = y0 + 20 * i, button = "left", buttons = 1, modifiers = Shift });
+        }
+
+        await Browser.CallAsync("Input.dispatchMouseEvent",
+            new { type = "mouseReleased", x = x0 + 300, y = y0 + 200, button = "left", buttons = 0, clickCount = 1, modifiers = Shift });
+
+        string less = (before * 0.6).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        await WaitForAsync(
+            $"!map.getView().getAnimating() && map.getView().getResolution() < {less}",
+            "A shift-drag over a third of the map did not zoom in. If the box was drawn, something "
+            + "undid the zoom — a handler that frames the layer on any click did exactly that.");
+
+        double zoomed = await SettledResolutionAsync();
+
+        await Browser.CallAsync("Input.dispatchMouseEvent",
+            new { type = "mousePressed", x = centre[0], y = centre[1], button = "left", buttons = 1, clickCount = 1 });
+        await Browser.CallAsync("Input.dispatchMouseEvent",
+            new { type = "mouseReleased", x = centre[0], y = centre[1], button = "left", buttons = 0, clickCount = 1 });
+
+        double clicked = await SettledResolutionAsync();
+
+        Assert.True(
+            Math.Abs(clicked - zoomed) < zoomed * 0.01,
+            $"A click on the map changed its resolution from {zoomed} to {clicked}. Only a load "
+            + "or the Frame layer button may move the view.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>The view's resolution once two readings half a second apart agree.</summary>
+    private async Task<double> SettledResolutionAsync()
+    {
+        double last = await Browser.EvaluateAsync<double>("map.getView().getResolution()");
+
+        for (int i = 0; i < 20; i++)
+        {
+            await Task.Delay(500);
+
+            double now = await Browser.EvaluateAsync<double>("map.getView().getResolution()");
+
+            if (Math.Abs(now - last) < last * 0.001)
+            {
+                return now;
+            }
+
+            last = now;
+        }
+
+        return last;
+    }
+
     /// <summary>Any service with at least one drawable layer.</summary>
     /// <remarks>
     /// Taken from the directory rather than named, because a fixture named here is a

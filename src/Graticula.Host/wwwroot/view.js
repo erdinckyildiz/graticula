@@ -973,7 +973,13 @@ function loadMap(document_) {
   // title is still the markup's placeholder.
   drawLegend();
 
-  const frame = $("frame");
+  /*
+    <b>`frameLayer`, the button — not `frame`, which is the page.</b> The button was renamed on
+    2026-08-22 because `#frame` is the layout wrapper, and the two lookups were left behind: this
+    handler sat on the whole page, so every click anywhere put the layer back in frame. A shift-drag
+    ends in a click, so the box zoom was undone before its animation finished, 2026-10-12.
+  */
+  const frame = $("frameLayer");
   if (frame) frame.onclick = () => fitWhenSized(mapExtent);
   if (mapExtent) fitWhenSized(mapExtent);
   drawGroundPicker();
@@ -1231,7 +1237,8 @@ async function load(layerId, name) {
     return;
   }
 
-  const frame = $("frame");
+  // The button, not the page — see `loadMap`.
+  const frame = $("frameLayer");
   if (frame) frame.onclick = () => fitWhenSized(extent);
   fitWhenSized(extent);
   drawGroundPicker();
