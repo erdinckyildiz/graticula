@@ -110,7 +110,7 @@ the cost of not doing it.
 | The format is public and read by ArcGIS clients | *Web map specification*, Esri developer documentation (public) | developers.arcgis.com, web map specification |
 | `/sharing/rest/content/items/{id}/data` already answers, and answers empty | `PortalEndpoints.ItemDataAsync` | this repository |
 | A saved map round-trips: saved, listed in search and a user's content, its data read back unchanged | `WebMapStoreTests`, `WebMapEndpointTests` | tests |
-| The viewer opens a saved map and every screen passes the UX review | `WebMapViewerTests`, the ux-designer review recorded in §4a | tests, this ADR |
+| The viewer opens a saved map and every screen passes the UX review | `WebMapViewerTests`, the ux-designer review of 2026-09-19, whose two recommendations not taken are §10a (this cell said §4a, which does not exist, until 2026-10-12) | tests, this ADR |
 
 ## 5. Decision
 
