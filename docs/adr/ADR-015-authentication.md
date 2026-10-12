@@ -793,7 +793,7 @@ access to the platform store.
    measured, which is why this is partly:** removal and the provider refusals are refused only when the caller is an
    administrator who signs in through a provider, and neither the fixture nor the suites can sign one in without
    risking the fixture's own administrator — the first walk of this scenario did disable it, and it was restored
-   with SQL. *Was:* **DUE since 2026-09-24, and not met.** OIDC, LDAP and SAML were built that day
+   with SQL. **The first half is tested as asked since 2026-10-12**: `ALocalAdministratorSignsInWhileAProviderIsBrokenTests` adds a directory and an OpenID Connect provider while their stand-ins answer, stops both, confirms each `/check` now fails, and then signs the suite's local administrator in with its password and administers with the token — with a wrong password still refused as the control. **Still not tested over HTTP**: a request that sends `leaveNoLocalAdministrator`, the `lastLocalAdministrator` refusal, and the provider refusals on removal — the reason above, unchanged. *Was:* **DUE since 2026-09-24, and not met.** OIDC, LDAP and SAML were built that day
    ([ADR-088](ADR-088-sign-in-through-an-openid-connect-provider.md) to
    [ADR-090](ADR-090-sign-in-through-a-saml-provider.md)) and none of them read this condition. The lockout is
    reachable now: a group mapped to `administrator` makes administrators who have no local credential, Members
