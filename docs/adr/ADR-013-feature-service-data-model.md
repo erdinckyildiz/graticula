@@ -574,6 +574,23 @@ by argument; nobody has pointed a slow reader at it.
    with attachments, showing the ninth waits and the *feature* path keeps serving — which
    is the whole claim §4b makes — and a size chosen against that rather than against
    comfort.
+
+   **PARTLY DISCHARGED 2026-10-12 — the slow-client case is measured, and it answers the
+   threshold question with a yes** ([benchmarks/attachment-pool](../../benchmarks/attachment-pool/RESULTS.md)).
+   Nine readers of a 24 MB attachment at 100 kB/s: eight start in 15–47 ms and hold their
+   connections for the whole read, and **the ninth waits Npgsql's 15 s and is answered 504**.
+   Meanwhile 76 feature queries have a median of 16 ms and none fails. With eight readers,
+   the control, none waits. **So §4b's claim holds as stated.** What the run adds is the half
+   nobody had looked at: **a 1 MB attachment does not release its connection early either.**
+   Buffers absorbed about a third of it, so twenty readers went through in waves of eight,
+   and the third wave waited 13 s, two short of the timeout. That makes buffer-and-release
+   worth having for the common case, a phone's photo read over a phone's connection. Its cost
+   is memory with nothing bounding it, so it needs a per-file threshold and a cap on the
+   bytes held at once. **Those two numbers are the owner's, and they are what is left.** The
+   pool's own size cannot come out of a throughput measurement, since each slow reader holds
+   one connection whatever the file's size. It is the number of connections the deployment
+   gives to slow readers. Eight stays, and that is now a choice with its consequence measured
+   rather than a guess.
 3. ~~**Declared relationships are validated on publish**~~ **DISCHARGED 2026-08-15.** A declaration is refused unless both columns exist and can be compared, and the refusal lists the columns that do exist. What is *not* checked, and is said in the response rather than implied, is whether the values mean the same thing. Original:, at minimum that the join
    columns exist and are type-compatible. An unvalidated declaration fails at
    query time in front of a user.
