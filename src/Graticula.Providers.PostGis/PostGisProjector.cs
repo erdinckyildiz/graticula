@@ -156,20 +156,77 @@ public sealed class PostGisProjector : IProjector
     public async Task<ProjectionProvenance> DescribeAsync(
         int fromSrid, int toSrid, CancellationToken cancellationToken)
     {
-        await using NpgsqlCommand command = _dataSource.CreateCommand("select postgis_proj_version()");
-
-        object? version = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-
-        // The version alone: PostGIS 3.4 appends PROJ's search paths to it — this server's directories, the account
-        // name among them — and the answer goes to anyone who may use the geometry service.
-        string engine = version is string text && text.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var number, ..]
-            ? "PROJ " + number
-            : "PROJ, version unknown";
+        string engine = _engine ??= await EngineAsync(cancellationToken).ConfigureAwait(false);
 
         (bool? shift, string? caution) =
             await DatumAsync(fromSrid, toSrid, cancellationToken).ConfigureAwait(false);
 
         return new ProjectionProvenance(engine, null, shift, caution);
+    }
+
+    private string? _engine;
+
+    /// <summary>
+    /// Takes the error PROJ 8 leaves behind after a call that is not a transform, on the connection that made it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Any of them, not only the version.</b> <c>postgis_srs()</c> — the area of use, <see cref="DomainOfAsync"/> —
+    /// leaves the same stale error, found when the Postgres suite ran whole and a test of ten projections in a row
+    /// failed after a test of areas of use. Both now ask on a connection of their own and run one throwaway transform
+    /// there before it goes back to the pool; on a PROJ without the fault the transform simply succeeds.
+    /// </remarks>
+    private static async Task ClearAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using NpgsqlCommand clear = new(
+                "select ST_AsBinary(ST_Transform(ST_SetSRID(ST_MakePoint(0, 0), 4326), 3857))", connection);
+            await clear.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (PostgresException)
+        {
+            // The stale error, taken here rather than by the next request's transform.
+        }
+    }
+
+    /// <summary>
+    /// Which PROJ the datastore's PostGIS runs, asked once and kept — 2026-10-12.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Asked once because asking broke the next transform on the same connection.</b> On PostGIS 3.6 with PROJ
+    /// 8.2.1 — the OSGeo Windows bundle — <c>postgis_proj_version()</c> leaves an error state in the backend's PROJ
+    /// context, and the next <c>ST_Transform</c> there fails with <em>transform: Unknown error (code 4096)</em>. This
+    /// asked after every projection, so every second GeometryServer <c>project</c> on such a server answered 503:
+    /// measured on the local fixture as 200, 503, 200, 503, and reproduced in psql with the two statements alone.
+    /// PROJ 9 does not do it, which is why neither CI nor the showcase saw it.
+    /// </para>
+    /// <para>
+    /// <b>On a connection of its own, cleaned before it goes back.</b> A throwaway transform on the same connection
+    /// takes the stale error where PROJ leaves it, so no request inherits it; on a PROJ without the fault it simply
+    /// succeeds. The version cannot change while the process runs, so keeping it also takes a round trip off every
+    /// projection. Nothing is kept when the datastore cannot be reached: the next projection asks again.
+    /// </para>
+    /// </remarks>
+    private async Task<string> EngineAsync(CancellationToken cancellationToken)
+    {
+        await using NpgsqlConnection connection =
+            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        object? version;
+
+        await using (NpgsqlCommand command = new("select postgis_proj_version()", connection))
+        {
+            version = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await ClearAsync(connection, cancellationToken).ConfigureAwait(false);
+
+        // The version alone: PostGIS 3.4 appends PROJ's search paths to it — this server's directories, the account
+        // name among them — and the answer goes to anyone who may use the geometry service.
+        return version is string text && text.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var number, ..]
+            ? "PROJ " + number
+            : "PROJ, version unknown";
     }
 
     /// <inheritdoc/>
@@ -554,26 +611,33 @@ public sealed class PostGisProjector : IProjector
 
         try
         {
-            await using NpgsqlCommand command = _dataSource.CreateCommand(
+            // On a connection of its own, cleaned before it goes back — ClearAsync says why.
+            await using NpgsqlConnection connection =
+                await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+            await using (NpgsqlCommand command = new(
                 "select st_x(point_sw), st_y(point_sw), st_x(point_ne), st_y(point_ne) "
-                + "from postgis_srs('EPSG', @srid)");
-
-            command.Parameters.AddWithValue(
-                "srid", srid.ToString(System.Globalization.CultureInfo.InvariantCulture));
-
-            await using NpgsqlDataReader reader =
-                await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-
-            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
-                && !await reader.IsDBNullAsync(0, cancellationToken).ConfigureAwait(false)
-                && !await reader.IsDBNullAsync(1, cancellationToken).ConfigureAwait(false)
-                && !await reader.IsDBNullAsync(2, cancellationToken).ConfigureAwait(false)
-                && !await reader.IsDBNullAsync(3, cancellationToken).ConfigureAwait(false))
+                + "from postgis_srs('EPSG', @srid)", connection))
             {
-                answer = new Envelope(
-                    reader.GetDouble(0), reader.GetDouble(1),
-                    reader.GetDouble(2), reader.GetDouble(3));
+                command.Parameters.AddWithValue(
+                    "srid", srid.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+                await using NpgsqlDataReader reader =
+                    await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+                if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+                    && !await reader.IsDBNullAsync(0, cancellationToken).ConfigureAwait(false)
+                    && !await reader.IsDBNullAsync(1, cancellationToken).ConfigureAwait(false)
+                    && !await reader.IsDBNullAsync(2, cancellationToken).ConfigureAwait(false)
+                    && !await reader.IsDBNullAsync(3, cancellationToken).ConfigureAwait(false))
+                {
+                    answer = new Envelope(
+                        reader.GetDouble(0), reader.GetDouble(1),
+                        reader.GetDouble(2), reader.GetDouble(3));
+                }
             }
+
+            await ClearAsync(connection, cancellationToken).ConfigureAwait(false);
         }
         catch (NpgsqlException)
         {
