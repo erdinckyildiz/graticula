@@ -145,6 +145,14 @@ one transaction on one connection; the tile purge and context forget are node-lo
    wrong file changing nothing, counted through the FeatureServer. The registered-layer refusal is the shared
    `HostedLayerAsync` truncate already goes through, and is not exercised here: the local fixture has no registered
    layer.
+   **DISCHARGED 2026-10-12.** `A_publisher_who_does_not_own_the_layer_and_a_registered_layer_are_both_refused` signs
+   in a second member who is a *publisher* — a role without `content:publishFeatures` is refused before ownership is
+   asked, and would pass either way — and sends both `append` and `overwrite`: **404** on a private layer it cannot
+   read, **403** on a public one it can, and neither count moves. The registered layer the note said the fixture
+   lacked is made with `PublishOneAsync`, and both doors answer **409** even to an administrator. It answers with
+   the datastore's sentence (*a table it did not create*) rather than *a registered layer*, because the fixture's
+   free table is in this server's own database; the test accepts either, since they are the one rule
+   `HostedLayerAsync` applies.
 3. **Studio's *Update data* is tested** as the other Overview actions are. **DISCHARGED 2026-10-01** —
    `ItemStructureTests.Update_data_sends_the_file_to_the_chosen_layer`.
 4. ~~**Delete protection does not block overwrite — `INFERRED`, put to the owner.**~~ **Reversed by owner decision 2026-10-01 (*"1. evet"*): protection blocks overwrite**, 409 and nothing written; append is not blocked, since it removes nothing. **Truncate is blocked with it** — `INFERRED` until the owner confirmed it on 2026-10-01 (*"Tamamı"*, answering it among five questions): it is the more destructive of the two, and leaving it open would have made the protection stop the lesser act. **DISCHARGED 2026-10-01** — `UpdateDataConformanceTests` protects the layer and finds both refused and its rows unchanged.

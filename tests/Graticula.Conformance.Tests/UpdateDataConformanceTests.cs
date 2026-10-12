@@ -428,4 +428,138 @@ public sealed class UpdateDataConformanceTests : ArcGisClient
             using HttpResponseMessage gone = await Http.SendAsync(delete);
         }
     }
+
+    private const string Stranger = "zz_adr103_stranger";
+
+    /// <summary>
+    /// ADR-103 condition 2: a publisher who does not own the layer is refused, and so is a registered layer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A publisher, deliberately, and not a viewer.</b> A role without <c>content:publishFeatures</c> is refused
+    /// before anybody asks whose layer it is, so a test signed in as one would pass whether or not ownership is
+    /// checked. Until 2026-10-12 the only refusal asked here was the anonymous one, which proves even less.
+    /// </para>
+    /// <para>
+    /// <b>404 for a private layer, 403 for a public one</b> — <c>HostedLayerAsync</c>'s rule, shared with truncate:
+    /// a caller who cannot read the layer must not learn it exists. Either way the count must not move.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_publisher_who_does_not_own_the_layer_and_a_registered_layer_are_both_refused()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        string hidden = $"zz_upd103p_{Guid.NewGuid():N}"[..20];
+        string open = $"zz_upd103o_{Guid.NewGuid():N}"[..20];
+        string registered = $"zz_upd103r_{Guid.NewGuid():N}"[..20];
+
+        (HttpStatusCode madeHidden, string hiddenBody) =
+            await PostFileAsync(root, token, "/admin/hosted/import", Polygons("a", "b"), hidden);
+        Assert.True(madeHidden is HttpStatusCode.Created or HttpStatusCode.OK, $"The import failed: {(int)madeHidden} {hiddenBody}");
+
+        (HttpStatusCode madeOpen, string openBody) = await PostFormAsync(
+            root, token!, "/admin/hosted/import", Polygons("a", "b"), ("name", open), ("sharing", "public"));
+        Assert.True(madeOpen is HttpStatusCode.Created or HttpStatusCode.OK, $"The public import failed: {(int)madeOpen} {openBody}");
+
+        try
+        {
+            string stranger = await StrangerAsync(root, token!);
+
+            foreach (string door in new[] { "append", "overwrite" })
+            {
+                (HttpStatusCode unseen, string unseenBody) =
+                    await PostFileAsync(root, stranger, $"/admin/hosted/{hidden}/{door}", Polygons("x"));
+
+                Assert.True(unseen == HttpStatusCode.NotFound,
+                    $"A publisher who cannot read the layer was answered {(int)unseen} to {door}, not 404: {unseenBody}");
+
+                (HttpStatusCode seen, string seenBody) =
+                    await PostFileAsync(root, stranger, $"/admin/hosted/{open}/{door}", Polygons("x"));
+
+                Assert.True(seen == HttpStatusCode.Forbidden,
+                    $"A publisher who can read but does not own the layer was answered {(int)seen} to {door}, not 403: {seenBody}");
+            }
+
+            Assert.Equal(2, await CountAsync(root, token!, hidden));
+            Assert.Equal(2, await CountAsync(root, token!, open));
+
+            // ---------------------------------------------------------------- a registered layer, even for an administrator
+            (int published, string publishBody) = await PublishOneAsync(registered, registered);
+            Assert.True(published is 200 or 201, $"Publishing a registered layer answered {published}: {publishBody}");
+
+            foreach (string door in new[] { "append", "overwrite" })
+            {
+                (HttpStatusCode refused, string refusedBody) =
+                    await PostFileAsync(root, token, $"/admin/hosted/{registered}/{door}", Polygons("x"));
+
+                Assert.True(refused == HttpStatusCode.Conflict,
+                    $"{door} on a registered layer answered {(int)refused}, not 409: {refusedBody}");
+
+                // Two sentences, one rule: a layer registered from another source is "a registered layer"; one
+                // published from this server's own database, as the fixture's is, is "a table it did not create".
+                Assert.True(
+                    refusedBody.Contains("registered layer", StringComparison.Ordinal)
+                    || refusedBody.Contains("table it did not create", StringComparison.Ordinal),
+                    $"{door} on a registered layer was refused for another reason: {refusedBody}");
+            }
+
+        }
+        finally
+        {
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/members/{Stranger}?deleteOwned=true", token!, json: null);
+            await UnpublishAsync(registered, registered);
+
+            foreach (string name in new[] { hidden, open })
+            {
+                using HttpRequestMessage delete = new(
+                    HttpMethod.Delete, $"{root}/admin/featureservices/{name}?folder=hosted&drop=true");
+                delete.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage gone = await Http.SendAsync(delete);
+            }
+        }
+    }
+
+    /// <summary>Creates a publisher who owns nothing here, and signs it in.</summary>
+    private async Task<string> StrangerAsync(string root, string administrator)
+    {
+        await RequestAsync(HttpMethod.Delete, $"{root}/admin/members/{Stranger}?deleteOwned=true", administrator, json: null);
+
+        (HttpStatusCode made, string said) = await RequestAsync(
+            HttpMethod.Post,
+            $"{root}/admin/members",
+            administrator,
+            JsonSerializer.Serialize(new { name = Stranger, displayName = "ADR-103", role = "publisher", userType = "creator" }));
+
+        Assert.True(made == HttpStatusCode.Created, $"Creating the publisher answered {(int)made}: {said}");
+
+        string issued = JsonDocument.Parse(said).RootElement.GetProperty("password").GetString()!;
+        string first = await StrangerLoginAsync(root, issued);
+
+        (HttpStatusCode changed, string why) = await RequestAsync(
+            HttpMethod.Post,
+            $"{root}/rest/auth/password",
+            first,
+            JsonSerializer.Serialize(new { currentPassword = issued, newPassword = issued + "X1" }));
+
+        Assert.True(changed == HttpStatusCode.OK, $"The publisher could not replace its issued password: {(int)changed} {why}");
+
+        return await StrangerLoginAsync(root, issued + "X1");
+    }
+
+    private async Task<string> StrangerLoginAsync(string root, string password)
+    {
+        (HttpStatusCode status, string body) = await RequestAsync(
+            HttpMethod.Post,
+            $"{root}/rest/auth/login",
+            token: string.Empty,
+            JsonSerializer.Serialize(new { name = Stranger, password }));
+
+        Assert.True(status == HttpStatusCode.OK, $"Signing in as `{Stranger}` answered {(int)status}: {body}");
+
+        return JsonDocument.Parse(body).RootElement.GetProperty("token").GetString()!;
+    }
 }
