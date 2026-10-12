@@ -273,10 +273,17 @@ public sealed class RequestBoundsTests : IAsyncLifetime, IAsyncDisposable
     [Fact]
     public async Task An_idle_worker_is_reclaimed_and_the_next_request_still_works()
     {
+        // <b>A minute's deadline, because this asserts reclaiming and not the deadline.</b> CI's datastore
+        // job answered `Deadline` here three times (2026-09-30, 2026-10-03, 2026-10-12) for a four-vertex
+        // intersect, in a test that took twelve seconds against the default ten — on a runner where the
+        // other Host tests start worker processes of their own. The start is warmed outside the deadline;
+        // the first operation's JIT is not, and that is the reading here — inferred, not measured. The
+        // deadline has tests of its own that shorten it on purpose.
         await using GeometryWorkerPool pool = new(
             GeometryWorkerPool.ExecutableBesideThisOne(),
             workers: 1,
             NullLoggerFactory.Instance,
+            deadline: TimeSpan.FromMinutes(1),
             idle: TimeSpan.FromMilliseconds(1));
 
         Assert.True(pool.Available, "The geometry worker is not built beside these tests.");

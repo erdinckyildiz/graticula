@@ -539,16 +539,19 @@ public sealed class WebMapViewerTests : ConsoleTest
                 "/nosuchfield/.test(document.getElementById('popSays-pops')?.textContent || '') && !wmLayers()[0].popupInfo",
                 "A title naming a field the layer does not have was applied, or not said.");
 
+            // <b>Set and applied in one turn of the page's event loop.</b> The layer list is redrawn from the
+            // layer's state by forty-odd callers, and a redraw between setting the boxes and a separate click put
+            // the panel back to every field: Apply then wrote all of them visible and the wait below never held.
+            // CI failed here that way, the last time on 2026-10-12, and passed on re-runs.
             await Browser.EvaluateAsync<bool>($$"""
                 (() => {
                   const boxes = [...document.querySelectorAll('#pop-pops [data-pop-field]')];
                   boxes.forEach((b, i) => b.checked = i === 0);
                   document.getElementById('popTitle-pops').value = 'Feature {{{first}}}';
+                  document.querySelector('#layerList button[data-act=popupApply][data-layer=pops]').click();
                   return true;
                 })()
                 """);
-
-            await ClickAsync("#layerList button[data-act=popupApply][data-layer=pops]");
 
             await WaitForAsync("!!wmLayers()[0].popupInfo && wmLayers()[0].popupInfo.fieldInfos.filter(f => f.visible).length === 1",
                 "Apply did not put the pop-up in the map's document.");
