@@ -378,14 +378,26 @@ public sealed class ItemStructureTests : ConsoleTest
         await WaitForAsync("!!document.querySelector('#featureLayers [data-keep-row]')",
             "Settings › Feature layer has no row for how long a history is kept.");
 
+        // <b>The page's own fill finishes first.</b> Drawing the section starts `fillLayerStewardship` without waiting
+        // for it — from two places, so two fills can overlap — and each asks the real server layer by layer. A real
+        // answer (history off, so the row is hidden) arriving after the stand-in's put the row back out of sight: three
+        // CI runs failed here waiting for 30, the last on 2026-10-11, and each passed on a re-run.
+        await WaitForAsync(
+            "![...document.querySelectorAll('#featureLayers [data-history-state], #featureLayers [data-tracking-state]')]"
+            + ".some(s => s.textContent.trim() === 'reading…')",
+            "Settings › Feature layer never finished reading its layers' history and edit tracking.");
+
         await Browser.EvaluateAsync<bool>(
             "(() => { const real = api; window.api = (path, options) => /\\/history$/.test(path) && !(options && options.method)"
             + " ? Promise.resolve({ available: true, enabled: true, keepDays: 30 }) : real(path, options);"
             + " fillLayerStewardship(); return true; })()");
 
+        // <b>And the stand-in has the last word.</b> One fill can still be waiting on the real server when the other has
+        // said its last "reading…", so while the row does not show 30 each poll fills again through the stand-in. Every
+        // fill from here on goes through it; a real answer still in flight is overwritten by the next poll.
         await WaitForAsync(
             "(() => { const r = document.querySelector('#featureLayers [data-keep-row]'); const b = r && r.querySelector('[data-keep-input]');"
-            + " return !!r && !r.hidden && b.value === '30' && r.offsetParent !== null; })()",
+            + " const ok = !!r && !r.hidden && b.value === '30' && r.offsetParent !== null; if (!ok) fillLayerStewardship(); return ok; })()",
             "A history kept for 30 days does not show its row with 30 in the box.");
 
         // What the row means is on the page before anything is pressed, and it does not bend the row: spanning the grid
