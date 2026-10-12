@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>5f79859e</code> · 2026-10-12 17:40</p>
+<p class="stamp">Generated from commit <code>cfe79cbd</code> · 2026-10-12 17:44</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">178</div><div class="kpi-l">ADRs</div><div class="kpi-n">72 accepted outright</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi warn"><div class="kpi-v">14</div><div class="kpi-l">open debts</div><div class="kpi-n">269 repaid · 6 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">4780</div><div class="kpi-l">tests</div><div class="kpi-n">476 source files, 215,091 lines</div></div>
+<div class="kpi good"><div class="kpi-v">4782</div><div class="kpi-l">tests</div><div class="kpi-n">476 source files, 215,163 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -515,7 +515,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1325</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.9%"></div></div><div class="bar-n">873</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.6%"></div></div><div class="bar-n">737</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.8%"></div></div><div class="bar-n">540</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.9%"></div></div><div class="bar-n">542</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.8%"></div></div><div class="bar-n">408</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.4%"></div></div><div class="bar-n">283</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.5%"></div></div><div class="bar-n">206</div></div>
@@ -527,6 +527,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>cfe79cbd</code><time>2026-10-12</time><span>A local administrator signs in while the directory and the OpenID provider are down, and a test breaks them to show it</span></li>
 <li><code>5f79859e</code><time>2026-10-12</time><span>ADR-103 condition 2 discharges: Update data refuses a publisher who does not own the layer, and a registered layer</span></li>
 <li><code>249400c8</code><time>2026-10-12</time><span>Two timing tests stop measuring the runner: the pre-flight clock starts after the worker does</span></li>
 <li><code>56cdcff2</code><time>2026-10-12</time><span>ADR-079&#x27;s evidence row points at the review&#x27;s dissent, §10a, not a §4a that never existed</span></li>
@@ -540,7 +541,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>879dfeb1</code><time>2026-10-12</time><span>The MapServer document states the service&#x27;s description</span></li>
 <li><code>c1396e3d</code><time>2026-10-11</time><span>A map of a dense layer opens where it is densest; a buffer is made in bufferSR</span></li>
 <li><code>4e6e45ab</code><time>2026-10-11</time><span>What a visitor from a public post hits first now works</span></li>
-<li><code>f1e9674b</code><time>2026-10-11</time><span>A feature with no value is drawn as the renderer&#x27;s null class on every face</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

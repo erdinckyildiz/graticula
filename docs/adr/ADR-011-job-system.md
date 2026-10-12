@@ -333,6 +333,18 @@ run as jobs), admin API (§39), geoprocessing (§36).
    the datastore and GeoParquet folders, since tiles come from nothing else (Q-67), so the
    condition's *registered source* is still unread by any job; and the import's write path
    still holds no lease. The condition stays partly discharged.)*
+   *(2026-10-12: **the import's write path holds the lease now**, the repair this item named.
+   `PostGisImporter` takes a permit from the `ConnectionBudget` in `OpenAsync` — the one place
+   every method that writes to the datastore gets a connection, the quiesce gate's place for the
+   same reason — and gives it back when the connection closes; `ValidityOfAsync`, which hands the
+   pool on, holds one around the hand-off. The key is the datastore's connection string, the
+   string a datastore layer's reads are budgeted under, so imports and requests draw from one
+   pool of permits. `PostGisImporterTests` counts a permit taken for every connection and none
+   left held, and fails when the release on close is taken out. **What a full budget does to an
+   import is `INFERRED`, listed for confirmation**: it is refused as a read is — a request gets
+   the budget's 503 and a retry, a geodatabase import job fails with the budget's sentence and is
+   run again by whoever asked — rather than waiting longer than a request would. The condition
+   stays partly discharged on its own terms: no job yet reads a registered source.)*
 2. **Every job type declares its re-run behaviour** before it is registered.
    There is no default, because a wrong default here corrupts data.
    *(Discharged 2026-08-27, as a function rather than as prose.* `JobKinds.RerunOf` maps

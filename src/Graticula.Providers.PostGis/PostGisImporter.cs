@@ -166,6 +166,7 @@ public sealed class PostGisImporter
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly Action? _refuseIfOutOfService;
+    private readonly Func<CancellationToken, ValueTask<IDisposable>>? _admit;
 
     /// <summary>Creates an importer over the datastore.</summary>
     /// <param name="dataSource">The datastore pool. Must be able to see PostGIS.</param>
@@ -174,11 +175,19 @@ public sealed class PostGisImporter
     /// can. See <see cref="OpenAsync"/> for why this is a constructor argument rather than a
     /// check at each call site.
     /// </param>
-    public PostGisImporter(NpgsqlDataSource dataSource, Action? refuseIfOutOfService = null)
+    /// <param name="admit">
+    /// Takes a permit from the datastore's share of the connection budget and answers what gives it
+    /// back, or null when nothing bounds this importer. Held for as long as the connection is open.
+    /// </param>
+    public PostGisImporter(
+        NpgsqlDataSource dataSource,
+        Action? refuseIfOutOfService = null,
+        Func<CancellationToken, ValueTask<IDisposable>>? admit = null)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         _dataSource = dataSource;
         _refuseIfOutOfService = refuseIfOutOfService;
+        _admit = admit;
     }
 
     /// <summary>
@@ -210,12 +219,59 @@ public sealed class PostGisImporter
     /// the dependency running backwards. What this class needs to know is only <i>am I allowed to
     /// open a connection</i>, which is one call and no types.
     /// </para>
+    /// <para>
+    /// <b>And the permit is taken here, for the same reason — ADR-011 §3.6, 2026-10-12.</b> Every read
+    /// path draws from the connection budget, because <c>LayerConnections.SourceFor</c> is the only
+    /// place a read gets a source; this class writes to the same database from its own pool and drew
+    /// nothing, so an import and a hundred requests did not compete for one database as §3.6 says
+    /// they must. The permit is held while the connection is open and given back when it closes,
+    /// which is every caller's <c>await using</c> — so a long COPY holds one permit for as long as
+    /// it holds the connection, and no longer.
+    /// </para>
     /// </remarks>
     private async Task<NpgsqlConnection> OpenAsync(CancellationToken cancellationToken)
     {
         _refuseIfOutOfService?.Invoke();
 
-        return await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        IDisposable? permit = _admit is null
+            ? null
+            : await _admit(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            NpgsqlConnection connection =
+                await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+            if (permit is not null)
+            {
+                ReleaseOnClose(connection, permit);
+            }
+
+            return connection;
+        }
+        catch
+        {
+            permit?.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Gives the permit back the first time the connection reports it has closed.</summary>
+    private static void ReleaseOnClose(NpgsqlConnection connection, IDisposable permit)
+    {
+        int released = 0;
+
+        void Closed(object? sender, System.Data.StateChangeEventArgs change)
+        {
+            if (change.CurrentState == System.Data.ConnectionState.Closed
+                && Interlocked.Exchange(ref released, 1) == 0)
+            {
+                connection.StateChange -= Closed;
+                permit.Dispose();
+            }
+        }
+
+        connection.StateChange += Closed;
     }
 
     /// <summary>
@@ -329,12 +385,19 @@ public sealed class PostGisImporter
     /// exists; the shape here is the exception it has to allow for, and it is written out so
     /// that a reader does not take the missing <c>OpenAsync</c> for an oversight.
     /// </remarks>
-    public Task<GeometryValidity> ValidityOfAsync(
+    public async Task<GeometryValidity> ValidityOfAsync(
         string schema, string table, CancellationToken cancellationToken)
     {
         _refuseIfOutOfService?.Invoke();
 
-        return GeometryValidity.MeasureAsync(_dataSource, schema, table, "geom", cancellationToken);
+        // The permit as OpenAsync takes it, held around the hand-off rather than tied to a connection
+        // this class never sees.
+        using IDisposable? permit = _admit is null
+            ? null
+            : await _admit(cancellationToken).ConfigureAwait(false);
+
+        return await GeometryValidity.MeasureAsync(_dataSource, schema, table, "geom", cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>

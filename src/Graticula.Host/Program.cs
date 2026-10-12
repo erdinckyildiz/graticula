@@ -616,12 +616,21 @@ public static class Program
         // same expression the gate stops firing silently. `QuiesceConformanceTests` quiesces by
         // *id* through the admin route and then asks this surface, so a divergence fails a test
         // rather than becoming a hole again.
+        //
+        // <b>And a permit from the datastore's share of the budget, keyed the same way — ADR-011
+        // §3.6.</b> The same string is what a datastore layer's reads are budgeted under, so an
+        // import and the requests reading that database draw from one pool of permits, which is
+        // what §3.6 asks: *jobs and requests compete for the same database*.
         builder.Services.AddSingleton(services =>
-            new PostGisImporter(
+        {
+            ConnectionBudget budget = services.GetRequiredService<ConnectionBudget>();
+            string datastore = DatastoreConnection(settings.PlatformStore);
+
+            return new PostGisImporter(
                 services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool),
-                RefusalWhen(
-                    services.GetRequiredService<SourceQuiesce>(),
-                    DatastoreConnection(settings.PlatformStore))));
+                RefusalWhen(services.GetRequiredService<SourceQuiesce>(), datastore),
+                async cancellation => await budget.EnterAsync(datastore, cancellation).ConfigureAwait(false));
+        });
 
         // <b>The raster reader and the coverage catalogue, ADR-043.</b> The factory is
         // the only place the host names a raster format, which is what makes the

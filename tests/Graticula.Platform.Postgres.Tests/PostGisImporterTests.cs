@@ -368,6 +368,73 @@ public sealed class PostGisImporterTests : PostgresFixture
         }
     }
 
+    /// <summary>
+    /// ADR-011 §3.6: every connection the importer opens holds a permit from the budget, and gives it back
+    /// when it closes.
+    /// </summary>
+    /// <remarks>
+    /// <b>Counted rather than assumed, both ways.</b> An import that took no permit would be the gap this
+    /// closes; one that took permits and kept them would shrink the datastore's budget by one for every import
+    /// until requests were refused — a leak that looks exactly like the database getting slower.
+    /// </remarks>
+    [Fact]
+    public async Task Every_connection_the_importer_opens_holds_a_budget_permit_until_it_closes()
+    {
+        int taken = 0;
+        int held = 0;
+
+        ValueTask<IDisposable> Admit(CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref taken);
+            Interlocked.Increment(ref held);
+            return ValueTask.FromResult<IDisposable>(new Returned(() => Interlocked.Decrement(ref held)));
+        }
+
+        PostGisImporter importer = new(DataSource, admit: Admit);
+
+        ImportResult result = await importer.ImportAsync(Parse(Sample), "budgeted import", CancellationToken.None);
+
+        try
+        {
+            Assert.True(taken > 0, "The import opened connections and took no permit for any of them.");
+            Assert.Equal(0, Volatile.Read(ref held));
+
+            int before = taken;
+            await importer.ValidityOfAsync(result.SchemaName, result.TableName, CancellationToken.None);
+
+            Assert.True(taken > before, "Measuring validity hands the pool on and took no permit for it.");
+            Assert.Equal(0, Volatile.Read(ref held));
+        }
+        finally
+        {
+            await DropAsync(result);
+        }
+    }
+
+    /// <summary>A permit refused is an import refused, before anything is written.</summary>
+    [Fact]
+    public async Task An_import_the_budget_refuses_writes_nothing()
+    {
+        string name = $"refused {Guid.NewGuid():N}"[..20];
+
+        PostGisImporter importer = new(
+            DataSource,
+            admit: _ => throw new InvalidOperationException("every permit for the datastore is in use"));
+
+        InvalidOperationException refused = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            importer.ImportAsync(Parse(Sample), name, CancellationToken.None));
+
+        Assert.Contains("every permit", refused.Message, StringComparison.Ordinal);
+        Assert.Equal(0L, await ScalarAsync<long>(
+            $"select count(*) from information_schema.tables where table_schema = '{PostGisImporter.HostedSchema}' "
+            + $"and table_name like 'refused%'"));
+    }
+
+    private sealed class Returned(Action give) : IDisposable
+    {
+        public void Dispose() => give();
+    }
+
     [Fact]
     public async Task The_column_types_are_the_ones_inference_decided()
     {
