@@ -490,7 +490,11 @@ internal static partial class ImageServerEndpoints
               <b>`exportTilesAllowed` is false and is the flag that would claim otherwise.</b>
               That is bulk export of a cache to a client, which needs a cache to export.
             */
-            singleFusedMapCache = false,
+            // ADR-182: an elevation surface says it is tiled, as Terrain3D does. ArcGIS Pro reads this flag to choose a
+            // tiled layer over a dynamic one; with it false Pro took the surface as dynamic, asked exportImage for raw
+            // values instead of the LERC tiles, and drew its ground as nonsense (measured in Pro 3.7, 2026-10-13).
+            // Every tile it may ask for is answered, which is what the flag promises a client.
+            singleFusedMapCache = coverage.Elevation,
             exportTilesAllowed = false,
             tileInfo = TileInfo(scheme, coverage.Elevation ? "LERC" : "PNG", coverage.Elevation ? SurfaceLevels(scheme, stated, info) : scheme.Levels.Count),
 

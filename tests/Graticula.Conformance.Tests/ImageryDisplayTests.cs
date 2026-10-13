@@ -308,6 +308,7 @@ public sealed class ImageryDisplayTests : ArcGisClient
             // Imagery until its owner says otherwise.
             JsonElement before = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}?f=json")).Body).RootElement;
             Assert.Equal("PNG", before.GetProperty("tileInfo").GetProperty("format").GetString());
+            Assert.False(before.GetProperty("singleFusedMapCache").GetBoolean());
             Assert.Equal("esriImageServiceDataTypeGeneric", before.GetProperty("serviceDataType").GetString());
 
             (HttpStatusCode refused, byte[] why) = await SendAsync(root, token!, HttpMethod.Put, $"/admin/coverages/{colour}/elevation?folder=hosted",
@@ -323,6 +324,8 @@ public sealed class ImageryDisplayTests : ArcGisClient
             JsonElement tileInfo = doc.GetProperty("tileInfo");
             Assert.Equal("esriImageServiceDataTypeElevation", doc.GetProperty("serviceDataType").GetString());
             Assert.Equal("Elevation", doc.GetProperty("cacheType").GetString());
+            // ArcGIS Pro chooses a tiled layer by this flag; false sent it to exportImage for raw values (Pro 3.7).
+            Assert.True(doc.GetProperty("singleFusedMapCache").GetBoolean());
             Assert.Equal("LERC", tileInfo.GetProperty("format").GetString());
             Assert.Equal(3857, tileInfo.GetProperty("spatialReference").GetProperty("latestWkid").GetInt32());
             Assert.Equal(3857, doc.GetProperty("fullExtent").GetProperty("spatialReference").GetProperty("wkid").GetInt32());
