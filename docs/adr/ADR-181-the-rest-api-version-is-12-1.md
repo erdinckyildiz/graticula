@@ -120,7 +120,14 @@ build sets `InvariantGlobalization`, so no culture but the invariant one can be 
 
 1. **ArcGIS Pro is pointed at a 12.1 server and adds a FeatureServer, a MapServer, a VectorTileServer and
    an ImageServer layer without a request the server refuses.** Pro's gates cannot be read; they have to
-   be run.
+   be run. **PARTLY DISCHARGED 2026-10-13**, ArcGIS Pro 3.7
+   through arcpy against the local fixture over plain HTTP, every request read through a recording relay. All four
+   are added and none is broken; FeatureServer, VectorTileServer and — after this run's repair — MapServer draw.
+   The run found two refusals that had nothing to do with 12.1: Pro POSTs MapServer's `layers` (404) and sends
+   export's `bbox` and identify's `mapExtent` as envelope objects (refused), so Pro had never drawn one of this
+   server's map services; both are answered since v1.0.362. **Open:** the ImageServer is added and draws nothing,
+   because Pro asks `format=None&pixelType=F32&bsq=true` for the values themselves and is answered with a drawn PNG
+   (Q-168), and `/services/rest/info` is a 404 Pro asks on the way in.
 
 ## 10. Dissent
 

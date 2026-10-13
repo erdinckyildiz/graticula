@@ -339,6 +339,43 @@ public sealed class MapServerConformanceTests : ArcGisClient
     // ---------- identify and legend ----------
 
     [Fact]
+    public async Task ArcGIS_Pros_requests_are_answered_an_envelope_bbox_and_all_layers_by_post()
+    {
+        // Measured 2026-10-13 through a recording relay: Pro POSTs `layers` before it draws a map service, and sends
+        // export's `bbox` and identify's `mapExtent` as envelope objects. `layers` was a 404 and both extents were
+        // refused, so Pro added every map service of this server and drew nothing.
+        (string Service, string Bbox, int Srid)? drawable = await DrawableAsync();
+        Assert.NotNull(drawable);
+
+        (string service, string bbox, int srid) = drawable!.Value;
+        string root = await RequireServerAsync();
+
+        using (FormUrlEncodedContent form = new([new KeyValuePair<string, string>("f", "json")]))
+        using (HttpResponseMessage posted = await Http.PostAsync(new Uri($"{root}/rest/services/{service}/MapServer/layers"), form))
+        {
+            JsonElement all = JsonDocument.Parse(await posted.Content.ReadAsStringAsync()).RootElement;
+            Assert.False(all.TryGetProperty("error", out _), all.ToString());
+            Assert.NotEqual(0, all.GetProperty("layers").GetArrayLength());
+            Assert.True(all.GetProperty("layers")[0].GetProperty("id").GetInt32() >= 0, all.ToString());
+        }
+
+        double[] b = [.. bbox.Split(',').Select(v => double.Parse(v, CultureInfo.InvariantCulture))];
+        string envelope = Uri.EscapeDataString(FormattableString.Invariant(
+            $"{{\"xmin\":{b[0]},\"ymin\":{b[1]},\"xmax\":{b[2]},\"ymax\":{b[3]},\"spatialReference\":{{\"wkid\":{srid}}}}}"));
+
+        // No bboxSR: the envelope's own reference is the one read.
+        JsonElement exported = await GetJsonAsync(
+            $"/rest/services/{service}/MapServer/export?bbox={envelope}&size=200,150&format=png32&transparent=true&f=json");
+        Assert.False(exported.TryGetProperty("error", out _), exported.ToString());
+        Assert.Equal(srid, exported.GetProperty("extent").GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+
+        JsonElement identified = await GetJsonAsync(
+            $"/rest/services/{service}/MapServer/identify?geometry={b[0].ToString(CultureInfo.InvariantCulture)},{b[1].ToString(CultureInfo.InvariantCulture)}"
+            + $"&geometryType=esriGeometryPoint&sr={srid}&tolerance=3&mapExtent={envelope}&imageDisplay=400,300,96&f=json");
+        Assert.False(identified.TryGetProperty("error", out _), identified.ToString());
+    }
+
+    [Fact]
     public async Task Identify_needs_a_scale_and_refuses_without_one()
     {
         // <b>A tolerance in pixels is meaningless without a scale.</b> Guessing one

@@ -100,6 +100,10 @@ internal static class MapServerEndpoints
             app.MapMethods($"{prefix}/{{serviceName}}/MapServer/legend", Read, LegendAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // All Layers and Tables, which ArcGIS Pro asks for by POST before it draws the service.
+            app.MapMethods($"{prefix}/{{serviceName}}/MapServer/layers", Read, AllLayersAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
             app.MapMethods($"{prefix}/{{serviceName}}/MapServer/{{layerId:int}}", Read, LayerAsync)
                 .Governed(SharingGovernedExtensions.ByService);
         }
@@ -209,25 +213,16 @@ internal static class MapServerEndpoints
         await Results.Ok(document).ExecuteAsync(context).ConfigureAwait(false);
     }
 
-    private static async Task LayerAsync(
+    /// <summary>One layer's MapServer document, and the shape it was built from — shared by the layer route and
+    /// <c>layers</c>, so the two cannot describe one layer two ways.</summary>
+    private static async Task<(object Document, LayerDescription Described)> LayerDocumentAsync(
         HttpContext context,
-        string serviceName,
-        int layerId,
-        CatalogFallback catalog,
+        PublishedLayer layer,
         ServiceContexts contexts,
         IProjector projector,
         HostSettings settings,
         CancellationToken cancellation)
     {
-        PublishedLayer? layer = await ServiceLookup
-            .LayerAsync(context, catalog, serviceName, layerId, cancellation)
-            .ConfigureAwait(false);
-
-        if (layer is null)
-        {
-            return;
-        }
-
         (IFeatureSource layerSource, LayerDescription described) =
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
@@ -287,6 +282,69 @@ internal static class MapServerEndpoints
             FeatureServerMetadataWriter.TimeInfo(time is null ? null : (time.Field, time.From, time.Until)),
             FeatureServerMetadataWriter.ArchivingInfo(described),
             layer.ServiceCopyrightText);
+
+        return (document, described);
+    }
+
+    /// <summary>
+    /// All Layers and Tables — every layer's document in one answer, as ArcGIS's MapServer gives it.
+    /// </summary>
+    /// <remarks>
+    /// <b>ArcGIS Pro asks for this before it draws a map service, by POST</b>, and it was a 404 here: Pro added the
+    /// layer and drew nothing (measured 2026-10-13 against the local fixture through a recording relay). The FeatureServer
+    /// face has answered it since ADR-057 condition 5.
+    /// </remarks>
+    private static async Task AllLayersAsync(
+        HttpContext context,
+        string serviceName,
+        CatalogFallback catalog,
+        ServiceContexts contexts,
+        IProjector projector,
+        HostSettings settings,
+        CancellationToken cancellation)
+    {
+        PublishedService? service = await ServiceLookup
+            .ServiceAsync(context, catalog, serviceName, cancellation)
+            .ConfigureAwait(false);
+
+        if (service is null || !await DrawableAsync(context, service).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        List<object> layers = [];
+
+        foreach (PublishedLayer layer in service.Layers.OrderBy(l => l.LayerIndex))
+        {
+            (object document, _) = await LayerDocumentAsync(context, layer, contexts, projector, settings, cancellation)
+                .ConfigureAwait(false);
+            layers.Add(document);
+        }
+
+        await Results.Ok(new { layers, tables = Array.Empty<object>() }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    private static async Task LayerAsync(
+        HttpContext context,
+        string serviceName,
+        int layerId,
+        CatalogFallback catalog,
+        ServiceContexts contexts,
+        IProjector projector,
+        HostSettings settings,
+        CancellationToken cancellation)
+    {
+        PublishedLayer? layer = await ServiceLookup
+            .LayerAsync(context, catalog, serviceName, layerId, cancellation)
+            .ConfigureAwait(false);
+
+        if (layer is null)
+        {
+            return;
+        }
+
+        (object document, LayerDescription described) =
+            await LayerDocumentAsync(context, layer, contexts, projector, settings, cancellation).ConfigureAwait(false);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {

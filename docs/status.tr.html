@@ -110,21 +110,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>8f1a8d8b</code> · 2026-10-13 18:40</p>
+<p class="stamp">Şu commit’ten üretildi: <code>7261750d</code> · 2026-10-13 19:19</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">181</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">332/414</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">79 canlı · 3 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">3</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">15</div><div class="kpi-l">açık borç</div><div class="kpi-n">270 ödendi · 5 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4841</div><div class="kpi-l">test</div><div class="kpi-n">482 kaynak dosya, 217,431 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4842</div><div class="kpi-l">test</div><div class="kpi-n">482 kaynak dosya, 217,559 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-167</b> — An elevation surface — four inferences, for the owner.</p><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">3 açık</span></div><p><b>Q-168</b> — May the ImageServer answer ArcGIS Pro&#x27;s raw request in the layout Esri&#x27;s servers answer it, learned by measuring their public output?</p><p><b>Q-167</b> — An elevation surface — four inferences, for the owner.</p><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">98 madde</span></div><p><b>79 ADR conditions</b> outstanding across 57 decisions — the largest commitment on this page.</p><p><b>15 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -393,6 +393,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card"><div class="card-h"><span class="id">Q-165</span><span class="owner">[OWNER]</span></div><p>May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-167</span><span class="owner">[OWNER]</span></div><p>An elevation surface — four inferences, for the owner.</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-168</span><span class="owner">[OWNER]</span></div><p>May the ImageServer answer ArcGIS Pro&#x27;s raw request in the layout Esri&#x27;s servers answer it, learned by measuring their public output?</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -516,7 +517,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1356</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.3%"></div></div><div class="bar-n">885</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.1%"></div></div><div class="bar-n">747</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.2%"></div></div><div class="bar-n">748</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.0%"></div></div><div class="bar-n">542</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.2%"></div></div><div class="bar-n">409</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.9%"></div></div><div class="bar-n">283</div></div>
@@ -529,6 +530,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>7261750d</code><time>2026-10-13</time><span>A service&#x27;s credits are in the live map&#x27;s attribution, and its editor says what it saved</span></li>
+<li><code>d3b5f69b</code><time>2026-10-13</time><span>A service states its credits: copyrightText on every face, Credits on its item</span></li>
 <li><code>8f1a8d8b</code><time>2026-10-13</time><span>MapServer export draws a box given in one reference in another, as exportImage does</span></li>
 <li><code>9cb978f6</code><time>2026-10-13</time><span>ADR-182: an image service can be an elevation surface, the ground of a 3D scene</span></li>
 <li><code>7fd3ac98</code><time>2026-10-13</time><span>An image service&#x27;s exports, slope and default stretch answer what was asked</span></li>
@@ -541,8 +544,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>e2611a6f</code><time>2026-10-13</time><span>A GeoTIFF somebody else chose is opened in the import reader&#x27;s process before this server opens it</span></li>
 <li><code>be83fd17</code><time>2026-10-13</time><span>No change to who administers leaves nobody able to sign in, and now a test says so over HTTP</span></li>
 <li><code>ff8f385f</code><time>2026-10-13</time><span>Both SLDs this server writes are validated against OGC&#x27;s own schemas, offline, on every run</span></li>
-<li><code>f2a66223</code><time>2026-10-13</time><span>A remote GeoParquet read goes through an egress proxy that refuses private addresses, redirects included</span></li>
-<li><code>4756f911</code><time>2026-10-13</time><span>A drawn map reads in pages of 500,000: a million polygons at full extent in 10.5 s, where it took 65</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

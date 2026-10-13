@@ -106,7 +106,7 @@ internal sealed class MapServerExportParameters
             return false;
         }
 
-        if (!TryExtent(parameter("bbox"), out Envelope extent, out error))
+        if (!TryExtent(parameter("bbox"), out Envelope extent, out int? boxed, out error))
         {
             return false;
         }
@@ -128,7 +128,8 @@ internal sealed class MapServerExportParameters
         // reference when its extent cannot be moved into the chosen one, so a service whose
         // first layer is a table, or whose extent PROJ refuses, can still disagree here.
         int mapSrid = available.Count > 0 ? available[0].PublishedSrid : 4326;
-        int bboxSrid = Srid(parameter("bboxSR")) ?? mapSrid;
+        // An envelope object may name its own reference; bboxSR, when given, is the one read, as ImageServer reads it.
+        int bboxSrid = Srid(parameter("bboxSR")) ?? boxed ?? mapSrid;
         int imageSrid = Srid(parameter("imageSR")) ?? bboxSrid;
 
         // <b>They may differ since 2026-10-13</b>, as ImageServer's may: Esri's Export Map example sends a bbox in one
@@ -166,15 +167,25 @@ internal sealed class MapServerExportParameters
         return true;
     }
 
-    private static bool TryExtent(string? value, out Envelope extent, out string? error)
+    private static bool TryExtent(string? value, out Envelope extent, out int? srid, out string? error)
     {
         extent = Envelope.Empty;
+        srid = null;
         error = null;
 
         if (string.IsNullOrWhiteSpace(value))
         {
             error = "`bbox` is required: minx,miny,maxx,maxy.";
             return false;
+        }
+
+        // <b>ArcGIS Pro sends `bbox` as an envelope object</b>, `{"xmin":…,"spatialReference":{…}}`, which the REST
+        // specification documents beside the four numbers. This face read only the numbers, so every export Pro asked of a
+        // map service was refused and Pro drew nothing (measured 2026-10-13 through a recording relay). ImageServer has
+        // read both since Pro first drew from it.
+        if (value.TrimStart().StartsWith('{'))
+        {
+            return TryEnvelopeObject(value, "bbox", out extent, out srid, out error);
         }
 
         string[] parts = value.Split(',', StringSplitOptions.TrimEntries);
@@ -208,6 +219,59 @@ internal sealed class MapServerExportParameters
     }
 
     /// <summary>
+    /// An envelope object, <c>{"xmin":…,"ymin":…,"xmax":…,"ymax":…,"spatialReference":{…}}</c>, and the reference it
+    /// names if it names one — the form ArcGIS Pro sends for <c>bbox</c> and <c>mapExtent</c>, which the REST
+    /// specification documents beside the four numbers.
+    /// </summary>
+    internal static bool TryEnvelopeObject(string value, string parameter, out Envelope extent, out int? srid, out string? error)
+    {
+        extent = Envelope.Empty;
+        srid = null;
+        error = null;
+
+        try
+        {
+            using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(value);
+            System.Text.Json.JsonElement root = document.RootElement;
+            double[] box = new double[4];
+            string[] names = ["xmin", "ymin", "xmax", "ymax"];
+
+            for (int i = 0; i < 4; i++)
+            {
+                if (root.ValueKind != System.Text.Json.JsonValueKind.Object
+                    || !root.TryGetProperty(names[i], out System.Text.Json.JsonElement ordinate)
+                    || ordinate.ValueKind != System.Text.Json.JsonValueKind.Number)
+                {
+                    error = $"`{parameter}` came as an object, which this server reads, but it has no "
+                        + "`xmin`, `ymin`, `xmax` and `ymax` numbers in it.";
+                    return false;
+                }
+
+                box[i] = ordinate.GetDouble();
+            }
+
+            if (box[2] <= box[0] || box[3] <= box[1])
+            {
+                error = $"`{parameter}` needs a positive width and height.";
+                return false;
+            }
+
+            if (root.TryGetProperty("spatialReference", out System.Text.Json.JsonElement reference))
+            {
+                srid = Srid(reference.GetRawText());
+            }
+
+            extent = new Envelope(box[0], box[1], box[2], box[3]);
+            return true;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            error = $"`{parameter}` is four comma-separated numbers, minx,miny,maxx,maxy, or an envelope object.";
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Reads a spatial reference, in either shape a client sends.
     /// </summary>
     /// <remarks>
@@ -216,7 +280,7 @@ internal sealed class MapServerExportParameters
     /// a parser that only takes the number refuses the desktop client — which is a
     /// lesson this repository already paid for once, on the FeatureServer face.
     /// </remarks>
-    private static int? Srid(string? value)
+    internal static int? Srid(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {

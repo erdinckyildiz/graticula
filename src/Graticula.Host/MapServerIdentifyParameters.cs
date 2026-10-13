@@ -209,6 +209,12 @@ internal sealed class MapServerIdentifyParameters
             return false;
         }
 
+        // ArcGIS Pro sends it as an envelope object, as it sends export's bbox.
+        if (value.TrimStart().StartsWith('{'))
+        {
+            return MapServerExportParameters.TryEnvelopeObject(value, "mapExtent", out extent, out _, out error);
+        }
+
         string[] parts = value.Split(',', StringSplitOptions.TrimEntries);
         double[] numbers = new double[4];
 

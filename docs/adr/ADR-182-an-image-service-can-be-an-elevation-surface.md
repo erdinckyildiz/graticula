@@ -123,7 +123,11 @@ dropped the inner — now refused (`RasterFunction.TryParseRule`).
 
 ## Conditions
 
-1. **ArcGIS Pro adds the service as an elevation source of a local or global scene** and draws relief from it.
+1. **ArcGIS Pro adds the service as an elevation source of a local or global scene** and draws relief from it. Tried
+   2026-10-13 through arcpy (Pro 3.7): a scene whose ground is this server's surface, built from a 2.x `.mapx` that Pro
+   imports and upgrades, lists it as its elevation source — but a layout export draws a scene with this ground, with
+   Terrain3D's and with none identically to the byte, so a headless export does not show whether Pro reads the
+   heights. Still owed, in Pro's own window.
 2. **A portal item for an elevation surface opens in Scene Viewer as ground.** The SDK refuses a portal item of type
    *Image Service* where it expects *Image Service Elevation 3D Layer*; what this server's portal says for a surface
    has not been changed.
