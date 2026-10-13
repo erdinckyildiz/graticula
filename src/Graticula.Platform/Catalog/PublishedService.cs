@@ -218,6 +218,11 @@ public sealed class PublishedService
     /// <summary>The OGC faces its owner turned off — <c>WMS</c>, <c>WFS</c>, <c>OGCFeatures</c>, <c>KML</c> (ADR-166).</summary>
     public IReadOnlyList<string> OgcOff { get; init; } = [];
 
+    /// <summary>
+    /// Its credits — the copyright and attribution its data asks for, ArcGIS's <c>copyrightText</c> — or null.
+    /// </summary>
+    public string? CopyrightText { get; init; }
+
     /// <summary>What using its OGC faces costs, as its owner states it, or null (ADR-167).</summary>
     public string? OgcFees { get; init; }
 

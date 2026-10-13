@@ -389,7 +389,8 @@ internal static partial class ImageServerEndpoints
             pixelType = PixelType(info.Bands[0].Kind),
             minPixelSize = 0,
             maxPixelSize = 0,
-            copyrightText = string.Empty,
+            // Its owner's credits, which the SDK's attribution reads — the Copernicus line sat in the description (review).
+            copyrightText = coverage.CopyrightText ?? string.Empty,
             // ADR-182: an elevation surface says so, as Esri's elevation services do.
             serviceDataType = coverage.Elevation ? "esriImageServiceDataTypeElevation" : "esriImageServiceDataTypeGeneric",
 

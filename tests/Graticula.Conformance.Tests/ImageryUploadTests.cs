@@ -87,6 +87,14 @@ public sealed class ImageryUploadTests : ArcGisClient
             Assert.Contains("ortho", tags);
             Assert.Contains("Hosted Service", item.GetProperty("typeKeywords").EnumerateArray().Select(t => t.GetString()));
 
+            // Its credits are the ImageServer's copyrightText, which the SDK's attribution reads.
+            (HttpStatusCode credited, string creditedBody) = await SendAsync(root, token!, HttpMethod.Put,
+                $"/admin/services/{name}/credits?folder=hosted",
+                new StringContent("{\"credits\":\"© The test square\"}", Encoding.UTF8, "application/json"));
+            Assert.True(credited == HttpStatusCode.OK, $"Crediting it answered {(int)credited}: {creditedBody}");
+            (_, string withCredits) = await SendAsync(root, token!, HttpMethod.Get, $"/rest/services/hosted/{name}/ImageServer?f=json");
+            Assert.Equal("© The test square", JsonDocument.Parse(withCredits).RootElement.GetProperty("copyrightText").GetString());
+
             // And the service says it too, as a FeatureServer does: the document's description was always empty.
             (_, string served) = await SendAsync(root, token!, HttpMethod.Get, $"/rest/services/hosted/{name}/ImageServer?f=json");
             Assert.Equal("Orthophoto of the test square.", JsonDocument.Parse(served).RootElement.GetProperty("description").GetString());

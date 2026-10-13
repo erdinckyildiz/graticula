@@ -161,7 +161,10 @@ public sealed class PostgresLayerCatalog
         s.ogc_fees as service_ogc_fees, s.ogc_access_constraints as service_ogc_access,
 
         -- ADR-172, migration 82.
-        s.ogc_inspire as service_ogc_inspire
+        s.ogc_inspire as service_ogc_inspire,
+
+        -- Migration 85: its credits.
+        s.copyright_text as service_copyright_text
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -585,6 +588,9 @@ public sealed class PostgresLayerCatalog
 
             // ADR-179.
             Title = Nullable(reader, "layer_title"),
+
+            // Migration 85: its service's credits, which a layer's own document states as an ArcGIS layer's does.
+            ServiceCopyrightText = Nullable(reader, "service_copyright_text"),
         };
     }
 
@@ -958,6 +964,7 @@ public sealed class PostgresLayerCatalog
         List<Guid> order = [];
         Dictionary<Guid, string[]> ogcOff = [];
         Dictionary<Guid, (string? Fees, string? Access)> ogcTerms = [];
+        Dictionary<Guid, string?> credits = [];
         Dictionary<Guid, Graticula.Catalog.InspireSettings?> ogcInspire = [];
 
         // <b>Its own scope, so the reader is closed before the group query
@@ -1043,6 +1050,7 @@ public sealed class PostgresLayerCatalog
                     ogcOff[owning] = reader.GetFieldValue<string[]>(reader.GetOrdinal("service_ogc_off"));
                     ogcTerms[owning] = (Nullable(reader, "service_ogc_fees"), Nullable(reader, "service_ogc_access"));
                     ogcInspire[owning] = Graticula.Catalog.InspireSettings.Parse(Nullable(reader, "service_ogc_inspire"));
+                    credits[owning] = Nullable(reader, "service_copyright_text");
                 }
 
                 // A left join, so a service with no layers arrives as one row of
@@ -1122,6 +1130,7 @@ public sealed class PostgresLayerCatalog
                 OgcFees = ogcTerms.TryGetValue(id, out var terms) ? terms.Fees : null,
                 OgcAccessConstraints = terms.Access,
                 Inspire = ogcInspire.GetValueOrDefault(id),
+                CopyrightText = credits.GetValueOrDefault(id),
             });
         }
 

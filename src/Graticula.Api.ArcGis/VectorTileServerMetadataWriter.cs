@@ -64,6 +64,7 @@ public static class VectorTileServerMetadataWriter
     /// not the tile grid's. The grid is Web Mercator here; the data need not be. A service cut on
     /// another grid (ADR-096) is written by the overload that takes a scheme.
     /// </param>
+    /// <param name="copyrightText">The service's credits — copyright and attribution — or null for none.</param>
     /// <returns>The document.</returns>
     /// <param name="range">The range the service draws in, or none — ADR-070.</param>
     public static object Service(
@@ -74,7 +75,10 @@ public static class VectorTileServerMetadataWriter
         int srid,
 
         // ADR-070, on the end and optional: the range the whole service draws in — see the caller.
-        Graticula.Cartography.VisibleScaleRange range = default)
+        Graticula.Cartography.VisibleScaleRange range = default,
+
+        // Its owner's credits, which the SDK's attribution reads. On the end and optional, like the range.
+        string? copyrightText = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
         ArgumentNullException.ThrowIfNull(sourceLayerNames);
@@ -109,6 +113,7 @@ public static class VectorTileServerMetadataWriter
         {
             currentVersion = FeatureServerMetadataWriter.CurrentVersion,
             name = serviceName,
+            copyrightText = copyrightText ?? string.Empty,
             // V-63: the tile map is offered, and named where the ArcGIS JS API looks for it.
             capabilities = "TilesOnly,Tilemap",
             tileMap = "tilemap",
@@ -160,6 +165,7 @@ public static class VectorTileServerMetadataWriter
     /// <param name="extent">The data's extent <b>in the scheme's reference</b>, or null when it is unknown.</param>
     /// <param name="scheme">The grid the service is cut on.</param>
     /// <param name="range">The range the service draws in, or none — ADR-070.</param>
+    /// <param name="copyrightText">The service's credits — copyright and attribution — or null for none.</param>
     /// <returns>The document.</returns>
     /// <remarks>
     /// <para>
@@ -182,13 +188,14 @@ public static class VectorTileServerMetadataWriter
         IReadOnlyList<string> sourceLayerNames,
         Envelope? extent,
         Graticula.Tiles.VectorTileScheme scheme,
-        Graticula.Cartography.VisibleScaleRange range = default)
+        Graticula.Cartography.VisibleScaleRange range = default,
+        string? copyrightText = null)
     {
         ArgumentNullException.ThrowIfNull(scheme);
 
         if (scheme.IsWebMercator)
         {
-            return Service(serviceName, sourceLayerNames, extent, scheme.MaxLevel, 3857, range);
+            return Service(serviceName, sourceLayerNames, extent, scheme.MaxLevel, 3857, range, copyrightText);
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
@@ -210,6 +217,7 @@ public static class VectorTileServerMetadataWriter
         {
             currentVersion = FeatureServerMetadataWriter.CurrentVersion,
             name = serviceName,
+            copyrightText = copyrightText ?? string.Empty,
             capabilities = "TilesOnly,Tilemap",
             tileMap = "tilemap",
             type = "indexedVector",

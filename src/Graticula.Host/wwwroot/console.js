@@ -7156,12 +7156,15 @@ function describedAs(item) {
   const tags = (item.tags || []).length
     ? `<p class="tagline">${item.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : "";
 
+  // Its credits, which every map that draws it shows in its attribution (copyrightText, Portal's Credits).
+  const credits = item.credits ? `<p class="hint">Credits: ${h(item.credits)}</p>` : "";
+
   return item.description
-    ? `<p class="lede">${h(item.description)}</p>${tags}${edit}`
+    ? `<p class="lede">${h(item.description)}</p>${credits}${tags}${edit}`
     : item.manages === false
       ? `<p class="hint">No description.</p>${tags}`
       : `<p class="hint">No description yet. A few words on what this is and where it came from make it
-         easier to find and to trust.</p>${tags}${edit}`;
+         easier to find and to trust.</p>${credits}${tags}${edit}`;
 }
 
 /** Turns the description into a box to type in, with Save and Cancel. */
@@ -7173,6 +7176,10 @@ function editDescription(qualified) {
 
   box.innerHTML = `<label class="field" style="display:block">Description
       <textarea id="describeText" rows="4" maxlength="4000" style="width:100%">${h(item?.description || "")}</textarea>
+    </label>
+    <label class="field" style="display:block;margin-top:var(--gap-2)">Credits — shown in the attribution of every map that draws it
+      <input type="text" id="describeCredits" maxlength="1000" style="width:100%" value="${h(item?.credits || "")}"
+        placeholder="e.g. © OpenStreetMap contributors">
     </label>
     <label class="field" style="display:block;margin-top:var(--gap-2)">Tags — separated by commas
       <input type="text" id="describeTags" style="width:100%" value="${h((item?.tags || []).join(", "))}"
@@ -7199,7 +7206,15 @@ async function saveDescription(qualified) {
       body: JSON.stringify({ description: text }),
     });
 
-    // The tags go with the description, from the same Save (ADR-111).
+    // The credits and the tags go with the description, from the same Save (ADR-111).
+    const credits = ($("describeCredits")?.value || "").trim();
+    await api(`/admin/services/${encodeURIComponent(name)}/credits`
+      + `?folder=${encodeURIComponent(folder || "")}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credits }),
+    });
+
     const tags = ($("describeTags")?.value || "").split(",").map(t => t.trim()).filter(Boolean);
     const saved = await api(`/admin/services/${encodeURIComponent(name)}/tags`
       + `?folder=${encodeURIComponent(folder || "")}`, {
@@ -7210,6 +7225,7 @@ async function saveDescription(qualified) {
 
     if (serviceItem && serviceItem.name === qualified) {
       serviceItem.description = text;
+      serviceItem.credits = credits;
       serviceItem.tags = saved?.tags || tags;
     }
     $("serviceDescription").innerHTML = describedAs(serviceItem || { name: qualified, description: text });

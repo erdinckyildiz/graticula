@@ -55,6 +55,7 @@ public static class MapServerMetadataWriter
     /// <param name="maxRecordCount">What a query may return.</param>
     /// <param name="time">The union of the layers' time extents, or null when none has time.</param>
     /// <param name="description">The service's description, or null for none.</param>
+    /// <param name="copyrightText">The service's credits — copyright and attribution — or null for none.</param>
     /// <returns>The document.</returns>
     public static object Service(
         IReadOnlyList<FeatureServerMetadataWriter.ServiceLayer> layers,
@@ -63,7 +64,8 @@ public static class MapServerMetadataWriter
         int maximumHeight,
         int maxRecordCount,
         (DateTimeOffset? From, DateTimeOffset? Until)? time = null,
-        string? description = null)
+        string? description = null,
+        string? copyrightText = null)
     {
         ArgumentNullException.ThrowIfNull(layers);
         ArgumentNullException.ThrowIfNull(capabilities);
@@ -82,7 +84,8 @@ public static class MapServerMetadataWriter
             mapName = "Layers",
             // The service's own description, as the FeatureServer document states it — where its data comes from (2026-10-12).
             description = description ?? string.Empty,
-            copyrightText = string.Empty,
+            // Its owner's credits, which every client shows in its attribution.
+            copyrightText = copyrightText ?? string.Empty,
             supportsDynamicLayers = false,
 
             layers = Entries(layers),
@@ -150,6 +153,7 @@ public static class MapServerMetadataWriter
     /// <param name="objectIdField">The layer's object id column, or null when it has none.</param>
     /// <param name="timeInfo">The layer's timeInfo, as the FeatureServer document writes it, or null.</param>
     /// <param name="archivingInfo">The layer's archivingInfo, as the FeatureServer document writes it, or null.</param>
+    /// <param name="copyrightText">The service's credits — copyright and attribution — or null for none.</param>
     /// <returns>The document.</returns>
     public static object Layer(
         FeatureServerMetadataWriter.ServiceLayer layer,
@@ -161,7 +165,8 @@ public static class MapServerMetadataWriter
         string capabilities = "Map",
         string? objectIdField = null,
         object? timeInfo = null,
-        object? archivingInfo = null)
+        object? archivingInfo = null,
+        string? copyrightText = null)
     {
         ArgumentNullException.ThrowIfNull(fields);
 
@@ -173,7 +178,7 @@ public static class MapServerMetadataWriter
             type = "Feature Layer",
             description = string.Empty,
             geometryType = GeometryName(layer.GeometryType),
-            copyrightText = string.Empty,
+            copyrightText = copyrightText ?? string.Empty,
             parentLayer = (object?)null,
             subLayers = Array.Empty<object>(),
             minScale = layer.MinScale,

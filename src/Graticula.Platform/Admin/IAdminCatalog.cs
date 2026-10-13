@@ -1343,6 +1343,18 @@ public interface IAdminCatalog
         string? description,
         CancellationToken cancellationToken);
 
+    /// <summary>Replaces a service's credits — ArcGIS's <c>copyrightText</c> — addressed by folder and name.</summary>
+    /// <param name="serviceName">The service.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="credits">The new text, or null to clear it.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>True when the service exists and was changed.</returns>
+    Task<bool> SetServiceCreditsAsync(
+        string serviceName,
+        string? folder,
+        string? credits,
+        CancellationToken cancellationToken);
+
     /// <summary>Changes a service's sharing scope, addressed by one of its layers.</summary>
     /// <param name="layerId">A layer in the service, by catalogue id.</param>
     /// <param name="sharing">The new scope.</param>

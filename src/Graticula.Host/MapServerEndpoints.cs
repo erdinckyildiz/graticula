@@ -158,7 +158,8 @@ internal static class MapServerEndpoints
                 await ServerPageSize.OfAsync(context, cancellation).ConfigureAwait(false),
                 settings.MaximumRecordCount),
             await TimeOfServiceAsync(service, contexts, cancellation).ConfigureAwait(false),
-            service.Description);
+            service.Description,
+            service.CopyrightText);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
@@ -284,7 +285,8 @@ internal static class MapServerEndpoints
             CapabilityCeilings.Refuses(layer, "Query") ? string.Empty : Capabilities,
             layer.Definition.IntegerIdentityColumn,
             FeatureServerMetadataWriter.TimeInfo(time is null ? null : (time.Field, time.From, time.Until)),
-            FeatureServerMetadataWriter.ArchivingInfo(described));
+            FeatureServerMetadataWriter.ArchivingInfo(described),
+            layer.ServiceCopyrightText);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {

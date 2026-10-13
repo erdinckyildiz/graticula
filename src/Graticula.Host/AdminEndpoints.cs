@@ -330,6 +330,9 @@ internal sealed record SharingRequest(string? Sharing);
 /// <summary>A service's description, as the item page writes it. Empty or null clears it.</summary>
 internal sealed record DescriptionRequest(string? Description);
 
+/// <summary>A service's credits, as the item page writes them — ArcGIS's <c>copyrightText</c>. Empty or null clears them.</summary>
+internal sealed record CreditsRequest(string? Credits);
+
 /// <summary>The edits an owner offers (Create, Update, Delete, Extract), or null to return to the ceiling alone.</summary>
 internal sealed record EditingRequest(string[]? Operations);
 
@@ -670,6 +673,7 @@ internal static partial class AdminEndpoints
         app.MapGet("/admin/services", ListSystemServicesAsync);
         app.MapPut("/admin/services/{name}/sharing", SetServiceSharingAsync);
         app.MapPut("/admin/services/{name}/description", SetServiceDescriptionAsync);
+        app.MapPut("/admin/services/{name}/credits", SetServiceCreditsAsync);
         app.MapGet("/admin/services/{name}/stewardship", GetStewardshipAsync);
         app.MapPut("/admin/services/{name}/ogc", SetOgcOffAsync);
         app.MapPut("/admin/services/{name}/ogc/terms", SetOgcTermsAsync);
@@ -1236,6 +1240,8 @@ internal static partial class AdminEndpoints
                 folder = service.Folder,
                 kind = service.Kind,
                 description = service.Description,
+                // Its credits, which the item page shows and edits with the description.
+                credits = service.CopyrightText,
                 tags = service.Tags,
 
                 // ADR-113: whether it is a view, and whether it has any.
@@ -5079,6 +5085,66 @@ internal static partial class AdminEndpoints
 
     /// <summary>The longest description the item page may store.</summary>
     internal const int MaximumDescriptionLength = 4000;
+
+    /// <summary>The longest credits the item page may store — a line in a map's attribution, not a licence.</summary>
+    internal const int MaximumCreditsLength = 1000;
+
+    /// <summary>
+    /// Replaces an ordinary service's credits — the copyright and attribution its data asks for, ArcGIS's
+    /// <c>copyrightText</c> and Portal's <c>accessInformation</c>, which every client shows in its attribution. Its owner's
+    /// act, or an administrator's (ADR-075).
+    /// </summary>
+    /// <remarks>
+    /// <b>2026-10-13.</b> Every service document wrote <c>copyrightText</c> as an empty string and nothing stored one, so
+    /// the showcase's Copernicus attribution sat in the description, where no client's attribution reads it (the ArcGIS
+    /// veteran's review).
+    /// </remarks>
+    private static async Task SetServiceCreditsAsync(
+        HttpContext context,
+        string name,
+        string? folder,
+        CreditsRequest request,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        PostgresLayerCatalog owners,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        string? text = string.IsNullOrWhiteSpace(request.Credits) ? null : request.Credits.Trim();
+
+        if (text is { Length: > MaximumCreditsLength })
+        {
+            await Refuse(context, 400,
+                $"Credits may be at most {MaximumCreditsLength} characters; these are {text.Length}.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (!await ManagesServiceAsync(context, owners, at, name, "change the credits of", cancellation).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (!await catalog.SetServiceCreditsAsync(name, at, text, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404,
+                $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "service.credits", name,
+            Detail(new { folder = at, credits = text }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { name, folder = at, credits = text })
+            .ExecuteAsync(context).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Replaces an ordinary service's description — its owner's act, or an administrator's (ADR-075).

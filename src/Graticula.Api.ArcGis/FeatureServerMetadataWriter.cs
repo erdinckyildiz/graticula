@@ -483,13 +483,15 @@ public static class FeatureServerMetadataWriter
     /// What this deployment permits at most, so the document never advertises more than the
     /// server will give. Configurable since 2026-08-19; it was a compile-time constant.
     /// </param>
+    /// <param name="copyrightText">The service's credits — copyright and attribution — or null for none.</param>
     public static object Service(
         IReadOnlyList<ServiceLayer> layers,
         string capabilities,
         string? description = null,
         IReadOnlyList<ServiceGroup>? groups = null,
         int? maxRecordCount = null,
-        int serverMaxRecordCount = MaxRecordCount)
+        int serverMaxRecordCount = MaxRecordCount,
+        string? copyrightText = null)
     {
         ArgumentNullException.ThrowIfNull(layers);
         // <b>An empty capabilities string is a real state, and refusing it was a 500 on a public
@@ -532,7 +534,8 @@ public static class FeatureServerMetadataWriter
             // somebody who will be refused when they press it.
             capabilities,
             description = description ?? string.Empty,
-            copyrightText = string.Empty,
+            // Its owner's credits, which every client shows in its attribution.
+            copyrightText = copyrightText ?? string.Empty,
             spatialReference = SpatialReference(srid),
             initialExtent = ExtentOrNull(InitialOf(layers) ?? extent, srid),
             fullExtent = ExtentOrNull(extent, srid),
@@ -728,6 +731,7 @@ public static class FeatureServerMetadataWriter
     /// <param name="maxScale">The smallest scale the layer draws at, or 0 for no limit — ADR-070.</param>
     /// <param name="time">The layer's time field and its measured extent, or null when it has none.</param>
     /// <param name="editOwnOnly">Whether editors may change only the features they added — ADR-115.</param>
+    /// <param name="copyrightText">The service's credits — copyright and attribution — or null for none.</param>
     public static object Layer(
         LayerDefinition layer,
         GeometryKind geometryType,
@@ -769,7 +773,10 @@ public static class FeatureServerMetadataWriter
         (string Field, DateTimeOffset? From, DateTimeOffset? Until)? time = null,
 
         // ADR-115: editors change only what they added. On the end and optional, like the rest.
-        bool editOwnOnly = false)
+        bool editOwnOnly = false,
+
+        // Its service's credits, which an ArcGIS client takes from the layer's own document. On the end, like the rest.
+        string? copyrightText = null)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
@@ -785,7 +792,7 @@ public static class FeatureServerMetadataWriter
             type = "Feature Layer",
             description = string.Empty,
             geometryType = ArcGisGeometryWriter.TypeName(geometryType),
-            copyrightText = string.Empty,
+            copyrightText = copyrightText ?? string.Empty,
 
             // <b>-1 for a layer at the top, which is what the specification means by no
             // parent</b> — the same spelling `Service()` and `GroupLayerDocument()` already use

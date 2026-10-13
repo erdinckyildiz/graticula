@@ -3251,7 +3251,8 @@ public static class Program
             // an operator who wanted *nothing on this server returns more than two thousand* had to set
             // it service by service and every new service started at 50,000 again. Advertised here as
             // well as enforced in the parser, because a client sizes its paging from this number.
-            settings.MaximumRecordCount);
+            settings.MaximumRecordCount,
+            service.CopyrightText);
 
         // ADR-113: a view says so, and so does a source with views.
         document = ViewFlags.Apply(context, document, service.ViewOf is not null, service.HasViews, serviceCapabilities);
@@ -3569,7 +3570,8 @@ public static class Program
             minScale: layer.VisibleRange.MinScale,
             maxScale: layer.VisibleRange.MaxScale,
             time: time is null ? null : (time.Field, time.From, time.Until),
-            editOwnOnly: layer.EditOwnOnly && description.Tracking.Creator is not null);
+            editOwnOnly: layer.EditOwnOnly && description.Tracking.Creator is not null,
+            copyrightText: layer.ServiceCopyrightText);
 
         // ADR-113: a view layer says so, and so does a source's.
         document = ViewFlags.Apply(context, document, layer.ViewOf is not null, layer.HasViews, layerCapabilities);

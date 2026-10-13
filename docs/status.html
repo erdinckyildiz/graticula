@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>7fd3ac98</code> · 2026-10-13 16:41</p>
+<p class="stamp">Generated from commit <code>8f1a8d8b</code> · 2026-10-13 18:40</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">181</div><div class="kpi-l">ADRs</div><div class="kpi-n">72 accepted outright</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi warn"><div class="kpi-v">15</div><div class="kpi-l">open debts</div><div class="kpi-n">270 repaid · 5 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">4839</div><div class="kpi-l">tests</div><div class="kpi-n">482 source files, 217,221 lines</div></div>
+<div class="kpi good"><div class="kpi-v">4841</div><div class="kpi-l">tests</div><div class="kpi-n">482 source files, 217,431 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -516,7 +516,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1356</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.3%"></div></div><div class="bar-n">885</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.9%"></div></div><div class="bar-n">745</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.1%"></div></div><div class="bar-n">747</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.0%"></div></div><div class="bar-n">542</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.2%"></div></div><div class="bar-n">409</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.9%"></div></div><div class="bar-n">283</div></div>
@@ -529,6 +529,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>8f1a8d8b</code><time>2026-10-13</time><span>MapServer export draws a box given in one reference in another, as exportImage does</span></li>
+<li><code>9cb978f6</code><time>2026-10-13</time><span>ADR-182: an image service can be an elevation surface, the ground of a 3D scene</span></li>
 <li><code>7fd3ac98</code><time>2026-10-13</time><span>An image service&#x27;s exports, slope and default stretch answer what was asked</span></li>
 <li><code>ae95ebe5</code><time>2026-10-13</time><span>ADR-181: the ArcGIS REST API version this server reports is 12.1</span></li>
 <li><code>30f1e58b</code><time>2026-10-13</time><span>An image service is described from all of its image, and says its description</span></li>
@@ -541,8 +543,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>ff8f385f</code><time>2026-10-13</time><span>Both SLDs this server writes are validated against OGC&#x27;s own schemas, offline, on every run</span></li>
 <li><code>f2a66223</code><time>2026-10-13</time><span>A remote GeoParquet read goes through an egress proxy that refuses private addresses, redirects included</span></li>
 <li><code>4756f911</code><time>2026-10-13</time><span>A drawn map reads in pages of 500,000: a million polygons at full extent in 10.5 s, where it took 65</span></li>
-<li><code>270d21ef</code><time>2026-10-13</time><span>Small attachments give their connection back before a slow client reads them, and a raster file declaring an impossible image is refused at the door</span></li>
-<li><code>c85732a5</code><time>2026-10-13</time><span>A background import waits out a full datastore budget; a request is still refused at once</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

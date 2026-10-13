@@ -140,16 +140,25 @@ public sealed class ContentListTests : ConsoleTest
         await Browser.EvaluateAsync<bool>(
             "(document.getElementById('describeText').value = 'Written by ContentListTests.', true)");
 
+        // Its credits are written beside it, from the same Save, and shown under it.
+        await Browser.EvaluateAsync<bool>(
+            "(document.getElementById('describeCredits').value = '© ContentListTests', true)");
+
         await ClickAsync("#serviceDescription [data-describe-save]");
+
+        await WaitForAsync(
+            "/Written by ContentListTests/.test(document.getElementById('serviceDescription').textContent)",
+            "After Save the page does not show the description that was saved.");
 
         string[] writes = await WritesAsync();
 
         Assert.Contains(writes, w => w.StartsWith("PUT ", StringComparison.Ordinal)
             && w.Contains("/description", StringComparison.Ordinal));
-
-        await WaitForAsync(
-            "/Written by ContentListTests/.test(document.getElementById('serviceDescription').textContent)",
-            "After Save the page does not show the description that was saved.");
+        Assert.Contains(writes, w => w.StartsWith("PUT ", StringComparison.Ordinal)
+            && w.Contains("/credits", StringComparison.Ordinal));
+        Assert.Contains("Credits: © ContentListTests",
+            await Browser.EvaluateAsync<string>("document.getElementById('serviceDescription').textContent") ?? "",
+            StringComparison.Ordinal);
 
         NothingWentWrong(await PageErrorsAsync());
     }

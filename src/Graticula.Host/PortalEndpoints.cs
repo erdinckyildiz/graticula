@@ -1706,6 +1706,7 @@ internal static class PortalEndpoints
                     : ImageServiceKeywords,
             description = coverage.Description,
             snippet = coverage.Description,
+            accessInformation = coverage.CopyrightText,
             tags = coverage.Tags.Concat(coverage.Folder is null ? [] : new[] { coverage.Folder })
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             url = $"{Origin(context)}/rest/services/{coverage.QualifiedName}/ImageServer",
@@ -2089,6 +2090,8 @@ internal static class PortalEndpoints
                 face, service.Layers.Count > 0 && service.Layers.All(l => l.Definition.IsHosted), service.ViewOf is not null),
             description = service.Description,
             snippet = service.Description,
+            // Portal's Credits, which a map's attribution shows: the service's own.
+            accessInformation = service.CopyrightText,
             // ADR-111: the service's own tags; the folder stays as one, as it always was.
             tags = service.Tags.Concat(service.Folder is null ? [] : new[] { service.Folder })
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),

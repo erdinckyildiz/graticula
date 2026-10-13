@@ -429,7 +429,8 @@ internal static class VectorTileEndpoints
                 [.. service.Layers.Select(l => l.Definition.Name)],
                 inScheme,
                 scheme,
-                ServiceRange(service.Layers));
+                ServiceRange(service.Layers),
+                copyrightText: service.CopyrightText);
         }
 
         // The extent comes from the same cached description the feature path
@@ -459,7 +460,8 @@ internal static class VectorTileEndpoints
             extent,
             TileAddress.MaxZoom,
             WebMercator,
-            ServiceRange(service.Layers));
+            ServiceRange(service.Layers),
+            copyrightText: service.CopyrightText);
     }
 
     /// <summary>

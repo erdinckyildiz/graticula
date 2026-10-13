@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(84);
+    public static SchemaVersion ComponentSchemaVersion => new(85);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -119,7 +119,19 @@ public static class PlatformMigrations
         AServiceStatesItsInspireSettingsV82,
         ALayerMayCarryATitleV83,
         AnImageMayBeAnElevationSurfaceV84,
+        AServiceStatesItsCreditsV85,
     ]);
+
+    /// <summary>
+    /// A service states its credits — the copyright and attribution its data asks for, ArcGIS's <c>copyrightText</c>
+    /// and Portal's <c>accessInformation</c>, which every client shows in its attribution.
+    /// </summary>
+    /// <remarks><b>Expand.</b> A nullable column; null is the empty text every service had. A build before this one
+    /// never reads it.</remarks>
+    private static Migration AServiceStatesItsCreditsV85 => Migration.Expand(
+        new SchemaVersion(85),
+        "A service states its credits, shown in every client's attribution.",
+        "alter table service add column if not exists copyright_text text");
 
     /// <summary>
     /// An image service may be an elevation surface — ADR-182: its owner says so, and it is then served as ArcGIS serves

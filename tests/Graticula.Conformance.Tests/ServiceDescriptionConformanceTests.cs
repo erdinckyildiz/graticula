@@ -54,6 +54,60 @@ public sealed class ServiceDescriptionConformanceTests : ArcGisClient
         }
     }
 
+    /// <summary>
+    /// Credits written are what every face's <c>copyrightText</c> says, the layer's too, and Portal's
+    /// <c>accessInformation</c>; empty clears them; past the limit is refused.
+    /// </summary>
+    /// <remarks>
+    /// Every document wrote <c>copyrightText</c> as an empty string and nothing stored one, so the showcase's Copernicus
+    /// attribution sat in a description no client's attribution reads (the ArcGIS veteran's review, 2026-10-13).
+    /// </remarks>
+    [Fact]
+    public async Task Credits_written_are_every_faces_copyright_text_and_the_items_credits()
+    {
+        string service = Environment.GetEnvironmentVariable("GRATICULA_TEST_QUERYABLE")
+            ?? await AnyServiceNameAsync()
+            ?? throw new InvalidOperationException("No service to credit.");
+
+        int cut = service.LastIndexOf('/');
+        string bare = cut < 0 ? service : service[(cut + 1)..];
+        string path = $"/admin/services/{Uri.EscapeDataString(bare)}/credits{FolderQuery(service)}";
+        string text = "© Conformance suite " + Guid.NewGuid().ToString("N")[..8];
+
+        try
+        {
+            (int status, string body) = await AdminAsync(HttpMethod.Put, path, JsonSerializer.Serialize(new { credits = text }));
+            Assert.True(status == 200, $"Writing credits answered {status}: {body}");
+
+            foreach (string face in new[] { "FeatureServer", "FeatureServer/0", "MapServer", "MapServer/0", "VectorTileServer" })
+            {
+                (int read, string document) = await AdminAsync(HttpMethod.Get, $"/rest/services/{service}/{face}?f=json");
+                Assert.True(read == 200, $"{face} answered {read}");
+                Assert.Equal(text, JsonDocument.Parse(document).RootElement.GetProperty("copyrightText").GetString());
+            }
+
+            (_, string listing) = await AdminAsync(HttpMethod.Get, "/content/items");
+            Assert.Equal(text, JsonDocument.Parse(listing).RootElement.GetProperty("items").EnumerateArray()
+                .First(i => i.GetProperty("name").GetString() == service).GetProperty("credits").GetString());
+
+            (_, string search) = await AdminAsync(HttpMethod.Get, $"/sharing/rest/search?q={Uri.EscapeDataString(bare)}&f=json");
+            Assert.Contains(JsonDocument.Parse(search).RootElement.GetProperty("results").EnumerateArray(),
+                r => r.TryGetProperty("accessInformation", out JsonElement a) && a.GetString() == text);
+
+            (status, body) = await AdminAsync(HttpMethod.Put, path, JsonSerializer.Serialize(new { credits = new string('x', 1001) }));
+            Assert.True(status == 400 && body.Contains("1000", StringComparison.Ordinal), $"Too long answered {status}: {body}");
+
+            (status, _) = await AdminAsync(HttpMethod.Put, path, JsonSerializer.Serialize(new { credits = " " }));
+            Assert.Equal(200, status);
+            (_, string cleared) = await AdminAsync(HttpMethod.Get, $"/rest/services/{service}/FeatureServer?f=json");
+            Assert.Equal(string.Empty, JsonDocument.Parse(cleared).RootElement.GetProperty("copyrightText").GetString());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Put, path, JsonSerializer.Serialize(new { credits = (string?)null }));
+        }
+    }
+
     /// <summary>Past the limit is refused with the limit named; a service that is not there is a 404.</summary>
     [Fact]
     public async Task Too_long_is_refused_and_a_missing_service_is_not_found()

@@ -350,6 +350,12 @@ public sealed class PublishedLayer
     /// </summary>
     public string? Title { get; init; }
 
+    /// <summary>
+    /// Its service's credits — ArcGIS's <c>copyrightText</c> — or null. Carried on the layer because a layer's document is
+    /// answered without its service, and an ArcGIS client takes a layer's attribution from the layer's own document.
+    /// </summary>
+    public string? ServiceCopyrightText { get; init; }
+
     /// <summary>The catalogue identity.</summary>
     public Guid Id { get; }
 

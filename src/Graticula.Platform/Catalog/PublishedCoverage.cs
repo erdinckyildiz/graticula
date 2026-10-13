@@ -115,6 +115,9 @@ public sealed class PublishedCoverage
     /// </summary>
     public bool Elevation { get; init; }
 
+    /// <summary>Its credits, kept on its service row — ArcGIS's <c>copyrightText</c> — or null.</summary>
+    public string? CopyrightText { get; init; }
+
     /// <summary>
     /// Its images as a catalog lists them — ADR-152 — or null when none was recorded: its files in order, numbered from
     /// one, named by their files.
