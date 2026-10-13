@@ -429,12 +429,23 @@ public static class Program
         // <b>The GeoParquet folders, ADR-066.</b> Before `LayerConnections`, which reads layers on
         // them, and the probe, which lists their files. With no root configured every folder is
         // refused by name and nothing is opened.
+        //
+        // <b>And every remote connection through the egress proxy — ADR-067 condition 2</b> — unless the deployment
+        // allows private addresses, which is the one thing the proxy exists to refuse.
+        EgressProxy? egress = settings.RemoteDataAllowPrivate ? null : new EgressProxy();
+
         GeoParquetSources duckDbSources = new(
             settings.GeoParquetRoot, settings.GeoParquetMemoryLimit, settings.GeoParquetThreads,
             settings.DuckDbExtensions, settings.RemoteDataAllowPrivate,
-            settings.MotherDuck ? System.IO.Path.Combine(settings.StatePath, "duckdb-extensions") : null);
+            settings.MotherDuck ? System.IO.Path.Combine(settings.StatePath, "duckdb-extensions") : null,
+            egress?.Address);
 
         builder.Services.AddSingleton(duckDbSources);
+
+        if (egress is not null)
+        {
+            builder.Services.AddSingleton(egress);
+        }
 
         builder.Services.AddSingleton<LayerConnections>();
 

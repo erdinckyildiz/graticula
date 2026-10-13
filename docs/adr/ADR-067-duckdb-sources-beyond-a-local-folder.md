@@ -279,6 +279,22 @@ defects are the reason an independent security review is condition 1 rather than
    Discharged by a DuckDB setting that refuses or checks redirects, by routing DuckDB through
    `http_proxy` to an egress proxy that refuses private destinations — which answers both — or by an
    egress rule in the deployment that the README documents.
+   **DISCHARGED 2026-10-13 by the second of those, built into the server rather than asked of the
+   deployment.** Measured first, on DuckDB 1.5.5: with `http_proxy` set, `httpfs` sends HTTPS as
+   `CONNECT host:port` — **each hop of a redirect included**, github.com and then
+   raw.githubusercontent.com — and plain HTTP as an absolute-URI request, and it bypasses the proxy
+   for no address, loopback included. So `EgressProxy`, on an ephemeral loopback port, resolves each
+   destination itself, refuses it `403` when any of its addresses is private, loopback or link-local
+   (`RemoteGeoParquetLocations.IsPrivate`, the registration check's own rule), and connects to the
+   address it checked — no window between the check and the connection for a name to move in, which
+   is the review's M3. Plain HTTP is forwarded one request per connection, rewritten to origin form
+   with `Connection: close`, so a second request on the same connection cannot reach the first one's
+   host. Every remote location's settings point `http_proxy` at it; a deployment that sets
+   `Graticula:RemoteDataAllowPrivate` has said its store is on its own network, and runs without it.
+   `EgressProxyTests` drives it as DuckDB does — a tunnel and a plain request to a private address
+   refused, a permitted tunnel carrying bytes both ways, a plain request forwarded once in origin form —
+   and `RemoteGeoParquetTests` shows the provider's half: with the proxy configured, DuckDB asked the
+   proxy for the file, and a proxy that refused it stopped the read.
 3. **The owner decides whether to report the `CREATE SECRET` defect to DuckDB** (§4); it is a
    security report about somebody else's product, and not this server's to file unasked.
 4. **MotherDuck is tested against a real account** before it is described as working. This build

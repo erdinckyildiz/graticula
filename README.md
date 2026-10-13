@@ -234,9 +234,11 @@ curl -sk -X POST https://localhost:8443/admin/datasources \
 it is a table — or one `https://…/name.parquet`. A public bucket needs only its region; a private
 one takes an access key, and an S3-compatible store an `endpoint`. The secret is sealed and never
 read back. A location that resolves to a private or loopback address is refused unless the
-deployment sets `Graticula__RemoteDataAllowPrivate=true`, and **a redirect from an allowed host is
-followed** — DuckDB offers no way to stop it — so a deployment that cares restricts the server's
-outbound traffic ([ADR-067](docs/adr/ADR-067-duckdb-sources-beyond-a-local-folder.md) §3).
+deployment sets `Graticula__RemoteDataAllowPrivate=true`. **The same check runs at every connection**,
+redirects included: DuckDB reaches remote locations through a proxy inside the server that resolves
+each destination and refuses a private one at the moment of connecting
+([ADR-067](docs/adr/ADR-067-duckdb-sources-beyond-a-local-folder.md) condition 2). A deployment that
+allows private addresses runs without it.
 
 ```bash
 curl -sk -X POST https://localhost:8443/admin/datasources \

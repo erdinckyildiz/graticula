@@ -194,6 +194,67 @@ public sealed class RemoteGeoParquetTests : IDisposable
         Assert.DoesNotContain("s3cr3t-value", refused.InnerException?.Message ?? string.Empty, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// ADR-067 condition 2: with an egress proxy configured, DuckDB asks the proxy rather than the server — so a
+    /// proxy that refuses the destination stops the read.
+    /// </summary>
+    /// <remarks>
+    /// <b>A proxy that writes down what it was asked and refuses it.</b> The host's own proxy decides by address;
+    /// what is pinned here is the provider's half — that the setting reaches DuckDB, and that DuckDB obeys it for
+    /// a remote read instead of connecting on its own. Read without the proxy, the same file answers 100 rows
+    /// (<see cref="One_file_over_http_is_a_table_and_answers_a_query"/>).
+    /// </remarks>
+    [Fact]
+    public void A_remote_read_goes_through_the_egress_proxy_and_stops_when_the_proxy_refuses()
+    {
+        using TcpListener refusing = new(IPAddress.Loopback, 0);
+        refusing.Start();
+        List<string> asked = [];
+
+        Task listening = Task.Run(async () =>
+        {
+            while (true)
+            {
+                TcpClient one;
+                try { one = await refusing.AcceptTcpClientAsync(); }
+                catch (Exception e) when (e is ObjectDisposedException or SocketException) { return; }
+
+                using (one)
+                {
+                    NetworkStream stream = one.GetStream();
+                    byte[] buffer = new byte[4096];
+                    int read = await stream.ReadAsync(buffer);
+                    string line = System.Text.Encoding.ASCII.GetString(buffer, 0, read).Split("\r\n")[0];
+                    lock (asked) asked.Add(line);
+                    await stream.WriteAsync("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"u8.ToArray());
+                }
+            }
+        });
+
+        GeoParquetOptions proxied = Options() with { EgressProxy = $"127.0.0.1:{((IPEndPoint)refusing.LocalEndpoint).Port}" };
+
+        // The listing reports a file it could not read as a problem rather than throwing; the refusal is that.
+        using (GeoParquetFolder remote = new(new RemoteGeoParquet(_server.Url("grid.parquet")), proxied))
+        {
+            GeoParquetTable table = remote.List().Single();
+
+            Assert.Equal(0, table.Rows);
+            Assert.Contains("could not be read", table.Problem ?? string.Empty, StringComparison.Ordinal);
+        }
+
+        refusing.Stop();
+
+        lock (asked)
+        {
+            Assert.Contains(asked, line => line.Contains(_server.Url("grid.parquet"), StringComparison.Ordinal));
+        }
+
+        Assert.Contains(
+            GeoParquetFolder.RemoteSettings(new RemoteGeoParquet(_server.Url("grid.parquet")), proxied),
+            setting => setting.Contains("http_proxy", StringComparison.Ordinal)
+                && setting.Contains(proxied.EgressProxy!, StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task One_file_over_http_is_a_table_and_answers_a_query()
     {

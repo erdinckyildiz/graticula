@@ -37,6 +37,15 @@ public sealed record GeoParquetOptions
     public TimeSpan RemoteMetadataLifetime { get; init; } = TimeSpan.FromMinutes(1);
 
     /// <summary>
+    /// <c>host:port</c> of the proxy every remote connection goes through, or null for none — ADR-067 condition 2.
+    /// </summary>
+    /// <remarks>
+    /// The host's egress proxy, which resolves each destination itself and refuses a private one at the moment of
+    /// connecting, so a redirect or a name that moved after the registration check meets the same check.
+    /// </remarks>
+    public string? EgressProxy { get; init; }
+
+    /// <summary>
     /// The MotherDuck extension's file, or null when MotherDuck is not enabled — ADR-067 §5.4. Not in
     /// <see cref="ExtensionDirectory"/>, because the image may not carry it: it is downloaded where
     /// the server can write.
@@ -443,7 +452,11 @@ public sealed partial class GeoParquetFolder : IDisposable
         settings.Add($"set global s3_access_key_id = {Literal(remote.AccessKeyId ?? string.Empty)}");
         settings.Add($"set global s3_secret_access_key = {Literal(remote.AccessKeyId is { Length: > 0 } ? remote.SecretAccessKey ?? string.Empty : string.Empty)}");
         settings.Add("set global s3_session_token = ''");
-        settings.Add("set global http_proxy = ''");
+        // <b>Through the host's egress proxy when there is one — ADR-067 condition 2.</b> DuckDB follows a redirect
+        // without asking and resolves a name when it connects, after the address check ran; measured on 1.5.5, it
+        // sends HTTPS through `http_proxy` with CONNECT — each hop of a redirect included — and plain HTTP as an
+        // absolute-URI request, so a proxy that checks the address it is about to connect to sees every one.
+        settings.Add($"set global http_proxy = {Literal(options.EgressProxy ?? string.Empty)}");
 
         // A listed key is never a pattern that walks the whole bucket (the review's P2).
         settings.Add("set global s3_allow_recursive_globbing = false");

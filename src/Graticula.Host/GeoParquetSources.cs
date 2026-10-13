@@ -64,7 +64,8 @@ internal sealed partial class GeoParquetSources : IDisposable
         int? threads = null,
         string? extensionDirectory = null,
         bool allowPrivate = false,
-        string? motherDuckDirectory = null)
+        string? motherDuckDirectory = null,
+        string? egressProxy = null)
     {
         Root = string.IsNullOrWhiteSpace(root) ? null : Normalise(Path.GetFullPath(root));
         _options = new GeoParquetOptions
@@ -72,6 +73,7 @@ internal sealed partial class GeoParquetSources : IDisposable
             MemoryLimit = memoryLimit,
             Threads = threads,
             ExtensionDirectory = string.IsNullOrWhiteSpace(extensionDirectory) ? null : Path.GetFullPath(extensionDirectory),
+            EgressProxy = egressProxy,
         };
         _allowPrivate = allowPrivate;
         _motherDuckDirectory = string.IsNullOrWhiteSpace(motherDuckDirectory) ? null : Path.GetFullPath(motherDuckDirectory);
