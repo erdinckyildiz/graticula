@@ -196,7 +196,19 @@ repository.
    `ImportLimits.Default`'s 50 MB proves the ceiling has moved for this path; without that measurement
    §5 is a hope with a mechanism attached.
 
-   **Open, and now known to be unmeetable as written.** The pipe streams and the importer does not:
+   **DISCHARGED 2026-10-13 — the importer streams too, and it is measured.** Each layer is read
+   twice: once to learn what the table is created as — every column's type, the geometry column's
+   kind and dimensionality — keeping nothing, and once to copy each row into it as it arrives,
+   through a bounded channel to `PostGisImporter`'s new streamed `ImportAsync`, which the held form
+   now calls. **Measured** ([benchmarks/geodatabase-import](../../benchmarks/geodatabase-import/RESULTS.md)):
+   a File Geodatabase of **1,200,000 points, 82.7 MB on disk** — past both of `ImportLimits.Default`'s
+   ceilings — imported end to end with every row landed; the server's peak working set was
+   **2,152 MB** with the importer that held the layer and **175 MB and 154 MB** in two runs of the
+   streamed one, from a start of about 140 MB. The price is the second read, 30.7 s against 35.5 s.
+   **Found on the way, and fixed the same day:** the 64 MB upload limit the import routes quote was
+   Kestrel's 30 MB, which refused this 31.2 MB archive before the handler saw it. What bounds this
+   path now is that upload — 64 MB of zipped archive, refused in this server's words — and not this
+   process's memory. *Was:* **Open, and now known to be unmeetable as written.** The pipe streams and the importer does not:
    `GeodatabaseImporter` collects the features into an `ImportedDataset`, because that is what
    `PostGisImporter` takes. So the ceiling stopped being the *format's* and became the *importer's*,
    which is a smaller claim than §4B made. The largest layer measured is 3,659 features; nothing here is

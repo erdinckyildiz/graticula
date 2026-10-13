@@ -293,37 +293,56 @@ public sealed class PostGisImporter
         ArgumentNullException.ThrowIfNull(dataset);
         ArgumentException.ThrowIfNullOrWhiteSpace(requestedName);
 
-        string table = TableNameFor(requestedName);
-
         // <b>The column keeps what every feature carries — ADR-080.</b> Until then a hosted table was always
         // two-dimensional and every elevation was read, counted and discarded (D-107). A typed column holds one
         // dimensionality, so a layer whose features all carry Z keeps it; one where some do and some do not
         // keeps what they share and counts the rest as flattened, because padding the others would invent
         // heights nobody measured.
         GeometryOrdinates stored = Ordinates.Common(dataset.Features.Select(feature => feature.Geometry));
-        int flattened = 0;
 
-        if (dataset.Features.Any(feature => feature.Geometry is { IsEmpty: false } shape
-                && (Ordinates.Of(shape) & ~stored) != GeometryOrdinates.None))
-        {
-            dataset = dataset with
-            {
-                Features =
-                [
-                    .. dataset.Features.Select(feature =>
-                    {
-                        if (feature.Geometry is not { IsEmpty: false } shape
-                            || (Ordinates.Of(shape) & ~stored) == GeometryOrdinates.None)
-                        {
-                            return feature;
-                        }
+        return await ImportAsync(dataset, stored, Asynchronously(dataset.Features), requestedName, cancellationToken)
+            .ConfigureAwait(false);
+    }
 
-                        flattened++;
-                        return feature with { Geometry = Ordinates.Keep(shape, stored) };
-                    }),
-                ],
-            };
-        }
+    /// <summary>
+    /// Creates the table and loads rows as they arrive, or leaves nothing behind — ADR-038 condition 1, D-108.
+    /// </summary>
+    /// <param name="schema">
+    /// The columns, the geometry type and the reference, learned from every row by a pass that kept none of them.
+    /// Its <see cref="ImportedDataset.Features"/> is not read.
+    /// </param>
+    /// <param name="stored">Which of Z and M every row's geometry carries — what that pass found in common.</param>
+    /// <param name="features">The rows, read again, each written into the copy as it comes and then let go.</param>
+    /// <param name="requestedName">The name the caller asked for.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Where it went.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Two passes over the source rather than one held in memory</b>, because what the table is created as —
+    /// every column's type, and the dimensionality of the geometry column — is a fact about all the rows, and the
+    /// table has to exist before the first one is copied. The caller reads the source once to learn those facts and
+    /// again to load it, so a layer this server imports is bounded by the datastore rather than by this process's
+    /// memory. The cost is reading the source twice, which ADR-038 condition 1's measurement weighs.
+    /// </para>
+    /// <para>
+    /// <b>The same transaction and the same refusals as the held form</b>, which is now a caller of this one: a row
+    /// that does not fit what the first pass inferred fails the copy, and the copy failing leaves the schema as it
+    /// was.
+    /// </para>
+    /// </remarks>
+    public async Task<ImportResult> ImportAsync(
+        ImportedDataset schema,
+        GeometryOrdinates stored,
+        IAsyncEnumerable<ImportedFeature> features,
+        string requestedName,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(features);
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedName);
+
+        ImportedDataset dataset = schema;
+        string table = TableNameFor(requestedName);
 
         await using NpgsqlConnection connection =
             await OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -337,7 +356,7 @@ public sealed class PostGisImporter
             connection, transaction, CreateTable(table, dataset, stored), cancellationToken)
             .ConfigureAwait(false);
 
-        int rows = await InsertAsync(connection, transaction, table, dataset, cancellationToken)
+        (int rows, int flattened) = await InsertAsync(connection, transaction, table, dataset, stored, features, cancellationToken)
             .ConfigureAwait(false);
 
         // The index and the statistics, inside the same transaction. Without the
@@ -1653,11 +1672,24 @@ public sealed class PostGisImporter
     /// because COPY cannot call a function — so the column is loaded in the
     /// source SRID and moved once, in place.
     /// </remarks>
-    private static async Task<int> InsertAsync(
+    /// <summary>A list as the stream the copy reads, so the held and the streamed import are one path.</summary>
+    private static async IAsyncEnumerable<ImportedFeature> Asynchronously(IReadOnlyList<ImportedFeature> features)
+    {
+        foreach (ImportedFeature feature in features)
+        {
+            yield return feature;
+        }
+
+        await Task.CompletedTask.ConfigureAwait(false);
+    }
+
+    private static async Task<(int Rows, int Flattened)> InsertAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         string table,
         ImportedDataset dataset,
+        GeometryOrdinates stored,
+        IAsyncEnumerable<ImportedFeature> features,
         CancellationToken cancellationToken)
     {
         StringBuilder columns = new("geom");
@@ -1684,6 +1716,7 @@ public sealed class PostGisImporter
         }
 
         int rows = 0;
+        int flattened = 0;
 
         await using (NpgsqlBinaryImporter writer = await connection.BeginBinaryImportAsync(
             $"copy {Qualified(table)} ({copyColumns}) from stdin (format binary)",
@@ -1694,18 +1727,27 @@ public sealed class PostGisImporter
             // Zero is no timeout; the caller's token bounds it, as it bounds ExecuteAsync.
             writer.Timeout = TimeSpan.Zero;
 
-            foreach (ImportedFeature feature in dataset.Features)
+            await foreach (ImportedFeature feature in features.WithCancellation(cancellationToken).ConfigureAwait(false))
             {
                 await writer.StartRowAsync(cancellationToken).ConfigureAwait(false);
 
-                if (feature.Geometry is null)
+                // ADR-080: what the column does not declare is dropped here, a row at a time, and counted.
+                Geometry? geometry = feature.Geometry;
+
+                if (geometry is { IsEmpty: false } shape && (Ordinates.Of(shape) & ~stored) != GeometryOrdinates.None)
+                {
+                    geometry = Ordinates.Keep(shape, stored);
+                    flattened++;
+                }
+
+                if (geometry is null)
                 {
                     await writer.WriteNullAsync(cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
                     await writer.WriteAsync(
-                        WkbWriter.ToArray(feature.Geometry), NpgsqlDbType.Bytea, cancellationToken)
+                        WkbWriter.ToArray(geometry), NpgsqlDbType.Bytea, cancellationToken)
                         .ConfigureAwait(false);
                 }
 
@@ -1742,7 +1784,7 @@ public sealed class PostGisImporter
             $"alter table {Qualified(table)} drop column import_wkb",
             cancellationToken).ConfigureAwait(false);
 
-        return rows;
+        return (rows, flattened);
     }
 
     private static async Task WriteValueAsync(

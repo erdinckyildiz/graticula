@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Graticula.Catalog;
 using Graticula.Features;
@@ -35,12 +36,11 @@ namespace Graticula.Host;
 /// <see cref="IJobStore"/> refuses. Each layer's outcome goes into the job's detail as it happens.
 /// </para>
 /// <para>
-/// <b>What this does not yet do, and ADR-038 condition 1 is the record of it.</b> The features are
-/// streamed from the reader and then <b>held in memory</b> as an <see cref="ImportedDataset"/>, because
-/// that is what <c>PostGisImporter</c> takes. So the pipe streams and the importer does not, and the
-/// 1,000,000-feature ceiling has not moved for this path — it has only stopped being a *format's*
-/// ceiling. The owner's largest layer is 3,659 features, so nothing here is bounded by it today; the
-/// condition stays open and says so rather than being quietly discharged.
+/// <b>The import streams as well as the pipe — ADR-038 condition 1, since 2026-10-13.</b> Until then the
+/// features were streamed from the reader and then <b>held in memory</b> as an <see cref="ImportedDataset"/>,
+/// so the 1,000,000-feature ceiling had not moved for this path, only changed owner (D-108). Now each layer is
+/// read twice: once to learn the table's shape, keeping nothing, and once to copy each row into it as it
+/// arrives. What this process holds for a layer is a channel of a few thousand rows.
 /// </para>
 /// </remarks>
 internal sealed class GeodatabaseImporter : BackgroundService
@@ -638,7 +638,6 @@ internal sealed class GeodatabaseImporter : BackgroundService
     private async Task<Landed> PublishAsync(
         Request asked, string archive, string layer, CancellationToken stopping)
     {
-        List<ImportedFeature> features = [];
         Dictionary<string, InferredColumn> columns = new(StringComparer.Ordinal);
         // <b>The first geometry decides, because `GeometryKind` has no unknown member.</b>
         // `GeoJsonFeatures` unifies the kinds it sees the same way; a layer whose features disagree is
@@ -652,74 +651,96 @@ internal sealed class GeodatabaseImporter : BackgroundService
         string? unread = null;
         int shapeless = 0;
 
+        // <b>Counted and observed, and not kept — ADR-038 condition 1, D-108.</b> Until 2026-10-13 every feature
+        // was collected into a list here and handed to the importer whole, so the wire streamed and the import did
+        // not, and a layer was bounded by this process's memory. The table's shape — each column's type, the
+        // geometry column's kind and dimensionality — is a fact about every row and has to be known before the
+        // first row is copied, so this pass learns it and keeps nothing; the second reads the layer again and
+        // copies each row as it arrives.
+        int count = 0;
+        GeometryOrdinates? common = null;
+
+        ImportedFeature Read(JsonElement root)
+        {
+            Geometry? geometry = null;
+
+            if (!root.TryGetProperty("g", out JsonElement shape)
+                || shape.ValueKind != JsonValueKind.String)
+            {
+                shapeless++;
+            }
+            else
+            {
+                try
+                {
+                    // <b>WKB rather than GeoJSON on this wire, and ADR-038 §4B records the
+                    // reversal.</b> GeoJSON's coordinates are WGS 84 by definition, which is why
+                    // `GeoJsonGeometry` refuses a position outside ±180/±90 — and the first real
+                    // archive is EPSG:2952, so every feature in it was refused by a check that was
+                    // doing its job. WKB has no opinion about the coordinate system; the header
+                    // declares it, and the importer decides what to store.
+                    // <b>Z and M are kept — ADR-080, closing D-107.</b> Six of the owner's eight
+                    // layers are `25D`; their elevations were read, counted and dropped until hosted
+                    // tables could hold them. The importer decides what the column declares.
+                    geometry = WkbReader.Read(
+                        Convert.FromBase64String(shape.GetString() ?? string.Empty),
+                        GeometryOrdinates.Z | GeometryOrdinates.M,
+                        out _);
+                }
+                catch (Exception refused)
+                    when (refused is WkbFormatException or FormatException
+                          or ArgumentException or NotSupportedException)
+                {
+                    unread ??= refused.Message;
+                }
+            }
+
+            Dictionary<string, JsonElement> values = new(StringComparer.Ordinal);
+
+            if (root.TryGetProperty("v", out JsonElement carried)
+                && carried.ValueKind == JsonValueKind.Object)
+            {
+                foreach (JsonProperty property in carried.EnumerateObject())
+                {
+                    // Cloned, because the document this element belongs to is disposed when the
+                    // line is — and a row holding freed memory is a defect that looks like data
+                    // corruption.
+                    values[property.Name] = property.Value.Clone();
+                }
+            }
+
+            return new ImportedFeature(geometry, values);
+        }
 
         (JsonDocument? header, JsonDocument? trailer) = await _reader.StreamAsync(
             new { op = "features", archive, layer },
             Deadline,
             line =>
             {
-                JsonElement root = line.RootElement;
+                ImportedFeature feature = Read(line.RootElement);
+                count++;
 
-                Geometry? geometry = null;
-
-                if (!root.TryGetProperty("g", out JsonElement shape)
-                    || shape.ValueKind != JsonValueKind.String)
+                if (feature.Geometry is { } geometry)
                 {
-                    shapeless++;
-                }
-                else
-                {
-                    try
-                    {
-                        // <b>WKB rather than GeoJSON on this wire, and ADR-038 §4B records the
-                        // reversal.</b> GeoJSON's coordinates are WGS 84 by definition, which is why
-                        // `GeoJsonGeometry` refuses a position outside ±180/±90 — and the first real
-                        // archive is EPSG:2952, so every feature in it was refused by a check that was
-                        // doing its job. WKB has no opinion about the coordinate system; the header
-                        // declares it, and the importer decides what to store.
-                        // <b>Z and M are kept — ADR-080, closing D-107.</b> Six of the owner's eight
-                        // layers are `25D`; their elevations were read, counted and dropped until hosted
-                        // tables could hold them. The importer decides what the column declares.
-                        geometry = WkbReader.Read(
-                            Convert.FromBase64String(shape.GetString() ?? string.Empty),
-                            GeometryOrdinates.Z | GeometryOrdinates.M,
-                            out _);
+                    kind ??= geometry.Kind;
 
-                        kind ??= geometry.Kind;
-                    }
-                    catch (Exception refused)
-                        when (refused is WkbFormatException or FormatException
-                              or ArgumentException or NotSupportedException)
+                    // ADR-080's rule, the one `Ordinates.Common` applies to a list, applied a row at a time.
+                    if (!geometry.IsEmpty)
                     {
-                        unread ??= refused.Message;
+                        common = (common ?? (GeometryOrdinates.Z | GeometryOrdinates.M)) & Ordinates.Of(geometry);
                     }
                 }
 
-                Dictionary<string, JsonElement> values = new(StringComparer.Ordinal);
-
-                if (root.TryGetProperty("v", out JsonElement carried)
-                    && carried.ValueKind == JsonValueKind.Object)
+                foreach ((string name, JsonElement value) in feature.Values)
                 {
-                    foreach (JsonProperty property in carried.EnumerateObject())
+                    if (!columns.TryGetValue(name, out InferredColumn? column))
                     {
-                        // Cloned, because the document this element belongs to is disposed when the
-                        // line is — and a dataset holding freed memory is a defect that looks like data
-                        // corruption.
-                        JsonElement kept = property.Value.Clone();
-
-                        values[property.Name] = kept;
-
-                        if (!columns.TryGetValue(property.Name, out InferredColumn? column))
-                        {
-                            column = new InferredColumn { Name = property.Name };
-                            columns[property.Name] = column;
-                        }
-
-                        column.Observe(kept);
+                        column = new InferredColumn { Name = name };
+                        columns[name] = column;
                     }
-                }
 
-                features.Add(new ImportedFeature(geometry, values));
+                    column.Observe(value);
+                }
             },
             stopping).ConfigureAwait(false);
 
@@ -814,7 +835,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
                 + "geodatabase: a layer must not declare a system it is not in.");
         }
 
-        if (features.Count == 0)
+        if (count == 0)
         {
             // <b>D-106: the archive declares its schema, so an empty feature class is publishable.</b>
             // Every other import path in this server infers columns from the rows it read, which is the
@@ -873,7 +894,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
         if (kind is null)
         {
             throw new InvalidOperationException(
-                $"'{layer}' holds {features.Count} feature(s) and none of them carries a geometry this "
+                $"'{layer}' holds {count} feature(s) and none of them carries a geometry this "
                 + "server could read, so there is no geometry type to declare. "
                 + (unread is not null
                     ? $"The first one it refused: {unread}"
@@ -881,10 +902,10 @@ internal sealed class GeodatabaseImporter : BackgroundService
                       + "relationship table looks like — the inspection lists those and says so."));
         }
 
-        ImportedDataset dataset = new(features, [.. columns.Values], kind.Value, srid);
+        ImportedDataset dataset = new([], [.. columns.Values], kind.Value, srid);
 
-        ImportResult made = await _importer
-            .ImportAsync(dataset, layer, stopping).ConfigureAwait(false);
+        ImportResult made = await CopyAgainAsync(archive, layer, dataset, common ?? GeometryOrdinates.None, Read, stopping)
+            .ConfigureAwait(false);
 
         // <b>Into the named service, at the next free index.</b> This is the mechanism the
         // registered-table form has always used and the geodatabase import is its first other caller —
@@ -922,8 +943,74 @@ internal sealed class GeodatabaseImporter : BackgroundService
             ],
             null);
 
-        return await OverridesAsync(asked.Owner, at.Id, declared, madeColumns, values, new Landed(features.Count, made.Flattened, Kept: made.Stored), stopping)
+        return await OverridesAsync(asked.Owner, at.Id, declared, madeColumns, values, new Landed(made.Rows, made.Flattened, Kept: made.Stored), stopping)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads the layer a second time and copies each row into the table as it arrives — ADR-038 condition 1.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A bounded channel between the reader and the copy</b>, so neither outruns the other by more than a few
+    /// thousand rows: the reader waits when the copy is behind (<see cref="GeodatabaseReader.StreamAsync(object,
+    /// TimeSpan, Func{JsonDocument, ValueTask}, CancellationToken)"/> waits for each line to be taken), and the copy
+    /// waits when the reader is. What this process holds for a layer is the channel, not the layer.
+    /// </para>
+    /// <para>
+    /// <b>Either side failing stops the other.</b> A reader that dies completes the channel with its exception, which
+    /// the copy meets as its next row and fails on — inside the transaction, so nothing is left. A copy that fails
+    /// cancels the reader, which kills the child.
+    /// </para>
+    /// </remarks>
+    private async Task<ImportResult> CopyAgainAsync(
+        string archive,
+        string layer,
+        ImportedDataset schema,
+        GeometryOrdinates stored,
+        Func<JsonElement, ImportedFeature> read,
+        CancellationToken stopping)
+    {
+        Channel<ImportedFeature> rows = Channel.CreateBounded<ImportedFeature>(
+            new BoundedChannelOptions(4096) { SingleReader = true, SingleWriter = true });
+
+        using CancellationTokenSource both = CancellationTokenSource.CreateLinkedTokenSource(stopping);
+
+        Task reading = Task.Run(async () =>
+        {
+            try
+            {
+                (JsonDocument? header, JsonDocument? trailer) = await _reader.StreamAsync(
+                    new { op = "features", archive, layer },
+                    Deadline,
+                    line => rows.Writer.WriteAsync(read(line.RootElement), both.Token),
+                    both.Token).ConfigureAwait(false);
+
+                header?.Dispose();
+                trailer?.Dispose();
+                rows.Writer.TryComplete();
+            }
+            catch (Exception failed)
+            {
+                rows.Writer.TryComplete(failed);
+            }
+        }, CancellationToken.None);
+
+        try
+        {
+            return await _importer
+                .ImportAsync(schema, stored, rows.Reader.ReadAllAsync(both.Token), layer, stopping)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            await both.CancelAsync().ConfigureAwait(false);
+            throw;
+        }
+        finally
+        {
+            await reading.ConfigureAwait(false);
+        }
     }
 
     /// <summary>

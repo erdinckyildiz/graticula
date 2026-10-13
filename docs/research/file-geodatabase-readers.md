@@ -536,4 +536,4 @@ features** have a Z. The declared type says what the layer is for; only the feat
 **And the ceiling did not move — it changed owner.** The pipe has no limit and the importer collects the
 whole layer into an `ImportedDataset`, so `ImportLimits.Default`'s million features is now bounded by
 memory instead of by a format. [D-108](../architecture-debt.md) carries that, and it is ADR-038's own
-condition 1 restated as a debt rather than quietly discharged.
+condition 1 restated as a debt rather than quietly discharged. *(Moved since, on 2026-10-13: the importer reads each layer twice and copies rows as they arrive, and 1,200,000 points imported with the server peaking at 175 MB against 2,152 MB held — [benchmarks/geodatabase-import](../../benchmarks/geodatabase-import/RESULTS.md).)*

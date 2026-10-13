@@ -314,10 +314,39 @@ internal sealed class GeodatabaseReader
     /// asked for.
     /// </para>
     /// </remarks>
-    public async Task<(JsonDocument? Header, JsonDocument? Trailer)> StreamAsync(
+    public Task<(JsonDocument? Header, JsonDocument? Trailer)> StreamAsync(
         object request,
         TimeSpan deadline,
         Action<JsonDocument> take,
+        CancellationToken cancellation = default)
+    {
+        ArgumentNullException.ThrowIfNull(take);
+
+        return StreamAsync(request, deadline, line =>
+        {
+            take(line);
+            return ValueTask.CompletedTask;
+        }, cancellation);
+    }
+
+    /// <summary>
+    /// Sends one request and hands every line to <paramref name="take"/>, waiting for it before reading the next.
+    /// </summary>
+    /// <remarks>
+    /// <b>Waited for, so the reader is held back by whoever is taking the lines</b> — ADR-038 condition 1. An import
+    /// that copies rows into the datastore as they arrive must not be outrun by the child: lines read faster than the
+    /// copy takes them would pile up here, and a pile in memory is the thing the streamed import exists to remove. The
+    /// child's pipe is the buffer, and the operating system bounds it.
+    /// </remarks>
+    /// <param name="request">The request object.</param>
+    /// <param name="deadline">How long the whole stream has before the child is killed.</param>
+    /// <param name="take">Called for each line that is neither the header nor the trailer; the line is disposed after.</param>
+    /// <param name="cancellation">The caller's own cancellation.</param>
+    /// <returns>The header and the trailer.</returns>
+    public async Task<(JsonDocument? Header, JsonDocument? Trailer)> StreamAsync(
+        object request,
+        TimeSpan deadline,
+        Func<JsonDocument, ValueTask> take,
         CancellationToken cancellation = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -415,7 +444,7 @@ internal sealed class GeodatabaseReader
 
                 using (one)
                 {
-                    take(one);
+                    await take(one).ConfigureAwait(false);
                 }
             }
 

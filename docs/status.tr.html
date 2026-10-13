@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>be83fd17</code> · 2026-10-13 12:08</p>
+<p class="stamp">Şu commit’ten üretildi: <code>552a9858</code> · 2026-10-13 13:03</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">178</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">328/408</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">77 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">329/408</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">76 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">15</div><div class="kpi-l">açık borç</div><div class="kpi-n">269 ödendi · 6 tetiğini bekliyor · 1 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">15</div><div class="kpi-l">açık borç</div><div class="kpi-n">270 ödendi · 5 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4818</div><div class="kpi-l">test</div><div class="kpi-n">481 kaynak dosya, 216,207 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4819</div><div class="kpi-l">test</div><div class="kpi-n">481 kaynak dosya, 216,393 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">96 madde</span></div><p><b>77 ADR conditions</b> outstanding across 56 decisions — the largest commitment on this page.</p><p><b>15 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">95 madde</span></div><p><b>76 ADR conditions</b> outstanding across 55 decisions — the largest commitment on this page.</p><p><b>15 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -159,7 +159,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-025 · Governance: what a gift owes, and </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-026 · Serving through a platform-store o</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-038 · How a geodatabase becomes one serv</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-046 · Admission control bounds the queue</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-047 · The outbound licence is Elastic Li</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-048 · CI does not run the real-data suit</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
@@ -242,7 +241,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">035</td><td>Role privileges are editable, except the administrator&#x27;s</td><td><span class="pill good">UNKNOWN</span></td><td class="muted-t">—</td><td class="num">7/7</td></tr>
 <tr><td class="id">036</td><td>Groups, and the two axes an authorization answer now has</td><td><span class="pill good">UNKNOWN</span></td><td class="muted-t">—</td><td class="num">5/5</td></tr>
 <tr><td class="id">037</td><td>Job workers come in two kinds</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">6/6</td></tr>
-<tr><td class="id">038</td><td>How a geodatabase becomes one service with many layers</td><td><span class="pill good">UNKNOWN</span></td><td class="muted-t">—</td><td class="num">5/6</td></tr>
+<tr><td class="id">038</td><td>How a geodatabase becomes one service with many layers</td><td><span class="pill good">UNKNOWN</span></td><td class="muted-t">—</td><td class="num">6/6</td></tr>
 <tr><td class="id">039</td><td>WFS 2.0, read-only, is the first surface after v1</td><td><span class="pill good">UNKNOWN</span></td><td class="muted-t">—</td><td class="num">6/6</td></tr>
 <tr><td class="id">040</td><td>The portal surface is how ArcGIS Pro connects</td><td><span class="pill good">UNKNOWN</span></td><td class="muted-t">—</td><td class="num">4/4</td></tr>
 <tr><td class="id">041</td><td>The map renderer, and the two faces that hang off it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the placement and the library · MEDIUM for labels · HIGH for throughput,…</td><td class="num">6/6</td></tr>
@@ -394,7 +393,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="scroll"><table><thead><tr><th>No</th><th>Borç</th><th>Ne zaman ödenir</th><th>Durum</th></tr></thead><tbody>
 <tr class=""><td class="id">D-04</td><td>Multi-tenant resource isolation is not designed.</td><td class="muted-t">Before multi-tenant deployments are supported</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-10</td><td>~~ADR-015 is implemented for local passwords only.~~ OIDC, LDAP and SAML 2.0 are built 2026-09-24, in the owner&#x27;s order (ADR-088, ADR-089, ADR-090); SCIM, API keys and mTLS remain unbuilt, and were not asked about.</td><td class="muted-t">OIDC before the first deployment with an IdP; /generateToken before any unmodified ArcGIS client is pointed at us The…</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-108</td><td>The pipe streams and the importer does not, so the million-feature ceiling has not moved — it has changed owner.</td><td class="muted-t">The first archive with a layer past a million features, which is an ordinary size for a national road network</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-115</td><td>The Server/Studio surface split is the single cause of four recorded console defects.</td><td class="muted-t">The next defect whose cause is the split</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-144</td><td>~~Nothing bounds how long one request may hold a database permit.~~ The headline is struck 2026-09-09 rather than reworded, because it was false and the correction had already been written into this row&#x27;s status cell without reaching its first sentence — half…</td><td class="muted-t">A way to refuse before the first byte, or a way to end a response that says why.</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-162</td><td>A provider that is not PostGIS would be handed PostGIS SQL.</td><td class="muted-t">When DuckDB is designed as the file-format query engine (Q-81), and not after.</td><td><span class="pill cond">PARTLY</span></td></tr>
@@ -414,7 +412,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-293</td><td>The conformance harness&#x27;s shared client keeps cookies.</td><td class="muted-t">The next test that asserts anonymity, or a sweep of the tests that sign in through Http</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-295</td><td>A GeoTIFF is opened apart at the door and read in the serving process afterwards.</td><td class="muted-t">When ImageServer or any raster read returns to scope, or the first time a file that passed the door faults a read: the…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">269 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">270 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -512,7 +510,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1351</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.8%"></div></div><div class="bar-n">875</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.9%"></div></div><div class="bar-n">742</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.0%"></div></div><div class="bar-n">743</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.1%"></div></div><div class="bar-n">542</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.2%"></div></div><div class="bar-n">408</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.9%"></div></div><div class="bar-n">283</div></div>
@@ -525,6 +523,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>552a9858</code><time>2026-10-13</time><span>The 64 MB a data upload is promised is 64 MB: the routes that read a file raise the server&#x27;s 30 MB</span></li>
+<li><code>e2611a6f</code><time>2026-10-13</time><span>A GeoTIFF somebody else chose is opened in the import reader&#x27;s process before this server opens it</span></li>
 <li><code>be83fd17</code><time>2026-10-13</time><span>No change to who administers leaves nobody able to sign in, and now a test says so over HTTP</span></li>
 <li><code>ff8f385f</code><time>2026-10-13</time><span>Both SLDs this server writes are validated against OGC&#x27;s own schemas, offline, on every run</span></li>
 <li><code>f2a66223</code><time>2026-10-13</time><span>A remote GeoParquet read goes through an egress proxy that refuses private addresses, redirects included</span></li>
@@ -537,8 +537,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>da613593</code><time>2026-10-12</time><span>GET /admin/layers/{name} reads one layer back, as the listing describes it</span></li>
 <li><code>4d31fe60</code><time>2026-10-12</time><span>The attachment pool under slow readers is measured: the ninth waits and gets 504, the feature path does not notice, and a 1 MB file does not release early</span></li>
 <li><code>efe04605</code><time>2026-10-12</time><span>The importer draws from the connection budget: an import and the requests reading the datastore compete for one pool of permits</span></li>
-<li><code>cfe79cbd</code><time>2026-10-12</time><span>A local administrator signs in while the directory and the OpenID provider are down, and a test breaks them to show it</span></li>
-<li><code>5f79859e</code><time>2026-10-12</time><span>ADR-103 condition 2 discharges: Update data refuses a publisher who does not own the layer, and a registered layer</span></li>
 </ol></section>
 <footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
