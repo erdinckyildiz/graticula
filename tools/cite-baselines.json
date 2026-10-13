@@ -36,9 +36,17 @@
   },
 
   "wms13": {
-    "failed": 5,
-    "run": "2026-09-27, 161 passed / 5 failed / 0 untested of 166 attempted",
+    "failed": 0,
+    "run": "2026-10-13, 219 passed / 0 failed / 0 untested of 219 attempted (run 38450273237)",
     "note": [
+      "Zero since 2026-10-13: the five were OGC's standard dataset being absent, as ADR-041",
+      "condition 6 said in August. ets-wms13 finds it by layer name (Lakes or cite:Lakes),",
+      "and the dataset was published only for WMS 1.1, which finds it by title, under names",
+      "it could not match (cite_Lakes). Named Lakes and titled cite:Lakes, one publication",
+      "serves both suites; the five passed and 53 checks that had nothing to draw ran.",
+      "",
+      "What follows is the history of the non-zero baseline.",
+      "",
       "Six is the number ADR-041 condition 6 recorded when it was discharged by running",
       "it -- 187 passed, 6 failed -- and it is a baseline rather than a target. It is the",
       "only non-zero one here, so it is the only place a regression could hide behind an",

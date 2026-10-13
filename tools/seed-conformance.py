@@ -345,19 +345,22 @@ def square(x, y, size, attributes):
     }
 
 
-def seed_cite_wms11(server, path=None):
-    """OGC's WMS 1.1.1 standard dataset, eleven layers titled cite:<Name> -- ADR-179.
+def seed_cite_wms(server, path=None):
+    """OGC's WMS standard dataset, eleven layers named <Name> and titled cite:<Name> -- ADR-179.
 
     <b>For the CITE workflow only.</b> ets-wms11 finds its standard dataset by
     layer title -- cite:Lakes, cite:Forests and nine more -- and ten of its checks
     asked for a layer the fixture did not have, so they measured the fixture
-    rather than the server (D-290). The data is OGC's own (tools/cite-data/wms11.json
-    says where from), in EPSG:4326 as published, in one service so that the
-    conformance suites' own fixtures are not disturbed.
+    rather than the server (D-290). <b>ets-wms13 finds the same dataset by layer
+    name</b> -- Lakes or cite:Lakes, and a name cannot carry the colon -- and five
+    of its checks sent an empty LAYERS for the same reason. Named one way and
+    titled the other, one dataset serves both suites. The data is OGC's own
+    (tools/cite-data/wms11.json says where from), in EPSG:4326 as published, in one
+    service so that the conformance suites' own fixtures are not disturbed.
     """
     path = path or os.path.join(os.path.dirname(os.path.abspath(__file__)), "cite-data", "wms11.json")
     data = json.load(open(path, encoding="utf-8"))
-    service = "cite_wms11"
+    service = "cite_wms"
     address = f"hosted/{service}"
     existing = set(server.layers())
 

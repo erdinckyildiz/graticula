@@ -47,7 +47,8 @@ were what a QGIS user read in the layer list, and they named tables.
 | Claim | Evidence | Source |
 |---|---|---|
 | Every OGC face shows it, and clearing it restores the composed one | `ALayerTitleIsWhatTheOgcFacesShowTests` | this repository |
-| OGC's dataset can now be published as the suite expects | eleven layers titled `cite:<Name>` listed in WMS 1.1.1 capabilities, from OGC's own `WmsTestData.zip` | `tools/cite-data/wms11.json`, `seed_cite_wms11` |
+| OGC's dataset can now be published as the suite expects | eleven layers titled `cite:<Name>` listed in WMS 1.1.1 capabilities, from OGC's own `WmsTestData.zip` | `tools/cite-data/wms11.json`, `seed_cite_wms` |
+| And the WMS 1.3 suite, which finds the same dataset by **name** | the layers named `<Name>` as well as titled `cite:<Name>`: **219 passed / 0 failed**, from 161 / 5 (run 38450273237, 2026-10-13) | `tools/cite-baselines.json`, [D-290](../architecture-debt.md) |
 | And the suite then passes | OGC's WMS 1.1 suite: 62 passed / 10 failed before, **129 passed / 0 failed** with the dataset (run 37593462477) — the ten were the dataset's absence, and 57 checks it had skipped ran | `tools/cite-baselines.json` |
 | The migration is an Expand | run on a copy of the fixture's store first: 10 layers, no titles, the check in place; minimum reader unchanged at 55 | by hand, 2026-10-07 |
 
@@ -60,7 +61,10 @@ composed title otherwise; OGC API Maps shows WMS's. Nothing addresses a layer by
 
 The CITE workflow publishes OGC's WMS 1.1.1 dataset — eleven layers, in EPSG:4326 as OGC publishes it — titled
 `cite:<Name>` before the WMS 1.1 suite runs, and removes it afterwards, so every other suite is measured on the
-fixture its baseline was.
+fixture its baseline was. **Since 2026-10-13 each layer is also *named* `<Name>`** (`Lakes`, not `cite_Lakes`), and
+the dataset is published before the WMS 1.3 suite rather than the 1.1: ets-wms13 looks a layer up by `Name` —
+`Lakes` or `cite:Lakes`, and a name cannot carry the colon — where ets-wms11 looks it up by title. One publication
+now serves both suites.
 
 ## 6. Consequences
 

@@ -459,6 +459,14 @@ an authorization decision that is.
    unrun assertions into a real number, and it is the next thing this condition wants
    rather than something it excuses.
 
+   **Done 2026-10-13, and the reading was right: 219 passed, 0 failed** (CITE run
+   38450273237). OGC's standard dataset had been published in CI since 2026-10-07 for
+   the WMS 1.1 suite, which finds it by layer *title*, under names this suite could not
+   match — it looks layers up by *name*, `Lakes` or `cite:Lakes`. Named `Lakes` and
+   titled `cite:Lakes`, the one publication serves both ([ADR-179](ADR-179-a-layer-may-carry-a-title.md)
+   §5), and the five that were left of the six passed without a line of the renderer
+   changing. `tools/cite-baselines.json` holds WMS 1.3 at zero from that run.
+
    **Two things the run needed that are worth writing down**, because both cost time
    and neither is in any documentation: the container resolves the host only with
    `--add-host DESKTOP-M804G0L:host-gateway`, and the CTL suite uses Java's default

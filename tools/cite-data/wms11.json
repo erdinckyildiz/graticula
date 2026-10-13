@@ -4,11 +4,15 @@
   "src/site/resources/OGCTestData/wms/1.1.1/data/WmsTestData.zip (mapinfo/*.mif), Apache License 2.0.",
   "Converted with ogr2ogr to EPSG:4326 and then to Esri JSON by a one-off script; Buildings keeps its",
   "footprints and drops the position points the MapInfo file carries beside them. Used only by",
-  "the CITE workflow (ADR-179), which publishes each as a layer titled cite:<Name>."
+  "the CITE workflow (ADR-179), which publishes each as a layer named <Name> and titled cite:<Name>:",
+  "ets-wms11 finds a layer by its title and ets-wms13 by its name, so one dataset serves both.",
+  "OGC's WMS 1.3.0 copy of the same data (ets-wms13 src/main/resources/data/gml) gives Blue Lake",
+  "an island, an inner ring this copy lacks; the one WMS 1.3 check drawn over it reads only the",
+  "border pixels, which are lake either way."
  ],
  "layers": [
   {
-   "name": "cite_BasicPolygons",
+   "name": "BasicPolygons",
    "title": "cite:BasicPolygons",
    "geometryType": "Polygon",
    "queryable": true,
@@ -124,7 +128,7 @@
    ]
   },
   {
-   "name": "cite_Bridges",
+   "name": "Bridges",
    "title": "cite:Bridges",
    "geometryType": "Point",
    "queryable": false,
@@ -155,7 +159,7 @@
    ]
   },
   {
-   "name": "cite_Buildings",
+   "name": "Buildings",
    "title": "cite:Buildings",
    "geometryType": "Polygon",
    "queryable": false,
@@ -243,7 +247,7 @@
    ]
   },
   {
-   "name": "cite_DividedRoutes",
+   "name": "DividedRoutes",
    "title": "cite:DividedRoutes",
    "geometryType": "MultiLineString",
    "queryable": false,
@@ -299,7 +303,7 @@
    ]
   },
   {
-   "name": "cite_Forests",
+   "name": "Forests",
    "title": "cite:Forests",
    "geometryType": "Polygon",
    "queryable": true,
@@ -364,7 +368,7 @@
    ]
   },
   {
-   "name": "cite_Lakes",
+   "name": "Lakes",
    "title": "cite:Lakes",
    "geometryType": "Polygon",
    "queryable": true,
@@ -417,7 +421,7 @@
    ]
   },
   {
-   "name": "cite_MapNeatline",
+   "name": "MapNeatline",
    "title": "cite:MapNeatline",
    "geometryType": "LineString",
    "queryable": false,
@@ -465,7 +469,7 @@
    ]
   },
   {
-   "name": "cite_NamedPlaces",
+   "name": "NamedPlaces",
    "title": "cite:NamedPlaces",
    "geometryType": "Polygon",
    "queryable": true,
@@ -557,7 +561,7 @@
    ]
   },
   {
-   "name": "cite_Ponds",
+   "name": "Ponds",
    "title": "cite:Ponds",
    "geometryType": "MultiPolygon",
    "queryable": true,
@@ -629,7 +633,7 @@
    ]
   },
   {
-   "name": "cite_RoadSegments",
+   "name": "RoadSegments",
    "title": "cite:RoadSegments",
    "geometryType": "LineString",
    "queryable": false,
@@ -786,7 +790,7 @@
    ]
   },
   {
-   "name": "cite_Streams",
+   "name": "Streams",
    "title": "cite:Streams",
    "geometryType": "LineString",
    "queryable": false,
