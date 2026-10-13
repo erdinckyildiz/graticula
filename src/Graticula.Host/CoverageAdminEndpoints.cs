@@ -432,6 +432,13 @@ internal static partial class CoverageAdminEndpoints
                 string path = file.Path;
                 added.Add(path);
 
+                // ADR-009 condition 1: opened in the import reader's process first, and bounded there.
+                if (await OpenedApartAsync(context, path, Path.GetFileName(file.Name), cancellation).ConfigureAwait(false) is { } apart)
+                {
+                    await Refuse(context, 400, apart).ConfigureAwait(false);
+                    return null;
+                }
+
                 try
                 {
                     using ICoverageReader reader = await readers.OpenAsync(path, cancellation).ConfigureAwait(false);
@@ -440,14 +447,6 @@ internal static partial class CoverageAdminEndpoints
                     {
                         await Refuse(context, 400, $"{Path.GetFileName(file.Name)} carries no EPSG code, so this server cannot "
                             + "say where it is. Save it with its coordinate system and add it again.").ConfigureAwait(false);
-                        return null;
-                    }
-
-                    // ADR-009 condition 1: the dimensions a file declares, bounded before it joins the mosaic.
-                    if (CoverageBounds.Refusal(Path.GetFileName(file.Name), reader.Info,
-                            context.RequestServices.GetRequiredService<HostSettings>()) is { } tooLarge)
-                    {
-                        await Refuse(context, 400, tooLarge).ConfigureAwait(false);
                         return null;
                     }
 
@@ -728,6 +727,13 @@ internal static partial class CoverageAdminEndpoints
                 string path = file.Path;
                 kept.Add(path);
 
+                // ADR-009 condition 1: opened in the import reader's process first, and bounded there.
+                if (await OpenedApartAsync(context, path, Path.GetFileName(file.Name), cancellation).ConfigureAwait(false) is { } apart)
+                {
+                    await Refuse(context, 400, apart).ConfigureAwait(false);
+                    return;
+                }
+
                 CoverageInfo read;
 
                 try
@@ -752,14 +758,6 @@ internal static partial class CoverageAdminEndpoints
                     await Refuse(context, 400,
                         $"{Path.GetFileName(file.Name)} carries no EPSG code in its GeoKey directory, so this server cannot "
                         + "say what its coordinates mean. Save it with its coordinate system and upload it again.").ConfigureAwait(false);
-                    return;
-                }
-
-                // ADR-009 condition 1: the dimensions a file declares, bounded before anything is catalogued.
-                if (CoverageBounds.Refusal(Path.GetFileName(file.Name), read,
-                        context.RequestServices.GetRequiredService<HostSettings>()) is { } tooLarge)
-                {
-                    await Refuse(context, 400, tooLarge).ConfigureAwait(false);
                     return;
                 }
 
@@ -1318,6 +1316,14 @@ internal static partial class CoverageAdminEndpoints
             return;
         }
 
+        // ADR-009 condition 1: opened in the import reader's process first, and bounded there. The path is the
+        // registrant's own, so it is named as they gave it.
+        if (await OpenedApartAsync(context, request.Path, Path.GetFileName(request.Path), cancellation).ConfigureAwait(false) is { } apart)
+        {
+            await Refuse(context, 400, apart).ConfigureAwait(false);
+            return;
+        }
+
         CoverageInfo info;
 
         try
@@ -1345,14 +1351,6 @@ internal static partial class CoverageAdminEndpoints
                 + "be drawn beside anything else.")
                 .ConfigureAwait(false);
 
-            return;
-        }
-
-        // ADR-009 condition 1: the dimensions the file declares, bounded before anything is catalogued.
-        if (CoverageBounds.Refusal(Path.GetFileName(request.Path), info,
-                context.RequestServices.GetRequiredService<HostSettings>()) is { } tooLarge)
-        {
-            await Refuse(context, 400, tooLarge).ConfigureAwait(false);
             return;
         }
 

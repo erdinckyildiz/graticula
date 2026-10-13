@@ -49,4 +49,13 @@
     <PackageReference Include="MaxRev.Gdal.LinuxRuntime.Minimal" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      ADR-009 condition 1: a GeoTIFF the server is about to catalogue is opened here first, by the reader the server
+      reads it with, so that a file which kills that parser kills this process rather than the serving one. The
+      adapter is referenced, not its library: BitMiracle.LibTiff stays Graticula.Raster.Tiff's (NativeDependencyTests).
+    -->
+    <ProjectReference Include="..\Graticula.Raster.Tiff\Graticula.Raster.Tiff.csproj" />
+  </ItemGroup>
+
 </Project>

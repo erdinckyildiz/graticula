@@ -6,6 +6,8 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Linq;
+using Graticula.Coverages;
+using Graticula.Raster.Tiff;
 using MaxRev.Gdal.Core;
 using OSGeo.OGR;
 using OSGeo.OSR;
@@ -223,9 +225,16 @@ internal static class Program
                 request.TryGetProperty("variable", out JsonElement variable) ? variable.GetString() : null,
                 request.TryGetProperty("name", out JsonElement named) ? named.GetString() : null),
 
+            // <b>ADR-009 condition 1: a GeoTIFF opened here first, by the parser the server reads it with.</b> Not
+            // GDAL: a file GDAL reads cleanly can still be one the server's own parser dies on, and that parser is
+            // the one whose failure would be the serving process's.
+            "tiff" => Tiff(Text(request, "path"),
+                request.TryGetProperty("maximumSide", out JsonElement side) ? side.GetInt32() : int.MaxValue,
+                request.TryGetProperty("maximumPixels", out JsonElement pixels) ? pixels.GetInt64() : long.MaxValue),
+
             _ => throw new ArgumentException(
                 $"'{operation}' is not an operation. This reader answers 'ping', 'layers', "
-                + "'convert', 'features', 'fixture', 'export', 'tabular' and 'raster'."),
+                + "'convert', 'features', 'fixture', 'export', 'tabular', 'raster' and 'tiff'."),
         };
     }
 
@@ -1337,6 +1346,61 @@ internal static class Program
         string? code = reference.GetAuthorityCode(null);
 
         return int.TryParse(code, CultureInfo.InvariantCulture, out int parsed) ? parsed : null;
+    }
+
+    /// <summary>
+    /// Opens a GeoTIFF the server is about to catalogue, and decodes a block at each end of it — ADR-009 condition 1.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Opened and decoded, not only opened.</b> Opening reads the tags and allocates nothing from them; the
+    /// allocation a file can force is a block's, at the first read, and a block is as large as the tags say. A file
+    /// of 310 bytes declaring 23,000 × 23,000 samples in one Deflate strip passes every bound on its dimensions and
+    /// makes each read allocate 2,117 MB — measured, <c>ATiffIsOpenedApartFirstTests</c>. Here that is a refused
+    /// allocation against this process's heap ceiling; in the server it would be every tile request.
+    /// </para>
+    /// <para>
+    /// <b>The bound on the dimensions is checked before anything is decoded</b>, because a file past it is refused
+    /// whatever its blocks hold and decoding it would spend the ceiling on an answer that is already known.
+    /// </para>
+    /// <para>
+    /// <b>A file the parser refuses is answered as refused, with the parser's sentence</b>, and the host lets its own
+    /// open say it again in the words each route already uses. Anything else that goes wrong — an exception that is
+    /// not the parser's refusal, an allocation the ceiling stops, a process that dies — is the case this exists for.
+    /// </para>
+    /// </remarks>
+    private static object Tiff(string path, int maximumSide, long maximumPixels)
+    {
+        ICoverageReader reader;
+
+        try
+        {
+            reader = new TiffCoverageReaderFactory().OpenAsync(path, System.Threading.CancellationToken.None)
+                .GetAwaiter().GetResult();
+        }
+        catch (InvalidDataException refused)
+        {
+            return new { ok = false, refused = true, error = refused.Message };
+        }
+
+        using (reader)
+        {
+            CoverageInfo info = reader.Info;
+
+            if (info.Width > maximumSide || info.Height > maximumSide || (long)info.Width * info.Height > maximumPixels)
+            {
+                return new { ok = true, width = info.Width, height = info.Height, decoded = false };
+            }
+
+            int across = Math.Min(256, info.Width);
+            int down = Math.Min(256, info.Height);
+
+            reader.ReadAsync(0, 0, 0, across, down, System.Threading.CancellationToken.None).GetAwaiter().GetResult();
+            reader.ReadAsync(0, info.Width - across, info.Height - down, across, down, System.Threading.CancellationToken.None)
+                .GetAwaiter().GetResult();
+
+            return new { ok = true, width = info.Width, height = info.Height, decoded = true };
+        }
     }
 
     private static string Text(JsonElement request, string name) =>

@@ -172,9 +172,10 @@ internal sealed class GeodatabaseReader
             // they had assembled it themselves. And it offered a zipped shapefile as unaffected,
             // when D-113 routed shapefiles through this same class. D-235.
             throw new InvalidOperationException(
-                $"The import reader is not installed at '{_executable}'. A File Geodatabase and a "
-                + "zipped shapefile both need it; a GeoJSON FeatureCollection does not, and is "
-                + "unaffected. Neither it nor the portable "
+                $"The import reader is not installed at '{_executable}'. A File Geodatabase, a "
+                + "zipped shapefile, a GeoPackage, KML and every image registered or uploaded need it "
+                + "(ADR-009 condition 1 opens a GeoTIFF there first); a GeoJSON FeatureCollection does "
+                + "not, and is unaffected. Neither it nor the portable "
                 + $"'{Path.GetFileName(SiblingProcess.Portable(_executable))}' beside it is "
                 + "there, so this deployment did not ship the reader at all.");
         }

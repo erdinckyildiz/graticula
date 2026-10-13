@@ -172,6 +172,9 @@ public sealed class GeodatabaseReaderTests
 
                 // `raster` joined on 2026-10-03: imagery in other formats written as GeoTIFF (ADR-157).
                 "raster",
+
+                // `tiff` joined on 2026-10-13: a GeoTIFF opened here before the server opens it (ADR-009 condition 1).
+                "tiff",
             },
             named);
 

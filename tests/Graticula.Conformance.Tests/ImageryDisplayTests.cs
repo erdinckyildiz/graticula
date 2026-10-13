@@ -29,7 +29,7 @@ public sealed class ImageryDisplayTests : ArcGisClient
     /// <summary>A float elevation model as the smallest GeoTIFF this server opens.</summary>
     private static byte[] Elevation() => Elevation(Side);
 
-    private static byte[] Elevation(int side, double west = 30.0, double pixel = 0, int srid = 4326, double north = 41.0, int bands = 1, int declared = 0)
+    private static byte[] Elevation(int side, double west = 30.0, double pixel = 0, int srid = 4326, double north = 41.0, int bands = 1, int declared = 0, ushort compression = 1)
     {
         using MemoryStream file = new();
         using BinaryWriter w = new(file);
@@ -60,7 +60,7 @@ public sealed class ImageryDisplayTests : ArcGisClient
         [
             declared > 0 ? ((ushort)256, (ushort)4, 1, declared) : ((ushort)256, (ushort)3, 1, side),
             declared > 0 ? ((ushort)257, (ushort)4, 1, declared) : ((ushort)257, (ushort)3, 1, side),
-            (258, 3, 1, 32), (259, 3, 1, 1), (262, 3, 1, 1), (273, 4, 1, imageAt),
+            (258, 3, 1, 32), (259, 3, 1, compression), (262, 3, 1, 1), (273, 4, 1, imageAt),
             (277, 3, 1, bands),
             declared > 0 ? ((ushort)278, (ushort)4, 1, declared) : ((ushort)278, (ushort)3, 1, side),
             (279, 4, 1, image.Length), (284, 3, 1, 1), (339, 3, 1, 3),
@@ -511,6 +511,46 @@ public sealed class ImageryDisplayTests : ArcGisClient
             Assert.True(refused == HttpStatusCode.BadRequest, $"A file declaring 2,000,000 pixels a side answered {(int)refused}: {why}");
             Assert.Contains("bomb.tif", why, StringComparison.Ordinal);
             Assert.Contains("2,000,000", why, StringComparison.Ordinal);
+            Assert.Contains("\"error\"", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
+                $"/rest/services/hosted/{name}/ImageServer?f=json")).Body), StringComparison.Ordinal);
+        }
+        finally
+        {
+            await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
+        }
+    }
+
+    /// <summary>
+    /// ADR-009 condition 1, the isolation half: a file inside every bound on its dimensions whose first read would
+    /// allocate two gigabytes is refused at the door, by the import reader's process, with nothing published.
+    /// </summary>
+    /// <remarks>
+    /// <b>23,000 pixels a side in one Deflate strip</b>, from a file of a few hundred bytes. The bound passes it, and
+    /// so does opening it, which reads tags; the parser allocates the strip whole at the first read, and here that read
+    /// happens in the reader's process, against its heap ceiling. <c>ATiffIsOpenedApartFirstTests</c> measured the
+    /// allocation at 2,117 MB in a process without one.
+    /// </remarks>
+    [Fact]
+    public async Task A_file_whose_first_read_would_take_two_gigabytes_is_refused_by_the_reader_and_nothing_is_published()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        string name = $"zz_strip_{Guid.NewGuid():N}"[..17];
+
+        using MultipartFormDataContent form = new();
+        form.Add(new ByteArrayContent(Elevation(8, declared: 23_000, compression: 8)), "file", "strip.tif");
+        form.Add(new StringContent(name), "name");
+
+        (HttpStatusCode refused, byte[] body) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", form);
+        string why = Encoding.UTF8.GetString(body);
+
+        try
+        {
+            Assert.True(refused == HttpStatusCode.BadRequest, $"A 2 GB strip answered {(int)refused}: {why}");
+            Assert.Contains("strip.tif", why, StringComparison.Ordinal);
+            Assert.Contains("process of its own", why, StringComparison.Ordinal);
             Assert.Contains("\"error\"", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
                 $"/rest/services/hosted/{name}/ImageServer?f=json")).Body), StringComparison.Ordinal);
         }

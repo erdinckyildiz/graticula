@@ -345,6 +345,29 @@ overviews), [ADR-010](ADR-010-caching.md) (proxied ranges are cacheable),
 1. **Bomb checks run at registration, in an isolated process, before anything is
    catalogued.** This is the security condition and it is not optional.
 
+   **DISCHARGED 2026-10-13 — the isolation half, the same day as the bomb half below.** Every
+   GeoTIFF that comes in — registered in place, uploaded as an image service, added to one later,
+   or written by GDAL from another format on its way in — is opened first in the import reader's
+   process (`CoverageAdminEndpoints.OpenedApartAsync`, the reader's `tiff` operation), **by the
+   parser this server reads it with** rather than by GDAL, because a file GDAL reads cleanly can
+   still be one LibTiff dies on. There the tags are read, the bound on the dimensions is applied,
+   and a block at each end is decoded; only a file that survives is opened here. A parser fault,
+   a refused allocation or a dead child is refused `400` with nothing catalogued; the parser's own
+   refusal is left to the open that follows, which repeats it in the words each door already uses.
+   A deployment without the reader is refused rather than waved through. **Why decoding and not
+   only opening, measured:** opening allocates nothing from the tags, and a **310-byte** GeoTIFF
+   declaring 23,000 × 23,000 samples in one Deflate strip — inside every bound — made one
+   256 × 256 read allocate **2,117 MB** in a process without a ceiling. In the reader's process it
+   is an `OutOfMemoryException` against the heap ceiling; the same tags in strips of 16 rows decode
+   in the same child (`ATiffIsOpenedApartFirstTests`, against the real child). Uncompressed is not
+   the bomb — the parser chops a single uncompressed strip itself, 3 MB — which the first draft of
+   that test assumed otherwise and the child disproved. **The control, on the local fixture:** with
+   the upload door's call switched off, uploading that file timed out at 30 s and **the server's
+   peak working set reached 14.6 GB**; with it on, `400` in a second and a peak of 141 MB
+   (`ImageryDisplayTests`). **What stays in this process is recorded rather than implied**: every
+   serving read and ADR-148's background pyramid build — [D-295](../architecture-debt.md), with
+   v1-scope §3b's reason and the trigger that brings it back. *Was:*
+
    **NOT MET, established 2026-09-09 by reading the path rather than by assuming it, and
    deliberately not marked.** Three separate facts, and only the first is in this
    condition's favour.
@@ -395,8 +418,8 @@ overviews), [ADR-010](ADR-010-caching.md) (proxied ranges are cacheable),
    centimetres is fifteen million pixels across. A file over the bound is refused `400`, named as
    its sender named it, with the two settings to raise. `CoverageBoundsTests` holds the arithmetic
    and `ImageryDisplayTests` uploads a few-kilobyte TIFF declaring two million pixels a side and
-   finds it refused with nothing published. **Still open**: the parser runs in the serving
-   process — ADR-037 §5's child process is the shape, and it is the larger half.
+   finds it refused with nothing published. **Left open that morning, and closed the same day** (above): the
+   parser ran in the serving process, and ADR-037 §5's child process was the shape.
 2. **A-032 must be measured** before proxying is committed to at scale. If
    imagery traffic dwarfs tile traffic, the default flips.
    ***(Deferred 2026-09-09 with the decision it is a condition on.)***
