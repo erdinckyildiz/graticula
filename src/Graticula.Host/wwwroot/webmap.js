@@ -989,6 +989,11 @@ async function wmLoadLayer(layer) {
     wmMap.addLayer(run.ol);
     wmApply(layer, index);
     run.status = "ok";
+    // Its service's credits in the map's own attribution, as ArcGIS's Map Viewer shows an item's — they were read only
+    // when the map was printed (ux review, 2026-10-13). Escaped: OpenLayers draws an attribution as HTML.
+    const credit = run.info && run.info.copyrightText;
+    const source = typeof run.ol.getSource === "function" ? run.ol.getSource() : null;
+    if (credit && source && typeof source.setAttributions === "function") source.setAttributions(wmEscape(credit));
     // A layer with time, added to a map that had none, brings the time slider (ADR-132).
     if (run.info && run.info.timeInfo) wmDrawTime();
     // ADR-154: a classified image's legend is its classes, read once from the service (ux review 9).

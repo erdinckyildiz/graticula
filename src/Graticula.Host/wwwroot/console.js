@@ -7150,14 +7150,16 @@ function idleItem(i) {
 
 function describedAs(item) {
   const edit = item.manages === false ? "" : `<button type="button" class="tiny ghost"
-    data-describe="${h(item.name)}">${item.description ? "Edit" : "Add a description"}</button>`;
+    data-describe="${h(item.name)}">${item.description || item.credits || (item.tags || []).length
+      ? "Edit details" : "Add description, credits and tags"}</button>`;
 
   // ADR-111: the words it is found by, under what it is.
   const tags = (item.tags || []).length
     ? `<p class="tagline">${item.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : "";
 
   // Its credits, which every map that draws it shows in its attribution (copyrightText, Portal's Credits).
-  const credits = item.credits ? `<p class="hint">Credits: ${h(item.credits)}</p>` : "";
+  const credits = item.credits
+    ? `<p class="hint credits" title="${h(item.credits)}"><span class="key">Credits</span> ${h(item.credits)}</p>` : "";
 
   return item.description
     ? `<p class="lede">${h(item.description)}</p>${credits}${tags}${edit}`
@@ -7177,14 +7179,17 @@ function editDescription(qualified) {
   box.innerHTML = `<label class="field" style="display:block">Description
       <textarea id="describeText" rows="4" maxlength="4000" style="width:100%">${h(item?.description || "")}</textarea>
     </label>
-    <label class="field" style="display:block;margin-top:var(--gap-2)">Credits — shown in the attribution of every map that draws it
+    <label class="field" style="display:block;margin-top:var(--gap-2)">Credits (attribution)
       <input type="text" id="describeCredits" maxlength="1000" style="width:100%" value="${h(item?.credits || "")}"
-        placeholder="e.g. © OpenStreetMap contributors">
+        placeholder="e.g. © OpenStreetMap contributors" aria-describedby="describeCreditsHint">
     </label>
-    <label class="field" style="display:block;margin-top:var(--gap-2)">Tags — separated by commas
+    <span class="hint" id="describeCreditsHint">Shown in the map's attribution wherever this is drawn, and sent to ArcGIS
+      clients as its copyright text.</span>
+    <label class="field" style="display:block;margin-top:var(--gap-2)">Tags
       <input type="text" id="describeTags" style="width:100%" value="${h((item?.tags || []).join(", "))}"
-        placeholder="e.g. transport, Ankara, 2026">
+        placeholder="e.g. transport, Ankara, 2026" aria-describedby="describeTagsHint">
     </label>
+    <span class="hint" id="describeTagsHint">Separate with commas.</span>
     <div class="row" style="gap:var(--gap-2);margin-top:var(--gap-2)">
       <button type="button" class="primary" data-describe-save="${h(qualified)}">Save</button>
       <button type="button" class="ghost" data-describe-cancel="${h(qualified)}">Cancel</button>
@@ -7193,10 +7198,24 @@ function editDescription(qualified) {
   $("describeText").focus();
 }
 
+/** Whether a save of the description, credits and tags is under way — so a second click sends nothing. */
+let describeSaving = false;
+
+/** Redraws the description and puts focus back on its button, which the redraw replaced. */
+function redrawDescription(item) {
+  $("serviceDescription").innerHTML = describedAs(item);
+  document.querySelector("#serviceDescription [data-describe]")?.focus();
+}
+
 /** Stores the description typed in, and redraws the paragraph. */
 async function saveDescription(qualified) {
+  // Held by a flag rather than by disabling Save, which would drop keyboard focus.
+  if (describeSaving) return;
+  describeSaving = true;
   const { folder, name } = splitService(qualified);
   const text = ($("describeText")?.value || "").trim();
+  // A copy: serviceItem is updated in place below, before the two are compared.
+  const before = serviceItem && serviceItem.name === qualified ? { ...serviceItem } : {};
 
   try {
     await api(`/admin/services/${encodeURIComponent(name)}/description`
@@ -7228,10 +7247,21 @@ async function saveDescription(qualified) {
       serviceItem.credits = credits;
       serviceItem.tags = saved?.tags || tags;
     }
-    $("serviceDescription").innerHTML = describedAs(serviceItem || { name: qualified, description: text });
-    toast(text ? "Description saved." : "Description removed.", true);
+    redrawDescription(serviceItem || { name: qualified, description: text, credits });
+
+    // Says what changed: "Description removed." followed adding credits to a service with no description (ux review).
+    const changed = [
+      ["Description", before.description || "", text],
+      ["Credits", before.credits || "", credits],
+      ["Tags", (before.tags || []).join(","), (saved?.tags || tags).join(",")],
+    ].filter(([, was, now]) => was !== now);
+    toast(changed.length === 0 ? "Nothing changed."
+      : changed.length === 1 ? `${changed[0][0]} ${changed[0][2] ? "saved" : "removed"}.`
+      : `${changed.map(c => c[0]).join(", ").replace(/, ([^,]*)$/, " and $1")} saved.`, true);
   } catch (e) {
     toast(e.message || String(e));
+  } finally {
+    describeSaving = false;
   }
 }
 
@@ -25400,7 +25430,7 @@ async function handleClick(event) {
   if (t.dataset?.describe) { editDescription(t.dataset.describe); return; }
   if (t.dataset?.describeSave) { await saveDescription(t.dataset.describeSave); return; }
   if (t.dataset?.describeCancel) {
-    $("serviceDescription").innerHTML = describedAs(serviceItem || { name: t.dataset.describeCancel });
+    redrawDescription(serviceItem || { name: t.dataset.describeCancel });
     return;
   }
 

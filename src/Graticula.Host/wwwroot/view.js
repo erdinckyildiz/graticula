@@ -283,16 +283,23 @@ function labelOf(feature) {
 function tileGround(service, index) {
   const pen = GROUND_PENS[index % GROUND_PENS.length];
 
+  const at = `${location.origin}/rest/services/${service.split("/").map(encodeURIComponent).join("/")}/VectorTileServer`;
+  const source = new ol.source.VectorTile({
+    format: new ol.format.MVT(),
+    url: `${at}/tile/{z}/{y}/{x}.pbf`,
+    attributions: `${service} — imported data, attribution is the operator's`,
+    maxZoom: 22,
+  });
+
+  // The service's own credits once its document says them, in place of the generic line (ux review, 2026-10-13).
+  fetch(`${at}?f=json`, { headers: { Accept: "application/json" } })
+    .then(response => response.json())
+    .then(doc => { if (doc && doc.copyrightText) source.setAttributions(escape(doc.copyrightText)); })
+    .catch(() => { /* the generic line stands */ });
+
   return new ol.layer.VectorTile({
     declutter: true,
-    source: new ol.source.VectorTile({
-      format: new ol.format.MVT(),
-      url: `${location.origin}/rest/services/`
-        + `${service.split("/").map(encodeURIComponent).join("/")}`
-        + "/VectorTileServer/tile/{z}/{y}/{x}.pbf",
-      attributions: `${service} — imported data, attribution is the operator's`,
-      maxZoom: 22,
-    }),
+    source,
     style: (feature, resolution) => {
       const kind = feature.getGeometry().getType();
 

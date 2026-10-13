@@ -156,9 +156,14 @@ public sealed class ContentListTests : ConsoleTest
             && w.Contains("/description", StringComparison.Ordinal));
         Assert.Contains(writes, w => w.StartsWith("PUT ", StringComparison.Ordinal)
             && w.Contains("/credits", StringComparison.Ordinal));
-        Assert.Contains("Credits: © ContentListTests",
+        Assert.Contains("Credits © ContentListTests",
             await Browser.EvaluateAsync<string>("document.getElementById('serviceDescription').textContent") ?? "",
             StringComparison.Ordinal);
+
+        // The redraw replaced the button that had focus; focus is put back on its successor (ux review, 2026-10-13).
+        await WaitForAsync(
+            "document.activeElement && document.activeElement.matches('#serviceDescription [data-describe]')",
+            "After Save focus fell to the page instead of the Edit details button.");
 
         NothingWentWrong(await PageErrorsAsync());
     }
